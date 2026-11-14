@@ -263,13 +263,25 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
             }
         }
         DropdownMenu(menu, { menu = false }) {
+            val palette = headerPanelPalette(Jarvis.colors.dark, Jarvis.colors.neutral)
             actions.filterNot { it.primary }.forEach { action ->
+                val panelSelected = action.pressed && action.id != "mute"
                 DropdownMenuItem(
-                    text = { Text(action.label + (action.count?.let { " · $it" } ?: "")) },
+                    text = { Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(action.label)
+                        action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it) }
+                    } },
                     leadingIcon = { LucideGlyph(action.icon, size = 18.dp) },
                     trailingIcon = if (action.pressed && action.id != "mute") ({ LucideGlyph(Lucide.Check, size = 16.dp) }) else null,
                     onClick = { menu = false; action.onClick() },
-                    modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                        .background(if (panelSelected) palette.background else Color.Transparent, CircleShape)
+                        .semantics { contentDescription = action.name; selected = action.pressed },
+                    colors = MenuDefaults.itemColors(
+                        textColor = if (panelSelected) palette.foreground else Jarvis.colors.fgMuted,
+                        leadingIconColor = if (panelSelected) palette.foreground else Jarvis.colors.fgMuted,
+                        trailingIconColor = palette.foreground,
+                    ),
                 )
             }
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -292,22 +304,41 @@ private fun toneColor(tone: ConnectionTone): Color = when (tone) {
 @Composable
 private fun HeaderButton(action: HeaderAction, showLabel: Boolean) {
     val colors = Jarvis.colors
-    val tint = if (action.pressed) colors.fg else colors.fgMuted
+    val palette = headerPanelPalette(colors.dark, colors.neutral)
+    val panelSelected = action.pressed && action.id != "mute"
+    val tint = if (panelSelected) palette.foreground else if (action.pressed) colors.fg else colors.fgMuted
+    val background = if (panelSelected) palette.background else if (action.pressed) colors.surface2 else Color.Transparent
     val badge: @Composable BoxScope.() -> Unit = {
-        action.count?.let { Badge(containerColor = if (action.primary && action.id == "board") MaterialTheme.colorScheme.primary else colors.accent2, contentColor = Color.White) { Text(it) } }
+        action.count?.let { HeaderBadge(it) }
     }
     if (showLabel) {
         TextButton(onClick = action.onClick, modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },
-            colors = ButtonDefaults.textButtonColors(contentColor = tint, containerColor = if (action.pressed) colors.surface2 else Color.Transparent)) {
+            colors = ButtonDefaults.textButtonColors(contentColor = tint, containerColor = background)) {
             LucideGlyph(action.icon, size = 18.dp)
             Spacer(Modifier.width(6.dp))
             Text(action.label)
-            action.count?.let { Spacer(Modifier.width(6.dp)); Badge(containerColor = if (action.id == "board") MaterialTheme.colorScheme.primary else colors.accent2, contentColor = Color.White) { Text(it) } }
+            action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it) }
         }
     } else {
         IconButton(onClick = action.onClick, modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },
-            colors = IconButtonDefaults.iconButtonColors(containerColor = if (action.pressed) colors.surface2 else Color.Transparent)) {
+            colors = IconButtonDefaults.iconButtonColors(containerColor = background)) {
             BadgedBox(badge = badge) { LucideGlyph(action.icon, size = 20.dp, tint = tint) }
         }
     }
+}
+
+/** Same AA accent pairs as the web header, independent of Material's filled-button primary. */
+internal data class HeaderPanelPalette(val foreground: Color, val background: Color)
+internal fun headerPanelPalette(dark: Boolean, neutral: Boolean = false) = if (neutral) {
+    if (dark) HeaderPanelPalette(Color(0xFFFAFAFA), Color(0xFF404040))
+    else HeaderPanelPalette(Color(0xFF171717), Color(0xFFD4D4D4))
+} else if (dark)
+    HeaderPanelPalette(Color(0xFFC7D2FE), Color(0xFF312E81))
+else HeaderPanelPalette(Color(0xFF4338CA), Color(0xFFE0E7FF))
+
+@Composable
+private fun HeaderBadge(count: String) {
+    val dark = Jarvis.colors.dark
+    Badge(containerColor = if (Jarvis.colors.neutral) MaterialTheme.colorScheme.primary else if (dark) Color(0xFF818CF8) else Color(0xFF4F46E5),
+        contentColor = if (Jarvis.colors.neutral) MaterialTheme.colorScheme.onPrimary else if (dark) Color(0xFF0B0B14) else Color.White) { Text(count) }
 }

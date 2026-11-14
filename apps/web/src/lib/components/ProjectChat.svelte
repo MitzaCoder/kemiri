@@ -809,11 +809,11 @@
 {#snippet headerButton(action: HeaderAction)}
 	{@const labelled = headerActionShowsLabel(headerRowLayout, action)}
 	{@const badgeClass =
-		'grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold text-white'}
+		'header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold'}
 	<Button
 		variant="ghost"
 		size={labelled ? 'sm' : 'icon-sm'}
-		class={`aria-pressed:bg-muted aria-pressed:text-foreground ${labelled ? 'shrink-0' : 'relative shrink-0'}`}
+		class={`${action.kind === 'tab' ? 'header-panel-action' : 'aria-pressed:bg-muted aria-pressed:text-foreground'} ${labelled ? 'shrink-0' : 'relative shrink-0'}`}
 		href={action.href}
 		onclick={action.onclick}
 		aria-label={action.name}
@@ -824,7 +824,6 @@
 		{#if action.count !== undefined}
 			<span
 				class={labelled ? `h-4 ${badgeClass}` : `absolute -top-0.5 -right-0.5 ${badgeClass}`}
-				style:background={action.tone === 'primary' ? 'var(--primary)' : 'var(--accent-2)'}
 			>
 				{action.count}
 			</span>
@@ -837,18 +836,17 @@
 	<Button
 		variant="ghost"
 		size="sm"
-		class="h-8 w-full justify-start gap-2 px-2 font-normal aria-pressed:bg-muted aria-pressed:text-foreground"
+		class={`h-8 w-full justify-start gap-2 px-2 font-normal ${action.kind === 'tab' ? 'header-panel-action' : 'aria-pressed:bg-muted aria-pressed:text-foreground'}`}
 		href={action.href}
 		onclick={() => pickHeaderAction(action)}
 		aria-label={action.name}
 		aria-pressed={action.pressed}
 	>
-		<action.icon class="size-4 shrink-0 text-(--chat-fg-subtle)" />
+		<action.icon class="size-4 shrink-0" />
 		<span class="min-w-0 flex-1 truncate text-left">{action.menuLabel ?? action.label ?? action.name}</span>
 		{#if action.count !== undefined}
 			<span
-				class="grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold text-white"
-				style:background={action.tone === 'primary' ? 'var(--primary)' : 'var(--accent-2)'}
+				class="header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold"
 			>
 				{action.count}
 			</span>
@@ -1181,5 +1179,33 @@
 	.thread-icon {
 		color: var(--primary);
 		background: color-mix(in oklab, var(--primary) 12%, transparent);
+	}
+
+	/* Scoped to panel actions: utility toggles retain their own pressed state. */
+	:global(.header-panel-action) {
+		color: var(--chat-fg-muted);
+		border-radius: 999px;
+	}
+	:global(.header-panel-action[aria-pressed='true']) {
+		color: light-dark(#4338ca, #c7d2fe);
+		background: light-dark(#e0e7ff, #312e81);
+	}
+	:global(.header-panel-action[aria-pressed='true']:hover) {
+		background: light-dark(#c7d2fe, #3730a3);
+	}
+	:global(.header-panel-badge) {
+		color: light-dark(#ffffff, #0b0b14);
+		background: light-dark(#4f46e5, #818cf8);
+	}
+	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']) {
+		color: light-dark(#171717, #fafafa);
+		background: light-dark(#d4d4d4, #404040);
+	}
+	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']:hover) {
+		background: light-dark(#bfbfbf, #525252);
+	}
+	:global([data-theme='neutral'] .header-panel-badge) {
+		color: var(--primary-foreground);
+		background: var(--primary);
 	}
 </style>

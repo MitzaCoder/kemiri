@@ -1,5 +1,16 @@
 # Continue
 
+## T200: selected header panels
+
+Web and Android share accent-tinted selected pills with accent text/icons;
+other panels are muted. Overflow rows match; hover/focus and badges stay distinct.
+Neutral stays achromatic. Selected contrast is 6.41:1 light / 7.66:1 dark;
+badge pairs exceed 6.29:1. Proof index mwgofbln-cfe79334f0 links 49 screenshots
+and two recordings. Portrait panels hide the header; desktop/tablet and phone
+landscape show selection. Checks: isolated root 2,702; web 1,149/check/build;
+typecheck; Android 970 JVM tests (two skipped), assemble/lint; public checks pass.
+Rebased onto 4fd3a901. Owned fixture/browser/emulator cleaned; no push/deploy.
+
 ## T199: subtasks are not discoveries
 
 Board saves/links keep parent only when foundWhile points at it; tool replies explain the drop.
