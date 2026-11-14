@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.navigation.Destination
+import io.github.mitzacoder.kemiri.navigation.NestedBackHandler
 import androidx.compose.ui.platform.LocalUriHandler
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -51,6 +52,15 @@ internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> 
     } } }
     LaunchedEffect(backend, connection.status) { if (connection.status == ConnectionStatus.Ready) session.perform { session.reload() } }
     val selected = servers.firstOrNull { it.id == selectedId }
+    fun backToServers() {
+        when {
+            selectedId != null -> selectedId = null
+            importing -> importing = false
+            commandForm -> { commandForm = false; adding = commandPreset != null; commandPreset = null }
+            adding -> adding = false
+        }
+    }
+    NestedBackHandler(selectedId != null || importing || commandForm || adding, depth = 1, parentLabel = if (commandForm && commandPreset != null) "MCP catalogue" else "MCP servers", onBack = ::backToServers)
     SettingsSectionPage("MCP servers", "Remote tools on this backend. Enable them separately in each project's MCP settings.", SettingsIcon.Server) {
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -61,7 +71,7 @@ internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> 
             TextButton(onClick = { importing = false }) { Text("All MCP servers") }
             McpImportForm(servers.flatMap { listOf(it.id, mcpImportServerId(it.name, emptyList())) }, busy, ::saveEntries)
         } else if (commandForm) {
-            TextButton(onClick = { commandForm = false; commandPreset = null }) { Text("All MCP servers") }
+            TextButton(onClick = ::backToServers) { Text(if (commandPreset != null) "Back to catalogue" else "All MCP servers") }
             McpCommandForm(busy, preset = commandPreset, submit = { saveEntries(listOf(it)) })
         } else if (adding) {
             TextButton(onClick = { adding = false }) { Text("All MCP servers") }
@@ -96,6 +106,7 @@ private fun McpAddForm(backend: BackendSession, presets: List<McpListResponsePre
     var url by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var chosen by remember { mutableStateOf<McpListResponsePresetsItem?>(null) }
+    NestedBackHandler(chosen != null, depth = 2, parentLabel = "MCP catalogue") { chosen = null }
     OutlinedTextField(search, { search = it }, label = { Text("Search presets") }, singleLine = true, modifier = Modifier.fillMaxWidth())
     val matches = presets.filter { "${it.name} ${it.description} ${it.group}".contains(search.trim(), ignoreCase = true) }
     if (chosen == null) matches.groupBy { it.group ?: "Docs" }.forEach { (group, entries) ->
@@ -223,6 +234,7 @@ private fun McpServerDetails(backend: BackendSession, server: McpOAuthCompleteRe
         }
         if (server.command == null) Text("Sign-in returns through ${session.redirectUri}. If this backend does not allow the configured web origin, its operator must configure that origin. After signing in, paste the callback URL here if the browser does not return to Kemiri.", style = MaterialTheme.typography.bodySmall)
     } }
+    NestedBackHandler(editingCommand, depth = 2, parentLabel = "server details") { editingCommand = false }
     if (editingCommand) McpCommandForm(busy, server) { entry -> change {
         client.request(McpAddRequest(serverId = server.id, name = entry.name, command = entry.command, env = entry.env, presetId = server.presetId, confirmed = true, replace = true)); editingCommand = false
     } }

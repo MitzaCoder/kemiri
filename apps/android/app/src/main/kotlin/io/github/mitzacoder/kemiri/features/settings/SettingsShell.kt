@@ -22,14 +22,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-
-/** Whether the settings show the list and a section side by side; a screen that opens another one replaces its own then. */
-internal val LocalSettingsSplit = androidx.compose.runtime.compositionLocalOf { false }
-
-/** Opening a settings screen: [open] pushes it, [replace] swaps the current one, [up] goes to the screen above (popping when that is where we came from). */
-class SettingsNavigator(val open: (io.github.mitzacoder.kemiri.navigation.Destination) -> Unit, val replace: (io.github.mitzacoder.kemiri.navigation.Destination) -> Unit, val up: (io.github.mitzacoder.kemiri.navigation.Destination) -> Unit) {
-    fun go(destination: io.github.mitzacoder.kemiri.navigation.Destination, split: Boolean) = if (split) replace(destination) else open(destination)
-}
+import io.github.mitzacoder.kemiri.navigation.LocalNestedBackTargets
 
 /** A section in the list, with the chip that says a state worth seeing before opening it. */
 internal data class SettingsNavItem(val section: SettingsSectionInfo, val chip: SectionChip? = null)
@@ -40,31 +33,29 @@ internal val SETTINGS_SPLIT_WIDTH = 600.dp
 /**
  * The frame of both settings areas. From [SETTINGS_SPLIT_WIDTH]: the section list on the left and the chosen section on
  * the right. Below that, one screen at a time: the list (a card per section with its hint and a chevron), then a section
- * with a back button naming the screen it returns to. [activeId] is null on the list itself; [defaultId] is the section a
- * wide screen shows then. [content] gets the section to draw.
+ * with a named Up control. [activeId] is null on the index at every width. [content] gets the section to draw.
  */
 @Composable
 internal fun SettingsShell(
     items: List<SettingsNavItem>,
     activeId: String?,
-    defaultId: String?,
     navLabel: String,
-    leaveLabel: String,
-    onLeave: () -> Unit,
     parentLabel: String?,
     onParent: (() -> Unit)?,
-    onSelect: (id: String, split: Boolean) -> Unit,
+    onSelect: (id: String) -> Unit,
     modifier: Modifier = Modifier,
     header: @Composable ColumnScope.() -> Unit,
     content: @Composable ColumnScope.(active: String) -> Unit,
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val split = maxWidth >= SETTINGS_SPLIT_WIDTH
-        androidx.compose.runtime.CompositionLocalProvider(LocalSettingsSplit provides split) {
-        val shown = activeId ?: defaultId.takeIf { split }
+        val shown = activeId
+        val nestedParent = LocalNestedBackTargets.current?.maxByOrNull { it.depth }
+        val up = nestedParent?.back ?: onParent
+        val upLabel = nestedParent?.parentLabel ?: parentLabel
         @Composable fun Header() = Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            TextButton(onClick = onLeave, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 44.dp)) {
-                LucideGlyph(Lucide.ArrowLeft, size = 16.dp); Spacer(Modifier.width(6.dp)); Text(leaveLabel)
+            if (up != null) TextButton(onClick = up, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 44.dp)) {
+                LucideGlyph(Lucide.ArrowLeft, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Up to ${upLabel ?: "settings"}")
             }
             header()
         }
@@ -72,36 +63,35 @@ internal fun SettingsShell(
             Header()
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                 SettingsNav(items, shown, navLabel, split = true, onSelect, Modifier.width(232.dp).verticalScroll(rememberScrollState()))
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) { shown?.let { content(it) } }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                    if (shown != null) content(shown) else {
+                        Text("Overview", style = MaterialTheme.typography.titleLarge)
+                        Text("Choose a section to view its settings.", Modifier.padding(vertical = 12.dp))
+                        items.forEach { item -> Text("${item.section.label} — ${item.section.hint}", Modifier.padding(vertical = 8.dp)) }
+                    }
+                }
             }
         } else Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (shown == null) {
-                Header()
-                SettingsNav(items, null, navLabel, split = false, onSelect)
-            } else {
-                if (onParent != null) TextButton(onClick = onParent, contentPadding = PaddingValues(horizontal = 12.dp), modifier = Modifier.heightIn(min = 44.dp)) {
-                    LucideGlyph(Lucide.ArrowLeft, size = 16.dp); Spacer(Modifier.width(6.dp)); Text(parentLabel ?: "Back")
-                }
-                content(shown)
-            }
-        }
+            Header()
+            if (shown == null) SettingsNav(items, null, navLabel, split = false, onSelect)
+            else content(shown)
         }
     }
 }
 
 /** The list of sections: beside the content (icon and name, the current one raised) or the whole screen (a card per section). */
 @Composable
-private fun SettingsNav(items: List<SettingsNavItem>, activeId: String?, label: String, split: Boolean, onSelect: (String, Boolean) -> Unit, modifier: Modifier = Modifier) {
+private fun SettingsNav(items: List<SettingsNavItem>, activeId: String?, label: String, split: Boolean, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().semantics { contentDescription = label }, verticalArrangement = Arrangement.spacedBy(if (split) 4.dp else 8.dp)) {
         items.forEach { item ->
             val active = item.section.id == activeId
             val colors = Jarvis.colors
             val shape = RoundedCornerShape(if (split) 12.dp else 14.dp)
             Surface(
-                onClick = { onSelect(item.section.id, split) }, shape = shape,
+                onClick = { onSelect(item.section.id) }, shape = shape,
                 color = when { active -> colors.surface2; split -> androidx.compose.ui.graphics.Color.Transparent; else -> cardColor(colors) },
                 border = if (!split) BorderStroke(1.dp, colors.border) else if (active) BorderStroke(1.dp, colors.borderStrong) else null,
                 shadowElevation = if (split) 0.dp else 1.dp,

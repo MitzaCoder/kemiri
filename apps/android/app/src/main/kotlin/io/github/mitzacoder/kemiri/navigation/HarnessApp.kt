@@ -1,6 +1,6 @@
 package io.github.mitzacoder.kemiri.navigation
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,6 +39,7 @@ import io.github.mitzacoder.kemiri.features.terminal.TerminalScreen
 import io.github.mitzacoder.kemiri.features.usage.UsageScreen
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,8 +50,15 @@ fun HarnessApp(
     pendingLink: PendingAppLink? = null,
     onLinkHandled: () -> Unit = {},
 ) {
-    var stack by rememberSaveable { mutableStateOf(listOf(wireJson.encodeToString(Destination.serializer(), Destination.Home))) }
-    val current = remember(stack) { wireJson.decodeFromString(Destination.serializer(), stack.last()) }
+    var savedBackStack by rememberSaveable { mutableStateOf(wireJson.encodeToString(BackStack.serializer(), BackStack())) }
+    fun readBackStack() = wireJson.decodeFromString(BackStack.serializer(), savedBackStack)
+    fun updateBackStack(update: (BackStack) -> BackStack) {
+        savedBackStack = wireJson.encodeToString(BackStack.serializer(), update(readBackStack()))
+    }
+    val backStack = remember(savedBackStack) { readBackStack() }
+    val stack = backStack.entries
+    val current = backStack.current
+    val nestedBackTargets = remember { mutableStateListOf<NestedBackTarget>() }
     val scope = rememberCoroutineScope()
     val screenState = rememberSaveableStateHolder()
     // Panel content moves between a Dialog and the tablet Row. An explicit registry key
@@ -66,42 +74,47 @@ fun HarnessApp(
     // The ID a link named that no backend here has (web: the "Unknown backend" page), shown atop the drawer until it
     // closes, the user dismisses it or goes somewhere.
     var unknownBackend by remember { mutableStateOf<String?>(null) }
-    fun pop() { if (stack.size > 1) stack = stack.dropLast(1) }
+    fun pop() { updateBackStack { it.back() } }
+    fun closeDrawer() { scope.launch { drawer.close() } }
+    fun resolvedBack(): (() -> Unit)? = resolveBackTarget(
+        if (drawer.isOpen) ::closeDrawer else null,
+        nestedBackTargets,
+        if (readBackStack().canGoBack) ::pop else null,
+    )
     val navigate: (Destination) -> Unit = { next ->
-        val encoded = wireJson.encodeToString(Destination.serializer(), next)
-        if (stack.last() != encoded) {
-            // Panels are a presentation of their chat, not another nested chat/navigation stack.
-            val base = if (current is Destination.Panel && next is Destination.Panel) stack.dropLast(1) else stack
-            stack = (base + encoded).takeLast(30)
+        updateBackStack { previous ->
+            if (previous.current is Destination.Panel && next is Destination.Panel) previous.replaceSibling(next)
+            else previous.push(next)
         }
         unknownBackend = null
         scope.launch { drawer.close() }
     }
-    // Settings screens swap themselves on a wide screen (list and section share it) and go "up" on a phone, popping when the
-    // screen above is where we came from.
-    val replaceTop: (Destination) -> Unit = { next ->
-        val encoded = wireJson.encodeToString(Destination.serializer(), next)
-        if (stack.last() != encoded) stack = (if (stack.size > 1) stack.dropLast(1) else stack) + encoded
-        unknownBackend = null
-    }
-    val goUp: (Destination) -> Unit = { target ->
-        val encoded = wireJson.encodeToString(Destination.serializer(), target)
-        if (stack.size > 1 && stack[stack.lastIndex - 1] == encoded) pop() else replaceTop(target)
-    }
-    val settingsNavigator = SettingsNavigator(navigate, replaceTop, goUp)
+    val settingsNavigator = SettingsNavigator(
+        navigate,
+        { next -> updateBackStack { it.replaceSibling(next) } },
+        { parent -> updateBackStack { it.up(parent) } },
+        { updateBackStack { it.close() } },
+    )
     io.github.mitzacoder.kemiri.features.chat.ShareConversationDialog(repository, navigate)
     LaunchedEffect(connectPayload) { if (connectPayload != null) navigate(Destination.Settings(GeneralPage(GeneralSection.Backends))) }
-    HandleAppLink(pendingLink, loaded, sessions.map { it.config }, navigate, onUnknownBackend = { id ->
+    HandleAppLink(pendingLink, loaded, sessions.map { it.config }, navigate, openSettingsLink = { destination ->
+        updateBackStack { settingsLinkStack(destination) }
+    }, onUnknownBackend = { id ->
         // A phone's panel or a task sheet would cover the drawer: back to their chat first.
-        val uncovered = stack.dropLastWhile { wireJson.decodeFromString(Destination.serializer(), it).let { open -> open is Destination.Panel || open is Destination.Task } }
-        if (uncovered.isNotEmpty()) stack = uncovered
+        updateBackStack { previous ->
+            var uncovered = previous
+            while (uncovered.canGoBack && (uncovered.current is Destination.Panel || uncovered.current is Destination.Task)) uncovered = uncovered.back()
+            uncovered
+        }
         unknownBackend = id
         if (wideNav) sidebarCollapsed = false else scope.launch { drawer.open() }
     }, onLinkHandled)
     LaunchedEffect(drawer.targetValue) { if (drawer.targetValue == DrawerValue.Closed && !wideNav) unknownBackend = null }
-    BackHandler(drawer.isOpen || stack.size > 1) {
-        if (drawer.isOpen) scope.launch { drawer.close() } else pop()
+    PredictiveBackHandler(enabled = drawer.isOpen || nestedBackTargets.isNotEmpty() || backStack.canGoBack) { progress ->
+        // Resolve once at gesture start; the app bar uses the same resolver.
+        commitCompletedBack(resolvedBack()) { progress.collect { } }
     }
+
     val chat = current.chatRoute()
     ReportScreenPresence(chat?.backendKey, chat?.projectId)
     val backend = sessions.firstOrNull { it.config.key == chat?.backendKey }
@@ -110,7 +123,7 @@ fun HarnessApp(
     val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight) else null
     // A task sheet opened from a panel keeps the panel under it, so closing the sheet returns to the panel as it was.
     val panelUnderTask = (current as? Destination.Task)?.let { task ->
-        panelBehindTask(stack.dropLast(1).map { wireJson.decodeFromString(Destination.serializer(), it) }, task)
+        panelBehindTask(stack.dropLast(1), task)
     }
     val panel = current as? Destination.Panel ?: panelUnderTask
     val latestPanelContext by rememberUpdatedState(context)
@@ -134,6 +147,7 @@ fun HarnessApp(
     }
     var htmlArtifactViewport by remember(current) { mutableStateOf(false) }
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
+    CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val wide = maxWidth >= 1024.dp
     SideEffect { wideNav = wide }
@@ -172,7 +186,8 @@ fun HarnessApp(
                             },
                             actions = {
                                 val chatRoute = current is Destination.Chat || current is Destination.Panel || current is Destination.Task
-                                if (stack.size > 1 && !chatRoute) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = ::pop)
+                                if (resolvedBack() != null && !chatRoute) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
+                                if (current.isSettings()) JarvisIconButton(Lucide.X, "Close settings", onClick = settingsNavigator.close)
                                 if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop)
                             },
                         )
@@ -185,7 +200,7 @@ fun HarnessApp(
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier)
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, navigate, connectPayload, onConnectHandled, modifier)
-                            is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, modifier) else MissingBackend(modifier)
+                            is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, modifier, current.unavailableSection) else MissingBackend(modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }) else MissingBackend(modifier)
                             is Destination.Terminal -> sessions.firstOrNull { it.config.key == current.backendKey }
@@ -220,6 +235,7 @@ fun HarnessApp(
         }
         } }
         }
+    }
     }
     }
 }

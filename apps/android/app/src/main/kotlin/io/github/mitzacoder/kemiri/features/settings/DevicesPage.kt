@@ -138,7 +138,7 @@ internal fun BackendDeviceAccess(repository: HarnessRepository, backend: Backend
     auth.notice?.let { ToneBanner(BannerTone.Warning) { Text(if (auth.comparisonCode != null) "$it · code ${auth.comparisonCode}" else it, style = MaterialTheme.typography.bodySmall) } }
     SettingsGroup(title = "Device access") {
         LinkRow("Devices", "Pair, rename or sign out devices.", onClick = {
-            navigator.go(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, devices = true)), false)
+            navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, devices = true)))
         })
     }
 }

@@ -95,12 +95,13 @@ fun appLinkFromUri(value: String, backends: List<BackendConfig>): AppLink? {
     val rest = parts.drop(4)
     var settings = false
     var settingsSection: ProjectSection? = null
+    var unavailableSection: String? = null
     var threadId: String? = null
     var workerId: String? = null
     when {
         rest.isEmpty() -> Unit
         rest == listOf("settings") -> settings = true
-        rest.size == 2 && rest[0] == "settings" -> { settings = true; settingsSection = projectSectionFor(rest[1]) ?: return null }
+        rest.size == 2 && rest[0] == "settings" -> { settings = true; settingsSection = projectSectionFor(rest[1]); if (settingsSection == null) unavailableSection = rest[1] }
         rest.size == 2 && rest[0] == "workers" -> workerId = rest[1]
         rest.size == 2 && rest[0] == "threads" -> threadId = rest[1]
         rest.size == 4 && rest[0] == "threads" && rest[2] == "workers" -> { threadId = rest[1]; workerId = rest[3] }
@@ -122,7 +123,7 @@ fun appLinkFromUri(value: String, backends: List<BackendConfig>): AppLink? {
     // A schedule notification links to `.../settings#schedule-<id>`: the Scheduled tasks section, scrolled to that schedule.
     val scheduleId = fragment.removePrefix("schedule-").takeIf { fragment.startsWith("schedule-") && fragment.length > 9 }
     return AppLink.Open(when {
-        settings -> listOf(chat, Destination.ProjectSettings(chat, settingsSection ?: ProjectSection.Schedules.takeIf { scheduleId != null }, scheduleId))
+        settings -> listOf(chat, Destination.ProjectSettings(chat, settingsSection ?: ProjectSection.Schedules.takeIf { scheduleId != null }, scheduleId, unavailableSection))
         task != null && workerId == null -> listOf(chat, Destination.Task(chat, task))
         highlight != null -> listOf(chat.copy(highlight = highlight))
         else -> listOf(chat)
@@ -131,7 +132,7 @@ fun appLinkFromUri(value: String, backends: List<BackendConfig>): AppLink? {
 
 /**
  * The web's General settings URLs after `/settings`: nothing is the list, then `appearance | notifications | archived |
- * backends`, and `backends/<id>` with `/accounts`. An unknown section opens the list; a backend this device does not have is
+ * backends`, and `backends/<id>` with `/accounts`. An unknown section opens an explanation; a backend this device does not have is
  * [AppLink.UnknownBackend].
  */
 fun generalSettingsLink(parts: List<String>, backends: List<BackendConfig>): AppLink {
@@ -139,9 +140,9 @@ fun generalSettingsLink(parts: List<String>, backends: List<BackendConfig>): App
     val backendSegment = parts.getOrNull(1)
     if (section == GeneralSection.Backends && backendSegment != null) {
         val backend = resolveBackend(backendSegment, backends) ?: return AppLink.UnknownBackend(backendSegment)
-        return AppLink.Open(listOf(Destination.Settings(GeneralPage(section, backend.key, accounts = parts.getOrNull(2) == "accounts", mcp = parts.getOrNull(2) == "mcp"))))
+        return AppLink.Open(listOf(Destination.Settings(GeneralPage(section, backend.key, accounts = parts.getOrNull(2) == "accounts", devices = parts.getOrNull(2) == "devices", mcp = parts.getOrNull(2) == "mcp", unavailableSection = parts.getOrNull(2)?.takeUnless { it in listOf("accounts", "devices", "mcp") }))))
     }
-    return AppLink.Open(listOf(Destination.Settings(GeneralPage(section))))
+    return AppLink.Open(listOf(Destination.Settings(GeneralPage(section, unavailableSection = parts.firstOrNull()?.takeIf { section == null }))))
 }
 
 /**

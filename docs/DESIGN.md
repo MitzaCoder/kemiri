@@ -4298,6 +4298,17 @@ is shown only with a known earlier app entry, including installed windows. Unkno
 Web stores a visit ID, validated local origin, owned entry index and prior visit entries in per-entry PageState;
 SvelteKit `persistState` preserves them on reload. Only view identifiers enter state, never form values/secrets.
 
+Android keeps a saveable, width-independent `BackStack` with a settings-visit origin.
+Back (app bar, system and completed predictive gestures) pops real history; cancelled
+gestures change nothing. Named Up pops to a parent within this visit, or replaces the
+current entry if absent. Close × discards the visit to its exact origin, falling back
+to main project chat or Home when no origin remains. Sibling sections replace; children
+always push, including backend Accounts, Devices and MCP. Wide indexes show an overview,
+not a default section. Cross-tree settings links keep the same visit. External settings
+links build Chat/Home underneath. Transient MCP sub-views register depth-ordered Back/Up
+targets shared with the app bar; dialogs and the drawer take precedence. Secret fields
+remain transient and are never serialized. Predictive Back deliberately has no animation.
+
 ### Layout
 
 `SettingsShell` frames both areas: history Back when available, clickable parent breadcrumbs (phone: named Up),
@@ -4365,8 +4376,8 @@ and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps t
 `/settings/<section>`, `/settings/backends/<id>[/accounts]`, `/notifications`, `.../settings[/<section>]`,
 `.../settings#schedule-<id>`) to them; the manifest opens `/settings*` and `/notifications` like `/b/`.
 
-- Frame: `SettingsShell` (phone: list, then one section; named Up is separate from history Back and Close; from 600dp:
-  list and section side by side). Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
+- Frame: `SettingsShell` (phone: list, then one section; from 600dp: list and section/overview side by side).
+  Named Up is visible at every width; app-bar Back and Close remain distinct. Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
   `RowControl.Wide/Auto/Full/Inline`, `LearnMore`, `SaveStatusLine` + `SaveState`, `StatusChip`, `AutoInput`, `SettingsSwitch`),
   `Combobox.kt` (a bottom sheet with search above 8 options, grouped, with `ThinkingSelect`). Pure logic with JVM tests:
   `SettingsSections.kt`, `ComboboxLogic.kt`, `SaveState.kt`, `WorkerModels.kt`, `SchedulePresentation.kt`

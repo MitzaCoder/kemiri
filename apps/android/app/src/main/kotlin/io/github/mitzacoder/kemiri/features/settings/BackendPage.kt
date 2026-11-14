@@ -27,7 +27,6 @@ internal fun BackendPage(repository: HarnessRepository, backend: BackendSession,
     var confirmingRemove by rememberSaveable { mutableStateOf(false) }
     val providers = catalog?.providers.orEmpty()
     val ready = providers.count { it.configured }
-    val split = LocalSettingsSplit.current
     SettingsSectionPage(backend.config.name, backend.config.url, SettingsIcon.Server, actions = { ConnectionBadge(connection.status, connection.attempt) }) {
         backendError?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
         connection.error?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
@@ -59,13 +58,13 @@ internal fun BackendPage(repository: HarnessRepository, backend: BackendSession,
             SettingsRow("Address", hint = "Where the app connects.", control = RowControl.Auto) { CopyableValue(backend.config.url, "Copy the address") }
             if (connection.supports("credentials") || connection.supports("logins")) LinkRow(
                 "Accounts and API keys", "Sign in to a subscription or paste a key.",
-                onClick = { navigator.go(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, accounts = true)), split) },
+                onClick = { navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, accounts = true))) },
                 chip = if (providers.isNotEmpty()) ({ StatusChip("$ready of ${providers.size} ready", if (ready > 0) ChipTone.Ok else ChipTone.Warn) }) else null,
             )
         }
         if (connection.supports(MCP_FEATURE)) SettingsGroup {
             LinkRow("MCP servers", "Remote tools, sign-in and tool policies.",
-                onClick = { navigator.go(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, mcp = true)), split) })
+                onClick = { navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, mcp = true))) })
         }
         if (connection.supports("memory-maintenance")) MemoryMaintenanceGroup(backend)
         SettingsGroup(title = "Remove", danger = true) {

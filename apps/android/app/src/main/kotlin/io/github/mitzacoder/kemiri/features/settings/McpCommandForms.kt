@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.McpOAuthCompleteResponseServer
+import io.github.mitzacoder.kemiri.navigation.NestedBackHandler
 
 /** Secrets are transient remember state, never rememberSaveable. */
 @Composable
@@ -63,6 +64,9 @@ internal fun McpImportForm(taken: List<String>, busy: Boolean, submit: (List<Mcp
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirming by remember { mutableStateOf(false) }
+    NestedBackHandler(entries.isNotEmpty() && !confirming, depth = 2, parentLabel = "Import MCP servers") {
+        entries = emptyList(); selected = emptySet(); text = ""; error = null
+    }
     SettingsGroup(title = "Import MCP servers") { GroupRow {
         Text("Review before saving. Nothing runs or saves yet. Name clashes are renamed; uncheck to skip.")
         if (entries.isEmpty()) {

@@ -1,5 +1,20 @@
 # Continue
 
+## T194 / T196: Android settings navigation
+
+Android now shares a saveable visit-aware reducer for Back, named Up and Close ×.
+Sibling sections replace; children push at every width; wide indexes keep their
+index destination and show an overview. Backend MCP detours retain the exact
+origin (including background/task/panel routes). MCP sub-views use transient,
+depth-ordered Back/Up targets; dialogs keep native precedence and secrets are not
+saved. App-bar and predictive/system Back share a resolver; cancellation is inert.
+External settings links build Chat/Home underneath; unknown/unavailable sections
+explain and offer recovery. JVM journeys cover A1–A6 and W1–W4. Runtime screenshots
+and recordings belong to the separate T194 proof worker; no emulator used here.
+Checks: 987 JVM tests (two skipped, zero failures/errors), assembleDebug and
+lintDebug pass; lint stays at zero errors, 49 warnings and four hints. Root
+`bun run typecheck` passes. Gradle daemons stopped; no deployment or push.
+
 ## T194 / T195: web settings navigation
 
 Settings now share a framework-free visit policy and a SvelteKit adapter: real Back,

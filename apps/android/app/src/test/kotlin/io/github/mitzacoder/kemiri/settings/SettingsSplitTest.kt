@@ -38,13 +38,6 @@ class SettingsSplitTest {
         assertEquals(GeneralPage(GeneralSection.Backends, "b"), generalParent(GeneralPage(GeneralSection.Backends, "b", accounts = true)))
     }
 
-    @Test fun aWideScreenShowsTheFirstSectionOfferedWhenNoneIsChosen() {
-        val offered = listOf(ProjectSection.General, ProjectSection.Workers)
-        assertEquals(ProjectSection.General, wideSection(null, offered))
-        assertEquals(ProjectSection.Workers, wideSection(ProjectSection.Workers, offered))
-        assertEquals(ProjectSection.General, wideSection(ProjectSection.Storage, offered))
-    }
-
     @Test fun listChipsFlagTheStatesWorthSeeing() {
         assertEquals(SectionChip("2 offline", ChipTone.Warn), generalChips(2, true, 0)[GeneralSection.Backends])
         assertNull(generalChips(0, true, 0)[GeneralSection.Backends])

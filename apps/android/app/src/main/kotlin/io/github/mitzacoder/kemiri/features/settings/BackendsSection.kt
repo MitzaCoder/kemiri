@@ -26,7 +26,6 @@ import kotlinx.coroutines.launch
 internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsNavigator, connectPayload: String?, onConnectHandled: () -> Unit) {
     val settings by repository.settings.collectAsStateWithLifecycle()
     val sessions by repository.sessions.collectAsStateWithLifecycle()
-    val split = LocalSettingsSplit.current
     val scope = rememberCoroutineScope()
     val local = LocalContext.current
     val preferences = remember { local.getSharedPreferences("harness-discovery", android.content.Context.MODE_PRIVATE) }
@@ -61,7 +60,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                 val connection by backend.client.state.collectAsStateWithLifecycle()
                 LinkRow(
                     backend.config.name, backend.config.url,
-                    onClick = { navigator.go(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key)), split) },
+                    onClick = { navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key))) },
                     leading = { BackendTile() },
                     chip = { ConnectionBadge(connection.status, connection.attempt) },
                 )

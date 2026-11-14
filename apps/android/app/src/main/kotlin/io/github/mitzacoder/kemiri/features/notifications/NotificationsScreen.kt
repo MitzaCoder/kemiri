@@ -61,12 +61,15 @@ fun ReportScreenPresence(backendKey: String?, projectId: String?) {
 
 /** Open a project link or a notification's target once the backends have loaded; [onUnknownBackend] gets the ID of a backend not here. */
 @Composable
-fun HandleAppLink(link: PendingAppLink?, loaded: Boolean, backends: List<BackendConfig>, navigate: (Destination) -> Unit, onUnknownBackend: (String) -> Unit, onHandled: () -> Unit) {
+fun HandleAppLink(link: PendingAppLink?, loaded: Boolean, backends: List<BackendConfig>, navigate: (Destination) -> Unit, openSettingsLink: (Destination) -> Unit, onUnknownBackend: (String) -> Unit, onHandled: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(link, loaded) {
         if (link == null || !loaded) return@LaunchedEffect
         when (val resolved = link.resolve(backends)) {
-            is AppLink.Open -> resolved.destinations.forEach(navigate)
+            is AppLink.Open -> {
+                val settings = resolved.destinations.lastOrNull()?.takeIf { it is Destination.Settings || it is Destination.ProjectSettings }
+                if (settings != null) openSettingsLink(settings) else resolved.destinations.forEach(navigate)
+            }
             is AppLink.UnknownBackend -> onUnknownBackend(resolved.backend)
             null -> Toast.makeText(context, "This link does not name a project.", Toast.LENGTH_LONG).show()
         }

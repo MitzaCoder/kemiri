@@ -14,7 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun McpProjectSection(backend: BackendSession, projectId: String) {
+internal fun McpProjectSection(backend: BackendSession, projectId: String, openBackendMcp: () -> Unit) {
     val connection by backend.client.state.collectAsStateWithLifecycle()
     if (!connection.supports(MCP_FEATURE)) return
     val servers by backend.mcp.servers.collectAsStateWithLifecycle()
@@ -42,7 +42,10 @@ internal fun McpProjectSection(backend: BackendSession, projectId: String) {
     SettingsSectionPage("MCP", "Choose remote tools for this project. Servers and roles start off; tool policies still apply.", SettingsIcon.Server) {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!loaded || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (loaded && servers.isEmpty()) SettingsGroup { GroupNote("No servers on this backend. Add one in Settings → Backends → MCP servers.") }
+        SettingsGroup {
+            LinkRow("Manage backend MCP servers", "Add servers, sign in and set tool policies.", onClick = openBackendMcp)
+            if (loaded && servers.isEmpty()) GroupNote("No servers on this backend yet.")
+        }
         servers.forEach { server ->
             val choice = choices.firstOrNull { it.serverId == server.id } ?: McpProjectGetResponseServersItem(serverId = server.id, enabled = false, roles = emptyList())
             fun replace(next: McpProjectGetResponseServersItem) = save(choices.filterNot { it.serverId == next.serverId } + next)

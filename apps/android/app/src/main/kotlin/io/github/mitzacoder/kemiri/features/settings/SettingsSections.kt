@@ -78,18 +78,16 @@ fun projectChips(coordinatorModelSet: Boolean): Map<ProjectSection, SectionChip>
 
 /** Where a General settings screen sits: a section (null is the list), a backend's own page, or its Accounts page. */
 @Serializable
-data class GeneralPage(val section: GeneralSection? = null, val backendKey: String? = null, val accounts: Boolean = false, val devices: Boolean = false, val mcp: Boolean = false)
+data class GeneralPage(val section: GeneralSection? = null, val backendKey: String? = null, val accounts: Boolean = false, val devices: Boolean = false, val mcp: Boolean = false, val unavailableSection: String? = null)
 
 /**
  * The screen one step up, for the back button: Accounts to its backend, a backend to the Backends list, a section to the
  * list of sections. Null on the list itself (web `settingsParentHref`).
  */
 fun generalParent(page: GeneralPage): GeneralPage? = when {
+    page.unavailableSection != null -> GeneralPage()
     page.section == null -> null
     page.backendKey != null && (page.accounts || page.devices || page.mcp) -> GeneralPage(GeneralSection.Backends, page.backendKey)
     page.backendKey != null -> GeneralPage(GeneralSection.Backends)
     else -> GeneralPage()
 }
-
-/** The section a project settings screen opens on a wide screen, where the list and a section share the screen: the first one offered. */
-fun <T : SettingsSectionInfo> wideSection(section: T?, offered: List<T>): T? = section?.takeIf { it in offered } ?: offered.firstOrNull()
