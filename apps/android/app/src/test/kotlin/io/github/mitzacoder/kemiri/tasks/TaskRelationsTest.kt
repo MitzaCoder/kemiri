@@ -9,6 +9,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRelationsTest {
+    @Test fun hidesDuplicateOriginsFromOldWireDataWithoutHidingOtherLinks() {
+        val parent = task("T1").copy(subtasks = listOf("T2"), ledTo = listOf("T2", "T3"), related = listOf("T2"))
+        assertEquals(listOf("subtasks", "ledTo", "related"), linkGroups(parent, emptyList()).map { it.kind })
+        assertEquals(listOf("T3"), linkGroups(parent, emptyList())[1].items.map { it.id })
+        assertEquals(listOf("parent"), linkGroups(task("T2").copy(parent = "T1", foundWhile = "T1"), emptyList()).map { it.kind })
+        assertEquals(listOf("parent", "foundWhile"), linkGroups(task("T2").copy(parent = "T1", foundWhile = "T3"), emptyList()).map { it.kind })
+    }
+
     @Test fun parsesNewAndOldMessagePrefixes() {
         assertEquals(TaskReference("T12", "hello", "F3"), parseTaskReference("[task T12, feedback F3] hello"))
         assertEquals(TaskReference("T12", "hello"), parseTaskReference("[task T12] hello"))

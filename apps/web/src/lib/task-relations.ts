@@ -66,8 +66,8 @@ export function linkGroups(
 	const ids: Record<LinkGroupKind, readonly string[]> = {
 		parent: task.parent == null ? [] : [task.parent],
 		subtasks: task.subtasks ?? [],
-		foundWhile: task.foundWhile == null ? [] : [task.foundWhile],
-		ledTo: task.ledTo ?? [],
+		foundWhile: task.foundWhile == null || task.foundWhile === task.parent ? [] : [task.foundWhile],
+		ledTo: (task.ledTo ?? []).filter((id) => !(task.subtasks ?? []).includes(id)),
 		blockedBy: task.blockedBy,
 		blocks: task.blocks ?? [],
 		related: task.related ?? [],

@@ -22,6 +22,13 @@ function project(): Project {
 }
 
 describe("workerInstructions", () => {
+	it("tells main and background threads that planned pieces get parent only", () => {
+		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
+			expect(text).toContain("planned piece of a bigger task gets `parent` only");
+			expect(text).toContain("unplanned task discovered while working on another");
+		}
+	});
+
 	it("steers amendments, queues only next tasks, and tells both coordinators to stay silent on repeats", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report.");

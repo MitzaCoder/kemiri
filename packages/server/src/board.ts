@@ -160,6 +160,7 @@ export function normalizeBoard<T extends BoardState>(state: T): T {
 		task.refs ??= [];
 		task.parent ??= null;
 		task.foundWhile ??= null;
+		if (task.parent !== null && task.foundWhile === task.parent) task.foundWhile = null;
 		task.related ??= [];
 		initializeTaskFreshness(state, task);
 	}
@@ -751,6 +752,8 @@ export function changeLink(
 			task[link] = null;
 		} else {
 			const target = need(to, "link", "to");
+			// Ignore a duplicate origin without replacing any other valid link.
+			if (link === "foundWhile" && target === task.parent) return { before, after: plain(task) };
 			checkLinks(state, task.id, { [link]: target });
 			const current = task[link] ?? null;
 			if (current !== null && current !== target) {
@@ -774,9 +777,17 @@ export function changeLink(
 			task.blockedBy = blockedBy;
 		}
 	}
+	if (task.parent != null && task.foundWhile === task.parent) task.foundWhile = null;
 	state.updatedAt = input.now;
 	if (before.blockedBy.some((id) => !task.blockedBy.includes(id))) noteTaskFact(state, task.id, { actor: "coordinator", kind: "blocker_resolved", reason: "blocker resolved", at: input.now });
 	return { before, after: plain(task) };
+}
+
+/** Explain canonicalization without claiming an ignored origin link was added. */
+function duplicateOriginNotice(change: TaskChange, requested?: string | null): string {
+	const origin = requested === undefined ? change.before?.foundWhile : requested;
+	return origin != null && origin === change.after.parent && change.after.foundWhile !== origin
+		? ` Dropped duplicate foundWhile ${origin}; kept parent only for that task.` : "";
 }
 
 function need<T>(value: T | undefined, action: string, field: string): T {
@@ -931,7 +942,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 		return map;
 	};
 	const children = reverse((task) => (task.parent == null ? [] : [task.parent]));
-	const found = reverse((task) => (task.foundWhile == null ? [] : [task.foundWhile]));
+	const found = reverse((task) => (task.foundWhile == null || task.foundWhile === task.parent ? [] : [task.foundWhile]));
 	const blocking = reverse((task) => task.blockedBy);
 	const byId = new Map(state.tasks.map((task) => [task.id, task]));
 	const all = state.tasks
@@ -949,7 +960,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],
 				parent: task.parent ?? null,
-				foundWhile: task.foundWhile ?? null,
+				foundWhile: task.foundWhile === task.parent ? null : task.foundWhile ?? null,
 				related: task.related ?? [],
 				subtasks,
 				ledTo: found.get(task.id) ?? [],
@@ -1060,7 +1071,11 @@ export function saveTask(
 		now: string;
 	},
 ): TaskChange {
-	const { task: fields, author, now } = input;
+	const { task: requested, author, now } = input;
+	const current = state.tasks.find((task) => task.id === input.taskId);
+	const parent = requested.parent === undefined ? current?.parent : requested.parent;
+	const foundWhile = requested.foundWhile === undefined ? current?.foundWhile : requested.foundWhile;
+	const fields = parent != null && foundWhile === parent ? { ...requested, foundWhile: null } : requested;
 	const blockedBy = unique(fields.blockedBy);
 	const previous = state.tasks.find((task) => task.id === input.taskId)?.waiting;
 	const note = fields.waitingFor?.trim() ?? previous?.note ?? "";
@@ -1933,7 +1948,7 @@ export class BoardService {
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],
 				parent: task.parent ?? null,
-				foundWhile: task.foundWhile ?? null,
+				foundWhile: task.foundWhile === task.parent ? null : task.foundWhile ?? null,
 				related: task.related ?? [],
 			})),
 		});
@@ -2971,6 +2986,7 @@ function createBoardExtension(service: BoardService): Extension {
 			"Every update names the row's revision from your last list, so you never overwrite a newer edit. The board is shared by every thread of the project: " +
 			"claim a task before you work on it, so no other thread takes it too, and release or hand it over when you stop. " +
 			"Tasks link to each other, each link shown from both sides: a subtask (`parent`, loose), the task a new one was found while working on (`foundWhile`), `related`, and `blockedBy`. " +
+			"A planned piece of a bigger task gets parent only. foundWhile is for unplanned tasks discovered while working on another task, never a duplicate of parent. " +
 			"The user's messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done.",
 		parameters: BoardToolParameters,
 		replay: "unsafe",
@@ -3017,7 +3033,7 @@ function createBoardExtension(service: BoardService): Extension {
 						);
 						const task = change.after;
 						service.noticeReview(change);
-						return toolText(`Added ${task.id} (r${task.revision}).`, { details: { taskId: task.id } });
+						return toolText(`Added ${task.id} (r${task.revision}).${duplicateOriginNotice(change, input.foundWhile)}`, { details: { taskId: task.id } });
 					}
 					case "update_task":
 					case "drop_task": {
@@ -3061,7 +3077,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const task = change.after;
 						service.noticeReview(change);
 						await service.noticeUnblocked(task, unblocked);
-						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).`, { details: { taskId: task.id } });
+						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).${duplicateOriginNotice(change, input.foundWhile)}`, { details: { taskId: task.id } });
 					}
 					case "ask": {
 						const question = await service.commitFor(
@@ -3162,7 +3178,8 @@ function createBoardExtension(service: BoardService): Extension {
 						);
 						const words = LINK_WORDS[link].out;
 						const target = input.to ?? (link === "parent" || link === "foundWhile" ? change.before?.[link] : undefined) ?? "";
-						return toolText(`${remove ? "Unlinked" : "Linked"}: ${id}${remove ? " was" : ""} ${words} ${target}.`, {
+						const ignored = !remove && link === "foundWhile" && target === change.after.parent;
+						return toolText(ignored ? `${id}: ignored foundWhile ${target}; kept parent only for that task.` : `${remove ? "Unlinked" : "Linked"}: ${id}${remove ? " was" : ""} ${words} ${target}.${remove ? "" : duplicateOriginNotice(change)}`, {
 							details: { taskId: change.after.id },
 						});
 					}

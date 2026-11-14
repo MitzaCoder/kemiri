@@ -12,8 +12,8 @@ fun linkGroups(task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTask
     val groups = listOf(
         Triple("parent", "Subtask of", listOfNotNull(task.parent)),
         Triple("subtasks", "Subtasks", task.subtasks.orEmpty()),
-        Triple("foundWhile", "Found while working on", listOfNotNull(task.foundWhile)),
-        Triple("ledTo", "Led to", task.ledTo.orEmpty()),
+        Triple("foundWhile", "Found while working on", listOfNotNull(task.foundWhile?.takeUnless { it == task.parent })),
+        Triple("ledTo", "Led to", task.ledTo.orEmpty().filterNot { it in task.subtasks.orEmpty() }),
         Triple("blockedBy", "Blocked by", task.blockedBy),
         Triple("blocks", "Blocks", task.blocks.orEmpty()),
         Triple("related", "Related to", task.related.orEmpty()),

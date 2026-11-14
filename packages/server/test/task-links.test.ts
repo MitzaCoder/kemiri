@@ -3,11 +3,13 @@
  * message about a task (in main and in a background thread) and a restart against a real server.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { JsonObject } from "@earendil-works/pi-durable";
 import type { Board, BoardFeedback, BoardTask, BoardTaskInput, ModelRef } from "@kemiri/protocol";
 import {
+	BoardDoc,
 	type BoardState,
 	type TaskHistoryState,
 	HARNESS_WRITER,
@@ -70,6 +72,39 @@ function link(state: BoardState, taskId: string, kind: Parameters<typeof changeL
 }
 
 describe("task links", () => {
+	it("keeps parent only on create, update and either link order, without losing other links", () => {
+		const state = boardOf("Big", "Other");
+		const created = saveTask(state, { task: input("Piece", {parent: "T1", foundWhile: "T1", related: ["T2"], blockedBy: ["T2"]}), author: "coordinator", now: T0 }).after;
+		expect(created).toMatchObject({parent: "T1", foundWhile: null, related: ["T2"], blockedBy: ["T2"]});
+		link(state, "T3", "foundWhile", "T1");
+		expect(task(state, "T3").foundWhile).toBeNull();
+		link(state, "T3", "foundWhile", "T2");
+		link(state, "T3", "foundWhile", "T1");
+		expect(task(state, "T3").foundWhile).toBe("T2");
+		link(state, "T3", "parent", undefined, true);
+		link(state, "T3", "parent", "T2");
+		expect(task(state, "T3").foundWhile).toBeNull();
+		saveTask(state, {taskId: "T3", expectedRevision: 1, task: input("Piece", {parent: "T1", foundWhile: "T1"}), author: "coordinator", now: T0});
+		expect(task(state, "T3")).toMatchObject({parent: "T1", foundWhile: null});
+		link(state, "T3", "foundWhile", "T2");
+		saveTask(state, {taskId: "T3", expectedRevision: 2, task: input("Piece", {parent: "T2"}), author: "coordinator", now: T0});
+		expect(task(state, "T3")).toMatchObject({parent: "T2", foundWhile: null});
+	});
+
+	it("migrates only same-target origins on load, idempotently, including archived tasks", () => {
+		const state = boardOf("Big", "Piece", "Discovery");
+		Object.assign(task(state, "T2"), {parent: "T1", foundWhile: "T1", related: ["T3"], blockedBy: ["T3"], archived: true});
+		Object.assign(task(state, "T3"), {parent: "T2", foundWhile: "T1"});
+		const before = structuredClone(state);
+		normalizeBoard(state);
+		expect(task(state, "T2")).toMatchObject({...before.tasks[1], foundWhile: null});
+		expect(task(state, "T3")).toEqual(before.tasks[2]);
+		const once = structuredClone(state);
+		normalizeBoard(state);
+		expect(state).toEqual(once);
+		expect(viewOf(state, true).tasks.find(t => t.id === "T1")?.ledTo).toEqual(["T3"]);
+	});
+
 	it("gives a task one parent and shows both sides, with progress", () => {
 		const state = boardOf("Big", "Piece a", "Piece b", "Piece c");
 		for (const id of ["T2", "T3", "T4"]) link(state, id, "parent", "T1");
@@ -592,4 +627,55 @@ describe("a user's message about a task", () => {
 		const refused = await client.request({ type: "conversation.submit", projectId, requestId: "x1", content: "Hello.", taskId: "T7" });
 		expect(refused).toMatchObject({ type: "error", error: { code: "unknown_task" } });
 	});
+});
+
+
+describe("duplicate origin tool replies", () => {
+	it("explains ignored foundWhile on add, update and link, and parent added later", async () => {
+		const {test, client, projectId} = await start();
+		await saveTaskVia(client, projectId, "Big");
+		const results: string[] = [];
+		const steps: JsonObject[] = [
+			{action: "add_task", title: "Piece", parent: "T1", foundWhile: "T1"},
+			{action: "update_task", id: "T2", expectedRevision: 1, foundWhile: "T1"},
+			{action: "link", id: "T2", link: "foundWhile", to: "T1"},
+			{action: "add_task", title: "Later piece", foundWhile: "T1"},
+			{action: "link", id: "T3", link: "parent", to: "T1"},
+		];
+		test.faux.setResponses(Array.from({length: 30}, () => (request: TranscriptContext) => {
+			const last = lastOf(request);
+			if (last.role === "toolResult") results.push(last.text);
+			const next = steps.shift();
+			return next === undefined ? fauxAssistantMessage("Filed.") : call("board", next);
+		}));
+		const view = new ViewClient(client); await view.start(projectId);
+		await client.request({type: "conversation.submit", projectId, requestId: "duplicate-links", content: "Plan the pieces."});
+		await until(() => results.length === 5);
+		for (const index of [0, 1, 2, 4]) expect(results[index]).toContain("parent only");
+		expect(results[2]).toContain("ignored foundWhile");
+		const board = await boardOfProject(client, projectId);
+		expect(board.tasks[0]?.subtasks).toEqual(["T2", "T3"]);
+		expect(board.tasks[0]?.ledTo).toEqual([]);
+	});
+});
+
+
+it("cleans legacy duplicate origins on a real board load and after restart", async () => {
+	const {test, client, projectId} = await start();
+	for (const title of ["Big", "Piece", "Discovery"]) await saveTaskVia(client, projectId, title);
+	const {runtime} = await test.server.manager.open(projectId);
+	await runtime.harness.commit(async tx => {
+		const doc = await tx.doc(BoardDoc, runtime.conversation.id);
+		Object.assign(doc.tasks[1]!, {parent: "T1", foundWhile: "T1", related: ["T3"], blockedBy: ["T3"]});
+		Object.assign(doc.tasks[2]!, {parent: "T2", foundWhile: "T1", related: ["T2"]});
+	}, BACKGROUND_CONTEXT);
+	for (const reloaded of [false, true]) {
+		if (reloaded) { client.close(); await test.restart(); }
+		const reader = reloaded ? await TestClient.open(test.server) : client;
+		if (reloaded) { clients.push(reader); await reader.hello(); }
+		const board = await boardOfProject(reader, projectId);
+		expect(board.tasks[1]).toMatchObject({parent: "T1", foundWhile: null, related: ["T3"], blockedBy: ["T3"]});
+		expect(board.tasks[2]).toMatchObject({parent: "T2", foundWhile: "T1", related: ["T2"]});
+		expect(board.tasks[0]?.ledTo).toEqual(["T3"]);
+	}
 });

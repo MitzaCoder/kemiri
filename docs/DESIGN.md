@@ -2875,8 +2875,12 @@ its own list, and a timeline; the description stays the original ask and the rep
     their progress (`subtaskCount`, "2/5 done"; dropped subtasks are left out of the total), but a parent can go to
     review or close with subtasks open, and subtasks stay their own cards. At most one parent; no cycles (also checked
     through any depth).
-  - `found while working on` / `led to` (`foundWhile`): the origin of a task discovered during work on another. At most
-    one; no cycles.
+  - `found while working on` / `led to` (`foundWhile`): the origin of an unplanned task discovered during work on
+    another. At most one; no cycles. A planned piece gets `parent` only (T199). If both point at the same task, keep
+    the parent: saves and parent links remove the duplicate origin, and an origin link to the existing parent is
+    ignored. Tool replies explain this. `normalizeBoard` cleans existing duplicates on load, including archived tasks,
+    without changing any other link; historical timeline facts stay intact. The board view and both clients also hide
+    duplicate origins in old wire data: no same-target Found while, and no subtask repeated under Led to.
   - `blocked by` / `blocks` (`blockedBy`): unchanged, presented with the others.
   - `related to` (`related`): a symmetric see-also, many. Stored on both tasks, so each side lists the other.
   - There is no "duplicate of".
@@ -2913,9 +2917,10 @@ its own list, and a timeline; the description stays the original ask and the rep
   `feedback` sets an entry (`id` of the task, `feedbackId`, `state`, `note`). `list` shows `↳T8`, `found while T4`,
   `led to T9`, `3 subtasks (2 done)`, `related T5`, `blocks T7` and `2 open feedback`; `show_task` adds the links with
   titles, the feedback entries (open first) and the latest 15 timeline entries.
-- **Coordinator prompt.** One passage in the tasks section: a "[task T12, feedback F3] " message is feedback, not for the
-  description; mark it handling when acting and addressed with evidence when done; a task found while working on another
-  always gets `foundWhile`; a planned piece of a bigger task gets `parent`; a see-also gets `related`.
+- **Coordinator prompt.** A "[task T12, feedback F3] " message is feedback, not for the description; mark it handling
+  when acting and addressed with evidence when done. Main and background-thread prompts both say: an unplanned task
+  discovered while working on another gets `foundWhile`; a planned piece of a bigger task gets `parent` only, never
+  the same-target `foundWhile`; a see-also gets `related`.
 - **Web.** Task sheet: a Related section grouped by kind (each link opens the task; closed and archived ones dimmed), the
   subtasks with status chips and a progress bar, a Feedback section (open first, state and note, Dismiss / Reopen), and
   a Timeline with kind filters. Rows, cards and the legacy board panel show a "↳ T8" chip on subtasks, a subtask count

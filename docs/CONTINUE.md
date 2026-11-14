@@ -1,5 +1,17 @@
 # Continue
 
+## T199: subtasks are not discoveries
+
+Board saves/links keep parent only when foundWhile points at it; tool replies explain the drop.
+Load normalization cleans legacy duplicates, preserving all other links and historical facts.
+Web/Android also filter old wire data; main/thread prompts reserve foundWhile for unplanned discoveries.
+Tests cover tool replies, link order, load/restart, preservation and both clients. Proof index
+mwgo7ysr-b054c83582: 12 synthetic screenshots and three recordings (Android v2 fixes theme captures).
+Checks pass: isolated root 2,704 tests; typecheck; web 1,146 tests/check/build; Android
+969 JVM tests (two skipped), assemble/lint (49 existing warnings); external-denylist check.
+Rebased onto the HTML-modal change; no settings/artifact-viewer files touched. Owned proof
+processes/emulator stopped; no real board/phone, deploy, push or main movement.
+
 ## T194: settings navigation (Back, Up, Close; D83/D84)
 
 Web (qwpxwoxq) and Android (quvsukzr) follow one contract, see DESIGN.md

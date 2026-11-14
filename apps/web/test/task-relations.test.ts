@@ -57,6 +57,13 @@ const TASKS = [
 ];
 
 describe("links", () => {
+	it("hides duplicate origins in old wire data, keeping every other link", () => {
+		const parent = task("T1", {subtasks: ["T2"], ledTo: ["T2", "T3"], related: ["T2"]});
+		expect(linkGroups(parent, []).map(g => [g.kind, g.items.map(i => i.id)])).toEqual([["subtasks", ["T2"]], ["ledTo", ["T3"]], ["related", ["T2"]]]);
+		expect(linkGroups(task("T2", {parent: "T1", foundWhile: "T1"}), []).map(g => g.kind)).toEqual(["parent"]);
+		expect(linkGroups(task("T2", {parent: "T1", foundWhile: "T3"}), []).map(g => g.kind)).toEqual(["parent", "foundWhile"]);
+	});
+
 	it("groups a task's links by kind, naming closed and archived targets", () => {
 		const groups = linkGroups(TASKS[0] as BoardTask, TASKS);
 		expect(groups.map((group) => [group.label, group.items.map((item) => item.id)])).toEqual([

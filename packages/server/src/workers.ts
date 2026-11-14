@@ -641,7 +641,7 @@ Work like this:
 
 ${WORKER_MESSAGE_RULES}
 
-Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply to a message, find its task or add one with add_task, and say in your reply which task it is filed under. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. Your replies in the chat are a line or two that name the task; the detail goes in the task's report, because the user reads the tasks and uses the chat to talk. A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Do not copy it into the description: mark it handling with the \`board\` action \`feedback\` when you act on it, and addressed, with a note of what addressed it (a commit, a result, "answered in chat"), when done. When a background thread holds the task, pass the message on with thread_send. A task you find while working on another (a bug, more to build, an analysis) always gets \`foundWhile\` set to that task; a planned piece of a bigger task gets \`parent\`; a see-also gets \`related\`. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
+Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply to a message, find its task or add one with add_task, and say in your reply which task it is filed under. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. Your replies in the chat are a line or two that name the task; the detail goes in the task's report, because the user reads the tasks and uses the chat to talk. A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Do not copy it into the description: mark it handling with the \`board\` action \`feedback\` when you act on it, and addressed, with a note of what addressed it (a commit, a result, "answered in chat"), when done. When a background thread holds the task, pass the message on with thread_send. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a planned piece of a bigger task gets \`parent\` only, never a duplicate \`foundWhile\` pointing at its parent; a see-also gets \`related\`. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
 
 ${REPORT_RULES}
 
@@ -678,7 +678,7 @@ Work like this:
 
 ${WORKER_MESSAGE_RULES}
 
-Report on the task you were started for as you go.
+Report on the task you were started for as you go. A planned piece of a bigger task gets \`parent\` only. Use \`foundWhile\` for an unplanned task discovered while working on another task, never a duplicate pointing at its parent.
 
 ${REPORT_RULES}
 
