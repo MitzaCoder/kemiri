@@ -1,5 +1,17 @@
 # Continue
 
+## T194: settings navigation (Back, Up, Close; D83/D84)
+
+Web (qwpxwoxq) and Android (quvsukzr) follow one contract, see DESIGN.md
+"Navigation contract"; the two notes below give platform details. Proof:
+before index mwgn8pil-5c6bbbe864, combined before/after HTML mwgocq8c-c95caa95e2,
+Android after mwgnt5jh-5a88826d30. Not proven at runtime: the Coordinator
+credential-repair detour (the faux provider shows no repair link; covered by
+replay tests). Checks on the stack: isolated root 2,711 tests; typecheck; web
+1,158 tests/check/build; Android 987 JVM tests (two skipped), assemble, lint
+(0 errors, 49 existing warnings); public checks. Proof scripts live outside the
+repo; no push or main movement.
+
 ## T194 / T196: Android settings navigation
 
 Android now shares a saveable visit-aware reducer for Back, named Up and Close ×.
