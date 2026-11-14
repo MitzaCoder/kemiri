@@ -5,7 +5,7 @@
 	import NotFoundNote from '#lib/components/settings/NotFoundNote.svelte';
 	import ProjectGeneralSection from '#lib/components/settings/ProjectGeneralSection.svelte';
 	import PromptCacheSection from '#lib/components/settings/PromptCacheSection.svelte';
-	import RedirectWhenWide from '#lib/components/settings/RedirectWhenWide.svelte';
+	import { settingsUp } from '#lib/settings-navigation.svelte.js';
 	import TicketsSection from '#lib/components/settings/TicketsSection.svelte';
 	import ProjectSkillsSection from '#lib/components/settings/ProjectSkillsSection.svelte';
 	import ProjectMcpSection from '#lib/components/settings/ProjectMcpSection.svelte';
@@ -37,11 +37,13 @@
 
 {#if backend !== undefined && project !== undefined}
 	{#if !known}
-		<RedirectWhenWide href={projectSettingsHref(backend.id, projectId, 'general')} />
+		<NotFoundNote title="Unknown project settings section">
+			This settings section does not exist. <a class="underline" href={projectSettingsHref(backend.id, projectId)} onclick={(event) => { event.preventDefault(); settingsUp(projectSettingsHref(backend.id, projectId)); }}>Choose a settings section</a>
+		</NotFoundNote>
 	{:else if !available}
 		<NotFoundNote title="Not available here">
 			{backend.name} does not offer this section.
-			<a class="underline" href={projectSettingsHref(backend.id, projectId)}>
+			<a class="underline" href={projectSettingsHref(backend.id, projectId)} onclick={(event) => { event.preventDefault(); settingsUp(projectSettingsHref(backend.id, projectId)); }}>
 				<ArrowLeftIcon class="inline size-3.5" aria-hidden="true" /> Settings
 			</a>
 		</NotFoundNote>

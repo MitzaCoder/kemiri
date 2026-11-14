@@ -68,7 +68,6 @@
 		{activeId}
 		navLabel="Project settings sections"
 		leaveHref={projectHref(backendId, projectId)}
-		leaveLabel="Back to chat"
 		parentHref={settingsParentHref(page.url.pathname)}
 		parentLabel="{project?.name ?? 'Project'} settings"
 	>

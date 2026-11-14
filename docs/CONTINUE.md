@@ -1,5 +1,20 @@
 # Continue
 
+## T194 / T195: web settings navigation
+
+Settings now share a framework-free visit policy and a SvelteKit adapter: real Back,
+structural Up (pop or replace), Close to exact origin, sibling replace/child push.
+The index stays an index on resize. Usage and MCP sub-views have shallow entries;
+only IDs/view names enter history, never editor secrets. Current SvelteKit needs
+`persistState: true` (including shallow goto) to keep PageState across reload, and
+an explicit current href to preserve fragments. Unknown sections explain recovery.
+Replay tests cover W1–W6, Usage, MCP, cold links, PWA and terminal; synthetic CDP
+sanity covers the main journeys, form-state hygiene and reload. Final checks: web
+1,158 tests / 80,380 assertions, check zero diagnostics, build; root typecheck.
+External-denylist/generic/Gitleaks checks pass. Synthetic before/after phone W1
+recordings and phone/desktop screenshots are attached to T195. No protocol,
+public push, bookmark movement or deployment changes.
+
 ## T191 / F69: large web HTML modal
 
 At ≥640 px the viewer is centred, 90dvh high and min(80vw, 100rem) wide,

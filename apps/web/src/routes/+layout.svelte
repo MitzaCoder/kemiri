@@ -2,6 +2,7 @@
 	import { clearPairFragment } from '#lib/pair-inbox.js';
 	import PairingApproval from '#lib/components/PairingApproval.svelte';
 	import { onMount } from 'svelte';
+	import { installSettingsNavigation } from '#lib/settings-navigation.svelte.js';
 	import { page } from '$app/state';
 	import { harness } from '#lib/harness.svelte.js';
 	import { reportInteraction, startInteractionReporting } from '#lib/interaction.js';
@@ -16,6 +17,7 @@
 	import '../app.css';
 
 	let { children }: LayoutProps = $props();
+	installSettingsNavigation();
 
 	// Read the browser's backend list and sidebar state before children render; connected in onMount.
 	clearPairFragment();

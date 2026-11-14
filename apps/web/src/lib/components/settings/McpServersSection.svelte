@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from '$app/state';
+  import { pushMcpView, replaceMcpView, popMcpView, mcpListUp } from '#lib/settings-navigation.svelte.js';
   import { MCP_PRESET_GROUPS, parseMcpImport, mcpImportId, type McpImportRow, type McpListResponse, type McpPolicy, type McpServer } from '@kemiri/protocol';
   import type { BackendConnection } from '#lib/harness.svelte.js';
   import { filterMcpTools, mcpServerId, mcpStatus } from '#lib/mcp.js';
@@ -24,8 +26,8 @@
   let busy = $state(false);
   let error = $state('');
   let notice = $state('');
-  let selectedId = $state<string | null>(null);
-  let adding = $state(false);
+  const selectedId = $derived(page.state.mcp?.selectedId ?? null);
+  const adding = $derived(page.state.mcp?.view === 'add' || (page.state.mcp?.view === 'command' && page.state.mcp.commandFrom === 'add'));
   let confirmingRemove = $state(false);
   let presetId = $state('');
   let presetSearch = $state('');
@@ -37,8 +39,8 @@
   let kind = $state('http');
   let command = $state(''); let args = $state('[]'); let cwd = $state(''); let env = $state('{}');
   let editing = $state<string | null>(null);
-  let confirmingCommand = $state(false);
-  let importText = $state(''); let importing = $state(false);
+  const confirmingCommand = $derived(page.state.mcp?.view === 'command');
+  let importText = $state(''); const importing = $derived(page.state.mcp?.view === 'import' || page.state.mcp?.view === 'import-review' || (page.state.mcp?.view === 'command' && page.state.mcp.commandFrom === 'import'));
   let review = $state<McpImportRow[]>([]); let checked = $state<string[]>([]);
   let pending = $state<McpImportRow[]>([]);
   let token = $state('');
@@ -46,6 +48,16 @@
   const selected = $derived(servers.find(server => server.id === selectedId));
   const tools = $derived(filterMcpTools(selected?.tools ?? [], filter));
   const supported = $derived(backend.supports('mcp-servers'));
+  $effect(() => {
+    const view = page.state.mcp;
+    // Reading the entry makes traversal between identical URLs observable.
+    void page.state.navigation?.index;
+    token = ''; env = '{}'; importText = '';
+    if (view?.view !== 'command') pending = [];
+    if (view?.view !== 'import-review' && !(view?.view === 'command' && view.commandFrom === 'import')) { review = []; checked = []; }
+    presetId = view?.presetId ?? '';
+    editing = view?.editing ?? null;
+  });
   $effect(() => {
     if (supported && backend.connection.status === 'ready') void load();
   });
@@ -76,7 +88,7 @@
     servers = servers.map(entry => entry.id === server.id ? server : entry);
   }
   function open(server: McpServer) {
-    selectedId = server.id; filter = ''; token = ''; error = ''; notice = ''; confirmingRemove = false;
+    pushMcpView({ selectedId: server.id }); filter = ''; token = ''; error = ''; notice = ''; confirmingRemove = false;
   }
   function choosePreset() {
     const preset = presets.find(preset => preset.id === presetId);
@@ -93,38 +105,38 @@
         const rows = parseMcpImport(JSON.stringify({ [name]: { command, args: JSON.parse(args), ...(cwd ? { cwd } : {}), env: JSON.parse(env) } }), servers.filter(s => s.id !== editing).map(s => s.id));
         if (rows[0]?.error) throw new Error(rows[0].error);
         if (chosenPreset?.envNames?.some(name => !rows[0]?.env?.[name]?.trim())) throw new Error('Enter the required environment secrets.');
-        pending = rows; confirmingCommand = true;
+        pending = rows; pushMcpView({ ...page.state.mcp, view: 'command', commandFrom: 'add' });
       } else void saveRows([{ name: name.trim(), serverId: mcpServerId(name, servers.map(s => s.id)), kind: 'http', target: url, url: url || presets.find(p => p.id === presetId)?.url, renamed: false }]);
     } catch (failure) { error = failure instanceof Error ? failure.message : 'Invalid command'; }
   }
   function reviewImport() {
     error = '';
-    try { review = parseMcpImport(importText, servers.flatMap(s => [s.id, mcpImportId(s.name, [])])); checked = review.filter(row => !row.error).map(row => row.serverId); importText = ''; }
+    try { review = parseMcpImport(importText, servers.flatMap(s => [s.id, mcpImportId(s.name, [])])); checked = review.filter(row => !row.error).map(row => row.serverId); importText = ''; pushMcpView({ ...page.state.mcp, view: 'import-review' }); }
     catch (failure) { error = failure instanceof Error ? failure.message : 'Invalid JSON'; }
   }
   function submitReview() {
     pending = review.filter(row => checked.includes(row.serverId) && !row.error);
-    if (pending.some(row => row.command)) confirmingCommand = true;
+    if (pending.some(row => row.command)) pushMcpView({ ...page.state.mcp, view: 'command', commandFrom: 'import' });
     else void saveRows(pending);
   }
   async function saveRows(rows: McpImportRow[]) {
     await run(async () => {
       for (const row of rows) {
         const response = await mcpRequest(backend, { type: 'mcp.add', serverId: editing ?? row.serverId, name: row.name,
-          ...(row.command ? { command: row.command, ...(editing && env === '{}' ? {} : { env: row.env }), confirmed: true, ...(!importing && presetId ? { presetId } : {}), ...(editing ? { replace: true } : {}) } : { url: row.url, ...(row.transport ? { transport: row.transport } : {}), ...(!importing && presetId ? { presetId } : {}) }) });
+          ...(row.command ? { command: row.command, ...(editing && Object.keys(row.env ?? {}).length === 0 ? {} : { env: row.env }), confirmed: true, ...(!importing && presetId ? { presetId } : {}), ...(editing ? { replace: true } : {}) } : { url: row.url, ...(row.transport ? { transport: row.transport } : {}), ...(!importing && presetId ? { presetId } : {}) }) });
         if (editing) replace(response.server); else servers = [...servers, response.server];
         if (row.token) await mcpRequest(backend, { type: 'mcp.token.set', serverId: response.server.id, token: row.token });
-        open(response.server);
+        replaceMcpView({ selectedId: response.server.id });
         review = review.filter(entry => entry.serverId !== row.serverId);
       }
-      adding = false; importing = false; confirmingCommand = false;
+
       pending = []; review = []; checked = []; env = '{}'; importText = '';
     });
   }
   function editCommand() {
     if (!selected?.command) return;
     editing = selected.id; presetId = selected.presetId ?? ''; name = selected.name; kind = 'command'; command = selected.command.command;
-    args = JSON.stringify(selected.command.args); cwd = selected.command.cwd ?? ''; env = '{}'; adding = true; confirmingCommand = false;
+    args = JSON.stringify(selected.command.args); cwd = selected.command.cwd ?? ''; env = '{}'; pushMcpView({ selectedId: selected.id, editing: selected.id, view: 'add' });
   }
   async function connect() {
     if (!selected || !token.trim()) return;
@@ -150,7 +162,7 @@
     const serverId = selected.id;
     await run(async () => {
       await mcpRequest(backend, { type: 'mcp.remove', serverId });
-      servers = servers.filter(server => server.id !== serverId); selectedId = null; confirmingRemove = false;
+      servers = servers.filter(server => server.id !== serverId); replaceMcpView({}); confirmingRemove = false;
       notice = 'Server and credentials removed from this backend and all project selections.';
     });
   }
@@ -168,7 +180,7 @@
     {#if error}<Banner tone="error">{error} <button class="underline" onclick={() => void load()} disabled={busy}>Reload servers</button></Banner>{/if}
     <p class="text-sm text-muted-foreground" role="status">{busy ? 'Working…' : notice}</p>
     {#if selected}
-      <Button variant="outline" class="self-start" disabled={busy} onclick={() => { selectedId = null; token = ''; }}>Back to servers</Button>
+      <Button variant="outline" class="self-start" disabled={busy} onclick={mcpListUp}>Up to MCP servers</Button>
       {#if selectedPreset}
         <div class="my-3 flex flex-col gap-2 text-sm">
           <p>{selectedPreset.description}</p>
@@ -224,7 +236,7 @@
         </SettingsRow>
       </SettingsGroup>
     {:else}
-      <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm text-muted-foreground">New servers are off in every project.</p><Button disabled={busy} onclick={() => { adding = true; editing = null; kind = 'http'; confirmingCommand = false; command = ''; args = '[]'; cwd = ''; env = '{}'; presetId = ''; presetSearch = ''; name = ''; url = ''; error = ''; }}>Add server</Button><Button variant="outline" onclick={() => { importing = true; editing = null; review = []; importText = ''; error = ''; }}>Import JSON</Button></div>
+      <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm text-muted-foreground">New servers are off in every project.</p><Button disabled={busy} onclick={() => { pushMcpView({ view: 'add' }); editing = null; kind = 'http'; command = ''; args = '[]'; cwd = ''; env = '{}'; presetId = ''; presetSearch = ''; name = ''; url = ''; error = ''; }}>Add server</Button><Button variant="outline" onclick={() => { pushMcpView({ view: 'import' }); editing = null; review = []; importText = ''; error = ''; }}>Import JSON</Button></div>
       <SettingsGroup title="Servers">
         {#each servers as server (server.id)}
           {@const status = mcpStatus(server)}
@@ -239,7 +251,7 @@
 </SettingsSection>
 </div>
 
-<Dialog.Root bind:open={adding}>
+<Dialog.Root open={adding && !confirmingCommand} onOpenChange={(open) => { if (!open && !confirmingCommand) popMcpView(); }}>
   <Dialog.Content class={roomyDialogClass()} data-mcp-dialog="add">
     <!-- One scroll region: the preset catalogue scrolls with the fields, never inside them. -->
     <form class="flex min-h-0 w-full min-w-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); prepareAdd(); }}>
@@ -253,7 +265,7 @@
           {#each MCP_PRESET_GROUPS as group}
             {@const entries = matchingPresets.filter(p => (p.group ?? 'Docs') === group)}
             {#if entries.length}<h3 class="sticky top-0 bg-background px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">{group}</h3>
-              {#each entries as preset}<button type="button" class="block w-full min-w-0 border-t px-3 py-2 text-left hover:bg-muted" aria-pressed={presetId === preset.id} data-mcp-preset={preset.id} onclick={() => { presetId = preset.id; choosePreset(); }}>
+              {#each entries as preset}<button type="button" class="block w-full min-w-0 border-t px-3 py-2 text-left hover:bg-muted" aria-pressed={presetId === preset.id} data-mcp-preset={preset.id} onclick={() => { presetId = preset.id; choosePreset(); pushMcpView({ ...page.state.mcp, presetId: preset.id }); }}>
                 <span class="block text-sm font-semibold break-words">{preset.name} · {preset.auth.replaceAll('_', ' ')}</span><span class="block text-xs break-words text-muted-foreground" data-mcp-preset-description>{preset.description}</span>
               </button>{/each}
             {/if}
@@ -265,7 +277,7 @@
           {#if chosenPreset.docsUrl}<a class="text-sm underline" href={chosenPreset.docsUrl} target="_blank" rel="noreferrer">Vendor documentation</a>{/if}
           {#if chosenPreset.tokenUrl}<a class="text-sm underline" href={chosenPreset.tokenUrl} target="_blank" rel="noreferrer">Create a token</a>{/if}
           {#if chosenPreset.cli}<McpCliHint {backend} cli={chosenPreset.cli} />{/if}
-          <button type="button" class="text-left text-sm underline" onclick={() => { presetId = ''; url = ''; name = ''; }}>Use custom server instead</button>
+          <button type="button" class="text-left text-sm underline" onclick={() => { popMcpView(); url = ''; name = ''; }}>Use custom server instead</button>
         {/if}
       {/if}
       <label class="flex flex-col gap-1 text-sm font-medium">Server kind
@@ -284,14 +296,15 @@
       {#if error}<p class="text-sm text-destructive" role="alert">{error}</p>{/if}
     </div>
     </div>
-      <Dialog.Footer class={DIALOG_FOOTER_CLASS}><Button variant="ghost" type="button" onclick={() => { adding = false; env = '{}'; }}>Cancel</Button><Button size="sm" type="submit" disabled={busy || !name.trim()}>{kind === 'command' ? 'Review command' : 'Add server'}</Button></Dialog.Footer>
+      <Dialog.Footer class={DIALOG_FOOTER_CLASS}><Button variant="ghost" type="button" onclick={popMcpView}>Cancel</Button><Button size="sm" type="submit" disabled={busy || !name.trim()}>{kind === 'command' ? 'Review command' : 'Add server'}</Button></Dialog.Footer>
     </form>
   </Dialog.Content>
 </Dialog.Root>
-<Dialog.Root bind:open={importing}>
+<Dialog.Root open={importing && !confirmingCommand} onOpenChange={(open) => { if (!open && !confirmingCommand) popMcpView(); }}>
  <Dialog.Content class={roomyDialogClass({ wide: true })} data-mcp-dialog="import">
  <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>Import MCP servers</Dialog.Title><Dialog.Description>Review before saving. Nothing runs or saves yet. Name clashes are renamed; uncheck to skip.</Dialog.Description></Dialog.Header>
  <div class={DIALOG_SCROLL_CLASS} data-dialog-scroll data-mcp-import-body>
+ {#if page.state.mcp?.view === 'import-review' && !review.length}<p class="text-sm">This review was cleared. Go Back to enter JSON again; secrets are never saved in history.</p>{/if}
  {#if review.length}
  <McpImportReview entries={review} bind:checked />
  {:else}
@@ -305,18 +318,19 @@
  {:else}
  <Button onclick={reviewImport} disabled={!importText.trim()}>Review import</Button>
  {/if}
- <Button variant="ghost" onclick={() => { importing = false; review = []; importText = ''; }}>Cancel</Button>
+ <Button variant="ghost" onclick={popMcpView}>Cancel</Button>
  </Dialog.Footer>
  </Dialog.Content>
 </Dialog.Root>
-<Dialog.Root bind:open={confirmingCommand}>
+<Dialog.Root open={confirmingCommand} onOpenChange={(open) => { if (!open) popMcpView(); }}>
  <Dialog.Content class={roomyDialogClass({ wide: true })} data-mcp-dialog="confirm">
  <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>Confirm backend command</Dialog.Title><Dialog.Description>This executes code as the backend user, not on this device. Only confirm commands you trust.</Dialog.Description></Dialog.Header>
  <div class={DIALOG_SCROLL_CLASS} data-dialog-scroll>
+ {#if pending.length === 0}<p class="text-sm" role="status">This review was cleared. Go Back and enter the command again; secrets are never saved in history.</p>{/if}
  <McpCommandReview entries={pending} retainedEnvNames={editing && env === '{}' ? selected?.envNames : undefined} />
  {#if error}<p role="alert" class="mt-3 text-sm text-destructive">{error}</p>{/if}
  </div>
- <Dialog.Footer class={DIALOG_FOOTER_CLASS}><Button variant="ghost" onclick={() => confirmingCommand = false}>Back</Button><Button size="sm" disabled={busy} onclick={() => void saveRows(pending)}>Confirm and save</Button></Dialog.Footer>
+ <Dialog.Footer class={DIALOG_FOOTER_CLASS}><Button variant="ghost" onclick={popMcpView}>Back</Button><Button size="sm" disabled={busy || pending.length === 0} onclick={() => void saveRows(pending)}>Confirm and save</Button></Dialog.Footer>
  </Dialog.Content>
 </Dialog.Root>
 <Dialog.Root bind:open={confirmingRemove}>

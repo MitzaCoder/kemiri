@@ -2,6 +2,9 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import SettingsIcon from '#lib/components/settings/SettingsIcon.svelte';
 	import StatusChip from '#lib/components/settings/StatusChip.svelte';
+	import { page } from '$app/state';
+	import { navigateSettings, settingsUp } from '#lib/settings-navigation.svelte.js';
+	import { sectionNavigation } from '#lib/settings-navigation.js';
 	import type { SettingsSectionInfo } from '#lib/settings.js';
 
 	export type SettingsNavItem = SettingsSectionInfo & {
@@ -22,6 +25,13 @@
 		{@const active = item.id === activeId}
 		<a
 			href={item.href}
+			onclick={(event) => {
+				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+				event.preventDefault();
+				const action = sectionNavigation(activeId, page.url.pathname, item.href);
+				if (action === 'up') settingsUp(item.href);
+				else if (action !== 'stay') void navigateSettings(item.href, action === 'replace');
+			}}
 			aria-current={active ? 'page' : undefined}
 			data-section={item.id}
 			class="group relative flex min-h-11 items-center gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-(--chat-surface-2)/70 max-md:bg-card max-md:px-3 max-md:py-2.5 max-md:shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] max-md:ring-1 max-md:ring-foreground/10 {active

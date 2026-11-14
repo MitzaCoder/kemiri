@@ -4271,31 +4271,39 @@ shows the optional skillsHeldBack count when positive.
 Every section has a URL; the last segment is the section name, which Android reuses one to one.
 
 ```
-/settings                                   list (phone) / first section (wide)
+/settings                                   section index (every width)
 /settings/appearance | notifications | archived
 /settings/backends                          list
 /settings/backends/<id>                     one backend
 /settings/backends/<id>/accounts            Accounts and API keys
 /settings/backends/<id>/mcp                 MCP servers
-/b/<backend>/projects/<id>/settings         list (phone) / General (wide)
+/b/<backend>/projects/<id>/settings         section index (every width)
 /b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | tickets | cache | mcp | skills | storage
 ```
 
-- `/notifications` redirects to `/settings/notifications`. The old `.../settings` URL still works: it is the list on a
-  phone and goes on to General on a wide screen (replacing the address, so Back does not bounce).
+- `/notifications` redirects to `/settings/notifications`. The old `.../settings` URL still works: it is the section index at every width.
 - A schedule notification links to `.../settings#schedule-<id>` (Android's route parser knows only `.../settings`);
   the project settings index sends that address on to Scheduled tasks with the fragment, and the list scrolls to the
   schedule.
 - Links go to the section they mean: the disk banner to `.../settings/storage`, "no coordinator model" to
   `.../settings/coordinator`, the Usage modal's sign-in link to `/settings/backends/<id>/accounts`.
 
+### Navigation contract
+
+Web and Android use one model (D83/D84): Back follows real history; Up pops to a parent already in this visit,
+or replaces with that parent when absent. Close pops to the exact launch context; cold links replace with project
+main chat or Projects. Sibling section switches replace, children push, independent of width. Cross-tree repairs
+continue the visit. Usage and MCP navigation-level views are entries, not untracked local overlays. In-app Back
+is shown only with a known earlier app entry, including installed windows. Unknown sections explain and recover.
+Web stores a visit ID, validated local origin, owned entry index and prior visit entries in per-entry PageState;
+SvelteKit `persistState` preserves them on reload. Only view identifiers enter state, never form values/secrets.
+
 ### Layout
 
-`SettingsShell` is the frame of both areas. From 48rem: the section list on the left (icon, name, a chip for a state
-worth seeing: "No model", "2 offline", "Off"), the section on the right. Below that: one screen at a time, the list
-(a card per section with its one-line hint and a chevron), then the section with a back button naming the screen it
-returns to (`settingsParentHref`). The same markup does both; only what is hidden changes. Rows and buttons are at
-least 44px tall on a phone.
+`SettingsShell` frames both areas: history Back when available, clickable parent breadcrumbs (phone: named Up),
+and Close at every width. From 48rem the section rail sits beside the content; the index shows an overview with
+nothing selected. Below that, the index is a section list. Resizing changes only layout, never the route.
+Navigation controls have 44px touch targets; `settingsParentHref` supplies the structural parent.
 
 ### Rows, groups and states
 
@@ -4357,7 +4365,7 @@ and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps t
 `/settings/<section>`, `/settings/backends/<id>[/accounts]`, `/notifications`, `.../settings[/<section>]`,
 `.../settings#schedule-<id>`) to them; the manifest opens `/settings*` and `/notifications` like `/b/`.
 
-- Frame: `SettingsShell` (phone: list, then one section with an in-page back button naming the screen above; from 600dp:
+- Frame: `SettingsShell` (phone: list, then one section; named Up is separate from history Back and Close; from 600dp:
   list and section side by side). Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
   `RowControl.Wide/Auto/Full/Inline`, `LearnMore`, `SaveStatusLine` + `SaveState`, `StatusChip`, `AutoInput`, `SettingsSwitch`),
   `Combobox.kt` (a bottom sheet with search above 8 options, grouped, with `ThinkingSelect`). Pure logic with JVM tests:
@@ -4370,11 +4378,10 @@ and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps t
 
 ## Layout
 
-`SettingsShell` is the frame of both areas. From 48rem: the section list on the left (icon, name, a chip for a state
-worth seeing: "No model", "2 offline", "Off"), the section on the right. Below that: one screen at a time, the list
-(a card per section with its one-line hint and a chevron), then the section with a back button naming the screen it
-returns to (`settingsParentHref`). The same markup does both; only what is hidden changes. Rows and buttons are at
-least 44px tall on a phone.
+`SettingsShell` frames both areas: history Back when available, clickable parent breadcrumbs (phone: named Up),
+and Close at every width. From 48rem the section rail sits beside the content; the index shows an overview with
+nothing selected. Below that, the index is a section list. Resizing changes only layout, never the route.
+Navigation controls have 44px touch targets; `settingsParentHref` supplies the structural parent.
 
 ### Rows, groups and states
 

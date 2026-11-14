@@ -19,7 +19,8 @@
 	import { updatedLabel } from '#lib/subscription-usage.js';
 	import { usageBoard } from '#lib/subscription-usage.svelte.js';
 	import { cacheStatsBoard } from '#lib/cache-stats.svelte.js';
-	import { usageModal } from '#lib/usage-modal.svelte.js';
+	import { page } from '$app/state';
+	import { inAppBackVisible } from '#lib/settings-navigation.js';
 
 	/**
 	 * Subscription usage across every connected backend that reports it: a card per logged-in subscription (each backend
@@ -125,9 +126,10 @@
 			<RefreshCwIcon class="size-4 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" />
 			<span class="max-sm:sr-only">{refreshing ? 'Refreshing…' : 'Refresh'}</span>
 		</Button>
+		{#if inAppBackVisible(page.state.navigation)}<Button variant="ghost" class="h-11 min-w-11" onclick={() => history.back()}>Back</Button>{/if}
 		<Dialog.Close>
 			{#snippet child({ props })}
-				<Button variant="ghost" size="icon-sm" {...props}>
+				<Button variant="ghost" class="size-11" {...props}>
 					<XIcon />
 					<span class="sr-only">Close</span>
 				</Button>
@@ -197,7 +199,7 @@
 						href={generalSettingsHref('backends')}
 						variant="outline"
 						size="sm"
-						onclick={() => (usageModal.open = false)}>Add a backend</Button
+						>Add a backend</Button
 					>
 				</section>
 			{:else if reporting.length === 0}
@@ -223,7 +225,7 @@
 					</p>
 					<div class="flex flex-wrap justify-center gap-2 pt-1">
 						{#each reporting as backend (backend.id)}
-							<Button href={loginsHref(backend)} variant="outline" size="sm" onclick={() => (usageModal.open = false)}>
+							<Button href={loginsHref(backend)} variant="outline" size="sm" >
 								Logins on {backend.name}
 							</Button>
 						{/each}
@@ -264,7 +266,7 @@
 								<a
 									class="font-medium text-(--chat-fg) underline underline-offset-4"
 									href={loginsHref(backend)}
-									onclick={() => (usageModal.open = false)}
+									
 								>
 									Log in from settings
 								</a>.

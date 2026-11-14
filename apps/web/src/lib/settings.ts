@@ -63,7 +63,7 @@ export function isProjectSection(value: unknown): value is ProjectSectionId {
 	return PROJECT_SECTIONS.some((section) => section.id === value);
 }
 
-/** General settings: the list (phone) or the first section (wide). */
+/** General settings: the section index at every width. */
 export const GENERAL_SETTINGS_HREF = "/settings";
 
 export function generalSettingsHref(section?: GeneralSectionId): string {
@@ -76,7 +76,7 @@ export function backendSettingsHref(backendId: string, sub?: "accounts" | "mcp")
 	return sub === undefined ? base : `${base}/${sub}`;
 }
 
-/** A project's settings: the list (phone) or the first section (wide), or one section. */
+/** A project's settings: the section index at every width, or one section. */
 export function projectSettingsHref(backendId: string, projectId: string, section?: ProjectSectionId): string {
 	const base = `${projectHref(backendId, projectId)}/settings`;
 	return section === undefined ? base : `${base}/${section}`;
@@ -122,7 +122,7 @@ export function settingsLocation(pathname: string): SettingsLocation | undefined
 }
 
 /**
- * The screen one step up from a path, for a phone's back button: a backend's subpage goes to the backend, the backend
+ * The screen one step up from a path, for the named Up control: a backend's subpage goes to the backend, the backend
  * to the Backends list, a section to the list of sections. Undefined on the list itself.
  */
 export function settingsParentHref(pathname: string): string | undefined {

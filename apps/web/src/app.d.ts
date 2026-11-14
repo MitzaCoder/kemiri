@@ -5,7 +5,11 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			navigation?: import('./lib/settings-navigation.js').NavigationEntry;
+			usage?: boolean;
+			mcp?: import('./lib/settings-navigation.js').McpNavigationView;
+		}
 		// interface Platform {}
 	}
 }

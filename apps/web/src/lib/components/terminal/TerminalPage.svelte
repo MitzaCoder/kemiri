@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { settingsClose } from '#lib/settings-navigation.svelte.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ListIcon from '@lucide/svelte/icons/list';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -253,7 +254,7 @@
 >
 	<header class="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2 pt-[env(safe-area-inset-top)] sm:px-3">
 		<ProjectsMenuButton />
-		<Button href={backHref} variant="ghost" size="icon-sm" aria-label={projectId === undefined ? 'Back to projects' : 'Back to the project'} title="Back">
+		<Button onclick={() => settingsClose(backHref)} variant="ghost" class="size-11" aria-label="Close terminal" title="Close terminal">
 			<ArrowLeftIcon />
 		</Button>
 		<TerminalIcon class="size-4 shrink-0 text-muted-foreground" />

@@ -77,7 +77,7 @@ describe('the MCP dialogs use the roomy shell', () => {
 		expect(section).toContain('flex min-w-0 flex-col gap-4');
 	});
 	test('the cancel buttons are quiet and only the dialog action stays primary', () => {
-		expect(section).toContain('<Button variant="ghost" type="button" onclick={() => { adding = false;');
+		expect(section).toContain('<Button variant="ghost" type="button" onclick={popMcpView}>Cancel</Button>');
 		expect(section).toContain('<Button size="sm" type="submit" disabled={busy || !name.trim()}>');
 	});
 });

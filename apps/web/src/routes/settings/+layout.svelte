@@ -59,7 +59,6 @@
 	{activeId}
 	navLabel="Settings sections"
 	leaveHref="/"
-	leaveLabel="Projects"
 	{parentHref}
 	{parentLabel}
 >
