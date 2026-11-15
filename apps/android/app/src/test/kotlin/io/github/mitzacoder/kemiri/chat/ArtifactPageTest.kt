@@ -155,10 +155,23 @@ class ArtifactPageTest {
         val page = artifactPreview(over, html = true)
         assertEquals(ARTIFACT_HTML_PAGE_LIMIT, page.text.length)
         assertTrue(page.truncated)
-        // The same bytes are still a whole text preview: the limit belongs to pages, not to source.
+        val exact = artifactPreview(over.copyOf(ARTIFACT_HTML_PAGE_LIMIT), html = true)
+        assertFalse(exact.truncated)
+        assertEquals(ARTIFACT_HTML_PAGE_LIMIT, exact.text.length)
         val source = artifactPreview(over, html = false)
-        assertEquals(ARTIFACT_HTML_PAGE_LIMIT + 1, source.text.length)
-        assertFalse(source.truncated)
+        assertEquals(ARTIFACT_TEXT_LIMIT, source.text.length)
+        assertTrue(source.truncated)
+    }
+
+    @Test fun embeddedImagePagesReadWholeBeyondBothOldLimits() {
+        assertEquals(20 * 1024 * 1024, artifactTextReadLimit(true))
+        assertEquals(ARTIFACT_TEXT_LIMIT, artifactTextReadLimit(false))
+        val content = "<html><p>Café ✓</p><!--" + "x".repeat(2 * 1024 * 1024) + "--><p>end</p></html>"
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        val page = artifactPreview(java.io.ByteArrayInputStream(bytes).readAtMost(artifactTextReadLimit(true) + 1), true, bytes.size.toLong())
+        assertEquals(content, page.text)
+        assertFalse(page.truncated)
+        assertTrue(artifactPreview(bytes, false).truncated)
     }
 
     @Test fun aFileTheServerSaysIsLongerIsCutShort() {

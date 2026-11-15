@@ -47,24 +47,24 @@ internal fun artifactPreviewText(bytes: ByteArray): String {
     return bytes.toString(Charsets.UTF_8)
 }
 /**
- * How much of an HTML artifact is shown as its page (web `TEXT_PREVIEW_BYTES`). More than this opens as the source:
- * half a document renders as something the worker never wrote, and a page can be read further by downloading it.
+ * Whole HTML pages may contain embedded screenshots. Match web's 20 MiB cap to bound
+ * decoded source and WebView memory; larger pages open as source rather than a partial document.
  */
-internal const val ARTIFACT_HTML_PAGE_LIMIT = 256 * 1024
+internal const val ARTIFACT_HTML_PAGE_LIMIT = 20 * 1024 * 1024
+internal fun artifactTextReadLimit(html: Boolean): Int = if (html) ARTIFACT_HTML_PAGE_LIMIT else ARTIFACT_TEXT_LIMIT
 /** Whether an HTML page of this many bytes is too big to show whole, so it opens as its source. */
 internal fun artifactPageTooLarge(bytes: Int): Boolean = bytes > ARTIFACT_HTML_PAGE_LIMIT
 
 /** A text artifact's preview: the text shown, and whether the file has more than what is shown. */
 internal data class ArtifactPreview(val text: String, val truncated: Boolean)
 /**
- * The preview of the bytes fetched for a text artifact (at most [ARTIFACT_TEXT_LIMIT] + 1): an HTML page keeps only
- * [ARTIFACT_HTML_PAGE_LIMIT] bytes, because a page over that opens as its source; other kinds keep them all.
+ * Read at most [artifactTextReadLimit] + 1 bytes, keeping the extra byte only to detect truncation.
  * [size] is the artifact's recorded size (-1 when unknown); a file the server says is longer is cut short too.
  */
 internal fun artifactPreview(bytes: ByteArray, html: Boolean, size: Long = -1): ArtifactPreview {
-    val limit = if (html) ARTIFACT_HTML_PAGE_LIMIT else ARTIFACT_TEXT_LIMIT
+    val limit = artifactTextReadLimit(html)
     val kept = bytes.copyOf(minOf(bytes.size, limit))
-    return ArtifactPreview(artifactPreviewText(kept), bytes.size > limit || (size >= 0 && size > kept.size))
+    return ArtifactPreview(kept.toString(Charsets.UTF_8), bytes.size > limit || (size >= 0 && size > kept.size))
 }
 internal enum class ArtifactDeleteState {
     Idle, Confirming, Sending, Gone;

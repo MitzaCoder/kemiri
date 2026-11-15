@@ -113,18 +113,30 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
         textTruncated = false
         val url = signed?.url ?: return@LaunchedEffect
         if(artifact?.kind == "text") {
-            // An HTML page keeps only what a page may show whole; other text keeps the larger limit.
+            // Pages need complete source, including embedded images; other text stays a bounded preview.
             val html = artifact?.let { isHtmlArtifact(it.name, it.mimeType) } == true
             try {
-                val preview = withContext(Dispatchers.IO) {
-                    artifactHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                        check(response.isSuccessful)
-                        artifactPreview(response.body.byteStream().readAtMost(ARTIFACT_TEXT_LIMIT + 1), html, artifact?.size ?: -1)
+                var readUrl = url
+                var preview: ArtifactPreview? = null
+                for (attempt in 0..2) {
+                    preview = withContext(Dispatchers.IO) {
+                        artifactHttp.newCall(Request.Builder().url(readUrl).build()).execute().use { response ->
+                            if (response.code in listOf(401, 403, 410) && attempt < 2) null else {
+                                check(response.isSuccessful)
+                                artifactPreview(response.body.byteStream().readAtMost(artifactTextReadLimit(html) + 1), html, artifact?.size ?: -1)
+                            }
+                        }
                     }
+                    if (preview != null) break
+                    // Keep the retry local: changing signed would cancel this read effect.
+                    readUrl = context.backend.client.request(ArtifactsUrlRequest(
+                        projectId = context.route.projectId, artifactId = artifact?.id ?: artifactId,
+                    )).url
                 }
-                if (!deleted) { text = preview.text; textTruncated = preview.truncated }
+                val loaded = checkNotNull(preview)
+                if (!deleted) { text = loaded.text; textTruncated = loaded.truncated; error = null }
             } catch(e: CancellationException) { textTruncated = false; throw e }
-            catch(_: Exception) { textTruncated = false; error = "Text preview unavailable (limit 1 MiB)." }
+            catch(_: Exception) { textTruncated = false; error = "Text preview unavailable. Reconnect or retry." }
         }
     }
     if (deletion == ArtifactDeleteState.Confirming || deletion == ArtifactDeleteState.Sending) {

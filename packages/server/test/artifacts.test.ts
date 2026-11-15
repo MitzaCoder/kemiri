@@ -515,6 +515,28 @@ describe("serving and deleting", () => {
 		}
 	}, 30_000);
 
+	it("streams complete large HTML and ranges again after URL renewal", async () => {
+		const { test, client, projectId } = await start({ artifacts: { urlTtlMs: 1_000 } });
+		const content = "<!doctype html><p>Café ✓</p><!--" + "image-data ".repeat(40_000) + "--><p>complete end</p>";
+		const sourcePath = join(test.projectDir, "large.html");
+		await writeFile(sourcePath, content);
+		const artifact = await test.server.artifacts.save({ projectId, sourcePath, title: null, note: null, threadId: "main", workerId: null, taskId: null });
+		await rm(sourcePath);
+		const expired = await urlOf(client, projectId, artifact.id);
+		const full = await fetch(expired, { headers: { origin: APP_ORIGIN } });
+		expect(full.status).toBe(200);
+		expect(full.headers.get("content-length")).toBe(String(Buffer.byteLength(content)));
+		expect(await full.text()).toBe(content);
+		await new Promise(resolve => setTimeout(resolve, 1_100));
+		expect((await fetch(expired)).status).toBe(403);
+		const renewed = await urlOf(client, projectId, artifact.id);
+		const range = await fetch(renewed, { headers: { origin: APP_ORIGIN, range: "bytes=0-20971520" } });
+		expect(range.status).toBe(206);
+		expect(range.headers.get("content-range")).toBe(`bytes 0-${Buffer.byteLength(content) - 1}/${Buffer.byteLength(content)}`);
+		expect(range.headers.get("access-control-allow-origin")).toBe(APP_ORIGIN);
+		expect(await range.text()).toBe(content);
+	}, 30_000);
+
 	it("never serves without a valid token", async () => {
 		const { test, client, projectId, artifact } = await withArtifact();
 		const url = new URL(await urlOf(client, projectId, artifact.id));

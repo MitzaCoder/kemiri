@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { ArtifactReadError, artifactReadProblem, readArtifactText } from '../src/lib/artifact-text.ts';
+import { ARTIFACT_HTML_PAGE_BYTES, artifactTextReadLimit, ArtifactReadError, artifactReadProblem, readArtifactText } from '../src/lib/artifact-text.ts';
 import { TEXT_PREVIEW_BYTES } from '../src/lib/artifacts.ts';
 
 const signal = () => new AbortController().signal;
@@ -20,7 +20,7 @@ test('large previews request a single range and bound even a server that ignores
 	let cancelled = false;
 	const response = new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(TEXT_PREVIEW_BYTES + 100).fill(65)); }, cancel() { cancelled = true; } }));
 	const result = await readArtifactText('https://backend.example/a', TEXT_PREVIEW_BYTES + 100, signal(), fetchResponse(response, init => {
-		expect(init?.headers).toEqual({ Range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` });
+		expect(init?.headers).toEqual({ Range: `bytes=0-${TEXT_PREVIEW_BYTES}` });
 	}));
 	expect(result.content.length).toBe(TEXT_PREVIEW_BYTES);
 	expect(result.truncated).toBe(true);
@@ -37,4 +37,21 @@ test('HTTP errors retain status for token renewal; transport errors explain retr
 test('an interrupted response body rejects instead of showing partial text', async () => {
 	const response = new Response(new ReadableStream({ start(controller) { controller.error(new TypeError('terminated')); } }));
 	await expect(readArtifactText('https://backend.example/a', 2, signal(), fetchResponse(response))).rejects.toThrow('terminated');
+});
+
+for (const size of [400 * 1024, 2 * 1024 * 1024, ARTIFACT_HTML_PAGE_BYTES]) {
+	test(`HTML reads a complete ${size}-byte page, including the exact cap`, async () => {
+		const content = "x".repeat(size - 10) + "<p>✓</p>";
+		const bytes = new TextEncoder().encode(content);
+		const result = await readArtifactText("https://backend.example/a", bytes.length, signal(), fetchResponse(new Response(bytes)), artifactTextReadLimit(true));
+		expect(result).toEqual({ content, truncated: false });
+	});
+}
+test("unknown HTML size and ignored Range stay bounded; only pages above the cap truncate", async () => {
+	expect(artifactTextReadLimit(false)).toBe(TEXT_PREVIEW_BYTES);
+	for (const extra of [0, 1]) {
+		const result = await readArtifactText("https://backend.example/a", -1, signal(), fetchResponse(new Response("x".repeat(ARTIFACT_HTML_PAGE_BYTES + extra)), init => expect(init?.headers).toEqual({ Range: `bytes=0-${ARTIFACT_HTML_PAGE_BYTES}` })), ARTIFACT_HTML_PAGE_BYTES);
+		expect(result.content.length).toBe(ARTIFACT_HTML_PAGE_BYTES);
+		expect(result.truncated).toBe(extra > 0);
+	}
 });

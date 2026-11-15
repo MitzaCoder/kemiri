@@ -21,9 +21,9 @@
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { ARTIFACT_FRAME_SANDBOX, isHtmlArtifact, openArtifactPreview } from '#lib/artifact-preview.js';
-	import { formatBytes, isMarkdownArtifact, MEDIA_RETRY_LIMIT, TEXT_PREVIEW_BYTES } from '#lib/artifacts.js';
+	import { formatBytes, isMarkdownArtifact, MEDIA_RETRY_LIMIT } from '#lib/artifacts.js';
 	import { useArtifactSource } from '#lib/artifacts.svelte.js';
-	import { ArtifactReadError, artifactReadProblem, readArtifactText } from '#lib/artifact-text.js';
+	import { ArtifactReadError, artifactReadProblem, artifactTextReadLimit, readArtifactText } from '#lib/artifact-text.js';
 
 	/**
 	 * A text artifact (a log, a report) read in place: its first `TEXT_PREVIEW_BYTES`, monospace, wrapped or not. A
@@ -71,6 +71,7 @@
 	let view = $state<'page' | 'source' | undefined>(htmlView);
 	const markdown = $derived(isMarkdownArtifact(artifact));
 	const html = $derived(isHtmlArtifact(artifact));
+	const readLimit = $derived(artifactTextReadLimit(html));
 	const rendered = $derived(markdown && !showSource);
 	/**
 	 * Whether an HTML artifact shows its source. The reader's own choice wins; otherwise a page cut short by the preview
@@ -114,7 +115,7 @@
 
 	async function read(from: string, signal: AbortSignal): Promise<void> {
 		try {
-			const preview = await readArtifactText(from, artifact.size, signal);
+			const preview = await readArtifactText(from, artifact.size, signal, fetch, readLimit);
 			if (signal.aborted) return;
 			truncated = preview.truncated;
 			content = preview.content;
@@ -253,7 +254,7 @@
 		{/if}
 		{#if truncated}
 			<p class="border-t border-(--chat-border) px-3 py-1.5 text-xs text-(--chat-fg-subtle)" data-artifact-truncated>
-				The first {formatBytes(TEXT_PREVIEW_BYTES)}{artifact.size > 0 ? ` of ${formatBytes(artifact.size)}` : ''};
+				The first {formatBytes(readLimit)}{artifact.size > 0 ? ` of ${formatBytes(artifact.size)}` : ''};
 				{#if html}{page ? 'the page is drawn from that part only' : 'a page cannot be shown whole, so this is its source'}; {/if}download it for the rest.
 			</p>
 		{/if}

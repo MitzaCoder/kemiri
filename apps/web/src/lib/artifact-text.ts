@@ -1,5 +1,11 @@
 import { TEXT_PREVIEW_BYTES } from './artifacts.js';
 
+/** Embedded screenshots easily exceed text previews; cap source reads at 20 MiB on both clients. */
+export const ARTIFACT_HTML_PAGE_BYTES = 20 * 1024 * 1024;
+export function artifactTextReadLimit(html: boolean): number {
+	return html ? ARTIFACT_HTML_PAGE_BYTES : TEXT_PREVIEW_BYTES;
+}
+
 export class ArtifactReadError extends Error {
 	constructor(readonly status: number) {
 		super(`The backend answered ${status}.`);
@@ -21,9 +27,10 @@ export async function readArtifactText(
 	size: number,
 	signal: AbortSignal,
 	fetcher: typeof fetch = fetch,
+	limit = TEXT_PREVIEW_BYTES,
 ): Promise<{ content: string; truncated: boolean }> {
 	const response = await fetcher(url, {
-		...(size >= 0 && size <= TEXT_PREVIEW_BYTES ? {} : { headers: { Range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } }),
+		...(size >= 0 && size <= limit ? {} : { headers: { Range: `bytes=0-${limit}` } }),
 		signal,
 	});
 	if (!response.ok) throw new ArtifactReadError(response.status);
@@ -32,11 +39,12 @@ export async function readArtifactText(
 	if (!reader) return { content: '', truncated: false };
 	const chunks: Uint8Array[] = [];
 	let length = 0;
+	let done = false;
 	try {
-		while (length < TEXT_PREVIEW_BYTES) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			const chunk = value.subarray(0, TEXT_PREVIEW_BYTES - length);
+		while (length <= limit) {
+			const next = await reader.read();
+			if (next.done) { done = true; break; }
+			const chunk = next.value.subarray(0, limit + 1 - length);
 			chunks.push(chunk);
 			length += chunk.length;
 		}
@@ -46,5 +54,5 @@ export async function readArtifactText(
 	const bytes = new Uint8Array(length);
 	let offset = 0;
 	for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-	return { content: new TextDecoder().decode(bytes), truncated: length < total || length >= TEXT_PREVIEW_BYTES };
+	return { content: new TextDecoder().decode(bytes.subarray(0, limit)), truncated: length > limit || length < total || (!done && total < 0) };
 }

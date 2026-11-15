@@ -1,5 +1,15 @@
 # Continue
 
+## T202: large HTML artifacts
+
+Web and Android read HTML/XHTML whole through 20 MiB, with exact-cap/overflow
+and UTF-8 tests; other text caps stay unchanged. SVG already uses images.
+Android also retries refused signed URLs; server full/range/renewal test passes
+without a route change. Synthetic 433 KB proof: 12 screenshots plus web/Android
+recordings (index mwh43bzv-c2f6b82f3d). Gates: isolated root 2,726; typecheck; web 1,167/check/build;
+Android 991 JVM tests (two skipped), assemble/lint; external public guard pass.
+No physical phone, deployment, push or main movement.
+
 ## T200: selected header panels
 
 Web and Android share accent-tinted selected pills with accent text/icons;

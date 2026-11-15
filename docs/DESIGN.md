@@ -2,6 +2,18 @@
 
 ## HTML artifact viewers (T191)
 
+HTML/XHTML source is read whole up to 20 MiB on web and Android (T202),
+including embedded screenshots. This allows image-heavy design pages while
+bounding decoded source and iframe/WebView memory on phones. Readers retain
+one extra byte only to detect overflow, so a page exactly at the cap still renders;
+unknown sizes and servers ignoring Range remain bounded. Above the cap, the
+existing truncated-source note and download action apply. Plain text/Markdown
+retain their existing preview caps (web 256 KiB; Android 1 MiB). SVG uses the
+separate image path, not this text reader. Sandbox/CSP grants are unchanged.
+Signed-URL refusals renew and retry with a bounded attempt count on both clients.
+The server's existing streaming route serves large HTML, including full-file ranges;
+its 256 KiB small-text buffering threshold is not a response-size limit.
+
 On web at widths of 640 px and above, HTML opens in a centred modal over a
 dimmed backdrop: 90dvh tall, min(80vw, 100rem) wide, with a subtle 1 px themed
 border and small rounded corners. Width is deliberately predictable rather than
