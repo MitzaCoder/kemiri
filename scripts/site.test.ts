@@ -7,7 +7,7 @@ import { checkSite } from './check-site';
 const bootstrap = resolve(import.meta.dir, '../site/install.sh');
 const releasePrefix = 'https://github.com/MitzaCoder/kemiri/releases/download/';
 
-test('site links resolve and hero assets stay identical to the README images', async () => {
+test('site links resolve and the graph images stay identical to the README images', async () => {
 	expect(await checkSite()).toBeGreaterThan(20);
 	for (const theme of ['light', 'dark']) {
 		expect(await Bun.file(resolve(import.meta.dir, `../site/assets/graph-${theme}.webp`)).arrayBuffer())
@@ -31,6 +31,58 @@ test('site shares the candlenut master and publishes a complete social card', as
 	const image = Buffer.from(await Bun.file(join(root, 'site/assets/og.png')).arrayBuffer());
 	expect(image.readUInt32BE(16)).toBe(1200);
 	expect(image.readUInt32BE(20)).toBe(630);
+});
+
+test('homepage loads only site files, stores nothing and reuses the mascot master', async () => {
+	const root = resolve(import.meta.dir, '..');
+	const home = await Bun.file(join(root, 'site/index.html')).text();
+	const script = await Bun.file(join(root, 'site/home.js')).text();
+	const styles = await Bun.file(join(root, 'site/style.css')).text();
+	expect(home).toContain('<script src="/home.js" defer></script>');
+	expect(styles).toContain('url(/assets/fonts/atkinson-hyperlegible-next-latin.woff2)');
+	expect(await Bun.file(join(root, 'site/assets/fonts/OFL.txt')).text()).toContain('SIL Open Font License, Version 1.1');
+	// The privacy page promises no tracking; the only script may not store or send anything.
+	expect(`${home}${script}`).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie|fetch\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource/);
+	expect(await Bun.file(join(root, 'site/privacy/index.html')).text()).not.toContain('<script');
+	// The demo's animated mascots are drawn from the brand's motion master, not a redrawn copy.
+	const master = await Bun.file(join(root, 'assets/brand/mascot-motion.svg')).text();
+	const shapes = [...master.matchAll(/ d="([^"]+)"/g)].map((match) => match[1]!);
+	expect(shapes.length).toBeGreaterThan(5);
+	for (const shape of shapes) expect(home).toContain(` d="${shape}"`);
+	// Without scripts the demo window is hidden and the flow, comparison and install steps still read.
+	expect(styles).toContain('html:not(.js) .win');
+	for (const text of ['The usual way', 'With Kemiri', 'Personal, not sandboxed.', 'Keep the backend private.']) expect(home).toContain(text);
+});
+
+test('homepage install commands match the pinned bootstrap', async () => {
+	const home = await Bun.file(resolve(import.meta.dir, '../site/index.html')).text();
+	const tag = (await Bun.file(bootstrap).text()).match(/^version=(v[^\s]+)$/m)?.[1];
+	if (!tag) throw new Error('Missing pinned default tag in site/install.sh');
+	const shown = home.replace(/<[^>]+>/g, '');
+	expect(shown).toContain(`curl -fL https://kemiri.dev/install.sh -o install.sh\n# Read install.sh before running it.\nsh install.sh --version ${tag} --no-service\nkemiri start`);
+	expect(shown).toContain('kemiri open\nkemiri pair');
+	// The copy button leaves the comment out and must carry the same commands.
+	expect(home).toContain(`data-copy="curl -fL https://kemiri.dev/install.sh -o install.sh&#10;sh install.sh --version ${tag} --no-service&#10;kemiri start"`);
+	expect(home).toContain(`${releasePrefix}${tag}/kemiri-${tag}-android-universal.apk`);
+	for (const [version] of home.matchAll(/\bv\d+\.\d+\.\d+-[\w.]+\b/g)) expect(version).toBe(tag);
+});
+
+test('site checker rejects resources loaded from other origins and missing stylesheet files', async () => {
+	const scratch = await mkdtemp(join(tmpdir(), 'kemiri-site-resources-'));
+	const page = (extra: string) => `<!doctype html><html lang="en"><title>Kemiri</title><a href="https://kemiri.dev/">Kemiri</a>${extra}</html>`;
+	try {
+		await writeFile(join(scratch, 'CNAME'), 'kemiri.dev\n');
+		await writeFile(join(scratch, 'index.html'), page('<script src="https://cdn.example.org/widget.js"></script>'));
+		await expect(checkSite(scratch)).rejects.toThrow('External resource');
+		await writeFile(join(scratch, 'index.html'), page('<link rel="stylesheet" href="https://fonts.example.org/css">'));
+		await expect(checkSite(scratch)).rejects.toThrow('External resource');
+		await writeFile(join(scratch, 'index.html'), page(''));
+		await writeFile(join(scratch, 'other.html'), page(''));
+		await writeFile(join(scratch, 'style.css'), '@font-face { src: url(/assets/missing.woff2); }');
+		await expect(checkSite(scratch)).rejects.toThrow('Missing target');
+		await writeFile(join(scratch, 'style.css'), '@font-face { src: url(https://fonts.example.org/a.woff2); }');
+		await expect(checkSite(scratch)).rejects.toThrow('not a site path');
+	} finally { await rm(scratch, { recursive: true, force: true }); }
 });
 
 test('site uses canonical Kemiri links and preserves privacy promises', async () => {

@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Kemiri is a personal AI workbench. Delegate to background agents, see what needs you, and come back to work that lasts.">
+  <meta name="description" content="Kemiri is a personal AI workbench. One coordinator delegates to background agents and brings questions and results back to you.">
   <meta name="color-scheme" content="light dark">
   <title>Kemiri — your personal AI workbench</title>
   <link rel="canonical" href="https://kemiri.dev/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kemiri.dev/">
   <meta property="og:title" content="Kemiri — your personal AI workbench">
-  <meta property="og:description" content="Your machine. Your models. Your work.">
+  <meta property="og:description" content="Follow tasks, not a pile of chats.">
   <meta property="og:image" content="https://kemiri.dev/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -20,58 +20,178 @@
   <link rel="icon" href="/assets/favicon-16.png" type="image/png" sizes="16x16">
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <script>
+    // Before first paint: the system decides light or dark; the header button switches by hand. Nothing is stored.
+    (function () {
+      var root = document.documentElement, dark = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", dark.matches ? "dark" : "light");
+      dark.addEventListener("change", function (e) { if (!root.dataset.chosen) root.setAttribute("data-theme", e.matches ? "dark" : "light"); });
+      root.classList.add("js");
+    })();
+  </script>
 </head>
-<body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
-    <nav aria-label="Main"><a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a><a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">↗</span></a></nav>
-  </header>
-  <main id="main">
-    <section class="intro" aria-labelledby="intro-title">
-      <p class="eyebrow">Your machine. Your models. Your work.</p>
-      <h1 id="intro-title">A little help.<br>A bigger picture.</h1>
-      <p class="lead">Kemiri is a personal AI workbench. One coordinator delegates to background agents and brings questions and results back to you.</p>
-      <div class="actions"><a class="button" href="#install">Try the pilot <span aria-hidden="true">↓</span></a><a class="text-link" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">Pilot release notes <span aria-hidden="true">↗</span></a></div>
-    </section>
-    <figure class="graph">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="/assets/graph-dark.webp">
-        <img src="/assets/graph-light.webp" width="1440" height="1000" alt="Kemiri’s live task graph: soft clusters of task bubbles, relationship lines, and small creatures marking active workers and threads." fetchpriority="high">
-      </picture>
-      <figcaption>Less tab juggling. More of the whole picture. <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/assets/readme/README.md">Real app, synthetic demo.</a></figcaption>
-    </figure>
-    <section class="why" aria-label="Why Kemiri?">
-      <article><span class="point-number" aria-hidden="true">01</span><h2>Delegate work.</h2><p>Give the coordinator a goal. Choose models from your own providers, and let background agents take on the pieces.</p></article>
-      <article><span class="point-number" aria-hidden="true">02</span><h2>See what needs you.</h2><p>Tasks, questions and reviews share a list, board or graph. Step in where your judgment matters.</p></article>
-      <article><span class="point-number" aria-hidden="true">03</span><h2>Come back later.</h2><p>Runs resume after backend restarts. Reports and artifacts stay with their tasks, ready when you are.</p></article>
-    </section>
-    <section id="install" class="install" aria-labelledby="install-title">
-      <div class="section-heading"><p class="eyebrow">Start on your own machine</p><h2 id="install-title">Make room for a little help.</h2><p>Current pilot: <strong>v0.1.0-pilot.5</strong> · Linux tested · macOS/WSL experimental · no phone push.</p></div>
-      <h3>Install, then start</h3>
-      <p>Download and read the small bootstrap before running it. It fetches the versioned GitHub release installer and verifies its SHA-256 checksum.</p>
-      <pre aria-label="Install commands"><code>curl -fL https://kemiri.dev/install.sh -o install.sh
-# Read install.sh before running it.
+<body id="top">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<linearGradient id="m-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse"><stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/></linearGradient>
+<linearGradient id="m-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse"><stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/></linearGradient>
+<linearGradient id="m-high" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse"><stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/></linearGradient>
+<linearGradient id="m-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse"><stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/></linearGradient>
+<symbol id="i-worker" viewBox="0 0 24 24"><circle cx="10" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h5"/><circle cx="18" cy="17" r="2.6"/><path d="M18 12.6v1.2M18 20.2v1.2M22.4 17h-1.2M14.8 17h-1.2"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></symbol>
+</defs></svg>
+<template id="mascot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" aria-hidden="true"><g class="mascot-pose"><g class="mascot-leaf"><path fill="url(#m-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g><g class="mascot-body"><path fill="url(#m-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#m-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#m-high)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g><path fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/></g></g></svg></template>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top wrap">
+  <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
+  <nav aria-label="Main">
+    <a class="hide-s" href="#start">Install</a>
+    <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a>
+    <a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">&nbsp;↗</span></a>
+    <button class="theme" type="button" aria-label="Switch between light and dark" title="Light / dark">
+      <svg class="only-dark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></svg>
+      <svg class="only-light" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+    </button>
+  </nav>
+</header>
+<main id="main">
+  <section class="hero wrap" aria-labelledby="h">
+    <h1 id="h">Follow tasks,<br>not a <span class="grad">pile of chats.</span></h1>
+    <p class="lead">Kemiri is a personal AI workbench. One coordinator delegates to background agents and brings questions and results back to you.</p>
+    <div class="actions"><a class="btn" href="#start">Try the pilot <span aria-hidden="true">↓</span></a><a class="btn ghost" href="https://github.com/MitzaCoder/kemiri">View on GitHub <span aria-hidden="true">↗</span></a></div>
+  </section>
+
+  <section class="demo wrap" aria-labelledby="flow-title">
+    <h2 id="flow-title" class="sr">How one request goes</h2>
+    <div class="win ui" aria-hidden="true" inert>
+      <div class="win-bar"><i></i><i></i><i></i><span>shop · Kemiri</span></div>
+      <div class="win-body">
+        <div class="pane-chat"><div class="chat" data-chat="idle">
+  <div class="chat-head"><span class="mascot working"></span><span><b>Coordinator</b><small>shop</small></span></div>
+  <div class="chat-log">
+    <div class="hello"><span class="mascot thinking"></span><b>What should we work on?</b></div>
+    <div class="msg me" hidden>Add dark mode and fix login on mobile.</div>
+    <div class="msg it think" hidden><span class="shimmer">Working…</span></div>
+    <div class="msg it reply" hidden>On it. I made two tasks and put a worker on each.
+      <div class="chips">
+        <span class="tchip c-working" data-chip="t1" data-v="working"><i class="st"></i><span class="id">T1</span>Dark mode<em>Working</em></span>
+        <span class="tchip c-working" data-chip="t2" data-v="working"><i class="st"></i><span class="id">T2</span>Login on mobile<em>Working</em></span>
+      </div>
+    </div>
+  </div>
+  <div class="composer"><span class="txt"><span class="ph">Message the coordinator…</span><span class="typed"></span></span><button class="send" type="button" data-act="send" aria-label="Send"><svg aria-hidden="true"><use href="#i-send"/></svg></button></div>
+</div></div>
+        <div class="pane-tasks">
+          <div class="tabs"><span class="on">Tasks <b class="tab-count"></b></span><span>Background</span><span>Info</span><span>Memory</span></div>
+          <div class="tasks">
+  <p class="empty">No tasks yet.</p>
+  <div class="gh c-ask" data-gh="needs" data-v="ask"><i class="st"></i>Needs you <span class="cnt">1</span></div>
+  <div class="gh c-rev" data-gh="review"><i class="st"></i>Ready for review <span class="cnt">1</span></div>
+  <div class="gh c-working" data-gh="working"><i class="st"></i>Working <span class="cnt">2</span></div>
+  <div class="gh c-done" data-gh="done"><i class="st"></i>Done <span class="cnt">2</span></div>
+  <article class="tc c-working" data-task="t1" data-v="working"><div class="tc-in">
+    <div class="tc-top"><i class="st"></i><span class="title">Dark mode</span><span class="mascot fern working"></span></div>
+    <div class="v v-working now"><b>Now</b> · <span class="now-t">Reading the theme tokens</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="v v-rev">
+      <p class="gist">Toggle and colours are in. Have a look.</p>
+      <div class="proof"><span class="shot"></span><span class="shot dk"></span><span class="shot vid"></span><span>2 screenshots · 1 recording</span></div>
+      <div class="opts"><button class="opt ok" type="button" data-act="done">✓ Done</button><button class="opt quiet" type="button" data-act="feedback">Feedback…</button></div>
+    </div>
+    <div class="v v-done now">Toggle and colours are on every screen.</div>
+    <div class="foot"><span class="wk"><svg aria-hidden="true"><use href="#i-worker"/></svg>Worker fern</span><span class="id">T1</span></div>
+  </div></article>
+  <article class="tc c-working" data-task="t2" data-v="working"><div class="tc-in">
+    <div class="tc-top"><i class="st"></i><span class="title">Login on mobile</span><span class="mascot moss working"></span></div>
+    <div class="v v-working now"><b>Now</b> · <span class="now-t">Reproducing the login bug</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="v v-ask">
+      <p class="q">Keep password login too?</p>
+      <div class="opts"><button class="opt main" type="button" data-act="yes">Yes, keep it</button><button class="opt" type="button" data-act="no">No</button></div>
+    </div>
+    <div class="v v-done now">Login works on small screens.</div>
+    <div class="foot"><span class="wk"><svg aria-hidden="true"><use href="#i-worker"/></svg>Worker moss</span><span class="id">T2</span></div>
+  </div></article>
+</div>
+        </div>
+      </div>
+      <span class="cursor"><svg viewBox="0 0 24 24"><path d="M5 3l14 8.2-6.3 1.5L9.4 19z"/></svg></span>
+    </div>
+    <div class="player">
+      <button class="pp" type="button" aria-label="Pause the demo"><svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.6" height="12" rx="1"/><rect x="9.4" y="2" width="3.6" height="12" rx="1"/></svg><svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11a.6.6 0 0 0 .9.5l9-5.5a.6.6 0 0 0 0-1l-9-5.5a.6.6 0 0 0-.9.5z"/></svg></button>
+      <ol class="phases">
+        <li><button class="phase" type="button"><span class="bar"></span><b><i>1</i>Ask</b><span class="cap">Tell the coordinator what you want. One project, one ongoing chat.</span></button></li>
+        <li><button class="phase" type="button"><span class="bar"></span><b><i>2</i>Delegate</b><span class="cap">It splits the work into tasks and puts a background worker on each.</span></button></li>
+        <li><button class="phase" type="button"><span class="bar"></span><b><i>3</i>Step in</b><span class="cap">A task that needs you rises to the top. Answer, and the work continues.</span></button></li>
+        <li><button class="phase" type="button"><span class="bar"></span><b><i>4</i>Review</b><span class="cap">Results come back with proof. Mark it done, or write feedback on the task.</span></button></li>
+      </ol>
+      <p class="cap-now" aria-hidden="true"></p>
+    </div>
+  </section>
+
+  <section class="section wrap" aria-labelledby="why-title">
+    <div class="section-head"><p class="kicker">Why Kemiri</p><h2 id="why-title">A little help. A bigger picture.</h2></div>
+    <ul class="versus">
+      <li class="head" aria-hidden="true"><span>The usual way</span><span class="to"><img src="/assets/logo.svg" width="18" height="24" alt="">With Kemiri</span></li>
+      <li><div><s>A tab for every agent, each with its own transcript</s></div><div class="to"><b>One chat with one coordinator</b><span>Give it a goal. It delegates the pieces to background agents, on models from your own providers.</span></div></li>
+      <li><div><s>You keep checking whether an agent is stuck</s></div><div class="to"><b>Questions and reviews come to you</b><span>Step in where your judgment matters.</span></div></li>
+      <li><div><s>You scroll logs to see what happened</s></div><div class="to"><b>Each task has a status, a report and its proof</b><span>What is happening now, what is finished, and the screenshots to show it.</span></div></li>
+      <li><div><s>A restart loses the thread</s></div><div class="to"><b>Runs resume where they stopped</b><span>Reports and artifacts stay with their tasks, ready when you are.</span></div></li>
+    </ul>
+    <p class="yours"><span>Runs on your machine</span><span>Your providers and models</span><span>Browser and Android</span><span>Open source, MIT</span></p>
+  </section>
+
+  <section class="section real wrap" aria-labelledby="real-title" style="padding-top:0">
+    <div class="section-head"><p class="kicker">The real thing</p><h2 id="real-title">Less tab juggling. More of the whole picture.</h2><p>The same tasks as a list, a board or a live graph, with the workers on them.</p></div>
+    <figure><img class="only-light" src="/assets/graph-light.webp" loading="lazy" width="1440" height="1000" alt="Kemiri’s live task graph: soft clusters of task bubbles, relationship lines, and small creatures marking active workers."><img class="only-dark" src="/assets/graph-dark.webp" loading="lazy" width="1440" height="1000" alt="Kemiri’s live task graph: soft clusters of task bubbles, relationship lines, and small creatures marking active workers."></figure>
+    <p class="real-cap" style="font-size:.85rem;color:var(--muted);text-align:center;margin-top:.9rem">Real app, synthetic demo project.</p>
+  </section>
+
+  <section id="start" class="section start wrap" aria-labelledby="start-title">
+  <div class="section-head">
+    <p class="kicker">Start on your own machine</p>
+    <h2 id="start-title">Three steps to your first task.</h2>
+    <p>Current pilot: <strong>v0.1.0-pilot.5</strong>. Linux tested, macOS and WSL experimental, no phone push yet.</p>
+  </div>
+  <ol class="steps">
+    <li class="step">
+      <div><h3>Install and start</h3>
+      <p>Read the small bootstrap before you run it. It fetches the release installer and checks its SHA-256.</p></div>
+      <div class="code"><div class="code-bar">Terminal<button class="copy" type="button" data-copy="curl -fL https://kemiri.dev/install.sh -o install.sh&#10;sh install.sh --version v0.1.0-pilot.5 --no-service&#10;kemiri start">Copy</button></div><pre><code>curl -fL https://kemiri.dev/install.sh -o install.sh
+<span class="cm"># Read install.sh before running it.</span>
 sh install.sh --version v0.1.0-pilot.5 --no-service
-kemiri start</code></pre>
-      <p class="small">You need git; install jj for isolated workers. Linux x64/arm64 and macOS arm64 use a standalone executable, with private Bun as a fallback. The installer also supplies zellij. Checksums detect corruption, not a compromised publisher. <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Full guide &amp; direct GitHub downloads</a>.</p>
-      <p class="small">Short install: <code>curl -fsSL https://kemiri.dev/install.sh | sh</code>. Use <code>kemiri</code> after installation. Existing folders and data stay put.</p>
-      <h3>Open your workbench</h3>
-      <p>In another terminal:</p>
-      <pre aria-label="Open and pair commands"><code>kemiri open
-kemiri pair</code></pre>
-      <p>Open the private pairing URL in the same browser. Then connect a provider, choose a project folder and pick a coordinator model. Keep pairing links private.</p>
-      <aside class="agent-install" aria-labelledby="agent-title">
-        <h3 id="agent-title">Already have a coding agent?</h3>
-        <p>Give it this prompt:</p>
-        <blockquote>Install Kemiri from https://github.com/MitzaCoder/kemiri. Follow docs/AGENT-INSTALL.md exactly and stop where it says to ask me.</blockquote>
-        <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/AGENT-INSTALL.md">Read the agent install guide <span aria-hidden="true">↗</span></a>
-      </aside>
-      <div class="android"><h3>Take the view with you.</h3><p><a href="https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.5/kemiri-v0.1.0-pilot.5-android-universal.apk">Download the signed Android APK</a> (Android 12+). Your phone needs your backend reachable over HTTPS; the APK is not a tunnel.</p></div>
-    </section>
-    <aside class="boundaries" aria-label="Before you begin"><strong>Personal, not sandboxed.</strong> Kemiri runs commands with your permissions and provider spending authority. Every paired device has full owner access. This is not a multi-user service. Keep the backend private.</aside>
-  </main>
-  <footer><p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p><nav aria-label="More"><a href="https://github.com/MitzaCoder/kemiri/releases">Latest release</a><a href="/privacy/">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav></footer>
+kemiri start</code></pre></div>
+    </li>
+    <li class="step">
+      <div><h3>Open and pair</h3>
+      <p>In another terminal. Open the private pairing link in the same browser, and keep it private.</p></div>
+      <div class="code"><div class="code-bar">Another terminal<button class="copy" type="button" data-copy="kemiri open&#10;kemiri pair">Copy</button></div><pre><code>kemiri open
+kemiri pair</code></pre></div>
+    </li>
+    <li class="step">
+      <div><h3>Set up once, then ask</h3>
+      <p><b>Connect a provider</b>, <b>choose a project folder</b> and <b>pick a coordinator model</b>. Then say what you want, and step in when a task asks for you.</p></div>
+      <div class="say ui" aria-hidden="true"><div class="composer"><span class="txt">Add dark mode and fix login on mobile.</span><span class="send"><svg><use href="#i-send"/></svg></span></div></div>
+    </li>
+  </ol>
+  <div class="also">
+    <div>
+      <h3>Already have a coding agent?</h3>
+      <p>Give it this prompt and let it install Kemiri for you:</p>
+      <blockquote><span>Install Kemiri from https://github.com/MitzaCoder/kemiri. Follow docs/AGENT-INSTALL.md exactly and stop where it says to ask me.</span><button class="copy" type="button" data-copy="Install Kemiri from https://github.com/MitzaCoder/kemiri. Follow docs/AGENT-INSTALL.md exactly and stop where it says to ask me.">Copy</button></blockquote>
+    </div>
+    <div>
+      <h3>Take the view with you</h3>
+      <p><a href="https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.5/kemiri-v0.1.0-pilot.5-android-universal.apk">Download the signed Android APK</a> (Android 12+). Your phone needs your backend reachable over HTTPS; the APK is not a tunnel.</p>
+    </div>
+  </div>
+  <p class="fine">You need git; install jj for isolated workers. Short install: <code>curl -fsSL https://kemiri.dev/install.sh | sh</code>. Checksums detect corruption, not a compromised publisher. <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Full guide and direct GitHub downloads</a>.</p>
+  <aside class="bounds" aria-label="Before you begin"><strong>Personal, not sandboxed.</strong> Kemiri runs commands with your permissions and provider spending authority. Every paired device has full owner access. This is not a multi-user service. Keep the backend private.</aside>
+</section>
+</main>
+<footer class="foot-site wrap">
+  <p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p>
+  <nav aria-label="More"><a href="https://github.com/MitzaCoder/kemiri/releases">Latest release</a><a href="/privacy/">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav>
+</footer>
+<script src="/home.js" defer></script>
 </body>
 </html>

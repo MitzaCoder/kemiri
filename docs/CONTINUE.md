@@ -1,5 +1,10 @@
 # Continue
 
+## T203: new kemiri.dev homepage
+
+`site/` now has the chosen homepage (self-playing demo, "usual way / with Kemiri", graph, install steps), one script
+(`home.js`) and a self-hosted font; privacy shares the stylesheet. Site check rejects off-site resources. Not pushed.
+
 ## T202: large HTML artifacts
 
 Web and Android read HTML/XHTML whole through 20 MiB, with exact-cap/overflow

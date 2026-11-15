@@ -1,10 +1,25 @@
 # kemiri.dev
 
-`site/` is a complete static site: HTML, CSS, local images, `/privacy/` (also reachable
-as `/privacy` on Pages), and `/install.sh`. No JavaScript, build, analytics, external
-fonts or CDN is needed. The hero images are exact copies of the synthetic README
-images in `docs/assets/readme/`; update both together. System light/dark preference
-selects the image and palette. The app/backend deployment is unrelated.
+`site/` is a complete static site: the homepage, `/privacy/` (also reachable as
+`/privacy` on Pages), `/install.sh`, one stylesheet (`style.css`), one script
+(`home.js`) and local assets. There is no build, analytics, CDN or external font:
+the app's font (Atkinson Hyperlegible Next, latin, OFL) is served from
+`assets/fonts/`, and the site check fails on any resource loaded from another origin.
+The app/backend deployment is unrelated.
+
+The homepage follows one made-up request ("Add dark mode and fix login on mobile.")
+through a product window that plays by itself: ask, delegate, step in, review. Under
+it sit the "usual way / with Kemiri" comparison, the real task graph and the install
+steps. `home.js` drives the demo (`STEPS` is the story, `PLAN` its timing), the
+light/dark button and the copy buttons; it stores and sends nothing. Without scripts
+the window is hidden and the four step cards, the comparison and the install steps
+still read. The system preference picks light or dark; `prefers-reduced-motion`
+starts the demo paused. The privacy page uses the same stylesheet and no script.
+
+The graph images are exact copies of the synthetic README images in
+`docs/assets/readme/`; update both together. `assets/logo.svg` is the brand master,
+and the demo's animated mascots use the geometry of `assets/brand/mascot-motion.svg`;
+tests hold both.
 
 ## Live site and owner operations
 
@@ -75,8 +90,9 @@ bun test scripts/site.test.ts
 python3 -m http.server 8080 --bind 127.0.0.1 --directory site
 ```
 
-The checker resolves local HTML links, assets and fragments without external
-network requests. Tests dry-run the bootstrap against a synthetic local release
+The checker resolves local HTML links, assets, fragments and stylesheet `url()`
+files without external network requests, and rejects scripts, styles, fonts or
+images from other origins. Tests dry-run the bootstrap against a synthetic local release
 server using a **test-only curl shim**; they check argument/version forwarding,
 exit codes, invalid/missing/mismatched checksums and temporary-file cleanup.
 No real install, service, provider account or release is used.

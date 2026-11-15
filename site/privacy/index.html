@@ -11,16 +11,17 @@
   <link rel="icon" href="/assets/favicon-16.png" type="image/png" sizes="16x16">
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top wrap">
     <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
-    <nav aria-label="Main"><a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a><a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">↗</span></a></nav>
+    <nav aria-label="Main"><a href="/#start">Install</a><a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a><a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">&nbsp;↗</span></a></nav>
   </header>
-  <main id="main" class="privacy">
-    <p class="eyebrow">Your work, on your machine</p>
+  <main id="main" class="privacy wrap">
+    <p class="kicker">Your work, on your machine</p>
     <h1>Privacy, plainly.</h1>
     <p>Kemiri is a self-hosted personal AI workbench. You run its backend on your own machine. There is no Kemiri-hosted account or central service receiving your conversations in this pilot.</p>
     <h2>The app and your providers</h2>
@@ -36,6 +37,6 @@
     <p>Email <a href="mailto:support@kemiri.dev">support@kemiri.dev</a>. Please do not send credentials, pairing links or private conversation logs.</p>
     <p><a href="/">Back to Kemiri <span aria-hidden="true">↗</span></a></p>
   </main>
-  <footer><p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p><nav aria-label="More"><a href="https://github.com/MitzaCoder/kemiri/releases">Latest release</a><a href="/privacy/" aria-current="page">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav></footer>
+  <footer class="foot-site wrap"><p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p><nav aria-label="More"><a href="https://github.com/MitzaCoder/kemiri/releases">Latest release</a><a href="/privacy/" aria-current="page">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav></footer>
 </body>
 </html>
