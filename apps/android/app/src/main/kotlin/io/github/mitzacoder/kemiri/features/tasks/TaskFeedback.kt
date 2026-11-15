@@ -26,7 +26,7 @@ internal fun TaskFeedback(entries: List<BoardFeedback>, busy: Boolean, onSetStat
                 }
                 Column(Modifier.alpha(if (entry.state == "dismissed") .55f else 1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ReportMarkdown(entry.text)
-                    entry.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = TaskType.xs, color = Jarvis.colors.fgMuted) }
+                    entry.note?.takeIf { it.isNotBlank() }?.let { ReportMarkdown(it) }
                     Text(listOfNotNull(entry.at, entry.threadId, entry.images?.takeIf { it > 0 }?.let { "$it images" }).joinToString(" · "), style = TaskType.meta, color = Jarvis.colors.fgSubtle)
                 }
             }

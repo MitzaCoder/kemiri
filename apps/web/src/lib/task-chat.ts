@@ -9,6 +9,16 @@ export function taskHref(taskId: string): string {
 	return `?task=${encodeURIComponent(taskId)}`;
 }
 
+/** A local task link, never an external URL which happens to have the same query. */
+export function taskIdFromHref(href: string, pageHref: string): string | undefined {
+	try {
+		const page = new URL(pageHref);
+		const link = new URL(href, page);
+		const id = link.searchParams.get("task");
+		return link.origin === page.origin && link.pathname === page.pathname && id !== null && /^T\d+$/.test(id) ? id : undefined;
+	} catch { return undefined; }
+}
+
 const TASK_ID = /(?<![\w/#.:-])T\d+(?![\w-])/g;
 
 /** The task IDs a text names, first mention first, each once. */

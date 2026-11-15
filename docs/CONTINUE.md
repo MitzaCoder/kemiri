@@ -1,5 +1,25 @@
 # Continue
 
+## T204: live references in task details
+
+Web Markdown links task IDs on parsed text tokens; Android RichMarkdown reuses
+TaskMentions, preserving streaming wrappers. Task prose, feedback notes, question/
+warning/decision text, timeline facts and folded details, rendered snapshots and
+task chat share the chat path. Task titles and existing relation/ref rows stay
+active. Code, raw source diffs and stripped card/Needs you/group labels stay plain.
+Task previews are new on both clients: the web reuses RefCardHost; Android uses
+ProvideTaskLinks. GitHub issue/PR and configured Jira previews remain shared;
+Q/D/artifact IDs and commit hashes have no generic chat matcher to extend.
+Proof index mwh8dzf4-5bad83600b lists 40 synthetic captures/recordings, web desktop/
+phone and emulator light/dark. Gates: isolated root 2,729; web 1,173/check/build;
+typecheck; Android 993 JVM tests (two skipped), assemble/lint (49 existing
+warnings); external-denylist/public checks pass. Owned fixture/browser/emulator
+stopped and temporary proof files cleaned. No push or main movement.
+Follow-up: both task popups now reuse the header's TaskStatusBadge (label and dot/
+pill), rather than raw status strings. Web 1,173 tests/check and Android JVM tests/
+assemble pass again. Proof index v5 replaces failure markers with all real IDs;
+new status-chip captures: mwh8yjsg-6fa0b03b7c and mwh8yjsg-eafd95dcb6.
+
 ## T203: new kemiri.dev homepage
 
 `site/` now has the chosen homepage (self-playing demo, "usual way / with Kemiri", graph, install steps), one script

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.chat.RichMarkdown
+import io.github.mitzacoder.kemiri.features.refs.refLinkedText
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskSnapshot
@@ -75,7 +76,7 @@ internal fun TaskHistory(context: ProjectScreenContext, task: BoardTask, writerN
                         LucideGlyph(TaskIcons.ChevronLeft, size = 18.dp, contentDescription = "Earlier snapshot")
                     }
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(snapshot.label, style = TextStyles.task.copy(fontWeight = FontWeight.Medium), color = colors.fg, textAlign = TextAlign.Center)
+                        ReportMarkdown(snapshot.label)
                         Text("${index + 1} of ${list.size} · ${relativeTime(snapshot.at)} · ${writerName(snapshot.by)}", style = TaskType.meta, color = colors.fgSubtle, textAlign = TextAlign.Center)
                     }
                     IconButton(onClick = { selectedSeq = list[index + 1].seq }, enabled = index < list.lastIndex) {
@@ -134,8 +135,8 @@ private fun Changes(changes: TaskChanges) {
         changes.title?.let { title ->
             Text(buildAnnotatedString {
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.fg)) { append("Title ") }
-                withStyle(SpanStyle(color = colors.fgSubtle, textDecoration = TextDecoration.LineThrough)) { append(title.from) }
-                append(" → ${title.to}")
+                withStyle(SpanStyle(color = colors.fgSubtle, textDecoration = TextDecoration.LineThrough)) { append(refLinkedText(title.from)) }
+                append(" → "); append(refLinkedText(title.to))
             }, style = TaskType.xs, color = colors.fgMuted)
         }
         changes.status?.let { status ->
@@ -187,7 +188,7 @@ private fun AsItWas(snapshot: BoardTaskSnapshot) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-            Text(snapshot.title, style = TaskType.rowTitle.copy(fontSize = TaskType.sectionTitle.fontSize), color = colors.fg)
+            Text(refLinkedText(snapshot.title), style = TaskType.rowTitle.copy(fontSize = TaskType.sectionTitle.fontSize), color = colors.fg)
             TaskStatusBadge(snapshot.status)
         }
         ReportSection.entries.forEach { section ->

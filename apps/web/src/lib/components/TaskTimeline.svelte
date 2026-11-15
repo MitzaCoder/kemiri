@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { markdownText } from '@kemiri/protocol';
+	import Markdown from './markdown/Markdown.svelte';
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
 	import FlagIcon from '@lucide/svelte/icons/flag';
@@ -113,18 +113,18 @@
 							{#if status}
 								<p class="timeline-status" aria-label={entry.label}><span>{status[0]}</span><span aria-hidden="true">→</span><span>{status[1]}</span></p>
 							{:else}
-								<p class="timeline-summary" title={entry.label}>
+								<div class="timeline-summary" title={entry.label}>
 									{#if entry.kind === 'link' && entry.ref !== undefined}
 										<a href={taskHref(entry.ref)}>{entry.label}</a>
 									{:else if entry.kind === 'worker' && entry.ref !== undefined && workerHref?.(entry.ref) !== undefined}
 										<a href={workerHref(entry.ref)}>{entry.label}</a>
-									{:else}{entry.label}{/if}
-								</p>
+									{:else}<Markdown source={entry.label} />{/if}
+								</div>
 							{/if}
 							{#if entry.detail}
 								<details class="timeline-detail">
-									<summary aria-label="Details: {timelineDetail(entry.detail)}"><span>{timelineDetail(entry.detail)}</span></summary>
-									<p>{markdownText(entry.detail)}</p>
+									<summary aria-label="Details: {timelineDetail(entry.detail)}"><div class="timeline-preview"><Markdown source={entry.detail} /></div></summary>
+									<Markdown source={entry.detail} />
 								</details>
 							{/if}
 						</div>
@@ -234,6 +234,8 @@
 	.timeline-detail summary { display: flex; align-items: baseline; gap: 0.35rem; cursor: pointer; }
 	.timeline-detail summary::before { content: '›'; flex-shrink: 0; }
 	.timeline-detail[open] summary::before { transform: rotate(90deg); }
-	.timeline-detail summary span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+	.timeline-preview { min-width: 0; max-height: 1.6em; overflow: hidden; }
+	.timeline-preview :global(.md) { font-size: inherit; line-height: inherit; }
+	.timeline-preview :global(.md > :first-child) { margin-top: 0; }
 	.timeline-detail p { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0.4rem 0; }
 </style>

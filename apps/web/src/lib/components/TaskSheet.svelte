@@ -4,6 +4,7 @@
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
+	import TaskText from './chat/TaskText.svelte';
 	import ReportSectionFreshness from './ReportSectionFreshness.svelte';
 	import ReportStaleAction from './ReportStaleAction.svelte';
 	import { reportFreshnessEnabled, emptyFinishedResults } from '#lib/report-freshness.js';
@@ -335,7 +336,7 @@
 								target="_blank"
 								rel="noopener noreferrer"
 								class="underline decoration-(--chat-border-strong) underline-offset-2 hover:decoration-current">{piece.text}</a
-							>{:else}{piece.text}{/if}{/each}</Dialog.Title
+							>{:else}<TaskText text={piece.text} />{/if}{/each}</Dialog.Title
 				>
 				{#key task.id}
 					{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} />{/if}
@@ -412,7 +413,7 @@
 											class="flex flex-col gap-1.5 rounded-xl border border-(--chat-danger)/30 px-3 py-2.5 text-task"
 											aria-label="Blocked"
 										>
-											{#if task.blockedReason}<p class="break-words text-(--chat-danger)">{task.blockedReason}</p>{/if}
+											{#if task.blockedReason}<div class="break-words text-(--chat-danger)"><Markdown source={task.blockedReason} /></div>{/if}
 											{#if blockers.length > 0}
 												<p class="flex flex-wrap items-center gap-1.5 text-xs text-(--chat-fg-muted)">
 													Waits for

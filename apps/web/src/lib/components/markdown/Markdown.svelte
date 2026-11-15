@@ -4,7 +4,6 @@
 	import { linkRefMentions } from '#lib/refs.js';
 	import CodeBlock from './CodeBlock.svelte';
 	import { useTaskLinks } from '#lib/task-links.svelte.js';
-	import { linkTaskMentions } from '#lib/task-chat.js';
 	import { overlayScrollWithin } from '#lib/scrollbars.js';
 
 	/**
@@ -21,12 +20,10 @@
 	const refLinks = useRefLinks();
 	const taskLinks = useTaskLinks();
 	const linked = $derived.by(() => {
-		const tasks = taskLinks();
-		const markdown = userMessage && tasks !== undefined ? linkTaskMentions(source, { title: tasks.title }) : source;
 		const links = refLinks()?.links;
-		return links === undefined ? markdown : linkRefMentions(markdown, links, { streaming });
+		return links === undefined ? source : linkRefMentions(source, links, { streaming });
 	});
-	const blocks = $derived(toBlocks(linked, streaming, userMessage));
+	const blocks = $derived(toBlocks(linked, streaming, userMessage, taskLinks()?.title));
 </script>
 
 <div class="md {className}" class:streaming class:md-user={userMessage} use:overlayScrollWithin={'.md-table'}>

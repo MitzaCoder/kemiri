@@ -9,8 +9,6 @@
 	import { clockTime, compactNumber, duration, fullTime } from '#lib/chat/time.js';
 	import { cacheMissDetail, cacheMissLine, turnUsageTitle } from '#lib/chat/cache.js';
 	import { groupTurnParts, turnText, type TurnPart, type TurnUsage } from '#lib/transcript.js';
-	import { linkTaskMentions } from '#lib/task-chat.js';
-	import { useTaskLinks } from '#lib/task-links.svelte.js';
 	import type { CacheMiss, MemoryScope, WorkerSummary } from '@kemiri/protocol';
 	import type { ThreadCards } from '#lib/threads.js';
 	import CallCard from './CallCard.svelte';
@@ -66,14 +64,9 @@
 		cacheMisses?: readonly CacheMiss[];
 	} = $props();
 
-	const links = useTaskLinks();
 	const text = $derived(turnText(parts));
 	const lastKey = $derived(parts.at(-1)?.key);
 	const rows = $derived(groupTurnParts(parts));
-	function mentions(markdown: string, arriving: boolean): string {
-		const current = links();
-		return current === undefined ? markdown : linkTaskMentions(markdown, { title: current.title, streaming: arriving });
-	}
 	const elapsed = $derived(timestamp !== undefined && ended !== undefined ? ended - timestamp : undefined);
 	/** The reply's time always shows; its duration, model, tokens and cost wait for a hover, a focus or a tap on the time. */
 	let metaOpen = $state(false);
@@ -119,7 +112,7 @@
 						{threadCards}
 					/>
 				{:else if row.part.type === 'text'}
-					<Markdown source={mentions(row.part.text, streaming && row.part.key === lastKey)} streaming={streaming && row.part.key === lastKey} class="my-2" />
+					<Markdown source={row.part.text} streaming={streaming && row.part.key === lastKey} class="my-2" />
 				{:else if row.part.type === 'tool'}
 					<CallCard
 						part={row.part}

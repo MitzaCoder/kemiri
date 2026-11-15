@@ -100,9 +100,11 @@ private val LocalCompactMarkdown = compositionLocalOf { false }
 
 @Composable fun RichMarkdown(source: String, modifier: Modifier = Modifier, userMessage: Boolean = false, compact: Boolean = false) {
     val document = remember(source) { parser.parse(source) }
-    CompositionLocalProvider(LocalCompactMarkdown provides compact) {
-        ProvideTextStyle(if (compact) LocalTextStyle.current.copy(fontSize = 14.sp, lineHeight = 21.sp) else LocalTextStyle.current) {
-            QuotableSelection(modifier) { Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) { children(document).forEach { MarkdownNode(it, userMessage) } } }
+    TaskMentions(source = source, userMessage = userMessage) {
+        CompositionLocalProvider(LocalCompactMarkdown provides compact) {
+            ProvideTextStyle(if (compact) LocalTextStyle.current.copy(fontSize = 14.sp, lineHeight = 21.sp) else LocalTextStyle.current) {
+                QuotableSelection(modifier) { Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) { children(document).forEach { MarkdownNode(it, userMessage) } } }
+            }
         }
     }
 }

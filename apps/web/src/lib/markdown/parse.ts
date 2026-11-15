@@ -10,6 +10,7 @@
 import DOMPurify from "dompurify";
 import { Marked, Renderer, type Token, type Tokens } from "marked";
 import remend from "remend";
+import { linkTaskMentions } from "../task-chat.ts";
 
 const renderer = {
 	// Wide tables scroll horizontally instead of stretching the chat column.
@@ -103,8 +104,8 @@ function isClosedFence(token: Tokens.Code): boolean {
 const cache = new Map<string, string>();
 const CACHE_LIMIT = 2000;
 
-function renderToken(token: Token, userMessage: boolean): string {
-	const key = `${userMessage}\u0000${token.type}\u0000${token.raw}`;
+function renderToken(token: Token, userMessage: boolean, taskMentions = false): string {
+	const key = `${userMessage}\u0000${token.type}\u0000${taskMentions ? JSON.stringify(token) : token.raw}`;
 	let html = cache.get(key);
 	if (html === undefined) {
 		html = purify((userMessage ? userMarkdown : marked).parser([token]));
@@ -112,6 +113,23 @@ function renderToken(token: Token, userMessage: boolean): string {
 		cache.set(key, html);
 	}
 	return html;
+}
+
+/** Link only parsed text, never code, destinations, HTML, images or existing link labels. */
+function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefined, streamingTail?: string): void {
+	for (const token of tokens) {
+		if (["link", "image", "code", "codespan", "html", "escape"].includes(token.type)) continue;
+		if (token.type === "table") {
+			for (const cell of [...token.header, ...token.rows.flat()]) linkTaskTokens(cell.tokens, title, streamingTail);
+		} else if (token.type === "list") {
+			for (const item of token.items) linkTaskTokens(item.tokens, title, streamingTail);
+		} else if ("tokens" in token && token.tokens !== undefined) {
+			linkTaskTokens(token.tokens, title, streamingTail);
+		} else if (token.type === "text") {
+			const linked = linkTaskMentions(token.text, { title, streaming: streamingTail !== undefined && streamingTail.endsWith(token.raw) });
+			if (linked !== token.text) token.tokens = marked.Lexer.lexInline(linked);
+		}
+	}
 }
 
 /**
@@ -122,9 +140,10 @@ function renderToken(token: Token, userMessage: boolean): string {
  * block's HTML only changes when its own source does, so earlier blocks are not
  * re-rendered as text streams in.
  */
-export function toBlocks(source: string, streaming: boolean, userMessage = false): Block[] {
+export function toBlocks(source: string, streaming: boolean, userMessage = false, taskTitle?: (id: string) => string | undefined): Block[] {
 	const text = streaming ? completeStreamingTable(remend(source, { linkMode: "text-only" })) : source;
 	const tokens = (userMessage ? userMarkdown : marked).lexer(text);
+	if (taskTitle !== undefined) linkTaskTokens(tokens, taskTitle, streaming ? source : undefined);
 	const blocks: Block[] = [];
 
 	for (const token of tokens) {
@@ -139,7 +158,7 @@ export function toBlocks(source: string, streaming: boolean, userMessage = false
 				closed: !streaming || isClosedFence(token as Tokens.Code),
 			});
 		} else {
-			blocks.push({ kind: "html", key, html: renderToken(token, userMessage) });
+			blocks.push({ kind: "html", key, html: renderToken(token, userMessage, taskTitle !== undefined) });
 		}
 	}
 	return blocks;

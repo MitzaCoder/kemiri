@@ -87,7 +87,7 @@
 				<ChevronLeftIcon />
 			</Button>
 			<div class="min-w-0 flex-1 text-center">
-				<p class="text-task font-medium break-words" data-snapshot-label>{snapshot.label}</p>
+				<div class="text-task font-medium break-words" data-snapshot-label><Markdown source={snapshot.label} /></div>
 				<p class="text-[0.6875rem] text-(--chat-fg-subtle)">
 					{index + 1} of {list.length} ·
 					<span title={exactTime(snapshot.at)}>{relativeTime(snapshot.at, Date.now())}</span>
@@ -143,10 +143,10 @@
 			{:else}
 				<div class="flex flex-col gap-2.5" data-changes>
 					{#if changes.title}
-						<p class="text-xs break-words text-(--chat-fg-muted)">
+						<div class="text-xs break-words text-(--chat-fg-muted)">
 							<span class="font-semibold text-(--chat-fg)">Title</span>
-							<span class="text-(--chat-fg-subtle) line-through">{changes.title.from}</span> → {changes.title.to}
-						</p>
+							<div class="text-(--chat-fg-subtle) line-through"><Markdown source={changes.title.from} /></div> → <Markdown source={changes.title.to} />
+						</div>
 					{/if}
 					{#if changes.status}
 						<p class="flex flex-wrap items-center gap-1.5 text-xs text-(--chat-fg-muted)">
@@ -183,10 +183,10 @@
 			{/if}
 		{:else if view === 'as-it-was'}
 			<div class="flex flex-col gap-3 rounded-xl border border-(--chat-border) px-3 py-2.5" data-as-it-was>
-				<p class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] font-medium">
-					{snapshot.title}
+				<div class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] font-medium">
+					<Markdown source={snapshot.title} />
 					<TaskStatusBadge status={snapshot.status} />
-				</p>
+				</div>
 				{#each REPORT_SECTIONS as section (section.key)}
 					{#if snapshot.report[section.key].trim().length > 0}
 						<div>

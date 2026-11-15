@@ -2871,6 +2871,35 @@ Decided with the user on 2026-11-06 (cards on 2026-11-07). Contract in `packages
   `ref-status` or `ref-details`, so only full URLs link, no state shows and cards carry only what the app knows; the
   Android app ignores all of it.
 
+### Live task references in prose (T204)
+
+Web `Markdown` and Android `RichMarkdown` apply the chat's task-mention linker to all rendered
+prose, not just chat turns. On web this happens on parsed text tokens; on Android it uses the
+existing parsed-text linkers. Code spans/blocks, images and existing Markdown links are not
+rewritten. Known `T…` IDs use the board's live title/status; missing IDs stay plain. Streaming
+mentions at the source tail still wait. Web rendering caches include the linked tokens, so a board
+refresh cannot leave stale links.
+
+Task descriptions/acceptance, report sections, feedback and handling notes,
+questions/answers/warnings, decisions and their why, timeline fact labels/details (including folded
+detail previews), snapshot labels/titles/rendered reports and task chat share this path.
+Relation/ref rows keep their existing links. Titles retain plain-text reference linking. Raw
+source-diff lines remain literal source, like code; task cards, Needs you and navigation/group
+labels keep their stripped/truncated summaries.
+
+Task previews were not previously part of the chat's external-reference cards: task IDs opened
+directly. The web `RefCardHost` now also recognises same-page task links, reusing its
+hover/focus/tap placement, keyboard handling and dialog portal. Android's shared `ProvideTaskLinks`
+owns a task-preview bottom sheet; Markdown task taps request it. Both show ID, title, status and
+Open task; explicit missing web task links say not found. Ordinary task link clicks and relation-row
+navigation are unchanged.
+
+Existing GitHub issue/PR and configured Jira references retain the same highlights and external
+previews throughout task prose. Bare question/decision IDs, artifact IDs and commit hashes have no
+generic live-reference matcher in chat, so none is invented here. Artifact/commit chat cards and
+ordinary external URLs retain their existing dedicated behavior. No protocol/backend changes or
+reference fetching are added.
+
 ### Task links and feedback
 
 Decided with the user on 2026-11-09 (decisions D23 to D25). Contract in `packages/protocol/src/board.ts`, feature

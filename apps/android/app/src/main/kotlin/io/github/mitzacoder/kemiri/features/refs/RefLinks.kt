@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.refs
 
+import io.github.mitzacoder.kemiri.features.tasks.LocalTaskLinks
+import io.github.mitzacoder.kemiri.features.tasks.TextPiece
+import io.github.mitzacoder.kemiri.features.tasks.splitTaskMentions
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -280,13 +283,20 @@ fun RefLines(refs: List<String>, modifier: Modifier = Modifier) {
 /** Plain text (a task sheet's title) with the keys and numbers the project's settings link; taps open their cards. */
 @Composable
 fun refLinkedText(text: String): AnnotatedString {
+    val tasks = LocalTaskLinks.current
     val links = LocalRefLinks.current?.links
     val styles = linkStyles(Jarvis.colors.link)
-    return remember(text, links, styles) {
+    return remember(text, links, tasks, styles) {
         buildAnnotatedString {
             for (piece in splitRefMentions(text, links)) {
                 val href = piece.href
-                if (href == null) append(piece.text) else withLink(LinkAnnotation.Url(href, styles)) { append(piece.text) }
+                if (href == null) {
+                    val pieces = splitTaskMentions(piece.text) { tasks?.knows(it) == true }
+                    for (part in pieces) when (part) {
+                        is TextPiece.Plain -> append(part.text)
+                        is TextPiece.Task -> withLink(LinkAnnotation.Clickable("task:${part.taskId}", styles) { tasks?.preview(part.taskId) }) { append(part.taskId) }
+                    }
+                } else withLink(LinkAnnotation.Url(href, styles)) { append(piece.text) }
             }
         }
     }

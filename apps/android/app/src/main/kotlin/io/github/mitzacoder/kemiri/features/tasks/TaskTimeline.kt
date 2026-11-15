@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -150,11 +151,13 @@ private fun TimelineEvent(entry: BoardTimelineEntry, writerName: (BoardWriter) -
                         Text(label, Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = TaskType.meta, color = colors.fg)
                     }
                 }
-            } else Text(entry.label, style = TaskType.xsSemibold, color = colors.fg, maxLines = if (range == null) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
+            } else ReportMarkdown(entry.label)
             entry.detail?.let { detail ->
                 var detailsOpen by rememberSaveable(entry.at, entry.label) { mutableStateOf(false) }
-                Text("${if (detailsOpen) "⌄" else "›"} ${timelineDetail(detail)}", Modifier.fillMaxWidth().semantics { stateDescription = if (detailsOpen) "Expanded" else "Collapsed" }.clickable(onClickLabel = if (detailsOpen) "Hide event details" else "Show event details") { detailsOpen = !detailsOpen },
-                    style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.fillMaxWidth().semantics { stateDescription = if (detailsOpen) "Expanded" else "Collapsed" }.clickable(onClickLabel = if (detailsOpen) "Hide event details" else "Show event details") { detailsOpen = !detailsOpen }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (detailsOpen) "⌄" else "›", style = TaskType.xs, color = colors.fgMuted)
+                    Box(Modifier.weight(1f).height(25.dp).clipToBounds()) { ReportMarkdown(detail) }
+                }
                 if (detailsOpen) ReportMarkdown(detail)
             }
         }

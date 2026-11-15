@@ -87,9 +87,9 @@
 						</p>
 					{/if}
 					{#if entry.note}
-						<p class="mt-1 border-l-2 border-(--chat-border) pl-2 text-task-sm break-words text-(--chat-fg-muted)" data-feedback-note>
-							{entry.note}
-						</p>
+						<div class="mt-1 border-l-2 border-(--chat-border) pl-2 text-task-sm break-words text-(--chat-fg-muted)" data-feedback-note>
+							<Markdown source={entry.note} />
+						</div>
 					{/if}
 				</li>
 			{/each}

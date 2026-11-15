@@ -2,7 +2,9 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { type RefDetails, refIdentity } from '@kemiri/protocol';
+	import { taskIdFromHref } from '#lib/task-chat.js';
 	import RefCard from '#lib/components/RefCard.svelte';
+	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
 	import { type CardRef, boardRefFor, cardKindWords, cardRefLabel, cardRefOf, containsTarget, placeCard, tasksNaming, visiblePart } from '#lib/ref-card.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { useTaskLinks } from '#lib/task-links.svelte.js';
@@ -36,7 +38,7 @@
 	const DETAILS_FRESH_MS = 60_000;
 	const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-	type Shown = { anchor: HTMLAnchorElement; ref: CardRef; href: string; container: HTMLElement; via: 'hover' | 'focus' | 'tap' };
+	type Shown = { anchor: HTMLAnchorElement; ref?: CardRef; taskId?: string; href: string; container: HTMLElement; via: 'hover' | 'focus' | 'tap' };
 
 	let shown = $state<Shown | undefined>(undefined);
 	/** Svelte sets a `bind:this` back to `null` when the card closes, so test with `== null`, never `=== undefined`. */
@@ -57,24 +59,24 @@
 	let refocusing: HTMLAnchorElement | undefined;
 	let frame = 0;
 
-	const identity = $derived(shown === undefined ? undefined : refIdentity(shown.ref));
+	const identity = $derived(shown?.ref === undefined ? undefined : refIdentity(shown.ref));
 	const cached = $derived(identity === undefined ? undefined : cache.get(identity));
 	const details = $derived(cached?.details ?? undefined);
 	const isLoading = $derived(identity !== undefined && loading.has(identity));
 	const status = $derived.by(() => {
-		if (shown === undefined) return undefined;
+		if (shown?.ref === undefined) return undefined;
 		const current = refLinks();
 		const boardRef = boardRefFor(shown.ref, tasks().flatMap((task) => task.refs ?? []), current?.links);
 		return boardRef === undefined ? undefined : current?.status(boardRef);
 	});
-	const naming = $derived(shown === undefined ? [] : tasksNaming(shown.ref, tasks(), refLinks()?.links));
+	const naming = $derived(shown?.ref === undefined ? [] : tasksNaming(shown.ref, tasks(), refLinks()?.links));
 	const cardHref = $derived(details?.url ?? status?.url ?? shown?.href ?? '');
 
 	function refAnchor(target: EventTarget | null): HTMLAnchorElement | undefined {
 		if (!(target instanceof Element) || target.closest('[data-ref-card]') !== null) return undefined;
 		const anchor = target.closest('a[href]');
 		if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute('data-no-ref-card')) return undefined;
-		return cardRefOf(anchor.href) === undefined ? undefined : anchor;
+		return cardRefOf(anchor.href) === undefined && taskIdFromHref(anchor.href, location.href) === undefined ? undefined : anchor;
 	}
 
 	function inCard(target: EventTarget | null): boolean {
@@ -109,7 +111,8 @@
 
 	function show(anchor: HTMLAnchorElement, via: Shown['via']): void {
 		const ref = cardRefOf(anchor.href);
-		if (ref === undefined) return;
+		const taskId = taskIdFromHref(anchor.href, location.href);
+		if (ref === undefined && taskId === undefined) return;
 		clearOpen();
 		clearClose();
 		if (shown?.anchor === anchor) {
@@ -119,10 +122,10 @@
 		release();
 		const container = anchor.closest<HTMLElement>('[data-slot="dialog-content"]') ?? document.body;
 		place = { ...place, ready: false };
-		shown = { anchor, ref, href: anchor.href, container, via };
+		shown = { anchor, ref, taskId, href: anchor.href, container, via };
 		anchor.setAttribute('aria-expanded', 'true');
 		anchor.setAttribute('aria-controls', cardId);
-		load(ref, anchor.href);
+		if (ref !== undefined) load(ref, anchor.href);
 	}
 
 	/** Gives the link back its own attributes. */
@@ -350,7 +353,7 @@
 		id={cardId}
 		data-ref-card
 		role="dialog"
-		aria-label="{cardKindWords(shown.ref, details, status)} {cardRefLabel(shown.ref)}"
+		aria-label={shown.taskId !== undefined ? `Task ${shown.taskId}` : shown.ref !== undefined ? `${cardKindWords(shown.ref, details, status)} ${cardRefLabel(shown.ref)}` : 'Reference'}
 		class="ref-card fixed z-[60] w-[22rem] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-(--chat-border) bg-popover text-popover-foreground shadow-lg ring-1 ring-black/5"
 		style="left: {place.x}px; top: {place.y}px; max-height: {place.maxHeight > 0 ? `${place.maxHeight}px` : 'calc(100dvh - 1rem)'}; visibility: {place.ready
 			? 'visible'
@@ -359,6 +362,20 @@
 	>
 		{#key shown.anchor}
 			<div class="ref-card-in" class:ref-card-ready={place.ready}>
+				{#if shown.taskId !== undefined}
+					{@const title = taskLinks()?.title(shown.taskId)}
+					{@const status = taskLinks()?.status(shown.taskId)}
+					<div class="flex flex-col gap-3 p-4" data-task-preview>
+						<div class="flex items-center justify-between gap-3"><strong class="font-mono text-(--accent-2)">{shown.taskId}</strong><button type="button" aria-label="Close preview" onclick={() => close({ focusLink: true })}>×</button></div>
+						{#if title !== undefined}
+							<p class="font-semibold">{title}</p>
+							{#if status !== undefined}
+								<TaskStatusBadge {status} class="self-start" />
+							{/if}
+							<a class="text-sm font-medium text-(--accent-2) underline" href={taskLinks()?.href(shown.taskId)} onclick={() => close()}>Open task</a>
+						{:else}<p>Task not found.</p>{/if}
+					</div>
+				{:else if shown.ref !== undefined}
 				<RefCard
 					cardRef={shown.ref}
 					href={cardHref}
@@ -369,6 +386,7 @@
 					taskHref={taskLinks()?.href}
 					onleave={() => close()}
 				/>
+				{/if}
 			</div>
 		{/key}
 	</div>

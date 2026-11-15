@@ -10,6 +10,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import io.github.mitzacoder.kemiri.features.chat.TextLinker
 import io.github.mitzacoder.kemiri.features.chat.TextLinkSpan
 import org.junit.Test
+import io.github.mitzacoder.kemiri.features.chat.taskMentionSpans
 
 class MarkdownInlineTest {
     private fun paragraph(source: String) = inline(Parser.builder().build().parse(source).firstChild)
@@ -57,5 +58,24 @@ class MarkdownInlineTest {
         val text = paragraph("Run `bun test` now")
         assertEquals("Run bun test now", text.text)
         assertEquals(listOf(4 to 12), text.getStringAnnotations(CODE_TAG, 0, text.length).map { it.start to it.end })
+    }
+
+    @Test fun taskDetailsUseChatLinksInFormattedProseButNotCodeOrExistingLinks() {
+        val opened = mutableListOf<String>()
+        val linker = TextLinker { text -> taskMentionSpans(text, known = { it == "T12" }, onPreview = opened::add) }
+        val node = Parser.builder().build().parse("**T12** and T12, `T12`, ``T12`x``, [T12](https://example.com/a_(b)), [T12][ref], T999, Q1, D1\n\n[ref]: https://example.com").firstChild
+        for (user in listOf(false, true)) {
+            val text = inline(node, listOf(linker), userMessage = user)
+            val tasks = text.getLinkAnnotations(0, text.length).mapNotNull { it.item as? LinkAnnotation.Clickable }
+            assertEquals(listOf("task:T12", "task:T12"), tasks.map { it.tag })
+            tasks.first().let { it.linkInteractionListener!!.onClick(it) }
+        }
+        assertEquals(listOf("T12", "T12"), opened)
+    }
+
+    @Test fun taskMentionOffsetsAndStreamingMatchTheChatPolicy() {
+        val spans = taskMentionSpans("T12 then T999 and T12", known = { it == "T12" }, onPreview = {})
+        assertEquals(listOf(0 to 3, 18 to 21), spans.map { it.start to it.end })
+        assertTrue(taskMentionSpans("T12", streaming = true, known = { true }, onPreview = {}).isEmpty())
     }
 }

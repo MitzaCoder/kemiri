@@ -219,6 +219,8 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
     }
 }
 
+private val LocalTaskMentionsProvided = compositionLocalOf { false }
+
 /**
  * Task mentions (`T12`) in the Markdown inside [content] as links that open the task, where the board holds it; never
  * inside code or an existing link. While a reply is still arriving ([streaming]), a task or ref mention at the very end
@@ -226,6 +228,7 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
  * `linkTaskMentions`). Without [source], every text run's last mention waits.
  */
 @Composable internal fun TaskMentions(streaming: Boolean = false, source: String? = null, userMessage: Boolean = false, content: @Composable () -> Unit) {
+    if (LocalTaskMentionsProvided.current) { content(); return }
     val links = LocalTaskLinks.current
     /** Whether a run of plain text is the end of what has arrived, where a mention may still grow. */
     fun atTail(text: String) = streaming && (source == null || source.trimEnd().endsWith(text.trimEnd()))
@@ -242,13 +245,26 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
     val style = TextLinkStyles(SpanStyle(color = if(userMessage) Jarvis.colors.fg else Jarvis.colors.accent2, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, background = Jarvis.colors.accent2.copy(alpha = .12f)))
     val linker = remember(links, streaming, source, style) {
         TextLinker { text ->
-            var at = 0
-            splitTaskMentions(text, atTail(text)) { links.knows(it) }.mapNotNull { piece ->
-                val start = at
-                at += when (piece) { is TextPiece.Plain -> piece.text.length; is TextPiece.Task -> piece.taskId.length }
-                (piece as? TextPiece.Task)?.let { TextLinkSpan(start, at, LinkAnnotation.Clickable("task:${it.taskId}", style) { _ -> links.open(it.taskId) }) }
-            }
+            taskMentionSpans(text, atTail(text), links::knows, style, links::preview)
         }
     }
-    CompositionLocalProvider(LocalTextLinkers provides outer + linker, content = content)
+    CompositionLocalProvider(LocalTaskMentionsProvided provides true, LocalTextLinkers provides outer + linker, content = content)
+}
+
+/** The same parsed-text task linker in chat and task details; Markdown owns code/link exclusions. */
+internal fun taskMentionSpans(
+    text: String,
+    streaming: Boolean = false,
+    known: (String) -> Boolean,
+    style: TextLinkStyles? = null,
+    onPreview: (String) -> Unit,
+): List<TextLinkSpan> {
+    var at = 0
+    return splitTaskMentions(text, streaming, known).mapNotNull { piece ->
+        val start = at
+        at += when (piece) { is TextPiece.Plain -> piece.text.length; is TextPiece.Task -> piece.taskId.length }
+        (piece as? TextPiece.Task)?.let { task ->
+            TextLinkSpan(start, at, LinkAnnotation.Clickable("task:${task.taskId}", style) { onPreview(task.taskId) })
+        }
+    }
 }

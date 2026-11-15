@@ -325,7 +325,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                                         Modifier.fillMaxWidth().border(1.dp, colors.danger.copy(alpha = .3f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
-                                        task.blockedReason?.takeIf { it.isNotBlank() }?.let { Text(it, style = TextStyles.task, color = colors.danger) }
+                                        task.blockedReason?.takeIf { it.isNotBlank() }?.let { ReportMarkdown(it) }
                                         if (blockers.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                                             Text("Waits for", style = TaskType.xs, color = colors.fgMuted)
                                             blockers.forEach { blocker -> TaskChip(blocker.id, onOpen = { context.openTask(blocker.id) }) }
