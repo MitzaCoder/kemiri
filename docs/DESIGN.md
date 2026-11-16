@@ -2033,6 +2033,19 @@ Status: backend, protocol, client and web UI done (milestone 2).
 
 ## Threads
 
+D89 / T222: user-facing names are **Main chat** and **background job**; code, tools
+and stored records keep `thread`, with no data migration. Feature `thread-state`
+advertises optional `ThreadSummary.state`, derived on emission, never stored, for main too.
+First match wins (D86 failure precedes questions): done → finished; stopped → stopped;
+failed → failed; openQuestions > 0 → needs_you; running or runningWorkers > 0 → working;
+otherwise → paused. Older servers omit state; clients can use the pure `threadState` fallback.
+`ProjectActivity.backgroundJobs` optionally carries `{ needsYou, working }` nonnegative
+integer counts over non-main, non-archived threads. Needs you includes failed and needs_you;
+working includes only working, never paused/finished/stopped. `backgroundJobCounts` uses
+emitted state or the fallback. Status, question and worker changes republish these counts;
+legacy `backgroundThreads` keeps its old meaning. New task activity uses job titles when
+known, IDs otherwise; main stays Coordinator. Historical actor names are not migrated.
+
 Decided with the user on 2026-11-04; contracts in `packages/protocol/src/threads.ts` and `artifacts.ts`.
 
 The user's goal: talk to one place and never worry which thread they are in. So a project has one **main** thread

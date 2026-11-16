@@ -46,6 +46,7 @@ import {
 } from "@earendil-works/pi-durable";
 import {
 	MAIN_THREAD_ID,
+ threadState,
 	THINKING_LEVELS,
 	type Board,
 	type ModelRef,
@@ -563,6 +564,7 @@ export class ThreadService {
 			id: record.id,
 			title: record.title,
 			status: record.status,
+ state: threadState({ status: record.status, openQuestions: this.#openQuestions(record.id), runningWorkers: running }),
 			main: false,
 			startedBy: record.startedBy,
 			scheduleId: record.scheduleId,
@@ -595,6 +597,7 @@ export class ThreadService {
 			id: MAIN_THREAD_ID,
 			title: project.name,
 			status,
+ state: threadState({ status, openQuestions: this.#openQuestions(MAIN_THREAD_ID), runningWorkers: running }),
 			main: true,
 			startedBy: null,
 			scheduleId: null,

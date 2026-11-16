@@ -1733,3 +1733,5 @@ export type { CacheWarmStretch } from "./conversation.ts";
 export { markdownText } from "./markdown.ts";
 
 export * from "./mcp-import.ts";
+
+export { ThreadStateSchema, threadState, backgroundJobCounts, type ThreadState } from "./threads.ts";

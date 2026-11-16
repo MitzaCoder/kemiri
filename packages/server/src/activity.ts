@@ -60,6 +60,8 @@ export function sameActivity(left: ProjectActivity, right: ProjectActivity): boo
 		left.lastReplyEntryId === right.lastReplyEntryId &&
 		(left.openQuestions ?? 0) === (right.openQuestions ?? 0) &&
 		(left.backgroundThreads ?? 0) === (right.backgroundThreads ?? 0) &&
+  (left.backgroundJobs?.needsYou ?? 0) === (right.backgroundJobs?.needsYou ?? 0) &&
+  (left.backgroundJobs?.working ?? 0) === (right.backgroundJobs?.working ?? 0) &&
 		(left.runningTool?.name ?? null) === (right.runningTool?.name ?? null) &&
 		(left.runningTool?.startedAt ?? null) === (right.runningTool?.startedAt ?? null)
 	);
@@ -111,6 +113,8 @@ function parseActivity(value: unknown): ProjectActivity | undefined {
 		typeof record.backgroundThreads === "number" && Number.isInteger(record.backgroundThreads) && record.backgroundThreads >= 0
 			? record.backgroundThreads
 			: undefined;
+ const jobs = record.backgroundJobs;
+ const backgroundJobs = jobs && Number.isInteger(jobs.needsYou) && jobs.needsYou >= 0 && Number.isInteger(jobs.working) && jobs.working >= 0 ? jobs : undefined;
 	return {
 		coordinator,
 		runningWorkers: record.runningWorkers,
@@ -119,6 +123,7 @@ function parseActivity(value: unknown): ProjectActivity | undefined {
 		runningTool: null,
 		openQuestions,
 		...(backgroundThreads === undefined ? {} : { backgroundThreads }),
+  ...(backgroundJobs === undefined ? {} : { backgroundJobs }),
 	};
 }
 
@@ -287,6 +292,7 @@ export class ProjectActivityService {
 	#runningWorkers: number;
 	#openQuestions: number;
 	#backgroundThreads: number;
+ #backgroundJobs: NonNullable<ProjectActivity["backgroundJobs"]>;
 	#view: ConversationView | undefined;
 	#signal = "";
 	#recovered: { at: string; id: number; entry: EntryRecord } | undefined;
@@ -311,6 +317,7 @@ export class ProjectActivityService {
 		this.#runningWorkers = options.initial.runningWorkers;
 		this.#openQuestions = options.initial.openQuestions ?? 0;
 		this.#backgroundThreads = options.initial.backgroundThreads ?? 0;
+ this.#backgroundJobs = options.initial.backgroundJobs ?? { needsYou: 0, working: 0 };
 	}
 
 	get current(): ProjectActivity {
@@ -375,6 +382,12 @@ export class ProjectActivityService {
 		this.#publish();
 	}
 
+ setBackgroundJobs(counts: NonNullable<ProjectActivity["backgroundJobs"]>): void {
+  if (this.#stopped || (counts.needsYou === this.#backgroundJobs.needsYou && counts.working === this.#backgroundJobs.working)) return;
+  this.#backgroundJobs = { ...counts };
+  this.#publish();
+ }
+
 	async stop(): Promise<void> {
 		if (this.#stopped) return;
 		this.#stopped = true;
@@ -404,6 +417,7 @@ export class ProjectActivityService {
 			runningTool,
 			openQuestions: this.#openQuestions,
 			backgroundThreads: this.#backgroundThreads,
+ backgroundJobs: this.#backgroundJobs,
 		};
 	}
 

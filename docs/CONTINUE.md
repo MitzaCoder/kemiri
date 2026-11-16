@@ -1,5 +1,17 @@
 # Continue
 
+## T222: background-job states (server)
+
+Feature `thread-state` adds optional derived `ThreadSummary.state` (also main) and
+`ProjectActivity.backgroundJobs: { needsYou, working }`. Failures precede questions
+and count as needsYou; paused jobs do not count. Legacy backgroundThreads is unchanged.
+Board actor titles come from runtime-injected `threadTitle` lookup; stored names stay.
+Android models regenerated; both Kotlin compilation tasks pass without client edits.
+Checks: isolated root 2,898 tests; web 1,263 tests and zero-diagnostic check;
+root typecheck, model --check and external-denylist/Gitleaks pass. An activity
+persistence test caught JSON field order drift; fixed before the clean full run.
+No UI change, migration, push or bookmark movement.
+
 ## T217 / D88: Android artifact review passes
 
 Android now collects HTML selection/block comments and native Markdown/text/Source

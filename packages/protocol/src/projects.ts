@@ -132,6 +132,10 @@ export const ProjectActivitySchema = Type.Object({
 			"ISO 8601, when the coordinator last finished an answer; clients compare it with when the user last looked.",
 	}),
 	lastReplyEntryId: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+ backgroundJobs: Type.Optional(Type.Object({
+  needsYou: Type.Integer({ minimum: 0 }),
+  working: Type.Integer({ minimum: 0 }),
+ }, { description: "Unarchived background jobs needing the user (including failures) or working; absent from older servers." })),
 	backgroundThreads: Type.Optional(
 		Type.Integer({
 			minimum: 0,
@@ -379,12 +383,13 @@ export const HARNESS_FEATURES = [
  "mcp-servers",
  "project-skills",
  "user-settings",
+ "thread-state",
 ] as const;
 export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
 /** Missing hello.features is never evidence of device-auth support. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1",);
+	(feature) => feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1",);
 
 export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("projects"),
@@ -445,6 +450,7 @@ export const HarnessFeatureSchema = Type.Union([
  Type.Literal("mcp-servers"),
  Type.Literal("project-skills"),
  Type.Literal("user-settings"),
+ Type.Literal("thread-state"),
 ]);
 export type HarnessFeatureValue = Static<typeof HarnessFeatureSchema>;
 

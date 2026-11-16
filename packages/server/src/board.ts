@@ -424,7 +424,7 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 }
 
 /** Task-linked coordinator actions imply activity for the rest of this turn, not ownership. */
-export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId, conversationId: ConversationId, threadId: string, taskId: string, at: string): Promise<void> {
+export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId, conversationId: ConversationId, threadId: string, taskId: string, at: string, threadTitle?: string): Promise<void> {
  const live = await tx.doc(LiveDoc, conversationId);
  if (!live.run || live.run.afterRun) return;
  const state = await openBoard(tx, mainId);
@@ -434,7 +434,7 @@ export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId
  const id = `${threadId}:${conversationId}:${runId}`;
  const tracking = activityTracking(state, taskId);
  if (tracking.sources[id]?.state === "running") return;
- tracking.sources[id] = { actor: { id, kind: threadId === "main" ? "coordinator" : "thread", name: threadId === "main" ? "Coordinator" : threadId, threadId, conversationId, runId }, state: "running", since: at, title: task.title };
+ tracking.sources[id] = { actor: { id, kind: threadId === "main" ? "coordinator" : "thread", name: threadId === "main" ? "Coordinator" : (threadTitle ?? threadId), threadId, conversationId, runId }, state: "running", since: at, title: task.title };
  if (threadId !== "main") recordTimelineRun(await openTaskHistory(tx, mainId, taskId), task, tracking.sources[id]!.actor, "running", at, task.title);
 }
 
@@ -1986,6 +1986,7 @@ export type BoardServiceOptions = {
  taskState?: boolean;
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
+ threadTitle?: (threadId: string) => Promise<string | undefined>;
 	threadIsLive?: (threadId: string) => Promise<boolean>;
 	reportTimings?: { trailingMs?: number; maxBurstMs?: number; ageMs?: number; sweepMs?: number; maxTokens?: number };
 	/** Called after an input reached a background thread, so a finished or stopped one counts as working again. */
@@ -2348,9 +2349,10 @@ export class BoardService {
   focusTaskId?: string | undefined,
 	): Promise<T> {
   const conversation = focusTaskId && by.author === "coordinator" ? await this.#conversationOf(by.threadId) : undefined;
+  const threadTitle = await this.#options.threadTitle?.(by.threadId ?? "main");
   return commit(async tx => {
    const result = await this.#change(tx, by, key, change);
-   if (focusTaskId && conversation) await inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, by.threadId ?? "main", focusTaskId, this.#iso());
+   if (focusTaskId && conversation) await inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, by.threadId ?? "main", focusTaskId, this.#iso(), threadTitle);
    return result;
   });
 	}
@@ -2365,8 +2367,9 @@ export class BoardService {
 		key: string,
 	): Promise<BoardTask> {
   const conversation = input.by.author === "coordinator" ? await this.#conversationOf(input.by.threadId) : undefined;
+  const threadTitle = await this.#options.threadTitle?.(input.by.threadId ?? "main");
   return commit(async tx => {
-   if (conversation) await inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, this.#iso());
+   if (conversation) await inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, this.#iso(), threadTitle);
    return writeReportIn(tx, this.#mainId, input, key, this.#iso());
   });
 	}
@@ -2602,6 +2605,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  }
 
  async #updateTaskFocus(conversationId: number, threadId: string, live: Readonly<LiveState> | undefined | null): Promise<void> {
+  const threadTitle = await this.#options.threadTitle?.(threadId);
   const taskIds = new Set<string>();
   const run = live?.run?.afterRun ? undefined : live?.run;
   const runId = run ? String(run.first ?? run.taskId) : undefined;
@@ -2643,7 +2647,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    for (const task of state.tasks.filter(task => taskIds.has(task.id))) {
     const tracking = activityTracking(state, task.id);
     if (tracking.sources[id]?.state === "running") continue;
-    tracking.sources[id] = { actor: { id, kind: threadId === "main" ? "coordinator" : "thread", name: threadId === "main" ? "Coordinator" : threadId, threadId, conversationId, runId }, state: "running", since: at, title: task.title };
+    tracking.sources[id] = { actor: { id, kind: threadId === "main" ? "coordinator" : "thread", name: threadId === "main" ? "Coordinator" : (threadTitle ?? threadId), threadId, conversationId, runId }, state: "running", since: at, title: task.title };
    }
    await this.#syncThreadTimeline(tx, state, threadRunsBefore);
   }, BACKGROUND_CONTEXT);

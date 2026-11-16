@@ -1,3 +1,4 @@
+import { backgroundJobCounts } from "@kemiri/protocol";
 import type { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
 import type { SkillRole, ProjectSkill } from "@kemiri/protocol";
@@ -1265,6 +1266,7 @@ export class ProjectManager {
    taskState: this.#taskState,
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
+			threadTitle: async (id) => (await threads.record(id))?.title,
 			threadIsLive: async (id) => {
 				if (id === "main") return true;
 				const record = await threads.record(id);
@@ -1580,7 +1582,7 @@ export class ProjectManager {
 		const backgroundThreads = await threads.backgroundCount();
 		const activity = new ProjectActivityService({
 			conversation,
-			initial: { ...initialActivity, runningWorkers, openQuestions, backgroundThreads },
+			initial: { ...initialActivity, runningWorkers, openQuestions, backgroundThreads, backgroundJobs: backgroundJobCounts(await threads.list(false)) },
 			...(this.#now === undefined ? {} : { now: this.#now }),
 			onChange: (next) => {
 				this.#activities.set(project.id, next);
@@ -1634,6 +1636,7 @@ export class ProjectManager {
 				void (async () => {
 					const list = await threads.list(false);
 					activity.setBackgroundThreads(await threads.backgroundCount());
+ activity.setBackgroundJobs(backgroundJobCounts(list));
 					updateAttention(threadAttention(list));
 					work.update({ runningThreads: list.filter((thread) => !thread.main && thread.status === "running").length });
 					const encoded = JSON.stringify(list);

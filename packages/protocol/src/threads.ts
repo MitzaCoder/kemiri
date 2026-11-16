@@ -43,6 +43,12 @@ export const ThreadStatusSchema = Type.Union([
 ]);
 export type ThreadStatus = Static<typeof ThreadStatusSchema>;
 
+export const ThreadStateSchema = Type.Union([
+ Type.Literal("needs_you"), Type.Literal("working"), Type.Literal("paused"),
+ Type.Literal("failed"), Type.Literal("finished"), Type.Literal("stopped"),
+]);
+export type ThreadState = Static<typeof ThreadStateSchema>;
+
 export const ThreadStartedBySchema = Type.Union([Type.Literal("main"), Type.Literal("schedule"), Type.Literal("user")]);
 export type ThreadStartedBy = Static<typeof ThreadStartedBySchema>;
 
@@ -50,6 +56,7 @@ export const ThreadSummarySchema = Type.Object({
 	id: Type.String({ minLength: 1, description: 'Unique in the project; "main" is the main thread.' }),
 	title: Type.String(),
 	status: ThreadStatusSchema,
+ state: Type.Optional({ ...ThreadStateSchema, description: "What the user reads, derived at emission, never stored; absent from older servers." }),
 	main: Type.Boolean(),
 	startedBy: Type.Union([ThreadStartedBySchema, Type.Null()], { description: "Null for main." }),
 	scheduleId: Type.Union([Type.String(), Type.Null()]),
@@ -140,3 +147,25 @@ export const ThreadsStateEventSchema = Type.Object({
 	threads: Type.Array(ThreadSummarySchema),
 });
 export type ThreadsStateEvent = Static<typeof ThreadsStateEventSchema>;
+
+/** First match wins: terminal status, failure, question, live work, then pause. */
+export function threadState(t: Pick<ThreadSummary, "status" | "openQuestions" | "runningWorkers">): ThreadState {
+ if (t.status === "done") return "finished";
+ if (t.status === "stopped") return "stopped";
+ if (t.status === "failed") return "failed";
+ if (t.openQuestions > 0) return "needs_you";
+ if (t.status === "running" || t.runningWorkers > 0) return "working";
+ return "paused";
+}
+
+/** Counts only unarchived background jobs; a failure also needs the user. */
+export function backgroundJobCounts(threads: readonly ThreadSummary[], _now?: number): { needsYou: number; working: number } {
+ const counts = { needsYou: 0, working: 0 };
+ for (const t of threads) {
+  if (t.main || t.archived) continue;
+  const state = t.state ?? threadState(t);
+  if (state === "needs_you" || state === "failed") counts.needsYou++;
+  else if (state === "working") counts.working++;
+ }
+ return counts;
+}

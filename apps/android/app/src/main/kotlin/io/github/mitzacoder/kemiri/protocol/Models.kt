@@ -1030,9 +1030,16 @@ data class ProjectActivity(
     val `runningWorkers`: Long,
     val `lastReplyAt`: String?,
     val `lastReplyEntryId`: Long?,
+    val `backgroundJobs`: ProjectActivityBackgroundJobs? = null,
     val `backgroundThreads`: Long? = null,
     val `openQuestions`: Long? = null,
     val `runningTool`: ProjectRunningTool? = null
+)
+
+@Serializable
+data class ProjectActivityBackgroundJobs(
+    val `needsYou`: Long,
+    val `working`: Long
 )
 
 @Serializable
@@ -1654,6 +1661,7 @@ data class ThreadSummary(
     val `id`: String,
     val `title`: String,
     val `status`: String,
+    val `state`: String? = null,
     val `main`: Boolean,
     val `startedBy`: String?,
     val `scheduleId`: String?,

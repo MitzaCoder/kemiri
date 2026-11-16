@@ -279,11 +279,12 @@ describe("background threads", () => {
 
 		const list = await threads(client, projectId);
 		expect(list.map((entry) => entry.id)).toEqual(["main", "jira-run"]);
-		expect(list[0]).toMatchObject({ main: true, startedBy: null, status: "idle" });
+		expect(list[0]).toMatchObject({ main: true, startedBy: null, status: "idle", state: "paused" });
 		const record = list[1]!;
 		expect(record).toMatchObject({
 			title: "Jira run",
 			status: "done",
+ state: "finished",
 			main: false,
 			startedBy: "main",
 			scheduleId: null,
@@ -335,7 +336,7 @@ describe("background threads", () => {
 			(message) =>
 				message.type === "threads.state" &&
 				message.projectId === projectId &&
-				message.threads.some((entry) => entry.id === "jira-run" && entry.status === "done"),
+				message.threads.some((entry) => entry.id === "jira-run" && entry.status === "done" && entry.state === "finished"),
 		);
 		expect(pushed.type).toBe("threads.state");
 	});
@@ -625,14 +626,15 @@ describe("background threads", () => {
 	threadTest("lets threads claim tasks with a revision check and routes a question's answer to the thread that asked", async () => {
 		const test = await setup({ boardEditDebounceMs: 60_000 });
 		let taskRevision = 0;
-		script(test, (turn) => {
+ const titleGate = deferredGate();
+		script(test, async (turn) => {
 			if (turn.who === "thread" && turn.text === THREAD_BRIEF) {
 				return call("board", { action: "claim", id: "T1", expectedRevision: taskRevision });
 			}
 			if (turn.who === "thread" && turn.toolName === "board" && turn.text.includes("is yours")) {
-				return call("board", { action: "ask", text: "Close stale tickets?", taskId: "T1" });
+				return call("board", { action: "ask", text: "Close stale tickets?", taskId: "T1", blocksWork: false });
 			}
-			if (turn.who === "thread" && turn.toolName === "board") return fauxAssistantMessage("Asked; carrying on.");
+			if (turn.who === "thread" && turn.toolName === "board") { await hold(titleGate.promise, turn.signal); return fauxAssistantMessage("Asked; carrying on."); }
 			if (turn.who === "thread" && turn.text.startsWith("[board] The user answered")) return fauxAssistantMessage("Got the answer.");
 			if (turn.who === "main" && turn.text === "Claim T1.") {
 				return call("board", { action: "claim", id: "T1", expectedRevision: taskRevision + 1 });
@@ -654,7 +656,11 @@ describe("background threads", () => {
 			if (response.type !== "board.get") throw new Error(JSON.stringify(response));
 			return response.board;
 		};
-		await until(async () => (await board()).questions.length === 1);
+		await until(async () => (await board()).tasks.find(task => task.id === "T1")?.activity?.actor?.name === "Jira run");
+ expect((await board()).tasks.find(task => task.id === "T1")?.activity?.text).toContain("Jira run");
+ titleGate.release();
+ await until(async () => (await board()).questions.length === 1);
+ await client.waitFor(message => message.type === "project.state" && message.project.id === projectId && message.project.activity?.backgroundJobs?.needsYou === 1);
 		const current = await board();
 		expect(current.tasks[0]?.ownerThreadId).toBe("jira-run");
 		const question = current.questions[0]!;
@@ -672,6 +678,7 @@ describe("background threads", () => {
 		expect(refused.text).toContain('claimed by thread "jira-run"');
 
 		// The user's answer goes to the thread that asked, not to main.
+ const beforeAnswer = client.messages.length;
 		const answered = await client.request({
 			type: "board.question.answer",
 			projectId,
@@ -680,6 +687,7 @@ describe("background threads", () => {
 			answer: "Yes, close them.",
 		});
 		expect(answered.type).toBe("board.question.answer");
+ await until(() => client.messages.slice(beforeAnswer).some(message => message.type === "project.state" && message.project.id === projectId && message.project.activity?.openQuestions === 0 && message.project.activity?.backgroundJobs?.needsYou === 0));
 		const threadView = new ViewClient(client);
 		await threadView.start(projectId, { threadId: "jira-run" });
 		await threadView.waitForView((value) => answeredAfter(value, "[board] The user answered Q1"));
@@ -708,6 +716,8 @@ describe("background threads", () => {
 		await submit(client, projectId, "Start the thread.");
 		await until(async () => (await thread(client, projectId, "jira-run")) !== undefined);
 		await until(async () => (await workers(client, projectId, "jira-run")).workers[0]?.status === "running");
+ await client.waitFor(message => message.type === "threads.state" && message.projectId === projectId && message.threads.some(t => t.id === "jira-run" && t.runningWorkers === 1 && t.state === "working"));
+ await client.waitFor(message => message.type === "project.state" && message.project.id === projectId && message.project.activity?.backgroundJobs?.working === 1);
 
 		const refused = await client.request({ type: "threads.archive", projectId, threadId: "jira-run", archived: true });
 		expect(errorOf(refused).code).toBe("bad_request");
@@ -723,9 +733,11 @@ describe("background threads", () => {
 		expect(errorOf(await client.request({ type: "threads.stop", projectId, threadId: "main" })).code).toBe("bad_request");
 		expect(errorOf(await client.request({ type: "threads.stop", projectId, threadId: "nope" })).code).toBe("unknown_thread");
 
+		const beforeStop = client.messages.length;
 		const stopped = await client.request({ type: "threads.stop", projectId, threadId: "jira-run" });
 		if (stopped.type !== "threads.stop") throw new Error(JSON.stringify(stopped));
 		expect(stopped.thread.status).toBe("stopped");
+ await until(() => client.messages.slice(beforeStop).some(message => message.type === "project.state" && message.project.id === projectId && message.project.activity?.backgroundJobs?.working === 0));
 		expect((await workers(client, projectId, "jira-run")).workers[0]?.status).toBe("stopped");
 		const board = await client.request({ type: "board.get", projectId });
 		if (board.type !== "board.get") throw new Error(JSON.stringify(board));
