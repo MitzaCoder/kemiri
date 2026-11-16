@@ -1,5 +1,22 @@
 # Continue
 
+## T223: web conversation title switcher
+
+The chat title now opens one live Main chat/background-jobs menu: desktop popover,
+phone bottom sheet. Rows share phase-1 state order, lines, badges, current markers
+and the 24-hour Finished fold. Alt+J opens it; arrows/Home/End, Enter and Escape work
+with focus return. Needs-you/working chips stay beside the title (wrap on phones).
+All background jobs opens the existing panel; its old header/overflow action is gone.
+Normal links push history; current rows close only. No threads feature means plain
+title. Android is unchanged. T219 snapshots remain intact: runtime proof follows
+Main chat → Photo library audit → Catalogue rework → Back twice, restoring the
+open panel and exact transcript scroll. Cold main/job links also exercised.
+Checks: isolated root 2,914 tests; web 1,279 tests, zero-diagnostic check/build;
+root typecheck and external-denylist/public checks pass. T223 has 24 final screenshots
+(phase-1 before and after, desktop/phone, light/dark) and recording
+mwjwu1gi-6432f293f7. Before is 0ea02e57 in a temporary workspace; both use the same
+isolated synthetic demo. No push, deploy, bookmark movement or real project data.
+
 ## T222: Android background jobs, phase 1 (D89)
 
 Android calls the coordinator Main chat and child conversations background jobs.

@@ -16,9 +16,9 @@ describe("header-only conversation panels", () => {
 		expect(sidebar).toContain('aria-label="Close the sidebar"');
 	});
 
-	test("main and thread chats keep all panel toggles in both header presentations", () => {
+	test("main and thread chats keep panel toggles, with background jobs reached through the title", () => {
 		const chat = component("ProjectChat");
-		for (const panel of ["board", "background", "info", "memory"]) {
+		for (const panel of ["board", "info", "memory"]) {
 			expect(chat).toContain(`onclick: () => toggleSidebar('${panel}')`);
 			expect(chat).toContain(`pressed: sidebarOpen && sidebarTab === '${panel}'`);
 		}
@@ -27,7 +27,8 @@ describe("header-only conversation panels", () => {
 		expect(chat).toContain("shownHeaderActions.menu as action");
 		expect(chat).toContain("if (sidebarOpen && sidebarTab === target)");
 		expect(chat).toContain("count: questionBadgeText(questionsWaiting)");
-		expect(chat).toContain("${jobCounts.needsYou} needs you, ${jobCounts.working} working");
+		expect(chat).toContain("counts={jobCounts}");
+		expect(chat).toContain("sidebarTab = 'background'; sidebarOpen = true;");
 		expect(chat).toContain("{ background: true }");
 	});
 

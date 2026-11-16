@@ -2044,8 +2044,8 @@ You are here. Header and project sidebar use needs-you (including failures) and
 working counts, never a count of merely unfinished jobs. Older servers derive states
 and header counts locally; the project sidebar falls back to “N background jobs”.
 Start cards always break folded transcript steps; completion/failure cards show the
-same title/badge/Open shape and keep completion artifacts. No title switcher or job
-page band yet. `packages/server/scripts/background-jobs-demo.ts` starts an isolated
+same title/badge/Open shape and keep completion artifacts. Web phase 2 (T223) adds
+the title switcher described below; the job page band is still pending. `packages/server/scripts/background-jobs-demo.ts` starts an isolated
 synthetic backend with all six states and an old finished job; JOBS_WEB_ORIGIN and
 JOBS_DEMO_OUTPUT select the frontend origin and connection JSON output. Feature `thread-state`
 advertises optional `ThreadSummary.state`, derived on emission, never stored, for main too.
@@ -2103,9 +2103,16 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   prefabricated), with its model and thinking level per schedule.
 - **In the app.** Everything a thread does shows in main as compact cards (started, live status, needs you, finished
   with its summary and artifacts). Open questions from every thread sit above main's composer and the answer goes to
-  the thread that asked; notifications open main with the card highlighted. A Background tab in the right sidebar
-  lists the threads; each can be opened (a full chat you may type into). The left sidebar keeps one row per project
-  with a "2 in background" note.
+  the thread that asked; notifications open main with the card highlighted. On web, the title is a menu button:
+  project name · Main chat, or the job title and state badge. Needs-you and working chips stay visible on phones
+  (wrapping below the title when narrow). Alt+J opens it; arrows/Home/End move, Enter opens, Escape closes and
+  returns focus. Desktop/tablet uses an anchored popover; below 640 px it is a bottom sheet. Both conversations
+  show the same live list: Main chat first with its explanation, Background jobs in state order with their shared
+  line/badge and You are here, then old Finished/Stopped behind Finished (N). All background jobs opens the
+  existing right-sidebar panel; there is no separate Background jobs header action or overflow row. Choosing
+  another conversation pushes normal history; choosing the current row only closes. T219 snapshots restore
+  the Main chat's panels and sensible scroll on Back; cold links still work. Without the threads feature the
+  title stays plain. The left sidebar keeps one project row with needs-you/working counts when available.
 
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 

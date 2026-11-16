@@ -3,7 +3,6 @@
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
-	import LayersIcon from '@lucide/svelte/icons/layers';
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import BellOffIcon from '@lucide/svelte/icons/bell-off';
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
@@ -20,7 +19,7 @@
 	import BoardPanel from '#lib/components/BoardPanel.svelte';
 	import BackgroundPanel from '#lib/components/BackgroundPanel.svelte';
 	import ArtifactStrip from '#lib/components/artifacts/ArtifactStrip.svelte';
-	import ThreadStatusBadge from '#lib/components/chat/ThreadStatusBadge.svelte';
+	import ConversationSwitcher from './ConversationSwitcher.svelte';
 	import BoardQuestionPin from '#lib/components/BoardQuestionPin.svelte';
 	import TaskCloseDialog from '#lib/components/TaskCloseDialog.svelte';
 	import TaskSheet from '#lib/components/TaskSheet.svelte';
@@ -295,19 +294,6 @@
 				primary: true,
 				pressed: sidebarOpen && sidebarTab === 'board',
 				onclick: () => toggleSidebar('board')
-			});
-		}
-		if (supportsThreads) {
-			actions.push({
-				id: 'background',
-				kind: 'tab',
-				name: `Background jobs: ${jobCounts.needsYou} needs you, ${jobCounts.working} working`,
-				label: 'Background jobs',
-				icon: LayersIcon,
-				count: undefined,
-				tone: 'accent',
-				pressed: sidebarOpen && sidebarTab === 'background',
-				onclick: () => toggleSidebar('background')
 			});
 		}
 		if (backend.supports('context')) {
@@ -878,7 +864,7 @@
 			<header
 				class="relative z-10 flex {CHAT_COLUMN_CLASS} shrink-0 flex-col gap-0.5 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 sm:px-3"
 			>
-				<div class="flex h-12 min-w-0 items-center gap-1" bind:this={headerRow}>
+				<div class="flex min-h-12 min-w-0 items-center gap-1 sm:h-12" bind:this={headerRow}>
 					<ProjectsMenuButton />
 					{#if isThread}
 						<Button
@@ -891,19 +877,11 @@
 						>
 							<ArrowLeftIcon />
 						</Button>
-						<span class="thread-icon hidden size-7 shrink-0 place-items-center rounded-lg sm:grid" aria-hidden="true">
-							<LayersIcon class="size-3.5" />
-						</span>
-						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">
-							{thread?.title || threadId}
-						</h1>
-						{#if thread}
-							<ThreadStatusBadge {thread} class="shrink-0" />
-						{/if}
+					{/if}
+					{#if supportsThreads}
+						<ConversationSwitcher projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
 					{:else}
-						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">
-							{project?.name ?? 'Project'}
-						</h1>
+						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
 					{#each shownTabActions as action (action.id)}
 						{@render headerButton(action)}
@@ -1201,11 +1179,6 @@
 	{/if}
 
 <style>
-	.thread-icon {
-		color: var(--primary);
-		background: color-mix(in oklab, var(--primary) 12%, transparent);
-	}
-
 	/* Scoped to panel actions: utility toggles retain their own pressed state. */
 	:global(.header-panel-action) {
 		color: var(--chat-fg-muted);
