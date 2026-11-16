@@ -91,15 +91,15 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
         }
     }
 
-    SettingsSectionPage("Coordinator", "The model this project's main agent runs on.", SettingsIcon.Cpu) {
+    SettingsSectionPage("Main chat", "The model Main chat runs on.", SettingsIcon.Cpu) {
         if (project.coordinator.model == null && pendingModel == null) ToneBanner(BannerTone.Warning) {
             Text("This project has no coordinator model, so it cannot start a conversation. Choose one below.", style = MaterialTheme.typography.bodySmall)
         }
         SettingsGroup(title = "Model") {
             SettingsRow(
-                "Coordinator model", hint = "Type to search every model this backend offers.", status = modelSave,
+                "Main chat model", hint = "Type to search every model this backend offers.", status = modelSave,
                 onRetry = { pickModel(pendingModel ?: modelValue) },
-                learn = { Text("There are no model defaults: every project names its own coordinator. Workers and background threads pick their own models; see Workers.") },
+                learn = { Text("There are no model defaults: every project names its own coordinator. Workers and background jobs pick their own models; see Workers.") },
                 below = {
                     if (info != null) {
                         @OptIn(ExperimentalLayoutApi::class)
@@ -117,7 +117,7 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
                 },
             ) {
                 Combobox(
-                    options, modelValue, ::pickModel, "Coordinator model",
+                    options, modelValue, ::pickModel, "Main chat model",
                     placeholder = if (models.isEmpty()) "Loading models…" else "Choose a model…", searchPlaceholder = "Search models or providers…",
                     emptyText = "No model matches.", enabled = models.isNotEmpty(), invalid = modelSave.status == SaveStatus.Failed,
                 )

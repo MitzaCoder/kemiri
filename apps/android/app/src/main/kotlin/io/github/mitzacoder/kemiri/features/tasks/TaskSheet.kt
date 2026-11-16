@@ -75,7 +75,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * `TaskSheet.svelte`): the whole screen on a phone, a wide panel from the side on a tablet. The Dashboard leads with
  * questions, report, feedback and files in one column, with sticky section navigation,
  * followed by folded history and brief. The user closes the task from here (Done, Drop, Reopen)
- * and talks about it in the reply box, which sends to main's conversation with the task's ID, also from a thread's
+ * and talks about it in the reply box, which sends to Main chat's conversation with the task's ID, also from a thread's
  * page. HarnessApp shows it; dismissing goes back.
  */
 @Composable

@@ -20,7 +20,7 @@ fun projectAttentionActions(project: ProjectSummary, board: Board? = null): List
         if (tasks.isNotEmpty()) add(AttentionAction(AttentionKind.Task, tasks.size.toLong(), "${tasks.size} need you", tasks.first().id))
         val loose = looseWaiting(board)
         if (loose.isNotEmpty()) add(AttentionAction(AttentionKind.Question, loose.size.toLong(), "${loose.size} question${if (loose.size == 1) "" else "s"}"))
-        if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, "Coordinator failed"))
+        if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, "Main chat failed"))
         return@buildList
     }
     if (project.archived == true) return@buildList
@@ -29,11 +29,11 @@ fun projectAttentionActions(project: ProjectSummary, board: Board? = null): List
     if (questions > 0) add(AttentionAction(AttentionKind.Question, questions, "$questions question${if (questions == 1L) "" else "s"}", summary?.questionTaskId))
     val warnings = summary?.warnings ?: 0
     if (warnings > 0) add(AttentionAction(AttentionKind.Warning, warnings, "$warnings warning${if (warnings == 1L) "" else "s"}", summary?.warningTaskId))
-    if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, if (project.state == "failed") "Project failed" else "Coordinator failed"))
+    if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, if (project.state == "failed") "Project failed" else "Main chat failed"))
     val workers = summary?.failedWorkers ?: 0
     if (workers > 0) add(AttentionAction(AttentionKind.Worker, workers, if (workers == 1L) "Worker failed" else "$workers workers failed", summary?.failedWorkerTaskId))
     val threads = summary?.failedThreads ?: 0
-    if (threads > 0) add(AttentionAction(AttentionKind.Thread, threads, if (threads == 1L) "Thread failed" else "$threads threads failed", threadId = summary?.failedThreadId))
+    if (threads > 0) add(AttentionAction(AttentionKind.Thread, threads, if (threads == 1L) "Background job failed" else "$threads background jobs failed", threadId = summary?.failedThreadId))
     val reviews = summary?.reviewTasks ?: 0
     if (reviews > 0) add(AttentionAction(AttentionKind.Review, reviews, "$reviews to review", summary?.reviewTaskId))
 }

@@ -17,7 +17,7 @@ internal fun composerControlLayout(availableDp: Float, fontScale: Float = 1f): C
     return ComposerControlLayout(model,effort,worker,false)
 }
 internal fun composerControlDescription(label: String, provider: String?, modelId: String?, worker: Boolean, thinking: String?): String =
-    "${if(worker) "Worker" else "Coordinator"} model: $label" +
+    "${if(worker) "Worker" else "Main chat"} model: $label" +
         (if(modelId == null) "; using defaults" else "; ${provider.orEmpty()}/$modelId") +
         "; thinking: ${thinking ?: "model default"}"
 /** Below this the controls sit in one row: the model chip shows its whole name or its icon, and the thinking and worker chips are icons (web's phone composer). */

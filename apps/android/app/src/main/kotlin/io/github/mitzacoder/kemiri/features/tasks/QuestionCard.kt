@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
  * goes on the revision the board holds now; when the question moved on meanwhile the card says so and keeps what was
  * typed. A warning looks apart and has no options: the user acknowledges it, with a note if they like.
  *
- * [askedBy] names the background thread that asked (null for main); [taskLabel] ("T4 · Fix parser recovery") opens the
+ * [askedBy] names the background job that asked (null for main); [taskLabel] ("T4 · Fix parser recovery") opens the
  * task with [onOpenTask].
  */
 @Composable
@@ -124,7 +124,7 @@ fun QuestionCard(
     )
 }
 
-/** The background thread that asked, as a small tinted label. */
+/** The background job that asked, as a small tinted label. */
 @Composable
 internal fun AskedBy(name: String) {
     val primary = MaterialTheme.colorScheme.primary

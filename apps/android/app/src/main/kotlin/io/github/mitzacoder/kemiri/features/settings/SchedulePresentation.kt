@@ -6,7 +6,7 @@ import io.github.mitzacoder.kemiri.protocol.*
 import java.time.Instant
 
 internal fun scheduleExecutionLabel(kind: String?, isolation: String): String =
-    if (kind == "thread") "Background thread · own workspace"
+    if (kind == "thread") "Background job · own workspace"
     else "Worker · ${if (isolation == "workspace") "isolated workspace" else "shared checkout"}"
 
 internal fun scheduleOutcomeLabel(outcome: String): String = when (outcome) {

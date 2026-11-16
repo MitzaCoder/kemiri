@@ -38,11 +38,12 @@ fun workbenchStatus(status: String, domain: String = "task"): WorkbenchStatus = 
         else -> WorkbenchStatus(status.replace('_', ' '), StatusTone.Neutral, null)
     }
     "thread" -> when (status) {
-        "running" -> WorkbenchStatus("Working", StatusTone.Active, Lucide.LoaderCircle)
-        "idle" -> WorkbenchStatus("Waiting", StatusTone.Neutral, null)
+        "running", "working" -> WorkbenchStatus("Working", StatusTone.Active, Lucide.LoaderCircle)
+        "needs_you" -> WorkbenchStatus("Needs you", StatusTone.Warning, null)
+        "idle", "paused" -> WorkbenchStatus("Paused", StatusTone.Neutral, null)
         "failed" -> WorkbenchStatus("Failed", StatusTone.Danger, null)
         "stopped" -> WorkbenchStatus("Stopped", StatusTone.Subtle, null)
-        "done" -> WorkbenchStatus("Finished", StatusTone.Success, null)
+        "done", "finished" -> WorkbenchStatus("Finished", StatusTone.Success, null)
         else -> WorkbenchStatus(status.replace('_', ' ').replaceFirstChar { it.uppercase() }, StatusTone.Neutral, null)
     }
     else -> when (status) {

@@ -101,7 +101,7 @@ class TaskSheetRulesTest {
 
     @Test fun namesTheThreadThatAskedAndTheTaskAQuestionIsAbout() {
         val threads = listOf(thread("jira-run", "Jira run"))
-        assertNull(questionAskedBy(question("Q1", null).copy(threadId = "main"), threads))
+        assertEquals("Main chat", questionAskedBy(question("Q1", null).copy(threadId = "main"), threads))
         assertEquals("Jira run", questionAskedBy(question("Q1", null).copy(threadId = "jira-run"), threads))
         val board = mapOf("T4" to task("T4"))
         assertEquals("T4 · Task T4", questionTaskLabel(question("Q1", "T4"), board::get))

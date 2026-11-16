@@ -80,7 +80,7 @@ fun ProjectsHome(repository: HarnessRepository, navigate: (Destination) -> Unit,
                             SettingsAction("Settings for ${project.name}", io.github.mitzacoder.kemiri.ui.components.Lucide.Settings2) { navigate(Destination.ProjectSettings(route)) }
                         }
                         Text(project.path, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, color = Jarvis.colors.fgMuted)
-                        Text("Coordinator: ${modelLabel(project.coordinator.model, models)}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                        Text("Main chat: ${modelLabel(project.coordinator.model, models)}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
                         if (project.coordinator.model == null && connection.supports("models")) Box(Modifier.padding(top = 8.dp)) { ToneBanner(BannerTone.Warning) {
                             Text(buildAnnotatedString {
                                 append("No coordinator model yet. ")

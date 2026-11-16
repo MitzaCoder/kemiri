@@ -32,7 +32,7 @@ import io.github.mitzacoder.kemiri.features.tasks.rememberTasksView
 fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.Info, modifier: Modifier = Modifier) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     // Keep the last hello through reconnect: a temporary offline state must not close an editor.
-    val tabs = rememberPanelTabs(context.backend.client).filter { it != PanelTab.Threads || (normalizedThread(context.route.threadId) == "main" && context.route.workerId == null) }.sortedBy { panelTabOrder.indexOf(it) }
+    val tabs = rememberPanelTabs(context.backend.client).filter { it != PanelTab.Threads || context.route.workerId == null }.sortedBy { panelTabOrder.indexOf(it) }
     val active = resolvedPanelTab(initialTab, tabs)
     val tasksView = rememberTasksView(context.backend.client)
     Column(modifier.padding(horizontal = 12.dp)) {
@@ -100,11 +100,12 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
 }
 
 /**
- * Main's background threads (web `BackgroundPanel.svelte`): what each does now, its workers, tasks and questions, who
+ * Main's background jobs (web `BackgroundPanel.svelte`): what each does now, its workers, tasks and questions, who
  * started it and when, with Stop (behind a confirmation), Archive or Restore, and Open; archived ones behind a toggle.
  */
 @Composable internal fun ThreadsPanel(context: ProjectScreenContext) {
     var showArchived by rememberSaveable(context.route) { mutableStateOf(false) }
+    var showFinished by rememberSaveable(context.route) { mutableStateOf(false) }
     val client = context.backend.client
     val project = context.route.projectId
     val data = panelData(context, showArchived, { it is ThreadsStateEvent && it.projectId == project }) {
@@ -128,11 +129,11 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         }
     }
     Column {
-        Text("Big jobs main handed off. They report back to main, which relays them; ask main to start, steer or stop one.",
+        Text("Big jobs Main chat handed off. They report back to Main chat; ask Main chat to start, steer or stop one.",
             Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         PanelBody(data) { threads ->
-            val ordered = threads.filter { !it.main && it.id != "main" }.sortedWith(compareBy<ThreadSummary> { threadRank(it) }.thenByDescending { it.updatedAt })
+            val ordered = io.github.mitzacoder.kemiri.features.chat.orderedBackgroundJobs(threads)
             val live = ordered.filter { !it.archived }
             val archived = ordered.filter { it.archived }
             @Composable fun Row(thread: ThreadSummary) = key(thread.id) {
@@ -140,24 +141,29 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
                     stop = { stopping = thread },
                     archive = { act(thread) { client.request(ThreadsArchiveRequest(projectId = project, threadId = thread.id, archived = !thread.archived)) } })
             }
-            if (live.isEmpty()) Text("Nothing runs in the background. Main starts a thread when a job is big enough, or a schedule does.",
+            if (live.isEmpty()) Text("Nothing runs in the background. Main chat starts a background job when a job is big enough, or a schedule does.",
                 style = MaterialTheme.typography.bodyMedium, color = colors.fgSubtle)
-            live.forEach { Row(it) }
+            val finished = live.filter { io.github.mitzacoder.kemiri.features.chat.foldFinishedJob(it, now) }
+            live.filterNot { it in finished }.forEach { Row(it) }
+            if (finished.isNotEmpty()) {
+                TextButton(onClick = { showFinished = !showFinished }, modifier = Modifier.semantics { stateDescription = if (showFinished) "Expanded" else "Collapsed" }) { Text("Finished (${finished.size})") }
+                if (showFinished) finished.forEach { Row(it) }
+            }
             TextButton(onClick = { showArchived = !showArchived }, modifier = Modifier.semantics { selected = showArchived }) {
                 LucideGlyph(Lucide.Archive, size = 14.dp)
                 Spacer(Modifier.width(6.dp))
                 Text(if (showArchived) "Hide archived${if (archived.isNotEmpty()) " (${archived.size})" else ""}" else "Show archived", style = MaterialTheme.typography.labelMedium)
             }
             if (showArchived) {
-                if (archived.isEmpty()) Text("No archived threads.", style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
+                if (archived.isEmpty()) Text("No archived background jobs.", style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
                 archived.forEach { Row(it) }
             }
         }
     }
     stopping?.let { thread ->
-        AlertDialog(onDismissRequest = { if (busy != thread.id) stopping = null }, title = { Text("Stop ${thread.title.ifEmpty { "this thread" }}?") }, text = {
+        AlertDialog(onDismissRequest = { if (busy != thread.id) stopping = null }, title = { Text("Stop ${thread.title.ifEmpty { "this background job" }}?") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Its running turn and its workers are aborted, and it does no more work. Main keeps what it reported so far.")
+                Text("Its running turn and its workers are aborted, and it does no more work. Main chat keeps what it reported so far.")
                 problem?.takeIf { it.first == thread.id }?.let { Text(it.second, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = {
@@ -168,7 +174,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     }
 }
 
-/** One background thread: title and status, what it does now, its facts, who started it and when; then its actions. */
+/** One background job: title and status, what it does now, its facts, who started it and when; then its actions. */
 @Composable private fun ThreadRow(context: ProjectScreenContext, thread: ThreadSummary, now: Long, scheduleName: (String) -> String?, busy: Boolean, problem: String?, stop: () -> Unit, archive: () -> Unit) {
     val colors = io.github.mitzacoder.kemiri.ui.theme.Jarvis.colors
     val open = { context.navigate(threadRoute(context.route, thread)) }
@@ -178,10 +184,12 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${thread.title}", onClick = open).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(thread.title.ifEmpty { thread.id }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                StatusBadge(thread.status, domain = "thread")
+                StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(thread), domain = "thread")
                 LucideGlyph(Lucide.ChevronRight, size = 14.dp, tint = colors.fgSubtle)
             }
-            Text(threadActivity(thread), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            if (normalizedThread(context.route.threadId) == thread.id) Text("You are here", style = MaterialTheme.typography.labelSmall, color = colors.accent2)
+            val board by context.board.view.collectAsStateWithLifecycle()
+            Text(io.github.mitzacoder.kemiri.features.chat.threadStateLine(thread, board.questions, now), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 color = if (thread.status == "failed") MaterialTheme.colorScheme.error else colors.fgMuted)
             val facts = listOfNotNull(
                 openQuestionsText(thread.openQuestions)?.let { Triple(it, PanelIcons.CircleHelp, true) },

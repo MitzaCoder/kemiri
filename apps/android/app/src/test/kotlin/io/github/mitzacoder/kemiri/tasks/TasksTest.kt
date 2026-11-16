@@ -55,12 +55,12 @@ class TasksTest {
     @Test fun namesWhoWrote() {
         assertEquals("nobody yet", writerLabel(null))
         assertEquals("you", writerLabel(BoardWriter("user", null, null)))
-        assertEquals("the coordinator", writerLabel(BoardWriter("coordinator", "main", null)))
+        assertEquals("Main chat", writerLabel(BoardWriter("coordinator", "main", null)))
         assertEquals("Parser fix", writerLabel(BoardWriter("worker", "main", "w1")) { "Parser fix" })
         assertEquals("a worker", writerLabel(BoardWriter("worker", "main", "w1")))
         assertEquals("status-bar-rewrite", shortWriterLabel(BoardWriter("worker", "main", "status-bar-rewrite")))
         assertEquals("a worker", shortWriterLabel(BoardWriter("worker", "main", null)))
-        assertEquals("the coordinator", shortWriterLabel(BoardWriter("coordinator", "main", null)))
+        assertEquals("Main chat", shortWriterLabel(BoardWriter("coordinator", "main", null)))
         assertEquals("nobody yet", shortWriterLabel(null))
     }
 

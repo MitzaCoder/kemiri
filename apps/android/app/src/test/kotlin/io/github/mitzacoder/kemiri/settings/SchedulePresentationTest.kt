@@ -8,8 +8,8 @@ import org.junit.Test
 
 class SchedulePresentationTest {
     @Test fun threadAlwaysDescribesItsOwnWorkspaceRegardlessOfWorkerSetting() {
-        assertEquals("Background thread · own workspace", scheduleExecutionLabel("thread", "shared"))
-        assertEquals("Background thread · own workspace", scheduleExecutionLabel("thread", "workspace"))
+        assertEquals("Background job · own workspace", scheduleExecutionLabel("thread", "shared"))
+        assertEquals("Background job · own workspace", scheduleExecutionLabel("thread", "workspace"))
         assertEquals("Worker · shared checkout", scheduleExecutionLabel(null, "shared"))
         assertEquals("Worker · isolated workspace", scheduleExecutionLabel("worker", "workspace"))
     }
@@ -23,7 +23,7 @@ class SchedulePresentationTest {
             assertEquals("thread", input.kind)
             assertEquals(isolation, input.isolation)
             assertFalse(input.enabled)
-            assertEquals("Background thread · own workspace", scheduleExecutionLabel(input.kind, input.isolation))
+            assertEquals("Background job · own workspace", scheduleExecutionLabel(input.kind, input.isolation))
             val backToWorker = input.copy(kind = "worker")
             assertEquals(isolation, backToWorker.isolation)
             assertEquals(scheduleExecutionLabel("worker", isolation), scheduleExecutionLabel(backToWorker.kind, backToWorker.isolation))

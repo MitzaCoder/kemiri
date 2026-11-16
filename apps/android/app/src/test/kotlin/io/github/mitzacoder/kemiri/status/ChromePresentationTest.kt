@@ -50,7 +50,7 @@ class ChromePresentationTest {
         assertEquals("3", questionBadgeText(3))
         assertEquals("9+", questionBadgeText(12))
         assertEquals("1 question waiting for you", questionsWaitingLabel(1))
-        assertEquals("2 in background", backgroundThreadsText(2))
+        assertEquals("2 background jobs", backgroundThreadsText(2))
         assertNull(backgroundThreadsText(0))
     }
 
@@ -85,7 +85,7 @@ class ChromePresentationTest {
 
     @Test fun storageRowsAndCleanupsReadAsTheWebSays() {
         assertEquals("Worker", storageKindLabel("worker"))
-        assertEquals("Background thread", storageKindLabel("thread"))
+        assertEquals("Background job", storageKindLabel("thread"))
         assertEquals("finished", storageStateLabel(item()))
         assertEquals("running", storageStateLabel(item(removable = false)))
         assertEquals("empty", storageSize(0))

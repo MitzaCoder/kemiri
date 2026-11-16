@@ -66,7 +66,7 @@ fun panelBehindTask(previous: List<Destination>, task: Destination.Task): Destin
 @Serializable
 enum class PanelTab(val feature: String, val label: String) {
     @kotlinx.serialization.json.JsonNames("Workers") Info("context", "Info"), Memory("memory", "Memory"),
-    Board("board", "Board"), Threads("threads", "Background"), Artifacts("artifacts", "Artifacts"),
+    Board("board", "Board"), Threads("threads", "Background jobs"), Artifacts("artifacts", "Artifacts"),
 }
 
 fun resolvedPanelTab(requested: PanelTab, available: List<PanelTab>): PanelTab? = requested.takeIf { it in available } ?: available.firstOrNull()

@@ -29,7 +29,7 @@ enum class GeneralSection(override val id: String, override val label: String, o
 @Serializable
 enum class ProjectSection(override val id: String, override val label: String, override val hint: String, override val icon: SettingsIcon) : SettingsSectionInfo {
     General("general", "General", "Name, folder, archive", SettingsIcon.Folder),
-    Coordinator("coordinator", "Coordinator", "The model and how hard it thinks", SettingsIcon.Cpu),
+    Coordinator("coordinator", "Main chat", "The model and how hard it thinks", SettingsIcon.Cpu),
     Delivery("delivery", "Delivery", "Integration branch and deploy status feed", SettingsIcon.Server),
     Workers("workers", "Workers", "Worker models and check-ins", SettingsIcon.Users),
     Schedules("schedules", "Scheduled tasks", "Clocks and event triggers", SettingsIcon.CalendarClock),

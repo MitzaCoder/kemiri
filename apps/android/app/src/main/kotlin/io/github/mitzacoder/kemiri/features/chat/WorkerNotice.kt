@@ -26,7 +26,7 @@ internal fun parseCheckIn(text: String): String? {
     return rest.trim()
 }
 
-/** The background threads a check-in covers: its digests that start `thread <id> — <title>`. */
+/** The background jobs a check-in covers: its digests that start `thread <id> — <title>`. */
 internal fun checkInThreads(body: String): List<Pair<String, String>> =
     Regex("^thread (\\S+) — (.+)$", RegexOption.MULTILINE).findAll(body).map { it.groupValues[1] to it.groupValues[2].trim() }.toList()
 

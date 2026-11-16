@@ -112,9 +112,9 @@ fun decisionsFor(decisions: List<BoardDecision>, taskId: String): List<BoardDeci
 fun inThread(itemThreadId: String?, threadId: String?): Boolean =
     if (isMainThread(threadId)) isMainThread(itemThreadId) else itemThreadId == threadId
 
-/** The background thread that asked, by name; null for main. The answer goes to the thread that asked. */
+/** The background job that asked, by name; null for main. The answer goes to the thread that asked. */
 fun questionAskedBy(question: BoardQuestion, threads: List<ThreadSummary>): String? =
-    if (isMainThread(question.threadId)) null else threadName(question.threadId, threads)
+    threadName(question.threadId, threads)
 
 /** "T4 · Fix parser recovery" for a question about a task the board holds, the bare ID for one it does not, null for none. */
 fun questionTaskLabel(question: BoardQuestion, task: (String) -> BoardTask?): String? {

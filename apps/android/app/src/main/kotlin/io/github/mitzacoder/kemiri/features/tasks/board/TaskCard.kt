@@ -71,7 +71,7 @@ private val small = textStyle(0.6875f, 1f / 0.6875f)
 
 /**
  * One task on the board (web `TaskCard.svelte`): what a list row says (status dot, title, gist, refs, time and ID) and,
- * when it matters, the worker on it, what it waits for and the background thread that holds it. A tap anywhere but a
+ * when it matters, the worker on it, what it waits for and the background job that holds it. A tap anywhere but a
  * chip or the menu opens the task's sheet. A task that needs the user is tinted like its list row. [ghost] draws the
  * copy that follows a finger or glides to a new column; [lifted] is the card being dragged, which stays faded in place.
  */
@@ -150,7 +150,7 @@ fun TaskCard(
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         running.forEach { worker -> Fact(BoardGlyphs.UserCog, colors.taskStatus(TaskStatusTone.Working), "Worker", worker.id, worker.title) }
                         if (blockers.isNotEmpty() && task.state?.kind != "blocked_by_task") Fact(BoardGlyphs.Link, colors.fgSubtle, "Waits for", blockers.joinToString { it.id }, blockers.joinToString { "${it.id} · ${it.title}" })
-                        holder?.let { Fact(io.github.mitzacoder.kemiri.ui.components.Lucide.Layers, colors.fgSubtle, null, it, "A background thread holds this task: $it") }
+                        holder?.let { Fact(io.github.mitzacoder.kemiri.ui.components.Lucide.Layers, colors.fgSubtle, null, it, "A background job holds this task: $it") }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -30,7 +30,7 @@ class ThreadPresentationTest {
         assertEquals("poster",threadCallId(start.copy(name = "thread_send",arguments = json("""{"id":"poster","message":"hello"}"""))))
         assertEquals("art-1",artifactCallId(start.copy(name = "artifact_save",details = json("""{"artifactId":"art-1"}"""))))
         assertNull(artifactCallId(start.copy(details = json("""{"id":"fixture-assumption"}"""))))
-        assertEquals("Listed 1 background thread",threadCallLabel(start.copy(name = "thread_list",text = "You are main. 1 background thread.")))
+        assertEquals("Listed 1 background job",threadCallLabel(start.copy(name = "thread_list",text = "You are main. 1 background thread.")))
         assertEquals("Looked in on Poster",threadCallLabel(start.copy(name = "thread_peek",text = "poster — Poster\nWorking")))
         assertTrue(threadCallLabel(start.copy(status = "error")).startsWith("Could not"))
         assertNull(threadCallId(start.copy(status = "error")))

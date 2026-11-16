@@ -32,7 +32,7 @@ class SidebarAttentionTest {
 
     @Test fun oldServersUseActivityButInventNoTaskTotals() {
         val old = project("old").copy(activity = ProjectActivity("failed", 0, null, null, openQuestions = 2))
-        assertEquals(listOf("2 questions", "Coordinator failed"), projectAttentionActions(old).map { it.label })
+        assertEquals(listOf("2 questions", "Main chat failed"), projectAttentionActions(old).map { it.label })
         assertEquals(3L, attentionCount(old))
         assertTrue(projectAttentionActions(project("empty", empty)).isEmpty())
     }

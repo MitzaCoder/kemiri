@@ -112,7 +112,7 @@ private val GLIDE_EASING = CubicBezierEasing(0.22f, 0.8f, 0.24f, 1f)
  * and the rest sorted by themselves. The user moves a card with its "Move to…" menu or, with every column on screen, by
  * holding it and dragging; every move is a save the server passes on to the coordinator as a `[board]` note. Moving a
  * task back from review asks why, and the agents get the answer with the move (as the save's note with `board-moves`,
- * else as a message about the task to main). When an agent moves a task, its card glides to its new column unless
+ * else as a message about the task to Main chat). When an agent moves a task, its card glides to its new column unless
  * animations are off. Narrower than [ONE_COLUMN_BELOW], one column shows at a time.
  *
  * [looseQuestion] draws a question or warning that names no task, which the board shows above the columns;
@@ -222,7 +222,7 @@ fun TaskBoard(
         }
         if (note != null && !canNote && canSendReason) {
             try {
-                // A backend older than board-moves takes no note: the reason goes to main as a message about the task.
+                // A backend older than board-moves takes no note: the reason goes to Main chat as a message about the task.
                 client.request(ConversationSubmitRequest(projectId = project, requestId = "submit-${UUID.randomUUID()}", content = JsonPrimitive(reasonMessage(note)), whenBusy = "steer", taskId = task.id))
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) {

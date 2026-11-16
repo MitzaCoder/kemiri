@@ -38,7 +38,7 @@ import kotlinx.coroutines.flow.collectLatest
 private data class RunNotice(val scheduleId: String, val tone: BannerTone?, val text: String, val destination: Destination.Chat? = null, val open: String? = null)
 
 /**
- * Project → Scheduled tasks (web `SchedulesSection.svelte`): the briefs the harness runs as workers or background threads on
+ * Project → Scheduled tasks (web `SchedulesSection.svelte`): the briefs the harness runs as workers or background jobs on
  * a clock, or on a GitHub review request. Each schedule reads in plain words with its next and last run, a pause switch,
  * run now, edit, delete and its run history. [highlightId] is the schedule a notification named: it is scrolled into view.
  */
@@ -130,7 +130,7 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                                 Text(schedule.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 if (isEventSpec(schedule.spec)) StatusChip("On an event", ChipTone.Info, dot = false, icon = SettingsGlyphs.GitPullRequest)
-                                if (schedule.kind == "thread") StatusChip("Background thread", ChipTone.Muted, dot = false)
+                                if (schedule.kind == "thread") StatusChip("Background job", ChipTone.Muted, dot = false)
                                 if (schedule.createdBy == "coordinator") StatusChip("By the coordinator", ChipTone.Muted, dot = false)
                                 if (!schedule.enabled) StatusChip("Paused", ChipTone.Warn)
                             }
@@ -213,7 +213,7 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
 private fun runNotice(context: ProjectScreenContext, schedule: Schedule, run: ScheduleRun): RunNotice {
     val destination = scheduleRunDestination(context.route, run)
     return when {
-        run.outcome == "started" && run.threadId != null -> RunNotice(schedule.id, null, "Started a background thread. Its summary goes to main when it finishes.", destination, "Open the thread")
+        run.outcome == "started" && run.threadId != null -> RunNotice(schedule.id, null, "Started a background job. Its summary goes to Main chat when it finishes.", destination, "Open the job")
         run.outcome == "started" -> RunNotice(schedule.id, null, if (run.workerId == null) "Started a worker." else "Started worker ${run.workerId}. The report goes to the coordinator.", destination, "Open the worker")
         else -> RunNotice(schedule.id, if (run.outcome == "skipped") BannerTone.Warning else BannerTone.Error, "Not run (${scheduleOutcomeLabel(run.outcome).lowercase()}) — ${runReason(run) ?: "no reason given"}")
     }
@@ -238,7 +238,7 @@ private fun RunLine(context: ProjectScreenContext, run: ScheduleRun, timezone: S
         runReason(run)?.takeIf { run.outcome != "started" }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted) }
         scheduleRunDestination(context.route, run)?.let { destination ->
             TextButton(onClick = { context.navigate(destination) }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 40.dp)) {
-                Text(if (run.threadId != null) "Open the background thread" else "Open worker ${run.workerId}", style = MaterialTheme.typography.labelMedium)
+                Text(if (run.threadId != null) "Open the background job" else "Open worker ${run.workerId}", style = MaterialTheme.typography.labelMedium)
             }
         }
         run.taskId?.let { task -> TextButton(onClick = { context.openTask(task) }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 40.dp)) { Text("Task $task", style = MaterialTheme.typography.labelMedium) } }
@@ -287,14 +287,14 @@ internal fun ScheduleEditor(
                 Column(Modifier.weight(1f).widthIn(max = 720.dp).fillMaxWidth().align(Alignment.CenterHorizontally).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     (error ?: serverError)?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
                     SettingsGroup(title = "What to run") {
-                        SettingsRow("Each run", hint = "A worker does one task; a background thread keeps its own conversation.") {
+                        SettingsRow("Each run", hint = "A worker does one task; a background job keeps its own conversation.") {
                             Combobox(
                                 listOfNotNull(ComboOption("worker", "Run one worker", "The report goes to the coordinator"),
-                                    ComboOption("thread", "Start a background thread", "Its summary goes to main").takeIf { allowThreads || schedule?.kind == "thread" }),
+                                    ComboOption("thread", "Start a background job", "Its summary goes to Main chat").takeIf { allowThreads || schedule?.kind == "thread" }),
                                 targetKind, { targetKind = it }, "Each run",
                             )
                         }
-                        SettingsRow(if (targetKind == "thread") "Prompt" else "Brief", hint = if (targetKind == "thread") "What the thread starts from." else "The worker's task, self-contained.", control = RowControl.Full) {
+                        SettingsRow(if (targetKind == "thread") "Prompt" else "Brief", hint = if (targetKind == "thread") "What the job starts from." else "The worker's task, self-contained.", control = RowControl.Full) {
                             OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(brief, { brief = it }, label = { Text(if (targetKind == "thread") "Prompt" else "Brief") }, minLines = 3, modifier = Modifier.fillMaxWidth())
                         }
@@ -351,8 +351,8 @@ internal fun ScheduleEditor(
                     SettingsGroup(title = "Each run") {
                         if (targetKind != "thread") SettingsRow("Worker isolation", hint = "Where the worker runs.") {
                             Combobox(listOf(ComboOption("shared", "Shared checkout", "The project's own folder"), ComboOption("workspace", "Own workspace", "A separate checkout per run")), isolation, { isolation = it }, "Worker isolation")
-                        } else SettingsRow("Workspace", hint = "Each background thread runs in its own workspace.", control = RowControl.Auto)
-                        SettingsRow("On report", hint = if (targetKind == "thread") "Review wakes main to read the thread's summary; record keeps it for your next message." else "Reviewing wakes the coordinator for a turn per run; recording waits for your next message.") {
+                        } else SettingsRow("Workspace", hint = "Each background job runs in its own workspace.", control = RowControl.Auto)
+                        SettingsRow("On report", hint = if (targetKind == "thread") "Review wakes Main chat to read the job's summary; record keeps it for your next message." else "Reviewing wakes the coordinator for a turn per run; recording waits for your next message.") {
                             Combobox(listOf(ComboOption("review", scheduleReportLabel(targetKind, "review"), "Wakes it for a turn"), ComboOption("record", scheduleReportLabel(targetKind, "record"), "Waits for your next message")), onReport, { onReport = it }, "On report")
                         }
                         SettingsRow("Enabled", hint = "A paused schedule does not run on its own; Run now still works.", control = RowControl.Inline) { SettingsSwitch(active, { active = it }, "Enabled") }

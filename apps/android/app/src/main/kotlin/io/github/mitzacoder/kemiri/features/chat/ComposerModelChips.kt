@@ -137,7 +137,7 @@ private object ChipGlyphs {
             }
         }
     }
-    if(open) AlertDialog(onDismissRequest = { open = false },title = { Text(if(worker) "Worker model" else "Coordinator model") },text = {
+    if(open) AlertDialog(onDismissRequest = { open = false },title = { Text(if(worker) "Worker model" else "Main chat model") },text = {
         Column(Modifier.heightIn(max = 480.dp)) {
             OutlinedTextField(query,{ query = it },placeholder = { Text(if(worker) "Search models for new workers…" else "Search models…") },singleLine = true,
                 leadingIcon = { LucideGlyph(Lucide.Search,size = 16.dp) },modifier = Modifier.fillMaxWidth())

@@ -23,10 +23,10 @@ class ArtifactLabelsTest {
     }
 
     @Test fun whoSavedIt() {
-        assertEquals("Main", savedByLabel(artifact()))
-        assertEquals("Thread jira", savedByLabel(artifact(threadId = "jira")))
-        assertEquals("Worker w3 of main", savedByLabel(artifact(workerId = "w3")))
-        assertEquals("Worker w1 of thread jira", savedByLabel(artifact(threadId = "jira", workerId = "w1")))
+        assertEquals("Main chat", savedByLabel(artifact()))
+        assertEquals("Background job jira", savedByLabel(artifact(threadId = "jira")))
+        assertEquals("Worker w3 of Main chat", savedByLabel(artifact(workerId = "w3")))
+        assertEquals("Worker w1 of background job jira", savedByLabel(artifact(threadId = "jira", workerId = "w1")))
     }
 
     @Test fun theKindFromAFileName() {

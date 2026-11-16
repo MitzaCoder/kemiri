@@ -127,7 +127,7 @@ class TaskLinkedChatTest {
             user(4, "[thread t1 finished] All good"), user(5, "[check-in] please"), user(6, "hello"),
         ), null)
         assertEquals(listOf("notice", "notice", "notice", "notice", "user", "user"), rows.map { it.parts.single().kind })
-        assertEquals(listOf(true, true, true, true, false, false), rows.map(::isTaskLineRow))
+        assertEquals(listOf(true, true, true, false, false, false), rows.map(::isTaskLineRow))
         assertEquals(5L, rows[4].parts.single().timestamp)
     }
 

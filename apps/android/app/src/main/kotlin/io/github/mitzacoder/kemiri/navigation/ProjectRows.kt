@@ -89,8 +89,12 @@ fun questionBadgeText(count: Long?): String? = when {
 
 fun questionsWaitingLabel(count: Long): String = if (count == 1L) "1 question waiting for you" else "$count questions waiting for you"
 
-/** "2 in background" under a project with background threads going. */
-fun backgroundThreadsText(count: Long?): String? = if (count == null || count <= 0) null else "$count in background"
+/** "2 in background" under a project with background jobs going. */
+fun backgroundThreadsText(count: Long?): String? = if (count == null || count <= 0) null else "$count background job${if (count == 1L) "" else "s"}"
 
-/** Background threads still going: the Background button's count. */
+/** Background jobs still going: the Background button's count. */
 fun activeBackgroundCount(threads: List<ThreadSummary>): Int = threads.count { !it.main && (it.status == "running" || it.status == "idle") }
+
+fun projectBackgroundJobsText(activity: io.github.mitzacoder.kemiri.protocol.ProjectActivity?): String? =
+    activity?.backgroundJobs?.let { io.github.mitzacoder.kemiri.features.chat.backgroundJobCountsText(it) }
+        ?: if (activity?.backgroundJobs == null) backgroundThreadsText(activity?.backgroundThreads) else null

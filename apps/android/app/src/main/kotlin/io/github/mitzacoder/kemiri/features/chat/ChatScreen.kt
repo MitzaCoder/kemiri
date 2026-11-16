@@ -293,8 +293,8 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if(rows.isEmpty() && state.status == WatchStatus.Live && !state.canLoadEarlier && context.route.workerId == null) {
             if(sameThread(context.route.threadId,null)) ChatEmptyState(projects.firstOrNull { it.id == context.route.projectId }?.name ?: "Ready",
                 "Send a message to start the coordinator. It plans, delegates and reviews.",Modifier.fillMaxSize().padding(16.dp))
-            else ChatEmptyState(activeThread?.title?.takeIf(String::isNotEmpty) ?: "Background thread",
-                "A background thread of main. It reports to main when it finishes; type here to steer it directly.",Modifier.fillMaxSize().padding(16.dp))
+            else ChatEmptyState(activeThread?.title?.takeIf(String::isNotEmpty) ?: "Background job",
+                "A background job of Main chat. It reports to Main chat when it finishes; type here to steer it directly.",Modifier.fillMaxSize().padding(16.dp))
         } else LazyColumn(Modifier.fillMaxSize(),state = list,contentPadding = PaddingValues(16.dp)) {
             if (earlierRow) item(key = "earlier") {
                 Box(Modifier.fillMaxWidth().heightIn(min = 32.dp),contentAlignment = Alignment.Center) {
@@ -465,7 +465,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         } else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp,vertical = 12.dp),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Read-only. A worker reports to the coordinator, so send it more work by messaging the coordinator.",Modifier.weight(1f),style = MaterialTheme.typography.bodySmall,color = Jarvis.colors.fgSubtle)
             OutlinedButton(onClick = { context.navigate(context.route.copy(workerId = null)) }) {
-                LucideGlyph(Lucide.ArrowLeft,size = 16.dp); Spacer(Modifier.width(6.dp)); Text(if(thread) "Thread" else "Coordinator")
+                LucideGlyph(Lucide.ArrowLeft,size = 16.dp); Spacer(Modifier.width(6.dp)); Text(if(thread) "Background job" else "Main chat")
             }
         }
     }

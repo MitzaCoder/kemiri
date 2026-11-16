@@ -47,7 +47,7 @@ internal fun friendlyStatus(part: ChatPart): String = toolExitCode(part)?.let { 
     else -> part.status.replaceFirstChar(Char::uppercase)
 }
 internal fun threadStatusText(status: String) = when(status) {
-    "running" -> "Working"; "idle" -> "Waiting"; "done" -> "Finished"; "failed" -> "Failed"; "stopped" -> "Stopped"; else -> status
+    "running" -> "Working"; "idle" -> "Paused"; "done" -> "Finished"; "failed" -> "Failed"; "stopped" -> "Stopped"; else -> status
 }
 internal fun artifactFromTool(part: ChatPart, project: String): Artifact? {
     val id = artifactCallId(part) ?: return null

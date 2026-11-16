@@ -39,7 +39,7 @@ class PanelWordingTest {
 
     @Test fun saysWhoStartedAThreadAndWhenItLastMoved() {
         val names = { id: String -> if (id == "s1") "Nightly triage" else null }
-        assertEquals("Started by main", threadStartedByText(thread(), names))
+        assertEquals("Started by Main chat", threadStartedByText(thread(), names))
         assertEquals("Started by you", threadStartedByText(thread(startedBy = "user"), names))
         assertEquals("Scheduled · Nightly triage", threadStartedByText(thread(startedBy = "schedule", scheduleId = "s1"), names))
         assertEquals("Started by a schedule", threadStartedByText(thread(startedBy = "schedule", scheduleId = "gone"), names))

@@ -1,5 +1,23 @@
 # Continue
 
+## T222: Android background jobs, phase 1 (D89)
+
+Android calls the coordinator Main chat and child conversations background jobs.
+Thread state uses the emitted field, else the server's six-state precedence. The
+panel orders Needs you, Failed, Working, Paused, then newest Finished/Stopped;
+terminal jobs older than 24 hours fold under Finished (N). The panel is reachable
+inside a job and marks You are here. Header counts prefer project backgroundJobs,
+else derive non-main/non-archived counts; failed jobs count as needs-you. Drawer
+notes retain the old backgroundThreads fallback on older servers. Started cards
+never fold into steps; finish/failure notices share their card surface and keep
+artifacts. Identifiers, routes and wire text parsers retain thread. No switcher
+or job-page band (phases 2/3). Tests cover precedence, lines, tone, order, fold
+boundary, counts, wording and step grouping. Emulator proof uses synthetic data,
+light/dark before/after screenshots and a short recording on T222 (proof index
+mwjwpxf0-bbe01ce8af). Android checks:
+1,036 JVM tests, two skipped; assemble and lint pass (51 warnings, four
+hints). Root typecheck and external-denylist checks pass. No deploy or push.
+
 ## T222: background jobs, web phase 1
 
 Web now names Main chat and background jobs consistently. A pure presentation helper

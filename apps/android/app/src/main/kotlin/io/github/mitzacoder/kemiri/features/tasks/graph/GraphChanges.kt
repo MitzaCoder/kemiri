@@ -60,7 +60,7 @@ fun diffGraphSnapshots(previous: GraphSnapshot?, next: GraphSnapshot): List<Grap
     next.crew.forEach { (id, crew) ->
         val before = previous.crew[id]
         val worker = id.startsWith("worker:")
-        val subject = if (worker) "Worker" else "Thread"
+        val subject = if (worker) "Worker" else "Background job"
         if (before == null) {
             val action = if (crew.status == "failed") "failed" else if (terminalCrew(crew.status)) "finished" else "started"
             add("crew", "$subject:$action", listOf(crew.taskId), "$subject ${crew.title} $action", "${subject.lowercase()}s $action")

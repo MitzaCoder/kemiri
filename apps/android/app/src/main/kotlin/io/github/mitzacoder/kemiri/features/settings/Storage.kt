@@ -7,7 +7,7 @@ import io.github.mitzacoder.kemiri.protocol.StorageItem
 
 /** How Project settings' Storage card reads (web `lib/storage.ts`, client `removableStorage`/`withoutRemoved`). */
 
-fun storageKindLabel(kind: String): String = if (kind == "worker") "Worker" else "Background thread"
+fun storageKindLabel(kind: String): String = if (kind == "worker") "Worker" else "Background job"
 
 /** "finished" for one a cleanup may remove, "running" for one still in use. */
 fun storageStateLabel(item: StorageItem): String = if (item.removable) "finished" else "running"

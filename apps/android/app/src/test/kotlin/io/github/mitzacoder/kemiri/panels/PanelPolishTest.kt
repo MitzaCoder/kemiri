@@ -11,13 +11,13 @@ class PanelPolishTest {
     @Test fun statusesHaveHumanLabelsAndSemanticTones() {
         assertEquals("In progress", workbenchStatus("in_progress").label)
         assertEquals(StatusTone.Danger, workbenchStatus("blocked").tone)
-        assertEquals("Waiting", workbenchStatus("idle", "thread").label)
+        assertEquals("Paused", workbenchStatus("idle", "thread").label)
         assertEquals("Finished", workbenchStatus("done", "thread").label)
         assertEquals(StatusTone.Success, workbenchStatus("done", "thread").tone)
         assertEquals(StatusTone.Neutral, workbenchStatus("done", "task").tone)
         // Workers read lower case like the web's `workerStatusLabel`; threads like `threadStatusLabel`.
         assertEquals(listOf("running", "idle", "failed", "stopped", "done"), listOf("running", "idle", "failed", "stopped", "done").map { workbenchStatus(it, "worker").label })
-        assertEquals(listOf("Working", "Waiting", "Failed", "Stopped", "Finished"), listOf("running", "idle", "failed", "stopped", "done").map { workbenchStatus(it, "thread").label })
+        assertEquals(listOf("Working", "Paused", "Failed", "Stopped", "Finished"), listOf("running", "idle", "failed", "stopped", "done").map { workbenchStatus(it, "thread").label })
         assertEquals(StatusTone.Subtle, workbenchStatus("done", "worker").tone)
         assertEquals(StatusTone.Warning, workbenchStatus("stopped", "worker").tone)
         assertNull(workbenchStatus("idle", "worker").icon)
@@ -34,7 +34,7 @@ class PanelPolishTest {
         assertEquals(55_000L, panelPreviewRenewDelay("2026-11-05T12:01:00Z", java.time.Instant.parse("2026-11-05T12:00:00Z").toEpochMilli()))
         assertEquals(1_000L, panelPreviewRenewDelay("2026-11-05T11:00:00Z", java.time.Instant.parse("2026-11-05T12:00:00Z").toEpochMilli()))
         assertEquals(60_000L, panelPreviewRenewDelay("invalid", 0))
-        assertEquals("Main", panelArtifactOwner("main", null))
+        assertEquals("Main chat", panelArtifactOwner("main", null))
         assertEquals("thread-1 · audit", panelArtifactOwner("thread-1", "audit"))
         assertEquals("Shared checkout", panelIsolationLabel("shared"))
         assertEquals("Own workspace", panelIsolationLabel("workspace"))
@@ -49,7 +49,7 @@ class PanelPolishTest {
     @Test fun panelHeadingsNameTheShownContent() {
         assertEquals("Board", panelTabLabel(PanelTab.Board))
         assertEquals("Tasks", panelTabLabel(PanelTab.Board, true))
-        assertEquals("Background", panelTabLabel(PanelTab.Threads))
+        assertEquals("Background jobs", panelTabLabel(PanelTab.Threads))
         assertEquals("Info", panelTabLabel(PanelTab.Info))
         assertEquals("Memory", panelTabLabel(PanelTab.Memory))
         assertEquals("Artifacts", panelTabLabel(PanelTab.Artifacts))
@@ -80,8 +80,8 @@ class PanelPolishTest {
     )
     @Test fun threadCardsReadActualSummaryFieldsNotInventedResultObjects() {
         assertEquals("Ready", threadActivity(thread("done", current = "Old turn", summary = "\n# Ready\nDetails")))
-        assertEquals("Network failed", threadActivity(thread("failed", current = "Old turn", failure = "Network failed")))
-        assertEquals("Waiting for a message or its workers.", threadActivity(thread("idle")))
+        assertEquals("Network failed Send a message to retry.", threadActivity(thread("failed", current = "Old turn", failure = "Network failed")))
+        assertEquals("Nothing is running. Send it a message to continue.", threadActivity(thread("idle")))
         assertTrue(threadRank(thread("idle", questions = 1)) < threadRank(thread("running")))
     }
     @Test fun mainQuestionsSpanThreadsButBackgroundIsScoped() {

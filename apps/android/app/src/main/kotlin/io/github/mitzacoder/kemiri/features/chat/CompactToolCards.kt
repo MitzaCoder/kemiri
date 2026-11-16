@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.drawBehind
@@ -160,11 +161,11 @@ internal fun thinkingHeaderText(steps: Int, active: Boolean): String =
     val failed = part.status in setOf("error","exited")
     val detail = part.arguments.record()?.let { args -> listOf("brief","message","summary").firstNotNullOfOrNull { args.s(it).takeIf(String::isNotBlank) } }
     val line = part.name in setOf("thread_list","thread_peek")
-    val tone = if(failed) Jarvis.colors.danger else when(thread?.status) { "failed" -> Jarvis.colors.danger; "done" -> Jarvis.colors.success; "stopped" -> Jarvis.colors.warning; else -> Jarvis.colors.fgMuted }
-    val title = if(line) threadCallLabel(part,thread?.title) else thread?.title ?: part.arguments.record()?.s("title")?.takeIf(String::isNotBlank) ?: threadCallId(part) ?: "Background thread"
-    TranscriptSurface(title,Lucide.Users,open,{ open = !open },subtitle = if(line) null else threadCallLabel(part,thread?.title),status = if(failed || thread == null) friendlyStatus(part) else threadStatusText(thread.status),tone = tone) {
+    val tone = if(failed) Jarvis.colors.danger else when(thread?.let(::threadState)) { "failed" -> Jarvis.colors.danger; "finished" -> Jarvis.colors.success; "needs_you" -> Jarvis.colors.warning; "working" -> Jarvis.colors.accent2; "stopped" -> Jarvis.colors.fgSubtle; else -> Jarvis.colors.fgMuted }
+    val title = if(line) threadCallLabel(part,thread?.title) else thread?.title ?: part.arguments.record()?.s("title")?.takeIf(String::isNotBlank) ?: threadCallId(part) ?: "Background job"
+    TranscriptSurface(title,Lucide.Users,open,{ open = !open },subtitle = if(line) null else threadCallLabel(part,thread?.title),status = if(failed || thread == null) friendlyStatus(part) else threadStateLabel(threadState(thread)),tone = tone) {
         if(!line && !failed && thread != null) {
-            Text(thread.current ?: thread.failure ?: thread.summary?.let { io.github.mitzacoder.kemiri.features.tasks.firstLine(it) }?.takeIf(String::isNotEmpty) ?: "Works in the background",maxLines = 2,style = MaterialTheme.typography.bodySmall,color = Jarvis.colors.fgMuted)
+            Text(threadStateLine(thread, context?.board?.view?.collectAsStateWithLifecycle()?.value?.questions.orEmpty()),maxLines = 2,style = MaterialTheme.typography.bodySmall,color = Jarvis.colors.fgMuted)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if(thread.runningWorkers > 0) Text("${thread.runningWorkers} workers working",style = MaterialTheme.typography.labelSmall)
                 if(thread.openQuestions > 0) Text("${thread.openQuestions} questions for you",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.warning)
@@ -175,7 +176,7 @@ internal fun thinkingHeaderText(steps: Int, active: Boolean): String =
             if(part.name == "thread_finish" && part.status == "done") threadCallId(part)?.let { TranscriptArtifactStrip(finishArtifacts(artifacts,it,part.timestamp),context) }
             Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.SpaceBetween) {
                 if(detail != null) TextButton(onClick = { open = !open }) { LucideGlyph(if(open) Lucide.ChevronDown else Lucide.ChevronRight); Text(when(part.name) { "thread_start" -> "Brief"; "thread_send" -> "Message"; else -> "Summary" }) }
-                threadCallId(part)?.let { id -> TextButton(onClick = { context.navigate(context.route.copy(threadId = id.takeUnless { it == "main" },workerId = null)) }) { Text("Open thread") } }
+                threadCallId(part)?.let { id -> TextButton(onClick = { context.navigate(context.route.copy(threadId = id.takeUnless { it == "main" },workerId = null)) }) { Text("Open") } }
             }
         }
         ToolDisclosure(open) {

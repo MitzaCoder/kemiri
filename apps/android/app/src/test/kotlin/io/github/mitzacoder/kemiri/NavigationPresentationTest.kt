@@ -7,7 +7,7 @@ import org.junit.Test
 
 class NavigationPresentationTest {
     @Test fun backgroundNavigationTitleKeepsStableThreadFeatureIdentity() {
-        assertEquals("Background", PanelTab.Threads.label)
+        assertEquals("Background jobs", PanelTab.Threads.label)
         assertEquals("threads", PanelTab.Threads.feature)
         assertEquals("Board", PanelTab.Board.label)
         assertEquals("Artifacts", PanelTab.Artifacts.label)

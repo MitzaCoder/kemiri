@@ -56,6 +56,8 @@ private data class HeaderAction(
     val label: String,
     val icon: LucideIcon,
     val count: String? = null,
+    val workingCount: String? = null,
+    val needsYouBadge: Boolean = false,
     /** Tasks stays in the row on a phone. */
     val primary: Boolean = false,
     val pressed: Boolean = false,
@@ -106,7 +108,7 @@ private fun <T> rememberPushedList(client: HarnessClient, key: Any, enabled: Boo
 /**
  * The chat's title and the line under it (web `ProjectChat` / `WorkerTranscript` headers). Main: the project's name over
  * backend · coordinator model · running tool. A thread: a back arrow, its title (and status on a wide screen) over
- * "Background thread of main · project · model · what it does now". A worker: a back arrow, its title over "id · project".
+ * "Background job of project · model · what it does now". A worker: a back arrow, its title over "id · project".
  * The line ends in amber with the connection's state while it is not connected.
  */
 @Composable
@@ -139,12 +141,12 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
         when {
             route.workerId != null -> { add(route.workerId); project?.let { add(it.name) } }
             thread -> {
-                add("Background thread of main" + (project?.let { " · ${it.name}" } ?: ""))
+                add("Background job of " + (project?.name ?: "project"))
                 threadSummary?.model?.let { add(modelLabel(it, models)) }
                 threadSummary?.let { add(io.github.mitzacoder.kemiri.features.panels.threadActivity(it)) }
             }
             else -> {
-                add(backend.config.name)
+                add("Main chat"); add(backend.config.name)
                 project?.let { add(modelLabel(it.coordinator.model, models)) }
                 project?.activity?.runningTool?.let { tool ->
                     val elapsed = elapsedFor(tool.startedAt, now)
@@ -156,14 +158,14 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val away = connectionAwayWord(connection.status)
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (route.workerId != null || thread) {
-            val back = if (route.workerId != null) (if (thread) "Back to the thread" else "Back to the coordinator") else "Back to main"
+            val back = if (route.workerId != null) (if (thread) "Back to the background job" else "Back to Main chat") else "Back to Main chat"
             IconButton(onClick = { context.goBack?.invoke() ?: context.navigate(if (route.workerId != null) route.copy(workerId = null) else route.copy(threadId = null, workerId = null)) },
                 modifier = Modifier.size(40.dp).semantics { contentDescription = back }) { LucideGlyph(Lucide.ArrowLeft, size = 18.dp) }
         }
         Column(Modifier.weight(1f, fill = false)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (width >= INLINE_HEADER_WIDTH) threadSummary?.let { StatusBadge(it.status, domain = "thread") }
+                if (width >= INLINE_HEADER_WIDTH) threadSummary?.let { StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(it), domain = "thread") }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(meta.joinToString(" · "), Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle,
@@ -201,12 +203,11 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val client = backend.client
     val connection by client.state.collectAsStateWithLifecycle()
     val tabs = rememberPanelTabs(client)
-    val main = threadOf(route.threadId) == MAIN_THREAD_ID && route.workerId == null
     val board by context.board.view.collectAsStateWithLifecycle()
     val workers = rememberPushedList(client, route.projectId, route.workerId != null && connection.supports("workers"),
         pushed = { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.workers },
         read = { client.request(WorkersListRequest(projectId = route.projectId)).workers })
-    val threads = rememberPushedList(client, route.projectId, PanelTab.Threads in tabs && main,
+    val threads = rememberPushedList(client, route.projectId, PanelTab.Threads in tabs && route.workerId == null,
         pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.threads },
         read = { client.request(ThreadsListRequest(projectId = route.projectId)).threads })
     val mute = LocalProjectMute.current
@@ -219,15 +220,19 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
     val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
     val questions = if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
-    val background = activeBackgroundCount(threads)
+    val projects by backend.projects.collectAsStateWithLifecycle()
+    val background = projects.firstOrNull { it.id == route.projectId }?.activity?.backgroundJobs
+        ?: io.github.mitzacoder.kemiri.features.chat.backgroundJobCounts(threads)
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null
     val actions = buildList {
         if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
             StatusGlyphs.ClipboardList, questionBadgeText(questions), primary = true, pressed = panel?.tab == PanelTab.Board) { toggle(PanelTab.Board) })
-        if (PanelTab.Threads in tabs && main) add(HeaderAction("background", "Background" + if (background > 0) " ($background running)" else "", "Background",
-            Lucide.Layers, background.takeIf { it > 0 }?.toString(), pressed = panel?.tab == PanelTab.Threads) { toggle(PanelTab.Threads) })
+        if (PanelTab.Threads in tabs && route.workerId == null) add(HeaderAction("background",
+            "Background jobs: ${background.needsYou} needs you, ${background.working} working", "Background jobs",
+            Lucide.Layers, background.needsYou.takeIf { it > 0 }?.toString(), workingCount = background.working.takeIf { it > 0 }?.toString(),
+            needsYouBadge = true, pressed = panel?.tab == PanelTab.Threads) { toggle(PanelTab.Threads) })
         if (PanelTab.Info in tabs) add(HeaderAction("info", if (worker) "This worker's context" else "Conversation info", "Info", Lucide.Info, pressed = panel?.tab == PanelTab.Info) { toggle(PanelTab.Info) })
         if (PanelTab.Memory in tabs) add(HeaderAction("memory", "Memory", "Memory", StatusGlyphs.BookOpen, pressed = panel?.tab == PanelTab.Memory) { toggle(PanelTab.Memory) })
         // The old panel tabs were the only route to Artifacts. Keep it reachable from the header too.
@@ -270,7 +275,8 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
                 DropdownMenuItem(
                     text = { Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(action.label)
-                        action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it) }
+                        action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it, action.needsYouBadge) }
+            action.workingCount?.let { Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
                     } },
                     leadingIcon = { LucideGlyph(action.icon, size = 18.dp) },
                     trailingIcon = if (action.pressed && action.id != "mute") ({ LucideGlyph(Lucide.Check, size = 16.dp) }) else null,
@@ -310,7 +316,10 @@ private fun HeaderButton(action: HeaderAction, showLabel: Boolean) {
     val tint = if (panelSelected) palette.foreground else if (action.pressed) colors.fg else colors.fgMuted
     val background = if (panelSelected) palette.background else if (action.pressed) colors.surface2 else Color.Transparent
     val badge: @Composable BoxScope.() -> Unit = {
-        action.count?.let { HeaderBadge(it) }
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            action.count?.let { HeaderBadge(it, action.needsYouBadge) }
+            action.workingCount?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.fgMuted) }
+        }
     }
     if (showLabel) {
         TextButton(onClick = action.onClick, modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },
@@ -318,7 +327,8 @@ private fun HeaderButton(action: HeaderAction, showLabel: Boolean) {
             LucideGlyph(action.icon, size = 18.dp)
             Spacer(Modifier.width(6.dp))
             Text(action.label)
-            action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it) }
+            action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it, action.needsYouBadge) }
+            action.workingCount?.let { Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
         }
     } else {
         IconButton(onClick = action.onClick, modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },
@@ -338,8 +348,8 @@ internal fun headerPanelPalette(dark: Boolean, neutral: Boolean = false) = if (n
 else HeaderPanelPalette(Color(0xFF4338CA), Color(0xFFE0E7FF))
 
 @Composable
-private fun HeaderBadge(count: String) {
+private fun HeaderBadge(count: String, attention: Boolean = false) {
     val dark = Jarvis.colors.dark
-    Badge(containerColor = if (Jarvis.colors.neutral) MaterialTheme.colorScheme.primary else if (dark) Color(0xFF818CF8) else Color(0xFF4F46E5),
-        contentColor = if (Jarvis.colors.neutral) MaterialTheme.colorScheme.onPrimary else if (dark) Color(0xFF0B0B14) else Color.White) { Text(count) }
+    Badge(containerColor = if (attention) Jarvis.colors.warning else if (Jarvis.colors.neutral) MaterialTheme.colorScheme.primary else if (dark) Color(0xFF818CF8) else Color(0xFF4F46E5),
+        contentColor = if (attention) Jarvis.colors.surface else if (Jarvis.colors.neutral) MaterialTheme.colorScheme.onPrimary else if (dark) Color(0xFF0B0B14) else Color.White) { Text(count) }
 }

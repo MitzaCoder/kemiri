@@ -38,12 +38,12 @@ internal fun parseReportsNotice(text: String): ReportsNotice? {
                     OutlinedButton(
                         onClick = { context?.openTask(section.taskId) }, enabled = context != null,
                         modifier = Modifier.heightIn(min = 48.dp).semantics {
-                            contentDescription = "Open ${section.taskId}, ${section.section} report out of date: ${section.reason}"
+                            contentDescription = "Open ${section.taskId}, ${section.section} report out of date: ${section.reason.replace("thread", "background job")}"
                         }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     ) { Text("${section.taskId} · ${section.section}", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
                 }
             }
-            val reasons = notice.sections.map { it.reason }.filter { it.isNotEmpty() }.distinct().joinToString("; ")
+            val reasons = notice.sections.map { it.reason.replace("thread", "background job") }.filter { it.isNotEmpty() }.distinct().joinToString("; ")
             if (reasons.isNotEmpty()) Text(reasons, style = MaterialTheme.typography.labelSmall,
                 color = Jarvis.colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

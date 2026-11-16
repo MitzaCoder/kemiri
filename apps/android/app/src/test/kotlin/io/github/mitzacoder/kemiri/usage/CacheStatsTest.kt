@@ -50,7 +50,7 @@ class CacheStatsTest {
 
     @Test fun namesTheConversationAndTheMiss() {
         assertEquals("Worker qa-4316 · in nightly · T15", conversationLabel(miss))
-        assertEquals("Main", conversationLabel("main", "main", null, null))
+        assertEquals("Main chat", conversationLabel("main", "main", null, null))
         assertEquals("Waited too long (10m)", missHeadline(miss))
         assertEquals("No visible reason", missHeadline(miss.copy(reason = "unexplained")))
         assertEquals("a worker check-in", wakePhrase("check_in"))

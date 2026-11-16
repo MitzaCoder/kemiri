@@ -22,7 +22,7 @@ class RealCardSamplesTest {
             assertEquals(message["durationMs"]!!.jsonPrimitive.long,part.durationMs)
             val error = message["isError"] == JsonPrimitive(true)
             if(error) { assertEquals("error",part.status); assertNull(artifactCallId(part)); assertNull(threadCallId(part)); assertNull(artifactFromTool(part,"p")) }
-            if(part.name == "thread_list") { assertNull(part.details); assertEquals("Listed 1 background thread",threadCallLabel(part)) }
+            if(part.name == "thread_list") { assertNull(part.details); assertEquals("Listed 1 background job",threadCallLabel(part)) }
             if(part.name == "thread_peek") assertEquals("Looked in on Contract proof",threadCallLabel(part))
             if(part.name == "artifact_save" && !error) {
                 assertEquals(message["details"]!!.jsonObject["artifactId"]!!.jsonPrimitive.content,artifactCallId(part))

@@ -62,11 +62,11 @@ internal fun formatMediaDuration(seconds: Double?): String {
     return if (hours > 0) "$hours:${minutes.toString().padStart(2, '0')}:$rest" else "$minutes:$rest"
 }
 
-/** Who saved it: main, a background thread, or one of their workers. */
+/** Who saved it: main, a background job, or one of their workers. */
 internal fun savedByLabel(artifact: Artifact): String {
     val main = artifact.threadId.isBlank() || artifact.threadId == MAIN_THREAD_ID
-    val worker = artifact.workerId?.takeIf { it.isNotBlank() } ?: return if (main) "Main" else "Thread ${artifact.threadId}"
-    return "Worker $worker of ${if (main) "main" else "thread ${artifact.threadId}"}"
+    val worker = artifact.workerId?.takeIf { it.isNotBlank() } ?: return if (main) "Main chat" else "Background job ${artifact.threadId}"
+    return "Worker $worker of ${if (main) "Main chat" else "background job ${artifact.threadId}"}"
 }
 
 /** How many of each kind a list holds, in the kinds' order, leaving out the absent ones. */

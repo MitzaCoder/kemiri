@@ -10,7 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +36,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 /*
  * What the harness posts into a conversation as user inputs, drawn as one task line each instead of something the user
- * typed: a worker's report or failure, a check-in on running work, a background thread's finish or failure, and a
+ * typed: a worker's report or failure, a check-in on running work, a background job's finish or failure, and a
  * `[board]` note. The web's `WorkerReport`, `WorkerCheckIn`, `ThreadNotice` and `BoardNotice`.
  */
 
@@ -132,29 +133,18 @@ internal fun injectedInput(text: String): InjectedInput? =
 @Composable private fun ThreadNoticeLine(part: ChatPart, notice: ThreadNotice, threads: List<ThreadSummary>, artifacts: List<Artifact>, context: ProjectScreenContext?) {
     val threadId = notice.threadId
     val thread = threads.firstOrNull { it.id == threadId }
-    val name = if (threadId == null) "A background thread" else threadName(threadId, threads)
+    val name = if (threadId == null) "A background job" else threadName(threadId, threads)
     val openThread: (() -> Unit)? = if (context != null && threadId != null && !isMainThread(threadId)) ({ context.navigate(context.route.copy(threadId = threadId, workerId = null)) }) else null
     if (notice.kind == "finished" || notice.kind == "failed") {
         val ok = notice.kind == "finished"
-        val taskId = thread?.taskId
-        TaskLine(part.key, if (ok) ChatIcons.CircleCheck else Lucide.CircleAlert, if (ok) TaskLineTone.Done else TaskLineTone.Failed, timestamp = part.timestamp, details = {
-            if (taskId != null) Text(name, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgSubtle)
-            if (ok) {
-                if (notice.body.isNotEmpty()) RichMarkdown(notice.body) else Quiet("It finished without a summary.")
-                if (context != null && threadId != null) TranscriptArtifactStrip(finishArtifacts(artifacts, threadId, part.timestamp), context)
-            } else {
-                Text(notice.body.ifEmpty { "It failed without a reason." }, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.danger)
-                thread?.let { ThreadFactsLine(it) }
-            }
-            openThread?.let { OpenLink("Open thread", it) }
-        }) {
-            if (taskId == null) {
-                Text(name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = if (ok) Jarvis.colors.fg else Jarvis.colors.danger, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                LineWords(if (ok) "finished" else "failed", Modifier.weight(1f), color = if (ok) Jarvis.colors.fgMuted else Jarvis.colors.danger)
-            } else {
-                LineWords(if (ok) "Thread finished" else "Thread failed", color = if (ok) Jarvis.colors.fgMuted else Jarvis.colors.danger, weight = if (ok) null else FontWeight.Medium)
-                TaskPill(taskId, Modifier.weight(1f, fill = false), title = thread.title)
-            }
+        var expanded by rememberSaveable(part.key) { mutableStateOf(false) }
+        TranscriptSurface(name, Lucide.Users, expanded, { expanded = !expanded },
+            status = if (ok) "Finished" else "Failed", tone = if (ok) Jarvis.colors.success else Jarvis.colors.danger) {
+            Text(notice.body.lineSequence().firstOrNull().orEmpty().ifEmpty { if (ok) "It finished without a summary." else "It failed without a reason." },
+                style = MaterialTheme.typography.bodySmall, color = if (ok) Jarvis.colors.fgMuted else Jarvis.colors.danger)
+            if (context != null && threadId != null) TranscriptArtifactStrip(finishArtifacts(artifacts, threadId, part.timestamp), context)
+            openThread?.let { OpenLink("Open", it) }
+            ToolDisclosure(expanded) { RichMarkdown(notice.body) }
         }
     } else {
         // A message from another thread, or a thread note this app does not know yet: a small notice, never typed text.

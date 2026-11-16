@@ -2059,6 +2059,20 @@ emitted state or the fallback. Status, question and worker changes republish the
 legacy `backgroundThreads` keeps its old meaning. New task activity uses job titles when
 known, IDs otherwise; main stays Coordinator. Historical actor names are not migrated.
 
+**Android phase 1 (T222 / D89).** Main chat and background jobs are the visible
+names; routes and protocol identifiers retain thread. Use emitted state when present,
+otherwise the precedence above. Needs you is amber and shows the open board question;
+Working shows current work; Paused explains how to continue; Failed keeps the error
+and retry hint; Finished shows the summary's first line; Stopped shows its end age.
+The panel sorts Needs you, Failed, Working, Paused, then newest Finished/Stopped.
+Non-archived terminal jobs older than 24 hours fold under a collapsed Finished (N).
+It is reachable from a job as well, with You are here on that row. The header shows
+amber needs-you and quiet working counts, preferring backgroundJobs and deriving
+from threads only when absent. Drawer notes omit zero counts and use N background
+jobs on older servers. Started cards stay outside N steps; finished/failed notices
+use the same card shape, preserving Open and artifact strips. Title switching and
+the job-page band remain later phases.
+
 Decided with the user on 2026-11-04; contracts in `packages/protocol/src/threads.ts` and `artifacts.ts`.
 
 The user's goal: talk to one place and never worry which thread they are in. So a project has one **main** thread

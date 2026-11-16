@@ -65,7 +65,7 @@ internal fun isTaskLineRow(row: ChatRow): Boolean {
     if(first.kind != "notice") return false
     return when(val input = injectedInput(first.text)) {
         null -> false
-        is InjectedInput.Thread -> input.notice.kind == "finished" || input.notice.kind == "failed"
+        is InjectedInput.Thread -> false
         else -> true
     }
 }

@@ -70,10 +70,10 @@ private val WAKES = mapOf(
     "user" to "Your messages",
     "check_in" to "Worker check-ins",
     "worker_report" to "Worker reports",
-    "thread_finished" to "Threads finishing",
-    "thread_message" to "Messages between threads",
+    "thread_finished" to "Background jobs finishing",
+    "thread_message" to "Messages between background jobs",
     "board" to "Board changes",
-    "brief" to "New workers and threads",
+    "brief" to "New workers and background jobs",
     "schedule" to "Schedules",
     "coordinator" to "Messages to workers",
     "continue" to "Work going on",
@@ -88,8 +88,8 @@ fun wakePhrase(wake: String?): String = when (wake) {
     "user" -> "your message"
     "check_in" -> "a worker check-in"
     "worker_report" -> "a worker's report"
-    "thread_finished" -> "a thread finishing"
-    "thread_message" -> "a message from another thread"
+    "thread_finished" -> "a background job finishing"
+    "thread_message" -> "a message from another background job"
     "board" -> "a board change"
     "brief" -> "its first brief"
     "schedule" -> "a schedule"
@@ -99,12 +99,12 @@ fun wakePhrase(wake: String?): String = when (wake) {
     else -> "something unknown"
 }
 
-/** Which conversation: "Main", "Worker qa-4316 · in nightly · T15", "Thread nightly-sync". */
+/** Which conversation: "Main chat", "Worker qa-4316 · in nightly · T15", "Thread nightly-sync". */
 fun conversationLabel(kind: String, threadId: String?, workerId: String?, taskId: String?): String {
     val first = when {
-        kind == "thread" && threadId != null -> "Thread $threadId"
+        kind == "thread" && threadId != null -> "Background job $threadId"
         kind == "worker" && workerId != null -> "Worker $workerId"
-        else -> when (kind) { "main" -> "Main"; "thread" -> "Thread"; "worker" -> "Worker"; else -> "Other" }
+        else -> when (kind) { "main" -> "Main chat"; "thread" -> "Background job"; "worker" -> "Worker"; else -> "Other" }
     }
     val parts = mutableListOf(first)
     if (kind == "worker" && threadId != null && threadId != "main") parts += "in $threadId"
@@ -115,7 +115,7 @@ fun conversationLabel(kind: String, threadId: String?, workerId: String?, taskId
 fun conversationLabel(miss: CacheMissDetail) = conversationLabel(miss.kind, miss.threadId, miss.workerId, miss.taskId)
 fun conversationLabel(row: CacheConversation) = conversationLabel(row.kind, row.threadId, row.workerId, row.taskId)
 
-fun kindGroupLabel(kind: String): String = when (kind) { "main" -> "Main"; "thread" -> "Threads"; "worker" -> "Workers"; else -> "Other" }
+fun kindGroupLabel(kind: String): String = when (kind) { "main" -> "Main chat"; "thread" -> "Background jobs"; "worker" -> "Workers"; else -> "Other" }
 
 /** The miss's headline: "Waited too long (12m)". */
 fun missHeadline(miss: CacheMissDetail): String {

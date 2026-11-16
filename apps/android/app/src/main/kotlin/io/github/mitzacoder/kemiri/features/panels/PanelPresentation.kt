@@ -17,7 +17,7 @@ internal fun boardWorkerLabels(task: BoardTask): List<String> = task.workerIds.m
 
 /** A tab's name; the Board tab is "Tasks" on a backend that keeps task reports ([tasks]). */
 internal fun panelTabLabel(tab: PanelTab, tasks: Boolean = false) = when {
-    tab == PanelTab.Threads -> "Background"
+    tab == PanelTab.Threads -> "Background jobs"
     tab == PanelTab.Board && tasks -> "Tasks"
     else -> tab.label
 }
@@ -31,19 +31,8 @@ internal fun moveOrder(ids: List<String>, id: String, to: Int): List<String> {
     if (id !in ids || to !in ids.indices) return ids
     return ids.toMutableList().apply { remove(id); add(to, id) }
 }
-internal fun threadActivity(thread: ThreadSummary): String = when (thread.status) {
-    "failed" -> thread.failure ?: "Its last turn failed."
-    "stopped" -> "Stopped; nothing runs."
-    "done" -> thread.summary?.lineSequence()?.map { it.trim().trimStart('#').trim() }?.firstOrNull { it.isNotEmpty() }?.take(140) ?: "Finished."
-    else -> thread.current?.takeIf { it.isNotBlank() } ?: if (thread.status == "running") "Working…" else "Waiting for a message or its workers."
-}
-internal fun threadRank(thread: ThreadSummary) = when {
-    thread.openQuestions > 0 && thread.status in listOf("running", "idle") -> 0
-    thread.status == "running" -> 1
-    thread.status == "idle" -> 2
-    thread.status == "failed" -> 3
-    else -> 4
-}
+internal fun threadActivity(thread: ThreadSummary): String = io.github.mitzacoder.kemiri.features.chat.threadStateLine(thread)
+internal fun threadRank(thread: ThreadSummary) = io.github.mitzacoder.kemiri.features.chat.threadStateRank(thread)
 
 internal fun panelQuestionVisible(routeThread: String?, questionThread: String?) = normalizedThread(routeThread) == "main" || normalizedThread(routeThread) == normalizedThread(questionThread)
 
@@ -79,7 +68,7 @@ internal fun panelRelativeTime(value: String, now: java.time.Instant = java.time
 internal fun panelPreviewRenewDelay(expiresAt: String, nowMillis: Long): Long = try {
     (java.time.Instant.parse(expiresAt).toEpochMilli() - nowMillis - 5_000).coerceIn(1_000L, 3_600_000L)
 } catch (_: java.time.DateTimeException) { 60_000L }
-internal fun panelArtifactOwner(thread: String, worker: String?) = (if (thread == "main") "Main" else thread) + (worker?.let { " · $it" } ?: "")
+internal fun panelArtifactOwner(thread: String, worker: String?) = (if (thread == "main") "Main chat" else thread) + (worker?.let { " · $it" } ?: "")
 internal fun panelIsolationLabel(value: String) = when (value) { "shared" -> "Shared checkout"; "workspace" -> "Own workspace"; else -> value.replace('_', ' ').replaceFirstChar { it.uppercase() } }
 
 // --- Background and Workers (web lib/threads.ts, lib/workers.ts) ---------------------------------------------------
@@ -97,12 +86,12 @@ internal fun ownedTasksText(taskIds: List<String>): String? {
 /** "1 question for you", or nothing. */
 internal fun openQuestionsText(count: Long): String? = when { count <= 0 -> null; count == 1L -> "1 question for you"; else -> "$count questions for you" }
 
-/** Who started a thread, in words: "Started by main", "Scheduled · Nightly triage", "Started by you". */
+/** Who started a thread, in words: "Started by Main chat", "Scheduled · Nightly triage", "Started by you". */
 internal fun threadStartedByText(thread: ThreadSummary, scheduleName: (String) -> String?): String = when (thread.startedBy) {
     "schedule" -> thread.scheduleId?.let(scheduleName)?.let { "Scheduled · $it" } ?: "Started by a schedule"
     "user" -> "Started by you"
-    "main" -> "Started by main"
-    else -> "Main"
+    "main" -> "Started by Main chat"
+    else -> "Main chat"
 }
 
 /** When a thread last moved: "Ended 3 h ago" once finished, "Active 2 min ago" while running, else "Updated …"; and the exact times. */

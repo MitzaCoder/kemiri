@@ -41,9 +41,9 @@ fun taskStatusTone(status: String): TaskStatusTone = when (status) {
 
 fun isMainThread(threadId: String?): Boolean = threadId == null || threadId == MAIN_THREAD_ID
 
-/** A thread by its title: "Main" for main, else its title, else its ID. */
+/** A thread by its title: "Main chat" for main, else its title, else its ID. */
 fun threadName(threadId: String?, threads: List<ThreadSummary>): String {
-    if (isMainThread(threadId)) return "Main"
+    if (isMainThread(threadId)) return "Main chat"
     return threads.firstOrNull { it.id == threadId }?.title?.takeIf { it.isNotEmpty() } ?: threadId.orEmpty()
 }
 
@@ -53,7 +53,7 @@ fun writerLabel(writer: BoardWriter?, threads: List<ThreadSummary> = emptyList()
     return when (writer.author) {
         "user" -> "you"
         "harness" -> "the harness"
-        "coordinator" -> if (isMainThread(writer.threadId)) "the coordinator" else threadName(writer.threadId, threads)
+        "coordinator" -> if (isMainThread(writer.threadId)) "Main chat" else threadName(writer.threadId, threads)
         "worker" -> writer.workerId?.let(workerTitle)?.takeIf { it.isNotEmpty() } ?: "a worker"
         else -> writer.author
     }

@@ -26,11 +26,11 @@ class ChatStatesTest {
     }
 
     @Test fun composerHintFollowsTheWeb() {
-        assertEquals("Choose a coordinator model first",composerHint(canChat = false,ready = true,thread = false,busy = false))
+        assertEquals("Choose a Main chat model first",composerHint(canChat = false,ready = true,thread = false,busy = false))
         assertEquals("Reconnecting…",composerHint(canChat = true,ready = false,thread = false,busy = true))
-        assertEquals("Message this thread directly…",composerHint(canChat = true,ready = true,thread = true,busy = true))
-        assertEquals("Send — the coordinator gets it at its next step…",composerHint(canChat = true,ready = true,thread = false,busy = true))
-        assertEquals("Message the coordinator…",composerHint(canChat = true,ready = true,thread = false,busy = false))
+        assertEquals("Message this background job…",composerHint(canChat = true,ready = true,thread = true,busy = true))
+        assertEquals("Send — Main chat gets it at its next step…",composerHint(canChat = true,ready = true,thread = false,busy = true))
+        assertEquals("Message Main chat…",composerHint(canChat = true,ready = true,thread = false,busy = false))
     }
 
     @Test fun mainNeedsACoordinatorModelAndAThreadDoesNot() {

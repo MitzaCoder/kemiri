@@ -35,7 +35,7 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
     val ready = connection.status == ConnectionStatus.Ready
     val workerEnabled = workerDefaultsEditable(workersLoaded,ready,savingWorker)
     val onDefaults by rememberUpdatedState(onWorkerDefaults)
-    // Project-wide settings must not silently change from a background thread, and its messages carry no worker defaults.
+    // Project-wide settings must not silently change from a background job, and its messages carry no worker defaults.
     val onMain = context.route.threadId == null || context.route.threadId == "main"
     LaunchedEffect(context.backend.client,context.route) {
         context.backend.client.events.collect { event ->

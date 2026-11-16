@@ -55,7 +55,7 @@ internal fun McpProjectSection(backend: BackendSession, projectId: String, openB
                 }
                 GroupRow {
                     MCP_ROLES.forEach { role ->
-                        val label = when (role) { "coordinator" -> "Coordinator"; "workers" -> "Workers"; else -> "Background threads" }
+                        val label = when (role) { "coordinator" -> "Main chat"; "workers" -> "Workers"; else -> "Background jobs" }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Checkbox(checked = role in choice.roles, enabled = loaded && !busy && choice.enabled,
                                 modifier = Modifier.semantics { contentDescription = "$label for ${server.name}" },

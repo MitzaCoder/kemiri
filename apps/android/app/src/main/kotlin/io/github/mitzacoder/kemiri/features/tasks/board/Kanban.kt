@@ -194,7 +194,7 @@ fun waitsFor(task: BoardTask, tasks: List<BoardTask>): List<Blocker> =
 fun runningWorkers(task: BoardTask, workers: List<WorkerSummary>): List<WorkerSummary> =
     workers.filter { it.status == "running" && (it.taskId == task.id || (it.taskId == null && it.id in task.workerIds)) }
 
-/** The background thread holding a task, by name; null when main holds it, nobody does, or the server has no claims. */
+/** The background job holding a task, by name; null when main holds it, nobody does, or the server has no claims. */
 fun holdingThread(task: BoardTask, threads: List<ThreadSummary>): String? {
     val owner = task.ownerThreadId ?: return null
     if (isMainThread(owner)) return null

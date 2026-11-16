@@ -38,11 +38,11 @@ internal fun canChat(project: ProjectSummary?, thread: Boolean): Boolean =
 
 /** The composer's hint (web `ProjectChat`'s `placeholder`, else `Composer`'s own). */
 internal fun composerHint(canChat: Boolean, ready: Boolean, thread: Boolean, busy: Boolean): String = when {
-    !canChat -> "Choose a coordinator model first"
+    !canChat -> "Choose a Main chat model first"
     !ready -> "Reconnecting…"
-    thread -> "Message this thread directly…"
-    busy -> "Send — the coordinator gets it at its next step…"
-    else -> "Message the coordinator…"
+    thread -> "Message this background job…"
+    busy -> "Send — Main chat gets it at its next step…"
+    else -> "Message Main chat…"
 }
 
 /** The banner above the composer while the transcript is not live; null while it is. */

@@ -147,7 +147,7 @@ fun generalSettingsLink(parts: List<String>, backends: List<BackendConfig>): App
 
 /**
  * Where a notification opens (client `notificationUrl`): the task's sheet over main, a worker's transcript, main with a
- * background thread's card highlighted, the project's settings for a schedule, the project, or home without a project.
+ * background job's card highlighted, the project's settings for a schedule, the project, or home without a project.
  */
 fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>): AppLink {
     val backend = resolveBackend(payload.backendKey, backends) ?: return AppLink.UnknownBackend(payload.backendKey)
@@ -157,7 +157,7 @@ fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>
     return AppLink.Open(when {
         payload.taskId != null -> listOf(main, Destination.Task(main, payload.taskId))
         payload.workerId != null -> listOf(main.copy(threadId = thread, workerId = payload.workerId))
-        // A thread's news opens main, where its card is: the user talks to main, not to the thread.
+        // A thread's news opens main, where its card is: the user talks to Main chat, not to the thread.
         thread != null -> listOf(main.copy(highlight = ChatHighlight.Thread(thread)))
         payload.scheduleId != null -> listOf(main, Destination.ProjectSettings(main, ProjectSection.Schedules, payload.scheduleId))
         else -> listOf(main)

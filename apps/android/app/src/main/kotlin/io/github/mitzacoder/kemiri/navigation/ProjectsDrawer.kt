@@ -313,7 +313,7 @@ private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boole
     val status = projectStatus(project, now)
     val colors = Jarvis.colors
     val summary = sidebarStatus(project, status, board)
-    val description = listOfNotNull(project.name, summary.label, if (unread) "New reply since you last looked" else null).joinToString(", ")
+    val description = listOfNotNull(project.name, summary.label, projectBackgroundJobsText(project.activity), if (unread) "New reply since you last looked" else null).joinToString(", ")
     NavigationDrawerItem(
         label = {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -324,6 +324,7 @@ private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boole
                     Text(project.name, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(summary.label, style = MaterialTheme.typography.bodySmall,
                         color = if (summary.urgent) colors.warning else colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    projectBackgroundJobsText(project.activity)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle) }
                 }
                 if (unread) Box(Modifier.padding(top = 6.dp).size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
             }

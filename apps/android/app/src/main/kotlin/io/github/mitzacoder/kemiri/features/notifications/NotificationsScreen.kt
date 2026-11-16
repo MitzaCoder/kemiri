@@ -208,7 +208,7 @@ private fun QuietHoursGroup(settings: NotificationSettings, update: ((Notificati
                 }
                 if (problem == null && edited != quiet) Button(onClick = { update { it.copy(quietHours = edited) } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Save quiet hours") }
             }
-            SettingsRow("Still notify failures", hint = "Failed workers, schedules, deploys, compactions, maintenance, threads and low disk still come through.", control = RowControl.Inline) {
+            SettingsRow("Still notify failures", hint = "Failed workers, schedules, deploys, compactions, maintenance, background jobs and low disk still come through.", control = RowControl.Inline) {
                 SettingsSwitch(quiet.allowFailures, { on -> update { it.copy(quietHours = quiet.copy(allowFailures = on)) } }, "Still notify failures")
             }
         }

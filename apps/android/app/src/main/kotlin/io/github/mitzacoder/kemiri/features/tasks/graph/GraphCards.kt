@@ -41,7 +41,7 @@ internal fun graphTaskLabel(d: GraphTask, now: Long): String = buildList {
     if (d.quiet) add(graphQuietAge(d.task.updatedAt, now))
     add(d.progress)
     addAll(d.workers.map { "Worker ${it.id}, ${it.status}" })
-    addAll(d.threads.filter { !it.main && !it.archived }.map { "Thread ${it.title}, ${it.status}" })
+    addAll(d.threads.filter { !it.main && !it.archived }.map { "Background job ${it.title}, ${it.status}" })
 }.joinToString(". ")
 
 @Composable

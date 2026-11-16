@@ -22,7 +22,7 @@ data class TurnMeta(val timestamp: Long? = null, val ended: Long? = null, val mo
 /** One transcript row: a part, or a group of them (thinking steps, a coding run, a run of other calls); [turn] on a turn's last row. */
 data class ChatRow(val key: String, val parts: List<ChatPart>, val turn: TurnMeta? = null) {
     /** A run of two or more calls that are not coding calls, folded into one "N steps" row. */
-    val isSteps: Boolean get() = parts.size > 1 && parts.first().kind == "tool" && parts.first().name !in coding
+    val isSteps: Boolean get() = parts.size > 1 && parts.first().kind == "tool" && parts.first().name !in coding && parts.none { it.name == "thread_start" }
 }
 private val coding = setOf("read","write","edit","bash")
 fun groupParts(parts: List<ChatPart>): List<ChatRow> {
@@ -38,9 +38,9 @@ fun groupParts(parts: List<ChatPart>): List<ChatRow> {
                 else if(next.kind == "thinking" && parts.drop(i).firstOrNull { it.kind != "thinking" }?.let { it.kind == "tool" && it.name in coding } == true) group += parts[i++]
                 else break
             }
-        } else if(first.kind == "tool") {
+        } else if(first.kind == "tool" && first.name != "thread_start") {
             // Board writes, schedules, workers, threads, memory: a stack of them between two sentences folds into one row.
-            while(i < parts.size && parts[i].kind == "tool" && parts[i].name !in coding) group += parts[i++]
+            while(i < parts.size && parts[i].kind == "tool" && parts[i].name !in coding && parts[i].name != "thread_start") group += parts[i++]
         }
         rows += ChatRow(first.key,group)
     }
