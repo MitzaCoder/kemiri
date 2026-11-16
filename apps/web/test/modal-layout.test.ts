@@ -7,6 +7,7 @@ import {
 	openArtifactPreview,
 	sandboxedArtifactDocument,
 } from '../src/lib/artifact-preview.ts';
+import { cn } from '../src/lib/utils.ts';
 import { artifactDialogSizing, DIALOG_FOOTER_CLASS, DIALOG_HEADER_CLASS, DIALOG_SCROLL_CLASS, roomyDialogClass } from '../src/lib/dialog-layout.ts';
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -173,8 +174,19 @@ describe('the viewers wire the new sizing and button up', () => {
 		expect(html).toContain('rounded-none p-0 ring-0');
 		expect(html).toContain('sm:h-[90dvh] sm:w-[min(80vw,100rem)]');
 		expect(html).toContain('sm:rounded-[8px] sm:border sm:border-(--chat-border)');
-		expect(html).toContain('overlayClass="bg-black/35"');
+		expect(html).toContain('overlayClass="bg-black/35 supports-backdrop-filter:backdrop-blur-none"');
 		expect(html).toContain('showCloseButton={false}');
+	});
+	test('HTML dims without the shared backdrop filter; other dialogs retain it', () => {
+		const overlay = source('../src/lib/components/ui/dialog/dialog-overlay.svelte');
+		const defaults = overlay.match(/class=\{cn\("([^"]+)"/)![1]!;
+		const dialog = source('../src/lib/components/artifacts/ArtifactDialog.svelte');
+		const override = dialog.match(/overlayClass="([^"]+)"/)![1]!;
+		expect(defaults).toContain('supports-backdrop-filter:backdrop-blur-xs');
+		const merged = cn(defaults, override).split(/\s+/);
+		expect(merged).toContain('bg-black/35');
+		expect(merged).toContain('supports-backdrop-filter:backdrop-blur-none');
+		expect(merged).not.toContain('supports-backdrop-filter:backdrop-blur-xs');
 	});
 	test('only the current sandbox frame can request closing its modal', () => {
 		const text = source('../src/lib/components/artifacts/ArtifactText.svelte');

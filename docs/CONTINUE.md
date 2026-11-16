@@ -1,5 +1,24 @@
 # Continue
 
+## T212: HTML modal scroll flicker
+
+HTML alone now uses a dim-only backdrop, overriding the shared supports-filter
+blur utility. Likely cause: backdrop sampling behind the independently composited
+sandbox iframe; no GPU-promotion or reload workaround. Owner flicker was not
+reproduced in Linux headless Chromium, so the affected macOS browser still needs
+confirmation. Synthetic 60-section scroll probes found no iframe reloads/attribute
+mutations or resize loop, before or after; computed overlay blur changed from
+4px to none, with modal geometry and focus/dismissal behavior intact. Evidence
+mwjev43t-37312186f8 indexes desktop light/dark before/after screenshots and four
+six-second scroll recordings. Web 1,178 tests/check/build, root typecheck and
+external-denylist/Gitleaks checks pass. No real data used in the proof.
+
+Q234 approves deployment. The deployment candidate includes this note and must
+pass isolated env-i root tests, root typecheck, web check/build and the external
+public-source denylist check before its exact commit is pushed and main moved.
+The watcher, not a manual script, handles deployment and reports its outcome.
+Owner-browser confirmation of the original flicker remains outstanding.
+
 ## T198: generic worker workspace freshness
 
 Isolated workers get their starting revision and the facts about ignored files;

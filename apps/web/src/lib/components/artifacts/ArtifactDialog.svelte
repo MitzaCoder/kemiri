@@ -225,7 +225,8 @@
 
 <Dialog.Root bind:open>
 	{#if artifact !== undefined && artifact.kind === 'text' && isHtmlArtifact(artifact)}
-		<Dialog.Content class="artifact-dialog html-artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none sm:rounded-[8px] sm:border sm:border-(--chat-border)" overlayClass="bg-black/35" showCloseButton={false} data-artifact-dialog data-html-artifact-dialog onEscapeKeydown={(event) => { if ((event.target as Element | null)?.closest?.('[role="menu"]')) event.preventDefault(); }}>
+		<!-- A dim-only backdrop avoids filtering the app behind an independently composited, scrolling iframe. -->
+		<Dialog.Content class="artifact-dialog html-artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none sm:rounded-[8px] sm:border sm:border-(--chat-border)" overlayClass="bg-black/35 supports-backdrop-filter:backdrop-blur-none" showCloseButton={false} data-artifact-dialog data-html-artifact-dialog onEscapeKeydown={(event) => { if ((event.target as Element | null)?.closest?.('[role="menu"]')) event.preventDefault(); }}>
 			<Dialog.Title class="sr-only">HTML artifact</Dialog.Title>
 			<Dialog.Description class="sr-only">Sandboxed HTML page. Use Artifact actions for source, versions, printing and closing.</Dialog.Description>
 				<ArtifactText {artifact} {client} roomy fullSpace onclose={() => open = false}>

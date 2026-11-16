@@ -41,8 +41,10 @@ its 256 KiB small-text buffering threshold is not a response-size limit.
 
 On web at widths of 640 px and above, HTML opens in a centred modal over a
 dimmed backdrop: 90dvh tall, min(80vw, 100rem) wide, with a subtle 1 px themed
-border and small rounded corners. Width is deliberately predictable rather than
-measured from opaque-origin sandbox content, whose natural width is not reliably
+border and small rounded corners. This viewer's backdrop dims without a blur filter
+(T212), avoiding backdrop sampling behind the independently scrolling sandboxed
+iframe. Other dialogs keep their shared backdrop styling. Width is deliberately
+predictable rather than measured from opaque-origin sandbox content, whose natural width is not reliably
 available. Phones below 640 px stay edge-to-edge and full height, without a border.
 There is no filename, note or metadata panel: the document supplies its own title.
 Backdrop clicks, Escape and menu Close dismiss it; the standard dialog traps focus
