@@ -1,13 +1,17 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -31,7 +35,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The chat's top bar, the twin of the web's `ProjectChat` header: the project's name over a meta line (backend ·
- * coordinator model · running tool · release), Tasks with its count always in the row, and Background,
+ * coordinator model · running tool · release), a title conversation switcher, Tasks with its count always in the row, and
  * Info, Memory, the mute bell and Settings beside them on a wide screen or in a "⋯" menu on a phone. The menu carries a
  * dot in the connection's tone when it is not connected, the connection badge and the release.
  */
@@ -127,7 +131,7 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val workers = rememberPushedList(client, route.projectId, route.workerId != null && connection.supports("workers"),
         pushed = { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.workers },
         read = { client.request(WorkersListRequest(projectId = route.projectId)).workers })
-    val threads = rememberPushedList(client, route.projectId, thread && route.workerId == null && connection.supports("threads"),
+    val threads = rememberPushedList(client, route.projectId, route.workerId == null && connection.supports("threads"),
         pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.threads },
         read = { client.request(ThreadsListRequest(projectId = route.projectId, includeArchived = true)).threads })
     val worker = route.workerId?.let { id -> workers.firstOrNull { it.id == id && threadOf(it.threadId) == threadOf(route.threadId) } }
@@ -156,18 +160,33 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
         }
     }
     val away = connectionAwayWord(connection.status)
+    val canSwitch = route.workerId == null && connection.supports("threads")
+    var switcher by rememberSaveable(route) { mutableStateOf(false) }
+    val background = project?.activity?.backgroundJobs ?: io.github.mitzacoder.kemiri.features.chat.backgroundJobCounts(threads)
+    if (switcher && canSwitch) ConversationSwitcher(context, threads, now) { switcher = false }
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (route.workerId != null || thread) {
-            val back = if (route.workerId != null) (if (thread) "Back to the background job" else "Back to Main chat") else "Back to Main chat"
+            val back = if (context.goBack != null) "Back" else if (route.workerId != null && thread) "Back to the background job" else "Back to Main chat"
             IconButton(onClick = { context.goBack?.invoke() ?: context.navigate(if (route.workerId != null) route.copy(workerId = null) else route.copy(threadId = null, workerId = null)) },
-                modifier = Modifier.size(40.dp).semantics { contentDescription = back }) { LucideGlyph(Lucide.ArrowLeft, size = 18.dp) }
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = back }) { LucideGlyph(Lucide.ArrowLeft, size = 18.dp) }
         }
-        Column(Modifier.weight(1f, fill = false)) {
+        Column(Modifier.weight(1f, fill = false).then(if (canSwitch) Modifier.heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClickLabel = "Switch conversation") { switcher = true }
+            .semantics(mergeDescendants = true) { stateDescription = "${background.needsYou} needs you, ${background.working} working" }
+            else Modifier)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (width >= INLINE_HEADER_WIDTH) threadSummary?.let { StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(it), domain = "thread") }
+                if (canSwitch) LucideGlyph(Lucide.ChevronDown, size = 16.dp)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (canSwitch) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (threadSummary != null) StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(threadSummary), domain = "thread")
+                else Text(if (thread) "Background job" else "Main chat", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
+                HeaderBadge(background.needsYou.toString(), attention = true)
+                Surface(shape = CircleShape, color = Jarvis.colors.surface2, contentColor = Jarvis.colors.fgMuted) {
+                    Text(background.working.toString(), Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (!canSwitch) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(meta.joinToString(" · "), Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // The release is in the menu on a phone, so the line stays one line; a tablet has room for it here.
@@ -207,9 +226,6 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val workers = rememberPushedList(client, route.projectId, route.workerId != null && connection.supports("workers"),
         pushed = { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.workers },
         read = { client.request(WorkersListRequest(projectId = route.projectId)).workers })
-    val threads = rememberPushedList(client, route.projectId, PanelTab.Threads in tabs && route.workerId == null,
-        pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.threads },
-        read = { client.request(ThreadsListRequest(projectId = route.projectId)).threads })
     val mute = LocalProjectMute.current
     // Asked again on every connection: whether the bell shows depends on what the backend supports.
     val mutedFlow = remember(mute, backend, route.projectId, connection.hello) { mute?.muted(backend, route.projectId) }
@@ -220,19 +236,12 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
     val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
     val questions = if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
-    val projects by backend.projects.collectAsStateWithLifecycle()
-    val background = projects.firstOrNull { it.id == route.projectId }?.activity?.backgroundJobs
-        ?: io.github.mitzacoder.kemiri.features.chat.backgroundJobCounts(threads)
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null
     val actions = buildList {
         if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
             StatusGlyphs.ClipboardList, questionBadgeText(questions), primary = true, pressed = panel?.tab == PanelTab.Board) { toggle(PanelTab.Board) })
-        if (PanelTab.Threads in tabs && route.workerId == null) add(HeaderAction("background",
-            "Background jobs: ${background.needsYou} needs you, ${background.working} working", "Background jobs",
-            Lucide.Layers, background.needsYou.takeIf { it > 0 }?.toString(), workingCount = background.working.takeIf { it > 0 }?.toString(),
-            needsYouBadge = true, pressed = panel?.tab == PanelTab.Threads) { toggle(PanelTab.Threads) })
         if (PanelTab.Info in tabs) add(HeaderAction("info", if (worker) "This worker's context" else "Conversation info", "Info", Lucide.Info, pressed = panel?.tab == PanelTab.Info) { toggle(PanelTab.Info) })
         if (PanelTab.Memory in tabs) add(HeaderAction("memory", "Memory", "Memory", StatusGlyphs.BookOpen, pressed = panel?.tab == PanelTab.Memory) { toggle(PanelTab.Memory) })
         // The old panel tabs were the only route to Artifacts. Keep it reachable from the header too.

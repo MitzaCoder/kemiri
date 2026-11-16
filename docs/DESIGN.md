@@ -2070,8 +2070,20 @@ It is reachable from a job as well, with You are here on that row. The header sh
 amber needs-you and quiet working counts, preferring backgroundJobs and deriving
 from threads only when absent. Drawer notes omit zero counts and use N background
 jobs on older servers. Started cards stay outside N steps; finished/failed notices
-use the same card shape, preserving Open and artifact strips. Title switching and
-the job-page band remain later phases.
+use the same card shape, preserving Open and artifact strips. The job-page band
+remains a later phase.
+
+**Android title switcher (T223 / D89).** On thread-capable backends the title is a
+48 dp button with a caret: project name over Main chat, or job title with its state.
+Amber needs-you and quiet working counts sit with the title, not in overflow.
+Switch conversation opens the same live Material modal sheet from either chat:
+Main chat and its explanation first, then Background jobs in phase-1 order, with
+state chips, status lines and You are here on the current row. Old terminal jobs
+fold under Finished (N), expanding in place; All background jobs opens the existing
+panel. Choosing another conversation pushes real BackStack history; choosing the
+current one only dismisses. Back dismisses the sheet before popping chat history.
+Returning preserves the originating chat's panels and scroll (T219). Worker titles
+and backends without threads stay plain. No Background jobs header action remains.
 
 Decided with the user on 2026-11-04; contracts in `packages/protocol/src/threads.ts` and `artifacts.ts`.
 
@@ -2121,6 +2133,8 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   Main chat keeps the existing shared question pin. The job composer quietly explains that Main chat sees only
   the job's report, not these messages; typing remains available. The left sidebar keeps one project row with
   needs-you/working counts when available and adds Open: <job title> only inside a job (rail: in its tooltip).
+  On Android the chat title opens the same list in a modal bottom sheet (system Back closes it first; a
+  chosen row pushes onto the back stack) and its All background jobs row opens the panel.
 
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 

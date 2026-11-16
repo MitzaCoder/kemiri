@@ -1,5 +1,24 @@
 # Continue
 
+## T223: Android title conversation switcher (D89 phase 2)
+
+The title opens one live Material bottom sheet from Main chat or any job, with
+Main chat first, phase-1 job order/lines/chips, You are here, a 24-hour Finished
+fold and All background jobs. Counts now sit by the title; the Background jobs
+header/overflow action is gone. Choices push ordinary BackStack history; current
+choices only dismiss, and modal Back closes first. Existing per-chat panel/scroll
+restoration remains untouched. Titles on workers and backends without threads
+stay plain. Header height follows font scale; sheet/fold survive theme recreation.
+Six new JVM tests cover list invariance, order/current/fold, push/back, same-row
+selection, highlight reset and header wiring. Checks pass: 1,042 JVM tests (two
+skipped), assemble/lint (zero errors, 51 warnings, four hints), root typecheck and
+external-denylist/Gitleaks checks. T223 proof index mwjxrhi7-f6c708d5d7 links
+light/dark phase-1 before/after headers and lists; recording mwjxr4cd-2513745161
+shows Main chat → Photo library audit → Catalogue rework → Back twice. Additional
+proof covers 200% font, old-finish expansion and the panel link. Before has no
+sheet, so its list images show the existing panel. Committed synthetic demo only;
+no physical device, real data, push or deployment.
+
 ## T224: web job band, question and steering note
 
 Job pages now have an accent-wash band below the header: project, starter/time,

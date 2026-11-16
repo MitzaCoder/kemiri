@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
@@ -187,6 +188,7 @@ fun HarnessApp(
                     topBar = {
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
                         if (terminal == null && !htmlArtifactViewport) TopAppBar(
+                            expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
                                 if (current is Destination.Settings) Text("Settings")
                                 else if (current is Destination.ProjectSettings) Text("Project settings")
