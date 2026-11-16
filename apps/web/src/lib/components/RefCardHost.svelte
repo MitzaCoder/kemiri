@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { observeTaskReferences } from '#lib/task-reference-highlight.js';
+	onMount(observeTaskReferences);
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { type RefDetails, refIdentity } from '@kemiri/protocol';
 	import { taskIdFromHref } from '#lib/task-chat.js';

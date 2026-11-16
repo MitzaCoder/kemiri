@@ -46,7 +46,8 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
         parent?.let { target ->
             val label = relationDescription("Subtask of", target, links?.title(target.id))
             FamilyRelationLink(label, links?.let { { it.open(target.id) } }) {
-                Text("↳ ${target.id}", style = TaskType.meta, color = colors.fgSubtle)
+                Text("↳", style = TaskType.meta, color = colors.fgSubtle)
+                TaskIdChip(target.id)
             }
         }
         hints.forEach { group ->

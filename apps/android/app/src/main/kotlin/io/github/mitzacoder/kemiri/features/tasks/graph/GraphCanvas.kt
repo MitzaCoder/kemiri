@@ -170,9 +170,15 @@ private fun CanvasTask(d: GraphTask, b: GraphRect, detail: GraphDetail, selected
         .background(if (matches) tone.copy(alpha = if (finishing) .035f else if (updated && motion) .28f else .10f) else colors.surface2, shape)
         .clickable(role = Role.Button, onClick = onSelect).semantics(mergeDescendants = true) { contentDescription = graphTaskLabel(d, now); this.selected = selected }
         .padding(if (detail == GraphDetail.Pills) 12.dp else (8 * zoom).dp), verticalArrangement = Arrangement.spacedBy(if (detail == GraphDetail.Pills) 0.dp else (3 * zoom).dp)) {
-        if (detail == GraphDetail.Pills) Text("${d.task.id} ${graphStatus(d.task.status).mark} ${d.task.title}", color = colors.fg, fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (detail == GraphDetail.Pills) Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            io.github.mitzacoder.kemiri.features.tasks.TaskIdChip(d.task.id)
+            Text("${graphStatus(d.task.status).mark} ${d.task.title}", color = colors.fg, fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         else {
-            Text("${d.task.id}  ${graphStatus(d.task.status).mark} ${graphStatus(d.task.status).label}${if (updated) " · Updated" else ""}", color = colors.fg, fontSize = size, lineHeight = (18 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                io.github.mitzacoder.kemiri.features.tasks.TaskIdChip(d.task.id)
+                Text("${graphStatus(d.task.status).mark} ${graphStatus(d.task.status).label}${if (updated) " · Updated" else ""}", color = colors.fg, fontSize = size, lineHeight = (18 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             Text(d.task.title, color = colors.fg, fontSize = max(12f, 16 * zoom).sp, lineHeight = (20 * zoom).sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(graphCanvasMeta(d, holdsUp, now).ifBlank { " " }, color = colors.fg, fontSize = 12.sp, lineHeight = max(14f, 16 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

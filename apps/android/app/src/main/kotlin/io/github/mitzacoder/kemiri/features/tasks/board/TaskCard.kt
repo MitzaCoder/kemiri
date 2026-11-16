@@ -2,6 +2,8 @@ package io.github.mitzacoder.kemiri.features.tasks.board
 
 import io.github.mitzacoder.kemiri.features.tasks.TaskRelationChips
 
+import io.github.mitzacoder.kemiri.features.tasks.TaskIdChip
+import io.github.mitzacoder.kemiri.features.tasks.taskReferenceHighlight
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -111,6 +113,7 @@ fun TaskCard(
             .alpha(if (lifted) .35f else if (searchHit?.context == true) .5f else if (dropped) .6f else 1f)
             .clip(cardShape)
             .background(background)
+            .taskReferenceHighlight(task.id, rememberReducedMotion())
             .border(1.dp, border, cardShape)
             .then(if (onOpen != null && !ghost) Modifier.clickable(onClickLabel = "Open ${task.id}", onClick = onOpen) else Modifier),
     ) {
@@ -156,7 +159,7 @@ fun TaskCard(
                     Spacer(Modifier.weight(1f))
                     Text(time.text, Modifier.semantics { contentDescription = time.title }, style = small, color = colors.fgSubtle, maxLines = 1)
                     Text("·", style = small, color = colors.fgSubtle)
-                    Text(task.id, Modifier.alpha(.8f), style = textStyle(0.625f, 1.6f, mono = true), color = colors.fgSubtle)
+                    TaskIdChip(task.id)
                 }
             }
         }

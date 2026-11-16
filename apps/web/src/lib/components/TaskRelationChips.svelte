@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskIdChip from './TaskIdChip.svelte';
 	import ListTreeIcon from '@lucide/svelte/icons/list-tree';
 	import MessageSquareIcon from '@lucide/svelte/icons/message-square';
 	import {
@@ -49,7 +50,7 @@
 					{title}
 					data-parent-chip={parent.id}
 				>
-					<span aria-hidden="true">↳</span><span class="font-mono">{parent.id}</span>
+					<span aria-hidden="true">↳</span><TaskIdChip taskId={parent.id} />
 					<span class="sr-only">{title}</span>
 				</span>
 			{:else}
@@ -62,7 +63,7 @@
 					{title}
 					data-parent-chip={parent.id}
 				>
-					<span aria-hidden="true">↳</span><span class="font-mono">{parent.id}</span>
+					<span aria-hidden="true">↳</span><TaskIdChip taskId={parent.id} />
 					<span class="sr-only">{title}</span>
 				</a>
 			{/if}

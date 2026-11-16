@@ -49,6 +49,7 @@ internal fun TaskListRow(
     Row(
         Modifier.fillMaxWidth().alpha(if (searchHit?.context == true) .5f else 1f)
             .then(if (wash != null) Modifier.background(wash) else Modifier)
+            .taskReferenceHighlight(task.id, reducedMotion)
             .clickable(role = Role.Button, onClickLabel = "Open ${task.id}", onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
@@ -105,7 +106,7 @@ internal fun TaskListRow(
         }
         Column(Modifier.padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(rowTime(row, now), style = TaskType.meta, color = colors.fgSubtle, maxLines = 1)
-            Text(task.id, style = TaskType.metaMono, color = colors.fgSubtle.copy(alpha = .8f))
+            TaskIdChip(task.id)
         }
     }
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import type { BoardTaskActivity } from '@kemiri/protocol';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
@@ -55,7 +56,7 @@
 		{#if activity}<TaskActivityLine {activity} compact />{:else if summary}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
 		{#if parent && !nested}
 			{@const label = relationLabel('Subtask of', parent)}
-			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>↳ {parent.id}</a>
+			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>↳ <TaskIdChip taskId={parent.id} /></a>
 		{/if}
 		{#each hints as group (group.kind)}
 			{@const label = group.items.map(target => relationLabel(group.label, target)).join('; ')}

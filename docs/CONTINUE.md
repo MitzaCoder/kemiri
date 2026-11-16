@@ -1,5 +1,22 @@
 # Continue
 
+## T205 / Q227: accent task IDs and reference tint
+
+Option A chips now cover web list/sidebar/search/family rows, board cards,
+parent links and graph nodes; Android list/family rows, board and graph cards
+share the same identity pair. Live prose references tint visible matching list
+rows/cards with one 700 ms pulse; hover/focus exit clears it. No hover scrolling,
+selection or task-card preview; T206 stays intact. Android uses the project-scoped
+preview ID; reduced motion is static. Jarvis text is #4338ca / #c7d2fe on 12%
+accent tint: web contrast 6.57:1 / 11.65:1, Android tested minima 5.67:1 / 9.46:1.
+Neutral stays achromatic. Proof index mwj2ghvq-5edf8531f0 contains 36 synthetic
+screenshots and recording mwj2foug-0dab3f1607 (desktop/phone list/board light/dark,
+emulator light/dark, family/graph, preview and keyboard/reduced-motion proof).
+Gates pass: isolated root 2,739; root typecheck; web 1,177/check/build; Android
+996 JVM tests (two skipped), assemble/lint (49 existing warnings); external
+public-source denylist. Owned fixture/browser/emulator cleaned; Gradle stopped.
+No physical phone, push, deployment or main movement.
+
 ## T206: no task preview on task-list cards
 
 T204's page-wide host treated row/card navigation links like prose references.

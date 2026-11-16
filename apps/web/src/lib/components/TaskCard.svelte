@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity } from '#lib/task-activity.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
@@ -170,7 +171,7 @@
 			<span class="flex-1"></span>
 			<span class="whitespace-nowrap tabular-nums" title={time.title}>{time.text}</span>
 			<span aria-hidden="true">·</span>
-			<span class="font-mono text-[0.625rem] opacity-80">{task.id}</span>
+			<TaskIdChip taskId={task.id} />
 		</div>
 	</div>
 	{#if menu !== undefined && !ghost}

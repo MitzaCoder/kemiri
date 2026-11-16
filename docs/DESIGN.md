@@ -1,5 +1,30 @@
 # Design
 
+## Task identity and reference highlight (T205 / Q227)
+
+Collapsed task IDs use a small accent chip (option A): 6 px/dp corners,
+5 px/dp horizontal inset, 12 px/sp semibold monospace and an 18 px/sp line.
+Web list/sidebar/search/family rows, board cards, parent relations and graph
+nodes share it; Android list/search/family rows, board and graph cards do too.
+Needs you task rows use the same list component; project-level Needs you counts
+contain no task ID. IDs remain identity, never status, selection or a preview
+trigger. T206's task-navigation opt-out remains in force.
+
+Jarvis uses #4338ca text in light and #c7d2fe in dark, on a 12% accent tint.
+The accent is #6366f1 light / #818cf8 dark. Neutral stays achromatic. Web
+composites the chip fill over the page background; Android composites over its
+surface. All supported pairs meet WCAG AA, including question/warning surfaces.
+
+Hovering or focusing a live T… prose reference immediately tints matching visible
+list rows and board cards: 9% accent wash, an inset accent edge and one 700 ms
+pulse. Leaving clears the tint; keyboard blur does too. This is independent of
+preview-open delays and never selects, expands, scrolls or moves a task. Web
+checks viewport and ancestor scrollport clipping; off-screen targets do nothing.
+Reduced motion keeps only the static tint. Android scopes the same tint to the
+current project's preview ID while its reference preview is open, clears it on
+dismissal, and respects the system animation setting. Task-list/card taps still
+navigate straight to the task, never to a reference preview.
+
 ## HTML artifact viewers (T191)
 
 HTML/XHTML source is read whole up to 20 MiB on web and Android (T202),

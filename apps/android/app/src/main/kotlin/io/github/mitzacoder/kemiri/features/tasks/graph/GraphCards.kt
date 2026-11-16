@@ -62,7 +62,7 @@ internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches:
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp, 24.dp).background(if (matches) tone else colors.fgMuted, RoundedCornerShape(4.dp)))
-                Text(d.task.id, color = colors.fg, style = MaterialTheme.typography.labelLarge)
+                io.github.mitzacoder.kemiri.features.tasks.TaskIdChip(d.task.id)
                 Text("${status.mark} ${status.label}", color = colors.fg, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
             }
             if (updated) Text("Updated", color = colors.fg, style = MaterialTheme.typography.labelMedium)

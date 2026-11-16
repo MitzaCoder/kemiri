@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskIdChip from './TaskIdChip.svelte';
 	import { automaticTaskActivity } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
 	import TaskSearchBox from './TaskSearchBox.svelte';
@@ -236,7 +237,7 @@
 			</span>
 			<span class="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
 				<span class="whitespace-nowrap tabular-nums" title={timeTitleOf(row)}>{timeOf(row)}</span>
-				<span class="font-mono text-[0.625rem] opacity-80">{row.task.id}</span>
+				<TaskIdChip taskId={row.task.id} />
 			</span>
 			<ChevronRightIcon class="task-row-chevron mt-0.5 size-3.5 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 		</div>

@@ -41,7 +41,7 @@ fun ProvideTaskLinks(context: ProjectScreenContext?, content: @Composable () -> 
         CompositionLocalProvider(LocalTaskLinks provides null, content = content)
         return
     }
-    var previewTaskId by remember { mutableStateOf<String?>(null) }
+    var previewTaskId by remember(context.route.backendKey, context.route.projectId) { mutableStateOf<String?>(null) }
     val latest by rememberUpdatedState(context)
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val view by context.board.view.collectAsStateWithLifecycle()
@@ -49,7 +49,7 @@ fun ProvideTaskLinks(context: ProjectScreenContext?, content: @Composable () -> 
     val links = remember(supported, view.loaded, view.tasks) {
         if (supported && view.loaded) TaskLinks(view.tasks.associateBy { it.id }, previewer = { previewTaskId = it }) { latest.openTask(it) } else null
     }
-    CompositionLocalProvider(LocalTaskLinks provides links, content = content)
+    CompositionLocalProvider(LocalTaskLinks provides links, LocalPreviewTaskId provides previewTaskId, content = content)
     previewTaskId?.let { id ->
         val task = links?.task(id)
         ModalBottomSheet(onDismissRequest = { previewTaskId = null }, containerColor = Jarvis.colors.bg) {
