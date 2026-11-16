@@ -1897,6 +1897,16 @@ Status: backend, protocol, client and web UI done (milestone 2).
   default list: models are added from the shared catalog search, reordered, removed or cleared, and every change is
   saved at once (`projects.configure`). Each row also carries a thinking-level picker (the composer's `EffortPicker`)
   showing the levels the model supports, and choosing one saves the list at once.
+- **Worker default disclosure (T218).** Opening the coordinator composer's worker picker on web (desktop, keyboard or
+  touch) or Android shows a compact Project worker models card above the model choices. It preserves project order,
+  names each provider and effective thinking level, and marks the first catalog model Default, later ones Fallback,
+  and missing catalog entries Unavailable. Change goes directly to Project settings → Workers. Web hover text also
+  lists the defaults. The card explains composer overrides and that the coordinator can name another model; a
+  composer thinking override replaces each row's stored thinking. Empty settings explicitly say there is no backend
+  fallback. The picker stays usable with an empty catalog so its settings link remains reachable. Resolution is
+  coordinator's explicit model → available saved composer pick → first available project model; availability means
+  catalog membership, not credential status. There are no built-in/backend worker defaults. Existing project summary,
+  model catalog and worker-default state suffice; no protocol additions or role assignments are invented.
 - Candidate, not decided (`docs/research/dsh.md`): named worker presets, a bundle of tools, prompt sections and
   skills that `worker_spawn` selects, instead of only replacing a worker's instructions as text.
 

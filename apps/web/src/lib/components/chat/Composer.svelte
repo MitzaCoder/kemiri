@@ -4,7 +4,7 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { onDestroy, untrack } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import type { ModelInfo, ModelRef, ProviderInfo, ThinkingLevel } from '@kemiri/protocol';
+	import type { ModelInfo, ModelRef, ProviderInfo, ThinkingLevel, WorkerModel } from '@kemiri/protocol';
 	import EffortPicker from './EffortPicker.svelte';
 	import ModelPicker from './ModelPicker.svelte';
 	import { hashTrigger, pickerChoices, withoutTrigger, type TaskOption } from '#lib/task-chat.js';
@@ -45,6 +45,8 @@
 		thinkingLevels,
 		workerModels = [],
 		workerProviders = [],
+		projectWorkerModels = [],
+		workerSettingsHref,
 		workerModel = null,
 		workerThinkingLevel = null,
 		showWorkerPicker = false,
@@ -73,6 +75,8 @@
 		/** The catalog for the worker picker; empty when the backend has no models. */
 		workerModels?: readonly ModelInfo[];
 		workerProviders?: readonly ProviderInfo[];
+		projectWorkerModels?: readonly WorkerModel[];
+		workerSettingsHref?: string;
 		/** The worker model the user last picked; `null` lets the coordinator or the project decide. */
 		workerModel?: ModelRef | null;
 		workerThinkingLevel?: ThinkingLevel | null;
@@ -504,11 +508,13 @@
 				<WorkerPicker
 					models={workerModels}
 					providers={workerProviders}
+					{projectWorkerModels}
+					{workerSettingsHref}
 					model={workerModel}
 					thinkingLevel={workerThinkingLevel}
 					onModelChange={(entry) => onWorkerModelChange?.(entry)}
 					onThinkingChange={(level) => onWorkerThinkingChange?.(level)}
-					disabled={workerModels.length === 0 || workerPickerDisabled}
+					disabled={workerPickerDisabled}
 				/>
 			{/if}
 		</div>

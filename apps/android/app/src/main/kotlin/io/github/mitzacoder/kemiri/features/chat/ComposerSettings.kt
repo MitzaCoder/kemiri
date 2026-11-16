@@ -107,7 +107,8 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
                     enabled = ready && project != null && !savingCoordinator,modifier = Modifier.weight(1f,fill = false),compact = true,iconOnlyEffort = true)
                 if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
                     onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },
-                    enabled = workerEnabled && models.isNotEmpty(),worker = true,iconOnly = true,compact = true)
+                    enabled = workerEnabled,worker = true,iconOnly = true,compact = true,
+                    projectWorkerModels = project?.workerModels.orEmpty(),onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
             }
         } else
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp),verticalArrangement = Arrangement.spacedBy(0.dp)) {
@@ -116,7 +117,8 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
                 onChange = ::changeCoordinator,enabled = ready && project != null && !savingCoordinator,modelWidthDp = layout.model,effortWidthDp = layout.effort)
             if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
                 onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },
-                enabled = workerEnabled && models.isNotEmpty(),worker = true,modelWidthDp = layout.worker)
+                enabled = workerEnabled,worker = true,modelWidthDp = layout.worker,
+                projectWorkerModels = project?.workerModels.orEmpty(),onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
         }
         }
         error?.let { Text(it,color = MaterialTheme.colorScheme.error,modifier = Modifier.padding(horizontal = 16.dp)) }

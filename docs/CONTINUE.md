@@ -14,6 +14,28 @@ Checks: isolated root 2,838 tests (95,298 assertions), typecheck; web 1,216 test
 46 targeted server tests, including code mode reading the copy with the ordinary read tool;
 external-denylist/Gitleaks pass. No protocol/UI change, deployment, push or main movement.
 
+## T218: project worker models in the composer picker
+
+Web and Android now show a Project worker models card inside the worker picker:
+project order, provider, effective thinking, Default/Fallback/Unavailable and Change
+to Project → Workers. Web hover text lists defaults too; keyboard/touch use the
+menu. Composer/coordinator overrides and empty settings are explicit. The server
+has no backend fallback: explicit model → saved composer pick → first catalog
+project model. Existing summaries/catalog/defaults suffice; no protocol change.
+
+Proof index mwjq8m63-92f661760c: twelve before/after light/dark screenshots
+(web desktop/phone, Android emulator), two settings-link screenshots and two
+recordings. Gates: isolated root 2,831 tests, typecheck; web 1,220 tests/check/build;
+Android 1,015 JVM tests (two skipped), assemble/lint (49 existing warnings),
+external-denylist/Gitleaks pass. First Android run had a MockWebServer shutdown
+flake; two full reruns passed. Gradle stopped. Synthetic createSetup/browser/emulator
+only; no physical phone, push, main movement or deployment.
+
+Q240 approves web deployment and an in-place phone update. The candidate is rebased
+onto the artifact-version work; both continuation notes are retained. Rerun the
+isolated root tests, typecheck and web check/build before pushing this candidate.
+The watcher handles deployment only after main moves; never run it manually.
+
 ## T214: one state sentence per task row
 
 Web and Android list/board use one derived-colour activity sentence, with no extra

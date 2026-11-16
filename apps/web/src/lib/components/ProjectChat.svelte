@@ -1076,6 +1076,8 @@
 							{thinkingLevels}
 							workerModels={backend.models}
 							workerProviders={backend.providers}
+							projectWorkerModels={project?.workerModels ?? []}
+							workerSettingsHref={projectSettingsHref(backend.id, projectId, 'workers')}
 							workerModel={workerDefaults.model}
 							workerThinkingLevel={workerDefaults.thinkingLevel}
 							showWorkerPicker={supportsWorkers && canPickModel && !isThread}

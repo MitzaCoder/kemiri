@@ -5,12 +5,14 @@
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import ModelSearchList from '#lib/components/ModelSearchList.svelte';
 	import { sameModel } from '#lib/models.js';
+	import { projectWorkerModelRows } from '#lib/worker-model-hint.js';
 	import {
 		THINKING_LEVELS,
 		type ModelInfo,
 		type ModelRef,
 		type ProviderInfo,
-		type ThinkingLevel
+		type ThinkingLevel,
+		type WorkerModel
 	} from '@kemiri/protocol';
 
 	/**
@@ -25,6 +27,8 @@
 	let {
 		models,
 		providers = [],
+		projectWorkerModels = [],
+		workerSettingsHref,
 		model,
 		thinkingLevel,
 		onModelChange,
@@ -33,6 +37,8 @@
 	}: {
 		models: readonly ModelInfo[];
 		providers?: readonly ProviderInfo[];
+		projectWorkerModels?: readonly WorkerModel[];
+		workerSettingsHref?: string;
 		model: ModelRef | null;
 		thinkingLevel: ThinkingLevel | null;
 		onModelChange: (model: ModelInfo | null) => void;
@@ -47,6 +53,10 @@
 			? undefined
 			: models.find((entry) => entry.provider === model?.provider && entry.modelId === model?.modelId)
 	);
+	const projectRows = $derived(projectWorkerModelRows(projectWorkerModels, models, thinkingLevel));
+	const defaultSummary = $derived(projectRows.length === 0
+		? 'No project worker models. No backend fallback. Choose a model in Project settings → Workers.'
+		: `Project settings → Workers\n${projectRows.map((row) => `${row.order}. ${row.name} · ${row.provider} · ${row.thinking ?? 'model default'} · ${row.role}`).join('\n')}`);
 	const levels = $derived<readonly ThinkingLevel[]>(current?.thinkingLevels ?? THINKING_LEVELS);
 
 	function chooseDefault(): void {
@@ -59,11 +69,11 @@
 	<Popover.Trigger
 		class="chip max-w-[min(13rem,100%)] max-sm:w-8 max-sm:shrink-0 max-sm:justify-center max-sm:px-0"
 		{disabled}
-		title="Worker model and thinking level"
-		aria-label="Worker model: {current?.name ?? 'default'}"
+		title={defaultSummary}
+		aria-label="Worker model: {current?.name ?? model?.modelId ?? 'default'}"
 	>
 		<BotIcon class="size-3.5 shrink-0 text-(--accent-2)" />
-		<span class="truncate max-sm:hidden">{current?.name ?? 'Worker default'}</span>
+		<span class="truncate max-sm:hidden">{current?.name ?? model?.modelId ?? 'Worker default'}</span>
 		{#if thinkingLevel !== null}
 			<span class="shrink-0 text-(--chat-fg-subtle) max-sm:hidden">· {thinkingLevel}</span>
 		{/if}
@@ -79,6 +89,25 @@
 			placeholder="Search models for new workers…"
 		>
 			{#snippet top()}
+				<section class="m-1 mb-2 rounded-lg border border-(--chat-border) bg-(--chat-surface-2)/50 p-3" aria-label="Project worker models">
+					<div class="flex items-center justify-between gap-3 text-xs">
+						<h3 class="font-semibold">Project worker models</h3>
+						{#if workerSettingsHref}<a class="shrink-0 text-(--accent-2) underline underline-offset-2" href={workerSettingsHref}>Change</a>{/if}
+					</div>
+					<p class="mt-1 text-[0.6875rem] text-(--chat-fg-subtle)">From project settings · tried in order</p>
+					<ol class="mt-2 space-y-2">
+						{#each projectRows as row (row.key)}
+							<li class="flex items-start gap-2 text-xs">
+								<span class="text-(--chat-fg-subtle)">{row.order}.</span>
+								<div class="min-w-0 flex-1"><p class="break-words font-medium">{row.name}</p><p class="break-all text-[0.6875rem] text-(--chat-fg-subtle)">{row.provider} · {row.thinking ?? 'Model default'}</p></div>
+								<span class="text-[0.6875rem] text-(--chat-fg-subtle)">{row.role}</span>
+							</li>
+						{:else}
+							<li class="text-xs text-(--chat-fg-muted)">None set. No backend fallback; choose a worker model to start workers.</li>
+						{/each}
+					</ol>
+					<p class="mt-2 text-[0.6875rem] text-(--chat-fg-subtle)">{model !== null ? 'Your composer pick overrides this list. ' : ''}{thinkingLevel !== null ? 'Thinking comes from your composer pick. ' : ''}The coordinator can name another model.</p>
+				</section>
 				<button
 					type="button"
 					class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-(--chat-surface-2) {model ===
@@ -89,7 +118,7 @@
 				>
 					<BotIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" />
 					<span class="min-w-0 flex-1">
-						<span class="block text-sm font-medium">Coordinator's choice</span>
+						<span class="block text-sm font-medium">Worker default</span>
 						<span class="block text-[0.6875rem] text-(--chat-fg-subtle)">
 							Whatever the coordinator names, else the project's worker models
 						</span>
