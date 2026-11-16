@@ -1,4 +1,5 @@
 import type { BoardTask, BoardTaskActivity } from '@kemiri/protocol';
+import { taskStateLabel } from './task-state.js';
 import { relativeTime } from './relative-time.js';
 
 export function taskActivitySupported(features: readonly string[] | undefined): boolean {
@@ -27,4 +28,18 @@ export function taskActivityTone(kind: BoardTaskActivity['kind']): 'error' | 'at
 	if (kind === 'working' || kind === 'deploy') return 'active';
 	if (kind === 'review') return 'review';
 	return 'muted';
+}
+
+/** One compact state sentence. Typed activity kinds, not translated prose, decide redundancy. */
+export function taskRowActivity(task: BoardTask, enabled: boolean, tasks: readonly BoardTask[] = []): BoardTaskActivity | undefined {
+	const activity = automaticTaskActivity(task, enabled);
+	const state = task.state;
+	if (!state) return activity;
+	const conveysState: Partial<Record<typeof state.kind, readonly BoardTaskActivity['kind'][]>> = {
+		failed: ['failure'], answer_needed: ['question'], review: ['review'],
+		working: ['working', 'deploy'], blocked_by_task: ['blocked'],
+		waiting_outside: ['waiting'], done: ['done'], dropped: ['dropped'],
+	};
+	if (activity && conveysState[state.kind]?.includes(activity.kind)) return activity;
+	return { kind: state.kind === 'todo' ? 'not_started' : 'idle', text: state.kind === 'failed' && task.blockedReason ? `Failed: ${task.blockedReason}` : taskStateLabel(task, tasks)!, since: state.since, refs: state.refs };
 }

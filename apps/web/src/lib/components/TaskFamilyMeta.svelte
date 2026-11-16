@@ -8,6 +8,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import { linkGroups, linkTarget, openFeedbackCount, type LinkTarget } from '#lib/task-relations.js';
+	import { taskDisplayToneClass } from '#lib/tasks.js';
 	import type { TaskRow } from '#lib/tasks.js';
 
 	type BoardTask = TaskRow['task'];
@@ -53,7 +54,7 @@
 
 {#if activity || summary || (parent && !nested) || (progress && progress.total > 0) || canToggle || hints.length > 0 || feedback > 0}
 	<span class="family-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-		{#if activity}<TaskActivityLine {activity} compact />{:else if summary}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
+		{#if activity}<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />{:else if summary}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
 		{#if parent && !nested}
 			{@const label = relationLabel('Subtask of', parent)}
 			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>↳ <TaskIdChip taskId={parent.id} /></a>

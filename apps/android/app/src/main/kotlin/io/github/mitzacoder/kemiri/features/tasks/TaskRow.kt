@@ -41,7 +41,7 @@ internal fun TaskListRow(
     val stateLabel = taskRowStateLabel(task) { taskLinks?.title(it) }
     val needsYou = row.section == TaskSectionId.NeedsYou
     val warned = row.waiting.any(::isWarning)
-    val activity = taskActivity(task, LocalTaskActivityEnabled.current)
+    val activity = taskRowActivity(task, LocalTaskActivityEnabled.current) { taskLinks?.title(it) }
     val gist = rowGist(row, LocalTaskActivityEnabled.current)
     val wash = when {
         needsYou && warned -> colors.warning.copy(alpha = .09f)
@@ -55,9 +55,9 @@ internal fun TaskListRow(
             .clickable(role = Role.Button, onClickLabel = "Open ${task.id}", onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    "${task.id}: ${task.title}", taskStateLabel(task),
+                    "${task.id}: ${task.title}", activity?.text ?: taskStateLabel(task),
                     task.parent?.takeIf { nested }?.let { "Subtask of $it" },
-                    task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" }, rowTimeWords(row, now),
+                    task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" }, rowTime(row, now),
                 ).joinToString(". ")
             }
             .padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
@@ -79,8 +79,8 @@ internal fun TaskListRow(
             }, style = TaskType.rowTitle, color = if (row.section == TaskSectionId.Closed) colors.fgMuted else colors.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val summary = if (!searchHit?.snippet.isNullOrEmpty()) "" else if (task.status == "waiting") waitingSummary(task, now) else gist
-            if (activity != null && searchHit?.snippet.isNullOrEmpty()) {
-                TaskActivityView(activity, maxLines = 2, inlineAge = true)
+            if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) {
+                TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
                 if (linksEnabled) TaskFamilyMeta(family, nested, archived, "", onToggle)
             }
             else if (linksEnabled) TaskFamilyMeta(family, nested, archived, summary, onToggle)
@@ -88,7 +88,7 @@ internal fun TaskListRow(
                 summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
                 maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
             )
-            if ((stateLabel != null && (task.state != null || needsYou)) || task.refs.isNotEmpty()) {
+            if ((stateLabel != null && (task.state != null || needsYou)) || row.waiting.size > 1 || task.refs.isNotEmpty()) {
                 FlowRow(
                     Modifier.padding(top = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -101,8 +101,8 @@ internal fun TaskListRow(
                             TaskStatusDot(taskStateTone(task))
                             Text(stateLabel, style = TaskType.meta.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = tone)
                         }
-                        if (row.waiting.size > 1) Text("+${row.waiting.size - 1} more", style = TaskType.meta, color = colors.fgSubtle)
                     }
+                    if (row.waiting.size > 1) Text("+${row.waiting.size - 1} more", style = TaskType.meta, color = colors.fgSubtle)
                     RefChips(task.refs, max = 2)
                 }
             }

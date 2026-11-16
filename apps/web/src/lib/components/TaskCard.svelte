@@ -2,7 +2,7 @@
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
-	import { automaticTaskActivity } from '#lib/task-activity.js';
+	import { taskRowActivity } from '#lib/task-activity.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
 	import LayersIcon from '@lucide/svelte/icons/layers';
@@ -70,7 +70,7 @@
 	const needsYou = $derived(task.state ? task.state.group === 'needs_you' : card.waiting.length > 0 && card.column !== 'done');
 	const warned = $derived(card.waiting.some(isWarning));
 	const gist = $derived(cardGist(card, activityEnabled));
-	const activity = $derived(automaticTaskActivity(task, activityEnabled));
+	const activity = $derived(taskRowActivity(task, activityEnabled, tasks));
 	const refs = $derived(taskRefs(task));
 	const time = $derived(cardTime(card, now));
 	const closed = $derived((card.column === 'done' || card.column === 'closed'));
@@ -116,8 +116,8 @@
 		>
 		{#if task.waiting && !activity}<p class="text-xs text-(--chat-fg-subtle)">{waitingSummary(task)}</p>{/if}
 {#if searchHit?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHit.snippet}</p>{/if}
-{#if !searchHit?.snippet && activity}
-			<TaskActivityLine {activity} compact />
+{#if activity && (task.state || !searchHit?.snippet)}
+			<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />
 {:else if !searchHit?.snippet && gist.length > 0 && task.status !== 'waiting'}
 			<p class="line-clamp-2 text-task-sm break-words text-(--chat-fg-muted)">{gist}</p>
 		{/if}
@@ -146,7 +146,7 @@
 						<span class="truncate"><span class="text-(--chat-fg-subtle)">Worker</span> {worker.id}</span>
 					</li>
 				{/each}
-				{#if waitsFor.length > 0}
+				{#if waitsFor.length > 0 && task.state?.kind !== 'blocked_by_task'}
 					<li class="flex min-w-0 items-center gap-1.5" title={waitsFor.map((blocker) => `${blocker.id} · ${blocker.title}`).join('\n')}>
 						<LinkIcon class="size-3 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 						<span class="truncate"
@@ -164,8 +164,8 @@
 			</ul>
 		{/if}
 		<div class="flex items-center gap-1.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-			{#if needsYou || task.status === 'dropped' || (task.state && task.state.kind !== 'working')}
-				<span class="inline-flex min-w-0 items-start gap-1 break-words font-medium text-(--task-status)">
+			{#if !task.state && (needsYou || task.status === 'dropped')}
+				<span class="inline-flex min-w-0 items-center gap-1 break-words font-medium text-(--task-status)">
 					<span class="task-status-dot" aria-hidden="true"></span><TaskStateLabel {task} {tasks} />
 				</span>
 			{/if}

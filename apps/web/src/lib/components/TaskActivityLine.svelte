@@ -3,13 +3,13 @@
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { taskActivityAge, taskActivityTone } from '#lib/task-activity.js';
 	import { exactTime } from '#lib/relative-time.js';
-	let { activity, compact = false }: { activity: BoardTaskActivity; compact?: boolean } = $props();
+	let { activity, compact = false, stateTone }: { activity: BoardTaskActivity; compact?: boolean; stateTone?: string } = $props();
 	const tone = $derived(taskActivityTone(activity.kind));
 	const age = $derived(taskActivityAge(activity, $activityMinute));
 </script>
 
-<span class="activity-line inline-flex max-w-full items-start gap-1.5" class:text-task={ !compact } class:text-task-sm={compact} data-activity-kind={activity.kind}>
-	<span class="activity-dot mt-[0.5em] size-1.5 shrink-0 rounded-full" class:active={tone === 'active'} data-tone={tone} aria-hidden="true"></span>
+<span class="activity-line {stateTone ?? ''} inline-flex max-w-full items-start gap-1.5" class:text-task={ !compact } class:text-task-sm={compact} data-activity-kind={activity.kind}>
+	<span class="activity-dot mt-[0.5em] size-1.5 shrink-0 rounded-full" class:active={stateTone ? stateTone === 'task-status-working' : tone === 'active'} data-tone={stateTone ? undefined : tone} style:background={stateTone ? 'var(--task-status)' : undefined} aria-hidden="true"></span>
 	<span class="min-w-0 break-words text-(--chat-fg-muted)">{activity.text}{#if age}<span class="text-[0.6875rem] text-(--chat-fg-subtle)" title={exactTime(activity.since)}>{' · '}{age}</span>{/if}</span>
 </span>
 

@@ -1,5 +1,20 @@
 # Continue
 
+## T214: one state sentence per task row
+
+Web and Android list/board use one derived-colour activity sentence, with no extra
+kind-label row/footer. Typed matching activity keeps its detail; otherwise the
+state label fills in (Paused replaces Idle; Failed keeps its reason; To do has no
+age). Blocker cards no longer repeat Waits for. Legacy display, groups/counts,
+relation links and full sheet activity stay intact. All ten kinds, missing
+activity/capability and rendered web metadata/cards have regression tests.
+Proof index mwjmnf7s-90fd88f2c0: 26 synthetic screenshots and two recordings,
+web desktop/phone and Android emulator, light/dark list/board before/after.
+Checks: isolated root 2,809 tests; typecheck; web 1,216 tests/check/build;
+Android 1,011 JVM tests (two skipped), assemble/lint; external-denylist/Gitleaks.
+An earlier unrelated Android mock-server timing failure passed on full rerun.
+Gradle stopped. No phone, push, main movement or deployment.
+
 ## T211: task-state stage 3 (Android)
 
 Android list/board/header/counts and Connected work use advertised derived states.

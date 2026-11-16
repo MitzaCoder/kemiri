@@ -1,7 +1,7 @@
 <script lang="ts">
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
-	import { automaticTaskActivity } from '#lib/task-activity.js';
+	import { taskRowActivity } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
 	import TaskSearchBox from './TaskSearchBox.svelte';
 	import { useTaskSearch } from '#lib/task-search.svelte.js';
@@ -186,7 +186,7 @@
 	{@const row = family.row}
 	{@const warned = row.waiting.some(isWarning)}
 	{@const gist = rowGist(row, board?.activityEnabled === true)}
-	{@const activity = automaticTaskActivity(row.task, board?.activityEnabled === true)}
+	{@const activity = taskRowActivity(row.task, board?.activityEnabled === true, tasks)}
 	{@const refs = taskRefs(row.task)}
 	{@const needsYou = row.section === 'needs_you'}
 	<li class="task-row-item" data-no-task-preview>
@@ -218,19 +218,17 @@
 				>
 				{#if searching && searchHitById.get(row.task.id)?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHitById.get(row.task.id)?.snippet}</p>{/if}
 				<TaskFamilyMeta task={row.task} {tasks} archivedLinks={board?.archivedLinks} nested={depth > 0} {taskHref} onopen={onopentask}
-					activity={searching && searchHitById.get(row.task.id)?.snippet ? undefined : activity}
+					activity={row.task.state || !searching || !searchHitById.get(row.task.id)?.snippet ? activity : undefined}
 					summary={searching && searchHitById.get(row.task.id)?.snippet ? '' : row.task.status === 'waiting' ? waitingSummary(row.task) : gist}
 					canToggle={family.canToggle} expanded={family.expanded} foldedCount={family.foldedCount} ontoggle={() => toggleFamily(row.task.id)} />
-				{#if needsYou || (row.task.state && row.task.state.kind !== 'working') || refs.length > 0}
+				{#if (!row.task.state && needsYou) || row.waiting.length > 1 || refs.length > 0}
 					<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-						{#if needsYou || (row.task.state && row.task.state.kind !== 'working')}
-							<span class="inline-flex min-w-0 items-start gap-1 break-words font-medium text-(--task-status)">
+						{#if !row.task.state && needsYou}
+							<span class="inline-flex min-w-0 items-center gap-1 break-words font-medium text-(--task-status)">
 								<span class="task-status-dot" aria-hidden="true"></span><TaskStateLabel task={row.task} {tasks} />
 							</span>
-							{#if row.waiting.length > 1}
-								<span class="shrink-0">+{row.waiting.length - 1} more</span>
-							{/if}
 						{/if}
+						{#if row.waiting.length > 1}<span class="shrink-0">+{row.waiting.length - 1} more</span>{/if}
 						{@render refChips(refs)}
 					</span>
 				{/if}

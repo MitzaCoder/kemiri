@@ -25,16 +25,16 @@ fun taskStateLabel(task: BoardTask, title: (String) -> String? = { null }): Stri
     "blocked_by_task" -> "Blocked by " + task.state.refs.joinToString(", ") { id ->
         id + (title(id)?.let { " ${firstLine(it, 48)}" } ?: "")
     }
-    "waiting_outside" -> task.waiting?.note ?: "Waiting"
+    "waiting_outside" -> task.waiting?.note?.let { if (it.startsWith("Waiting for", ignoreCase = true)) it else "Waiting for $it" } ?: "Waiting"
     "todo" -> "To do"
     "done" -> "Done"
     "dropped" -> "Dropped"
     else -> taskStatusWords(task.status)
 }
 
-/** Working is already described by the activity line, including its short idle gap. */
+/** Derived rows have one state sentence; only legacy rows need a separate label. */
 fun taskRowStateLabel(task: BoardTask, title: (String) -> String? = { null }): String? =
-    if (task.state?.kind == "working") null else taskStateLabel(task, title)
+    if (task.state != null) null else taskStateLabel(task, title)
 
 fun taskStateTone(task: BoardTask): TaskStatusTone = when (task.state?.kind) {
     "failed" -> TaskStatusTone.Blocked

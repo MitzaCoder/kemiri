@@ -87,7 +87,7 @@ class TaskDerivedStateTest {
     @Test fun labelsTonesAndAgesDistinguishPausedBlockedAndQuestions() {
         assertNull(taskRowStateLabel(derived("T9", "in_progress", "working")))
         for (kind in listOf("failed", "answer_needed", "review", "paused", "blocked_by_task", "waiting_outside", "todo", "done", "dropped")) {
-            assertNotNull(kind, taskRowStateLabel(derived("T9", "todo", kind)))
+            assertNull(kind, taskRowStateLabel(derived("T9", "todo", kind)))
         }
         assertEquals("Working", taskRowStateLabel(task("T9", "in_progress")))
         val paused = derived("T1", "in_progress", "paused")
@@ -98,6 +98,36 @@ class TaskDerivedStateTest {
         val now = java.time.Instant.parse("2026-11-05T11:00:00Z").toEpochMilli()
         assertEquals("1h", rowTime(TaskRow(paused, emptyList(), TaskSectionId.Working), now))
         assertEquals("1h", cardTime(KanbanCard(paused, emptyList(), KanbanColumnId.Working), now).text)
+    }
+
+    @Test fun compactRowsAlwaysSayTheDerivedStateOnce() {
+        val labels = mapOf("failed" to "Failed", "answer_needed" to "Answer needed", "review" to "Ready for review",
+            "working" to "Working", "paused" to "Paused", "blocked_by_task" to "Blocked by T7",
+            "waiting_outside" to "Waiting", "todo" to "To do", "done" to "Done", "dropped" to "Dropped")
+        for ((kind, label) in labels) {
+            val row = derived("T1", "todo", kind).let { it.copy(state = it.state!!.copy(refs = listOf("T7"))) }
+            assertEquals(kind, label, taskRowActivity(row, false)?.text)
+            val unrelated = row.copy(activity = BoardTaskActivity("unknown", "Old activity", row.createdAt, emptyList()))
+            assertEquals(kind, label, taskRowActivity(unrelated, true)?.text)
+            assertEquals(row.state!!.since, taskRowActivity(unrelated, true)?.since)
+            assertNull(taskRowStateLabel(row))
+        }
+    }
+
+    @Test fun matchingActivityKeepsItsDetailAndClockWithNoSecondLabel() {
+        for ((kind, activityKind) in listOf("failed" to "failure", "answer_needed" to "question", "review" to "review",
+            "working" to "working", "working" to "deploy", "blocked_by_task" to "blocked", "waiting_outside" to "waiting",
+            "done" to "done", "dropped" to "dropped")) {
+            val activity = BoardTaskActivity(activityKind, "Canonical sentence with detail", "2026-11-05T11:00:00Z", listOf("Q1"))
+            val row = derived("T1", "todo", kind).copy(activity = activity)
+            assertSame(kind, activity, taskRowActivity(row, true))
+        }
+        val paused = derived("T1", "in_progress", "paused").copy(activity = BoardTaskActivity("idle", "Idle", "2026-11-05T09:00:00Z", emptyList()))
+        assertEquals("Paused", taskRowActivity(paused, true)?.text)
+        assertEquals("Failed: Printer disconnected", taskRowActivity(derived("T1", "needs_you", "failed").copy(blockedReason = "Printer disconnected"), true)?.text)
+        val legacy = taskWithSupportedState(paused, false)
+        assertNull(taskRowActivity(legacy, false))
+        assertSame(legacy.activity, taskRowActivity(legacy, true))
     }
 
     @Test fun graphUsesDerivedColourKeysAndOnlyNeedsYouReasons() {

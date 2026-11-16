@@ -2388,9 +2388,20 @@ Ready for review, oldest within each kind; the list shows Working before Paused,
 board's In progress and Waiting sort oldest first. To do retains priority and Closed newest first.
 Family nesting compares derived groups, retaining attention visibility and the direct-parts pill.
 Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
-has a quiet distinct tone and task blockers belong to Waiting. Rows/cards omit a separate Working
-label because the activity line already describes the work; all other state labels remain.
-Graph mapping stays Android-only.
+has a quiet distinct tone and task blockers belong to Waiting. Graph mapping stays Android-only.
+
+**One state sentence per row/card (T214, web and Android).** The compact activity line carries
+state, with its dot coloured by the derived kind. No separate kind-label line or footer label.
+Keep the canonical activity sentence when its typed kind conveys the state: failure, question,
+review, working/deploy, blocked, waiting, done or dropped. Otherwise use the derived kind label
+and its since clock (including Paused instead of Idle, and Working during a short idle gap).
+Failed retains a stored failure reason; blocker/waiting fallbacks name the tasks or outside wait.
+To do has no activity age. Done and Dropped stay explicit under Closed. Search snippets and
+relation controls remain separate context, not a replacement for state. Board cards omit the
+additional textual Waits for fact when the state sentence already names task blockers; relation
+links still work. Dots align to the first text line, also when sentences wrap. Legacy backends
+retain their existing activity/status display. Header status and group/count summaries do not
+change; the task sheet still offers the full activity details.
 Ages share the existing local minute clock, with no additional reads. Board moves offer To do,
 In progress (start now, including resuming Paused), Done and Dropped; Waiting needs its note form.
 The shared save path asks about open direct parts for sheet/editor/board closures, also after an

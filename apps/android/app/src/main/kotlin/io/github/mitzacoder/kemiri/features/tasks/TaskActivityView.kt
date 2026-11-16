@@ -34,10 +34,10 @@ private val activityMinutes = flow {
 internal fun rememberTaskMinuteNow(): Long = activityMinutes.collectAsStateWithLifecycle().value
 
 @Composable
-internal fun TaskActivityView(activity: BoardTaskActivity, maxLines: Int = Int.MAX_VALUE, inlineAge: Boolean = false) {
+internal fun TaskActivityView(activity: BoardTaskActivity, maxLines: Int = Int.MAX_VALUE, inlineAge: Boolean = false, stateTone: io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone? = null) {
     val now = rememberTaskMinuteNow()
     val colors = Jarvis.colors
-    val tint = when (activityTone(activity.kind)) {
+    val tint = stateTone?.let { colors.taskStatus(it) } ?: when (activityTone(activity.kind)) {
         ActivityTone.Error -> colors.danger
         ActivityTone.Attention -> colors.warning
         ActivityTone.Active -> colors.accent2

@@ -1,3 +1,4 @@
+import { taskRowActivity } from '../src/lib/task-activity.ts';
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask, BoardTaskInput } from '@kemiri/protocol';
 import { taskSections, taskSectionOf } from '../src/lib/tasks.ts';
@@ -97,5 +98,37 @@ describe('close-parent choice on every save path', () => {
 		const context = { enabled: false, tasks: () => [task('T6', 'todo', undefined, { parent: 'T5' })], refresh: async () => {}, ask: async () => { asks++; return 'close' as OpenPartsChoice; }, save: async () => task('T5') };
 		expect((await saveWithCloseChoice(input('done'), { taskId: 'T5' }, context)).kind).toBe('saved'); expect(asks).toBe(0);
 		await expect(saveWithCloseChoice(input('done'), { taskId: 'T5' }, { ...context, save: async () => { throw new Error('offline'); } })).rejects.toThrow('offline');
+	});
+});
+
+
+describe('one state sentence per compact row/card', () => {
+	const cases = [
+		['failed', 'Failed'], ['answer_needed', 'Answer needed'], ['review', 'Ready for review'],
+		['working', 'Working'], ['paused', 'Paused'], ['blocked_by_task', 'Blocked by T7'],
+		['waiting_outside', 'Waiting'], ['todo', 'To do'], ['done', 'Done'], ['dropped', 'Dropped'],
+	] as const;
+	for (const [kind, text] of cases) test(`${kind}: fallback beats absent or unrelated activity`, () => {
+		const row = task('T1', kind); row.state!.refs = ['T7'];
+		expect(taskRowActivity(row, false)?.text).toBe(text);
+		row.activity = { kind: 'unknown', text: 'Unrelated old activity', since: row.createdAt, refs: [] };
+		expect(taskRowActivity(row, true)?.text).toBe(text);
+		expect(taskRowActivity(row, true)?.since).toBe(row.state!.since);
+	});
+	for (const [kind, activityKind] of [['failed', 'failure'], ['answer_needed', 'question'], ['review', 'review'], ['working', 'working'], ['working', 'deploy'], ['blocked_by_task', 'blocked'], ['waiting_outside', 'waiting'], ['done', 'done'], ['dropped', 'dropped']] as const) test(`${kind}/${activityKind}: keep the single detailed sentence`, () => {
+		const row = task('T1', kind, undefined, { activity: { kind: activityKind, text: 'Canonical sentence with detail', since: '2026-11-02T10:00:00Z', refs: ['Q1'] } });
+		expect(taskRowActivity(row, true)).toBe(row.activity);
+	});
+	test('paused replaces idle; failures retain their reason; blockers resolve titles without activity', () => {
+		const row = task('T1', 'paused', undefined, { activity: { kind: 'idle', text: 'Idle', since: '2026-11-01T09:00:00Z', refs: [] } });
+		expect(taskRowActivity(row, true)?.text).toBe('Paused');
+		expect(taskRowActivity(task('T1', 'failed', undefined, { blockedReason: 'Printer disconnected' }), true)?.text).toBe('Failed: Printer disconnected');
+		const blocked = task('T1', 'blocked_by_task'); blocked.state!.refs = ['T7'];
+		expect(taskRowActivity(blocked, true, [task('T7', 'working', undefined, { title: 'Repair the oven' })])?.text).toBe('Blocked by T7 Repair the oven');
+	});
+	test('unadvertised state and activity keep legacy gates', () => {
+		const row = taskWithStateSupport(task('T1', 'paused', undefined, { activity: { kind: 'idle', text: 'Idle', since: '2026-11-01T09:00:00Z', refs: [] } }), false);
+		expect(taskRowActivity(row, false)).toBeUndefined();
+		expect(taskRowActivity(row, true)).toBe(row.activity);
 	});
 });

@@ -96,7 +96,7 @@ fun TaskCard(
     val stateLabel = taskRowStateLabel(task) { id -> tasks.firstOrNull { it.id == id }?.title }
     val needsYou = needsTaskOwner(task, card.waiting.size)
     val warned = card.waiting.any(::isWarning)
-    val activity = io.github.mitzacoder.kemiri.features.tasks.taskActivity(task, io.github.mitzacoder.kemiri.features.tasks.LocalTaskActivityEnabled.current)
+    val activity = io.github.mitzacoder.kemiri.features.tasks.taskRowActivity(task, io.github.mitzacoder.kemiri.features.tasks.LocalTaskActivityEnabled.current) { id -> tasks.firstOrNull { it.id == id }?.title }
     val gist = cardGist(card)
     val time = cardTime(card, now)
     val closed = card.column == KanbanColumnId.Done
@@ -139,7 +139,7 @@ fun TaskCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (activity != null && searchHit?.snippet.isNullOrEmpty()) io.github.mitzacoder.kemiri.features.tasks.TaskActivityView(activity, maxLines = 2, inlineAge = true)
+                if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) io.github.mitzacoder.kemiri.features.tasks.TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { tone })
                 else if (task.status == "waiting") Text(io.github.mitzacoder.kemiri.features.tasks.waitingSummary(task), style = TextStyles.taskSm, color = colors.fgMuted)
             else if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             else if (gist.isNotEmpty()) Text(gist, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -149,7 +149,7 @@ fun TaskCard(
                 if (running.isNotEmpty() || blockers.isNotEmpty() || holder != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         running.forEach { worker -> Fact(BoardGlyphs.UserCog, colors.taskStatus(TaskStatusTone.Working), "Worker", worker.id, worker.title) }
-                        if (blockers.isNotEmpty()) Fact(BoardGlyphs.Link, colors.fgSubtle, "Waits for", blockers.joinToString { it.id }, blockers.joinToString { "${it.id} · ${it.title}" })
+                        if (blockers.isNotEmpty() && task.state?.kind != "blocked_by_task") Fact(BoardGlyphs.Link, colors.fgSubtle, "Waits for", blockers.joinToString { it.id }, blockers.joinToString { "${it.id} · ${it.title}" })
                         holder?.let { Fact(io.github.mitzacoder.kemiri.ui.components.Lucide.Layers, colors.fgSubtle, null, it, "A background thread holds this task: $it") }
                     }
                 }
