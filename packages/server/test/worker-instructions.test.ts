@@ -22,6 +22,17 @@ function project(): Project {
 }
 
 describe("workerInstructions", () => {
+	it("tells both coordinators how to handle version-pinned artifact reviews", () => {
+		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
+			expect(text).toContain('Comments on "…" with an (artifact <id>~<n>, <file>) line');
+			expect(text).toContain("Clarify: answer in chat");
+			expect(text).toContain("Change / Show differently / Cut: artifact_read that version");
+			expect(text).toContain("artifact_save with the same file name and taskId");
+			expect(text).toContain("Keep: leave that part unchanged");
+			expect(text).toContain('mark it handling when you act and addressed when done, naming the new version or "answered in chat"');
+		}
+	});
+
 	it("tells main and background threads that planned pieces get parent only", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("required part");

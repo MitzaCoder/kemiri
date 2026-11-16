@@ -35,6 +35,13 @@ for (const name of ["report", "proof-index", "dashboard", "deck"]) {
 		for (const selector of ["html[lang]", "head", "title", "body", "main", "h1", 'meta[name="viewport"]']) {
 			rewriter.on(selector, { element() { counts[selector] = (counts[selector] ?? 0) + 1; } });
 		}
+		const sectionIds = new Set<string>();
+		rewriter.on("section", { element(element) {
+			const id = element.getAttribute("id");
+			expect(id).toBeTruthy();
+			expect(sectionIds.has(id!)).toBe(false);
+			sectionIds.add(id!);
+		} });
 		rewriter.on("*", { element(element) {
 			for (const name of ["src", "href", "poster"]) {
 				const link = element.getAttribute(name);

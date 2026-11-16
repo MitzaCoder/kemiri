@@ -291,6 +291,8 @@ for printing (owner approval Q188); origin isolation remains unchanged.
 
 ## HTML artifact design and privacy (T165 / D74)
 
+Authors give each section a heading and stable `id`, keeping ids across revisions so reviews can identify a place.
+
 Every project is offered the bundled `html-artifacts` skill through the ordinary lazy skill catalogue. Only its name,
 short description and read path enter the prompt; the body and four self-contained templates are read on demand.
 User/project design instructions outrank the defaults. Source and binary releases both ship the skill and templates.
@@ -1992,6 +1994,12 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   the project's worker workspaces and the background threads' directories (`threads/<thread>/`: checkouts and their
   workers' workspaces). `threadId` is the coordinator's thread, or for a worker the thread whose workers list holds
   it; `workerId` comes from that list. The ID is memoized, so a rerun saves once.
+- `artifact_read { artifactId, version? }` (T215): every conversation, including code mode, can open a retained
+  snapshot within its project. Bare ID reads latest; `id~N` and `version` must agree when both are supplied.
+  Returns snapshot metadata, retained/latest numbers, and an editable exact-byte copy in a private system-temp
+  directory (0700; file 0600), never the store path. Copies are keyed by store/project/artifact/version and replaced
+  on repeat reads. Unknown/foreign IDs and unretained versions return clear errors. The output names the file and
+  taskId to use with `artifact_save` for the next version; conversation scope can only be extended by that conversation.
 - Protocol: `artifacts.list` / `artifacts.url` / `artifacts.delete` in `connection.ts`; `artifacts.changed` to every
   connection on each save and delete.
 - HTTP: signed `GET|HEAD|OPTIONS /artifacts/<projectId>/<artifactId>?token=…`; session-bound v2 capabilities and
@@ -3074,6 +3082,12 @@ ordinary external URLs retain their existing dedicated behavior. No protocol/bac
 reference fetching are added.
 
 ### Task links and feedback
+
+Artifact reviews (T215 / D88) are plain Markdown: `Comments on "…"` followed by an
+`(artifact <id>~<n>, <file>)` line. Main and background coordinators answer Clarify in chat; Change,
+Show differently and Cut read that snapshot with `artifact_read`, edit the copy and re-save with the same name/scope.
+Keep preserves that part in a rewrite. Task feedback is marked handling, then addressed naming the new version
+(or "answered in chat"). No new wire format is needed.
 
 Decided with the user on 2026-11-09 (decisions D23 to D25). Contract in `packages/protocol/src/board.ts`, feature
 `task-links`; code in `packages/server/src/board.ts` (links, feedback, timeline), `workers.ts` (events and prompt),

@@ -1,5 +1,19 @@
 # Continue
 
+## T215: reading and revising artifact reviews
+
+Every conversation (including code mode) now has `artifact_read`: bare ID reads latest,
+`id~N` or `version` selects retained bytes; conflicting selectors and foreign/unknown/pruned
+versions return errors. Metadata includes saver/time, scope, note and retained/latest numbers.
+The editable copy is separate from the store, keyed by store/project/artifact/version in system
+temp, with directory 0700/file 0600; repeat reads replace edits. Output names the exact file
+and taskId for publishing the next version, including conversation-scope limits.
+Main/background prompts map review intents to chat answers or versioned rewrites and feedback
+closure. Bundled HTML guidance asks for stable headed section ids; all templates now have ids.
+Checks: isolated root 2,838 tests (95,298 assertions), typecheck; web 1,216 tests/check/build;
+46 targeted server tests, including code mode reading the copy with the ordinary read tool;
+external-denylist/Gitleaks pass. No protocol/UI change, deployment, push or main movement.
+
 ## T214: one state sentence per task row
 
 Web and Android list/board use one derived-colour activity sentence, with no extra

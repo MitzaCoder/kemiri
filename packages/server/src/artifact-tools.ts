@@ -1,8 +1,8 @@
 /**
- * The `artifact_save` tool: every conversation of a project — the coordinator, its workers, and scripts either runs in
- * code mode — keeps a file for the user by copying it into the project's artifact store (`artifacts.ts`).
+ * Artifact tools for every conversation — coordinators, workers and their code-mode scripts. Save copies a file
+ * into the project's artifact store (`artifacts.ts`); read returns metadata and an editable copy of a stored version.
  *
- * What it may read: a regular file under the calling conversation's cwd, the project directory or the system temp
+ * What save may read: a regular file under the calling conversation's cwd, the project directory or the system temp
  * directory (where browsers and screen recorders usually leave their output), after symlinks are resolved. Nothing in
  * the data directory except the project's own worker workspaces, so credentials and secrets cannot become artifacts.
  *
@@ -11,17 +11,19 @@
  */
 import type { Context } from "@earendil-works/chord/context";
 import { type Extension, type ToolRegistration, defineExtension, defineTool } from "@earendil-works/pi-durable";
-import { MAIN_THREAD_ID } from "@kemiri/protocol";
+import { type Artifact, MAIN_THREAD_ID } from "@kemiri/protocol";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, realpath, stat } from "node:fs/promises";
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
 import { type ArtifactStore, newArtifactId } from "./artifacts.ts";
 import { errorMessage } from "./errors.ts";
 import type { Project } from "./projects.ts";
 
 export const ARTIFACT_SAVE_TOOL = "artifact_save";
+export const ARTIFACT_READ_TOOL = "artifact_read";
 export const ARTIFACT_EXTENSION = "artifact-tools";
 
 /**
@@ -120,6 +122,35 @@ function toolText(text: string, isError = false, details?: { artifactId: string 
 	};
 }
 
+/** Publish an editable copy, never a link to the immutable store. Replace rather than follow an old copy's links. */
+async function copyArtifactForReading(store: ArtifactStore, artifact: Artifact): Promise<string> {
+	const key = createHash("sha256").update(JSON.stringify([
+		resolve(store.dataDir), artifact.projectId, artifact.id.split("~")[0], artifact.version ?? 1,
+	])).digest("hex");
+	const directory = join(tmpdir(), `kemiri-artifact-read-${process.getuid?.() ?? "user"}-${key}`);
+	try {
+		await mkdir(directory, { mode: 0o700 });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
+	const info = await lstat(directory);
+	if (!info.isDirectory() || (process.getuid !== undefined && info.uid !== process.getuid())) {
+		throw new Error("The artifact copy directory is not a private directory owned by this user.");
+	}
+	await chmod(directory, 0o700);
+	const staging = await mkdtemp(join(directory, ".copy-"));
+	try {
+		const copy = join(staging, artifact.name);
+		await copyFile(store.filePath(artifact), copy);
+		await chmod(copy, 0o600);
+		const path = join(directory, artifact.name);
+		await rename(copy, path);
+		return path;
+	} finally {
+		await rm(staging, { recursive: true, force: true });
+	}
+}
+
 export function createArtifactExtension(options: ArtifactToolsOptions): Extension {
 	const threadIdOf = options.threadIdOf ?? (async () => MAIN_THREAD_ID);
 	const saveTool = defineTool({
@@ -181,5 +212,52 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			}
 		},
 	});
-	return defineExtension({ name: ARTIFACT_EXTENSION, tools: [saveTool] as ToolRegistration[] });
+	const readTool = defineTool({
+		name: ARTIFACT_READ_TOOL,
+		description: "Open a retained artifact version from this project: metadata and a private, editable copy of its stored bytes. Bare ID reads latest; id~N or version selects a snapshot. Includes instructions for publishing a revision.",
+		parameters: Type.Object({
+			artifactId: Type.String({ minLength: 1, description: "Artifact ID, or id~N for a retained version." }),
+			version: Type.Optional(Type.Integer({ minimum: 1, description: "Version number; must agree with id~N if both are given." })),
+		}),
+		replay: "safe",
+		execute: async (args) => {
+			try {
+				const match = /^([a-z0-9][a-z0-9-]{0,63})(?:~([1-9]\d*))?$/.exec(args.artifactId);
+				if (match === null) return toolText("Invalid artifact ID; use a bare ID or id~N with a positive whole version number.", true);
+				const rootId = match[1]!;
+				const pinned = match[2] === undefined ? undefined : Number(match[2]);
+				if ((pinned !== undefined && !Number.isSafeInteger(pinned)) || (args.version !== undefined && (!Number.isSafeInteger(args.version) || args.version < 1))) {
+					return toolText("Version must be a positive safe whole number.", true);
+				}
+				if (pinned !== undefined && args.version !== undefined && pinned !== args.version) {
+					return toolText(`Conflicting versions: artifactId selects ${pinned}, but version is ${args.version}.`, true);
+				}
+				const project = options.project();
+				const latest = await options.store.get(project.id, rootId);
+				if (latest === undefined) return toolText(`No artifact "${rootId}" in this project. Unknown IDs and artifacts from other projects cannot be read.`, true);
+				const version = args.version ?? pinned ?? latest.version ?? 1;
+				const artifact = latest.versions?.find((snapshot) => snapshot.version === version);
+				const retained = latest.versions?.map((snapshot) => snapshot.version).join(", ") ?? "1";
+				if (artifact === undefined) return toolText(`Version ${version} of artifact "${rootId}" is not retained (pruned or never saved). Retained versions: ${retained}; latest: ${latest.version ?? 1}.`, true);
+				const path = await copyArtifactForReading(options.store, artifact);
+				const scope = artifact.taskId === null ? `conversation (thread ${artifact.threadId}, worker ${artifact.workerId ?? "coordinator"})` : `task ${artifact.taskId}`;
+				const revision = artifact.taskId === null
+					? `Publish a revision with artifact_save using the edited file named ${JSON.stringify(artifact.name)} and omit taskId. Only the same conversation (thread ${artifact.threadId}, worker ${artifact.workerId ?? "coordinator"}) can add versions; saving from another conversation creates a new artifact.`
+					: `Publish a revision with artifact_save using the edited file named ${JSON.stringify(artifact.name)} and taskId ${JSON.stringify(artifact.taskId)} to create the next version of this artifact.`;
+				return toolText([
+					`Artifact ${rootId}~${version}: ${artifact.title ?? "(untitled)"}`,
+					`File: ${artifact.name}`,
+					`Version ${version}; latest: ${latest.version ?? 1}; retained versions (${latest.versions?.length ?? 1}): ${retained}.`,
+					`Kind/MIME: ${artifact.kind} / ${artifact.mimeType}; size: ${artifact.size} bytes (${formatBytes(artifact.size)}).`,
+					`Scope: ${scope}. Saved by thread ${artifact.threadId}, worker ${artifact.workerId ?? "coordinator"}, at ${artifact.createdAt}.`,
+					`Note: ${artifact.note ?? "(none)"}`,
+					`Readable copy: ${path}`,
+					revision,
+				].join("\n"));
+			} catch (error) {
+				return toolText(`Reading the artifact failed: ${errorMessage(error)}`, true);
+			}
+		},
+	});
+	return defineExtension({ name: ARTIFACT_EXTENSION, tools: [saveTool, readTool] as ToolRegistration[] });
 }

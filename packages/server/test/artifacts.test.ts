@@ -18,7 +18,7 @@ import {
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ARTIFACT_TAG_GUIDANCE, createArtifactExtension, resolveArtifactSource } from "../src/artifact-tools.ts";
 import { ArtifactStore, ArtifactUrlSigner, detectMimeType, parseRange, serveArtifact } from "../src/artifacts.ts";
 import { createSetup, errorOf, TestClient, type TestSetup } from "./support.ts";
@@ -202,6 +202,23 @@ describe("artifact_save", () => {
 		await until(() => result.length > 0);
 		expect(result).toContain("Saved artifact");
 		expect((await list(client, projectId))[0]).toMatchObject({ name: "README.md", title: "Readme", kind: "text" });
+	}, 30_000);
+
+	it("reads an artifact and its private copy with the ordinary read tool from code mode", async () => {
+		const { test, client, projectId } = await start();
+		const saved = await test.server.artifacts.save({ projectId, sourcePath: join(test.projectDir, "README.md"), title: "Readme", note: null, threadId: "main", workerId: null, taskId: "T31" });
+		let result = "";
+		test.faux.setResponses([
+			() => fauxAssistantMessage([fauxToolCall("codemode", { code: `const artifact = await tools.artifact_read({ artifactId: ${JSON.stringify(saved.id)} }); const path = /^Readable copy: (.+)$/m.exec(artifact)[1]; const content = await tools.read({ path }); return { artifact, content };` })], { stopReason: "toolUse" }),
+			(request: TranscriptContext) => { result = lastText(request).text; return fauxAssistantMessage("Read."); },
+		]);
+		await client.request({ type: "conversation.submit", projectId, requestId: "read-script", content: "Read the saved readme." });
+		await until(() => result.length > 0);
+		const path = /Readable copy: ([^\\\n"]+)/.exec(result)?.[1];
+		if (path !== undefined) cleanups.push(() => rm(dirname(path), { recursive: true, force: true }));
+		expect(result).toContain("Artifact " + saved.id + "~1");
+		expect(result).toContain('taskId');
+		expect(result).toContain(JSON.stringify(await Bun.file(join(test.projectDir, "README.md")).text()));
 	}, 30_000);
 
 	it("records the worker that saved it", async () => {

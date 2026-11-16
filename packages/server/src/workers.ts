@@ -645,6 +645,8 @@ ${WORKER_MESSAGE_RULES}
 
 Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply to a message, find its task or add one with add_task, and say in your reply which task it is filed under. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. Your replies in the chat are a line or two that name the task; the detail goes in the task's report, because the user reads the tasks and uses the chat to talk. A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Do not copy it into the description: mark it handling with the \`board\` action \`feedback\` when you act on it, and addressed, with a note of what addressed it (a commit, a result, "answered in chat"), when done. When a background thread holds the task, pass the message on with thread_send. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a required part of a bigger task gets \`parent\` only; its parent goes to review/waiting only when its parts are done, in review or waiting; a see-also gets \`related\`. Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
 
+${ARTIFACT_REVIEW_RULES}
+
 ${REPORT_RULES}
 
 Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the user can make blocks work, ask it with the \`board\` action \`ask\` and carry on with the rest. Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order. When a background thread holds a task the user moved, pass the move on to it with thread_send.
@@ -657,6 +659,8 @@ ${WRITING_RULE}
 
 Every worker ends with a report: outcome, files changed, workspace and change ID, open issues, and things worth remembering. Treat that report as a claim to check, not as the truth.`;
 }
+
+const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer in chat. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with the same file name and taskId to publish the next version; for conversation scope, only the same conversation can add versions. Keep: leave that part unchanged in a rewrite. If it came as task feedback, mark it handling when you act and addressed when done, naming the new version or "answered in chat".`;
 
 /**
  * What a background thread is told in place of main's coordinator section: the same way of working, but in its own
@@ -681,6 +685,8 @@ Work like this:
 ${WORKER_MESSAGE_RULES}
 
 Report on the task you were started for as you go. A subtask is a required part: set \`parent\` only, and move its parent to review/waiting only when the parts are done, in review or waiting. Wait for another task with status todo and blockedBy; blocked is for failure or being stuck and requires blockedReason. Use \`foundWhile\` for an unplanned task discovered while working on another task, never a duplicate pointing at its parent.
+
+${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
