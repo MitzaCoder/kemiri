@@ -244,6 +244,17 @@
 			{#if problem}<p class="absolute bottom-3 left-3 rounded-lg bg-(--chat-surface) p-3 text-(--chat-danger)" role="alert">{problem}</p>{/if}
 
 		</Dialog.Content>
+	{:else if artifact?.kind === 'text'}
+		<Dialog.Content class="artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none sm:rounded-lg" data-artifact-dialog>
+			<header class="shrink-0 border-b border-(--chat-border) px-4 py-3 pr-12">
+				<Dialog.Title class="text-base font-semibold">{artifactTitle(artifact)}</Dialog.Title>
+				<Dialog.Description class="flex flex-wrap gap-2 text-xs text-(--chat-fg-muted)">{@render factsLine(artifact)}</Dialog.Description>
+				{@render versionControls()}
+				{#if artifact.note || artifact.sourcePath || problem}<details class="mt-2 text-xs"><summary>Details</summary><div class="flex flex-col gap-2 pt-2">{@render extras(artifact)}</div></details>{/if}
+			</header>
+			<ArtifactText {artifact} {client} roomy onclose={() => open = false} />
+			<div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-(--chat-border) px-4 py-2">{@render deletion(artifact, true)}</div>
+		</Dialog.Content>
 	{:else if theater && artifact !== undefined}
 		<Dialog.Content
 			class="artifact-dialog flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"

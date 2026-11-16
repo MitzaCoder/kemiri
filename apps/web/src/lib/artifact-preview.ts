@@ -82,7 +82,7 @@ export function openArtifactPreview(
 	const createUrl = options.createUrl ?? ((blob: Blob) => URL.createObjectURL(blob));
 	const open = options.open ?? ((url: string) => window.open(url, "_blank"));
 	const theme = options.theme ?? (typeof document === "undefined" ? { mode: "light" as const, tokens: {} } : readArtifactTheme());
-	const frameUrl = createUrl(new Blob([artifactPageDocument(content, theme, options.blockRequests, true)], { type: "text/html" }));
+	const frameUrl = createUrl(new Blob([artifactPageDocument(content, theme, options.blockRequests, true, false)], { type: "text/html" }));
 	const tab = open(createUrl(new Blob([sandboxedArtifactDocument(frameUrl, name, theme)], { type: "text/html" })));
 	if (tab === null) return false;
 	// The wrapper may not reach back into the app's window.

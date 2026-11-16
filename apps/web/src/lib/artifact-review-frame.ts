@@ -1,0 +1,19 @@
+/** Injected only into the app's viewer, never the standalone new-tab frame. No host DOM/origin access. */
+export const ARTIFACT_REVIEW_PRELUDE = String.raw`
+(function(){
+ var picking=false, outlined=null, timer=0, keyboardIndex=-1;
+ var candidates='svg,canvas,img,figure,tr,pre,li,blockquote,p';
+ function clean(text,limit){var clean=String(text||'').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g,'').trim();return clean.length>limit?clean.slice(0,limit-1)+'…':clean}
+ function section(element){var headings=document.querySelectorAll('h1,h2,h3,h4,h5,h6'), found='';for(var i=0;i<headings.length;i++){var h=headings[i];if(h.contains(element)||(h.compareDocumentPosition(element)&Node.DOCUMENT_POSITION_FOLLOWING))found=h.textContent;else break}return clean(found,300)}
+ function report(text,element,block){var report={type:'kemiri:artifact-selection',text:clean(text,4000),section:element?section(element):'',elementId:element?clean((element.closest('[id]')||{}).id,120):''};if(block)report.block=block;parent.postMessage(report,'*')}
+ function unoutline(){if(outlined)outlined.removeAttribute('data-kemiri-review-pick');outlined=null}
+ function stop(){picking=false;unoutline();document.documentElement.removeAttribute('data-kemiri-review-picking')}
+ function candidate(target){return target instanceof Element?target.closest(candidates):null}
+ function pick(element){if(!element)return;var tag=element.tagName.toLowerCase();var labels={svg:'chart',canvas:'chart',img:'image',figure:'figure',tr:'table row',pre:'code',li:'list item',blockquote:'paragraph',p:'paragraph'};var caption=element.querySelector('figcaption,title');var text=element.getAttribute('aria-label')||element.getAttribute('alt')||(caption&&caption.textContent)||element.textContent||element.getAttribute('title')||labels[tag];report(text,element,labels[tag]);stop()}
+ window.addEventListener('message',function(event){if(event.source!==parent)return;if(event.data==='kemiri:pick-artifact-block'){if(picking)stop();else{picking=true;keyboardIndex=-1;document.documentElement.setAttribute('data-kemiri-review-picking','')}}if(event.data==='kemiri:cancel-artifact-pick')stop()});
+ window.addEventListener('pointerover',function(event){if(!picking)return;unoutline();outlined=candidate(event.target);if(outlined)outlined.setAttribute('data-kemiri-review-pick','')},true);
+ window.addEventListener('click',function(event){if(!picking)return;event.preventDefault();event.stopImmediatePropagation();pick(candidate(event.target))},true);
+ window.addEventListener('keydown',function(event){if(!picking)return;if(event.key==='ArrowDown'||event.key==='ArrowUp'){var blocks=Array.from(document.querySelectorAll(candidates));if(blocks.length){keyboardIndex=(keyboardIndex+(event.key==='ArrowDown'?1:-1)+blocks.length)%blocks.length;unoutline();outlined=blocks[keyboardIndex];outlined.setAttribute('data-kemiri-review-pick','');outlined.scrollIntoView({block:'nearest'})}event.preventDefault();event.stopImmediatePropagation()}else if(event.key==='Escape'){stop();report('',null);event.preventDefault();event.stopImmediatePropagation()}else if(event.key==='Enter'){event.preventDefault();event.stopImmediatePropagation();pick(candidate(event.target)||outlined)}},true);
+ document.addEventListener('selectionchange',function(){clearTimeout(timer);timer=setTimeout(function(){if(picking)return;var selected=getSelection();var node=selected&&selected.anchorNode;var element=node&&(node.nodeType===1?node:node.parentElement);if(element&&element.closest('input,textarea,[contenteditable="true"]'))return;report(selected?selected.toString():'',element)},150)});
+ var style=document.createElement('style');style.textContent='[data-kemiri-review-picking] :is(svg,canvas,img,figure,tr,pre,li,blockquote,p){cursor:crosshair}[data-kemiri-review-pick]{outline:3px solid var(--tone-primary,#6267a3)!important;outline-offset:3px}';document.head.appendChild(style);
+})();`;

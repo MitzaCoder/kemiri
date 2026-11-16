@@ -5,6 +5,7 @@
 
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
+	import ArtifactReview from './ArtifactReview.svelte';
 	import { DropdownMenu } from 'bits-ui';
 	import EllipsisVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import { copyText } from '#lib/clipboard.js';
@@ -48,7 +49,7 @@
 	const project = $derived(harness.backends.find((backend) => backend.client === client)?.projects.find((project) => project.id === artifact.projectId));
 	// A restored preview must not briefly allow connections before its project's privacy setting arrives.
 	const blockRequests = $derived(project === undefined || project.blockArtifactRequests === true);
-	const pageDocument = $derived(content === undefined ? '' : artifactPageDocument(content, artifactTheme, blockRequests, fullSpace));
+	const pageDocument = $derived(content === undefined ? '' : artifactPageDocument(content, artifactTheme, blockRequests, fullSpace, roomy));
 	onMount(() => {
 		const update = () => { artifactTheme = readArtifactTheme(); };
 		update();
@@ -56,7 +57,7 @@
 		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] });
 		// Keyboard events inside an opaque-origin frame cannot bubble to the dialog.
 		const closeFromFrame = (event: MessageEvent) => {
-			if (fullSpace && event.source === frame?.contentWindow && event.data === 'kemiri:close-artifact') onclose?.();
+			if (fullSpace && event.source === frame?.contentWindow && event.data === 'kemiri:close-artifact' && !review?.cancelTransient()) onclose?.();
 		};
 		window.addEventListener('message', closeFromFrame);
 		return () => {
@@ -88,6 +89,8 @@
 	let attempt = $state(0);
 	let tabProblem = $state('');
 	let frame = $state<HTMLIFrameElement>();
+	let scope = $state<HTMLElement>();
+	let review = $state<ArtifactReview>();
 	let menuOpen = $state(false);
 	let copyStatus = $state('');
 	async function copySource(): Promise<void> {
@@ -157,7 +160,8 @@
 	}
 </script>
 
-<div class={fullSpace ? 'html-viewport' : 'overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-bg)/60'} data-artifact-text>
+<div class:review-layout={roomy}>
+<div bind:this={scope} class={fullSpace ? 'html-viewport' : 'overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-bg)/60'} data-artifact-text>
 	{#if fullSpace}
 		<div class="html-actions">
 			<DropdownMenu.Root bind:open={menuOpen}>
@@ -242,13 +246,13 @@
 				></iframe>
 			</div>
 		{:else if rendered}
-			<div class="relative">
+			<div class="relative reading-document">
 			<div use:overlayScroll={'parent'} class="text-body rendered overflow-auto px-4 py-3" class:compact class:roomy data-artifact-markdown>
 				<Markdown source={content} />
 			</div>
 			</div>
 		{:else}
-			<div class:html-source={fullSpace} class="relative">
+			<div class:html-source={fullSpace} class="relative reading-document">
 			<pre use:overlayScroll={'parent'} class="text-body m-0 overflow-auto px-3 py-2.5 font-mono text-[0.78rem] leading-relaxed" class:wrap class:compact class:roomy>{content}</pre>
 			</div>
 		{/if}
@@ -267,9 +271,16 @@
 		<p class="px-3 py-3 text-xs text-(--chat-fg-subtle)">Reading…</p>
 	{/if}
 </div>
+{#if roomy}{#key artifact.id}<ArtifactReview bind:this={review} {artifact} {client} {scope} {frame} pageView={page} {onclose} />{/key}{/if}
+</div>
 
 <style>
-	.html-viewport { display:flex; flex:1; min-height:0; flex-direction:column; background:var(--chat-bg); }
+	.review-layout { container:artifact-review / inline-size; position:relative; display:flex; flex:1; min-height:0; min-width:0; }
+	.review-layout > :first-child { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; padding-bottom:65px; }
+	.review-layout .reading-document { flex:1; min-height:0; overflow:auto; }
+	.review-layout .html-document { padding-bottom:64px; }
+	.review-layout .html-viewport { padding-bottom:0; }
+	.html-viewport { position:relative; display:flex; flex:1; min-height:0; flex-direction:column; background:var(--chat-bg); }
 	.html-source { flex:1; min-height:0; overflow:auto; padding-top:50px; }
 	.html-document { flex:1; min-height:0; }
 	.html-document .page-frame.fullSpace { height:100%; }

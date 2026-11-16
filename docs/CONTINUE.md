@@ -1,5 +1,31 @@
 # Continue
 
+## T216 / D88: web artifact review passes
+
+HTML, Markdown, text and Source viewers now collect intent/note comments in an
+app-owned tray (beside the page when the modal is at least 640 px wide; a bottom
+sheet otherwise). Reviews survive reload locally, keyed by backend/project/artifact
+version. Send creates one task feedback submission to main, or stays in the source
+chat without a task. Failures retain comments and retry IDs; Add to chat draft
+preserves existing text/quotes/attachments and focuses the recipient composer.
+The HTML selection/block bridge validates exact text-only fields and frame source;
+no sandbox grants, server or protocol changes. Pure TS contracts and Android-ready
+JSON formatter cases are in `artifact-review*.ts` and web test fixtures; DESIGN.md
+records the port contract. Optional passage highlights/review cards are deferred.
+
+Follow-up: the formatter separates notes from Markdown quotes (blank separator,
+empty quote lines as bare `>`). The tray close control uses the shared square
+32×32 icon button and accessible label. Requested desktop light/dark tray shots,
+chat shot and recording are version 2; other proof remains original evidence.
+
+Proof index `mwjr278y-22cfa54026~2`: 22 screenshots, desktop/phone light/dark
+before/after plus composer, Markdown/text/Source, draft, send/failure/chat/feedback;
+recording `mwjqsd3i-9dd0573965~2` shows two comments sent as one feedback entry.
+Headless checks also cover edit/remove, reload, version switching, Escape,
+keyboard block selection, append/focus, failed send/retry and modal breakpoints.
+Checks after the rebase/follow-up pass: isolated root 2,885; web 1,263; typecheck,
+web check/build and public hygiene. No push, deployment or bookmark movement.
+
 ## T215: reading and revising artifact reviews
 
 Every conversation (including code mode) now has `artifact_read`: bare ID reads latest,

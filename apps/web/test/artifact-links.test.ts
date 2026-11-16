@@ -66,7 +66,8 @@ test("cancelled and modified activations belong to the author/browser", () => {
 test("both web component paths carry the identical policy without adding sandbox grants", async () => {
 	const theme = { mode: "light" as const, tokens: {} };
 	const source = '<base target="_top"><a href="#update">Update</a>';
-	const page = artifactPageDocument(source, theme, false, true);
+	// Both paths keep the exact link policy; only the app viewer adds the selection bridge.
+	const page = artifactPageDocument(source, theme, false, true, false);
 	expect(page).toContain(ARTIFACT_LINK_PRELUDE);
 	expect(page).toContain(source);
 	const blobs: Blob[] = [];
@@ -75,7 +76,7 @@ test("both web component paths carry the identical policy without adding sandbox
 	expect(await blobs[1]!.text()).toContain(`sandbox="${ARTIFACT_FRAME_SANDBOX}"`);
 	const component = readFileSync(new URL('../src/lib/components/artifacts/ArtifactText.svelte', import.meta.url), 'utf8');
 	expect(component).toContain('srcdoc={pageDocument}');
-	expect(component).toContain('artifactPageDocument(content, artifactTheme, blockRequests, fullSpace)');
+	expect(component).toContain('artifactPageDocument(content, artifactTheme, blockRequests, fullSpace, roomy)');
 	expect(component).toContain('openArtifactPreview(content, artifact.name, { theme: artifactTheme, blockRequests })');
 	expect(ARTIFACT_FRAME_SANDBOX).not.toMatch(/allow-same-origin|allow-top-navigation/);
 });

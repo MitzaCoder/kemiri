@@ -2,7 +2,8 @@
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
+	import { appendReviewDraft, REVIEW_DRAFT_EVENT, type ReviewDraftAppend } from '#lib/artifact-review-draft.js';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { ModelInfo, ModelRef, ProviderInfo, ThinkingLevel, WorkerModel } from '@kemiri/protocol';
 	import EffortPicker from './EffortPicker.svelte';
@@ -180,6 +181,20 @@
 						});
 					}
 				});
+
+	onMount(() => {
+		const appendReview = (event: Event) => {
+			const request = (event as CustomEvent<ReviewDraftAppend>).detail;
+			if (request.key !== chatKey || request.handled) return;
+			const appended = appendReviewDraft(currentDraft(), request.text, request.taskId);
+			text = appended.text;
+			taskId = appended.taskId;
+			request.handled = true;
+			requestAnimationFrame(autosize);
+		};
+		window.addEventListener(REVIEW_DRAFT_EVENT, appendReview);
+		return () => window.removeEventListener(REVIEW_DRAFT_EVENT, appendReview);
+	});
 
 	// Keep the draft up to date as it changes (cleared on send, since the fields are emptied then).
 	$effect(() => {

@@ -25,6 +25,70 @@ current project's preview ID while its reference preview is open, clears it on
 dismissal, and respects the system animation setting. Task-list/card taps still
 navigate straight to the task, never to a reference preview.
 
+## Artifact review passes (T216 / D88)
+
+The web text viewer (HTML, Markdown, plain text and Source) collects a review
+before sending it. Select a passage, or choose **Pick a block** in an HTML page
+(chart, table row, figure, image, code, list item or paragraph). The app displays
+the quote before it can become a comment. A comment has an optional intent
+(Clarify, Change, Show differently, Cut, Keep) and optional note; either one
+alone completes it. Comments can be edited or removed. At modal widths of
+640 px and above the tray sits beside the document;
+below that it is a bottom
+sheet opened by the floating comment counter. Escape cancels a comment composer
+before closing the viewer. HTML's existing menu and source/version/print actions
+remain separate. Markdown/text retain their metadata, download and delete controls.
+Images/video/audio artifacts have no review controls.
+
+`artifact-review.ts` owns the framework-free selection validator, Markdown
+formatter and local persistence contract. Comments and the whole-page note stay
+only in this device's localStorage, under `kemiri.artifact-review.v1:` plus a JSON
+array `[backendId, projectId, stableArtifactId, version]`. Closing/reloading keeps
+the review; selecting another version mounts that version's review. Storage
+failure shows a warning rather than promising reload persistence. At most 100
+comments are restored/added; quote/note/overall text is capped at 4,000 characters,
+headings at 300 and element IDs at 120. Long quotes end with an ellipsis.
+
+HTML receives `artifact-review-frame.ts` only in the app-owned viewer, not in a
+new tab or an inline preview. It adds one outbound object message type,
+`kemiri:artifact-selection`, with required string `type`/`text` and optional string
+`section`/`elementId`/`block`. An empty text clears the selection. The app requires
+`event.source === mountedIframe.contentWindow`, a plain object with only these
+keys and string values (no accessors), and a block label from the fixed vocabulary;
+unknown input is ignored, controls stripped and lengths bounded. It is untrusted
+plain text, never host markup and never an instruction to send. A hostile artifact
+can fabricate a selection, just as it can display misleading text, but cannot send
+a review or access the host's credentials/DOM. There are no new sandbox grants,
+no shared origin, and no additional outgoing network policy. Two exact parent-only
+strings toggle/cancel block picking; pointer candidates are outlined, and keyboard
+arrows plus Enter can choose a block. Escape cancels picking inside the frame.
+Markdown/text/Source selections use the chat's whole-word/quote helpers and the
+nearest preceding rendered heading. Passage highlights are not implemented.
+
+**Send N comments** submits exactly one Markdown message. Task-linked artifacts
+mirror TaskReply: main coordinator, `taskId`, `whenBusy: steer`, `keepDraft: true`,
+so the server records one task feedback entry without clearing an unrelated chat
+draft. Without a task, the recipient is the viewer's route thread or main when
+unknown. Retries of unchanged text retain the submission request ID. Failure keeps
+the local review; acknowledgement clears it and shows success. **Add to chat draft**
+appends after a blank line, preserving existing text, quotes and attachments,
+attaches the artifact task, clears the review and opens/focuses that recipient's
+composer. A mounted composer consumes the append through an app-local CustomEvent;
+otherwise it restores from `drafts.ts` on navigation and uses normal draft sync.
+Nothing is sent by adding a draft.
+
+The message contract is pinned in the portable Android-ready JSON cases at
+`apps/web/test/fixtures/artifact-review.json`: `Comments on "<display title>"`,
+then `(artifact <stable-id>~<version>, <filename>)`, blank line, numbered comments.
+Each is `<number>. <intent or Note>` plus ` · <section> (<block>)` when known,
+then a quote with every line prefixed `> ` (an empty line as `>`), then a blank line and its note
+if supplied (without the blank line Markdown would render the note inside the quote). Comments
+are separated by blank lines; `Overall: <note>` is last. Double quotes in titles
+become prime marks. The server alone supplies the task/feedback prefix. The same
+plain TypeScript contracts and fixtures are the starting point for Android;
+shared server storage, picture/video comments, review transcript cards and
+re-anchoring/highlights across versions are deferred.
+
 ## HTML artifact viewers (T191)
 
 HTML/XHTML source is read whole up to 20 MiB on web and Android (T202),
