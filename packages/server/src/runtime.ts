@@ -1,3 +1,4 @@
+import type { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
 import type { SkillRole, ProjectSkill } from "@kemiri/protocol";
 import { configureMcpRole, mcpRoleExtension, type McpService } from "./mcp.ts";
@@ -180,6 +181,7 @@ type RuntimeEntry = {
 };
 
 export type ProjectManagerOptions = {
+	userSettings?: UserSettingsStore;
  mcp?: McpService;
  skills?: ProjectSkillStore;
  homeDir?: string;
@@ -297,6 +299,7 @@ function projectSummary(
 }
 
 export class ProjectManager {
+	readonly #userSettings: UserSettingsStore | undefined;
 	readonly store: ProjectStore;
  readonly mcp: McpService | undefined;
  readonly skills: ProjectSkillStore;
@@ -357,6 +360,7 @@ export class ProjectManager {
 	#imagesPromise: Promise<ImageProcessor | null> | undefined;
 
 	constructor(options: ProjectManagerOptions) {
+		this.#userSettings = options.userSettings;
 		this.store = options.store;
 		this.files = new ChatFileStore(options.store.dataDir);
  this.mcp = options.mcp;
@@ -1174,6 +1178,7 @@ export class ProjectManager {
 		// created later selects the extension with the rest of the coordinator's and picks up its workspace's files.
 		registry.install(
 			createAgentContextExtension({
+				userName: () => this.#userSettings?.get().userName ?? "",
 				projectId: project.id,
 				skills: this.skills,
 				role: id => role(id),

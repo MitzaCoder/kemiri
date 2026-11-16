@@ -66,6 +66,44 @@ data class ProjectSkill(
 )
 
 @Serializable
+data class UserSettings(
+    val `userName`: String
+)
+
+@Serializable
+data class UserSettingsGetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.get",
+    val `id`: String = java.util.UUID.randomUUID().toString()
+)
+
+@Serializable
+data class UserSettingsSetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.set",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `userName`: String
+)
+
+@Serializable
+data class UserSettingsGetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.get",
+    val `id`: String,
+    val `settings`: UserSettings
+)
+
+@Serializable
+data class UserSettingsSetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.set",
+    val `id`: String,
+    val `settings`: UserSettings
+)
+
+@Serializable
+data class UserSettingsChangedEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.changed",
+    val `settings`: UserSettings
+) : ProtocolEvent
+
+@Serializable
 data class SkillsProjectGetRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "skills.project.get",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -3622,6 +3660,7 @@ data class MemoryChangedEvent(
 data class UnknownEvent(val raw: JsonObject) : ProtocolEvent
 
 fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["type"]?.jsonPrimitive?.content) {
+    "user.settings.changed" -> json.decodeFromJsonElement(UserSettingsChangedEvent.serializer(), raw)
     "skills.project.changed" -> json.decodeFromJsonElement(SkillsProjectChangedEvent.serializer(), raw)
     "mcp.oauth.changed" -> json.decodeFromJsonElement(McpOAuthChangedEvent.serializer(), raw)
     "auth.devicesChanged" -> json.decodeFromJsonElement(AuthDevicesChangedEvent.serializer(), raw)

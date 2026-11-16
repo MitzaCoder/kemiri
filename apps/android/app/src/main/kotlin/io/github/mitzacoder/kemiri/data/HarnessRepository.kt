@@ -14,6 +14,9 @@ import okhttp3.OkHttpClient
 /** A backend owns the socket and catalog; screens must reuse it, never create another client. */
 class BackendSession(val config: BackendConfig, val client: HarnessClient) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val mutableUserName = MutableStateFlow<String?>(null)
+    val userName = mutableUserName.asStateFlow()
+    suspend fun setUserName(name: String) { mutableUserName.value = client.request(UserSettingsSetRequest(userName = name)).settings.userName }
     private val mutableProjects = MutableStateFlow<List<ProjectSummary>>(emptyList())
     val projects = mutableProjects.asStateFlow()
     private val mutableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
@@ -49,6 +52,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
                 if (event is SkillsProjectChangedEvent && client.state.value.supports("project-skills")) {
                     skills[event.projectId]?.refresh()
                 }
+                if (event is UserSettingsChangedEvent) mutableUserName.value = event.settings.userName
                 if (event is ProjectStateEvent) {
                     mutableProjects.update { list -> (list.filterNot { it.id == event.project.id } + event.project).sortedBy { it.name } }
                 }
@@ -64,6 +68,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
         scope.launch {
             client.state.collect { connection ->
                 if (connection.status == ConnectionStatus.Ready) {
+                    if (connection.supports("user-settings")) runCatching { mutableUserName.value = client.request(UserSettingsGetRequest()).settings.userName }
                     runCatching { refreshProjects() }.onFailure { mutableError.value = it.message }
                     if (connection.supports("models")) runCatching { refreshModels() }
                 }

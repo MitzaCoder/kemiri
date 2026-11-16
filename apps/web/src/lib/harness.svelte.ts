@@ -91,6 +91,17 @@ export function modelLabel(model: ModelRef | null, models: readonly ModelInfo[])
 
 /** One backend's socket and the data the app has loaded from it. */
 export class BackendConnection {
+	userName = $state("");
+	userSettingsLoaded = $state(false);
+	async refreshUserSettings(): Promise<void> {
+		const settings = await this.client.getUserSettings();
+		this.userName = settings.userName;
+		this.userSettingsLoaded = true;
+	}
+	async setUserName(name: string): Promise<void> {
+		const settings = await this.client.setUserName(name);
+		this.userName = settings.userName;
+	}
 	readonly id: string;
 	name = $state("");
 	readonly url: string;
@@ -209,6 +220,7 @@ export class BackendConnection {
 				clearTimeout(this.#renewTimer);
 			}
 		});
+		this.client.onUserSettingsChanged(settings => { this.userName = settings.userName; this.userSettingsLoaded = true; });
 		this.client.onProjectState((project) => this.upsertProject(project));
 		this.client.onServerStatusChanged((status) => {
 			this.status = status;
@@ -318,6 +330,7 @@ export class BackendConnection {
 		this.start();
 		if (!this.ready) return;
 		const tasks: Promise<void>[] = [];
+		if (this.features?.includes("user-settings")) tasks.push(this.refreshUserSettings());
 		if (this.supports("projects") && !this.projectsLoaded) tasks.push(this.refreshProjects());
 		if (this.supports("models") && !this.modelsLoaded) tasks.push(this.refreshModels());
 		if (this.supports("credentials")) tasks.push(this.refreshCredentials());
@@ -331,6 +344,7 @@ export class BackendConnection {
 
 	async refreshAll(): Promise<void> {
 		const tasks: Promise<void>[] = [];
+		if (this.features?.includes("user-settings")) tasks.push(this.refreshUserSettings());
 		if (this.supports("projects")) tasks.push(this.refreshProjects());
 		if (this.supports("models")) tasks.push(this.refreshModels());
 		if (this.supports("credentials")) tasks.push(this.refreshCredentials());

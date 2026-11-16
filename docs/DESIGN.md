@@ -1551,6 +1551,32 @@ leftover.
   - Errors come back as readable messages: `permission_denied` for EACCES/EPERM, `invalid_path` with the reason for
     everything else (exists, not empty, a project, bad name). The dialog shows them and stays open.
 
+## Backend user name (T220)
+
+Settings → Backends → one backend → About you has **Your name** on web and Android.
+It is optional, shared across projects and devices on that backend, and separate from the
+device-local backend label. Blur/Enter (Android Done) saves; clearing restores unnamed behaviour.
+The web local first-run Welcome offers the same field before provider setup, with Skip for now;
+neither naming nor skipping blocks provider/folder setup. Android has no equivalent welcome wizard.
+
+The `user-settings` feature advertises `user.settings.get`, `user.settings.set` and the
+`user.settings.changed` push. The name is trimmed, limited to 80 UTF-16 code units and rejects
+control/format characters. Empty means unset. The backend stores it beside its other settings in
+private, atomically written `user-settings.json`; writes are serialized and pushed after persistence.
+Clients reload on reconnect and listen for other devices' edits. Old backends hide the field.
+
+A content-only `user_identity` system section follows the preamble for every coordinator,
+background thread and worker. The common context extension reads the setting at each prompt build,
+like instruction files: an edit applies on the next turn, not midway through a running request.
+Unchanged names produce byte-identical text; empty adds no section. The name is JSON-quoted as data.
+Its instruction is: address the person by name and use that name instead of “you”, “the user” or
+“the owner” when saying what they must do, especially task Next, questions, task text, reports and
+handoffs. It explicitly applies to wording suggested by other harness prompts and tool descriptions;
+agent-directed “you” still means the agent. This shared rule covers coordinator/worker report rules,
+thread summaries, board descriptions and questions, schedule handoffs and artifact instructions,
+without substituting names into tool schemas or changing their cache keys. Generated UI Now/nudge
+lines remain second person; stored task/report text is never rewritten for a name change.
+
 ## Context
 
 What a conversation's model is given besides the transcript. Clients read it with `conversation.context` (the `context`

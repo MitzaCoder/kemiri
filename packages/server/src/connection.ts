@@ -1,3 +1,5 @@
+import type { UserSettingsStore } from "./user-settings.ts";
+import type { UserSettings } from "@kemiri/protocol";
 import { MCP_PRESETS } from "@kemiri/protocol";
 import { MCP_CREDENTIAL_PREFIX } from "./mcp.ts";
 import { DeviceAuth, DeviceAuthError, type Identity } from "./device-auth.ts";
@@ -81,6 +83,7 @@ export type ConnectionIO = {
 };
 
 export type ClientConnectionOptions = {
+	userSettings?: UserSettingsStore;
 	deviceAuth?: { store: DeviceAuth; identity: Identity | undefined };
 	manager: ProjectManager;
 	credentials: CredentialStore;
@@ -134,6 +137,10 @@ function endMessage(end: WatchEnd): string | undefined {
 }
 
 export class ClientConnection {
+	readonly #userSettings: UserSettingsStore | undefined;
+	notifyUserSettings(settings: UserSettings): void {
+		this.#respond({ type: "user.settings.changed", settings });
+	}
 	readonly #manager: ProjectManager;
 	readonly #deviceAuth: ClientConnectionOptions["deviceAuth"];
 	readonly #credentials: CredentialStore;
@@ -164,6 +171,7 @@ export class ClientConnection {
 	readonly #queuedSubmissions = new Map<string, () => Promise<unknown>>();
 
 	constructor(options: ClientConnectionOptions) {
+		this.#userSettings = options.userSettings;
 		this.#deviceAuth = options.deviceAuth;
 		this.#manager = options.manager;
 		this.#credentials = options.credentials;
@@ -739,6 +747,14 @@ export class ClientConnection {
 					const updates = await this.#releaseUpdates.set(request);
 					this.#respond({ type: "server.updates.set", id: request.id, updates });
 					return;
+				}
+				case "user.settings.get":
+				case "user.settings.set": {
+					if (!this.#userSettings || !this.#features.includes("user-settings")) throw new Error("User settings are unsupported");
+					const settings = request.type === "user.settings.set"
+						? await this.#userSettings.set(request.userName) : this.#userSettings.get();
+					this.#respond({ type: request.type, id: request.id, settings });
+					break;
 				}
 				case "server.status": {
 					this.#respond({ type: "server.status", id: request.id, status: await this.#serverStatus() });

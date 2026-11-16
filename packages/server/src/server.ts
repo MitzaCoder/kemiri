@@ -1,3 +1,4 @@
+import { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
 import { McpService } from "./mcp.ts";
 /**
@@ -549,7 +550,12 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		for (const connection of connections) connection.notifySkills(projectId);
 	});
 	await skills.open();
+	const userSettings = new UserSettingsStore(dataDir, settings => {
+		for (const connection of connections) connection.notifyUserSettings(settings);
+	});
+	await userSettings.open();
 	const manager = new ProjectManager({
+		userSettings,
 		mcp,
 		skills,
 		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
@@ -715,6 +721,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	// One-time compact summary upgrade before any socket can open the same project storage.
 	await manager.prepareAttention();
 	const connectionOptions = {
+		userSettings,
 		manager,
 		credentials,
 		logins,

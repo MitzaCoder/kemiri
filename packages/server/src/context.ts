@@ -1,3 +1,4 @@
+import { userNameInstructions } from "./user-settings.ts";
 /**
  * What a conversation's model is told besides the transcript: pi's system prompt files (SYSTEM.md and
  * APPEND_SYSTEM.md), the AGENTS.md files of the project and of the agent directory, and the skills it may read on demand.
@@ -660,6 +661,8 @@ export function renderSkills(skills: readonly LoadedSkill[]): string | undefined
  * Whether a skill has been read stays out of the prompt for the same reason; it belongs to `conversation.context`.
  */
 export function createAgentContextExtension(options: {
+	/** Backend identity is content-only and re-read at each prompt build for every role. */
+	userName?: () => string;
 	agentDir: string;
 	configDir: string;
 	claudeDir: string;
@@ -681,6 +684,7 @@ export function createAgentContextExtension(options: {
 				// pi sends the preamble as the prompt's leading text, not as one of its tagged sections.
 				{ tag: false },
 			),
+			section("user_identity", () => userNameInstructions(options.userName?.() ?? "")),
 			section(ADDENDUM_SECTION, (input) => {
 				const cwd = input.agent.cwd;
 				if (cwd === undefined) return undefined;

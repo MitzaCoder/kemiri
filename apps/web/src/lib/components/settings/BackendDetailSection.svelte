@@ -1,4 +1,5 @@
 <script lang="ts">
+	import YourNameGroup from "./YourNameGroup.svelte";
 	import DevicesSection from './DevicesSection.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { goto } from '$app/navigation';
@@ -51,6 +52,7 @@
 		</Banner>
 	{/if}
 
+	<YourNameGroup {backend} />
 	{#if backend.supports('server-status')}
 		<DeployBanner status={backend.status} dismissed={harness.dismissedDeploys} ondismiss={(deploy) => harness.dismissDeploy(deploy)} />
 		<SettingsGroup title="Status">

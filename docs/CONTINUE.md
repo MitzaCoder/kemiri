@@ -85,6 +85,35 @@ all continuation/design notes retained; code merged without conflicts. Rerun the
 isolated root, web and Android gates on the exact candidate before pushing.
 Deployment is requested only by moving main; the watcher handles activation.
 
+## T220: backend-wide user name
+
+Web/Android Settings → Backends → one backend → About you has optional Your name;
+web local Welcome offers it before provider setup with Skip for now. Empty restores
+unnamed behaviour. Private atomic `user-settings.json`, 80-character trimmed limit,
+control/format rejection; get/set/changed wire API behind `user-settings`, reconnect
+reload and cross-device push. Common context adds content-only `user_identity` after
+the preamble for coordinator, background and workers, read on each prompt build.
+It names the person in Next/questions/task text/reports/handoffs, explicitly overriding
+other harness wording suggestions without changing agent-directed “you” or old data.
+
+Checks: isolated root 2,833; typecheck; web 1,216/check/build; Android 1,011 tests
+(two skipped), assemble/lint (zero errors, 49 existing warnings); external-denylist
+public check. Final quiet root and Android runs pass. Earlier concurrent runs hit
+existing MockWebServer shutdown flakes; one Android run was stopped externally. T220 has 20 before/after
+screenshots (Settings/Welcome, desktop/phone, light/dark; Android settings) and web
+mwjqg3zp-52362546b7 / Android mwjqg422-29c1b056c3 recordings. Synthetic createSetup
+backend and owned emulator only; Android has no Welcome wizard. No push/main move.
+
+Q242 approves web deployment and an in-place phone update. Rebased onto T216,
+retaining both continuation notes and design contracts; code merged cleanly.
+Rebased checks pass: isolated root 2,887; typecheck; web 1,263/check/build;
+Android 1,017 JVM tests (two skipped), assemble/lint (49 existing warnings);
+protocol generation (402 DTOs/110 requests) and external-denylist/Gitleaks.
+The phone update passed in place with matching signing certificate and APK bytes;
+launch succeeds at 0.1.0-pilot.5 (1000005), without clearing data. The exact ref
+is reviewed before a leased push. Moving main requests watcher activation;
+no deployment scripts run manually.
+
 ## T214: one state sentence per task row
 
 Web and Android list/board use one derived-colour activity sentence, with no extra

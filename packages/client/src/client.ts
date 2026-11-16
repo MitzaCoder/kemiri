@@ -1,3 +1,4 @@
+import type { UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
  * The framework-free harness client: one WebSocket, a `hello` handshake, correlated requests, reconnects with backoff,
  * project/model/credential calls, conversation submissions, and live views that survive a dropped socket.
@@ -285,6 +286,11 @@ type Pending = {
 };
 
 export class HarnessClient {
+	readonly #userSettingsListeners = new Set<(settings: UserSettings) => void>();
+	onUserSettingsChanged(listener: (settings: UserSettings) => void): () => void {
+		this.#userSettingsListeners.add(listener);
+		return () => { this.#userSettingsListeners.delete(listener); };
+	}
 	readonly url: string;
 
 	readonly #prepareHello: HarnessClientOptions["prepareHello"];
@@ -357,6 +363,13 @@ export class HarnessClient {
 	onProjectSkillsChanged(listener: (event: import('@kemiri/protocol').SkillsProjectChangedEvent) => void): () => void {
 		this.#projectSkillsListeners.add(listener);
 		return () => this.#projectSkillsListeners.delete(listener);
+	}
+
+	async getUserSettings(): Promise<UserSettings> {
+		return (await this.#call<UserSettingsGetResponse>({ type: "user.settings.get" })).settings;
+	}
+	async setUserName(userName: string): Promise<UserSettings> {
+		return (await this.#call<UserSettingsSetResponse>({ type: "user.settings.set", userName })).settings;
 	}
 
 	async getProjectSkills(projectId: string): Promise<import('@kemiri/protocol').SkillsProjectGetResponse> {
@@ -1831,6 +1844,12 @@ export class HarnessClient {
 			}
 			case "terminal.resync": {
 				this.#terminalsById.get(message.terminalId)?.receiveResync();
+				return;
+			}
+			case "user.settings.changed": {
+				for (const listener of this.#userSettingsListeners) {
+					try { listener(message.settings); } catch { /* Consumer isolation. */ }
+				}
 				return;
 			}
 			case "skills.project.changed": {

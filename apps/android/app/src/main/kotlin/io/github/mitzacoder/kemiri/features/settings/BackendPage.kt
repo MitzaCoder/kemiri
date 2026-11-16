@@ -24,6 +24,8 @@ internal fun BackendPage(repository: HarnessRepository, backend: BackendSession,
     val catalog by backend.modelCatalog.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val nameSave = rememberSaveState(backend.config.key)
+    val userNameSave = rememberSaveState("user-name-${backend.config.key}")
+    val userName by backend.userName.collectAsStateWithLifecycle()
     var confirmingRemove by rememberSaveable { mutableStateOf(false) }
     val providers = catalog?.providers.orEmpty()
     val ready = providers.count { it.configured }
@@ -35,6 +37,14 @@ internal fun BackendPage(repository: HarnessRepository, backend: BackendSession,
                 if (connection.status == ConnectionStatus.Connecting || connection.status == ConnectionStatus.Reconnecting) "Connecting to ${backend.config.name}…" else "${backend.config.name} is offline.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+        if (connection.supports("user-settings")) SettingsGroup(title = "About you") {
+            SettingsRow("Your name", hint = "Optional · up to 80 characters. Agents use this name across all projects on this backend, from their next turn. Clear it to stop using a name.", status = userNameSave) {
+                AutoInput(userName.orEmpty(), userNameSave, label = "Your name", placeholder = "What should agents call you?", enabled = userName != null && connection.status == ConnectionStatus.Ready) { next ->
+                    require(next.length <= 80 && next.none { Character.isISOControl(it) || Character.getType(it) == Character.FORMAT.toInt() }) { "Use a name of at most 80 characters, without control characters." }
+                    backend.setUserName(next)
+                }
+            }
         }
         BackendDeviceAccess(repository, backend, navigator)
         if (connection.supports(SERVER_STATUS_FEATURE)) {

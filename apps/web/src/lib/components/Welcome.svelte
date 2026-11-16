@@ -1,4 +1,5 @@
 <script lang="ts">
+	import YourNameGroup from "./settings/YourNameGroup.svelte";
 	import BrandMark from '#lib/components/BrandMark.svelte';
 	import { goto } from '$app/navigation';
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
@@ -11,6 +12,7 @@
 	let { backend }: { backend: BackendConnection } = $props();
 	let showAccounts = $state(false);
 	let showPicker = $state(false);
+	let skippedName = $state(false);
 	const needsDeviceSignIn = $derived(backend.authMode === "required" && !backend.authSessionId);
 	const configured = $derived(backend.providers.some((provider) => provider.configured));
 
@@ -44,6 +46,12 @@
 			</Card.Content>
 		</Card.Root>
 	{:else}
+	{#if !skippedName && backend.features?.includes("user-settings")}
+		<div class="flex flex-col gap-2">
+			<YourNameGroup {backend} />
+			<Button variant="ghost" class="self-start" onclick={() => { skippedName = true; }}>Skip for now</Button>
+		</div>
+	{/if}
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>1. Connect a provider</Card.Title>

@@ -1,3 +1,5 @@
+export * from "./user-settings.ts";
+import { UserSettingsSchema, UserSettingsGetRequestSchema, UserSettingsSetRequestSchema, UserSettingsGetResponseSchema, UserSettingsSetResponseSchema, UserSettingsChangedEventSchema } from "./user-settings.ts";
 import { McpOAuthStartRequestSchema, McpOAuthStartResponseSchema, McpOAuthCompleteRequestSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelRequestSchema, McpOAuthCancelResponseSchema, McpOAuthChangedEventSchema, McpOAuthFlowSchema } from "./mcp.ts";
 export * from "./mcp.ts";
 export * from "./skills.ts";
@@ -726,6 +728,7 @@ import {
 
 /** Everything a client may send. */
 export const ClientMessageSchema = Type.Union([
+ UserSettingsGetRequestSchema, UserSettingsSetRequestSchema,
  McpOAuthStartRequestSchema, McpOAuthCompleteRequestSchema, McpOAuthCancelRequestSchema,
 	McpListRequestSchema,
 	McpAddRequestSchema,
@@ -845,6 +848,7 @@ export const RequestSchema = ClientMessageSchema;
 export type Request = ClientMessage;
 
 export const ResponseSchema = Type.Union([
+ UserSettingsGetResponseSchema, UserSettingsSetResponseSchema,
  McpOAuthStartResponseSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelResponseSchema,
 	McpListResponseSchema,
 	McpAddResponseSchema,
@@ -956,6 +960,7 @@ export const ResponseSchema = Type.Union([
 export type Response = Static<typeof ResponseSchema>;
 
 export const ServerEventSchema = Type.Union([
+ UserSettingsChangedEventSchema,
  SkillsProjectChangedEventSchema,
  McpOAuthChangedEventSchema,
 	AuthDevicesChangedEventSchema,
@@ -991,6 +996,13 @@ export type ServerMessage = Static<typeof ServerMessageSchema>;
 export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
  SkillRole: SkillRoleSchema,
  ProjectSkill: ProjectSkillSchema,
+
+ UserSettings: UserSettingsSchema,
+ UserSettingsGetRequest: UserSettingsGetRequestSchema,
+ UserSettingsSetRequest: UserSettingsSetRequestSchema,
+ UserSettingsGetResponse: UserSettingsGetResponseSchema,
+ UserSettingsSetResponse: UserSettingsSetResponseSchema,
+ UserSettingsChangedEvent: UserSettingsChangedEventSchema,
  SkillsProjectGetRequest: SkillsProjectGetRequestSchema,
  SkillsProjectSetRequest: SkillsProjectSetRequestSchema,
  SkillsProjectGetResponse: SkillsProjectGetResponseSchema,
