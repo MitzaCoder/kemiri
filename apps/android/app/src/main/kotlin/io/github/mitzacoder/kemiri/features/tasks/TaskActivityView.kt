@@ -31,8 +31,11 @@ private val activityMinutes = flow {
 }.stateIn(CoroutineScope(SupervisorJob() + Dispatchers.Default), SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
 @Composable
+internal fun rememberTaskMinuteNow(): Long = activityMinutes.collectAsStateWithLifecycle().value
+
+@Composable
 internal fun TaskActivityView(activity: BoardTaskActivity, maxLines: Int = Int.MAX_VALUE, inlineAge: Boolean = false) {
-    val now by activityMinutes.collectAsStateWithLifecycle()
+    val now = rememberTaskMinuteNow()
     val colors = Jarvis.colors
     val tint = when (activityTone(activity.kind)) {
         ActivityTone.Error -> colors.danger

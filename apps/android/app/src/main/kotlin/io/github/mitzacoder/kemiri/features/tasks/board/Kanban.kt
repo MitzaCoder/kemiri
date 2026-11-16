@@ -18,6 +18,7 @@ import kotlin.math.roundToLong
  */
 
 enum class KanbanColumnId(val label: String, val empty: String) {
+    NeedsYou("Needs you", "Nothing needs you."),
     Todo("To do", "Nothing waiting to start."),
     Working("Working", "Nothing running."),
     Blocked("Blocked", "Nothing stuck."),
@@ -40,8 +41,8 @@ fun columnOfStatus(status: String): KanbanColumnId = when (status) {
 data class KanbanCard(val task: BoardTask, val waiting: List<BoardQuestion>, val column: KanbanColumnId)
 
 /** A column, present even when empty; [hidden] counts the closed tasks left out of Done because only the newest show. */
-data class KanbanColumn(val id: KanbanColumnId, val cards: List<KanbanCard>, val hidden: Int) {
-    val label: String get() = id.label
+data class KanbanColumn(val id: KanbanColumnId, val cards: List<KanbanCard>, val hidden: Int, val derived: Boolean = false) {
+    val label: String get() = if (derived) when (id) { KanbanColumnId.Working -> "In progress"; KanbanColumnId.Done -> "Closed"; else -> id.label } else id.label
     val empty: String get() = id.empty
     val total: Int get() = cards.size + hidden
 }
@@ -59,7 +60,7 @@ private val byOrder: Comparator<BoardTask> = compareBy<BoardTask> { it.order }.t
 private fun compareIn(column: KanbanColumnId): Comparator<BoardTask> = when (column) {
     KanbanColumnId.Working -> compareByDescending<BoardTask> { it.inProgressMinutes ?: 0L }.then(byOrder)
     KanbanColumnId.Review -> compareBy<BoardTask> { isoMillis(it.updatedAt) }.then(byOrder)
-    KanbanColumnId.Done -> compareByDescending<BoardTask> { isoMillis(it.settledAt ?: it.updatedAt) }.then(byOrder)
+    KanbanColumnId.Done -> compareByDescending<BoardTask> { isoMillis(it.state?.since ?: it.settledAt ?: it.updatedAt) }.then(byOrder)
     else -> byOrder
 }
 
@@ -76,13 +77,21 @@ fun kanbanColumns(
     onlyNeedsYou: Boolean = false,
 ): List<KanbanColumn> {
     val cards = tasks.filter { includeArchived || !it.archived }
-        .map { KanbanCard(it, waitingOn(questions, it.id), columnOfStatus(it.status)) }
-        .filter { !onlyNeedsYou || it.waiting.isNotEmpty() }
-    return KanbanColumnId.entries.map { id ->
-        val compare = compareIn(id)
+        .map { KanbanCard(it, waitingOn(questions, it.id), columnOfTask(it)) }
+        .filter { !onlyNeedsYou || needsTaskOwner(it.task, it.waiting.size) }
+    val derived = tasks.any { it.state != null }
+    val columns = if (derived) listOf(KanbanColumnId.NeedsYou, KanbanColumnId.Working, KanbanColumnId.Waiting, KanbanColumnId.Todo, KanbanColumnId.Done) +
+        listOf(KanbanColumnId.Blocked, KanbanColumnId.Review).filter { legacy -> cards.any { it.column == legacy } }
+    else KanbanColumnId.entries.filter { it != KanbanColumnId.NeedsYou }
+    return columns.map { id ->
+        val compare = when {
+            derived && id == KanbanColumnId.NeedsYou -> derivedTaskOrder
+            derived && id in listOf(KanbanColumnId.Working, KanbanColumnId.Waiting) -> compareBy<BoardTask> { isoMillis(it.state?.since) }.then(byOrder)
+            else -> compareIn(id)
+        }
         val inColumn = cards.filter { it.column == id }.sortedWith { left, right -> compare.compare(left.task, right.task) }
         val limit = if (id == KanbanColumnId.Done) doneShown else Int.MAX_VALUE
-        KanbanColumn(id, inColumn.take(limit), maxOf(0, inColumn.size - limit))
+        KanbanColumn(id, inColumn.take(limit), maxOf(0, inColumn.size - limit), derived)
     }
 }
 
@@ -91,11 +100,12 @@ fun kanbanColumns(
  * that name no task.
  */
 fun needsYouCount(tasks: List<BoardTask>, questions: List<BoardQuestion>): Int {
-    val waitingTasks = tasks.count { !it.archived && !isSettled(it.status) && waitingOn(questions, it.id).isNotEmpty() }
+    val waitingTasks = tasks.count { !it.archived && needsTaskOwner(it, waitingOn(questions, it.id).size) }
     return waitingTasks + looseWaiting(Board(tasks = tasks, questions = questions, decisions = emptyList(), updatedAt = null)).size
 }
 
 private fun sectionOf(column: KanbanColumnId): TaskSectionId = when (column) {
+    KanbanColumnId.NeedsYou -> TaskSectionId.NeedsYou
     KanbanColumnId.Todo -> TaskSectionId.Todo
     KanbanColumnId.Working -> TaskSectionId.Working
     KanbanColumnId.Blocked -> TaskSectionId.Blocked
@@ -117,6 +127,7 @@ data class CardTime(val text: String, val title: String)
  */
 fun cardTime(card: KanbanCard, now: Long): CardTime {
     val task = card.task
+    task.state?.let { return CardTime(compactRelativeTime(it.since, now), "${taskStateLabel(task)} ${relativeTime(it.since, now)}") }
     when (card.column) {
         KanbanColumnId.Working -> task.inProgressMinutes?.let { minutes ->
             val text = formatMinutes(minutes.toDouble())
@@ -205,13 +216,29 @@ private val MOVE_CHOICES = listOf(
 
 /** The moves a "Move to…" menu offers for a task: every target but where it already is. */
 fun moveChoices(status: String): List<MoveChoice> = MOVE_CHOICES.filter { it.target != status }
+fun startAgainNote(task: BoardTask, target: String): String? =
+    "Start it now".takeIf { target == "in_progress" && task.status == target && task.state != null && task.state.kind != "working" }
+
+fun moveChoices(task: BoardTask): List<MoveChoice> = if (task.state == null) moveChoices(task.status) else
+    MOVE_CHOICES.filter { it.target != "blocked" && (it.target != task.status || startAgainNote(task, it.target) != null) }
+        .map { if (it.target == "in_progress") it.copy(label = "In progress") else it }
+
+
+fun columnOfTask(task: BoardTask): KanbanColumnId = when (task.state?.group) {
+    "needs_you" -> KanbanColumnId.NeedsYou
+    "in_progress" -> KanbanColumnId.Working
+    "waiting" -> KanbanColumnId.Waiting
+    "todo" -> KanbanColumnId.Todo
+    "closed" -> KanbanColumnId.Done
+    else -> columnOfStatus(task.status)
+}
 
 /** The status a drop on a column means; null for Ready for review, which only the agents fill. */
 fun dropTarget(column: KanbanColumnId, dropped: Boolean = false): String? = when (column) {
     KanbanColumnId.Todo -> "todo"
     KanbanColumnId.Working -> "in_progress"
     KanbanColumnId.Blocked -> "blocked"
-    KanbanColumnId.Waiting, KanbanColumnId.Review -> null
+    KanbanColumnId.NeedsYou, KanbanColumnId.Waiting, KanbanColumnId.Review -> null
     KanbanColumnId.Done -> if (dropped) "dropped" else "done"
 }
 

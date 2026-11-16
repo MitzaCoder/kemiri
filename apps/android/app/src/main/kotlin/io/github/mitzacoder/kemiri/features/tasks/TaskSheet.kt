@@ -158,7 +158,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val artifacts = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project }) {
         context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId, limit = 200)).artifacts
     }.value.orEmpty() else emptyList()
-    val now by produceState(System.currentTimeMillis()) { while (true) { delay(30_000); value = System.currentTimeMillis() } }
+    val now = rememberTaskMinuteNow()
 
     var editing by rememberSaveable { mutableStateOf(false) }
     var confirmDrop by remember { mutableStateOf(false) }
@@ -211,6 +211,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
             // No refs: a status change keeps the task's own.
             val input = task.editorDraft().toInput(baseRefs = task.refs).copy(status = target, waitingFor = waitingFor, waitUntil = waitUntil)
             when (val outcome = board.saveTask(input, task.id, task.revision)) {
+                SaveOutcome.Cancelled -> Unit
                 is SaveOutcome.Saved -> { waitingForm = false; if (archivedTask?.id == task.id) archivedTask = outcome.task }
                 is SaveOutcome.Conflict -> problem = "${task.id} changed while you were looking. Check it and try again."
                 is SaveOutcome.Failed -> problem = outcome.message
@@ -231,7 +232,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         Column(Modifier.fillMaxWidth().heightIn(max = headerMaxHeight).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(task.id, style = TaskType.xs.copy(fontFamily = JetBrainsMono), color = colors.fgSubtle)
-                TaskStatusMenu(task.status, connection.supports("task-waiting"), !closing) { status ->
+                TaskStatusMenu(task.status, connection.supports("task-waiting"), !closing, task) { status ->
                     confirmDrop = status == "dropped"
                     waitingForm = status == "waiting"
                     if (!confirmDrop && !waitingForm) setStatus(status)

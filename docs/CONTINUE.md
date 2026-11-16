@@ -1,5 +1,16 @@
 # Continue
 
+## T211: task-state stage 3 (Android)
+
+Android list/board/header/counts and Connected work use advertised derived states.
+Missing capability/field preserves legacy behavior; ages share the local minute clock.
+Rows/cards omit a separate Working label; all other state labels remain.
+Same-group families keep attention visibility and progress. Close-parent choices share
+the revision-checked save path, including open_parts retries; Back cancels.
+JVM: 1,009 tests, two skipped; assemble/lint pass (49 existing warnings, four hints).
+Root typecheck, generator --check and external public hygiene pass. T211 has
+emulator proof with verified light/dark captures and recordings; no phone/deploy/push.
+
 ## T210: task-state stage 2 (web)
 
 Web list/board/sheet/graph consume capability-gated derived task state; old backends keep their views.

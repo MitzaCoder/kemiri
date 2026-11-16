@@ -28,7 +28,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.refs.RefChips
 import io.github.mitzacoder.kemiri.features.tasks.isWarning
-import io.github.mitzacoder.kemiri.features.tasks.taskStatusTone
+import io.github.mitzacoder.kemiri.features.tasks.taskStateTone
+import io.github.mitzacoder.kemiri.features.tasks.taskRowStateLabel
+import io.github.mitzacoder.kemiri.features.tasks.needsTaskOwner
 import io.github.mitzacoder.kemiri.features.tasks.taskStatusWords
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
@@ -91,7 +93,8 @@ fun TaskCard(
 ) {
     val colors = Jarvis.colors
     val task = card.task
-    val needsYou = card.waiting.isNotEmpty() && card.column != KanbanColumnId.Done
+    val stateLabel = taskRowStateLabel(task) { id -> tasks.firstOrNull { it.id == id }?.title }
+    val needsYou = needsTaskOwner(task, card.waiting.size)
     val warned = card.waiting.any(::isWarning)
     val activity = io.github.mitzacoder.kemiri.features.tasks.taskActivity(task, io.github.mitzacoder.kemiri.features.tasks.LocalTaskActivityEnabled.current)
     val gist = cardGist(card)
@@ -101,7 +104,7 @@ fun TaskCard(
     val running = runningWorkers(task, workers)
     val blockers = waitsFor(task, tasks)
     val holder = holdingThread(task, threads)
-    val tone = taskStatusTone(task.status)
+    val tone = taskStateTone(task)
     val (background, border) = when {
         needsYou && warned -> colors.warning.mix(colors.bg, 9f) to colors.warning.fade(35f)
         needsYou -> colors.accent2.mix(colors.bg, 8f) to colors.accent2.fade(30f)
@@ -120,6 +123,7 @@ fun TaskCard(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.height(20.dp).width(14.dp), contentAlignment = Alignment.Center) {
                 when {
+                    task.state != null -> TaskStatusDot(tone, pulse = pulse && task.state.kind == "working" && !ghost)
                     needsYou && warned -> LucideGlyph(BoardGlyphs.TriangleAlert, size = 14.dp, tint = colors.warning, contentDescription = "Warning")
                     needsYou -> LucideGlyph(BoardGlyphs.CircleHelp, size = 14.dp, tint = colors.accent2, contentDescription = "Question")
                     else -> TaskStatusDot(tone, pulse = pulse && task.status == "in_progress" && !ghost)
@@ -150,10 +154,10 @@ fun TaskCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (needsYou || dropped) {
+                    if (stateLabel != null && (task.state != null || needsYou || dropped)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TaskStatusDot(tone)
-                            Text(taskStatusWords(task.status), style = textStyle(0.6875f, 1f / 0.6875f, weight = 500), color = colors.taskStatus(tone))
+                            Text(stateLabel, style = textStyle(0.6875f, 1f / 0.6875f, weight = 500), color = colors.taskStatus(tone))
                         }
                     }
                     Spacer(Modifier.weight(1f))

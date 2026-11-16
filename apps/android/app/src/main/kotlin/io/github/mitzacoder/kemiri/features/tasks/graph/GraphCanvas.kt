@@ -127,7 +127,7 @@ internal fun GraphCanvas(
                         val b = camera.box(if (detail == GraphDetail.Pills) card.pill else card.box)
                         key(id, detail) {
                             CanvasTask(d, b, detail, selected == id, model.matches(id, highlight), live.glows[id]?.let { it > now } == true, motion,
-                                id in live.linger, statusTones.getValue(d.task.status), camera.zoom, now, model.holdsUp(id).total) { onSelect(id) }
+                                id in live.linger, (statusTones[graphTaskStatus(d.task)] ?: statusTones.getValue("todo")), camera.zoom, now, model.holdsUp(id).total) { onSelect(id) }
                         }
                     }
                     if (detail == GraphDetail.Cards) GraphCrewLayer(layout, model, camera, viewport, live.reports, motion, now)
@@ -172,12 +172,12 @@ private fun CanvasTask(d: GraphTask, b: GraphRect, detail: GraphDetail, selected
         .padding(if (detail == GraphDetail.Pills) 12.dp else (8 * zoom).dp), verticalArrangement = Arrangement.spacedBy(if (detail == GraphDetail.Pills) 0.dp else (3 * zoom).dp)) {
         if (detail == GraphDetail.Pills) Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             io.github.mitzacoder.kemiri.features.tasks.TaskIdChip(d.task.id)
-            Text("${graphStatus(d.task.status).mark} ${d.task.title}", color = colors.fg, fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${graphTaskLabel(d.task).mark} ${d.task.title}", color = colors.fg, fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         else {
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 io.github.mitzacoder.kemiri.features.tasks.TaskIdChip(d.task.id)
-                Text("${graphStatus(d.task.status).mark} ${graphStatus(d.task.status).label}${if (updated) " · Updated" else ""}", color = colors.fg, fontSize = size, lineHeight = (18 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${graphTaskLabel(d.task).mark} ${graphTaskLabel(d.task).label}${if (updated) " · Updated" else ""}", color = colors.fg, fontSize = size, lineHeight = (18 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(d.task.title, color = colors.fg, fontSize = max(12f, 16 * zoom).sp, lineHeight = (20 * zoom).sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(graphCanvasMeta(d, holdsUp, now).ifBlank { " " }, color = colors.fg, fontSize = 12.sp, lineHeight = max(14f, 16 * zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

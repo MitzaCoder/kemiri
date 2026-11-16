@@ -31,7 +31,7 @@ fun graphDotLabel(title: String, width: Float, measure: (String) -> Float): Stri
 data class GraphDotCounts(val tasks: Int, val needsYou: Int, val statuses: Map<String, Int>)
 fun graphDotCounts(model: GraphModel, ids: List<String>): GraphDotCounts {
     val cards = ids.distinct().mapNotNull(model.details::get)
-    return GraphDotCounts(cards.size, cards.count { it.reasons.isNotEmpty() }, cards.groupingBy { it.task.status }.eachCount())
+    return GraphDotCounts(cards.size, cards.count { it.reasons.isNotEmpty() }, cards.groupingBy { graphTaskStatus(it.task) }.eachCount())
 }
 
 /** One fixed meta row; the complete words remain in the card's spoken name and task details. */

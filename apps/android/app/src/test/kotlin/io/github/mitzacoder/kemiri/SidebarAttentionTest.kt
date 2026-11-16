@@ -26,7 +26,7 @@ class SidebarAttentionTest {
     @Test fun allSignalsAreCountedOnceAndArchivedProjectsAreExcluded() {
         val all = project("all", empty.copy(questions = 1, warnings = 2, failedWorkers = 3, failedThreads = 1, reviewTasks = 4)).copy(activity = ProjectActivity("failed", 0, null, null))
         assertEquals(12L, attentionCount(all))
-        assertEquals(AttentionKind.entries, projectAttentionActions(all).map { it.kind })
+        assertEquals(AttentionKind.entries.filter { it != AttentionKind.Task }, projectAttentionActions(all).map { it.kind })
         assertEquals(0L, attentionCount(all.copy(archived = true)))
     }
 
@@ -44,6 +44,20 @@ class SidebarAttentionTest {
         assertEquals("1 to review", projectAttentionActions(waiting.copy(attention = waiting.attention!!.copy(reviewTasks = 1))).first().label)
         val working = project("work", empty.copy(runningWorkers = 2))
         assertEquals("Working · 2 workers", sidebarStatus(working, projectStatus(working, 0)).label)
+    }
+
+    @Test fun loadedDerivedBoardCountsTasksOnceAndDoesNotCountWaitingAsNeedsYou() {
+        val tasks = listOf(
+            io.github.mitzacoder.kemiri.tasks.task("T1").copy(state = BoardTaskState("needs_you", "failed", "now", emptyList())),
+            io.github.mitzacoder.kemiri.tasks.task("T2").copy(state = BoardTaskState("needs_you", "review", "now", emptyList())),
+            io.github.mitzacoder.kemiri.tasks.task("T3").copy(state = BoardTaskState("waiting", "blocked_by_task", "now", listOf("T1"))),
+        )
+        val board = Board(tasks = tasks, questions = listOf(io.github.mitzacoder.kemiri.tasks.question("Q1", "T1")), decisions = emptyList(), updatedAt = null)
+        val project = project("bakery", empty.copy(questions = 1, failedWorkers = 1, reviewTasks = 1))
+        val links = needsYouLinks(listOf(BackendAttentionProjects("b", "Bakery", listOf(project), mapOf(project.id to board))))
+        assertEquals(2L, links.single().action.count)
+        assertEquals("2 need you", links.single().action.label)
+        assertEquals(2L, attentionCount(project, board))
     }
 
     @Test fun failedThreadKeepsBackendProjectAndThreadIdentity() {

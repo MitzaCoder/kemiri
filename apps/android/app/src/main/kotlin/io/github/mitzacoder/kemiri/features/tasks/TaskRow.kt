@@ -33,10 +33,12 @@ internal fun TaskListRow(
     family: TaskFamily, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
     nested: Boolean, archived: List<BoardTaskBrief>, onToggle: () -> Unit, onOpen: () -> Unit,
 ) {
+    val taskLinks = LocalTaskLinks.current
     val row = family.row
     val colors = Jarvis.colors
     val task = row.task
     val searchHit = LocalTaskSearchHits.current[task.id]
+    val stateLabel = taskRowStateLabel(task) { taskLinks?.title(it) }
     val needsYou = row.section == TaskSectionId.NeedsYou
     val warned = row.waiting.any(::isWarning)
     val activity = taskActivity(task, LocalTaskActivityEnabled.current)
@@ -53,7 +55,7 @@ internal fun TaskListRow(
             .clickable(role = Role.Button, onClickLabel = "Open ${task.id}", onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    "${task.id}: ${task.title}", taskStatusWords(task.status),
+                    "${task.id}: ${task.title}", taskStateLabel(task),
                     task.parent?.takeIf { nested }?.let { "Subtask of $it" },
                     task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" }, rowTimeWords(row, now),
                 ).joinToString(". ")
@@ -64,9 +66,10 @@ internal fun TaskListRow(
     ) {
         Box(Modifier.size(width = 14.dp, height = 20.dp), contentAlignment = Alignment.Center) {
             when {
+                task.state != null -> TaskStatusDot(taskStateTone(task), pulse = task.state.kind == "working" && !reducedMotion)
                 needsYou && warned -> LucideGlyph(TaskIcons.TriangleAlert, size = 14.dp, tint = colors.warning)
                 needsYou -> LucideGlyph(TaskIcons.CircleHelp, size = 14.dp, tint = colors.accent2)
-                else -> TaskStatusDot(task.status, pulse = task.status == "in_progress" && !reducedMotion)
+                else -> TaskStatusDot(taskStateTone(task), pulse = task.status == "in_progress" && !reducedMotion)
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -85,18 +88,18 @@ internal fun TaskListRow(
                 summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
                 maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
             )
-            if (needsYou || task.refs.isNotEmpty()) {
+            if ((stateLabel != null && (task.state != null || needsYou)) || task.refs.isNotEmpty()) {
                 FlowRow(
                     Modifier.padding(top = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (needsYou) {
-                        val tone = colors.taskStatus(taskStatusTone(task.status))
+                    if (stateLabel != null && (needsYou || task.state != null)) {
+                        val tone = colors.taskStatus(taskStateTone(task))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TaskStatusDot(task.status)
-                            Text(taskStatusWords(task.status), style = TaskType.meta.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = tone)
+                            TaskStatusDot(taskStateTone(task))
+                            Text(stateLabel, style = TaskType.meta.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = tone)
                         }
                         if (row.waiting.size > 1) Text("+${row.waiting.size - 1} more", style = TaskType.meta, color = colors.fgSubtle)
                     }

@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks.graph
 
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.features.tasks.taskStateLabel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -20,12 +21,25 @@ data class GraphStatus(val key: String, val label: String, val mark: String)
 val graphStatuses = listOf(
     GraphStatus("todo", "Planned", "○"), GraphStatus("in_progress", "Working", "▶"),
     GraphStatus("review", "Review", "◇"), GraphStatus("blocked", "Blocked", "⊣"),
+    GraphStatus("paused", "Paused", "Ⅱ"), GraphStatus("failed", "Failed", "!"), GraphStatus("answer_needed", "Answer needed", "?"),
     GraphStatus("waiting", "Waiting", "◷"), GraphStatus("done", "Done", "✓"), GraphStatus("dropped", "Dropped", "−"),
 )
 val graphReasons = listOf(
     GraphStatus("review", "Review", "◇"), GraphStatus("blocked", "Blocked", "⊣"),
     GraphStatus("waiting", "Waiting", "◷"), GraphStatus("question", "Question / warning", "?"), GraphStatus("failed", "Worker failed", "!"),
 )
+fun graphReason(key: String, derived: Boolean): GraphStatus = graphReasons.first { it.key == key }.let {
+    if (!derived) it else it.copy(label = when (key) { "failed" -> "Failed"; "question" -> "Answer needed"; "review" -> "Ready for review"; else -> it.label })
+}
+fun graphTaskStatus(task: BoardTask): String = when (task.state?.kind) {
+    "working" -> "in_progress"
+    "blocked_by_task", "waiting_outside" -> "waiting"
+    null -> task.status
+    else -> task.state.kind
+}
+fun graphTaskLabel(task: BoardTask): GraphStatus = graphStatus(graphTaskStatus(task)).let {
+    if (task.state == null) it else it.copy(label = taskStateLabel(task))
+}
 fun graphStatus(status: String) = graphStatuses.find { it.key == status } ?: GraphStatus(status, status, "○")
 fun graphClosed(status: String) = status == "done" || status == "dropped"
 fun graphTimestamp(at: String): Long? = runCatching { Instant.parse(at).toEpochMilli() }.getOrNull()
@@ -37,11 +51,13 @@ fun graphWaitingDate(until: String?, now: Long): String {
 
 class GraphModel(val details: Map<String, GraphTask>) {
     private val counted = details.values.filter { !it.task.archived }
-    val counters = graphReasons.map { reason -> GraphCounter("reason:${reason.key}", reason.label, reason.mark, counted.count { reason.key in it.reasons }) } +
+    private val derived = counted.any { it.task.state != null }
+    private val counterReasons = if (derived) listOf("failed", "question", "review").map { graphReason(it, true) } else graphReasons
+    val counters = counterReasons.map { reason -> GraphCounter("reason:${reason.key}", reason.label, reason.mark, counted.count { reason.key in it.reasons }) } +
         GraphCounter("quiet", "Quiet", "◴", counted.count { it.quiet }) +
-        listOf("in_progress", "todo", "done", "dropped").map { key ->
+        (if (derived) listOf("in_progress", "paused", "waiting", "todo", "done", "dropped") else listOf("in_progress", "todo", "done", "dropped")).map { key ->
             val status = graphStatus(key)
-            GraphCounter("status:$key", status.label, status.mark, counted.count { it.task.status == key })
+            GraphCounter("status:$key", status.label, status.mark, counted.count { graphTaskStatus(it.task) == key })
         }
     fun matches(id: String, counter: String?): Boolean {
         val card = details[id] ?: return false
@@ -49,7 +65,7 @@ class GraphModel(val details: Map<String, GraphTask>) {
             counter == null -> true
             counter == "quiet" -> card.quiet
             counter.startsWith("reason:") -> counter.removePrefix("reason:") in card.reasons
-            else -> card.task.status == counter.removePrefix("status:")
+            else -> graphTaskStatus(card.task) == counter.removePrefix("status:")
         }
     }
     private val dependents by lazy {
@@ -149,7 +165,12 @@ fun buildGraphModel(tasks: List<BoardTask>, questions: List<BoardQuestion>, work
         val familyId = families.getValue(task.id)
         val taskQuestions = questionsByTask[task.id].orEmpty()
         val taskWorkers = workersByTask[task.id].orEmpty()
-        val reasons = buildList {
+        val reasons = if (task.state != null) when (task.state.kind) {
+            "failed" -> listOf("failed")
+            "answer_needed" -> listOf("question")
+            "review" -> listOf("review")
+            else -> emptyList()
+        } else buildList {
             if (task.status in listOf("review", "blocked", "waiting")) add(task.status)
             if (taskQuestions.isNotEmpty()) add("question")
             if (taskWorkers.any { it.status == "failed" }) add("failed")

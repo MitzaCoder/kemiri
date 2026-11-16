@@ -26,6 +26,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
     val error = mutableError.asStateFlow()
     private val boards = java.util.concurrent.ConcurrentHashMap<String, ProjectBoard>()
     /** One live board per project for the session's lifetime, shared by every screen that shows tasks or questions. */
+    fun existingBoard(projectId: String): ProjectBoard? = boards[projectId]
     fun board(projectId: String): ProjectBoard = boards.computeIfAbsent(projectId) { ProjectBoard(client, it, scope) }
     private var terminalDeck: io.github.mitzacoder.kemiri.features.terminal.TerminalDeck? = null
     private var terminalScope: CoroutineScope? = null

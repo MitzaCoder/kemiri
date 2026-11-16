@@ -146,6 +146,7 @@ internal fun boardReorderedIds(tasks: List<BoardTask>, taskId: String, delta: In
     fun drop(task: BoardTask) {
         scope.launch {
             problem = when (val outcome = context.board.saveTask(task.input().copy(status = "dropped"), task.id, task.revision)) {
+                SaveOutcome.Cancelled -> null
                 is SaveOutcome.Saved -> null
                 is SaveOutcome.Conflict -> "${task.id} changed meanwhile. Open it to review the newer version."
                 is SaveOutcome.Failed -> outcome.message

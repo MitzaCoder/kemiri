@@ -232,6 +232,7 @@ fun HarnessApp(
             }
             // After the panel's dialog, so the sheet opens over it.
             if (current is Destination.Task && context != null) TaskSheet(context, current.taskId, onDismiss = ::pop)
+            if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)
         }
         } }
         }

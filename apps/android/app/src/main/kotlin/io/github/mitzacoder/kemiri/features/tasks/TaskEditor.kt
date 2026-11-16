@@ -79,6 +79,7 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
             val outcome = context.board.saveTask(from.draft.toInput(from.baseRefs), from.shown?.id, from.baseRevision)
             saving = false
             when (outcome) {
+                SaveOutcome.Cancelled -> Unit
                 is SaveOutcome.Saved -> onBack()
                 is SaveOutcome.Conflict -> state = from.copy(conflicted = true, newer = outcome.newer)
                 is SaveOutcome.Failed -> problem = outcome.message

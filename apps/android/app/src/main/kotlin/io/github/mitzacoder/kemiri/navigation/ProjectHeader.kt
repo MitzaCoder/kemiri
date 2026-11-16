@@ -217,13 +217,14 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
 
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
-    val questions = board.openQuestionCount.toLong()
+    val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
+    val questions = if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
     val background = activeBackgroundCount(threads)
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null
     val actions = buildList {
-        if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${questionsWaitingLabel(questions)})" else "", tasksName,
+        if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
             StatusGlyphs.ClipboardList, questionBadgeText(questions), primary = true, pressed = panel?.tab == PanelTab.Board) { toggle(PanelTab.Board) })
         if (PanelTab.Threads in tabs && main) add(HeaderAction("background", "Background" + if (background > 0) " ($background running)" else "", "Background",
             Lucide.Layers, background.takeIf { it > 0 }?.toString(), pressed = panel?.tab == PanelTab.Threads) { toggle(PanelTab.Threads) })

@@ -47,6 +47,7 @@ private fun isoMillisOrNull(value: String): Long? = runCatching { java.time.Offs
 
 /** A row's time, short enough for its narrow column: time in progress while working, else how long ago it moved. */
 fun rowTime(row: TaskRow, now: Long = System.currentTimeMillis()): String {
+    row.task.state?.let { return io.github.mitzacoder.kemiri.features.tasks.board.compactRelativeTime(it.since, now) }
     val task = row.task
     if (row.section == TaskSectionId.Working && task.inProgressMinutes != null) return formatMinutes(task.inProgressMinutes.toDouble())
     return compactRelativeTime(if (row.section == TaskSectionId.Closed) task.settledAt ?: task.updatedAt else task.updatedAt, now)
@@ -54,6 +55,7 @@ fun rowTime(row: TaskRow, now: Long = System.currentTimeMillis()): String {
 
 /** The same time in words, for a screen reader or a long press. */
 fun rowTimeWords(row: TaskRow, now: Long = System.currentTimeMillis()): String {
+    row.task.state?.let { return "${taskStateLabel(row.task)} ${io.github.mitzacoder.kemiri.features.tasks.board.relativeTime(it.since, now)}" }
     val task = row.task
     if (row.section == TaskSectionId.Working && task.inProgressMinutes != null) return "${formatMinutes(task.inProgressMinutes.toDouble())} in progress"
     if (row.section == TaskSectionId.Closed) return "${if (task.status == "dropped") "Dropped" else "Done"} ${relativeTime(task.settledAt ?: task.updatedAt, now)}"

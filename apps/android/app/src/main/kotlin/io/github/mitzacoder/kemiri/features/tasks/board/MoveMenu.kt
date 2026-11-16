@@ -34,7 +34,7 @@ fun MoveMenu(task: BoardTask, position: TodoPosition?, onMove: (String) -> Unit,
         }
         DropdownMenu(open, onDismissRequest = { open = false }, modifier = Modifier.widthIn(min = 240.dp)) {
             Text("Move ${task.id} to…", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = caption, color = colors.fgSubtle)
-            moveChoices(task.status).forEach { choice ->
+            moveChoices(task).forEach { choice ->
                 DropdownMenuItem(
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {

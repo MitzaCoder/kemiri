@@ -95,9 +95,10 @@ suspend fun HarnessClient.saveBoardTask(
     taskId: String? = null,
     expectedRevision: Long? = null,
     note: String? = null,
+    openParts: String? = null,
 ): BoardTask {
     if (note != null) requireFeature(HarnessFeature.BOARD_MOVES)
-    return request(BoardTaskSaveRequest(projectId = projectId, taskId = taskId, expectedRevision = expectedRevision, task = task, note = note)).task
+    return request(BoardTaskSaveRequest(projectId = projectId, taskId = taskId, expectedRevision = expectedRevision, task = task, note = note, openParts = openParts)).task
 }
 
 /**

@@ -142,7 +142,7 @@ data class TaskRow(val task: BoardTask, val waiting: List<BoardQuestion>, val se
 
 /** Closed tasks are history: their section starts folded. */
 data class TaskSection(val id: TaskSectionId, val rows: List<TaskRow>, val collapsedByDefault: Boolean) {
-    val label: String get() = id.label
+    val label: String get() = if (id == TaskSectionId.Working && rows.any { it.task.state != null }) "In progress" else id.label
 }
 
 private fun warningsFirst(questions: List<BoardQuestion>) = questions.filter(::isWarning) + questions.filterNot(::isWarning)
@@ -177,7 +177,7 @@ internal fun isoMillis(value: String?): Long = value?.let {
         .recoverCatching { _ -> java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
 } ?: 0L
 
-private fun settledTime(task: BoardTask): Long = isoMillis(task.settledAt ?: task.updatedAt)
+private fun settledTime(task: BoardTask): Long = isoMillis(task.state?.since ?: task.settledAt ?: task.updatedAt)
 
 /** Where a task belongs: closed ones are history, then anything waiting on the user, then its status. */
 fun taskSectionOf(status: String, waiting: Int): TaskSectionId = when {
@@ -197,12 +197,13 @@ fun taskSectionOf(status: String, waiting: Int): TaskSectionId = when {
 fun taskSections(tasks: List<BoardTask>, questions: List<BoardQuestion>, includeArchived: Boolean = false): List<TaskSection> {
     val rows = tasks.filter { includeArchived || !it.archived }.map { task ->
         val waiting = waitingOn(questions, task.id)
-        TaskRow(task, waiting, taskSectionOf(task.status, waiting.size))
+        TaskRow(task, waiting, derivedTaskSection(task, waiting.size))
     }
-    return TaskSectionId.entries.mapNotNull { id ->
+    val order = if (tasks.any { it.state != null }) listOf(TaskSectionId.NeedsYou, TaskSectionId.Working, TaskSectionId.Waiting, TaskSectionId.Todo, TaskSectionId.Closed, TaskSectionId.Review, TaskSectionId.Blocked) else TaskSectionId.entries
+    return order.mapNotNull { id ->
         val inSection = rows.filter { it.section == id }
         if (inSection.isEmpty()) return@mapNotNull null
-        val sorted = when (id) {
+        val sorted = if (id != TaskSectionId.Closed && inSection.any { it.task.state != null } && id != TaskSectionId.Todo) inSection.sortedWith(compareBy(derivedTaskOrder) { it.task }) else when (id) {
             TaskSectionId.Closed -> inSection.sortedByDescending { settledTime(it.task) }
             TaskSectionId.NeedsYou -> inSection.sortedWith(compareByDescending<TaskRow> { row -> row.waiting.any(::isWarning) }.thenComparing({ it.task }, byOrder))
             else -> inSection.sortedWith(compareBy(byOrder) { it.task })

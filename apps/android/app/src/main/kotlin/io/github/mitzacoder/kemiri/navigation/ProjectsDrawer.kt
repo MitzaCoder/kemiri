@@ -128,7 +128,11 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
     var adding by remember { mutableStateOf<BackendSession?>(null) }
     val attentionProjects = sessions.map { backend ->
         val projects by backend.projects.collectAsStateWithLifecycle()
-        BackendAttentionProjects(backend.config.key, backend.config.name, projects)
+        val boards = projects.mapNotNull { project ->
+            val view = backend.existingBoard(project.id)?.view?.collectAsStateWithLifecycle()?.value
+            view?.board?.let { project.id to it }
+        }.toMap()
+        BackendAttentionProjects(backend.config.key, backend.config.name, projects, boards)
     }
     val attentionLinks = needsYouLinks(attentionProjects)
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = if (rail) Alignment.CenterHorizontally else Alignment.Start) {
@@ -165,8 +169,9 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
                         val unread = (project.activity?.lastReplyEntryId ?: 0) > (settings.seenReplies[backend.config.key]?.get(project.id) ?: 0)
                         val selected = currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id
                         val open = { navigate(Destination.Chat(backend.config.key, project.id)) }
-                        if (rail) RailProject(backend.config.name, project, unread, selected, now, open)
-                        else ProjectRow(project, unread, selected, now, open)
+                        val board = backend.existingBoard(project.id)?.view?.collectAsStateWithLifecycle()?.value?.board
+                        if (rail) RailProject(backend.config.name, project, unread, selected, now, board, open)
+                        else ProjectRow(project, unread, selected, now, board, open)
                     }
                     if (!rail && archived.isNotEmpty()) {
                         TextButton(onClick = { showArchived = !showArchived }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Archived (${archived.size}) ${if (showArchived) "⌃" else "⌄"}", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgSubtle) }
@@ -272,12 +277,12 @@ private fun RailBackend(name: String, status: ConnectionStatus, attempt: Int) {
 
 /** A project in the rail: its initial, a ring for an unseen reply, action count and status dot. */
 @Composable
-private fun RailProject(backendName: String, project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, onClick: () -> Unit) {
+private fun RailProject(backendName: String, project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, onClick: () -> Unit) {
     val status = projectStatus(project, now)
     val colors = Jarvis.colors
-    val count = attentionCount(project)
+    val count = attentionCount(project, board)
     val actionBadge = questionBadgeText(count)
-    val summary = sidebarStatus(project, status)
+    val summary = sidebarStatus(project, status, board)
     val description = buildString {
         append("$backendName: ${project.name} — ${summary.label}")
         status.detail?.let { append(" · $it") }
@@ -304,10 +309,10 @@ private fun RailProject(backendName: String, project: ProjectSummary, unread: Bo
 internal fun projectInitial(name: String): String = name.trim().firstOrNull()?.uppercase() ?: "?"
 
 @Composable
-private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, onClick: () -> Unit) {
+private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, onClick: () -> Unit) {
     val status = projectStatus(project, now)
     val colors = Jarvis.colors
-    val summary = sidebarStatus(project, status)
+    val summary = sidebarStatus(project, status, board)
     val description = listOfNotNull(project.name, summary.label, if (unread) "New reply since you last looked" else null).joinToString(", ")
     NavigationDrawerItem(
         label = {

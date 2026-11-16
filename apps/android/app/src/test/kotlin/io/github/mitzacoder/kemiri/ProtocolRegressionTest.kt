@@ -340,6 +340,53 @@ class ProtocolRegressionTest {
         }
     }
 
+    @Test fun closeParentChoicesReachTheRequestAndCancelSendsNothing() = runBlocking {
+        for (choice in listOf("close", "follow_up", null)) verifyCloseParts(choice, preflight = true)
+    }
+
+    @Test fun openPartsErrorReadsFreshPartsThenAsksTheSameQuestion() = runBlocking {
+        for (choice in listOf("close", "follow_up", null)) verifyCloseParts(choice, preflight = false)
+    }
+
+    private suspend fun verifyCloseParts(choice: String?, preflight: Boolean) = coroutineScope {
+        val parent = io.github.mitzacoder.kemiri.tasks.task("T1")
+        val part = io.github.mitzacoder.kemiri.tasks.task("T2", "review").copy(parent = "T1")
+        val reads = AtomicInteger()
+        fun boardJson() = wireJson.encodeToJsonElement(Board.serializer(), Board(
+            tasks = if (preflight || reads.incrementAndGet() > 1) listOf(parent, part) else listOf(parent),
+            questions = emptyList(), decisions = emptyList(), updatedAt = null,
+        )).toString()
+        Stub(features = listOf("board", "task-state"), timeoutMs = 2000, onRequest = { _, ws, request ->
+            when (request.type) {
+                "board.get" -> reply(ws, request, """{"board":${boardJson()}}""")
+                "board.task.save" -> if (request["openParts"] == null) {
+                    reply(ws, request, """{"error":{"code":"open_parts","message":"Choose","data":{"taskId":"T1","parts":["T2"]}}}""", "error")
+                } else reply(ws, request, """{"task":${wireJson.encodeToJsonElement(BoardTask.serializer(), parent.copy(status = "done"))}}""")
+            }
+        }).use { stub ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val board = ProjectBoard(stub.client, "p", scope)
+                stub.ready()
+                withTimeout(2000) { board.view.first { it.loaded } }
+                val save = async { board.saveTask(BoardTaskInput(title = parent.title, description = "", acceptance = null, status = "done", blockedBy = emptyList(), blockedReason = null, writeScopes = emptyList()), parent.id, parent.revision) }
+                val prompt = withTimeout(2000) { board.closeParts.first { it != null } }!!
+                assertEquals(listOf("T2"), prompt.parts.map { it.id })
+                assertTrue(prompt.question.contains("T2 (in review)"))
+                prompt.reply.complete(choice)
+                val outcome = withTimeout(2000) { save.await() }
+                val saves = stub.requests.map { it.second }.filter { it.type == "board.task.save" }
+                assertEquals((if (preflight) 0 else 1) + (if (choice == null) 0 else 1), saves.size)
+                if (choice == null) assertEquals(SaveOutcome.Cancelled, outcome)
+                else {
+                    assertTrue(outcome is SaveOutcome.Saved)
+                    assertEquals(JsonPrimitive(choice), saves.last()["openParts"])
+                }
+                assertNull(board.closeParts.value)
+            } finally { scope.cancel() }
+        }
+    }
+
     private class Stub(
         val timeoutMs: Long = 300,
         val openingDelayMs: Long = 0,

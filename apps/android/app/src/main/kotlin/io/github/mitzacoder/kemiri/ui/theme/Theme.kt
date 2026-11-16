@@ -61,6 +61,7 @@ data class JarvisColors(
     fun taskStatus(tone: TaskStatusTone): Color = when (tone) {
         TaskStatusTone.Todo -> fgSubtle.mix(bg, 80f)
         TaskStatusTone.Working -> accent2
+        TaskStatusTone.Paused -> fgMuted
         TaskStatusTone.Review -> warning
         TaskStatusTone.Waiting -> accent2
         TaskStatusTone.Blocked -> danger
@@ -70,7 +71,7 @@ data class JarvisColors(
 }
 
 /** One colour per task status, named for what it means (`in_progress` reads "working"); web `taskStatusTone`. */
-enum class TaskStatusTone { Todo, Working, Review, Waiting, Blocked, Done, Dropped }
+enum class TaskStatusTone { Todo, Working, Paused, Review, Waiting, Blocked, Done, Dropped }
 
 val Accent1 = Color(0xFF22D3EE)
 val Accent2 = Color(0xFF6366F1)

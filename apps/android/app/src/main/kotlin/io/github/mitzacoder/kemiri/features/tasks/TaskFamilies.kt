@@ -10,7 +10,7 @@ data class TaskFamily(
 )
 
 fun needsFamilyAttention(row: TaskRow): Boolean =
-    row.waiting.isNotEmpty() || row.task.status in setOf("review", "blocked", "waiting")
+    row.waiting.isNotEmpty() || (row.task.state?.group?.let { it in setOf("needs_you", "waiting") } ?: (row.task.status in setOf("review", "blocked", "waiting")))
 
 fun familySectionStartsOpen(section: TaskSection): Boolean =
     section.rows.any(::needsFamilyAttention) || !section.collapsedByDefault
@@ -24,7 +24,7 @@ fun taskFamilies(section: TaskSection, expansion: Map<String, Boolean> = emptyMa
     val parents = linkedMapOf<String, String>()
     section.rows.forEach { row ->
         val parent = byId[row.task.parent]
-        if (parent != null && parent.task.status == row.task.status && parent.task.id != row.task.id) {
+        if (parent != null && (if (parent.task.state != null && row.task.state != null) parent.task.state.group == row.task.state.group else parent.task.status == row.task.status) && parent.task.id != row.task.id) {
             parents[row.task.id] = parent.task.id
         }
     }

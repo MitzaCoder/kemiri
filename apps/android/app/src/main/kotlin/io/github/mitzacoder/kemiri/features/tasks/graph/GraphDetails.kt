@@ -25,12 +25,12 @@ internal fun GraphDetails(id: String, model: GraphModel, now: Long, onSelect: (S
         if (d == null) Text("This task is no longer on the board. Your selection is kept until you close it.", color = colors.fg)
         else {
             Text(d.task.title, color = colors.fg, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-            val status = graphStatus(d.task.status)
+            val status = graphTaskLabel(d.task)
             Text("${status.mark} ${status.label}", color = colors.fg)
             if (d.reasons.isNotEmpty()) {
                 GraphDetailHeading("Needs you")
                 d.reasons.forEach { reason ->
-                    val mark = graphReasons.first { it.key == reason }
+                    val mark = graphReason(reason, d.task.state != null)
                     Text("${mark.mark} ${mark.label}", color = colors.fg)
                     when (reason) {
                         "blocked" -> d.task.blockedReason?.let { Text(it, color = colors.fg) }
@@ -39,7 +39,10 @@ internal fun GraphDetails(id: String, model: GraphModel, now: Long, onSelect: (S
                             d.task.waiting?.until?.let { Text("${graphWaitingDate(it, now)} · $it", color = colors.fg) }
                         }
                         "question" -> d.questions.forEach { Text("${it.kind ?: "question"}: ${it.text}", color = colors.fg) }
-                        "failed" -> d.workers.filter { it.status == "failed" }.forEach { Text("${it.id}: ${it.failure ?: "Worker failed"}", color = colors.fg) }
+                        "failed" -> {
+                            d.task.blockedReason?.let { Text(it, color = colors.fg) }
+                            d.workers.filter { it.status == "failed" }.forEach { Text("${it.id}: ${it.failure ?: "Worker failed"}", color = colors.fg) }
+                        }
                     }
                 }
             }

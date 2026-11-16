@@ -64,7 +64,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
-    val now by produceState(System.currentTimeMillis()) { while (true) { delay(30_000); value = System.currentTimeMillis() } }
+    val now = rememberTaskMinuteNow()
 
     if (adding) {
         TaskEditor(context, task = null, tasks = view.tasks, onBack = { adding = false }, modifier = modifier.fillMaxSize())

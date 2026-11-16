@@ -2382,6 +2382,21 @@ and episode-derived request ID deduplicate crash replay. The admitted/nudged epi
 restart; overdue pauses nudge once. Only a status change or new running work starts another
 episode; editing prose does not. `BoardService.checkPaused()` supports injected clocks.
 
+**Android (T211, stage 3).** List and board use the five derived groups when advertised;
+missing capability/field retains the legacy display. Needs you sorts Failed, Answer needed,
+Ready for review, oldest within each kind; the list shows Working before Paused, while the
+board's In progress and Waiting sort oldest first. To do retains priority and Closed newest first.
+Family nesting compares derived groups, retaining attention visibility and the direct-parts pill.
+Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
+has a quiet distinct tone and task blockers belong to Waiting. Rows/cards omit a separate Working
+label because the activity line already describes the work; all other state labels remain.
+Graph mapping stays Android-only.
+Ages share the existing local minute clock, with no additional reads. Board moves offer To do,
+In progress (start now, including resuming Paused), Done and Dropped; Waiting needs its note form.
+The shared save path asks about open direct parts for sheet/editor/board closures, also after an
+`open_parts` response: Close them too / Keep as follow-ups / Cancel. Native Back cancels; choices
+send `openParts`, with revision checks and 48dp native dialog actions.
+
 **Required direct parts.** A parent cannot be ahead of its parts. An agent cannot move it
 to review/waiting while any direct part is todo/in_progress/blocked. Parts already in
 review/waiting/done/dropped allow the parent to go to review. An agent cannot add any open

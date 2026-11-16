@@ -25,6 +25,9 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
 internal fun graphTone(status: String): Color = when (status) {
+    "paused" -> Jarvis.colors.fgMuted
+    "answer_needed" -> Jarvis.colors.warning
+    "failed" -> Jarvis.colors.danger
     "in_progress" -> Jarvis.colors.accent1
     "review" -> Jarvis.colors.accent2
     "blocked" -> Jarvis.colors.danger
@@ -33,8 +36,8 @@ internal fun graphTone(status: String): Color = when (status) {
 }
 
 internal fun graphTaskLabel(d: GraphTask, now: Long): String = buildList {
-    add("${d.task.id}, ${d.task.title}, ${graphStatus(d.task.status).label}")
-    addAll(d.reasons.map { reason -> graphReasons.first { it.key == reason }.label })
+    add("${d.task.id}, ${d.task.title}, ${graphTaskLabel(d.task).label}")
+    addAll(d.reasons.map { reason -> graphReason(reason, d.task.state != null).label })
     if (d.quiet) add(graphQuietAge(d.task.updatedAt, now))
     add(d.progress)
     addAll(d.workers.map { "Worker ${it.id}, ${it.status}" })
@@ -44,10 +47,10 @@ internal fun graphTaskLabel(d: GraphTask, now: Long): String = buildList {
 @Composable
 internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches: Boolean, holdsUp: Int, now: Long, updated: Boolean = false, motion: Boolean = false, reports: Set<String> = emptySet(), onSelect: () -> Unit) {
     val colors = Jarvis.colors
-    val tone = graphTone(d.task.status)
+    val tone = graphTone(graphTaskStatus(d.task))
     val guide = colors.fgMuted
     val shape = RoundedCornerShape(18.dp)
-    val status = graphStatus(d.task.status)
+    val status = graphTaskLabel(d.task)
     val largeText = LocalDensity.current.fontScale > 1.3f
     val crew = d.workers.map { it.status } + d.threads.filter { !it.main && !it.archived }.map { it.status }
     Box(Modifier.fillMaxWidth().padding(top = if (crew.isEmpty()) 0.dp else 28.dp, start = depth.coerceAtMost(4).times(10).dp).drawBehind {
@@ -68,7 +71,7 @@ internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches:
             if (updated) Text("Updated", color = colors.fg, style = MaterialTheme.typography.labelMedium)
             Text(d.task.title, maxLines = 2, overflow = TextOverflow.Ellipsis, color = colors.fg, style = MaterialTheme.typography.titleMedium)
             if (d.reasons.isNotEmpty()) Text(d.reasons.joinToString(" · ") { reason ->
-                val entry = graphReasons.first { it.key == reason }
+                val entry = graphReason(reason, d.task.state != null)
                 "${entry.mark} ${entry.label}" + if (reason == "waiting") " ${graphWaitingDate(d.task.waiting?.until, now)}" else ""
             }, color = colors.fg, style = MaterialTheme.typography.bodyMedium)
             if (d.quiet) Text("◴ ${graphQuietAge(d.task.updatedAt, now)}", color = colors.fg, style = MaterialTheme.typography.bodyMedium)
@@ -91,7 +94,7 @@ internal fun GraphFamilyHeader(family: GraphFamily, model: GraphModel) {
         Text("${family.progress} · ${family.needsYou} need you", color = colors.fg, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth().height(6.dp).clearAndSetSemantics { }) {
             graphStatuses.forEach { status ->
-                val count = family.cards.count { model.details[it.id]?.task?.status == status.key }
+                val count = family.cards.count { model.details[it.id]?.task?.let(::graphTaskStatus) == status.key }
                 if (count > 0) Box(Modifier.weight(count.toFloat()).fillMaxHeight().background(graphTone(status.key)))
             }
         }

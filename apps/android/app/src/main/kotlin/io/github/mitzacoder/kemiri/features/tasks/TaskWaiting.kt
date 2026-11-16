@@ -43,10 +43,12 @@ internal fun waitingSummary(task: BoardTask, now: Long = System.currentTimeMilli
 }.orEmpty()
 
 @Composable
-internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: Boolean, onPick: (String) -> Unit) {
+internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: Boolean, task: BoardTask? = null, onPick: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val label = task?.let { taskStateLabel(it) } ?: taskStatusWords(status)
     if (!enabled) {
-        TaskStatusBadge(status)
+        if (task?.state != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { TaskStatusDot(taskStateTone(task)); Text(label, style = TaskType.xs) }
+        else TaskStatusBadge(status)
         return
     }
     val interactionSource = remember { MutableInteractionSource() }
@@ -57,7 +59,7 @@ internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: B
             onClick = { expanded = !expanded },
             interactionSource = interactionSource,
             modifier = Modifier.semantics {
-                contentDescription = "Change task status: ${taskStatusWords(status)}"
+                contentDescription = "Change task status: ${label}"
                 stateDescription = if (expanded) "Expanded" else "Collapsed"
             },
             shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
@@ -69,8 +71,8 @@ internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: B
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TaskStatusDot(status)
-                Text(taskStatusWords(status), style = TaskType.xs)
+                TaskStatusDot(task?.let(::taskStateTone) ?: taskStatusTone(status))
+                Text(label, style = TaskType.xs)
                 LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 16.dp, tint = Jarvis.colors.fgMuted)
             }
         }

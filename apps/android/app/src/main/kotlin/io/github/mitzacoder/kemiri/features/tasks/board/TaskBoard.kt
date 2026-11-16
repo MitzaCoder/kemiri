@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
+import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
 import io.github.mitzacoder.kemiri.features.tasks.looseWaiting
 import io.github.mitzacoder.kemiri.features.tasks.taskIdOrder
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -95,6 +96,7 @@ private class Drag(val card: KanbanCard, val grab: Offset, val width: Float, poi
 }
 
 private fun tone(column: KanbanColumnId) = when (column) {
+    KanbanColumnId.NeedsYou -> TaskStatusTone.Review
     KanbanColumnId.Todo -> TaskStatusTone.Todo
     KanbanColumnId.Working -> TaskStatusTone.Working
     KanbanColumnId.Blocked -> TaskStatusTone.Blocked
@@ -145,8 +147,7 @@ fun TaskBoard(
     val reduced = rememberReducedMotion()
     val scope = rememberCoroutineScope()
 
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
+    val now = rememberTaskMinuteNow()
     var onlyNeedsYou by rememberSaveable(project) { mutableStateOf(false) }
     var doneExpanded by rememberSaveable(project) { mutableStateOf(false) }
     var adding by rememberSaveable(project) { mutableStateOf(false) }
@@ -181,7 +182,7 @@ fun TaskBoard(
     // --- moves -----------------------------------------------------------------------------------------------------
 
     /** To do in priority order, whatever the filter shows: what a reorder sends. */
-    fun todoIds() = withPending(board.view.value.tasks).filter { it.status == "todo" && !it.archived }
+    fun todoIds() = withPending(board.view.value.tasks).filter { columnOfTask(it) == KanbanColumnId.Todo && !it.archived }
         .sortedWith(compareBy<BoardTask> { it.order }.thenComparing({ it.id }, taskIdOrder)).map { it.id }
 
     /** Puts a To do card before [beforeId] (last with null): the priority the coordinator works by. */
@@ -203,18 +204,20 @@ fun TaskBoard(
         when (outcome) {
             is SaveOutcome.Conflict -> say("${moved.id} changed since; it was left where it is.", error = true)
             is SaveOutcome.Failed -> say("Could not undo: ${outcome.message}", error = true)
-            is SaveOutcome.Saved -> Unit
+            SaveOutcome.Cancelled -> Unit
+                is SaveOutcome.Saved -> Unit
         }
     }
 
     suspend fun commitMove(task: BoardTask, target: String, beforeId: String?, placed: Boolean, reason: String? = null, blockedReason: String? = null) {
-        val note = reason?.trim()
+        val note = reason?.trim() ?: startAgainNote(task, target)
         pending[task.id] = target
         val outcome = board.saveTask(moveInput(task, target, blockedReason), task.id, task.revision, note?.takeIf { canNote })
         pending.remove(task.id)
         val saved = when (outcome) {
             is SaveOutcome.Conflict -> return say("${task.id} changed while you moved it. It shows where it is now; try again if you still want it moved.", error = true)
             is SaveOutcome.Failed -> return say("Could not move ${task.id}: ${outcome.message}", error = true)
+            SaveOutcome.Cancelled -> return
             is SaveOutcome.Saved -> outcome.task
         }
         if (note != null && !canNote && canSendReason) {
@@ -234,7 +237,7 @@ fun TaskBoard(
 
     /** Moves a card; [placed] puts it in To do before [beforeId] (last with null). A move that needs words asks first. */
     fun requestMove(task: BoardTask, target: String, beforeId: String? = null, placed: Boolean = false) {
-        if (target == task.status) {
+        if (target == task.status && startAgainNote(task, target) == null) {
             if (target == "todo" && placed) scope.launch { reorder(task.id, beforeId) }
             return
         }

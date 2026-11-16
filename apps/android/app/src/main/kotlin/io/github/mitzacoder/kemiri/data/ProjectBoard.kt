@@ -1,8 +1,11 @@
 package io.github.mitzacoder.kemiri.data
 
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.features.tasks.taskWithSupportedState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The server's error code for a change made on a revision the row has moved past (packages/client `BOARD_CONFLICT_CODE`). */
 const val BOARD_CONFLICT_CODE = "board_conflict"
@@ -36,6 +39,7 @@ data class BoardView(
 }
 
 sealed interface SaveOutcome {
+    data object Cancelled : SaveOutcome
     data class Saved(val task: BoardTask) : SaveOutcome
     /** The row moved on; [newer] is its current state, null when it is gone. */
     data class Conflict(val newer: BoardTask?) : SaveOutcome
@@ -57,6 +61,16 @@ sealed interface AnswerOutcome {
  * twin is `apps/web/src/lib/board.svelte.ts`.
  */
 class ProjectBoard(private val client: HarnessClient, val projectId: String, private val scope: CoroutineScope) {
+    private val closePartsMutex = Mutex()
+    private val mutableCloseParts = MutableStateFlow<CloseTaskParts?>(null)
+    val closeParts: StateFlow<CloseTaskParts?> = mutableCloseParts.asStateFlow()
+
+    private suspend fun askCloseParts(taskId: String, serverMessage: String? = null): String? = closePartsMutex.withLock {
+        val prompt = CloseTaskParts(taskId, openDirectParts(view.value.tasks, taskId), serverMessage = serverMessage)
+        mutableCloseParts.value = prompt
+        try { prompt.reply.await() } finally { if (mutableCloseParts.value === prompt) mutableCloseParts.value = null }
+    }
+
     private val mutableView = MutableStateFlow(BoardView())
     val view: StateFlow<BoardView> = mutableView.asStateFlow()
     private val mutableLinkedTask = MutableStateFlow<String?>(null)
@@ -71,7 +85,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
             client.events.collect { event ->
                 if (event !is BoardStateEvent || event.projectId != projectId) return@collect
                 pushes++
-                mutableView.update { it.copy(board = event.board, error = null) }
+                mutableView.update { it.copy(board = supportedBoard(event.board), error = null) }
                 if (view.value.showArchived) launch { readArchived() }
             }
         }
@@ -89,7 +103,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         val before = pushes
         val generation = client.state.value.generation
         try {
-            val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = view.value.showArchived.takeIf { it })).board
+            val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = view.value.showArchived.takeIf { it })).board.let(::supportedBoard)
             mutableView.update { current ->
                 val archived = if (current.showArchived) board.tasks.filter { it.archived } else current.archived
                 if (before != pushes) current.copy(archived = archived, generation = generation)
@@ -106,7 +120,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
 
     /** An archived task (settled for more than a week), which the live board leaves out; null when it is gone. */
     suspend fun findArchived(id: String): BoardTask? =
-        client.request(BoardGetRequest(projectId = projectId, includeArchived = true)).board.tasks.firstOrNull { it.id == id }
+        client.request(BoardGetRequest(projectId = projectId, includeArchived = true)).board.let(::supportedBoard).tasks.firstOrNull { it.id == id }
 
     /** A task's snapshots, oldest first. Needs `task-reports`. */
     suspend fun history(taskId: String): List<BoardTaskSnapshot> = client.readTaskHistory(projectId, taskId)
@@ -115,14 +129,30 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
      * Creates (no [taskId]) or changes a task read at [expectedRevision]. Leave `input.refs` null unless the user edited
      * them: null keeps the task's refs, a list replaces them. A [note] needs `board-moves` (see [HarnessClient.saveBoardTask]).
      */
-    suspend fun saveTask(input: BoardTaskInput, taskId: String? = null, expectedRevision: Long? = null, note: String? = null): SaveOutcome = try {
-        val task = client.saveBoardTask(projectId, input, taskId, expectedRevision, note)
-        upsertTask(task)
-        SaveOutcome.Saved(task)
-    } catch (error: CancellationException) { throw error }
-    catch (error: Exception) {
-        if (boardConflict(error)) { load(); SaveOutcome.Conflict(taskId?.let { view.value.task(it) }) }
-        else SaveOutcome.Failed(error.message ?: "Could not save the task")
+    suspend fun saveTask(input: BoardTaskInput, taskId: String? = null, expectedRevision: Long? = null, note: String? = null): SaveOutcome {
+        var openParts: String? = null
+        if (needsClosePartsChoice(input.status, taskId, view.value.tasks, client.supports("task-state"))) {
+            openParts = askCloseParts(taskId!!) ?: return SaveOutcome.Cancelled
+        }
+        return try {
+            val saved = try {
+                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts)
+            } catch (error: Exception) {
+                if (!isOpenPartsError(error) || taskId == null) throw error
+                // A direct part may have arrived after the local preflight. Re-read before asking.
+                load()
+                openParts = askCloseParts(taskId, error.message) ?: return SaveOutcome.Cancelled
+                // Keep the revision the owner edited; fetching parts must not rebase stale prose.
+                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts)
+            }
+            val task = taskWithSupportedState(saved, client.supports("task-state"))
+            upsertTask(task)
+            SaveOutcome.Saved(task)
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            if (boardConflict(error)) { load(); SaveOutcome.Conflict(taskId?.let { view.value.task(it) }) }
+            else SaveOutcome.Failed(error.message ?: "Could not save the task")
+        }
     }
 
     /** Puts the tasks in this order; the list moves at once and a refusal reads the board again. Returns the error, if any. */
@@ -154,11 +184,13 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
 
     private suspend fun readArchived() {
         try {
-            val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = true)).board
+            val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = true)).board.let(::supportedBoard)
             mutableView.update { it.copy(archived = board.tasks.filter { task -> task.archived }) }
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { mutableView.update { it.copy(error = error.message ?: "Could not read archived tasks") } }
     }
+
+    private fun supportedBoard(board: Board) = board.copy(tasks = board.tasks.map { taskWithSupportedState(it, client.supports("task-state")) })
 
     private fun upsertTask(task: BoardTask) = mutableView.update { current ->
         val board = current.board ?: return@update current
