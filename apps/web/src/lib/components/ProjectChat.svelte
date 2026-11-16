@@ -20,6 +20,7 @@
 	import BackgroundPanel from '#lib/components/BackgroundPanel.svelte';
 	import ArtifactStrip from '#lib/components/artifacts/ArtifactStrip.svelte';
 	import ConversationSwitcher from './ConversationSwitcher.svelte';
+	import BackgroundJobBand from './BackgroundJobBand.svelte';
 	import BoardQuestionPin from '#lib/components/BoardQuestionPin.svelte';
 	import TaskCloseDialog from '#lib/components/TaskCloseDialog.svelte';
 	import TaskSheet from '#lib/components/TaskSheet.svelte';
@@ -919,42 +920,34 @@
 						{@render headerButton(action)}
 					{/each}
 				</div>
-				<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
-					{#if isThread}
-						<span class="min-w-0 truncate">
-							Background job of
-							<a class="font-medium text-(--chat-fg-muted) underline-offset-2 hover:underline" href={projectHref(backend.id, projectId)}
-								>{project?.name ?? 'Main chat'}</a
-							>
-						</span>
-						{#if thread?.model}
-							<span class="shrink-0">·</span>
-							<span class="min-w-0 truncate">{modelLabel(thread.model, backend.models)}</span>
-						{/if}
-					{:else}
+				{#if !isThread}
+					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
 						<span class="min-w-0 truncate">Main chat · {backend.name}</span>
 						{#if project}
 							<span class="shrink-0">·</span>
 							<span class="min-w-0 truncate">{modelLabel(project.coordinator.model, backend.models)}</span>
 						{/if}
-					{/if}
-					{#if runningToolLabel !== undefined}
-						<span class="shrink-0">·</span>
-						<span class="min-w-0 truncate text-(--chat-fg-muted)" title={isThread ? "What this background job does now" : "The coordinator's current tool call"}
-							>{runningToolLabel}</span
-						>
-					{/if}
-					<!-- The release is in the menu on a phone: the line stays one line, and its commit is still one tap away. -->
-					{#if headerRowLayout !== 'menu' && backend.supports('server-status') && backend.status?.release !== undefined}
-						<span class="shrink-0">·</span>
-						<ReleaseLine release={backend.status.release} deploy={backend.status.deploy} compact class="shrink-0" />
-					{/if}
-					{#if session && session.status !== 'live'}
-						<span class="shrink-0">·</span>
-						<span class="text-(--chat-warning)">{session.status}</span>
-					{/if}
-				</div>
+						{#if runningToolLabel !== undefined}
+							<span class="shrink-0">·</span>
+							<span class="min-w-0 truncate text-(--chat-fg-muted)" title="The coordinator's current tool call"
+								>{runningToolLabel}</span
+							>
+						{/if}
+						<!-- The release is in the menu on a phone: the line stays one line, and its commit is still one tap away. -->
+						{#if headerRowLayout !== 'menu' && backend.supports('server-status') && backend.status?.release !== undefined}
+							<span class="shrink-0">·</span>
+							<ReleaseLine release={backend.status.release} deploy={backend.status.deploy} compact class="shrink-0" />
+						{/if}
+						{#if session && session.status !== 'live'}
+							<span class="shrink-0">·</span>
+							<span class="text-(--chat-warning)">{session.status}</span>
+						{/if}
+					</div>
+				{/if}
 			</header>
+			{#if isThread && thread && threads}
+				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={projectHref(backend.id, projectId)} scheduleName={thread.scheduleId ? scheduleTitle(thread.scheduleId) : undefined} />
+			{/if}
 
 				{#key session}
 				<TranscriptColumn
@@ -1047,7 +1040,7 @@
 						{#if sendError}
 							<Banner tone="error">{sendError}</Banner>
 						{/if}
-						{#if board !== undefined && questionsWaiting > 0 && !(sidebarOpen && sidebarTab === 'board')}
+						{#if !isThread && board !== undefined && questionsWaiting > 0 && !(sidebarOpen && sidebarTab === 'board')}
 							<BoardQuestionPin
 								{board}
 								threads={threadList}
@@ -1100,6 +1093,7 @@
 							onstop={stop}
 						/>
 						{/key}
+						{#if isThread}<p class="px-3 pb-1 text-xs text-(--chat-fg-subtle)" data-job-steering-note>The main chat does not see what you write here, only the job's report.</p>{/if}
 					{/if}
 				</div>
 			</div>

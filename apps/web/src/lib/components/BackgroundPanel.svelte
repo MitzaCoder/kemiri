@@ -4,11 +4,8 @@
 	import ArchiveRestoreIcon from '@lucide/svelte/icons/archive-restore';
 	import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
-	import Banner from '#lib/components/Banner.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import * as Dialog from '#lib/components/ui/dialog/index.js';
-	import { Spinner } from '#lib/components/ui/spinner/index.js';
+	import ThreadStopButton from './ThreadStopButton.svelte';
 	import ThreadFacts from '#lib/components/chat/ThreadFacts.svelte';
 	import ThreadStatusBadge from '#lib/components/chat/ThreadStatusBadge.svelte';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
@@ -44,23 +41,7 @@
 	const grouped = $derived(partitionFinishedJobs(live, now));
 	const archived = $derived(ordered.filter((thread) => thread.archived));
 
-	let stopping = $state<ThreadSummary | undefined>(undefined);
-	let stopOpen = $state(false);
-	let stopBusy = $state(false);
 	let busyId = $state<string | undefined>(undefined);
-
-	function askStop(thread: ThreadSummary): void {
-		stopping = thread;
-		stopOpen = true;
-	}
-
-	async function confirmStop(): Promise<void> {
-		if (stopping === undefined || threads === undefined) return;
-		stopBusy = true;
-		const ok = await threads.stopThread(stopping.id);
-		stopBusy = false;
-		if (ok) stopOpen = false;
-	}
 
 	async function archive(thread: ThreadSummary, archive: boolean): Promise<void> {
 		if (threads === undefined) return;
@@ -105,10 +86,8 @@
 			</span>
 		</a>
 		<div class="flex items-center gap-1 border-t border-(--chat-border)/60 px-1.5 py-1">
-			{#if isThreadActive(thread)}
-				<Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={() => askStop(thread)}>
-					<CircleStopIcon data-icon="inline-start" />Stop
-				</Button>
+			{#if isThreadActive(thread) && threads}
+				<ThreadStopButton {thread} {threads} />
 			{/if}
 			{#if thread.archived}
 				<Button variant="ghost" size="sm" class="h-6 px-2 text-xs" disabled={busyId === thread.id} onclick={() => void archive(thread, false)}>
@@ -182,31 +161,6 @@
 	</div>
 	</div>
 </div>
-
-<Dialog.Root bind:open={stopOpen}>
-	<Dialog.Content class="sm:max-w-sm">
-		<Dialog.Header>
-			<Dialog.Title>Stop {stopping?.title || 'this background job'}?</Dialog.Title>
-			<Dialog.Description>
-				Its running turn and its workers are aborted, and it does no more work. Main chat keeps what it reported so far.
-			</Dialog.Description>
-		</Dialog.Header>
-		{#if stopping !== undefined && threads?.actionError?.threadId === stopping.id}
-			<div class="px-4 sm:px-6"><Banner tone="error">{threads.actionError.message}</Banner></div>
-		{/if}
-		<Dialog.Footer>
-			<Dialog.Close>
-				{#snippet child({ props })}
-					<Button {...props} variant="outline" size="sm" type="button" disabled={stopBusy}>Keep it running</Button>
-				{/snippet}
-			</Dialog.Close>
-			<Button variant="destructive" size="sm" type="button" disabled={stopBusy} onclick={() => void confirmStop()}>
-				{#if stopBusy}<Spinner data-icon="inline-start" />{/if}
-				Stop
-			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
 
 <style>
 	.thread-row {

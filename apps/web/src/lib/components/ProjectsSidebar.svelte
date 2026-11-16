@@ -21,6 +21,8 @@
 	import { projectHref } from '#lib/backends.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
+	import { openBackgroundJobLabel } from '#lib/background-job-page.js';
+	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import { backgroundJobsText } from '#lib/threads.js';
 	import { attentionCount, needsYouLinks, sidebarStatus } from '#lib/sidebar-attention.js';
 	import NeedsYou from '#lib/components/NeedsYou.svelte';
@@ -51,6 +53,15 @@
 	 */
 	const wide = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
 	const current = $derived(currentProject(page.url.pathname));
+	let openJobThreads = $state<ProjectThreads | undefined>(undefined);
+	const openJob = $derived(openBackgroundJobLabel(page.params.threadId, openJobThreads?.threads ?? []));
+	$effect(() => {
+		const backend = harness.backends.find(backend => backend.id === current?.backendId);
+		if (!current || !page.params.threadId || !backend?.supports('threads')) return;
+		const watch = backend.watchThreads(current.projectId);
+		openJobThreads = watch;
+		return () => { watch.stop(); if (openJobThreads === watch) openJobThreads = undefined; };
+	});
 	const usageOpen = $derived(usageModal.open);
 	const identityBackend = $derived(versionBackend(harness.backends, current?.backendId));
 	const versionText = $derived(aikiVersionLabel(identityBackend?.connection.server?.version, identityBackend?.status, webVersion));
@@ -77,7 +88,7 @@
 
 	/** A rail tile's tooltip and accessible name: which backend, which project, what it is doing. */
 	function railTitle(backend: BackendConnection, project: ProjectSummary, status: ProjectRow): string {
-		return `${backend.name}: ${project.name} — ${sidebarStatus(project, status).label}`;
+		return `${backend.name}: ${project.name} — ${sidebarStatus(project, status).label}${isCurrent(backend.id, project.id) && openJob ? ` · ${openJob}` : ''}`;
 	}
 
 	function backendTitle(backend: BackendConnection): string {
@@ -256,7 +267,7 @@
 								title={`${status.title} · ${summary.label}`}
 							>
 								<span class="status-glyph" class:working={summary.working} aria-hidden="true">{summary.glyph}</span>
-								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
+								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if isCurrent(backend.id, project.id) && openJob}<small data-open-background-job>{openJob}</small>{/if}{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
 								{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
 							</a>
 						{/if}

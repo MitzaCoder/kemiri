@@ -27,7 +27,8 @@
 		askedBy,
 		taskHref,
 		onanswer,
-		compact = false
+		compact = false,
+		strip = false
 	}: {
 		question: BoardQuestion;
 		/** "T4 · Fix parser recovery" when the question is about a task. */
@@ -38,6 +39,8 @@
 		taskHref?: string;
 		onanswer?: (question: BoardQuestion, answer: string) => Promise<AnswerOutcome>;
 		compact?: boolean;
+		/** A single-line preview in a job band; full Markdown opens in the existing reader. */
+		strip?: boolean;
 	} = $props();
 
 	const warning = $derived(question.kind === 'warning');
@@ -169,7 +172,9 @@
 					{/if}
 				{/if}
 			</p>
-			<CardMarkdown source={question.text} />
+			{#if strip}
+				<button type="button" class="block min-h-11 w-full truncate text-left text-xs underline-offset-2 hover:underline" onclick={() => readingExpanded = true} title="Read the full question">{markdownText(question.text)}</button>
+			{:else}<CardMarkdown source={question.text} />{/if}
 		</div>
 		<Dialog.Root bind:open={readingExpanded}>
 			<Dialog.Trigger>

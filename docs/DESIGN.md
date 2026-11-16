@@ -2045,7 +2045,7 @@ working counts, never a count of merely unfinished jobs. Older servers derive st
 and header counts locally; the project sidebar falls back to “N background jobs”.
 Start cards always break folded transcript steps; completion/failure cards show the
 same title/badge/Open shape and keep completion artifacts. Web phase 2 (T223) adds
-the title switcher described below; the job page band is still pending. `packages/server/scripts/background-jobs-demo.ts` starts an isolated
+the title switcher described below; phase 3 (T224) adds the job page band. `packages/server/scripts/background-jobs-demo.ts` starts an isolated
 synthetic backend with all six states and an old finished job; JOBS_WEB_ORIGIN and
 JOBS_DEMO_OUTPUT select the frontend origin and connection JSON output. Feature `thread-state`
 advertises optional `ThreadSummary.state`, derived on emission, never stored, for main too.
@@ -2112,7 +2112,15 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   existing right-sidebar panel; there is no separate Background jobs header action or overflow row. Choosing
   another conversation pushes normal history; choosing the current row only closes. T219 snapshots restore
   the Main chat's panels and sensible scroll on Back; cold links still work. Without the threads feature the
-  title stays plain. The left sidebar keeps one project row with needs-you/working counts when available.
+  title stays plain. Web job pages have a subtle accent-wash band directly below the header: project, starter
+  (Main chat, named schedule or user), relative start time and report destination. Finished, Stopped and Failed
+  instead describe their outcome. Its ← Main chat link pushes normal history; Stop (except Finished/Stopped)
+  reuses the panel's confirmation and stop action, disabling while pending. The duplicated job header context
+  line is gone. A job's open question lives only in this band, not above its composer: one-line Markdown preview,
+  full reader, existing answer options/free text and conflict handling. +N more cycles its other questions.
+  Main chat keeps the existing shared question pin. The job composer quietly explains that Main chat sees only
+  the job's report, not these messages; typing remains available. The left sidebar keeps one project row with
+  needs-you/working counts when available and adds Open: <job title> only inside a job (rail: in its tooltip).
 
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 

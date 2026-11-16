@@ -1,5 +1,24 @@
 # Continue
 
+## T224: web job band, question and steering note
+
+Job pages now have an accent-wash band below the header: project, starter/time,
+report destination or terminal outcome, push link to Main chat and Stop except
+Finished/Stopped. Stop shares the panel's confirmation/action, including pending
+and error handling. The duplicate job header context line is removed. Its own
+pending question lives only in the band: one-line preview, full Markdown reader,
+existing revision-aware answer form, and +N more cycling. Main chat keeps its
+shared composer pin. Jobs explain that Main chat sees only their report, not
+these messages. The project sidebar adds Open: <job title> only inside a job;
+the collapsed rail includes it in its tooltip. Android is unchanged.
+Checks: isolated root 2,919 tests; web 1,284 tests, zero-diagnostic check/build;
+root typecheck and external-denylist/public checks pass. T224 has 40 final
+before/after screenshots across desktop/phone and light/dark (needs-you, working,
+finished, Stop confirmation and sidebar), plus recording mwjxgrtr-61062371db.
+The recording answers Photo library audit in its band, follows Main chat, opens
+Catalogue rework and confirms Stop; state becomes Stopped. Baseline is 03c32a94
+in a temporary workspace with the same synthetic demo. No push/deploy or bookmarks.
+
 ## T223: web conversation title switcher
 
 The chat title now opens one live Main chat/background-jobs menu: desktop popover,
