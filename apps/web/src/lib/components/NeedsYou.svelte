@@ -20,7 +20,7 @@
 {/snippet}
 
 {#if links.length > 0}
-	<section class="needs-you" aria-label="Needs you" data-sidebar-attention>
+	<section data-no-task-preview class="needs-you" aria-label="Needs you" data-sidebar-attention>
 		<div class="attention-heading"><h3>Needs you</h3><span aria-label="{count} outstanding actions">{count}</span></div>
 		{#each links.slice(0, 3) as link (link.key)}{@render action(link)}{/each}
 		{#if links.length > 3}

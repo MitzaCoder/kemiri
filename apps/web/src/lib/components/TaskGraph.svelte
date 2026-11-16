@@ -139,7 +139,7 @@
 	}
 </script>
 
-<section class="task-graph" aria-label="Task graph">
+<section data-no-task-preview class="task-graph" aria-label="Task graph">
 	<div class="graph-toolbar">{@render viewSwitch()}<label><input type="checkbox" bind:checked={showClosed}/> Show closed</label><span class="read-only">Read only</span></div>
 	<div class="graph-heading"><div><p>YOUR TASKS, ALIVE</p><h2>Bubble club</h2><span>{graph.nodes.filter(n=>n.kind==='task').length} tasks · {workers.filter(w=>w.status==='running').length} workers busy</span></div><div class="graph-controls"><button onclick={()=>changeZoom(1.25)} aria-label="Zoom in">+</button><button onclick={()=>changeZoom(.8)} aria-label="Zoom out">−</button><button onclick={()=>fit()}>Fit</button></div></div>
 	<div class="graph-stage">

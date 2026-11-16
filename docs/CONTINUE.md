@@ -1,5 +1,22 @@
 # Continue
 
+## T206: no task preview on task-list cards
+
+T204's page-wide host treated row/card navigation links like prose references.
+`data-no-task-preview` now excludes task links under list/family/search rows,
+board cards, graph and Needs you; shared list rows cover sidebar previews too.
+External issue/PR cards stay live, as do references throughout task/chat prose.
+No ID styling changed. Android source audit found plain row/card text and explicit
+navigation callbacks, not a delegated hover host; no Android changes or device run.
+Browser regression tests cover ancestor opt-out, nested titles/summaries, prose,
+external refs and existing exclusions. Real Chromium also checked list/sidebar,
+Needs you, board, graph, family, search, keyboard and direct touch navigation.
+Proof on T206: before light/dark mwj17z8f-1a5d03e132 / mwj17z9r-2735dd1167;
+after mwj1d3hu-9221a0d32c / mwj1d3kq-cefbb944dd; description-reference previews
+mwj1d3jb-3528890c3c / mwj1d3m7-a6b7d0929d; recording mwj1d3no-94fcd6688a.
+Checks pass: isolated root 2,735 tests, typecheck, web 1,175 tests/check/build,
+external-denylist public check. Synthetic fixture/browser only; no push/main move.
+
 ## T204: live references in task details
 
 Web Markdown links task IDs on parsed text tokens; Android RichMarkdown reuses

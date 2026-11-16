@@ -81,6 +81,7 @@
 </script>
 
 <article
+	data-no-task-preview
 	class="task-card {taskStatusToneClass(task.status)} relative flex min-w-0 gap-2 rounded-xl border px-3 py-2.5"
 	class:task-card-warning={needsYou && warned}
 	class:task-card-question={needsYou && !warned}

@@ -3,6 +3,7 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { type RefDetails, refIdentity } from '@kemiri/protocol';
 	import { taskIdFromHref } from '#lib/task-chat.js';
+	import { refCardAnchor } from '#lib/ref-card-anchor.js';
 	import RefCard from '#lib/components/RefCard.svelte';
 	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
 	import { type CardRef, boardRefFor, cardKindWords, cardRefLabel, cardRefOf, containsTarget, placeCard, tasksNaming, visiblePart } from '#lib/ref-card.js';
@@ -73,10 +74,7 @@
 	const cardHref = $derived(details?.url ?? status?.url ?? shown?.href ?? '');
 
 	function refAnchor(target: EventTarget | null): HTMLAnchorElement | undefined {
-		if (!(target instanceof Element) || target.closest('[data-ref-card]') !== null) return undefined;
-		const anchor = target.closest('a[href]');
-		if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute('data-no-ref-card')) return undefined;
-		return cardRefOf(anchor.href) === undefined && taskIdFromHref(anchor.href, location.href) === undefined ? undefined : anchor;
+		return refCardAnchor(target, location.href);
 	}
 
 	function inCard(target: EventTarget | null): boolean {

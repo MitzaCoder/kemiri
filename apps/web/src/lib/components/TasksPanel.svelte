@@ -188,7 +188,7 @@
 	{@const activity = automaticTaskActivity(row.task, board?.activityEnabled === true)}
 	{@const refs = taskRefs(row.task)}
 	{@const needsYou = row.section === 'needs_you'}
-	<li class="task-row-item">
+	<li class="task-row-item" data-no-task-preview>
 		<!-- The title's link covers the whole row; the ref chips sit above it, so neither link is inside the other. -->
 		<div
 			class="task-row {taskStatusToneClass(row.task.status)} group relative flex min-w-0 items-start gap-2.5 py-2.5 pr-2 pl-3"
