@@ -413,14 +413,14 @@ describe("the unblocked-task notice", () => {
 		await view.start(projectId);
 		const doneBase = await save(client, projectId, input("Base", { status: "done" }), { taskId: base.id, expectedRevision: base.revision });
 		await save(client, projectId, input("Base, renamed", { status: "done" }), { taskId: base.id, expectedRevision: doneBase.revision });
-		const notices = (value: ConversationView | undefined) => userTexts(value).filter((text) => text.includes("blockers done"));
+		const notices = (value: ConversationView | undefined) => userTexts(value).filter((text) => text.includes("blockers closed"));
 		await view.waitForView((value) => notices(value).length > 0);
 		await new Promise((resolve) => setTimeout(resolve, 200));
-		expect(notices(view.view)).toEqual(['[board] T1 "Base" is done, so T3 "After base" has all its blockers done and can start.']);
+		expect(notices(view.view)).toEqual(['[board] T1 "Base" is done, so T3 "After base" has all its blockers closed and can start.']);
 
 		await save(client, projectId, input("Other", { status: "done" }), { taskId: other.id, expectedRevision: other.revision });
 		await view.waitForView((value) => notices(value).length > 1);
-		expect(notices(view.view)[1]).toContain('T4 "After both" has all its blockers done');
+		expect(notices(view.view)[1]).toContain('T4 "After both" has all its blockers closed');
 		// The harness never starts a worker by itself.
 		const workers = await client.request({ type: "workers.list", projectId });
 		if (workers.type !== "workers.list") throw errorOf(workers);

@@ -827,6 +827,7 @@ export class ClientConnection {
 						taskId: request.taskId,
 						expectedRevision: request.expectedRevision,
 						task: request.task,
+      openParts: request.openParts,
 						note: request.note,
 					});
 					this.#respond({ type: "board.task.save", id: request.id, task });

@@ -227,6 +227,7 @@ export type ProjectManagerOptions = {
 	boardEditDebounceMs?: number;
 	taskFreshness?: boolean;
  taskActivity?: boolean;
+ taskState?: boolean;
 	reportAudit?: boolean;
 	/**
 	 * The backend's memory scopes. Default: one over the store's data directory, without change notifications, which only
@@ -313,6 +314,7 @@ export class ProjectManager {
 	readonly #boardEditDebounceMs: number | undefined;
 	readonly #taskFreshness: boolean;
  readonly #taskActivity: boolean;
+ readonly #taskState: boolean;
 	readonly #reportAudit: boolean;
 	/** Shared across project summaries; pending auth checks are coalesced too. */
 	readonly #auditModelCache = new Map<string, { expiresAt: number; model: ReturnType<typeof chooseAuditModel> }>();
@@ -371,6 +373,7 @@ export class ProjectManager {
 		this.#boardEditDebounceMs = options.boardEditDebounceMs;
 		this.#taskFreshness = options.taskFreshness !== false;
   this.#taskActivity = options.taskActivity !== false;
+  this.#taskState = options.taskState !== false;
 		this.#reportAudit = options.reportAudit !== false;
 		this.#now = options.now;
 		this.#setTimer = options.setTimer;
@@ -759,7 +762,7 @@ export class ProjectManager {
 
 	async saveBoardTask(
 		projectId: string,
-		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; note?: string | undefined },
+		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 	): Promise<BoardTask> {
 		const { runtime } = await this.conversation(projectId);
 		return runtime.board.saveTask(input, "user");
@@ -1254,6 +1257,7 @@ export class ProjectManager {
 		const board = new BoardService({
 			taskFreshness: this.#taskFreshness,
    taskActivity: this.#taskActivity,
+   taskState: this.#taskState,
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
 			threadIsLive: async (id) => {

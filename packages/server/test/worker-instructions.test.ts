@@ -24,7 +24,9 @@ function project(): Project {
 describe("workerInstructions", () => {
 	it("tells main and background threads that planned pieces get parent only", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
-			expect(text).toContain("planned piece of a bigger task gets `parent` only");
+			expect(text).toContain("required part");
+   expect(text).toContain("parts are done, in review or waiting");
+   expect(text).toContain("blockedReason");
 			expect(text).toContain("unplanned task discovered while working on another");
 		}
 	});

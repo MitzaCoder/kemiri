@@ -72,6 +72,8 @@ import {
 	describeTaskInFull,
 	normalizeBoard,
 	inProgressMinutes,
+ linksOfBoard,
+ logLinkChanges,
 	moveTaskForWorker,
  inferCoordinatorTaskFocusIn,
 	openBoard,
@@ -641,7 +643,7 @@ Work like this:
 
 ${WORKER_MESSAGE_RULES}
 
-Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply to a message, find its task or add one with add_task, and say in your reply which task it is filed under. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. Your replies in the chat are a line or two that name the task; the detail goes in the task's report, because the user reads the tasks and uses the chat to talk. A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Do not copy it into the description: mark it handling with the \`board\` action \`feedback\` when you act on it, and addressed, with a note of what addressed it (a commit, a result, "answered in chat"), when done. When a background thread holds the task, pass the message on with thread_send. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a planned piece of a bigger task gets \`parent\` only, never a duplicate \`foundWhile\` pointing at its parent; a see-also gets \`related\`. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
+Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply to a message, find its task or add one with add_task, and say in your reply which task it is filed under. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. Your replies in the chat are a line or two that name the task; the detail goes in the task's report, because the user reads the tasks and uses the chat to talk. A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Do not copy it into the description: mark it handling with the \`board\` action \`feedback\` when you act on it, and addressed, with a note of what addressed it (a commit, a result, "answered in chat"), when done. When a background thread holds the task, pass the message on with thread_send. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a required part of a bigger task gets \`parent\` only; its parent goes to review/waiting only when its parts are done, in review or waiting; a see-also gets \`related\`. Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
 
 ${REPORT_RULES}
 
@@ -678,7 +680,7 @@ Work like this:
 
 ${WORKER_MESSAGE_RULES}
 
-Report on the task you were started for as you go. A planned piece of a bigger task gets \`parent\` only. Use \`foundWhile\` for an unplanned task discovered while working on another task, never a duplicate pointing at its parent.
+Report on the task you were started for as you go. A subtask is a required part: set \`parent\` only, and move its parent to review/waiting only when the parts are done, in review or waiting. Wait for another task with status todo and blockedBy; blocked is for failure or being stuck and requires blockedReason. Use \`foundWhile\` for an unplanned task discovered while working on another task, never a duplicate pointing at its parent.
 
 ${REPORT_RULES}
 
@@ -1080,6 +1082,8 @@ export type ScheduledRunResult =
 
 /** What a worker's creation commit needs, shared by the coordinator's `worker_spawn` and the schedule clock. */
 type CreateWorkerInput = {
+ /** Optional transaction-local collector for the spawn tool reply. */
+ boardNotices?: string[];
 	id: string;
 	title: string;
 	task: string;
@@ -1649,12 +1653,15 @@ export class WorkerService {
   pruneDone(doc);
 		if (board !== undefined && input.taskId !== null) {
 			const before = statusesOf(board);
+   const linksBefore = linksOfBoard(board);
 			const moved = moveTaskForWorker(board, {
 				key: `worker-spawn:${input.callId}`,
 				taskId: input.taskId,
 				move: { kind: "spawned", workerId: input.id },
 				now,
 			});
+   input.boardNotices?.push(...(moved?.notices ?? []));
+   await logLinkChanges(tx, this.mainId as ConversationId, board, linksBefore, { by: HARNESS_WRITER, at: now });
 			if (history !== undefined) {
 				await snapshotStatusChanges(tx, this.mainId as ConversationId, board, before, {
 					by: HARNESS_WRITER,
@@ -2026,8 +2033,10 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 			const title = args.title ?? args.task.split("\n")[0]?.slice(0, 120) ?? args.task.slice(0, 120);
 			const checkIn = await service.checkInNeeded(context, api.conversationId);
-			const created = await api.commit(async (tx) => ({
-				conversationId: await service.createWorkerIn(tx, api.conversationId, {
+			const created = await api.commit(async (tx) => {
+    const boardNotices: string[] = [];
+    const conversationId = await service.createWorkerIn(tx, api.conversationId, {
+     boardNotices,
 					id: args.id,
 					title,
 					task: args.task,
@@ -2043,8 +2052,9 @@ function createWorkerExtension(service: WorkerService): Extension {
 					followUp: false,
 					checkIn,
 					schedule: undefined,
-				}),
-			}), context);
+    });
+    return { conversationId, boardNotices };
+   }, context);
 
 			await api.details({ workerId: args.id, conversationId: created.conversationId }, context);
 			const where =
@@ -2055,7 +2065,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 					? ""
 					: `\nWarning: ${task?.id}'s write scopes (${task?.writeScopes.join(", ")}) overlap ${overlaps.join("; ")}. Both work in the same checkout, so their edits can collide: tell them apart in the briefs, or give one a workspace.`;
 			return toolText(
-				`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}. Its report arrives as a message when it answers; keep going meanwhile.${warning}`,
+				`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}. Its report arrives as a message when it answers; keep going meanwhile.${created.boardNotices.length ? ` ${created.boardNotices.join(" ")}` : ""}${warning}`,
 				{ details: { workerId: args.id, conversationId: created.conversationId } },
 			);
 		},

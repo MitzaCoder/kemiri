@@ -1,6 +1,6 @@
 import { buildTimelineGroups, recordTimelineRun, timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { deploySummary, type TaskDeployFact } from "./task-deploys.ts";
-import { activityTracking, taskActivity, endActivitySource, setActivityPhase, type TaskActivityTracking, DELIVERY_ACTIVITY_MS } from "./task-activity.ts";
+import { activityTracking, taskActivity, endActivitySource, setActivityPhase, type TaskActivityTracking, DELIVERY_ACTIVITY_MS, taskState, taskQuietSince, TASK_PAUSED_MS, openTaskBlockers, pauseEpisode } from "./task-activity.ts";
 import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
@@ -77,6 +77,9 @@ const SUMMARY_NOW_CHARS = 200;
 export type BoardState = {
 	taskFreshnessEnabled?: boolean;
  taskActivityEnabled?: boolean;
+ taskStateEnabled?: boolean;
+ taskStateMigrated?: boolean;
+ pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
  taskFocus?: Record<string, string>;
 	reportTracking?: Record<string, TaskReportTracking>;
@@ -326,6 +329,7 @@ export function applyTaskDeploy(state: BoardState, history: TaskHistoryState, ta
  } else delete tracking.deployFailure;
  if (summary.state === "delivered") {
   delete tracking.deploy;
+  if (old?.state === "active") tracking.lastEndedAt = fact.observedAt;
   if (tracking.delivery?.text !== summary.text || latest?.attemptId !== fact.attemptId) tracking.delivery = { text: summary.text, at: fact.observedAt, refs: [ref], count: fact.expectedTargets.length };
  } else {
   tracking.deploy = { state: summary.state, text: summary.text, since: old?.text === summary.text && latest?.attemptId === fact.attemptId ? old.since : fact.observedAt, refs: [ref] };
@@ -358,7 +362,7 @@ export async function snapshotStatusChanges(
 		const history = await openTaskHistory(tx, mainId, task.id);
 		addSnapshot(history, task, {
 			label: `${was ?? "new"} → ${task.status}`,
-			by: input.by,
+			by: task.updatedBy === "harness" ? HARNESS_WRITER : input.by,
 			at: input.at,
 			key: input.key === undefined ? undefined : `${input.key}:${task.id}:status`,
 		});
@@ -759,7 +763,8 @@ export function changeLink(
 			if (current !== null && current !== target) {
 				throw new ServerError("bad_request", `${task.id} is already ${words} ${current}: a task has at most one. Unlink it first, or change it with update_task.`);
 			}
-			task[link] = target;
+			if (link === "parent") checkTaskRules(state, { ...task, parent: target }, task);
+   task[link] = target;
 		}
 	} else if (link === "related") {
 		const target = need(to, input.remove ? "unlink" : "link", "to");
@@ -774,20 +779,23 @@ export function changeLink(
 		else {
 			const blockedBy = unique([...task.blockedBy, target]);
 			checkBlockedBy(state, task.id, blockedBy);
-			task.blockedBy = blockedBy;
+			checkTaskRules(state, { ...task, blockedBy }, task);
+   task.blockedBy = blockedBy;
 		}
 	}
 	if (task.parent != null && task.foundWhile === task.parent) task.foundWhile = null;
 	state.updatedAt = input.now;
 	if (before.blockedBy.some((id) => !task.blockedBy.includes(id))) noteTaskFact(state, task.id, { actor: "coordinator", kind: "blocker_resolved", reason: "blocker resolved", at: input.now });
-	return { before, after: plain(task) };
+	const notices = repairTaskParts(state, input.now);
+ return { before, after: plain(task), notices };
 }
 
 /** Explain canonicalization without claiming an ignored origin link was added. */
 function duplicateOriginNotice(change: TaskChange, requested?: string | null): string {
-	const origin = requested === undefined ? change.before?.foundWhile : requested;
+	const repairs = change.notices?.length ? ` ${change.notices.join(" ")}` : "";
+ const origin = requested === undefined ? change.before?.foundWhile : requested;
 	return origin != null && origin === change.after.parent && change.after.foundWhile !== origin
-		? ` Dropped duplicate foundWhile ${origin}; kept parent only for that task.` : "";
+		? ` Dropped duplicate foundWhile ${origin}; kept parent only for that task.${repairs}` : repairs;
 }
 
 function need<T>(value: T | undefined, action: string, field: string): T {
@@ -898,7 +906,7 @@ function isArchivedAt(task: BoardTask, now: number): boolean {
 
 /** Account for a status change in the task's in_progress clock, before the status is set. */
 function clockStatus(state: BoardState, task: BoardTask | { id: string; status: null }, status: BoardTask["status"], now: string): void {
- if (task.status !== status) { const tracking = activityTracking(state, task.id); tracking.status = status; tracking.statusSince = now; }
+ if (task.status !== status) { const tracking = activityTracking(state, task.id); tracking.status = status; tracking.statusSince = now; tracking.statusChanges = (tracking.statusChanges ?? 0) + 1; }
 	if (task.status === status) return;
 	const clocks = (state.inProgress ??= {});
 	const clock = clocks[task.id] ?? { ms: 0, since: null };
@@ -957,6 +965,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 				...task,
 				report: { ...(task.report ?? emptyReport()), ...(activity ? { now: activity.text } : {}) },
     ...(activity ? { activity } : {}),
+    ...(state.taskStateEnabled ? { state: taskState(task, state.questions, state.tasks, tracking, now) } : {}),
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],
 				parent: task.parent ?? null,
@@ -1011,6 +1020,7 @@ export type TaskChange = {
 	/** What a reader sees of the change, for the coordinator's `[board]` input. */
 	before: BoardTask | null;
 	after: BoardTask;
+ notices?: string[];
 };
 
 function unknownTask(id: string): ServerError {
@@ -1060,6 +1070,106 @@ function cleanRefs(refs: readonly string[]): string[] {
 	return unique(refs.map((ref) => ref.trim()).filter((ref) => ref.length > 0));
 }
 
+
+const OPEN_FOR_REVIEW = new Set(["todo", "in_progress", "blocked"]);
+const statusWords = (status: string): string => ({ todo: "to do", in_progress: "in progress", review: "in review" }[status] ?? status);
+const namedParts = (parts: readonly BoardTask[]): string => parts.map(t => `${t.id} (${statusWords(t.status)})`).join(" and ");
+
+export function refuseOpenBlockers(task: Pick<BoardTask, "id" | "blockedBy">, tasks: readonly BoardTask[], status = "in_progress"): void {
+ const blockers = openTaskBlockers(task, tasks);
+ if (!blockers.length) return;
+ throw new ServerError("bad_request", `${task.id} is blocked by ${namedParts(blockers)}. Wait for ${blockers.map(t => t.id).join(" and ")} to close, or if ${task.id} no longer needs it, remove the blocker in the same call: update_task id=${task.id} status=${status} blockedBy=[]`);
+}
+
+function checkTaskRules(state: BoardState, task: Pick<BoardTask, "id" | "status" | "blockedBy" | "blockedReason" | "parent">, before?: BoardTask): void {
+ if (task.status === "blocked" && !task.blockedReason?.trim()) throw new ServerError("bad_request", "Status blocked is for a failure or being stuck; give blockedReason. To wait for another task, keep status todo and set blockedBy.");
+ if ((before?.status === task.status || task.status === "waiting") && ["in_progress", "review", "waiting"].includes(task.status) && task.blockedBy.some(id => !before?.blockedBy.includes(id) && openTaskBlockers({ blockedBy: [id] }, state.tasks).length)) {
+  throw new ServerError("bad_request", `${task.id} can't add an open blocker while ${statusWords(task.status)}. Move it to todo in the same call: update_task id=${task.id} status=todo blockedBy=[${task.blockedBy.join(",")}].`);
+ }
+ if (["in_progress", "review"].includes(task.status)) refuseOpenBlockers(task, state.tasks, task.status);
+ if (["review", "waiting"].includes(task.status)) {
+  const parts = state.tasks.filter(t => t.parent === task.id && OPEN_FOR_REVIEW.has(t.status));
+  if (parts.length) throw new ServerError("bad_request", `${task.id} can't go to ${task.status}: its parts ${namedParts(parts)} are not finished. Finish them first. If one is a follow-up rather than a part of ${task.id}, make it one: update_task id=${parts[0]!.id} parent=null foundWhile=${task.id}.`);
+ }
+ if (task.parent && task.parent !== before?.parent && !SETTLED.has(task.status)) {
+  const parent = state.tasks.find(t => t.id === task.parent);
+  if (parent && ["review", "waiting", "done", "dropped"].includes(parent.status)) throw new ServerError("bad_request", `${task.id} can't become an open part of ${parent.id} (${statusWords(parent.status)}). Use foundWhile=${parent.id} for follow-up work${isSettled(parent) ? "." : `, or move ${parent.id} back to in_progress first.`}`);
+ }
+}
+
+/** Preserve existing discovery origins; never overwrite one to detach a required part. */
+function makeFollowUp(state: BoardState, part: BoardTask, parentId: string, now: string): void {
+ part.parent = null;
+ if (!part.foundWhile) part.foundWhile = parentId;
+ else if (part.foundWhile !== parentId) setRelated(state, part, [...(part.related ?? []), parentId]);
+ touchByHarness(state, part, part.status, now);
+}
+
+/** Repairs climb direct links only. Also called by transaction snapshotting for harness writers. */
+export function repairTaskParts(state: BoardState, now: string): string[] {
+ const notices: string[] = [];
+ let changed = true;
+ while (changed) {
+  changed = false;
+  for (const part of state.tasks) {
+   if (!part.parent || isSettled(part)) continue;
+   const parent = state.tasks.find(t => t.id === part.parent);
+   if (!parent) continue;
+   if (isSettled(parent)) {
+    makeFollowUp(state, part, parent.id, now);
+    notices.push(`${part.id} is now a follow-up of closed ${parent.id}.`); changed = true;
+   } else if ((parent.status === "todo" && part.status === "in_progress") || (["review", "waiting"].includes(parent.status) && OPEN_FOR_REVIEW.has(part.status))) {
+    touchByHarness(state, parent, "in_progress", now);
+    notices.push(`${parent.id} moved back to in_progress for its part ${part.id}.`); changed = true;
+   }
+  }
+ }
+ return notices;
+}
+
+/** One-time, lossless repair of historical combinations, including archived tasks. */
+export function migrateTaskStates(state: BoardState, now: string): string[] {
+ if (state.taskStateMigrated) return [];
+ const notices: string[] = [];
+ for (const part of state.tasks) {
+  const parent = state.tasks.find(t => t.id === part.parent);
+  if (!parent) continue;
+  if ((!isSettled(part) && isSettled(parent)) || (OPEN_FOR_REVIEW.has(part.status) && ["review", "waiting"].includes(parent.status))) {
+   makeFollowUp(state, part, parent.id, now); notices.push(`${part.id}: parent ${parent.id} became a follow-up link`);
+  }
+ }
+ let changed = true;
+ while (changed) {
+  changed = false;
+  for (const parent of state.tasks) if (parent.status === "todo" && state.tasks.some(t => t.parent === parent.id && ["in_progress", "review", "waiting", "done"].includes(t.status))) {
+   touchByHarness(state, parent, "in_progress", now); notices.push(`${parent.id}: todo → in_progress`); changed = true;
+  }
+ }
+ for (const task of state.tasks) if (["review", "waiting"].includes(task.status)) {
+  const open = openTaskBlockers(task, state.tasks).map(t => t.id);
+  if (!open.length) continue;
+  setRelated(state, task, [...(task.related ?? []), ...open]);
+  task.blockedBy = task.blockedBy.filter(id => !open.includes(id));
+  touchByHarness(state, task, task.status, now); notices.push(`${task.id}: blockers ${open.join(", ")} became related`);
+ }
+ state.taskStateMigrated = true;
+ return notices;
+}
+
+function closeTaskParts(state: BoardState, task: BoardTask, status: BoardTask["status"], choice: "close" | "follow_up", now: string): string[] {
+ const notices: string[] = [];
+ for (const part of state.tasks.filter(t => t.parent === task.id && !isSettled(t))) {
+  if (choice === "follow_up") { makeFollowUp(state, part, task.id, now); notices.push(`${part.id} kept as a follow-up of ${task.id}.`); }
+  else {
+   notices.push(...closeTaskParts(state, part, status, choice, now));
+   touchByHarness(state, part, status, now);
+   const running = Object.values(state.taskActivity?.[part.id]?.sources ?? {}).filter(s => s.state === "running" && s.actor.kind === "worker").map(s => s.actor.name);
+   notices.push(`${part.id} closed as ${status}.${running.length ? ` Workers still running on ${part.id}: ${running.join(", ")}; stop them or explain why not.` : ""}`);
+  }
+ }
+ return notices;
+}
+
 /** Create a task (no `taskId`) or change one made on `expectedRevision`. */
 export function saveTask(
 	state: BoardState,
@@ -1067,16 +1177,32 @@ export function saveTask(
 		taskId?: string | undefined;
 		expectedRevision?: number | undefined;
 		task: BoardTaskInput;
+  openParts?: "close" | "follow_up" | undefined;
 		author: BoardAuthor;
 		now: string;
 	},
 ): TaskChange {
 	const { task: requested, author, now } = input;
 	const current = state.tasks.find((task) => task.id === input.taskId);
+ if (input.taskId !== undefined) {
+  if (!current) throw unknownTask(input.taskId);
+  if (input.expectedRevision === undefined) throw new ServerError("bad_request", `Changing task ${current.id} needs the revision it was made on`);
+  if (current.revision !== input.expectedRevision) throw conflict("Task", current.id, current.revision, input.expectedRevision);
+ }
 	const parent = requested.parent === undefined ? current?.parent : requested.parent;
 	const foundWhile = requested.foundWhile === undefined ? current?.foundWhile : requested.foundWhile;
 	const fields = parent != null && foundWhile === parent ? { ...requested, foundWhile: null } : requested;
-	const blockedBy = unique(fields.blockedBy);
+	let blockedBy = unique(fields.blockedBy);
+ const notices: string[] = [];
+ const candidate = { ...fields, id: current?.id ?? `T${state.counters.task + 1}`, parent: parent ?? null, blockedBy };
+ if (author !== "user") checkTaskRules(state, candidate, current);
+ const override = author === "user" && ["in_progress", "review"].includes(fields.status) ? openTaskBlockers(candidate, state.tasks).map(t => t.id) : [];
+ if (override.length) {
+  blockedBy = blockedBy.filter(id => !override.includes(id));
+  notices.push(`Open blockers ${override.join(", ")} became related links: the user chose to start ${candidate.id} now.`);
+ }
+ const openParts = current && author === "user" && SETTLED.has(fields.status) && fields.status !== current.status ? state.tasks.filter(t => t.parent === current.id && !isSettled(t)) : [];
+ if (openParts.length && !input.openParts) throw new ServerError("open_parts", `${current!.id} has ${openParts.length} open parts (${openParts.map(t => `${t.id} ${statusWords(t.status)}`).join(", ")}). Choose: close them too, or keep them as follow-ups.`, { taskId: current!.id, parts: openParts.map(t => t.id) });
 	const previous = state.tasks.find((task) => task.id === input.taskId)?.waiting;
 	const note = fields.waitingFor?.trim() ?? previous?.note ?? "";
 	if (fields.status === "waiting" && note === "") throw new ServerError("bad_request", 'Waiting requires a "waiting for…" note (waitingFor).');
@@ -1129,7 +1255,9 @@ export function saveTask(
 		initializeTaskFreshness(state, stored);
 		if (stored.status === "review" || stored.status === "done") noteTaskFact(state, stored.id, { actor: author, kind: "status", reason: `Results empty at ${stored.status}`, at: now });
 		state.updatedAt = now;
-		return { before: null, after: plain(stored) };
+		if (override.length) setRelated(state, stored, [...(stored.related ?? []), ...override]);
+  notices.push(...repairTaskParts(state, now));
+  return { before: null, after: plain(stored), notices };
 	}
 	const existing = state.tasks.find((task) => task.id === input.taskId);
 	if (existing === undefined) throw unknownTask(input.taskId);
@@ -1155,7 +1283,8 @@ export function saveTask(
 	// Left out keeps them; null clears the parent or the origin.
 	if (fields.parent !== undefined) existing.parent = fields.parent;
 	if (fields.foundWhile !== undefined) existing.foundWhile = fields.foundWhile;
-	if (fields.related !== undefined) setRelated(state, existing, fields.related);
+	if (fields.related !== undefined || override.length) setRelated(state, existing, [...(fields.related ?? existing.related ?? []), ...override]);
+ if (openParts.length) notices.push(...closeTaskParts(state, existing, fields.status, input.openParts!, now));
 	if (fields.status !== existing.status) {
 		clockStatus(state, existing, fields.status, now);
 		existing.status = fields.status;
@@ -1168,11 +1297,12 @@ export function saveTask(
 	state.updatedAt = now;
 	if (before.status !== existing.status) {
 		noteTaskFact(state, existing.id, { actor: author, ...(SETTLED.has(before.status) ? { sections: [] } : {}), kind: "status", reason: `stage changed to ${existing.status}`, at: now });
-		if (existing.status === "done") for (const dependent of state.tasks.filter((task) => task.blockedBy.includes(existing.id))) noteTaskFact(state, dependent.id, { actor: author, kind: "blocker_resolved", reason: `${existing.id} resolved`, ref: existing.id, at: now });
+		if (SETTLED.has(existing.status)) for (const dependent of state.tasks.filter((task) => task.blockedBy.includes(existing.id))) noteTaskFact(state, dependent.id, { actor: author, kind: "blocker_resolved", reason: `${existing.id} resolved`, ref: existing.id, at: now });
 	}
 	if (before.status === existing.status && JSON.stringify(before.waiting) !== JSON.stringify(existing.waiting)) noteTaskFact(state, existing.id, { actor: author, kind: "status", reason: "waiting stage changed", at: now });
 	if (before.blockedBy.some((id) => !existing.blockedBy.includes(id)) || (before.blockedReason !== null && existing.blockedReason === null)) noteTaskFact(state, existing.id, { actor: author, kind: "blocker_resolved", reason: "blocker resolved", at: now });
-	return { before, after: plain(existing) };
+	notices.push(...repairTaskParts(state, now));
+ return { before, after: plain(existing), notices };
 }
 
 /** Put the named tasks first, in that order; the others keep their relative order after them. */
@@ -1365,12 +1495,15 @@ export function moveTaskForWorker(
 	input: { key: string; taskId: string; move: WorkerMove; now: string },
 ): TaskChange | undefined {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
-	if (task === undefined || !claimHarnessKey(state, input.key)) return undefined;
-	const { move, now } = input;
+	if (task === undefined) return undefined;
+ const { move, now } = input;
+ if (move.kind === "spawned") refuseOpenBlockers(task, state.tasks);
+ if (!claimHarnessKey(state, input.key)) return undefined;
 	noteTaskFact(state, task.id, { actor: move.kind === "spawned" ? "coordinator" : "worker", kind: move.kind === "spawned" ? "worker_start" : "worker_fail", reason: move.kind === "spawned" ? "work advanced" : "worker failed", at: now });
 	if (move.kind !== "spawned" && isSettled(task)) return undefined;
 	const before = plain(task);
 	if (move.kind === "spawned") {
+  refuseOpenBlockers(task, state.tasks);
 		if (!task.workerIds.includes(move.workerId)) task.workerIds.push(move.workerId);
 		task.blockedReason = null;
 		touchByHarness(state, task, "in_progress", now, "coordinator");
@@ -1378,7 +1511,8 @@ export function moveTaskForWorker(
 		task.blockedReason = move.reason;
 		touchByHarness(state, task, "blocked", now);
 	}
-	return { before, after: plain(task) };
+	const notices = repairTaskParts(state, now);
+ return { before, after: plain(task), notices };
 }
 
 /**
@@ -1407,7 +1541,7 @@ export function recordScheduledReport(
 		coveredEventSeq: task.eventSeq,
 		now: input.now,
 	});
-	if (task.status === "in_progress") touchByHarness(state, task, "review", input.now);
+	if (task.status === "in_progress") { checkTaskRules(state, { ...task, status: "review" }, task); touchByHarness(state, task, "review", input.now); }
 	return { before, after: plain(task) };
 }
 
@@ -1435,7 +1569,8 @@ export function claimTaskForThread(
 			id: task.id,
 		});
 	}
-	if (!claimHarnessKey(state, input.key)) return undefined;
+	refuseOpenBlockers(task, state.tasks);
+ if (!claimHarnessKey(state, input.key)) return undefined;
 	const before = plain(task);
 	task.ownerThreadId = input.threadId;
  state.taskFocus ??= {};
@@ -1443,7 +1578,8 @@ export function claimTaskForThread(
 	noteTaskFact(state, task.id, { actor: "coordinator", kind: "thread_handoff", reason: "thread started work", at: input.now });
 	task.blockedReason = null;
 	touchByHarness(state, task, "in_progress", input.now, "coordinator");
-	return { before, after: plain(task) };
+ const notices = repairTaskParts(state, input.now);
+ return { before, after: plain(task), notices };
 }
 
 /** The title of a schedule's board task: what it is, so the board reads "Scheduled: Nightly check". */
@@ -1558,8 +1694,8 @@ export function taskForEvent(
 
 /** The tasks a change to `done` left with every blocker done: the ones the coordinator can start now. */
 export function unblockedBy(state: Readonly<BoardState>, change: TaskChange): BoardTask[] {
-	if (change.after.status !== "done" || change.before?.status === "done") return [];
-	const done = new Set(state.tasks.filter((task) => task.status === "done").map((task) => task.id));
+	if (!isSettled(change.after) || (change.before && isSettled(change.before))) return [];
+	const done = new Set(state.tasks.filter(isSettled).map((task) => task.id));
 	return state.tasks
 		.filter((task) => !isSettled(task) && task.blockedBy.includes(change.after.id) && task.blockedBy.every((id) => done.has(id)))
 		.map((task) => plain(task));
@@ -1586,7 +1722,7 @@ function clip(text: string, limit: number): string {
 }
 
 export function describeTask(task: BoardTask): string {
-	const parts = [`${task.id} r${task.revision} [${task.status}] ${task.title}${task.archived ? " (archived)" : ""}`];
+	const parts = [`${task.id} r${task.revision} [${task.status}${task.state ? ` · ${task.state.kind === "blocked_by_task" ? `blocked by ${task.state.refs.join(", ")}` : task.state.kind}` : ""}] ${task.title}${task.archived ? " (archived)" : ""}`];
 	if ((task.refs ?? []).length > 0) parts.push(`refs ${task.refs.join(",")}`);
 	if ((task.parent ?? null) !== null) parts.push(`↳${task.parent}`);
 	if ((task.foundWhile ?? null) !== null) parts.push(`found while ${task.foundWhile}`);
@@ -1847,6 +1983,7 @@ export type BoardServiceOptions = {
 	editDebounceMs?: number;
 	taskFreshness?: boolean;
  taskActivity?: boolean;
+ taskState?: boolean;
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
 	threadIsLive?: (threadId: string) => Promise<boolean>;
@@ -1870,6 +2007,7 @@ export class BoardService {
 	#flushing: Promise<void> = Promise.resolve();
 	#waitingTimer: ReturnType<typeof setTimeout> | undefined;
 	#waitingRun: Promise<void> | undefined;
+ #pauseRun: Promise<void> | undefined;
 	#stopped = false;
 	#reportTimer: ReturnType<typeof setTimeout> | undefined;
 	#reportRun: Promise<void> | undefined;
@@ -2127,6 +2265,11 @@ export class BoardService {
 			const state = await openBoard(tx, this.#mainId);
 			state.taskFreshnessEnabled = this.#options.taskFreshness !== false;
    state.taskActivityEnabled = this.#options.taskActivity !== false;
+   state.taskStateEnabled = this.#options.taskState !== false;
+   await this.#change(tx, HARNESS_WRITER, "task-state-migration", (doc, now) => {
+    const notices = migrateTaskStates(doc, now);
+    if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
+   });
 			state.lastReportSweep ??= this.#options.now();
    if (state.taskActivityEnabled) for (const task of state.tasks) {
     const tracking = activityTracking(state, task.id);
@@ -2138,6 +2281,7 @@ export class BoardService {
 		}, BACKGROUND_CONTEXT);
 		await this.reconcileActivity();
   await this.checkWaiting();
+  await this.checkPaused();
 		await this.checkReports();
 	}
 
@@ -2171,8 +2315,10 @@ export class BoardService {
  const ownersBefore = new Map(state.tasks.map(task => [task.id, task.ownerThreadId]));
 		const now = this.#iso();
 		const result = await change(state, now);
+  repairTaskParts(state, now);
   for (const task of state.tasks) if (before.get(task.id) !== task.status) {
    const tracking = activityTracking(state, task.id);
+   if (tracking.status !== task.status) tracking.statusChanges = (tracking.statusChanges ?? 0) + 1;
    tracking.status = task.status;
    tracking.statusSince = now;
   }
@@ -2242,19 +2388,26 @@ export class BoardService {
 
 	/** Create or change a task. A user's `note` (why they moved it, in their words) reaches the coordinator with the change. */
 	async saveTask(
-		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; note?: string | undefined },
+		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 		author: BoardAuthor,
 	): Promise<BoardTask> {
 		const now = this.#iso();
 		const writer = author === "user" ? USER_WRITER : author === "harness" ? HARNESS_WRITER : coordinatorWriter("main");
 		const { note, ...fields } = input;
-		const { change, unblocked } = await this.#commit(writer, (state) => {
-			const saved = saveTask(state, { ...fields, author, now });
-			return { change: saved, unblocked: unblockedBy(state, saved) };
+		const { change, unblocked, other } = await this.#commit(writer, (state) => {
+			const before = new Map(state.tasks.map(t => [t.id, plain(t)]));
+   const saved = saveTask(state, { ...fields, author, now });
+   const other = state.tasks.filter(t => t.id !== saved.after.id && JSON.stringify(before.get(t.id)) !== JSON.stringify(t)).map(t => ({ before: before.get(t.id) ?? null, after: plain(t) }));
+   return { change: saved, unblocked: unblockedBy(state, saved), other };
 		});
-		if (author === "user") this.#recordEdit(change.before, change.after, note);
+		if (author === "user") {
+   this.#recordEdit(change.before, change.after, [note, ...(change.notices ?? [])].filter(Boolean).join(" "));
+   for (const edit of other) this.#recordEdit(edit.before, edit.after);
+  }
 		else this.noticeReview(change);
 		await this.noticeUnblocked(change.after, unblocked);
+  const state = await this.state();
+  for (const edit of other) await this.noticeUnblocked(edit.after, unblockedBy(state, edit));
 		return (await this.get(true)).tasks.find(task => task.id === change.after.id)!;
 	}
 
@@ -2274,7 +2427,7 @@ export class BoardService {
 		for (const [threadId, tasks] of byOwner) {
 			const names = tasks.map((task) => `${task.id} ${JSON.stringify(task.title)}`).join(", ");
 			const one = tasks.length === 1;
-			const content = `${BOARD_PREFIX} ${done.id} ${JSON.stringify(done.title)} is done, so ${names} ${one ? "has all its" : "have all their"} blockers done and can start.`;
+			const content = `${BOARD_PREFIX} ${done.id} ${JSON.stringify(done.title)} is ${done.status}, so ${names} ${one ? "has all its" : "have all their"} blockers closed and can start.`;
 			const suffix = threadId === "main" ? "" : `:${threadId}`;
 			try {
 				const conversation = await this.#conversationOf(threadId);
@@ -2579,11 +2732,17 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 			const state = (value ?? emptyBoardState()) as BoardState;
 			const board = boardView(state, this.#options.now(), false);
 			const encoded = JSON.stringify(board);
-			if (encoded === current) return;
-			current = encoded;
-			onChange(board, openQuestionCount(state));
+			if (encoded !== current) {
+    current = encoded;
+    onChange(board, openQuestionCount(state));
+   }
    if (expiry) clearTimeout(expiry);
-   const due = board.tasks.filter(task => task.activity?.kind === "delivery").map(task => Date.parse(task.activity!.since) + DELIVERY_ACTIVITY_MS).filter(at => at > this.#options.now());
+   const due = [
+    ...(state.pausedNotices?.length ? [this.#options.now() + 1000] : []),
+    ...board.tasks.filter(task => task.activity?.kind === "delivery").map(task => Date.parse(task.activity!.since) + DELIVERY_ACTIVITY_MS),
+    ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(s => s.state === "running") && state.taskActivity?.[task.id]?.deploy?.state !== "active").map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
+   ].filter(at => at > this.#options.now());
+   if (board.tasks.some(task => task.state?.kind === "paused") || state.pausedNotices?.length) void this.checkPaused().catch(error => this.#options.log(`board paused: ${errorMessage(error)}`));
    if (due.length) { expiry = setTimeout(() => publish(watch.value), Math.min(...due) - this.#options.now()); expiry.unref?.(); }
 			this.#armWaiting(state);
 			this.#armReports(state);
@@ -2673,6 +2832,46 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		});
 		return this.#waitingRun;
 	}
+
+ /** Exposed for fake clocks. Admission and delivery use a durable outbox and stable request IDs. */
+ checkPaused(): Promise<void> {
+  if (this.#stopped) return Promise.resolve();
+  if (this.#pauseRun) return this.#pauseRun;
+  this.#pauseRun = this.#nudgePaused().finally(() => { this.#pauseRun = undefined; });
+  return this.#pauseRun;
+ }
+
+ async #nudgePaused(): Promise<void> {
+  const state = await this.state();
+  if (!state.taskStateEnabled) return;
+  const paused = boardView(state, this.#options.now(), true).tasks.filter(t => t.state?.kind === "paused");
+  if (paused.some(t => state.taskActivity?.[t.id]?.pauseNudgedEpisode !== pauseEpisode(t, state.taskActivity?.[t.id])) && !state.pausedNotices?.length) {
+   await this.#commit(HARNESS_WRITER, doc => {
+    for (const task of boardView(doc, this.#options.now(), true).tasks.filter(t => t.state?.kind === "paused")) {
+     const tracking = activityTracking(doc, task.id);
+     const episode = pauseEpisode(task, tracking);
+     if (tracking.pauseNudgedEpisode === episode || doc.pausedNotices?.some(n => n.taskId === task.id && n.episode === episode)) continue;
+     doc.pausedNotices ??= [];
+     doc.pausedNotices.push({ taskId: task.id, episode, owner: task.ownerThreadId ?? "main" });
+    }
+   });
+  }
+  for (const notice of (await this.state()).pausedNotices ?? []) {
+   const latest = await this.state();
+   const task = latest.tasks.find(t => t.id === notice.taskId);
+   const valid = task && pauseEpisode(task, latest.taskActivity?.[task.id]) === notice.episode && boardView(latest, this.#options.now(), true).tasks.find(t => t.id === task.id)?.state?.kind === "paused";
+   if (valid) {
+    const target = this.knowsThread(notice.owner) ? notice.owner : "main";
+    const conversation = await this.#conversationOf(target);
+    await conversation.submit({ type: "input", content: `${BOARD_PREFIX} ${notice.taskId} is in progress but nothing has run on it for 15 minutes. Move it to review if it is finished, back to To do if it is not being worked on, or ask the user.`, whenBusy: "followUp", requestId: `board-paused:${notice.taskId}:${createHash("sha256").update(notice.episode).digest("hex")}` }, BACKGROUND_CONTEXT);
+    await this.#woke(target);
+   }
+   await this.#commit(HARNESS_WRITER, doc => {
+    if (valid) activityTracking(doc, notice.taskId).pauseNudgedEpisode = notice.episode;
+    doc.pausedNotices = (doc.pausedNotices ?? []).filter(n => n.taskId !== notice.taskId || n.episode !== notice.episode);
+   });
+  }
+ }
 
 	async #returnWaiting(): Promise<void> {
 		const state = await this.state();
@@ -2839,6 +3038,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		await this.audit?.stop();
 		await this.#reportRun;
 		await this.#waitingRun;
+  await this.#pauseRun;
 		await this.flushEdits();
 	}
 }
@@ -2938,7 +3138,7 @@ const BoardToolParameters = Type.Object({
 	parent: Type.Optional(
 		Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
 			description:
-				"add_task, update_task: the task this is a subtask of, for a planned piece of a bigger task. A loose link: the parent may go to review or close with subtasks open, and subtasks stay their own cards. At most one; no cycles. update_task: null removes it.",
+				"add_task, update_task: the task this is a subtask of, for a planned piece of a bigger task. A required part: the parent goes to review/waiting only when its parts are done, in review or waiting. Follow-ups use foundWhile instead. At most one; no cycles. update_task: null removes it.",
 		}),
 	),
 	foundWhile: Type.Optional(
@@ -2985,7 +3185,7 @@ function createBoardExtension(service: BoardService): Extension {
 			"record choices worth keeping with `decide`. The user edits it too; their edits arrive as `[board]` messages. " +
 			"Every update names the row's revision from your last list, so you never overwrite a newer edit. The board is shared by every thread of the project: " +
 			"claim a task before you work on it, so no other thread takes it too, and release or hand it over when you stop. " +
-			"Tasks link to each other, each link shown from both sides: a subtask (`parent`, loose), the task a new one was found while working on (`foundWhile`), `related`, and `blockedBy`. " +
+			"Tasks link to each other, each link shown from both sides: a required part (`parent`), the task a new one was found while working on (`foundWhile`), `related`, and `blockedBy`. " +
 			"A planned piece of a bigger task gets parent only. foundWhile is for unplanned tasks discovered while working on another task, never a duplicate of parent. " +
 			"The user's messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done.",
 		parameters: BoardToolParameters,

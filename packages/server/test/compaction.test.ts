@@ -499,7 +499,7 @@ describe("coordinator summary", () => {
 
 		// (3) The compact board view from the document.
 		expect(summary).toContain("## Board");
-		expect(summary).toContain("T1 r1 [in_progress] Read the release notes");
+		expect(summary).toContain("T1 r1 [in_progress · working] Read the release notes");
 		expect(summary).toContain("To do, newest first:\nT2 Write the changelog");
 		expect(summary).toContain("through the `board` tool");
 

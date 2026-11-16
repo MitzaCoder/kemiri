@@ -2343,6 +2343,87 @@ seeded from the existing local ok deploy status (including unchanged verificatio
 its serving release; targets with no prior verified journal baseline remain unattributed for that
 initial attempt. Non-Git-backed jj deployment attribution remains deferred.
 
+### Task states (T208 / D86)
+
+Stage 1 (T209) adds server rules and optional protocol fields, not client grouping changes.
+The seven stored statuses stay. Feature `task-state` advertises optional `BoardTask.state`:
+`{ group, kind, since: ISO string, refs: string[] }`. This is derived at emission, never
+stored on a task. Groups are `needs_you`, `in_progress`, `waiting`, `todo`, `closed`.
+First match wins, using the same blocking-question, run and deployment facts as activity:
+
+1. Stored done/dropped → closed/done|dropped, even with lingering failures or work.
+2. Activity failure (deployment or worker/thread), or stored blocked with a reason or
+   without any open task blocker → needs_you/failed. Bare blocked with open blockers uses rule 5.
+3. Open blocking question → needs_you/answer_needed. Questions default blocking, warnings
+   nonblocking; `blocksWork` overrides either. Refs are question IDs.
+4. Running task-focused worker/thread/coordinator or deployment → in_progress/working.
+5. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
+6. Stored review → needs_you/review.
+7. Stored waiting → waiting/waiting_outside.
+8. Stored in_progress without work → in_progress/working until 15 minutes quiet, then
+   in_progress/paused. Quiet begins at max(last run ended, stored status began); paused
+   `since` is that time plus 15 minutes. Unknown sources are not live work.
+9. Stored todo → todo/todo.
+
+Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
+states use the stored status start, waiting record or settlement timestamp. The coordinator
+board tool keeps stored status visible, e.g. `[in_progress · paused]`, `[todo · blocked by T7]`.
+The activity line remains available for extra detail, independent of this grouping contract.
+A shared delivery/pause expiry timer republishes at the boundary; no polling writes or
+per-second writes. One `[board]` follow-up nudges the owning coordinator (else main):
+“T12 is in progress but nothing has run on it for 15 minutes. Move it to review if it is
+finished, back to To do if it is not being worked on, or ask the user.” The durable outbox
+and episode-derived request ID deduplicate crash replay. The admitted/nudged episode survives
+restart; overdue pauses nudge once. Only a status change or new running work starts another
+episode; editing prose does not. `BoardService.checkPaused()` supports injected clocks.
+
+**Required direct parts.** A parent cannot be ahead of its parts. An agent cannot move it
+to review/waiting while any direct part is todo/in_progress/blocked. Parts already in
+review/waiting/done/dropped allow the parent to go to review. An agent cannot add any open
+part under a review/waiting/done/dropped parent. Follow-up work uses `foundWhile` instead.
+Starting a part pulls a todo parent into in_progress, level by level. Reopening a part
+pulls a review/waiting parent back to in_progress; under a closed parent it becomes a
+follow-up instead. Repairs are harness moves, with timeline snapshots, and the tool/user
+board notice explains them. Owner writes that would leave a review/waiting parent ahead
+of its parts are repaired back to in_progress too.
+
+**Close choice.** User `board.task.save` has optional `openParts: "close" | "follow_up"`.
+Closing a parent with any open direct part (including review/waiting) without it returns
+error code `open_parts`, with `data: { taskId, parts: task IDs[] }`. Old clients display the
+message; current web already surfaces it through its normal failed-save alert/notice.
+`close` applies the same done/dropped status to open parts recursively. `follow_up` detaches
+only open direct parts, setting foundWhile to the parent; an existing different foundWhile
+is preserved and related links the parent instead. Every link/move is recorded in history.
+The coalesced `[board]` notice names closed parts and workers still running on them, so the
+coordinator can stop them or explain why not. Agents still cannot close tasks.
+
+**Blockers.** Both done and dropped resolve a blocker and trigger `noticeUnblocked` once.
+Agents cannot move to in_progress/review with an open blocker, unless that same write removes
+it. Adding an open blocker while in_progress/review/waiting requires moving to todo in the
+same call. Worker spawn/thread start perform the same check inside their transaction, before
+persisting a worker/thread or moving the task. Agent blocked requires blockedReason; harness
+failure moves already supply one. User start-now/review overrides turn open blockers into
+symmetric related links and explain this in the `[board]` notice; resolved blockers stay.
+
+Refusal templates (IDs/statuses and the list of direct parts vary; code is `bad_request`
+except for the close-choice error):
+
+- `T5 can't go to review: its parts T6 (to do) and T7 (in progress) are not finished. Finish them first. If one is a follow-up rather than a part of T5, make it one: update_task id=T6 parent=null foundWhile=T5.`
+- `T6 can't become an open part of T5 (in review). Use foundWhile=T5 for follow-up work, or move T5 back to in_progress first.` For a done/dropped parent the last alternative is omitted.
+- `T5 has 2 open parts (T6 to do, T7 in review). Choose: close them too, or keep them as follow-ups.` (`open_parts`)
+- `T8 is blocked by T7 (in progress). Wait for T7 to close, or if T8 no longer needs it, remove the blocker in the same call: update_task id=T8 status=in_progress blockedBy=[]`
+- `T8 can't add an open blocker while in progress. Move it to todo in the same call: update_task id=T8 status=todo blockedBy=[T7].`
+- `Status blocked is for a failure or being stuck; give blockedReason. To wait for another task, keep status todo and set blockedBy.`
+
+**One-time migration.** On board open, a durable `taskStateMigrated` marker guards a lossless
+transaction over all tasks, including archived ones. Open parts of done/dropped parents,
+and todo/in_progress/blocked parts of review/waiting parents, become follow-ups (or related
+when another origin is occupied). A todo parent with a part in in_progress/review/waiting/done
+moves to in_progress, climbing level by level. Open blockers on review/waiting tasks become
+related links. Touched tasks get link events/status snapshots and a server log summarizes
+the migration. Nothing is deleted, no title/description/report is rewritten, and questions
+and decisions stay intact. Reopening the board does not repeat it.
+
 ### Waiting tasks (D29, T42)
 
 - `waiting` means the work is finished but something outside the user's control, named by the user, remains
@@ -2964,10 +3045,10 @@ its own list, and a timeline; the description stays the original ask and the rep
 
 - **Four kinds of link, each shown from both sides.** Stored on the task that declares it (`parent`, `foundWhile`,
   `related`, `blockedBy`); the board view derives the other side (`subtasks`, `ledTo`, `blocks`).
-  - `subtask of` / `has subtasks` (`parent`): loose. It is a link and nothing more: the parent shows its subtasks and
-    their progress (`subtaskCount`, "2/5 done"; dropped subtasks are left out of the total), but a parent can go to
-    review or close with subtasks open, and subtasks stay their own cards. At most one parent; no cycles (also checked
-    through any depth).
+  - `subtask of` / `has subtasks` (`parent`): a required part. The parent shows direct-part progress
+    (`subtaskCount`, "2/5 done"; dropped parts are left out), and cannot go to review/waiting before its parts
+    are done, in review or waiting. Closing with open parts requires the user's explicit close/follow-up choice.
+    At most one parent; no cycles through any depth. See "Task states (T208 / D86)" for rules and migration.
   - `found while working on` / `led to` (`foundWhile`): the origin of an unplanned task discovered during work on
     another. At most one; no cycles. A planned piece gets `parent` only (T199). If both point at the same task, keep
     the parent: saves and parent links remove the duplicate origin, and an origin link to the existing parent is
@@ -3933,9 +4014,11 @@ detail).
   `refs` is optional on input: a save without it keeps the task's refs (so the Android app, which does not know them,
   never clears them), and tasks saved before refs read as none. How refs link and show their state: "Ticket and pull
   request links" above.
-- The coordinator changes it with a `board` tool. The harness changes it itself: a worker spawned for a task moves it
-  to `in_progress`, its report to `review`, its failure to `blocked` with the reason; the coordinator marks `done`
-  after merging. When a task's blockers are all done, the harness tells the coordinator (it never spawns on its own).
+- The coordinator changes it with a `board` tool; only the user closes it. A worker spawn moves its task
+  to `in_progress`, a failure to `blocked` with a reason; its report leaves status for the coordinator to review.
+  `blocked` means failure or being stuck and requires blockedReason for agent writes. Waiting on another task
+  uses todo + blockedBy, derived as Waiting; done or dropped blockers free it and notify the coordinator.
+  Open blockers refuse agent start/review/spawn; user start-now overrides them to related links.
   Write scopes only warn, and only between running `shared` workers; workspace workers cannot collide that way.
 - The user edits it in the app (add, edit, reorder, drop tasks, move them between columns; answer questions). Every
   row has a compare-and-set `revision`, so a stale edit is refused instead of overwriting a newer one. The user's

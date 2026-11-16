@@ -340,7 +340,7 @@ describe("board and the coordinator", () => {
 		// Only the user closes a task.
 		expect(outputs[1]).toContain("Only the user closes a task");
 		expect(outputs[2]).toContain("Only the user closes a task");
-		expect(outputs[3]).toContain("T1 r2 [in_progress] Ship it | 0m in progress");
+		expect(outputs[3]).toContain("T1 r2 [in_progress · working] Ship it | 0m in progress");
 		const board = await getBoard(client, projectId);
 		expect(board.tasks[0]).toMatchObject({
 			id: "T1",
@@ -372,6 +372,6 @@ describe("board and the coordinator", () => {
 		await view.waitForView((value) => value.entries.some((entry) => entryText(entry) === "finished"));
 
 		expect((await getBoard(client, projectId)).tasks[0]).toMatchObject({ status: "in_progress", refs: ["#1234", "#1250"] });
-		expect(listed).toContain("T1 r3 [in_progress] Complete the example change | refs #1234,#1250");
+		expect(listed).toContain("T1 r3 [in_progress · working] Complete the example change | refs #1234,#1250");
 	});
 });

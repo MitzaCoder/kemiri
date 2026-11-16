@@ -1,5 +1,16 @@
 # Continue
 
+## T209: task-state stage 1 (server)
+
+Optional `task-state` state field and save `openParts` close/follow-up choice; `open_parts` error.
+Server enforces required direct parts/blockers, repairs parent moves and preserves follow-ups.
+Done/dropped blockers free tasks. One-time lossless board migration includes archived tasks.
+Paused at 15 minutes, one durable coordinator nudge per work/status episode; shared expiry timer.
+Current web already displays save errors; no screen changes. Android DTOs regenerated/compiled.
+Full contract/refusal templates: DESIGN.md “Task states (T208 / D86)”.
+Checks: isolated root 2,763; typecheck; web 1,163/check/build; Android DTO check/compile; public hygiene.
+No flaky retries, screen changes, push, deployment or bookmark movement.
+
 ## T212: HTML modal scroll flicker
 
 HTML alone now uses a dim-only backdrop, overriding the shared supports-filter

@@ -2366,6 +2366,7 @@ data class RefDetailsJiraParent(
 
 @Serializable
 data class BoardTask(
+    val `state`: BoardTaskState? = null,
     val `activity`: BoardTaskActivity? = null,
     val `eventSeq`: Long? = null,
     val `id`: String,
@@ -2467,6 +2468,7 @@ data class BoardGetRequest(
 @Serializable
 data class BoardTaskSaveRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.task.save",
+    val `openParts`: String? = null,
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `taskId`: String? = null,
@@ -2503,6 +2505,7 @@ data class BoardGetResponse(
 @Serializable
 data class BoardTaskSaveResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.task.save",
+    val `openParts`: String? = null,
     val `id`: String,
     val `task`: BoardTask
 )
@@ -2562,6 +2565,14 @@ data class BoardReportStaleResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.report.stale",
     val `id`: String,
     val `task`: BoardTask
+)
+
+@Serializable
+data class BoardTaskState(
+    val `group`: String,
+    val `kind`: String,
+    val `since`: String,
+    val `refs`: List<String>
 )
 
 @Serializable

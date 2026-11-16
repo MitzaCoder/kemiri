@@ -64,6 +64,8 @@ import {
 	type BoardService,
 	HARNESS_WRITER,
 	claimTaskForThread,
+ linksOfBoard,
+ logLinkChanges,
  openTaskHistory,
 	openBoard,
 	snapshotStatusChanges,
@@ -244,6 +246,8 @@ ${workspace} Never edit the project checkout at ${project.path}: it is main's.
 
 ${starter} Only your summary (thread_finish) reaches main, so put everything main needs in it.
 
+A subtask is a required part of its parent; the parent goes to review/waiting only when its parts are done, in review or waiting. Follow-ups use foundWhile; wait for another task with status todo and blockedBy (freed when it closes), while blocked requires blockedReason for failure or being stuck.
+
 Ending a turn does not end the thread. To wait for a worker's report, an answer to a board question or a message, end your turn: you resume when it arrives. Call thread_finish once, when the work is done or cannot go on.${task}`;
 }
 
@@ -366,7 +370,7 @@ export type ThreadStartInput = {
 	id?: string;
 };
 
-export type ThreadStartResult = { ok: true; record: ThreadRecord; existed: boolean } | { ok: false; message: string };
+export type ThreadStartResult = { ok: true; record: ThreadRecord; existed: boolean; notices?: string[] } | { ok: false; message: string };
 
 export type ScheduledThreadInput = {
 	scheduleId: string;
@@ -888,7 +892,7 @@ export class ThreadService {
 		}
 		const checkIn = input.onFinish === "review" ? await this.#options.workers.checkInNeeded() : false;
 		const title = input.title.trim().slice(0, 120) || id;
-		const record = await commit(async (tx) => {
+		const { record, notices } = await commit(async (tx) => {
 			// Reads before the first write: a transaction may not read tables after it.
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
 			const workers = await tx.doc(WorkersDoc, this.#mainId);
@@ -897,9 +901,11 @@ export class ThreadService {
 			const now = new Date(this.#options.now()).toISOString();
 			const board = await openBoard(tx, this.#mainId);
 			const before = statusesOf(board);
+   const linksBefore = linksOfBoard(board);
 			const taskId =
 				input.taskId ?? taskForSchedule(board, { scheduleId: input.scheduleId as string, title, now }).after.id;
-			claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, now });
+			const move = claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, now });
+   await logLinkChanges(tx, this.#mainId, board, linksBefore, { by: HARNESS_WRITER, at: now });
    const task = board.tasks.find(task => task.id === taskId)!;
    const history = await openTaskHistory(tx, this.#mainId, taskId);
    upsertTimelineFact(history, task, { id: timelineId(taskId, `claim:${input.key}`), at: now, endAt: now, kind: "milestone", group: "work", source: "ownership", outcome: "claimed", label: `Claimed by ${id}`, by: HARNESS_WRITER });
@@ -956,13 +962,13 @@ export class ThreadService {
 				background,
 			);
 			await this.#options.workers.startCheckIn(tx, workers, this.#mainId, checkIn);
-			return JSON.parse(JSON.stringify(created)) as ThreadRecord;
+			return { record: JSON.parse(JSON.stringify(created)) as ThreadRecord, notices: move?.notices ?? [] };
 		});
 		// The kickoff is a background task; outside a run nothing would pick it up without this.
 		this.#options.harness.resume();
 		await this.#watch(record);
 		this.#changed();
-		return { ok: true, record, existed: false };
+		return { ok: true, record, existed: false, notices };
 	}
 
 	/**
@@ -1367,7 +1373,7 @@ function createThreadStartExtension(service: ThreadService): Extension {
 			return toolText(
 				`Started background thread "${record.id}" on ${record.model.provider}/${record.model.modelId}, working in ${record.checkout}. ` +
 					`It works on its own: its summary arrives as "[thread ${record.id} finished]" (or "[thread ${record.id} failed: ...]"). ` +
-					"Look in with thread_peek, steer it with thread_send, stop it with thread_stop; keep going meanwhile.",
+					`Look in with thread_peek, steer it with thread_send, stop it with thread_stop; keep going meanwhile.${started.notices?.length ? ` ${started.notices.join(" ")}` : ""}`,
 				{ details },
 			);
 		},

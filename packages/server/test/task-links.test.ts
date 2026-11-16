@@ -212,9 +212,9 @@ describe("task links", () => {
 		]);
 		// With the archive included they are tasks and nothing is left to name.
 		expect(boardView(state, later, true).archivedLinks).toBeUndefined();
-		// A new link to a closed task is allowed.
-		const fresh = saveTask(state, { task: input("New", { foundWhile: "T3", parent: "T2" }), author: "coordinator", now: T0 }).after;
-		expect(fresh).toMatchObject({ foundWhile: "T3", parent: "T2" });
+		// Origin and related links to a closed task remain allowed; an open required part is refused.
+		const fresh = saveTask(state, { task: input("New", { foundWhile: "T3", related: ["T2"] }), author: "coordinator", now: T0 }).after;
+		expect(fresh).toMatchObject({ foundWhile: "T3", related: ["T2"], parent: null });
 		const full = describeTaskInFull(board.tasks[0] as BoardTask, board, []);
 		expect(full).toContain("has subtasks: T2 [done] Old child (archived)");
 		expect(full).toContain("found while working on: T3 [dropped] Origin (archived)");
@@ -495,9 +495,9 @@ describe("a user's message about a task", () => {
 		expect(results[9]).toBe("Unlinked: T4 was subtask of T3.");
 
 		const list = results[10] as string;
-		expect(list).toContain("T1 r1 [todo] Ship the sheet | led to T2 | 1 subtask (0 done) | related T2");
-		expect(list).toContain("T2 r1 [todo] Dark mode bug | found while T1 | related T1,T3");
-		expect(list).toContain("T3 r1 [todo] Polish | ↳T1 | related T2");
+		expect(list).toContain("T1 r1 [todo · working] Ship the sheet | led to T2 | 1 subtask (0 done) | related T2");
+		expect(list).toContain("T2 r1 [todo · todo] Dark mode bug | found while T1 | related T1,T3");
+		expect(list).toContain("T3 r1 [todo · todo] Polish | ↳T1 | related T2");
 		const shown = results[11] as string;
 		expect(shown).toContain("Links:");
 		expect(shown).toContain("has subtasks: T3 [todo] Polish");

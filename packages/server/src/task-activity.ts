@@ -1,4 +1,4 @@
-import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion } from "@kemiri/protocol";
+import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState } from "@kemiri/protocol";
 
 /** Durable run identities, never worker names alone. Deployment facts have separate typed slots. */
 export type TaskActivitySource = {
@@ -11,9 +11,11 @@ export type TaskActivitySource = {
 };
 export type TaskActivityTracking = {
  sources: Record<string, TaskActivitySource>;
+ pauseNudgedEpisode?: string;
  lastEndedAt?: string;
  status?: BoardTask["status"];
  statusSince?: string;
+ statusChanges?: number;
  feedback?: { id: string; at: string }[];
  delivery?: { text: string; at: string; refs: string[]; count: number };
  deploy?: { state: "failed" | "active" | "unknown"; text: string; since: string; refs: string[] };
@@ -33,7 +35,7 @@ export function taskActivity(task: BoardTask, questions: readonly BoardQuestion[
  if (deploy?.state === "failed") return make("failure", deploy.text, deploy.since, deploy.refs);
  const failure = sources.find(s => s.state === "failed");
  if (failure) return make("failure", `${failure.actor.name} failed${failure.failure ? `: ${failure.failure.replace(/\s+/g, " ").slice(0, 160)}` : ""}`, failure.since, [failure.actor.id], failure.actor);
- const blocking = questions.filter(q => q.taskId === task.id && q.status === "open" && (q.blocksWork ?? q.kind !== "warning")).sort((a,b) => a.askedAt.localeCompare(b.askedAt) || a.id.localeCompare(b.id));
+ const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("question", `Waiting for your answer to ${blocking[0].id}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}${workers.length ? ` · ${workers.length} worker${workers.length === 1 ? "" : "s"} still running` : ""}`, blocking[0].askedAt, blocking.map(q => q.id), undefined, blocking.length);
  if (deploy?.state === "active" && tracking?.deployUnknownSince) return make("unknown", "Status unknown", tracking.deployUnknownSince, deploy.refs);
  if (deploy?.state === "active") return make("deploy", deploy.text, deploy.since, deploy.refs);
@@ -81,4 +83,46 @@ export function setActivityPhase(tracking: TaskActivityTracking, id: string, pha
  if (short) source.phase = short;
  else delete source.phase;
  source.since = at;
+}
+
+export const TASK_PAUSED_MS = 15 * 60 * 1000;
+
+export function blockingTaskQuestions(task: BoardTask, questions: readonly BoardQuestion[]): BoardQuestion[] {
+ return questions.filter(q => q.taskId === task.id && q.status === "open" && (q.blocksWork ?? q.kind !== "warning")).sort((a, b) => a.askedAt.localeCompare(b.askedAt) || a.id.localeCompare(b.id));
+}
+
+export function openTaskBlockers(task: Pick<BoardTask, "blockedBy">, tasks: readonly BoardTask[]): BoardTask[] {
+ return task.blockedBy.flatMap(id => { const blocker = tasks.find(t => t.id === id); return blocker && !["done", "dropped"].includes(blocker.status) ? [blocker] : []; });
+}
+
+export function taskQuietSince(task: BoardTask, tracking: TaskActivityTracking | undefined): string {
+ return [tracking?.lastEndedAt, tracking?.statusSince ?? task.updatedAt].filter((at): at is string => !!at).sort().at(-1)!;
+}
+
+/** One shared state, first match wins. Facts are the same ones used by activity. */
+export function taskState(task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number): BoardTaskState {
+ const since = tracking?.statusSince ?? task.updatedAt;
+ const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs });
+ if (task.status === "done" || task.status === "dropped") return make("closed", task.status, task.settledAt ?? since);
+ const activity = taskActivity(task, questions, tasks, tracking, now);
+ const blockers = openTaskBlockers(task, tasks);
+ if (activity.kind === "failure") return make("needs_you", "failed", activity.since, activity.refs);
+ if (task.status === "blocked" && (task.blockedReason?.trim() || !blockers.length)) return make("needs_you", "failed");
+ const blocking = blockingTaskQuestions(task, questions);
+ if (blocking[0]) return make("needs_you", "answer_needed", blocking[0].askedAt, blocking.map(q => q.id));
+ const live = Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
+ if (live[0] || tracking?.deploy?.state === "active") return make("in_progress", "working", [live[0]?.since, tracking?.deploy?.state === "active" ? tracking.deploy.since : undefined].filter((at): at is string => !!at).sort()[0]!, [...live.map(s => s.actor.id), ...(tracking?.deploy?.state === "active" ? tracking.deploy.refs : [])]);
+ if (blockers.length) return make("waiting", "blocked_by_task", since, blockers.map(t => t.id));
+ if (task.status === "review") return make("needs_you", "review");
+ if (task.status === "waiting") return make("waiting", "waiting_outside", task.waiting?.since ?? since);
+ if (task.status === "in_progress") {
+  const quiet = taskQuietSince(task, tracking);
+  const paused = now - Date.parse(quiet) >= TASK_PAUSED_MS;
+  return make("in_progress", paused ? "paused" : "working", paused ? new Date(Date.parse(quiet) + TASK_PAUSED_MS).toISOString() : quiet);
+ }
+ return make("todo", "todo");
+}
+
+export function pauseEpisode(task: BoardTask, tracking: TaskActivityTracking | undefined): string {
+ return [String(tracking?.statusChanges ?? 0), tracking?.statusSince ?? task.updatedAt, taskQuietSince(task, tracking), ...Object.values(tracking?.sources ?? {}).map(s => s.actor.id).sort()].join("|");
 }

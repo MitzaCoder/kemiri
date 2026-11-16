@@ -195,7 +195,17 @@ export const BoardTaskActivitySchema = Type.Object({
 });
 export type BoardTaskActivity = Static<typeof BoardTaskActivitySchema>;
 
+/** task-state: derived at emission, never persisted on the task. */
+export const BoardTaskStateSchema = Type.Object({
+ group: Type.Union([Type.Literal("needs_you"), Type.Literal("in_progress"), Type.Literal("waiting"), Type.Literal("todo"), Type.Literal("closed")]),
+ kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
+ since: Type.String(),
+ refs: Type.Array(Type.String()),
+});
+export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
+
 export const BoardTaskSchema = Type.Object({
+ state: Type.Optional(BoardTaskStateSchema),
  activity: Type.Optional(BoardTaskActivitySchema),
 	eventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Persisted per-task sequence of meaningful facts. Pass the value read by show_task as coveredEventSeq when rewriting; never use a newer unread value." })),
 
@@ -217,7 +227,7 @@ export const BoardTaskSchema = Type.Object({
 	blockedReason: Type.Union([Type.String(), Type.Null()], { description: "Why it is blocked, besides its dependencies." }),
 	parent: Type.Optional(
 		Type.Union([Type.String(), Type.Null()], {
-			description: "The task this is a subtask of (a loose link), nothing follows from it. At most one; never a cycle. Absent on tasks saved before links.",
+			description: "The task this is a required part of; the parent cannot be ahead of its parts. At most one; never a cycle. Absent on tasks saved before links.",
 		}),
 	),
 	foundWhile: Type.Optional(
@@ -407,6 +417,7 @@ export type BoardGetRequest = Static<typeof BoardGetRequestSchema>;
 /** Create a task (no `taskId`), or change one made on `expectedRevision`. */
 export const BoardTaskSaveRequestSchema = Type.Object({
 	type: Type.Literal("board.task.save"),
+ openParts: Type.Optional(Type.Union([Type.Literal("close"), Type.Literal("follow_up")], { description: "Required when closing a parent with open direct parts; otherwise error open_parts. Close recursively, or preserve direct parts as follow-ups." })),
 	id: RequestIdSchema,
 	projectId: ProjectIdSchema,
 	taskId: Type.Optional(Type.String({ minLength: 1 })),
@@ -505,6 +516,7 @@ export type BoardGetResponse = Static<typeof BoardGetResponseSchema>;
 
 export const BoardTaskSaveResponseSchema = Type.Object({
 	type: Type.Literal("board.task.save"),
+ openParts: Type.Optional(Type.Union([Type.Literal("close"), Type.Literal("follow_up")], { description: "Required when closing a parent with open direct parts; otherwise error open_parts. Close recursively, or preserve direct parts as follow-ups." })),
 	id: RequestIdSchema,
 	task: BoardTaskSchema,
 });

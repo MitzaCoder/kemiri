@@ -13,7 +13,7 @@ const START = Date.parse("2026-11-12T12:00:00.000Z");
 const at = (ms = 0) => new Date(START + ms).toISOString();
 function fixture(status: BoardTask["status"] = "in_progress") {
  const state = emptyBoardState(); state.taskActivityEnabled = true;
- saveTask(state, { task: { title: "Card view", description: "", acceptance: null, status, blockedBy: [], blockedReason: null, writeScopes: [], ...(status === "waiting" ? { waitingFor: "external review" } : {}) }, author: "coordinator", now: at() });
+ saveTask(state, { task: { title: "Card view", description: "", acceptance: null, status, blockedBy: [], blockedReason: null, writeScopes: [], ...(status === "waiting" ? { waitingFor: "external review" } : {}) }, author: "user", now: at() });
  return state;
 }
 function source(name = "fern", since = at(1), threadId = "main", conversationId = 2): TaskActivitySource {
