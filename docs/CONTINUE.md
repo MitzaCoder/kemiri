@@ -1,5 +1,29 @@
 # Continue
 
+## T217 / D88: Android artifact review passes
+
+Android now collects HTML selection/block comments and native Markdown/text/Source
+paragraph picks with Clarify, Change, Show differently, Cut and Keep, optional notes,
+edit/remove and an overall note. Material 3 bottom sheets hold composition and the
+counter-opened tray; Back closes the sheet first. Reviews stay device-local per
+backend/project/artifact version, clear after send/draft, and survive viewer/theme
+recreation. Unsaved comment composition stays visit-local. HTML uses on-demand
+`evaluateJavascript` and pick polling only: no bridge, origin or permission change.
+Task-linked reviews send one main feedback message with taskId/keepDraft; others
+stay in their source chat. Draft append preserves existing text/quotes/images and
+focuses the destination composer through the normal draft cache/sync seam.
+
+Proof index `mwjssb7x-690c71fc1e` links 17 screenshots and recording
+`mwjsqk9d-7b7e1e9efd`: emulator-only light/dark HTML before/after, selection and
+chart intents, two-comment tray, one accepted T1/F1 message, native Markdown/text,
+edit/remove, theme restoration and append to an existing draft. The synthetic
+provider had no queued reply; its later model error is not a send failure.
+Checks pass: 1,030 JVM tests (two skipped; 13 review tests), assembleDebug,
+lintDebug (zero errors, 51 warnings: 49 existing, two KTX suggestions), root
+typecheck and external-denylist/Gitleaks checks. Formatter tests read the shared
+web JSON fixture directly and compare UTF-8 bytes. No TS changed, so root/web
+tests and web build were not required by the feature brief. No push/main move.
+
 ## T216 / D88: web artifact review passes
 
 HTML, Markdown, text and Source viewers now collect intent/note comments in an

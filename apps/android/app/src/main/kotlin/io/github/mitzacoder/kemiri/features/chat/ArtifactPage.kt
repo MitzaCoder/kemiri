@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -162,7 +164,7 @@ internal fun artifactLinkIntent(url: String): Intent? {
  */
 @SuppressLint("ClickableViewAccessibility") // The listener never consumes events; WebView keeps native click/accessibility handling.
 @Composable
-internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequests: Boolean = false, hostControls: Boolean = false, onPrintReady: ((() -> Unit)?) -> Unit = {}) {
+internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequests: Boolean = false, hostControls: Boolean = false, onPrintReady: ((() -> Unit)?) -> Unit = {}, reviewRead: Int = 0, reviewPicking: Boolean = false, onReviewSelection: (ArtifactSelection?) -> Unit = {}) {
     val context = LocalContext.current
     val colors = Jarvis.colors
     val document = artifactPageDocument(html, colors.dark, artifactThemeTokens(colors), blockRequests, !hostControls)
@@ -215,6 +217,21 @@ internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequ
     LaunchedEffect(webView, document) {
         // No base URL: the document has no origin and no cookies, as a sandboxed frame's.
         webView.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
+    }
+    val selectionCallback = rememberUpdatedState(onReviewSelection)
+    LaunchedEffect(webView, reviewRead) {
+        if (reviewRead > 0) webView.evaluateJavascript(ARTIFACT_REVIEW_READ) { selectionCallback.value(decodeArtifactSelection(it)) }
+    }
+    LaunchedEffect(webView, reviewPicking) {
+        if (reviewPicking) {
+            webView.evaluateJavascript(ARTIFACT_REVIEW_READ) { webView.evaluateJavascript(ARTIFACT_REVIEW_PICK, null) }
+            while (true) {
+                delay(300)
+                webView.evaluateJavascript(ARTIFACT_REVIEW_READ) { decoded ->
+                    decodeArtifactSelection(decoded)?.takeIf { it.text.isNotEmpty() }?.let { selectionCallback.value(it) }
+                }
+            }
+        } else webView.evaluateJavascript(ARTIFACT_REVIEW_CANCEL_PICK, null)
     }
     AndroidView(factory = { webView }, modifier = modifier.fillMaxWidth())
 }

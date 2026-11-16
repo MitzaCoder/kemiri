@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import androidx.compose.ui.focus.focusRequester
+
 import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,6 +66,10 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val android = LocalContext.current
     // What the composer holds (text, task, quotes, images) is the chat's draft: kept on this device and on the backend.
     val chatDraft = rememberChatDraft(context)
+    val reviewFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(chatDraft.reviewFocus) {
+        if (chatDraft.reviewFocus) { reviewFocus.requestFocus(); chatDraft.reviewFocus = false }
+    }
     // Typing on the soft keyboard never reaches the activity's key dispatch; the field says it instead.
     val notificationCenter = LocalNotificationCenter.current
     var draftValue by chatDraft::value
@@ -383,7 +389,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 sendEnabled = (draft.isNotBlank() || images.isNotEmpty() || quotes.isNotEmpty() || files.isNotEmpty()) && !submitting && !attaching && !chatDraft.imageLoading && retryMatches && ready && chatAllowed,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 inputTransformation = userEdits,
-                fieldModifier = Modifier.contentReceiver(intake.receiver).onFocusChanged { focus -> chatDraft.focused = focus.isFocused; if(!focus.isFocused) chatDraft.sync?.flush() }.onPreviewKeyEvent { event ->
+                fieldModifier = Modifier.focusRequester(reviewFocus).contentReceiver(intake.receiver).onFocusChanged { focus -> chatDraft.focused = focus.isFocused; if(!focus.isFocused) chatDraft.sync?.flush() }.onPreviewKeyEvent { event ->
                     // Backspace on an empty message takes off the task, then the last quote.
                     if(event.type != KeyEventType.KeyDown || event.key != Key.Backspace || draft.isNotEmpty()) false
                     else if(taskId != null) { taskId = null; true }

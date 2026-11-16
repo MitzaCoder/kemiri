@@ -142,6 +142,9 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
     modifier: Modifier = Modifier,
     copy: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    onReviewSelection: ((ArtifactSelection) -> Unit)? = null,
+    reviewCount: Int = 0,
+    onReviewTray: () -> Unit = {},
     htmlActions: @Composable (dismiss: () -> Unit) -> Unit = {},
 ) {
     var wrap by remember(name) { mutableStateOf(true) }
@@ -149,8 +152,18 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
     var view by remember(name) { mutableStateOf(artifactPageView(ArtifactPageChoice.remembered(), truncated)) }
     var menuOpen by remember { mutableStateOf(false) }
     var printPage by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var reviewRead by remember { mutableIntStateOf(0) }
+    var picking by remember { mutableStateOf(false) }
+    var nativePicker by remember { mutableStateOf(false) }
+    var reviewHint by remember { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(picking) { picking = false }
+    fun pickNative() { nativePicker = true }
+    if (nativePicker && onReviewSelection != null) ArtifactParagraphPicker(text, { nativePicker = false }) { selection ->
+        nativePicker = false; onReviewSelection(selection)
+    }
     val rendered = markdown && !showSource
     val page = html && view == ArtifactPageView.Page
+    LaunchedEffect(page) { if (!page) picking = false }
     Surface(modifier.fillMaxWidth(),
         shape = if (fillHeight) RectangleShape else MaterialTheme.shapes.medium,
         border = if (fillHeight) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -167,9 +180,17 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
             }
             HorizontalDivider()
             }
+            if (onReviewSelection != null && !fillHeight) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { pickNative() }) { Text("Comment on a block") }
+                TextButton(onClick = onReviewTray) { Text("Comments ($reviewCount)") }
+            }
             when {
                 page -> ArtifactPage(text, Modifier.fillMaxWidth()
-                    .then(if (fillHeight) Modifier.weight(1f) else Modifier.height(288.dp)).clipToBounds(), blockRequests = blockRequests, hostControls = fillHeight, onPrintReady = { printPage = it })
+                    .then(if (fillHeight) Modifier.weight(1f) else Modifier.height(288.dp)).clipToBounds(), blockRequests = blockRequests, hostControls = fillHeight, onPrintReady = { printPage = it }, reviewRead = reviewRead, reviewPicking = picking,
+                    onReviewSelection = { selection ->
+                        if (selection?.text?.isNotEmpty() == true) { picking = false; reviewHint = null; onReviewSelection?.invoke(selection) }
+                        else reviewHint = "Select text on the page, then tap Comment; or pick a block."
+                    })
                 rendered -> RichMarkdown(text.ifEmpty { "(Empty file)" }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp))
                 else -> SelectionContainer(
                     if (fillHeight) Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()) else Modifier
@@ -191,11 +212,23 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
                     style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
             }
         }
+        if (fillHeight && onReviewSelection != null) Surface(Modifier.align(Alignment.BottomCenter).padding(12.dp), shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+            Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (picking) Text("Tap a chart, row or paragraph", Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                reviewHint?.let { Text(it, Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall) }
+                Row {
+                    TextButton(onClick = { if (page) reviewRead++ else pickNative() }) { Text("Comment") }
+                    TextButton(onClick = { if (page) { picking = !picking; reviewHint = null } else pickNative() }) { Text(if (picking) "Cancel pick" else "Pick a block") }
+                    TextButton(onClick = onReviewTray) { Text("Comments ($reviewCount)") }
+                }
+            }
+        }
         if (fillHeight) Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
             FilledTonalIconButton(onClick = { menuOpen = true }) {
                 Text("⋮", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { contentDescription = "Artifact actions" })
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (onReviewSelection != null) DropdownMenuItem(text = { Text("Comment") }, onClick = { menuOpen = false; if (page) reviewRead++ else pickNative() })
                 DropdownMenuItem(text = { Text(if (page) "Show HTML source" else "Show page") }, onClick = {
                     view = if (page) ArtifactPageView.Source else ArtifactPageView.Page
                     ArtifactPageChoice.remember(view); menuOpen = false

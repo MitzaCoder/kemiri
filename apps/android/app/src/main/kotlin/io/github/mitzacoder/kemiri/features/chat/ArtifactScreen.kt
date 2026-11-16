@@ -34,6 +34,9 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
     var selectedVersion by rememberSaveable(context.route,artifactId) { mutableStateOf<Long?>(null) }
     val artifact = latestArtifact?.let { selectedArtifactVersion(it, selectedVersion) }
     val versions = latestArtifact?.let(::artifactVersions).orEmpty()
+    val review = rememberArtifactReview(context, artifact)
+    if (review != null && artifact != null) key(artifact.id) { ArtifactReviewSheets(review, context, artifact) }
+
     var signed by remember(context.route,artifactId) { mutableStateOf<ArtifactsUrlResponse?>(null) }
     var error by remember(context.route,artifactId) { mutableStateOf<String?>(null) }
     var text by remember(context.route,artifactId) { mutableStateOf<String?>(null) }
@@ -176,7 +179,8 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
             text?.let { loaded ->
                 ArtifactTextPreview(artifact?.name ?: "Text", loaded, html = true, truncated = textTruncated,
                     size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, fillHeight = true, modifier = Modifier.weight(1f),
-                    copy = { copy(loaded) },
+                    copy = { copy(loaded) }, onReviewSelection = review?.let { state -> { selection -> state.comment(selection) } },
+                    reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.tray = true },
                     htmlActions = { dismiss ->
                         val index = versions.indexOfFirst { it.id == artifact?.id }
                         if (versions.size > 1) {
@@ -245,7 +249,9 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
                     val markdown = artifact?.let { item -> isMarkdownArtifact(item.name, item.mimeType) } == true
                     val html = artifact?.let { item -> isHtmlArtifact(item.name, item.mimeType) } == true
                     ArtifactTextPreview(artifact?.name ?: "Text", loaded, markdown = markdown, html = html, truncated = textTruncated,
-                        size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, copy = { copy(loaded) })
+                        size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, copy = { copy(loaded) },
+                        onReviewSelection = review?.let { state -> { selection -> state.comment(selection) } },
+                        reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.tray = true })
                 } ?: Text("Loading text…")
                 else -> artifact?.let { ArtifactFileRow(it) }
             } else if(error == null) CircularProgressIndicator()

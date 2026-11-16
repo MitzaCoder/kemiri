@@ -50,6 +50,7 @@ internal class ChatDraftState {
     fun clearImages() { images = emptyList() }
     /** Set when the draft on screen came from another device, until the user changes it. */
     var origin by mutableStateOf<DraftOrigin?>(null)
+    var reviewFocus by mutableStateOf(false)
     var focused = false
     internal var sync: DraftSync? = null
     internal var last: DraftContent? = null
@@ -165,6 +166,11 @@ internal fun rememberChatDraft(context: ProjectScreenContext): ChatDraftState {
     val chatId = if (sameThread(context.route.threadId, null)) MAIN_THREAD_ID else context.route.threadId!!
     val key = "${context.backend.config.key}|${context.route.projectId}|$chatId"
     val state = remember(key) { ChatDraftState().also { it.show(cache.load(key).draft); it.last = it.content() } }
+    DisposableEffect(key, state) {
+        ArtifactReviewDrafts.mounted[key] = state
+        if (ArtifactReviewDrafts.focus.remove(key)) state.reviewFocus = true
+        onDispose { if (ArtifactReviewDrafts.mounted[key] === state) ArtifactReviewDrafts.mounted.remove(key) }
+    }
     var ready by remember(key) { mutableStateOf(cache.isLoaded) }
     LaunchedEffect(key) {
         if (!ready) {
@@ -239,5 +245,32 @@ private suspend fun loadImages(state: ChatDraftState, cache: DraftCache, client:
             }.getOrNull()?.also { cache.writeImage(ref.id, it) }
             if (bytes != null) state.gotImage(ref.id, bytes)
         } catch (e: CancellationException) { throw e }
+    }
+}
+
+/** Mounted composers own their fields; unmounted chats restore the same append from DraftCache. */
+internal object ArtifactReviewDrafts {
+    val mounted = mutableMapOf<String, ChatDraftState>()
+    val focus = mutableSetOf<String>()
+}
+internal fun appendReviewDraft(draft: DraftContent, text: String, taskId: String?): DraftContent =
+    draft.copy(text = listOf(draft.text, text).filter { it.isNotEmpty() }.joinToString("\n\n"), taskId = taskId ?: draft.taskId)
+internal suspend fun appendArtifactReviewDraft(android: android.content.Context, context: ProjectScreenContext, recipient: io.github.mitzacoder.kemiri.navigation.Destination.Chat, text: String, taskId: String?) {
+    val cache = DraftCache.of(android)
+    cache.awaitLoaded()
+    val chatId = if (sameThread(recipient.threadId, null)) MAIN_THREAD_ID else recipient.threadId!!
+    val key = "${context.backend.config.key}|${recipient.projectId}|$chatId"
+    val mounted = ArtifactReviewDrafts.mounted[key]
+    if (mounted != null) {
+        val next = appendReviewDraft(mounted.content(), text, taskId)
+        mounted.show(next); mounted.origin = null; mounted.sync?.changed(next); mounted.sync?.flush()
+        // Persist immediately too: show() deliberately updates the last-content marker.
+        val loaded = cache.load(key)
+        cache.save(key, next, loaded.synced)
+        mounted.reviewFocus = true
+    } else {
+        val loaded = cache.load(key)
+        cache.save(key, appendReviewDraft(loaded.draft ?: DraftContent(text = "", quotes = emptyList()), text, taskId), loaded.synced)
+        ArtifactReviewDrafts.focus.add(key)
     }
 }

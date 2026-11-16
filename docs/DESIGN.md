@@ -89,6 +89,37 @@ plain TypeScript contracts and fixtures are the starting point for Android;
 shared server storage, picture/video comments, review transcript cards and
 re-anchoring/highlights across versions are deferred.
 
+**Android (T217)** uses the same message contract, intents, text limits and
+backend/project/stable-ID/version review key. `ArtifactReview.kt` is the plain
+Kotlin port; JVM tests read the web JSON fixture directly and compare UTF-8 bytes.
+Reviews live in private, device-local SharedPreferences, not WebView storage.
+A floating Comment / Pick a block / Comments counter accompanies HTML; the ⋮
+menu also offers Comment. Intent/note composition and the editable review tray
+use Material 3 bottom sheets; system Back dismisses the sheet before the viewer.
+An overall note may be sent alone. In-flight sends cannot collect new comments
+that the acknowledgement would discard. Failed sends retain the review and reuse
+the request ID for unchanged text during the visit; acknowledged sends clear it.
+
+Android HTML reads selection only after Comment through `evaluateJavascript`.
+Pick mode installs a document-local click listener through the same API; a
+300 ms poll reads its bounded text result until selection or cancellation. Kotlin
+requires the exact string-only keys, selection type, block vocabulary and caps
+before showing a quote. No JavaScript bridge, navigation-based data channel,
+shared origin or new WebView permissions are introduced. Print, link policy,
+CSP/theme prelude, source/versions and pinch zoom retain their existing paths.
+Native Markdown, text and HTML Source use an app-owned **Pick a paragraph**
+sheet instead of accessing Compose's private selection state. Blank-line blocks
+retain source formatting and the nearest preceding Markdown heading.
+
+Android sends one `conversation.submit` with the artifact task, `whenBusy: steer`
+and `keepDraft: true`; task reviews target main, others the viewer's source chat.
+Add to chat draft appends after a blank line, preserves quotes/images and attaches
+the artifact task. Mounted composers update in place; others restore the append
+from `DraftCache`, then normal `DraftSync` handles backend sync. The destination
+composer receives focus. Both successful transfers clear only that version's review.
+Unsubmitted comment composition is visit-local; collected comments survive closing,
+process restart and theme changes. Pictures/video review remains out of scope.
+
 ## HTML artifact viewers (T191)
 
 HTML/XHTML source is read whole up to 20 MiB on web and Android (T202),
