@@ -1,19 +1,14 @@
 <script lang="ts">
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import MessageSquareIcon from '@lucide/svelte/icons/message-square';
-	import Markdown from '#lib/components/markdown/Markdown.svelte';
-	import { threadName, type ThreadCards } from '#lib/threads.js';
+	import { backgroundJobPresentation, threadName, type ThreadCards } from '#lib/threads.js';
 	import type { TranscriptItem } from '#lib/transcript.js';
-	import TaskLine from './TaskLine.svelte';
-	import TaskRef from './TaskRef.svelte';
-	import ThreadFacts from './ThreadFacts.svelte';
+	import ThreadStatusBadge from './ThreadStatusBadge.svelte';
 
 	/**
-	 * What a background thread posted into this conversation: its finish (the summary as Markdown, its artifacts and a
-	 * link to the thread), its failure in red, or a message from it as a small notice. The server admits these as user
+	 * A background job's completion card (first summary line, artifacts and Open), failure card,
+	 * or message. The server admits these as user
 	 * inputs; they are never drawn as something the user typed.
 	 */
 	let {
@@ -27,63 +22,49 @@
 	const notice = $derived(item.notice);
 	const threadId = $derived(item.threadId ?? undefined);
 	const thread = $derived(threadId === undefined ? undefined : cards?.threads.find((entry) => entry.id === threadId));
-	const name = $derived(threadId === undefined ? 'A background thread' : threadName(threadId, cards?.threads ?? []));
-	const taskId = $derived(thread?.taskId ?? undefined);
+	const name = $derived(threadId === undefined ? 'A background job' : threadName(threadId, cards?.threads ?? []));
 	const href = $derived(threadId === undefined || threadId === 'main' ? undefined : cards?.href(threadId));
 </script>
 
 {#if notice.kind === 'finished' || notice.kind === 'failed'}
-	{@const ok = notice.kind === 'finished'}
-	<TaskLine
-		icon={ok ? CircleCheckIcon : CircleAlertIcon}
-		tone={ok ? 'done' : 'failed'}
-		timestamp={item.timestamp}
+	<div
+		class="thread-card my-2 min-w-0 overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-surface)/60"
 		data-thread-card={threadId}
 		data-thread-notice={notice.kind}
 	>
-		{#snippet children()}
-			<span class="{taskId === undefined ? 'min-w-0 truncate' : 'shrink-0'} {ok ? 'text-(--chat-fg-muted)' : 'font-medium text-(--chat-danger)'}">
-				{#if taskId === undefined}
-					<span class="font-medium text-(--chat-fg)">{name}</span> {ok ? 'finished' : 'failed'}
-				{:else}
-					{ok ? 'Thread finished' : 'Thread failed'}
-				{/if}
+		<div class="flex min-w-0 items-start gap-2.5 px-3 py-2">
+			<span class="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-(--primary)/10 text-(--primary)">
+				<LayersIcon class="size-3.5" />
 			</span>
-			{#if taskId !== undefined}
-				<TaskRef {taskId} fallbackTitle={thread?.title} />
-			{/if}
-		{/snippet}
-		{#snippet details()}
-			<div class="px-3.5 py-2.5">
-				{#if taskId !== undefined}
-					<p class="pb-1 text-xs text-(--chat-fg-subtle)">{name}</p>
-				{/if}
-				{#if notice.kind === 'finished'}
-					{#if notice.summary.length > 0}
-						<Markdown source={notice.summary} />
+			<div class="min-w-0 flex-1">
+				<p class="text-[0.8125rem] font-semibold">{name}</p>
+				<p class="line-clamp-2 text-xs break-words {notice.kind === 'failed' ? 'text-(--chat-danger)' : 'text-(--chat-fg-muted)'}">
+					{#if notice.kind === 'finished'}
+						{thread ? backgroundJobPresentation({ ...thread, state: 'finished', summary: notice.summary }).line : notice.summary.split('\n').find(line => line.trim()) || 'Finished.'}
 					{:else}
-						<p class="py-1 text-sm text-(--chat-fg-subtle) italic">It finished without a summary.</p>
+						{notice.reason || 'Its last turn failed.'}
 					{/if}
-					{#if threadId !== undefined && cards?.artifacts}
-						{@render cards.artifacts(threadId, item.timestamp)}
-					{/if}
-				{:else}
-					<p class="py-1 text-sm break-words whitespace-pre-wrap text-(--chat-danger)">
-						{notice.reason.length > 0 ? notice.reason : 'It failed without a reason.'}
-					</p>
-					{#if thread}
-						<ThreadFacts {thread} />
-					{/if}
-				{/if}
-				{#if href}
-					<a {href} class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-(--chat-fg-muted) hover:underline">
-						Open thread
-						<ArrowRightIcon class="size-3" />
-					</a>
-				{/if}
+				</p>
 			</div>
-		{/snippet}
-	</TaskLine>
+			{#if thread}
+				<ThreadStatusBadge {thread} />
+			{:else}
+				<span class="text-xs {notice.kind === 'finished' ? 'text-(--chat-success)' : 'text-(--chat-danger)'}">
+					{notice.kind === 'finished' ? 'Finished' : 'Failed'}
+				</span>
+			{/if}
+		</div>
+		<div class="flex justify-end border-t border-(--chat-border)/60 px-3 py-1">
+			{#if href}
+				<a {href} class="inline-flex items-center gap-1 text-xs font-medium text-(--chat-fg-muted) hover:underline">
+					Open<ArrowRightIcon class="size-3" />
+				</a>
+			{/if}
+		</div>
+		{#if notice.kind === 'finished' && threadId !== undefined && cards?.artifacts}
+			{@render cards.artifacts(threadId, item.timestamp)}
+		{/if}
+	</div>
 {:else}
 	<div
 		class="thread-card animate-rise flex min-w-0 items-start gap-2 self-start rounded-xl border border-dashed border-(--chat-border) bg-(--chat-surface)/40 px-3 py-1.5 text-xs"

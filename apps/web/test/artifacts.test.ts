@@ -76,10 +76,10 @@ describe("labels", () => {
 	});
 
 	test("who saved it", () => {
-		expect(savedByLabel(artifact())).toBe("Main");
-		expect(savedByLabel(artifact({ threadId: "jira" }))).toBe("Thread jira");
-		expect(savedByLabel(artifact({ workerId: "w3" }))).toBe("Worker w3 of main");
-		expect(savedByLabel(artifact({ threadId: "jira", workerId: "w1" }))).toBe("Worker w1 of thread jira");
+		expect(savedByLabel(artifact())).toBe("Main chat");
+		expect(savedByLabel(artifact({ threadId: "jira" }))).toBe("Background job jira");
+		expect(savedByLabel(artifact({ workerId: "w3" }))).toBe("Worker w3 of Main chat");
+		expect(savedByLabel(artifact({ threadId: "jira", workerId: "w1" }))).toBe("Worker w1 of background job jira");
 	});
 
 	test("the kind from a file name", () => {

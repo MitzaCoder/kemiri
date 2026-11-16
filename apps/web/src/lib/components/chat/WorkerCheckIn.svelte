@@ -10,7 +10,7 @@
 	/**
 	 * The harness' periodic check-in on running workers. Like a report, it is admitted as a user input, but it is not
 	 * something the user wrote: it is one quiet line naming the tasks it covers, and the whole digest opens under it.
-	 * Main's also covers its background threads, linked when open.
+	 * Main's also covers its background jobs, linked when open.
 	 */
 	let {
 		item,

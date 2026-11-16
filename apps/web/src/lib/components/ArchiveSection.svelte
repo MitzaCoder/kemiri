@@ -14,7 +14,7 @@
 	/**
 	 * Project settings' "Archive project": hide the project from the project lists and pause its schedules and event
 	 * triggers, keeping everything else. A confirmation says exactly that; the backend refuses while workers or
-	 * background threads run and its message (which names them) is shown in the dialog. Only shown on a backend with the
+	 * background jobs run and its message (which names them) is shown in the dialog. Only shown on a backend with the
 	 * `project-archive` feature. An archived project shows the same card with Unarchive.
 	 */
 	let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();

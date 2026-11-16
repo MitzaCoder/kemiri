@@ -53,12 +53,12 @@ export function diffGraphSnapshots(previous: GraphSnapshot | null, next: GraphSn
 	}
 	for(const [id,q] of previous.questions)if(q.status==='open'&&!next.questions.has(id))add('answer',q.kind+':answered',[q.taskId],`${q.taskId}: ${q.kind} closed`,`${q.kind}s closed`);
 	for(const [id,crew] of next.crew){
-		const before=previous.crew.get(id), worker=id.startsWith('worker:'), subject=worker?'Worker':'Thread';
-		if(!before){const action=crew.status==='failed'?'failed':terminal(crew.status)?'finished':'started';add('crew',subject+':'+action,[crew.taskId],`${subject} ${crew.title} ${action}`,`${subject.toLowerCase()}s ${action}`);}
-		if(before&&crew.taskId!==before.taskId)add('reassigned',subject+':reassigned',[before.taskId,crew.taskId],`${subject} ${crew.title}: ${before.taskId??'unassigned'} → ${crew.taskId??'unassigned'}`,`${subject.toLowerCase()}s reassigned`);
+		const before=previous.crew.get(id), worker=id.startsWith('worker:'), subject=worker?'Worker':'Background job', subjectKind=worker?'Worker':'Thread';
+		if(!before){const action=crew.status==='failed'?'failed':terminal(crew.status)?'finished':'started';add('crew',subjectKind+':'+action,[crew.taskId],`${subject} ${crew.title} ${action}`,`${subject.toLowerCase()}s ${action}`);}
+		if(before&&crew.taskId!==before.taskId)add('reassigned',subjectKind+':reassigned',[before.taskId,crew.taskId],`${subject} ${crew.title}: ${before.taskId??'unassigned'} → ${crew.taskId??'unassigned'}`,`${subject.toLowerCase()}s reassigned`);
 		if(before&&crew.status!==before.status){
 			const action=crew.status==='failed'?'failed':terminal(crew.status)?'finished':crew.status==='running'?'started':'resting';
-			add('crew',subject+':'+action,[crew.taskId??before.taskId],`${subject} ${crew.title} ${action}`,`${subject.toLowerCase()}s ${action}`);
+			add('crew',subjectKind+':'+action,[crew.taskId??before.taskId],`${subject} ${crew.title} ${action}`,`${subject.toLowerCase()}s ${action}`);
 		}
 		if(before&&crew.report&&crew.report!==before.report)add('report',id+':report',[crew.taskId],`${worker?id.slice(7):crew.title} reported on ${crew.taskId} · ${crew.report.split('\n').filter(Boolean).at(-1)!.slice(0,180)}`,`${subject.toLowerCase()} reports`,worker?id.slice(7):undefined);
 	}

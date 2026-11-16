@@ -10,7 +10,7 @@
 import type { HarnessFeature } from "@kemiri/protocol";
 
 /**
- * The tabs the sidebar can show: the project's board, main's background threads, the conversation's context, and its
+ * The tabs the sidebar can show: the project's board, main's background jobs, the conversation's context, and its
  * memory.
  */
 export const SIDEBAR_TABS = ["board", "background", "info", "memory"] as const;
@@ -67,7 +67,7 @@ export function resolveSidebarTab(preferred: SidebarTab, tabs: readonly SidebarT
 
 const SIDEBAR_TAB_LABELS: Record<SidebarTab, string> = {
 	board: "Board",
-	background: "Background",
+	background: "Background jobs",
 	info: "Info",
 	memory: "Memory",
 };

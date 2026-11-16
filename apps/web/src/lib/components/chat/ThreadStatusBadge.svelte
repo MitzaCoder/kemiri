@@ -1,22 +1,23 @@
 <script lang="ts">
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import { Badge } from '#lib/components/ui/badge/index.js';
-	import { threadStatusClass, threadStatusLabel } from '#lib/threads.js';
-	import type { ThreadStatus } from '@kemiri/protocol';
+	import { backgroundJobPresentation } from '#lib/threads.js';
+	import type { ThreadSummary } from '@kemiri/protocol';
 
-	/** A background thread's status as a badge: a spinner while it works, red only when it failed. */
+	/** A background job's status as a badge: a spinner while it works, red only when it failed. */
 	let {
-		status,
+		thread,
 		class: className = ''
 	}: {
-		status: ThreadStatus;
+		thread: ThreadSummary;
 		class?: string;
 	} = $props();
+	const presentation = $derived(backgroundJobPresentation(thread));
 </script>
 
-<Badge variant="outline" class="{threadStatusClass(status)} {className}">
-	{#if status === 'running'}
+<Badge variant="outline" class="{presentation.tone} {className}">
+	{#if presentation.label === 'Working'}
 		<LoaderCircleIcon class="animate-spin" aria-hidden="true" />
 	{/if}
-	{threadStatusLabel(status)}
+	{presentation.label}
 </Badge>

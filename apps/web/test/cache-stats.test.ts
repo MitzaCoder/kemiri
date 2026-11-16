@@ -95,7 +95,7 @@ describe("cache stats wording", () => {
 
 	test("names the conversation and the miss", () => {
 		expect(conversationLabel(miss)).toBe("Worker qa-4316 · in nightly · T15");
-		expect(conversationLabel({ kind: "main", threadId: "main", workerId: null, taskId: null })).toBe("Main");
+		expect(conversationLabel({ kind: "main", threadId: "main", workerId: null, taskId: null })).toBe("Main chat");
 		expect(missHeadline(miss)).toBe("Waited too long (10m)");
 		expect(missHeadline({ ...miss, reason: "unexplained" })).toBe("No visible reason");
 		expect(wakePhrase("check_in")).toBe("a worker check-in");

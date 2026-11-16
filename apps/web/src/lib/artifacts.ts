@@ -59,10 +59,10 @@ export function formatMediaDuration(seconds: number | null | undefined): string 
 	return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
 }
 
-/** Who saved it: main, a background thread, or one of their workers. */
+/** Who saved it: main, a background job, or one of their workers. */
 export function savedByLabel(artifact: Pick<Artifact, "threadId" | "workerId">): string {
-	if (artifact.workerId === null) return artifact.threadId === "main" ? "Main" : `Thread ${artifact.threadId}`;
-	return `Worker ${artifact.workerId} of ${artifact.threadId === "main" ? "main" : `thread ${artifact.threadId}`}`;
+	if (artifact.workerId === null) return artifact.threadId === "main" ? "Main chat" : `Background job ${artifact.threadId}`;
+	return `Worker ${artifact.workerId} of ${artifact.threadId === "main" ? "Main chat" : `background job ${artifact.threadId}`}`;
 }
 
 /** The kind of a file from its name alone, for an artifact the chat names before its record is read. */

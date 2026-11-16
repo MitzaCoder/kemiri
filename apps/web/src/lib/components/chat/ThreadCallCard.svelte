@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import LayersIcon from '@lucide/svelte/icons/layers';
-	import type { ThreadSummary } from '@kemiri/protocol';
+	import type { BoardQuestion, ThreadSummary } from '@kemiri/protocol';
 	import type { ToolPart } from '#lib/transcript.js';
 	import {
 		threadActivityLine,
@@ -14,7 +14,7 @@
 	import ThreadStatusBadge from './ThreadStatusBadge.svelte';
 
 	/**
-	 * A `thread_*` call in main's transcript: one compact card for the background thread it started or acted on, live
+	 * A `thread_*` call in main's transcript: one compact card for the background job it started or acted on, live
 	 * from `threads.state` (status, what it does now, its workers, tasks and questions), linking to the thread. The
 	 * call's own words (the brief, the message sent) open under it.
 	 */
@@ -23,9 +23,11 @@
 		threadId,
 		thread,
 		href,
-		scheduleName
+		scheduleName,
+		questions = []
 	}: {
 		part: ToolPart;
+		questions?: readonly BoardQuestion[];
 		threadId: string | undefined;
 		/** The thread as the list has it now; undefined while it loads or once it was archived. */
 		thread: ThreadSummary | undefined;
@@ -33,7 +35,7 @@
 		scheduleName?: (scheduleId: string) => string | undefined;
 	} = $props();
 
-	const title = $derived(thread?.title || threadCallTitle(part) || threadId || 'Background thread');
+	const title = $derived(thread?.title || threadCallTitle(part) || threadId || 'Background job');
 	const detail = $derived(threadCallDetail(part));
 	const action = $derived(threadToolAction(part.name));
 	const pending = $derived(part.status !== 'done');
@@ -51,7 +53,7 @@
 			<LayersIcon class="size-3.5" />
 		</span>
 		<span class="flex min-w-0 flex-1 flex-col gap-0.5">
-			<span class="flex min-w-0 items-baseline gap-2">
+			<span class="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
 				<span class="truncate text-[0.8125rem] font-semibold">{title}</span>
 				<span class="shrink-0 text-[0.6875rem] text-(--chat-fg-subtle)">
 					{pending ? `${action}…` : failed ? `${action} · failed` : action}
@@ -61,18 +63,18 @@
 				<span class="line-clamp-2 text-xs break-words text-(--chat-danger)">{part.output ?? 'The call failed.'}</span>
 			{:else if thread}
 				<span class="line-clamp-2 text-xs break-words text-(--chat-fg-muted)" data-thread-current>
-					{threadActivityLine(thread)}
+					{threadActivityLine(thread, questions)}
 				</span>
 				<ThreadFacts {thread} />
 				{#if thread.startedBy === 'schedule'}
 					<span class="text-[0.6875rem] text-(--chat-fg-subtle)">{threadStartedByText(thread, scheduleName)}</span>
 				{/if}
 			{:else if !pending}
-				<span class="text-xs text-(--chat-fg-subtle)">Works in the background; main relays what it does.</span>
+				<span class="text-xs text-(--chat-fg-subtle)">Works in the background; Main chat relays what it does.</span>
 			{/if}
 		</span>
 		{#if thread}
-			<ThreadStatusBadge status={thread.status} class="mt-0.5 shrink-0" />
+			<ThreadStatusBadge {thread} class="mt-0.5 shrink-0" />
 		{/if}
 	</div>
 	{#if detail || href}
@@ -92,7 +94,7 @@
 			{/if}
 			{#if href}
 				<a {href} class="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-(--chat-fg-muted) hover:underline">
-					Open thread<ChevronRightIcon class="size-3" />
+					Open<ChevronRightIcon class="size-3" />
 				</a>
 			{/if}
 		</div>

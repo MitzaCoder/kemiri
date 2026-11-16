@@ -15,9 +15,9 @@
 
 	/**
 	 * The questions waiting on the user, pinned above the composer so they are answered where the conversation is. The
-	 * board is shared by every thread, so on main a question a background thread asked shows here too, labelled with
+	 * board is shared by every thread, so on main a question a background job asked shows here too, labelled with
 	 * that thread; the answer goes to the thread that asked. One question is open to answer and the others wait as
-	 * one-line rows that switch to it, so the pin stays small; a background thread's page pins only its own questions.
+	 * one-line rows that switch to it, so the pin stays small; a background job's page pins only its own questions.
 	 *
 	 * On a phone the pin starts as one line — how many are waiting and which task — and opens on a tap: an open
 	 * question card and its rows would take most of the screen above the composer. A waiting warning keeps the
@@ -34,7 +34,7 @@
 		board: ProjectBoard;
 		/** The project's threads, to name the one that asked. */
 		threads?: readonly ThreadSummary[];
-		/** Pin only this background thread's questions; undefined on main, which pins every thread's. */
+		/** Pin only this background job's questions; undefined on main, which pins every thread's. */
 		threadId?: string;
 		/** The Board tab is the Tasks view: the footer says so, and a question's task label opens that task. */
 		tasksView?: boolean;

@@ -6,7 +6,7 @@ export const MCP_POLICY_OPTIONS = [
 ] as const;
 export const MCP_ROLE_OPTIONS = [
   { value: 'coordinator', label: 'Coordinator' }, { value: 'workers', label: 'Workers' },
-  { value: 'background', label: 'Background threads' }
+  { value: 'background', label: 'Background jobs' }
 ] as const;
 export function mcpStatus(server: Pick<McpServer, 'status' | 'hasCredential' | 'lastError'>): { label: string; tone: 'ok' | 'warn' | 'err' | 'muted' } {
   if (server.status === 'connected') return { label: 'Connected', tone: 'ok' };

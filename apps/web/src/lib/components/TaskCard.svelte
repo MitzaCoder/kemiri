@@ -21,7 +21,7 @@
 
 	/**
 	 * One task on the board: what a list row says (status dot, title, gist, refs with their live state, time and ID) and,
-	 * when it matters, the worker on it, what it waits for and the background thread that holds it. Its title's link
+	 * when it matters, the worker on it, what it waits for and the background job that holds it. Its title's link
 	 * covers the card, so a click anywhere but a chip or the menu opens the task's sheet. A task that needs the user is
 	 * tinted like its list row. `ghost` draws the copy that follows the pointer while it is dragged.
 	 */
@@ -156,7 +156,7 @@
 					</li>
 				{/if}
 				{#if ownerShown && owner !== undefined}
-					<li class="flex min-w-0 items-center gap-1.5" title="A background thread holds this task">
+					<li class="flex min-w-0 items-center gap-1.5" title="A background job holds this task">
 						<LayersIcon class="size-3 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 						<span class="truncate">{owner.label}</span>
 					</li>

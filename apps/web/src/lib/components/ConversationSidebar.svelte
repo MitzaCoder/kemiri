@@ -23,7 +23,7 @@
 	} from '#lib/sidebar.js';
 
 	/**
-	 * The chat's right sidebar: one panel for the project's board, one for main's background threads, one for the
+	 * The chat's right sidebar: one panel for the project's board, one for main's background jobs, one for the
 	 * conversation's context, one for its memory. Its left edge drags, remembers its width in this browser, and
 	 * expands to fill the chat area; below 72rem it is a full-screen sheet instead,
 	 * with no resize and no expand.

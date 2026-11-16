@@ -3,9 +3,12 @@
  * tab's order, the pinned questions, the board's owner chip, and the transcript's thread items.
  */
 import { describe, expect, test } from "bun:test";
-import type { BoardQuestion, EntryRecord, ThreadSummary } from "@kemiri/protocol";
+import { backgroundJobCounts, type BoardQuestion, type EntryRecord, type ThreadSummary } from "@kemiri/protocol";
 import {
 	backgroundThreadsText,
+ backgroundJobPresentation,
+ backgroundJobsText,
+ partitionFinishedJobs,
 	isThreadTool,
 	ownedTasksText,
 	questionPin,
@@ -27,6 +30,7 @@ import {
 	inThread,
 } from "../src/lib/threads.ts";
 import { buildTranscript } from "../src/lib/transcript.ts";
+import { relativeTime } from "../src/lib/relative-time.ts";
 import { boardCallView } from "../src/lib/board.ts";
 
 function thread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
@@ -86,12 +90,12 @@ describe("thread calls", () => {
 
 describe("how a thread reads", () => {
 	test("says what it does now, or how it ended", () => {
-		expect(threadStatusLabel("idle")).toBe("Waiting");
+		expect(threadStatusLabel("idle")).toBe("Paused");
 		expect(threadActivityLine(thread({ current: "Running bash · 3m" }))).toBe("Running bash · 3m");
-		expect(threadActivityLine(thread({ status: "idle" }))).toBe("Waiting for a message or its workers.");
-		expect(threadActivityLine(thread({ status: "failed", failure: "Model refused" }))).toBe("Model refused");
+		expect(threadActivityLine(thread({ status: "idle" }))).toBe("Nothing is running. Send it a message to continue.");
+		expect(threadActivityLine(thread({ status: "failed", failure: "Model refused" }))).toBe("Model refused Send a message to retry.");
 		expect(threadActivityLine(thread({ status: "done", summary: "## Done\nTriaged 12 tickets." }))).toBe("Done");
-		expect(threadActivityLine(thread({ status: "stopped" }))).toBe("Stopped; nothing runs.");
+		expect(threadActivityLine(thread({ status: "stopped" }))).toBe(`Stopped ${relativeTime("2026-11-04T09:00:00.000Z", Date.now())}`);
 	});
 
 	test("counts workers, tasks and questions in words", () => {
@@ -103,11 +107,11 @@ describe("how a thread reads", () => {
 		expect(ownedTasksText(["T1", "T2", "T3", "T4", "T5"])).toBe("Owns T1, T2, T3 +2");
 		expect(backgroundThreadsText(undefined)).toBeUndefined();
 		expect(backgroundThreadsText(0)).toBeUndefined();
-		expect(backgroundThreadsText(2)).toBe("2 in background");
+		expect(backgroundThreadsText(2)).toBe("2 background jobs");
 	});
 
 	test("says who started it", () => {
-		expect(threadStartedByText(thread())).toBe("Started by main");
+		expect(threadStartedByText(thread())).toBe("Started by Main chat");
 		expect(threadStartedByText(thread({ startedBy: "user" }))).toBe("Started by you");
 		expect(threadStartedByText(thread({ startedBy: "schedule", scheduleId: "s1" }), () => "Nightly triage")).toBe(
 			"Scheduled · Nightly triage",
@@ -125,7 +129,7 @@ describe("how a thread reads", () => {
 			thread({ id: "new-run", status: "running", updatedAt: "2026-11-04T10:00:00.000Z" }),
 			thread({ id: "failed", status: "failed" }),
 		];
-		expect(sortThreads(list).map((entry) => entry.id)).toEqual(["asks", "new-run", "old-run", "idle", "failed", "done"]);
+		expect(sortThreads(list).map((entry) => entry.id)).toEqual(["asks", "failed", "new-run", "old-run", "idle", "done"]);
 	});
 });
 
@@ -133,8 +137,8 @@ describe("threads on the board", () => {
 	const threads = [MAIN, thread()];
 
 	test("names an owner and an asker", () => {
-		expect(threadName("main", threads)).toBe("Main");
-		expect(threadName(undefined, threads)).toBe("Main");
+		expect(threadName("main", threads)).toBe("Main chat");
+		expect(threadName(undefined, threads)).toBe("Main chat");
 		expect(threadName("jira-run", threads)).toBe("Jira run");
 		expect(threadName("gone", threads)).toBe("gone");
 		expect(taskOwner({}, threads)).toBeUndefined();
@@ -147,8 +151,8 @@ describe("threads on the board", () => {
 		});
 		expect(taskOwner({ ownerThreadId: "main" }, threads)?.main).toBe(true);
 		expect(questionAskedBy({ threadId: "jira-run" }, threads)).toBe("Jira run");
-		expect(questionAskedBy({ threadId: "main" }, threads)).toBeUndefined();
-		expect(questionAskedBy({}, threads)).toBeUndefined();
+		expect(questionAskedBy({ threadId: "main" }, threads)).toBe("Main chat");
+		expect(questionAskedBy({}, threads)).toBe("Main chat");
 	});
 
 	test("pins one question to answer and lists the others, every asker first", () => {
@@ -229,17 +233,17 @@ describe("one-line summaries of thread calls", () => {
 	test("thread_list says how many background threads it listed", () => {
 		const output = 'You are main. 3 background threads.\n\nposter — Poster';
 		expect(threadCallSummary(call("thread_list", {}, { output }))).toEqual({
-			text: "Listed 3 background threads",
+			text: "Listed 3 background jobs",
 			failed: false,
 			pending: false,
 		});
 		expect(threadCallSummary(call("thread_list", {}, { output: "You are main. 1 background thread.\n\nx" })).text).toBe(
-			"Listed 1 background thread",
+			"Listed 1 background job",
 		);
 		expect(threadCallSummary(call("thread_list", {}, { output: "You are main. No background threads.\n\nmain" })).text).toBe(
-			"Listed no background threads",
+			"Listed no background jobs",
 		);
-		expect(threadCallSummary(call("thread_list", {}, { output: "unreadable" })).text).toBe("Listed background threads");
+		expect(threadCallSummary(call("thread_list", {}, { output: "unreadable" })).text).toBe("Listed background jobs");
 	});
 
 	test("thread_peek names the thread by its title, from the list or from the result", () => {
@@ -249,7 +253,7 @@ describe("one-line summaries of thread calls", () => {
 			"Looked in on Old work",
 		);
 		expect(threadCallSummary(call("thread_peek", { id: "gone" })).text).toBe("Looked in on gone");
-		expect(threadCallSummary(call("thread_peek", { id: "main" })).text).toBe("Looked in on main");
+		expect(threadCallSummary(call("thread_peek", { id: "main" })).text).toBe("Looked in on Main chat");
 	});
 
 	test("a call in flight says so, and an error is marked failed", () => {
@@ -263,8 +267,8 @@ describe("one-line summaries of thread calls", () => {
 	});
 
 	test("a thread tool the app does not know reads as words", () => {
-		expect(threadCallSummary(call("thread_rename_all", {})).text).toBe("Ran thread rename all");
-		expect(threadCallSummary(call("thread_rename_all", {}, { isError: true })).text).toBe("Thread rename all failed");
+		expect(threadCallSummary(call("thread_rename_all", {})).text).toBe("Ran background job rename all");
+		expect(threadCallSummary(call("thread_rename_all", {}, { isError: true })).text).toBe("Background job rename all failed");
 	});
 
 	test("only list and peek have no card of their own", () => {
@@ -274,4 +278,47 @@ describe("one-line summaries of thread calls", () => {
 		expect(hasThreadCard("thread_peek")).toBe(false);
 		expect(hasThreadCard("thread_unknown")).toBe(false);
 	});
+});
+
+describe("background job presentation", () => {
+ const now = Date.parse("2026-11-05T12:00:00Z");
+ test.each([
+  ["needs_you", "Needs you", "1 question for you", "warning"],
+  ["working", "Working", "2 workers · running bash · 1m", "accent"],
+  ["paused", "Paused", "Nothing is running. Send it a message to continue.", "muted"],
+  ["failed", "Failed", "Provider unavailable Send a message to retry.", "danger"],
+  ["finished", "Finished", "Saved the guide.", "success"],
+  ["stopped", "Stopped", "Stopped 1 h ago", "subtle"],
+ ] as const)("%s has one label, tone and line", (state, label, line, tone) => {
+  const job = thread({state, current:"2 workers · running bash · 1m", failure:"Provider unavailable", summary:"Saved the guide.\nMore detail", finishedAt:"2026-11-05T11:00:00Z"});
+  const result = backgroundJobPresentation(job, [], now);
+  expect(result.label).toBe(label);expect(result.line).toBe(line);expect(result.tone).toContain(tone);
+ });
+ test("uses the job's open question, not another job's or a closed one", () => {
+  const questions = [{threadId:"other",status:"open",text:"Other?"},{threadId:"jira-run",status:"answered",text:"Closed?"},{threadId:"jira-run",status:"open",text:"Which copies should I keep?"}] as BoardQuestion[];
+  expect(backgroundJobPresentation(thread({status:"idle",openQuestions:1}),questions,now).line).toBe("Which copies should I keep?");
+ });
+ test("old servers derive each state and emitted state takes precedence", () => {
+  for (const [overrides,label] of [[{status:"idle",openQuestions:1},"Needs you"],[{status:"running"},"Working"],[{status:"idle",runningWorkers:1},"Working"],[{status:"idle"},"Paused"],[{status:"failed",openQuestions:1},"Failed"],[{status:"done"},"Finished"],[{status:"stopped"},"Stopped"]] as const) expect(backgroundJobPresentation(thread(overrides),[],now).label).toBe(label);
+  expect(backgroundJobPresentation(thread({state:"paused",status:"running"})).label).toBe("Paused");
+ });
+ test("folds only settled jobs strictly older than 24h using finish then update time", () => {
+  const old="2026-11-04T11:59:59Z", edge="2026-11-04T12:00:00Z";
+  const jobs=[thread({id:"old",status:"done",finishedAt:old}),thread({id:"edge",status:"done",finishedAt:edge}),thread({id:"stop",status:"stopped",updatedAt:old}),thread({id:"pause",status:"idle",updatedAt:old}),thread({id:"fail",status:"failed",updatedAt:old})];
+  const grouped=partitionFinishedJobs(jobs,now);
+  expect(grouped.visible.map(t=>t.id)).toEqual(["fail","pause","edge"]);
+  expect(grouped.finished.map(t=>t.id).sort()).toEqual(["old","stop"]);
+ });
+ test("finished/stopped order uses settlement rather than later update time", () => {
+  expect(sortThreads([thread({id:"a",state:"finished",finishedAt:"2026-11-01",updatedAt:"2026-11-06"}),thread({id:"b",state:"stopped",finishedAt:"2026-11-02",updatedAt:"2026-11-03"})]).map(t=>t.id)).toEqual(["b","a"]);
+ });
+ test("counts need attention including failed, and working only; excludes main and archive", () => {
+  const jobs=[thread({status:"failed"}),thread({status:"idle",openQuestions:1}),thread({status:"running"}),thread({status:"idle"}),thread({status:"done"}),thread({status:"running",archived:true}),MAIN];
+  expect(backgroundJobCounts(jobs)).toEqual({needsYou:2,working:1});
+  expect(backgroundJobsText(backgroundJobCounts(jobs))).toBe("2 needs you · 1 working");
+  expect(backgroundJobsText({needsYou:0,working:1})).toBe("1 working");
+  expect(backgroundJobsText({needsYou:1,working:0})).toBe("1 needs you");
+  expect(backgroundJobsText({needsYou:0,working:0},3)).toBeUndefined();
+  expect(backgroundJobsText(undefined,3)).toBe("3 background jobs");
+ });
 });

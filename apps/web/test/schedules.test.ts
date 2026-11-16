@@ -246,7 +246,7 @@ describe("schedules that start a background thread", () => {
 		expect(scheduleInput(schedule())).not.toHaveProperty("kind");
 		expect(scheduleRunsAs({})).toBe("worker");
 		expect(runsAsLabel("worker")).toBe("Run one worker");
-		expect(runsAsLabel("thread")).toBe("Start a background thread");
+		expect(runsAsLabel("thread")).toBe("Start a background job");
 		expect(briefLabel("thread")).toBe("Prompt");
 		expect(briefLabel("worker")).toBe("Brief");
 	});

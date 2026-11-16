@@ -234,7 +234,7 @@ export function workerScheduleLabel(
 	return title !== undefined && title.length > 0 ? title : "Scheduled task";
 }
 
-/** What a schedule runs: one worker of main on the brief, or a background thread started with the prompt. */
+/** What a schedule runs: one worker of main on the brief, or a background job started with the prompt. */
 export type ScheduleRunsAs = NonNullable<ScheduleInput["kind"]>;
 
 /** What a stored schedule runs; a schedule from before threads has no kind and runs a worker. */
@@ -244,7 +244,7 @@ export function scheduleRunsAs(schedule: Pick<ScheduleInput, "kind">): ScheduleR
 
 /** The editor's choice, in the user's words. */
 export function runsAsLabel(runsAs: ScheduleRunsAs): string {
-	return runsAs === "thread" ? "Start a background thread" : "Run one worker";
+	return runsAs === "thread" ? "Start a background job" : "Run one worker";
 }
 
 /** The text field's label: a worker gets a brief, a thread starts from the user's own prompt. */

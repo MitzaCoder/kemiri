@@ -53,7 +53,7 @@
 	} = $props();
 
 	let draft = $state<ScheduleDraft>(emptyScheduleDraft());
-	/** A backend with threads can start a background thread per run instead of one worker. */
+	/** A backend with threads can start a background job per run instead of one worker. */
 	const supportsThreads = $derived(backend.supports('threads'));
 	/** Only a backend that advertises `schedule-events` can run an event rule; an existing one stays editable. */
 	const supportsEvents = $derived(backend.supports('schedule-events') || draft.kind === 'github-review-requested');
@@ -130,7 +130,7 @@
 		{ value: 'workspace', label: 'Own jj workspace', description: 'The coordinator merges it' }
 	];
 	const reportOptions = $derived<ComboOption[]>([
-		{ value: 'review', label: draft.runsAs === 'thread' ? 'Main reviews it' : 'Coordinator reviews it', description: 'Wakes it for a turn' },
+		{ value: 'review', label: draft.runsAs === 'thread' ? 'Main chat reviews it' : 'Coordinator reviews it', description: 'Wakes it for a turn' },
 		{ value: 'record', label: 'Just record it', description: 'Kept for your next message' }
 	]);
 
@@ -159,8 +159,8 @@
 			<Dialog.Title>{schedule === undefined ? 'New scheduled task' : 'Edit scheduled task'}</Dialog.Title>
 			<Dialog.Description>
 				{#if draft.runsAs === 'thread'}
-					Each run starts a background thread with your prompt: a coordinator with its own workers. Its summary
-					reaches main when it finishes.
+					Each run starts a background job with your prompt: a coordinator with its own workers. Its summary
+					reaches Main chat when it finishes.
 				{:else}
 					The brief runs as a worker of the project's coordinator. The report goes to the coordinator like any other
 					worker's.
@@ -192,7 +192,7 @@
 					<Field.Field>
 						<Field.Label for="schedule-runs-as">Each run</Field.Label>
 						<Combobox id="schedule-runs-as" options={runsAsOptions} value={draft.runsAs} onchange={(next) => (draft.runsAs = next as 'worker' | 'thread')} />
-						<Field.Description>One focused job, or a thread that plans its own workers.</Field.Description>
+						<Field.Description>One focused job, or a background job that plans its own workers.</Field.Description>
 					</Field.Field>
 				{/if}
 				<Field.Field>
@@ -205,11 +205,11 @@
 						class="min-h-20 text-sm md:text-sm"
 					/>
 					<Field.Description>
-						{draft.runsAs === 'thread' ? 'What you would ask main for.' : 'Self-contained: the worker sees only this.'}
+						{draft.runsAs === 'thread' ? 'What you would ask Main chat for.' : 'Self-contained: the worker sees only this.'}
 					</Field.Description>
 					<LearnMore>
 						{#if draft.runsAs === 'thread'}
-							The thread sees this prompt, the board and memory, not this conversation.
+							The background job sees this prompt, the board and memory, not this conversation.
 						{:else}
 							The worker sees this brief and its checkout, not this conversation.
 						{/if}
@@ -307,7 +307,7 @@
 
 			<Field.Group>
 				<Field.Field>
-					<Field.Label for="schedule-model">{draft.runsAs === 'thread' ? 'Thread model' : 'Worker model'}</Field.Label>
+					<Field.Label for="schedule-model">{draft.runsAs === 'thread' ? 'Background job model' : 'Worker model'}</Field.Label>
 					<Combobox
 						id="schedule-model"
 						options={modelChoices}
@@ -316,7 +316,7 @@
 						searchPlaceholder="Search models or providers…"
 					/>
 					<Field.Description>
-						{draft.runsAs === 'thread' ? 'The thread\'s own model.' : 'Worker default resolves like any worker.'}
+						{draft.runsAs === 'thread' ? 'The background job\'s own model.' : 'Worker default resolves like any worker.'}
 					</Field.Description>
 				</Field.Field>
 

@@ -6,10 +6,13 @@
  * The user talks to main and never has to know which thread they are in, so everything here names a thread by its
  * title and says plainly that it works in the background.
  */
+import { relativeTime } from "./relative-time.js";
 import type { Snippet } from "svelte";
 import { isMainThread, parseThreadInput, type ThreadInput } from "@kemiri/client";
 import {
 	MAIN_THREAD_ID,
+	threadState,
+	backgroundJobCounts,
 	type BoardQuestion,
 	type BoardTask,
 	type ThreadStatus,
@@ -40,9 +43,9 @@ export function threadToolAction(name: string): string {
 		case "thread_send":
 			return "Sent a message";
 		case "thread_peek":
-			return "Checked on it";
+			return "Looked in on it";
 		case "thread_list":
-			return "Listed background threads";
+			return "Listed background jobs";
 		case "thread_stop":
 			return "Stopped it";
 		case "thread_archive":
@@ -109,37 +112,36 @@ export function threadCallTitle(call: { arguments?: unknown }): string | undefin
 	return stringField(asRecord(call.arguments), "title");
 }
 
-export type ThreadTone = "running" | "idle" | "done" | "failed" | "stopped";
-
-export function threadStatusLabel(status: ThreadStatus): string {
-	switch (status) {
-		case "running":
-			return "Working";
-		case "idle":
-			return "Waiting";
-		case "failed":
-			return "Failed";
-		case "stopped":
-			return "Stopped";
-		case "done":
-			return "Finished";
-	}
+/** One presentation for every background-job surface; emitted state wins on new servers. */
+export function backgroundJobPresentation(
+	thread: ThreadSummary,
+	questions: readonly BoardQuestion[] = [],
+	now = Date.now(),
+): { label: string; tone: string; line: string } {
+	const state = thread.state ?? threadState(thread);
+	const labels = { needs_you: "Needs you", working: "Working", paused: "Paused", failed: "Failed", finished: "Finished", stopped: "Stopped" };
+	const tones = {
+	needs_you: "border-(--chat-warning)/40 bg-(--chat-warning)/10 text-(--chat-warning)",
+	working: "border-(--accent-2)/40 bg-(--accent-2)/10 text-(--accent-2)",
+	paused: "border-(--chat-border) bg-(--chat-surface-2) text-(--chat-fg-muted)",
+	failed: "border-(--chat-danger)/40 bg-(--chat-danger)/10 text-(--chat-danger)",
+	finished: "border-(--chat-success)/40 bg-(--chat-success)/10 text-(--chat-success)",
+	stopped: "border-(--chat-border) bg-transparent text-(--chat-fg-subtle)",
+	};
+	const lines = {
+	needs_you: questions.find(q => q.status === "open" && q.threadId === thread.id)?.text ?? "1 question for you",
+	working: thread.current?.trim() ? thread.current : "Working…",
+	paused: "Nothing is running. Send it a message to continue.",
+	failed: `${thread.failure || "Its last turn failed."} Send a message to retry.`,
+	finished: firstLine(thread.summary) ?? "Finished.",
+	stopped: `Stopped ${relativeTime(thread.finishedAt ?? thread.updatedAt, now)}`,
+	};
+	return { label: labels[state], tone: tones[state], line: lines[state] };
 }
 
-/** The status badge's colours, in the chat's tokens; red only for a failure. */
-export function threadStatusClass(status: ThreadStatus): string {
-	switch (status) {
-		case "running":
-			return "border-(--accent-2)/40 bg-(--accent-2)/10 text-(--accent-2)";
-		case "idle":
-			return "border-(--chat-border) bg-(--chat-surface-2) text-(--chat-fg-muted)";
-		case "failed":
-			return "border-(--chat-danger)/40 bg-(--chat-danger)/10 text-(--chat-danger)";
-		case "stopped":
-			return "border-(--chat-border) bg-transparent text-(--chat-fg-subtle)";
-		case "done":
-			return "border-(--chat-success)/40 bg-(--chat-success)/10 text-(--chat-success)";
-	}
+/** Compatibility for callers holding only a stored status. */
+export function threadStatusLabel(status: ThreadStatus): string {
+	return { running: "Working", idle: "Paused", failed: "Failed", done: "Finished", stopped: "Stopped" }[status];
 }
 
 /** "2 workers running", or nothing. */
@@ -162,12 +164,8 @@ export function openQuestionsText(count: number): string | undefined {
 }
 
 /** The one line under a thread's title: what it does now, or how it ended. */
-export function threadActivityLine(thread: Pick<ThreadSummary, "status" | "current" | "failure" | "summary">): string {
-	if (thread.status === "failed") return thread.failure ?? "Its last turn failed.";
-	if (thread.status === "stopped") return "Stopped; nothing runs.";
-	if (thread.status === "done") return firstLine(thread.summary) ?? "Finished.";
-	if (thread.current !== null && thread.current.trim().length > 0) return thread.current;
-	return thread.status === "running" ? "Working…" : "Waiting for a message or its workers.";
+export function threadActivityLine(thread: ThreadSummary, questions: readonly BoardQuestion[] = [], now = Date.now()): string {
+	return backgroundJobPresentation(thread, questions, now).line;
 }
 
 function firstLine(text: string | null): string | undefined {
@@ -191,42 +189,33 @@ export function threadStartedByText(
 		case "user":
 			return "Started by you";
 		case "main":
-			return "Started by main";
+			return "Started by Main chat";
 		default:
-			return "Main";
+			return "Main chat";
 	}
 }
 
-/**
- * The Background tab's order: threads still at work first (one that needs the user before the others), then the
- * settled ones, newest change first inside each group. Main is not listed.
- */
+/** Needs you, Failed, Working, Paused, then settled jobs newest finish first. Main chat is not listed. */
 export function sortThreads(threads: readonly ThreadSummary[]): ThreadSummary[] {
 	const rank = (thread: ThreadSummary): number =>
-		thread.openQuestions > 0 && (thread.status === "running" || thread.status === "idle")
-			? 0
-			: thread.status === "running"
-				? 1
-				: thread.status === "idle"
-					? 2
-					: thread.status === "failed"
-						? 3
-						: 4;
+		({ needs_you: 0, failed: 1, working: 2, paused: 3, finished: 4, stopped: 4 })[thread.state ?? threadState(thread)];
+	const changedAt = (thread: ThreadSummary): string =>
+		rank(thread) === 4 ? thread.finishedAt ?? thread.updatedAt : thread.updatedAt;
 	return threads
-		.filter((thread) => !thread.main && thread.id !== MAIN_THREAD_ID)
-		.sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt));
+		.filter(thread => !thread.main && thread.id !== MAIN_THREAD_ID)
+		.sort((a, b) => rank(a) - rank(b) || changedAt(b).localeCompare(changedAt(a)));
 }
 
 /** The name a thread goes by on the board and the question cards: its title, "Main" for main, else its ID. */
 export function threadName(threadId: string | null | undefined, threads: readonly ThreadSummary[]): string {
-	if (isMainThread(threadId)) return "Main";
+	if (isMainThread(threadId)) return "Main chat";
 	const thread = threads.find((entry) => entry.id === threadId);
 	return thread?.title || (threadId as string);
 }
 
-/** Which thread asked a question: undefined for main (or an older server), so main's questions read as before. */
+/** Name every asker, including Main chat for older servers without a thread ID. */
 export function questionAskedBy(question: Pick<BoardQuestion, "threadId">, threads: readonly ThreadSummary[]): string | undefined {
-	if (isMainThread(question.threadId)) return undefined;
+	if (isMainThread(question.threadId)) return "Main chat";
 	return threadName(question.threadId, threads);
 }
 
@@ -240,10 +229,10 @@ export function taskOwner(task: Pick<BoardTask, "ownerThreadId">, threads: reado
 	return { claimed: true, label: threadName(task.ownerThreadId, threads), threadId: task.ownerThreadId, main };
 }
 
-/** How the left sidebar notes a project's background threads: "2 in background", or nothing. */
+/** Older servers provide only a not-finished count, not attention/working counts. */
 export function backgroundThreadsText(count: number | undefined): string | undefined {
 	if (count === undefined || count <= 0) return undefined;
-	return `${count} in background`;
+	return `${count} background job${count === 1 ? "" : "s"}`;
 }
 
 // --- the transcript ----------------------------------------------------------------------------------------------
@@ -275,6 +264,7 @@ export function inThread(item: { threadId?: string }, threadId: string | undefin
  */
 export type ThreadCards = {
 	threads: readonly ThreadSummary[];
+	questions?: readonly BoardQuestion[];
 	href: (threadId: string) => string;
 	scheduleName?: (scheduleId: string) => string | undefined;
 	/** A thread's artifacts under its finished card: those saved by the finish (epoch ms), when it is known. */
@@ -334,7 +324,7 @@ export type ThreadCallSummary = { text: string; failed: boolean; pending: boolea
 /** "thread_foo_bar" as words, for a thread tool this app does not know. */
 function threadToolWords(name: string): string {
 	const words = name.replace(/^thread_/, "").replace(/_/g, " ").trim();
-	return words.length === 0 ? "thread" : words;
+	return words.length === 0 ? "background job" : words;
 }
 
 /** The count a `thread_list` result opens with ("3 background threads." or "No background threads."). */
@@ -354,8 +344,8 @@ function peekedTitle(output: string | undefined): string | undefined {
 
 function callTargetName(call: { name: string; arguments?: unknown; output?: string }, threads: readonly ThreadSummary[]): string {
 	const id = threadIdOfCall(call) ?? stringField(asRecord(call.arguments), "id");
-	if (id === undefined) return threadCallTitle(call) ?? "a thread";
-	if (isMainThread(id)) return "main";
+	if (id === undefined) return threadCallTitle(call) ?? "a background job";
+	if (isMainThread(id)) return "Main chat";
 	return threads.find((entry) => entry.id === id)?.title || (call.name === "thread_peek" ? peekedTitle(call.output) : undefined) || id;
 }
 
@@ -367,24 +357,51 @@ export function threadCallSummary(
 	const pending = !failed && call.status !== "done";
 	const target = callTargetName(call, threads);
 	const verbs: Record<string, [string, string, string]> = {
-		thread_list: ["Listing background threads", "Listed background threads", "Could not list background threads"],
+		thread_list: ["Listing background jobs", "Listed background jobs", "Could not list background jobs"],
 		thread_peek: [`Looking in on ${target}`, `Looked in on ${target}`, `Could not look in on ${target}`],
 		thread_start: [`Starting ${target} in the background`, `Started ${target} in the background`, `Could not start ${target}`],
 		thread_send: [`Messaging ${target}`, `Messaged ${target}`, `Could not message ${target}`],
 		thread_stop: [`Stopping ${target}`, `Stopped ${target}`, `Could not stop ${target}`],
 		thread_archive: [`Archiving ${target}`, `Archived ${target}`, `Could not archive ${target}`],
-		thread_finish: ["Finishing the thread", "Finished the thread", "Could not finish the thread"],
+		thread_finish: ["Finishing the background job", "Finished the background job", "Could not finish the background job"],
 	};
 	const words = threadToolWords(call.name);
 	const [running, done, error] = verbs[call.name] ?? [
-		`Running thread ${words}`,
-		`Ran thread ${words}`,
-		`Thread ${words} failed`,
+		`Running background job ${words}`,
+		`Ran background job ${words}`,
+		`Background job ${words} failed`,
 	];
 	let text = failed ? error : pending ? running : done;
 	if (call.name === "thread_list" && !failed && !pending) {
 		const count = listedThreadCount(call.output);
-		if (count !== undefined) text = `Listed ${count === 0 ? "no" : count} background thread${count === 1 ? "" : "s"}`;
+		if (count !== undefined) text = `Listed ${count === 0 ? "no" : count} background job${count === 1 ? "" : "s"}`;
 	}
 	return { text: pending ? `${text}…` : text, failed, pending };
+}
+
+/** Only old settled jobs fold; archive remains a separate server-backed view. */
+export function partitionFinishedJobs(
+	threads: readonly ThreadSummary[],
+	now: number,
+): { visible: ThreadSummary[]; finished: ThreadSummary[] } {
+	const visible: ThreadSummary[] = [];
+	const finished: ThreadSummary[] = [];
+	for (const thread of sortThreads(threads)) {
+		const state = thread.state ?? threadState(thread);
+		const settled = state === "finished" || state === "stopped";
+		const old = now - Date.parse(thread.finishedAt ?? thread.updatedAt) > 24 * 60 * 60 * 1000;
+		(settled && old ? finished : visible).push(thread);
+	}
+	return { visible, finished };
+}
+
+export function backgroundJobsText(
+	counts: ReturnType<typeof backgroundJobCounts> | undefined,
+	legacyCount?: number,
+): string | undefined {
+	if (!counts) return backgroundThreadsText(legacyCount);
+	return [
+		counts.needsYou > 0 ? `${counts.needsYou} needs you` : undefined,
+		counts.working > 0 ? `${counts.working} working` : undefined,
+	].filter(Boolean).join(" · ") || undefined;
 }

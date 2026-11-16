@@ -27,7 +27,8 @@ describe("header-only conversation panels", () => {
 		expect(chat).toContain("shownHeaderActions.menu as action");
 		expect(chat).toContain("if (sidebarOpen && sidebarTab === target)");
 		expect(chat).toContain("count: questionBadgeText(questionsWaiting)");
-		expect(chat).toContain("count: backgroundActive > 0");
+		expect(chat).toContain("${jobCounts.needsYou} needs you, ${jobCounts.working} working");
+		expect(chat).toContain("{ background: true }");
 	});
 
 	test("worker transcripts retain their own context and memory toggles", () => {

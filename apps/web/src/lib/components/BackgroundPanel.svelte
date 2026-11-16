@@ -13,12 +13,12 @@
 	import ThreadStatusBadge from '#lib/components/chat/ThreadStatusBadge.svelte';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import { isThreadActive } from '@kemiri/client';
-	import { sortThreads, threadActivityLine, threadStartedByText } from '#lib/threads.js';
+	import { partitionFinishedJobs, sortThreads, threadActivityLine, threadStartedByText } from '#lib/threads.js';
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
-	import type { ThreadSummary } from '@kemiri/protocol';
+	import type { BoardQuestion, ThreadSummary } from '@kemiri/protocol';
 
 	/**
-	 * Main's background threads: what each does now, its workers and tasks, who started it and when, with open, stop
+	 * Main's background jobs: what each does now, its workers and tasks, who started it and when, with open, stop
 	 * (behind a confirmation) and archive. The body of the sidebar's Background tab; archived threads sit behind a
 	 * toggle. Nothing here starts a thread: the user asks main.
 	 */
@@ -26,17 +26,22 @@
 		threads,
 		hrefOf,
 		scheduleName,
-		now
+		now,
+		currentThreadId,
+		questions = []
 	}: {
 		threads: ProjectThreads | undefined;
 		hrefOf: (threadId: string) => string;
 		scheduleName?: (scheduleId: string) => string | undefined;
 		/** Ticks, so the relative times move on. */
 		now: number;
+		currentThreadId?: string;
+		questions?: readonly BoardQuestion[];
 	} = $props();
 
 	const ordered = $derived(sortThreads(threads?.background ?? []));
 	const live = $derived(ordered.filter((thread) => !thread.archived));
+	const grouped = $derived(partitionFinishedJobs(live, now));
 	const archived = $derived(ordered.filter((thread) => thread.archived));
 
 	let stopping = $state<ThreadSummary | undefined>(undefined);
@@ -82,14 +87,15 @@
 		<a href={hrefOf(thread.id)} class="flex min-w-0 flex-col gap-1 rounded-t-xl px-3 pt-2 pb-1.5 hover:bg-(--chat-surface-2)/60">
 			<span class="flex min-w-0 items-center gap-2">
 				<span class="min-w-0 flex-1 truncate text-[0.8125rem] font-semibold">{thread.title || thread.id}</span>
-				<ThreadStatusBadge status={thread.status} class="shrink-0" />
+				<ThreadStatusBadge {thread} class="shrink-0" />
 				<ChevronRightIcon class="size-3.5 shrink-0 text-(--chat-fg-subtle)" />
 			</span>
 			<span
 				class="line-clamp-2 text-xs break-words {thread.status === 'failed' ? 'text-(--chat-danger)' : 'text-(--chat-fg-muted)'}"
 			>
-				{threadActivityLine(thread)}
+				{threadActivityLine(thread, questions, now)}
 			</span>
+			{#if thread.id === currentThreadId}<span class="text-xs font-medium text-(--accent-2)">You are here</span>{/if}
 			<ThreadFacts {thread} />
 			<span class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[0.6875rem] text-(--chat-fg-subtle)">
 				{#if thread.startedBy === 'schedule'}<CalendarClockIcon class="size-3" aria-hidden="true" />{/if}
@@ -124,7 +130,7 @@
 <div class="flex min-h-0 flex-1 flex-col">
 	<div class="shrink-0 border-b border-(--chat-border)/70 px-4 py-2.5 text-xs text-(--chat-fg-subtle)">
 		<p class="mx-auto w-full max-w-3xl">
-			Big jobs main handed off. They report back to main, which relays them; ask main to start, steer or stop one.
+			Background jobs report back to Main chat. Ask Main chat to start, steer or stop one.
 		</p>
 	</div>
 
@@ -138,17 +144,20 @@
 			{#if live.length === 0}
 				<p class="px-1 py-4 text-sm text-(--chat-fg-subtle)">
 					{#if threads?.loaded}
-						Nothing runs in the background. Main starts a thread when a job is big enough, or a schedule does.
+						No background jobs yet. Ask Main chat to start one, or use a schedule.
 					{:else}
-						Loading background threads…
+						Loading background jobs…
 					{/if}
 				</p>
 			{/if}
 
-			{#each live as thread (thread.id)}
+			{#each grouped.visible as thread (thread.id)}
 				{@render row(thread)}
 			{/each}
 
+			{#if grouped.finished.length > 0}
+				<details class="mt-2"><summary class="cursor-pointer py-2 text-xs text-(--chat-fg-muted)">Finished ({grouped.finished.length})</summary><div class="flex flex-col gap-1.5">{#each grouped.finished as thread (thread.id)}{@render row(thread)}{/each}</div></details>
+			{/if}
 			{#if threads?.loaded}
 				<button
 					type="button"
@@ -163,7 +172,7 @@
 
 			{#if threads?.showArchived}
 				{#if archived.length === 0}
-					<p class="px-1 text-xs text-(--chat-fg-subtle)">No archived threads.</p>
+					<p class="px-1 text-xs text-(--chat-fg-subtle)">No archived background jobs.</p>
 				{/if}
 				{#each archived as thread (thread.id)}
 					{@render row(thread)}
@@ -177,9 +186,9 @@
 <Dialog.Root bind:open={stopOpen}>
 	<Dialog.Content class="sm:max-w-sm">
 		<Dialog.Header>
-			<Dialog.Title>Stop {stopping?.title || 'this thread'}?</Dialog.Title>
+			<Dialog.Title>Stop {stopping?.title || 'this background job'}?</Dialog.Title>
 			<Dialog.Description>
-				Its running turn and its workers are aborted, and it does no more work. Main keeps what it reported so far.
+				Its running turn and its workers are aborted, and it does no more work. Main chat keeps what it reported so far.
 			</Dialog.Description>
 		</Dialog.Header>
 		{#if stopping !== undefined && threads?.actionError?.threadId === stopping.id}

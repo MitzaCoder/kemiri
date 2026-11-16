@@ -83,7 +83,7 @@
 		workerThinkingLevel?: ThinkingLevel | null;
 		/** Hidden when the backend's hello lacks the `workers` feature. */
 		showWorkerPicker?: boolean;
-		/** False where the model is not this screen's to change (a background thread keeps the one it started with). */
+		/** False where the model is not this screen's to change (a background job keeps the one it started with). */
 		showModelPicker?: boolean;
 		/** Shown instead of the pickers when they are hidden, e.g. the thread's model. */
 		modelNote?: string;
@@ -251,7 +251,7 @@
 				? 'The coordinator is not ready'
 				: busy
 					? 'Send — the coordinator gets it at its next step…'
-					: 'Message the coordinator…')
+					: 'Message Main chat…')
 	);
 
 	export function focus(): void {

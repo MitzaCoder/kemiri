@@ -62,10 +62,10 @@ const WAKES: Record<WakeReason, string> = {
 	user: "Your messages",
 	check_in: "Worker check-ins",
 	worker_report: "Worker reports",
-	thread_finished: "Threads finishing",
-	thread_message: "Messages between threads",
+	thread_finished: "Background jobs finishing",
+	thread_message: "Messages between chats",
 	board: "Board changes",
-	brief: "New workers and threads",
+	brief: "New workers and background jobs",
 	schedule: "Schedules",
 	coordinator: "Messages to workers",
 	continue: "Work going on",
@@ -87,9 +87,9 @@ export function wakePhrase(wake: WakeReason | null): string {
 		case "worker_report":
 			return "a worker's report";
 		case "thread_finished":
-			return "a thread finishing";
+			return "a background job finishing";
 		case "thread_message":
-			return "a message from another thread";
+			return "a message from another chat";
 		case "board":
 			return "a board change";
 		case "brief":
@@ -107,7 +107,7 @@ export function wakePhrase(wake: WakeReason | null): string {
 	}
 }
 
-const KINDS: Record<ConversationKind, string> = { main: "Main", thread: "Thread", worker: "Worker", other: "Other" };
+const KINDS: Record<ConversationKind, string> = { main: "Main chat", thread: "Background job", worker: "Worker", other: "Other" };
 
 /** Which conversation: "Main", "Worker qa-4316 · T15", "Thread nightly-sync". */
 export function conversationLabel(row: {
@@ -117,7 +117,7 @@ export function conversationLabel(row: {
 	taskId: string | null;
 }): string {
 	const parts = [KINDS[row.kind]];
-	if (row.kind === "thread" && row.threadId !== null) parts[0] = `Thread ${row.threadId}`;
+	if (row.kind === "thread" && row.threadId !== null) parts[0] = `Background job ${row.threadId}`;
 	if (row.kind === "worker" && row.workerId !== null) parts[0] = `Worker ${row.workerId}`;
 	if (row.kind === "worker" && row.threadId !== null && row.threadId !== "main") parts.push(`in ${row.threadId}`);
 	if (row.taskId !== null) parts.push(row.taskId);
@@ -125,7 +125,7 @@ export function conversationLabel(row: {
 }
 
 export function kindGroupLabel(kind: string): string {
-	return kind === "main" ? "Main" : kind === "thread" ? "Threads" : kind === "worker" ? "Workers" : "Other";
+	return kind === "main" ? "Main chat" : kind === "thread" ? "Background jobs" : kind === "worker" ? "Workers" : "Other";
 }
 
 /** The miss's headline: "Waited too long (12m)". */

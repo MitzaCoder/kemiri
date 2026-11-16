@@ -72,6 +72,7 @@
 		thread={threadId === undefined ? undefined : threadCards.threads.find((entry) => entry.id === threadId)}
 		href={threadId === undefined ? undefined : threadCards.href(threadId)}
 		scheduleName={threadCards.scheduleName}
+		questions={threadCards.questions}
 	/>
 {:else if part.name.startsWith('thread_')}
 	<ThreadCallLine {part} threads={threadCards?.threads} />

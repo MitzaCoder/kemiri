@@ -17,7 +17,7 @@ export function projectAttentionActions(project: ProjectSummary): AttentionActio
 	if ((summary?.warnings ?? 0) > 0) actions.push({ kind: "warning", count: summary!.warnings, label: `${summary!.warnings} warning${summary!.warnings === 1 ? "" : "s"}`, taskId: summary?.warningTaskId });
 	if (project.state === "failed" || project.activity?.coordinator === "failed") actions.push({ kind: "coordinator", count: 1, label: project.state === "failed" ? "Project failed" : "Coordinator failed" });
 	if ((summary?.failedWorkers ?? 0) > 0) actions.push({ kind: "worker", count: summary!.failedWorkers, label: summary!.failedWorkers === 1 ? "Worker failed" : `${summary!.failedWorkers} workers failed`, taskId: summary?.failedWorkerTaskId });
-	if ((summary?.failedThreads ?? 0) > 0) actions.push({ kind: "thread", count: summary!.failedThreads, label: summary!.failedThreads === 1 ? "Thread failed" : `${summary!.failedThreads} threads failed`, threadId: summary?.failedThreadId });
+	if ((summary?.failedThreads ?? 0) > 0) actions.push({ kind: "thread", count: summary!.failedThreads, label: summary!.failedThreads === 1 ? "Background job failed" : `${summary!.failedThreads} background jobs failed`, threadId: summary?.failedThreadId });
 	if ((summary?.reviewTasks ?? 0) > 0) actions.push({ kind: "review", count: summary!.reviewTasks, label: `${summary!.reviewTasks} to review`, taskId: summary?.reviewTaskId });
 	return actions;
 }

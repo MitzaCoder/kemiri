@@ -162,7 +162,7 @@
 				runNotice = {
 					scheduleId: schedule.id,
 					tone: 'info',
-					text: 'Started a background thread. Its summary goes to main when it finishes.',
+					text: 'Started a background job. Its summary goes to Main chat when it finishes.',
 					threadId: run.threadId
 				};
 			} else if (run.outcome === 'started') {
@@ -249,7 +249,7 @@
 								<StatusChip tone="info" dot={false} class="h-5 text-[0.6875rem]"><GitPullRequestIcon class="size-3" aria-hidden="true" /> On an event</StatusChip>
 							{/if}
 							{#if scheduleRunsAs(schedule) === 'thread'}
-								<StatusChip tone="muted" dot={false} class="h-5 text-[0.6875rem]">Background thread</StatusChip>
+								<StatusChip tone="muted" dot={false} class="h-5 text-[0.6875rem]">Background job</StatusChip>
 							{/if}
 							{#if schedule.createdBy === 'coordinator'}
 								<StatusChip tone="muted" dot={false} class="h-5 text-[0.6875rem]">By the coordinator</StatusChip>
@@ -334,7 +334,7 @@
 									{runOutcomeLabel(run.outcome)}
 								</span>
 								{#if runHasThread(run)}
-									<a class="underline" href={threadLink(run.threadId)}>background thread</a>
+									<a class="underline" href={threadLink(run.threadId)}>background job</a>
 								{:else if runHasWorker(run)}
 									<a class="underline" href={workerLink(run.workerId)}>worker {run.workerId}</a>
 								{:else if runReason(run)}

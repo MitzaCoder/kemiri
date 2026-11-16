@@ -21,7 +21,7 @@
 </script>
 
 <svelte:head>
-	<title>Background thread · {project?.name ?? 'Chat'} · Kemiri</title>
+	<title>Background job · {project?.name ?? 'Chat'} · Kemiri</title>
 </svelte:head>
 
 {#if backend}

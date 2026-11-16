@@ -19,7 +19,7 @@ function item(overrides: Partial<StorageItem> = {}): StorageItem {
 describe("storage rows", () => {
 	test("say what a workspace is and whether it is finished", () => {
 		expect(storageKindLabel("worker")).toBe("Worker");
-		expect(storageKindLabel("thread")).toBe("Background thread");
+		expect(storageKindLabel("thread")).toBe("Background job");
 		expect(storageStateLabel({ removable: true })).toBe("finished");
 		expect(storageStateLabel({ removable: false })).toBe("running");
 		expect(storageSize(0)).toBe("empty");

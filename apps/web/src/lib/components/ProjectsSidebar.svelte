@@ -21,6 +21,7 @@
 	import { projectHref } from '#lib/backends.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
+	import { backgroundJobsText } from '#lib/threads.js';
 	import { attentionCount, needsYouLinks, sidebarStatus } from '#lib/sidebar-attention.js';
 	import NeedsYou from '#lib/components/NeedsYou.svelte';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
@@ -211,6 +212,7 @@
 						{@const status = row(backend, project)}
 						{@const count = attentionCount(project)}
 						{@const summary = sidebarStatus(project, status)}
+						{@const jobsNote = backgroundJobsText(project.activity?.backgroundJobs, project.activity?.backgroundThreads)}
 						{#if rail}
 							<a
 								href={projectHref(backend.id, project.id)}
@@ -254,7 +256,7 @@
 								title={`${status.title} · ${summary.label}`}
 							>
 								<span class="status-glyph" class:working={summary.working} aria-hidden="true">{summary.glyph}</span>
-								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small></span>
+								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
 								{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
 							</a>
 						{/if}

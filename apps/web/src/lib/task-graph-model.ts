@@ -125,7 +125,7 @@ export function searchGraph(model: GraphModel, query: string): GraphSearchResult
 		if (d.task.archived) continue;
 		const candidates: [string, number, string][] = [[d.task.id, 100, 'Task ID'], [d.task.title, 80, 'Title'], [d.familyTitle, 50, 'Family'],
 			...d.workers.flatMap(w => [[w.id, 70, 'Worker'], [w.title, 60, 'Worker']] as [string, number, string][]),
-			...d.threads.map(t => [t.title, 40, 'Thread'] as [string, number, string])];
+			...d.threads.map(t => [t.title, 40, 'Background job'] as [string, number, string])];
 		let score = 0, matched = '';
 		for (const [text, weight, kind] of candidates) {
 			const value = text.toLocaleLowerCase();

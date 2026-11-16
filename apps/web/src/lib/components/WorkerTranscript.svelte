@@ -53,11 +53,11 @@
 		backend: BackendConnection;
 		projectId: string;
 		workerId: string;
-		/** The background thread this worker works for; undefined for main's workers. */
+		/** The background job this worker works for; undefined for main's workers. */
 		threadId?: string;
 	} = $props();
 
-	/** Where this worker reports: main's chat, or its background thread's. */
+	/** Where this worker reports: main's chat, or its background job's. */
 	const coordinatorHref = $derived(
 		threadId === undefined ? projectHref(backend.id, projectId) : threadHref(backend.id, projectId, threadId)
 	);
@@ -357,10 +357,10 @@
 				class="flex {CHAT_COLUMN_CLASS} shrink-0 flex-wrap items-center gap-2 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] text-xs text-(--chat-fg-subtle) sm:px-6"
 			>
 				<p class="min-w-0 flex-1">
-					Read-only. A worker reports to the coordinator, so send it more work by messaging the coordinator.
+					Read-only. Send more work through {threadId === undefined ? 'Main chat' : 'its background job'}.
 				</p>
 				<Button href={coordinatorHref} variant="outline" size="sm">
-					<ArrowLeftIcon data-icon="inline-start" /> {threadId === undefined ? 'Coordinator' : 'Thread'}
+					<ArrowLeftIcon data-icon="inline-start" /> {threadId === undefined ? 'Main chat' : 'Background job'}
 				</Button>
 			</div>
 		{/if}

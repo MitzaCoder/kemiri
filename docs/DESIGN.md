@@ -2034,7 +2034,20 @@ Status: backend, protocol, client and web UI done (milestone 2).
 ## Threads
 
 D89 / T222: user-facing names are **Main chat** and **background job**; code, tools
-and stored records keep `thread`, with no data migration. Feature `thread-state`
+and stored records keep `thread`, with no data migration. Web phase 1 shares one pure
+presentation helper for Needs you (amber, the open question), Failed (danger, retry),
+Working (accent, server current text), Paused (muted, message to continue), Finished
+(success, first summary line), and Stopped (subtle, relative finish time). The panel
+sorts in that order and folds Finished/Stopped older than 24 hours into a collapsed
+Finished group; archive remains separate. It is available inside jobs too, marking
+You are here. Header and project sidebar use needs-you (including failures) and
+working counts, never a count of merely unfinished jobs. Older servers derive states
+and header counts locally; the project sidebar falls back to “N background jobs”.
+Start cards always break folded transcript steps; completion/failure cards show the
+same title/badge/Open shape and keep completion artifacts. No title switcher or job
+page band yet. `packages/server/scripts/background-jobs-demo.ts` starts an isolated
+synthetic backend with all six states and an old finished job; JOBS_WEB_ORIGIN and
+JOBS_DEMO_OUTPUT select the frontend origin and connection JSON output. Feature `thread-state`
 advertises optional `ThreadSummary.state`, derived on emission, never stored, for main too.
 First match wins (D86 failure precedes questions): done → finished; stopped → stopped;
 failed → failed; openQuestions > 0 → needs_you; running or runningWorkers > 0 → working;

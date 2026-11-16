@@ -6,9 +6,9 @@ import { removableStorage, type StorageCleanResult } from "@kemiri/client";
 import type { StorageItem } from "@kemiri/protocol";
 import { formatBytes } from "./artifacts.ts";
 
-/** "Worker" or "Background thread": the kind of workspace a row is. */
+/** "Worker" or "Background job": the kind of workspace a row is. */
 export function storageKindLabel(kind: StorageItem["kind"]): string {
-	return kind === "worker" ? "Worker" : "Background thread";
+	return kind === "worker" ? "Worker" : "Background job";
 }
 
 /** "finished" for one a cleanup may remove, "running" for one still in use. */

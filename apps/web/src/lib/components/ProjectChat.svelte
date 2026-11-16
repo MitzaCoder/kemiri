@@ -79,7 +79,8 @@
 	import { withWaiting } from '#lib/waiting.js';
 	import { threadActivityLine, type ThreadCards } from '#lib/threads.js';
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
-	import { isMainThread, isThreadActive, shouldSendWorkerDefaults, threadFromAnchor } from '@kemiri/client';
+	import { backgroundJobCounts } from '@kemiri/protocol';
+	import { isMainThread, shouldSendWorkerDefaults, threadFromAnchor } from '@kemiri/client';
 	import type { MemoryScope, ModelInfo, ThinkingLevel } from '@kemiri/protocol';
 
 	/**
@@ -88,9 +89,9 @@
 	 * the conversation's context and the project's memory. All three live in one
 	 * resizable right sidebar (a full-screen sheet below 72rem).
 	 *
-	 * With `threadId` this is a background thread's chat instead: the same transcript and composer, typed into
-	 * directly, under a header that says it is a background thread of main and leads back to main. It has its own
-	 * Workers and Info tabs and shares the project's Board and Memory; the Background tab is main's alone.
+	 * With `threadId` this is a background job's chat instead: the same transcript and composer, typed into
+	 * directly, under a header that says it is a background job of main and leads back to main. It has its own
+	 * Workers and Info tabs, and shares the project's Board, Memory and Background jobs panels.
 	 */
 	let {
 		backend,
@@ -98,7 +99,7 @@
 		threadId: threadParam
 	}: { backend: BackendConnection; projectId: string; threadId?: string } = $props();
 
-	/** The background thread this chat is; undefined for main ("main" in the route reads as main too). */
+	/** The background job this chat is; undefined for main ("main" in the route reads as main too). */
 	const threadId = $derived(isMainThread(threadParam) ? undefined : threadParam);
 	const isThread = $derived(threadId !== undefined);
 	$effect(() => tasksView.useProject(`${backend.id}:${projectId}`));
@@ -167,15 +168,16 @@
 	const supportsSchedules = $derived(backend.supports('schedules'));
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
 	const supportsThreads = $derived(backend.supports('threads'));
-	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: !isThread }));
+	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true }));
 	/** This thread as the list has it; undefined on main's chat and while the list loads. */
 	const thread = $derived(threadId === undefined ? undefined : threads?.thread(threadId));
 	const threadList = $derived(threads?.threads ?? []);
-	const backgroundActive = $derived(threadList.filter((entry) => !entry.main && isThreadActive(entry)).length);
+	const jobCounts = $derived(project?.activity?.backgroundJobs ?? backgroundJobCounts(threadList));
 	const threadCards = $derived<ThreadCards | undefined>(
 		supportsThreads
 			? {
 					threads: threadList,
+					questions: board?.board?.questions ?? [],
 					href: (id) => threadHref(backend.id, projectId, id),
 					scheduleName: scheduleTitle,
 					artifacts: threadArtifacts
@@ -226,7 +228,7 @@
 		isThread
 			? thread === undefined
 				? undefined
-				: threadActivityLine(thread)
+				: threadActivityLine(thread, board?.board?.questions ?? [], now)
 			: runningTool === null ? undefined : `Running ${runningTool.name}${elapsedFor(runningTool.startedAt, now) ? ` \u00b7 ${elapsedFor(runningTool.startedAt, now)}` : ''}`
 	);
 
@@ -295,14 +297,14 @@
 				onclick: () => toggleSidebar('board')
 			});
 		}
-		if (supportsThreads && !isThread) {
+		if (supportsThreads) {
 			actions.push({
 				id: 'background',
 				kind: 'tab',
-				name: `Background${backgroundActive > 0 ? ` (${backgroundActive} running)` : ''}`,
-				label: 'Background',
+				name: `Background jobs: ${jobCounts.needsYou} needs you, ${jobCounts.working} working`,
+				label: 'Background jobs',
 				icon: LayersIcon,
-				count: backgroundActive > 0 ? String(backgroundActive) : undefined,
+				count: undefined,
 				tone: 'accent',
 				pressed: sidebarOpen && sidebarTab === 'background',
 				onclick: () => toggleSidebar('background')
@@ -606,7 +608,7 @@
 	});
 
 	/**
-	 * A notification about a background thread opens main at `#thread-<id>`: scroll its newest card into view and make
+	 * A notification about a background job opens main at `#thread-<id>`: scroll its newest card into view and make
 	 * it glow. A card older than the loaded window is paged in, a few pages at most.
 	 */
 	let highlightedThread = $state<string | undefined>(undefined);
@@ -796,8 +798,8 @@
 {#snippet emptyState()}
 	{#if isThread}
 		<EmptyState
-			title={thread?.title || 'Background thread'}
-			subtitle="A background thread of main. It reports to main when it finishes; type here to steer it directly."
+			title={thread?.title || 'Background job'}
+			subtitle="A background job. It reports to Main chat when it finishes; type here to steer it directly."
 		/>
 	{:else}
 		<EmptyState
@@ -828,7 +830,12 @@
 		aria-pressed={action.pressed}
 	>
 		<action.icon class="size-4" />
-		{#if action.count !== undefined}
+		{#if action.id === 'background'}
+			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
+				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
+				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
+			</span>
+		{:else if action.count !== undefined}
 			<span
 				class={labelled ? `h-4 ${badgeClass}` : `absolute -top-0.5 -right-0.5 ${badgeClass}`}
 			>
@@ -851,7 +858,12 @@
 	>
 		<action.icon class="size-4 shrink-0" />
 		<span class="min-w-0 flex-1 truncate text-left">{action.menuLabel ?? action.label ?? action.name}</span>
-		{#if action.count !== undefined}
+		{#if action.id === 'background'}
+			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
+				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
+				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
+			</span>
+		{:else if action.count !== undefined}
 			<span
 				class="header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold"
 			>
@@ -874,8 +886,8 @@
 							variant="ghost"
 							size="icon-sm"
 							onclick={(event) => conversationBack(event, projectHref(backend.id, projectId))}
-							aria-label="Back to main"
-							title="Back to main"
+							aria-label="Back to Main chat"
+							title="Back to Main chat"
 						>
 							<ArrowLeftIcon />
 						</Button>
@@ -886,7 +898,7 @@
 							{thread?.title || threadId}
 						</h1>
 						{#if thread}
-							<ThreadStatusBadge status={thread.status} class="hidden shrink-0 sm:inline-flex" />
+							<ThreadStatusBadge {thread} class="shrink-0" />
 						{/if}
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">
@@ -932,17 +944,17 @@
 				<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
 					{#if isThread}
 						<span class="min-w-0 truncate">
-							Background thread of
+							Background job of
 							<a class="font-medium text-(--chat-fg-muted) underline-offset-2 hover:underline" href={projectHref(backend.id, projectId)}
-								>main</a
-							>{project ? ` · ${project.name}` : ''}
+								>{project?.name ?? 'Main chat'}</a
+							>
 						</span>
 						{#if thread?.model}
 							<span class="shrink-0">·</span>
 							<span class="min-w-0 truncate">{modelLabel(thread.model, backend.models)}</span>
 						{/if}
 					{:else}
-						<span class="min-w-0 truncate">{backend.name}</span>
+						<span class="min-w-0 truncate">Main chat · {backend.name}</span>
 						{#if project}
 							<span class="shrink-0">·</span>
 							<span class="min-w-0 truncate">{modelLabel(project.coordinator.model, backend.models)}</span>
@@ -950,7 +962,7 @@
 					{/if}
 					{#if runningToolLabel !== undefined}
 						<span class="shrink-0">·</span>
-						<span class="min-w-0 truncate text-(--chat-fg-muted)" title={isThread ? "What this thread does now" : "The coordinator's current tool call"}
+						<span class="min-w-0 truncate text-(--chat-fg-muted)" title={isThread ? "What this background job does now" : "The coordinator's current tool call"}
 							>{runningToolLabel}</span
 						>
 					{/if}
@@ -1099,7 +1111,7 @@
 								: !backend.ready
 									? 'Reconnecting…'
 									: isThread
-										? 'Message this thread directly…'
+										? 'Message this background job…'
 										: undefined}
 							onModelChange={changeModel}
 							onThinkingChange={changeThinkingLevel}
@@ -1145,6 +1157,8 @@
 					{#snippet backgroundPanel()}
 						<BackgroundPanel
 							{threads}
+							currentThreadId={threadId}
+							questions={board?.board?.questions ?? []}
 							hrefOf={(id) => threadHref(backend.id, projectId, id)}
 							scheduleName={scheduleTitle}
 							{now}

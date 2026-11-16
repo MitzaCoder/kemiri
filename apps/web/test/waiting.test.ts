@@ -191,9 +191,9 @@ describe("waitingStatus", () => {
 	test("says where the message is and who gets it", () => {
 		expect(waitingStatus({ state: "waiting", mode: "steer" }, "coordinator")).toEqual({
 			label: "Waiting",
-			detail: "reaches the coordinator at its next step",
+			detail: "reaches Main chat at its next step",
 		});
-		expect(waitingStatus({ state: "waiting", mode: "steer" }, "thread").detail).toBe("reaches the thread at its next step");
+		expect(waitingStatus({ state: "waiting", mode: "steer" }, "thread").detail).toBe("reaches the background job at its next step");
 		expect(waitingStatus({ state: "waiting", mode: "followUp" }, "coordinator").detail).toBe("sent when the current turn ends");
 		expect(waitingStatus({ state: "failed", error: "offline" }, "coordinator")).toEqual({ label: "Not sent", detail: "offline" });
 		expect(waitingStatus({ state: "sending" }, "coordinator")).toEqual({ label: "Sending" });

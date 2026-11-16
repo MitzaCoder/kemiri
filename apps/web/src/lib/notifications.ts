@@ -94,21 +94,21 @@ export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICAT
 			return {
 				kind,
 				label: "Board questions",
-				description: "Main or a background thread asked you something on the board.",
+				description: "Main chat or a background job asked you something on the board.",
 				failure: false,
 			};
 		case "thread_finished":
 			return {
 				kind,
-				label: "Background work finished",
-				description: "A background thread finished; opens its card in main.",
+				label: "Background job finished",
+				description: "A background job finished; opens its card in Main chat.",
 				failure: false,
 			};
 		case "thread_failed":
 			return {
 				kind,
-				label: "Background work failed",
-				description: "A background thread failed; opens its card in main.",
+				label: "Background job failed",
+				description: "A background job failed; opens its card in Main chat.",
 				failure: true,
 			};
 		case "work_finished":

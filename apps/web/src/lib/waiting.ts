@@ -255,7 +255,7 @@ export function waitingStatus(info: WaitingInfo, target: "coordinator" | "thread
 		case "waiting":
 			return info.mode === "followUp"
 				? { label: "Waiting", detail: `sent when the current turn ends` }
-				: { label: "Waiting", detail: `reaches the ${target} at its next step` };
+				: { label: "Waiting", detail: `reaches ${target === "thread" ? "the background job" : "Main chat"} at its next step` };
 		case "failed":
 			return { label: "Not sent", ...(info.error === undefined ? {} : { detail: info.error }) };
 		case "withdrawn":

@@ -1,5 +1,23 @@
 # Continue
 
+## T222: background jobs, web phase 1
+
+Web now names Main chat and background jobs consistently. A pure presentation helper
+uses emitted state or threadState: Needs you, Failed, Working, Paused, Finished,
+Stopped. Questions supply the Needs you line; failure lines explain retry. Header
+and project notes count attention (including failures) separately from working.
+The panel works inside jobs, marks You are here, and folds settled jobs older than
+24 hours into Finished; archive is unchanged. Start cards never fold into steps;
+finish/failure notices share the title/badge/Open card and keep artifacts.
+No title switcher, job page band or Android changes. The reusable synthetic demo is
+`packages/server/scripts/background-jobs-demo.ts` (JOBS_WEB_ORIGIN,
+JOBS_WEB_ORIGINS, JOBS_DEMO_OUTPUT); connection JSON includes url/projectId/pid.
+Checks: isolated root 2,910 tests; web 1,275 tests, zero-diagnostic check/build;
+root typecheck and external-denylist/public checks pass. T222 proof: 31 screenshots
+(desktop/phone, light/dark, before/after, current-job marker and old-finish fold)
+and recording mwjwb5ef-c5c88d87f3. Before is d1ee59ba in a separate workspace,
+using the same isolated synthetic backend. No push, deployment or bookmark move.
+
 ## T222: background-job states (server)
 
 Feature `thread-state` adds optional derived `ThreadSummary.state` (also main) and

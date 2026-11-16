@@ -742,3 +742,11 @@ describe("a one-call code mode script", () => {
 		expect(group.items).toHaveLength(2);
 	});
 });
+
+test("thread_start always stays outside folded steps, breaking a run on either side", () => {
+ const tool=(name:string,key:string):ToolPart=>({type:"tool",name,key,callId:key,arguments:{},status:"done",output:""});
+ const rows=groupTurnParts([tool("board","a"),tool("memory_read","b"),tool("thread_start","start"),tool("board","c"),tool("thread_peek","d")]);
+ expect(rows.map(row=>row.kind)).toEqual(["steps","part","steps"]);
+ expect(rows[1]).toMatchObject({kind:"part",part:{name:"thread_start"}});
+ expect(groupTurnParts([tool("thread_start","one"),tool("thread_start","two")]).map(row=>row.kind)).toEqual(["part","part"]);
+});

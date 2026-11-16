@@ -247,7 +247,7 @@
 			<span
 				class="owner-chip inline-flex max-w-full items-center gap-1 self-start rounded-md px-1.5 py-px text-[0.6875rem] font-medium"
 				class:owner-main={owner.main}
-				title="Claimed by {owner.label}{owner.main ? '' : ', a background thread'}"
+				title="Claimed by {owner.label}{owner.main ? '' : ', a background job'}"
 				data-owner={owner.threadId}
 			>
 				<LayersIcon class="size-3 shrink-0" aria-hidden="true" /><span class="truncate">{owner.label}</span>

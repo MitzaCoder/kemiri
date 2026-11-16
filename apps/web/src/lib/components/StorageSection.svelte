@@ -95,7 +95,7 @@
 			label={storage ? storageSize(storage.totalBytes) : loading ? 'Measuring…' : 'Not measured'}
 			hint={storage
 				? `${items.length === 1 ? '1 workspace' : `${items.length} workspaces`}, measured ${relativeTime(storage.measuredAt, Date.now())}.`
-				: 'Worker and background-thread workspaces.'}
+				: 'Worker and background-job workspaces.'}
 			control="auto"
 		>
 			{#snippet learn()}
@@ -115,7 +115,7 @@
 	</SettingsGroup>
 
 	{#if storage && items.length === 0}
-		<SettingsGroup><p class="px-5 py-6 text-center text-sm text-muted-foreground">No worker or thread workspaces on disk.</p></SettingsGroup>
+		<SettingsGroup><p class="px-5 py-6 text-center text-sm text-muted-foreground">No worker or background-job workspaces on disk.</p></SettingsGroup>
 	{:else if items.length > 0}
 		<SettingsGroup title="Workspaces, largest first">
 			{#each items as item (item.id)}

@@ -84,7 +84,7 @@
 	}
 </script>
 
-<SettingsSection title="Coordinator" description="The model this project's main agent runs on." icon="cpu">
+<SettingsSection title="Coordinator" description="The model Main chat runs on." icon="cpu">
 	{#if project !== undefined && project.coordinator.model === null && pendingModel === undefined}
 		<Banner tone="warning">This project has no coordinator model, so it cannot start a conversation. Choose one below.</Banner>
 	{/if}
@@ -98,7 +98,7 @@
 			onretry={() => void pickModel(pendingModel ?? modelValue)}
 		>
 			{#snippet learn()}
-				There are no model defaults: every project names its own coordinator. Workers and background threads pick
+				There are no model defaults: every project names its own coordinator. Workers and background jobs pick
 				their own models; see Workers.
 			{/snippet}
 			<Combobox

@@ -222,6 +222,11 @@ export function groupTurnParts(parts: readonly TurnPart[]): TurnRow[] {
 			rows.push({ kind: "coding", key: part.key, items });
 			continue;
 		}
+		if (part.type === "tool" && part.name === "thread_start") {
+			rows.push({ kind: "part", key: part.key, part });
+			index += 1;
+			continue;
+		}
 		if (part.type === "tool") {
 			// The calls pi-durable's own tools and this app's make (board, workers, threads, memory, schedules, anything else)
 			// come in stacks between two sentences; a run of them folds into one row. A lone call keeps its own card, so a
@@ -230,7 +235,7 @@ export function groupTurnParts(parts: readonly TurnPart[]): TurnRow[] {
 			index += 1;
 			while (index < parts.length) {
 				const next = parts[index];
-				if (next?.type !== "tool" || isCodingTool(next.name)) break;
+				if (next?.type !== "tool" || isCodingTool(next.name) || next.name === "thread_start") break;
 				calls.push(next);
 				index += 1;
 			}
@@ -453,7 +458,7 @@ export type TranscriptItem =
 	  }
 	| {
 			/**
-			 * What another thread posted here, admitted as a user input: a background thread finished (`[thread <id>
+			 * What another thread posted here, admitted as a user input: a background job finished (`[thread <id>
 			 * finished] <summary>`) or failed, a message from another thread (`[from <thread>] …`), or a thread note in a
 			 * shape this app does not know yet (`other`). Never typed text.
 			 */
