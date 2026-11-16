@@ -87,7 +87,7 @@ import {
 } from "./board.ts";
 import { type CoordinatorPlace, Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
-import { JjError, ensureJjWorkspace, jjRoot, removeJjWorkspace, workspacePath } from "./jj.ts";
+import { JjError, ensureJjWorkspace, jjRoot, jjWorkspaceRevision, keepJjWorkspaceCurrent, removeJjWorkspace, workspacePath } from "./jj.ts";
 import type { TaskChangeObserver } from "./task-changes.ts";
 import {
 	type Notifier,
@@ -700,6 +700,8 @@ export function workerInstructions(options: {
 	project: Project;
 	cwd: string;
 	isolation: WorkerIsolation;
+	/** Resolved parent at workspace creation; absent for shared workers. */
+	workspaceRevision?: string | null;
 	/** The background thread that started it; absent (or "main") for main's workers. */
 	threadId?: string;
 	/** The board task it was started for; it gets `task_progress` to keep that task's report current. */
@@ -719,9 +721,12 @@ export function workerInstructions(options: {
 		isolation === "workspace"
 			? `You work in your own jj workspace at ${cwd}, a checkout of the same repository as ${project.path}. Your edits stay out of the project until the coordinator merges them. Commit your work before you answer: \`jj commit -m "<summary>"\`, then read the change ID with \`jj log --no-graph -r @- -T change_id\`.`
 			: shared;
+	const workspaceFacts = isolation === "workspace"
+		? `\n\nThis started as a fresh jj workspace created from ${options.workspaceRevision ?? "the coordinator's @ at creation"}. Files the VCS ignores (for example installed dependencies, build outputs, local config) are not copied into it; set up what the project needs before building or testing. The harness keeps the workspace current when commits beneath it are rewritten, and reports updates or failures.`
+		: "";
 	return `You are the worker "${id}" of the project "${project.name}", working on: ${title}
 
-${workspace}
+${workspace}${workspaceFacts}
 Add an \`Kemiri-Task: T…\` trailer to commit descriptions.
 
 The coordinator sent you one brief. Do it, then answer with a report. Verification has diminishing returns: check what the brief asks for, then stop and report. You cannot start workers and nobody is waiting on your intermediate steps; do not ask questions you can answer yourself. If you are blocked, say what is missing.${task}
@@ -1082,6 +1087,7 @@ type CreateWorkerInput = {
 	thinkingLevel: ThinkingLevel | null;
 	isolation: WorkerIsolation;
 	workspace: string | null;
+	workspaceRevision: string | null;
 	scheduleId: string | null;
 	/** The board task this worker runs: it moves to in_progress in the same commit. */
 	taskId: string | null;
@@ -1103,6 +1109,7 @@ export class WorkerService {
 	readonly #coordinators: Coordinators;
 	#extension: Extension | undefined;
 	#taskExtension: Extension | undefined;
+	#workspaceExtension: Extension | undefined;
 	#checkInTask: Task<null, CheckInState, null, object> | undefined;
 	#reporterTask: Task<ReporterInput, ReporterState, null, object> | undefined;
 	#threadCheckIns: ThreadCheckIns | undefined;
@@ -1183,6 +1190,12 @@ export class WorkerService {
 	get taskExtension(): Extension {
 		this.#taskExtension ??= createWorkerTaskExtension(this);
 		return this.#taskExtension;
+	}
+
+	/** Kept by every worker (including those without a board task); no-op for shared workers and coordinators. */
+	get workspaceExtension(): Extension {
+		this.#workspaceExtension ??= createWorkerWorkspaceExtension(this);
+		return this.#workspaceExtension;
 	}
 
 	/** The worker a conversation is, with the thread whose worker it is; undefined for a coordinator. */
@@ -1606,6 +1619,7 @@ export class WorkerService {
 				project,
 				cwd: input.workspace ?? checkout,
 				isolation: input.isolation,
+				workspaceRevision: input.workspaceRevision,
 				taskId: input.taskId,
 				...(place === undefined ? {} : { threadId: place.threadId }),
 			}),
@@ -1712,9 +1726,11 @@ export class WorkerService {
 		const { model, thinkingLevel } = resolved.value;
 
 		let workspace: string | null = null;
+		let workspaceRevision: string | null = null;
 		if (run.isolation === "workspace") {
 			try {
 				workspace = await this.createWorkspace(workerId);
+				workspaceRevision = await jjWorkspaceRevision(workspace);
 			} catch (error) {
 				return {
 					ok: false,
@@ -1735,6 +1751,7 @@ export class WorkerService {
 					thinkingLevel,
 					isolation: run.isolation,
 					workspace,
+					workspaceRevision,
 					scheduleId: run.scheduleId,
 					taskId: run.event?.taskId ?? run.taskId ?? null,
 					spawnedByCallId: null,
@@ -1994,9 +2011,11 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 			const isolation: WorkerIsolation = args.isolation ?? "shared";
 			let workspace: string | null = null;
+			let workspaceRevision: string | null = null;
 			if (isolation === "workspace") {
 				try {
 					workspace = await service.createWorkspace(args.id, place);
+					workspaceRevision = await jjWorkspaceRevision(workspace);
 				} catch (error) {
 					return toolText(
 						error instanceof WorkerError ? error.message : `Could not create a workspace: ${errorMessage(error)}`,
@@ -2016,6 +2035,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 					thinkingLevel,
 					isolation,
 					workspace,
+					workspaceRevision,
 					scheduleId: null,
 					taskId: task?.id ?? null,
 					spawnedByCallId: api.callId,
@@ -2304,6 +2324,48 @@ function createWorkerExtension(service: WorkerService): Extension {
 				return undefined;
 			}),
 		],
+	});
+}
+
+/** Check before each model step, after the preceding tool round is terminal, never amid parallel writes. */
+export function createWorkerWorkspaceExtension(service: {
+	workerOf: WorkerService["workerOf"];
+	project: Pick<Project, "path">;
+	log(message: string): void;
+}): Extension {
+	return defineExtension({
+		name: "worker-workspace",
+		hooks: [hook(GenerationTask, {
+			beforeRequest: async (request, api, context) => {
+				const worker = (await service.workerOf(api.conversationId, context))?.record;
+				if (worker?.isolation !== "workspace" || worker.workspacePath === null) return undefined;
+				// A generation (one model step) can retry its request. One attempt per generation, including failures:
+				// no hook retry loop. Persist the note so a replay still tells the worker what happened.
+				let checked = await api.memo<{ note: string | null }>("worker-workspace", context);
+				if (checked === undefined) {
+					let note: string | null;
+					try {
+						const interrupted = await api.memo<{ change: string; operation: string }>("worker-workspace-update", context);
+						if (interrupted !== undefined) {
+							note = `A harness workspace update was interrupted. Edits may be in another version of ${interrupted.change}, not in the checkout; inspect \`jj log -r 'change_id(${interrupted.change})'\`. Old workspace operation: ${interrupted.operation}. No automatic retry this turn.`;
+							service.log(`worker ${worker.id}: ${note}`);
+						} else {
+							note = await keepJjWorkspaceCurrent({
+								repo: service.project.path,
+								path: worker.workspacePath,
+								beforeUpdate: async (recovery) => { await api.memo("worker-workspace-update", recovery, context); },
+							}) ?? null;
+						}
+					} catch (error) {
+						note = `The harness could not keep your jj workspace current: ${errorMessage(error)} No automatic retry this turn; inspect the workspace before continuing.`;
+						service.log(`worker ${worker.id}: ${note}`);
+					}
+					checked = await api.memo("worker-workspace", { note }, context);
+				}
+				if (checked.note === null) return undefined;
+				return { messages: [...request.messages, { role: "user" as const, content: `[workspace] ${checked.note}`, timestamp: Date.now() }] };
+			},
+		})],
 	});
 }
 

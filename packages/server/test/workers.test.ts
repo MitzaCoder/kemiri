@@ -540,8 +540,14 @@ describe("worker isolation", () => {
 		await configure(client, projectId);
 
 		const WORKER_NOTE = "worker-note.txt";
+		let workspaceNote = "";
+		let isolatedPrompt = "";
 		const route = (request: TranscriptContext) => {
 			const { role, text } = lastMessage(request);
+			if (text.startsWith("[workspace]")) {
+				workspaceNote = text;
+				return fauxAssistantMessage("## Report\nOutcome: done, recovery received");
+			}
 			const wroteFile = request.messages.some(
 				(message) =>
 					Array.isArray(message.content) &&
@@ -552,6 +558,7 @@ describe("worker isolation", () => {
 			if (wroteFile && role === "toolResult") return fauxAssistantMessage("## Report\nOutcome: done, note written");
 			if (role === "toolResult") return fauxAssistantMessage("Tool call finished.");
 			if (text === BRIEF) {
+				isolatedPrompt = request.messages.filter(message => message.role === "system").map(systemText).join("\n");
 				return fauxAssistantMessage([fauxToolCall("write", { path: WORKER_NOTE, content: "hello from the worker" })], {
 					stopReason: "toolUse",
 				});
@@ -587,6 +594,19 @@ describe("worker isolation", () => {
 		// The worker's tools ran in its workspace, not in the project checkout.
 		expect(await Bun.file(join(workspace, WORKER_NOTE)).text()).toBe("hello from the worker");
 		expect(await Bun.file(join(repo, WORKER_NOTE)).exists()).toBe(false);
+		const startingRevision = (await run(["jj", "log", "--ignore-working-copy", "--no-graph", "-r", "@-", "-T", "commit_id"], workspace)).stdout;
+		expect(isolatedPrompt).toContain(`fresh jj workspace created from ${startingRevision}`);
+
+		// The actual installed extension, on a worker without a board task: add unsnapshotted edits,
+		// rewrite its parent from the coordinator, then start another generation.
+		await writeFile(join(workspace, "unsnapshotted.txt"), "precious edit\n");
+		await writeFile(join(repo, "README.md"), "# rewritten repo\n");
+		expect((await run(["jj", "describe", "-m", "rewrite parent"], repo)).code).toBe(0);
+		await client.request({ type: "conversation.submit", projectId, requestId: "stale", content: "Send it more work." });
+		await view.waitForView(value => sawReport(value, "recovery received"));
+		expect(workspaceNote).toContain("harness ran `jj workspace update-stale`");
+		expect(workspaceNote).toContain("NOT in the working copy");
+		expect((await run(["jj", "status"], workspace)).code).toBe(0);
 
 		// Forgetting it after the merge releases the workspace but keeps the worker as history.
 		await client.request({ type: "conversation.submit", projectId, requestId: "r2", content: "Forget the worker." });

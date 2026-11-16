@@ -1,5 +1,22 @@
 # Continue
 
+## T198: generic worker workspace freshness
+
+Isolated workers get their starting revision and the facts about ignored files;
+no project detection or setup commands. A hooks-only extension checks before each
+model step, after prior tools finish. Stale recovery runs once; jj 0.47.1 can leave
+unsnapshotted edits in another version, so the worker gets full recovery commit IDs
+and must inspect/restore them. No version is automatically chosen or abandoned.
+Warnings and failures reach the worker; pre-update memos cover interrupted recovery.
+Shared workers are unchanged. Tests cover real jj snapshots, abandonment, binary/
+mode/deletion preservation, oversized-file warnings, failure/replay and runtime wiring.
+Rebased onto T205 51f6760a with both continuation notes retained; recovery code
+and tests are unchanged. Combined checks pass: isolated HOME/XDG env -i root
+2,750 tests / 94,854 assertions, root typecheck, web check (zero diagnostics)
+and production build. No UI change or physical phone work. Q233 approves public
+push and main activation after T205's deploy succeeds; the watcher reports the
+new deployment outcome in the app.
+
 ## T205 / Q227: accent task IDs and reference tint
 
 Option A chips now cover web list/sidebar/search/family rows, board cards,

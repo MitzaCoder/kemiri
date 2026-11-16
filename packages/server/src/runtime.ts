@@ -1397,6 +1397,7 @@ export class ProjectManager {
 		registry.install(threads.extension);
 		registry.install(threads.finishExtension);
 		registry.install(workers.taskExtension);
+		registry.install(workers.workspaceExtension);
 		// The worker a conversation is, and the thread whose worker it is; undefined for a coordinator.
 		const workerOf = async (conversationId: number): Promise<{ workerId: string; threadId: string; scheduleId: string | null } | undefined> => {
 			for (const place of coordinators.places()) {

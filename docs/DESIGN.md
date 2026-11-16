@@ -1801,6 +1801,31 @@ Status: backend, protocol, client and web UI done (milestone 2).
   the server creates under `<data>/projects/<id>/workspaces/<worker>`, never inside the repo, branching off the
   coordinator's `@` so it sees the current checkout. Workspace isolation needs a jj repository; without one the tool
   fails with a message that says to use `shared`.
+- Workspace facts (T198 / D85): isolated workers' instructions name the resolved starting revision and explain that
+  VCS-ignored files (dependencies, build outputs, local config) are not copied. The worker decides what setup its project
+  needs; there is no technology detection or automatic setup command. Shared workers get none of these new claims.
+- Workspace freshness: a hooks-only extension, kept even by workers without a board task, probes with a small `jj log`
+  read at the start of each generation (one model step, after the preceding tools are terminal). This also snapshots
+  ordinary edits before a later rewrite. This boundary avoids
+  updating a checkout while its parallel tools are writing files; it is not a lock against the coordinator or external
+  processes rewriting history between that check and the tools. On the specific stale-working-copy error, resolve the old change ID
+  at the operation named in that error, then run `jj workspace update-stale` once, serialized with harness workspace
+  mutations. Ordinary reads without changes produce no worker note. Missing old operations, unrelated errors and
+  unsupported diagnostics fail honestly rather than guessing or running a recovery loop.
+- Edit safety: real jj 0.47.1 tests show that `update-stale` snapshots unsnapshotted edits against the old operation,
+  reconciles history, and can check out the fresh version WITHOUT those edits: the snapshot survives in a divergent
+  version (or the old change after abandonment). After updating, list every visible version of the OLD change other
+  than `@` and tell the worker the full commit IDs, explicitly that edits may be there rather than in the working copy,
+  and to inspect/restore them before continuing. Never choose or abandon a version automatically. Tests preserve
+  modifications, additions, deletion, binary bytes and executable mode in those snapshots. Forward jj warnings too:
+  an oversized untracked file can be refused by snapshotting and left in place instead of a colliding fresh file.
+  If verification fails after
+  updating, report the old change/operation and jj's diagnostic instead of claiming the edits are in the checkout.
+- The freshness attempt and its worker note are generation memos, so request retries do not repeat it. Persist recovery
+  coordinates before mutation: a restart in the gap before the final memo reports an interrupted update with those
+  coordinates, without retrying. Failures are logged and included in the worker's next model request; notes are request
+  context, not fabricated user transcript entries. A later generation may try again. Shared workers and coordinators
+  are not probed. No UI/protocol changes or project-specific setup are involved.
 - Merge: the worker commits in its workspace and puts the change ID in its report; the coordinator rebases or squashes
   that change into the project's working copy and hands conflicts to a new worker. `worker_forget` removes the
   workspace once the work is merged.
