@@ -1,3 +1,4 @@
+import { graphTaskState, taskStateLabel } from "./task-state.js";
 import type { BoardLinkKind, BoardQuestion, BoardTask, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 
 export type GraphNode = {
@@ -12,8 +13,8 @@ export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly 
 	const shown = tasks.filter(task => !task.archived && (showClosed || !['done', 'dropped'].includes(task.status)));
 	const attention = new Set(questions.filter(q => q.status === 'open').flatMap(q => q.taskId ? [q.taskId] : []));
 	for (const worker of workers) if (worker.status === 'failed' && worker.taskId) attention.add(worker.taskId);
-	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: task.status, task,
-		parent: task.parent ? taskKey(task.parent) : null, attention: task.status === 'review' || attention.has(task.id), radius: (task.subtaskCount?.total ?? tasks.filter(t => t.parent === task.id).length) > 0 ? 47 : 29 }));
+	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: graphTaskState(task), task,
+		parent: task.parent ? taskKey(task.parent) : null, attention: task.state ? task.state.group === 'needs_you' : task.status === 'review' || attention.has(task.id), radius: (task.subtaskCount?.total ?? tasks.filter(t => t.parent === task.id).length) > 0 ? 47 : 29 }));
 	const edges: GraphEdge[] = [];
 	const add = (from: string, to: string, kind: GraphEdge['kind']) => {
 		if (from === to) return;
@@ -57,7 +58,7 @@ export function graphNeighborhood(graph: TaskGraph, id: string | null): Set<stri
 	return highlighted;
 }
 export function graphLabel(node: GraphNode): string {
-	return `${node.kind === 'task' ? node.task?.id : node.kind}: ${node.title}, ${node.status.replaceAll('_',' ')}${node.attention ? ', needs attention' : ''}${node.task?.subtaskCount ? `, ${node.task.subtaskCount.done} of ${node.task.subtaskCount.total} subtasks done` : ''}`;
+	return `${node.kind === 'task' ? node.task?.id : node.kind}: ${node.title}, ${node.task ? taskStateLabel(node.task) ?? node.status.replaceAll('_',' ') : node.status.replaceAll('_',' ')}${node.attention ? ', needs attention' : ''}${node.task?.subtaskCount ? `, ${node.task.subtaskCount.done} of ${node.task.subtaskCount.total} subtasks done` : ''}`;
 }
 
 export type GraphPosition = { x:number; y:number; anchorX:number; anchorY:number; vx:number; vy:number; radius:number; parentId:string | null };

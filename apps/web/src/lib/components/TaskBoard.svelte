@@ -23,6 +23,7 @@
 	import {
 		DONE_SHOWN,
 		dropTarget,
+		columnOfTask,
 		kanbanColumns,
 		moveInput,
 		moveNotice,
@@ -102,7 +103,7 @@
 		if (pending.size === 0) return all;
 		return all.map((task) => {
 			const status = pending.get(task.id);
-			return status === undefined ? task : { ...task, status };
+			return status === undefined ? task : { ...task, status, state: undefined };
 		});
 	});
 	const questions = $derived(board?.board?.questions ?? []);
@@ -115,7 +116,7 @@
 	const columns = $derived(
 		kanbanColumns(
 			{ tasks: shownTasks, questions },
-			{ includeArchived: board?.showArchived === true, doneShown: doneExpanded ? Number.POSITIVE_INFINITY : DONE_SHOWN, onlyNeedsYou }
+			{ includeArchived: board?.showArchived === true, doneShown: doneExpanded ? Number.POSITIVE_INFINITY : DONE_SHOWN, onlyNeedsYou, stateEnabled: board?.stateEnabled && tasks.some(task => task.state) }
 		)
 	);
 	const needsYou = $derived(needsYouCount({ tasks: shownTasks, questions }));
@@ -124,12 +125,15 @@
 	/** To do in priority order, whatever the filter shows: what a reorder sends. */
 	const todoIds = $derived(
 		tasks
-			.filter((task) => task.status === 'todo' && !task.archived)
+			.filter((task) => columnOfTask(task) === 'todo' && !task.archived)
 			.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, undefined, { numeric: true }))
 			.map((task) => task.id)
 	);
 
 	const COLUMN_TONES: Record<KanbanColumnId, TaskStatusTone> = {
+		needs_you: 'review',
+		in_progress: 'working',
+		closed: 'done',
 		todo: 'todo',
 		working: 'working',
 		blocked: 'blocked',
@@ -242,7 +246,7 @@
 	 * A move that needs the user's words asks first.
 	 */
 	function requestMove(task: BoardTask, target: MoveTarget, beforeId?: string | null): void {
-		if (target === task.status) {
+		if (target === task.status && (!task.state || task.state.group === target || (task.state.group === 'closed' && (target === 'done' || target === 'dropped')))) {
 			if (target === 'todo' && beforeId !== undefined) void reorder(task.id, beforeId);
 			return;
 		}
@@ -274,13 +278,15 @@
 	): Promise<void> {
 		if (board === undefined) return;
 		const reason = options.reason?.trim();
-		pending.set(task.id, target);
+		const sameStatusNote = task.state && target === task.status ? target === 'in_progress' ? 'Start it now.' : 'Put it back in To do.' : undefined;
+		if (!board.stateEnabled) pending.set(task.id, target);
 		const outcome = await board.saveTask(moveInput(task, target, options.blockedReason), {
 			taskId: task.id,
 			expectedRevision: task.revision,
-			...(reason !== undefined && canNote ? { note: reason } : {})
+			...((reason ?? sameStatusNote) !== undefined && canNote ? { note: reason ?? sameStatusNote } : {})
 		});
 		pending.delete(task.id);
+		if (outcome.kind === 'cancelled') return;
 		if (outcome.kind === 'conflict') {
 			say(`${task.id} changed while you moved it. It shows where it is now; try again if you still want it moved.`, 'error');
 			return;
@@ -299,7 +305,7 @@
 		}
 		if (target === 'todo' && options.beforeId !== undefined) await reorder(task.id, options.beforeId);
 		// A reason already went to the agents; taking the move back would leave them with half a story.
-		const undo = reason === undefined ? () => void undoMove(outcome.task, task) : undefined;
+		const undo = reason === undefined && sameStatusNote === undefined && !outcome.closedParts ? () => void undoMove(outcome.task, task) : undefined;
 		say(moveNotice(task, target), 'info', undo);
 	}
 
@@ -452,7 +458,7 @@
 		}
 		if (best === undefined || best.distance > 48) return undefined;
 		const column = best.element.dataset.column as KanbanColumnId;
-		if (column === 'done') {
+		if ((column === 'done' || column === 'closed')) {
 			const droppedZone = best.element.querySelector<HTMLElement>('[data-drop-zone="dropped"]')?.getBoundingClientRect();
 			const dropped = droppedZone !== undefined && y >= droppedZone.top;
 			return { column, target: dropTarget(column, dropped) };
@@ -689,7 +695,7 @@
 		>
 			{#each columns as column, columnIndex (column.id)}
 				{@const over = drag?.active === true && drag.over?.column === column.id}
-				{@const refusing = drag?.active === true && (column.id === 'review' || column.id === 'waiting')}
+				{@const refusing = drag?.active === true && (column.id === 'needs_you' || column.id === 'review' || column.id === 'waiting')}
 				{@const total = column.cards.length + column.hidden}
 				<section
 					id="kanban-column-{column.id}"
@@ -753,7 +759,7 @@
 						{/if}
 					</ul>
 					</div>
-					{#if column.id === 'done' && column.hidden > 0}
+					{#if (column.id === 'done' || column.id === 'closed') && column.hidden > 0}
 						<button
 							type="button"
 							class="mx-2 mb-2 shrink-0 rounded-lg px-2 py-1 text-xs text-(--chat-fg-subtle) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)"
@@ -765,7 +771,7 @@
 					{#if refusing}
 						<div class="kanban-refuse" aria-hidden="true">Agents put tasks here when they are ready for you.</div>
 					{/if}
-					{#if drag?.active === true && column.id === 'done'}
+					{#if drag?.active === true && (column.id === 'done' || column.id === 'closed')}
 						<!-- While a card is dragged, Done splits in two: close it as done, or drop it. -->
 						<div class="kanban-zones" aria-hidden="true">
 							<div

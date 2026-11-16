@@ -20,7 +20,7 @@
 		onreorder,
 		class: className = ''
 	}: {
-		task: Pick<BoardTask, 'id' | 'title' | 'status'>;
+		task: Pick<BoardTask, 'id' | 'title' | 'status' | 'state'>;
 		/** In To do: where the card is and how many there are, for the priority moves. */
 		position?: { index: number; count: number };
 		onmove: (target: MoveTarget) => void;
@@ -29,7 +29,7 @@
 	} = $props();
 
 	let open = $state(false);
-	const choices = $derived(moveChoices(task.status));
+	const choices = $derived(moveChoices(task.status, !!task.state, task.state?.group));
 
 	function pick(action: () => void): void {
 		open = false;

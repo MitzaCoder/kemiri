@@ -2178,8 +2178,12 @@ is where they talk.
   small quote at the top of the user's bubble.
 - **The chat stays short.** Worker reports, check-ins, thread results and board changes show as one line each with a
   link to their task. The coordinator's replies are a line or two that name the task; the detail goes in the report.
-- **Across tasks.** A Tasks view lists every task grouped by what it needs: needs you (open questions and warnings),
-  ready for review, blocked, working, to do, recently closed. Full width it can also be a board with a column per status
+- **Across tasks.** With `task-state`, list groups are Needs you (Failed, Answer needed, Ready for review),
+  In progress (Working, Paused), Waiting (task blockers or an outside wait), To do and Recently closed (folded).
+  Kind then oldest `since` sorts attention/work; Waiting is oldest first, To do priority, Closed newest first.
+  Rows use state labels/colours; Working keeps its activity detail without a second label. Paused age uses the
+  shared minute ticker. Loose questions/warnings keep their place. Older backends retain the previous groups.
+  Full width it can also be a board
   ("Tasks board" below). The chat stays the home screen; tasks open in a sheet over it (`?task=T12`), full screen on a
   phone.
 - **Rows that scan.** Each group is one rounded card (iOS inset-grouped style), its rows split by hairlines; only
@@ -2345,7 +2349,8 @@ initial attempt. Non-Git-backed jj deployment attribution remains deferred.
 
 ### Task states (T208 / D86)
 
-Stage 1 (T209) adds server rules and optional protocol fields, not client grouping changes.
+Stage 1 (T209) adds server rules and optional protocol fields. Stage 2 (T210) uses the derived
+state throughout web list, board, sheet and graph; missing capability or field retains the old display.
 The seven stored statuses stay. Feature `task-state` advertises optional `BoardTask.state`:
 `{ group, kind, since: ISO string, refs: string[] }`. This is derived at emission, never
 stored on a task. Groups are `needs_you`, `in_progress`, `waiting`, `todo`, `closed`.
@@ -2390,7 +2395,9 @@ of its parts are repaired back to in_progress too.
 **Close choice.** User `board.task.save` has optional `openParts: "close" | "follow_up"`.
 Closing a parent with any open direct part (including review/waiting) without it returns
 error code `open_parts`, with `data: { taskId, parts: task IDs[] }`. Old clients display the
-message; current web already surfaces it through its normal failed-save alert/notice.
+message. Web asks before any owner close, including card moves and drags: “Close them too”,
+“Keep as follow-ups”, or “Cancel”. A stale `open_parts` refusal opens the same question after
+refreshing the board. Escape cancels, focus returns, and closes with a parts choice have no Undo.
 `close` applies the same done/dropped status to open parts recursively. `follow_up` detaches
 only open direct parts, setting foundWhile to the parent; an existing different foundWhile
 is preserved and related links the parent instead. Every link/move is recorded in history.
@@ -2439,7 +2446,8 @@ and decisions stay intact. Reopening the board does not repeat it.
   actions with a compact bordered status button: colour dot, status name and a chevron that rotates when open.
   It is the header's only status display. Web has hover/pressed surfaces, a keyboard focus ring and “Change status”
   tooltip; Android uses an outlined button with native pressed feedback and an accent focus border. Disabled/read-only
-  states show a plain chip without a chevron. The menu stays unchanged: To do, In progress, Blocked, Ready for review,
+  states show a plain chip without a chevron. With `task-state`, the button names/colours the derived kind
+  (Paused, Answer needed, Blocked by T7); the menu still writes stored statuses. The menu stays unchanged: To do, In progress, Blocked, Ready for review,
   Waiting, Done, Dropped, with colour dots and short hints. Waiting opens a required note and optional date form,
   quick date picks and Save/Cancel.
   Saves use the existing revision-checked user path. Web is keyboard accessible; Android uses a native menu.
@@ -2736,10 +2744,12 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
   full-screen sheet on a narrow window, it is the full-width Tasks view with a List | Board | Graph switch, remembered
   locally per backend/project (`tasks.view.v2:`, list by default). The Tasks button in the header opens this project's
   last choice: the list beside the chat, or the board/graph full width. The chat stays the home screen.
-- **Columns by status.** To do, Working, Blocked, Ready for review, Waiting, Done. Done holds done and dropped tasks (dropped
+- **Columns by state (T210).** With `task-state`: Needs you, In progress, Waiting, To do, Closed, using the same
+  grouping and kind/age sorting as the list. Without it (or without state fields), the previous To do, Working,
+  Blocked, Ready for review, Waiting, Done columns remain. Closed holds done and dropped tasks (dropped
   ones greyed and struck through), newest first, the 12 newest then "Show N more"; archived ones only with "Show
-  archived". A task with an open question or warning stays in its status column, tinted like its list row; the
-  toolbar's "Needs you" count (tasks waiting on the user plus questions about no task) filters to them. Questions
+  archived". Derived Needs you tasks are tinted like their list row; the toolbar counts/filters that group plus
+  questions about no task. Older backends keep question/warning filtering within stored-status columns. Questions
   about no task sit above the columns. No swimlanes.
 - **Sorting.** To do by the board's `order`, which is the user's priority (drag within To do, or the menu's "To the
   top / Up one / Down one"); Working by time in progress, longest first; Ready for review by how long it has waited,
@@ -2752,7 +2762,9 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
   `[board] The user changed the board:` input. The coordinator section says what a move means, in fixed text: to
   in_progress is "start it now", back from review carries what still needs doing, done and dropped are the user
   closing the task, the todo order is the priority, and a move of a task a background thread holds is passed on to
-  it. Ready for review takes no drops and the card menu never offers it; Waiting also takes no bare drops, since it needs a note. The task sheet's status menu offers every status. Moving a task from
+  it. With derived state, Needs you and Waiting take no bare drops, and the card menu offers To do,
+  In progress (start now), Done and Dropped. Legacy Ready for review takes no drops; Waiting needs a note.
+  The task sheet's status menu offers every stored status. Moving a task from
   review back to Working asks for a short reason (required); it rides on the save as `note` and the `[board]` line
   reads `...; the user says: "..."`. On a backend without `board-moves` it goes as a message about the task instead
   (`[task T1] Back to working: ...`). Moving to Blocked asks, optionally, what it waits on (its blocked reason);
@@ -2770,7 +2782,7 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 ### Collapsible task families (T74 / D44)
 
 The web task list uses collapsible families, with no prototype switch or query flag. Kanban remains unchanged.
-Quiet same-status children nest beneath their parent with a 14px guide/indent capped visually at three levels.
+Quiet same-group children nest beneath their parent (same stored status on old backends) with a 14px guide/indent capped visually at three levels.
 A task having subtasks never adds a leading column: status, title, status line and trailing time/ID keep exactly the
 same positions as plain rows at every width. The neutral direct-subtask progress pill (ring, done/total excluding
 dropped, and a small rotating chevron) is the disclosure itself; non-foldable families show progress without a
@@ -2779,8 +2791,8 @@ where it fits, with no padded metadata row. Grouped relations expose every targe
 and accessible description. Waiting notes already beginning with “waiting for” (case insensitive) are not prefixed again. Root families and siblings
 retain priority order; nesting puts a parent before its children. Section counts still include folded rows.
 
-**Visibility takes precedence over collapsing.** Nest only when parent and child share both status and section. A
-child in another status, or in Needs you when its parent is not, keeps its own row in the original group, with a
+**Visibility takes precedence over collapsing.** Nest only when parent and child share a derived group and section
+(or stored status and section without state). A child in another group, or in Needs you when its parent is not, keeps its own row in the original group, with a
 muted `↳ T57` link to the parent. Review, blocked, waiting, open-question and open-warning descendants always remain
 visible, even if the saved parent choice is collapsed; any required ancestor path remains visible too. Do not show
 an ineffective disclosure when every nested child must stay visible. A newly blocked/review/waiting task or question
@@ -2865,7 +2877,9 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
 - Active tasks appear by default; Show closed adds faded done/dropped tasks. Archived tasks stay out. Parent families
   gather together, including nested descendants. Solid parent, dotted found-while, dashed related and arrowed blocked-by
   edges have a legend. Arrows point from the blocked task to what it needs. Status has colour and spoken words;
-  parent progress rings show done/total. Review, open questions/warnings and failed workers mark attention.
+  parent progress rings show done/total. With task-state, node colours/attention use the derived kind: failed,
+  answer needed and review need the owner, paused is quiet rather than working, task blockers use Waiting.
+  Without state, review, open questions/warnings and failed workers retain their previous attention mapping.
 - Existing board/worker/thread watches supply real shapes. The graph reads the project-wide worker list without
   changing the chat's thread filter. Running creatures type and sway gently; idle ones breathe and sleep. Changed
   nonempty reports send one spark, never a periodic fake report. Reassigned workers travel to their new task;

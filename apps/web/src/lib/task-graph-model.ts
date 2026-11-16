@@ -1,3 +1,4 @@
+import { taskStateStatus } from "./task-state.js";
 import type { BoardQuestion, BoardTask, BoardTaskStatus, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 
 export const GRAPH_STATUSES: { key: BoardTaskStatus; label: string; mark: string; tone: string }[] = [
@@ -79,9 +80,16 @@ export function buildGraphModel(tasks: readonly BoardTask[], questions: readonly
 		const taskQuestions = questionsByTask.get(task.id) ?? [];
 		const taskWorkers = workersByTask.get(task.id) ?? [];
 		const reasons: GraphReason[] = [];
-		if (task.status === 'review' || task.status === 'blocked' || task.status === 'waiting') reasons.push(task.status);
-		if (taskQuestions.length) reasons.push('question');
-		if (taskWorkers.some(w => w.status === 'failed')) reasons.push('failed');
+		if (task.state) {
+			if (task.state.kind === 'failed') reasons.push('failed');
+			if (task.state.kind === 'answer_needed') reasons.push('question');
+			if (task.state.kind === 'review') reasons.push('review');
+			if (task.state.group === 'waiting') reasons.push('waiting');
+		} else {
+			if (task.status === 'review' || task.status === 'blocked' || task.status === 'waiting') reasons.push(task.status);
+			if (taskQuestions.length) reasons.push('question');
+			if (taskWorkers.some(w => w.status === 'failed')) reasons.push('failed');
+		}
 		details.set(task.id, { task, familyId, familyTitle: byId.get(familyId)?.title ?? familyId,
 			progress: `${count.done} of ${count.total} subtasks done`, reasons, questions: taskQuestions,
 			quiet: !['done', 'dropped'].includes(task.status) && now - Date.parse(task.updatedAt) >= 48 * 3600000,
@@ -90,7 +98,7 @@ export function buildGraphModel(tasks: readonly BoardTask[], questions: readonly
 		});
 	}
 	const counted = [...details.values()].filter(d => !d.task.archived);
-	const statusCounts = Object.fromEntries(GRAPH_STATUSES.map(s => [s.key, counted.filter(d => d.task.status === s.key).length])) as Record<BoardTaskStatus, number>;
+	const statusCounts = Object.fromEntries(GRAPH_STATUSES.map(s => [s.key, counted.filter(d => taskStateStatus(d.task) === s.key).length])) as Record<BoardTaskStatus, number>;
 	const reasonCounts = Object.fromEntries(GRAPH_REASONS.map(r => [r.key, counted.filter(d => d.reasons.includes(r.key)).length])) as Record<GraphReason, number>;
 	return { details, statusCounts, reasonCounts, quietCount: counted.filter(d => d.quiet).length, unassignedQuestions: questions.filter(q => q.status === 'open' && !q.taskId) };
 }

@@ -1,5 +1,16 @@
 # Continue
 
+## T210: task-state stage 2 (web)
+
+Web list/board/sheet/graph consume capability-gated derived task state; old backends keep their views.
+Five groups, kind/age sorting, Paused age on the shared minute ticker; existing family progress stays.
+All owner close paths share an open-parts question and stale `open_parts` retry; choice disables Undo.
+Client save now forwards `openParts`; sidebar attention remains project-summary driven (no task status count).
+Synthetic reusable seed: `packages/server/scripts/task-state-demo.ts` (createSetup, temp data, faux provider).
+Checks: isolated root 2,809; web 1,194/check/build; root typecheck; external public-source check pass.
+Desktop/phone light/dark list/board before/after and close-choice recording use one synthetic stage-1 backend.
+No Android changes, push, deployment or bookmark movement.
+
 ## T209: task-state stage 1 (server)
 
 Optional `task-state` state field and save `openParts` close/follow-up choice; `open_parts` error.

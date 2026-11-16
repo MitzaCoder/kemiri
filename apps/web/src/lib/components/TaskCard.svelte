@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity } from '#lib/task-activity.js';
@@ -14,7 +15,7 @@
 	import { blockersOf } from '#lib/board.js';
 	import { cardGist, cardTime, type KanbanCard } from '#lib/kanban.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
-	import { isWarning, refLabel, taskRefs, taskStatusToneClass, taskStatusWords } from '#lib/tasks.js';
+	import { isWarning, refLabel, taskRefs, taskDisplayToneClass } from '#lib/tasks.js';
 	import { taskOwner } from '#lib/threads.js';
 	import type { BoardTask, BoardTaskBrief, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 
@@ -66,13 +67,13 @@
 	const refLinks = useRefLinks();
 
 	const task = $derived(card.task);
-	const needsYou = $derived(card.waiting.length > 0 && card.column !== 'done');
+	const needsYou = $derived(task.state ? task.state.group === 'needs_you' : card.waiting.length > 0 && card.column !== 'done');
 	const warned = $derived(card.waiting.some(isWarning));
 	const gist = $derived(cardGist(card, activityEnabled));
 	const activity = $derived(automaticTaskActivity(task, activityEnabled));
 	const refs = $derived(taskRefs(task));
 	const time = $derived(cardTime(card, now));
-	const closed = $derived(card.column === 'done');
+	const closed = $derived((card.column === 'done' || card.column === 'closed'));
 	const running = $derived(
 		workers.filter((worker) => worker.status === 'running' && (worker.taskId === task.id || (worker.taskId === undefined && task.workerIds.includes(worker.id))))
 	);
@@ -83,7 +84,7 @@
 
 <article
 	data-no-task-preview
-	class="task-card {taskStatusToneClass(task.status)} relative flex min-w-0 gap-2 rounded-xl border px-3 py-2.5"
+	class="task-card {taskDisplayToneClass(task)} relative flex min-w-0 gap-2 rounded-xl border px-3 py-2.5"
 	class:task-card-warning={needsYou && warned}
 	class:task-card-question={needsYou && !warned}
 	class:task-card-dropped={task.status === 'dropped'}
@@ -94,12 +95,12 @@
 	aria-hidden={ghost ? 'true' : undefined}
 >
 	<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-		{#if needsYou && warned}
+		{#if needsYou && (warned || task.state?.kind === 'failed')}
 			<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
-		{:else if needsYou}
+		{:else if needsYou && (!task.state || task.state.kind === 'answer_needed')}
 			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 		{:else}
-			<span class="task-status-dot" class:task-card-pulse={task.status === 'in_progress' && !ghost}></span>
+			<span class="task-status-dot" class:task-card-pulse={(task.state ? task.state.kind === 'working' : task.status === 'in_progress') && !ghost}></span>
 		{/if}
 	</span>
 	<div class="flex min-w-0 flex-1 flex-col gap-1">
@@ -163,9 +164,9 @@
 			</ul>
 		{/if}
 		<div class="flex items-center gap-1.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-			{#if needsYou || task.status === 'dropped'}
-				<span class="inline-flex shrink-0 items-center gap-1 font-medium text-(--task-status)">
-					<span class="task-status-dot" aria-hidden="true"></span>{taskStatusWords(task.status)}
+			{#if needsYou || task.status === 'dropped' || (task.state && task.state.kind !== 'working')}
+				<span class="inline-flex min-w-0 items-start gap-1 break-words font-medium text-(--task-status)">
+					<span class="task-status-dot" aria-hidden="true"></span><TaskStateLabel {task} {tasks} />
 				</span>
 			{/if}
 			<span class="flex-1"></span>

@@ -21,6 +21,7 @@
 	import ArtifactStrip from '#lib/components/artifacts/ArtifactStrip.svelte';
 	import ThreadStatusBadge from '#lib/components/chat/ThreadStatusBadge.svelte';
 	import BoardQuestionPin from '#lib/components/BoardQuestionPin.svelte';
+	import TaskCloseDialog from '#lib/components/TaskCloseDialog.svelte';
 	import TaskSheet from '#lib/components/TaskSheet.svelte';
 	import RefCardHost from '#lib/components/RefCardHost.svelte';
 	import TasksPanel from '#lib/components/TasksPanel.svelte';
@@ -1172,6 +1173,7 @@
 	/>
 
 	{#if supportsTasks}
+		<TaskCloseDialog {board} />
 		<TaskSheet {backend} {projectId} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 

@@ -1,0 +1,41 @@
+/** Synthetic task-state proof backend. Bun only; all data/config live in createSetup's temporary root. */
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux';
+import { createSetup, TestClient, ViewClient } from '../test/support.ts';
+import { BoardDoc } from '../src/board.ts';
+import type { BoardTaskInput } from '@kemiri/protocol';
+
+const origins = (process.env.DEMO_ORIGINS ?? 'http://localhost:5210,http://localhost:5211').split(',');
+const output = process.env.DEMO_OUTPUT ?? '/tmp/task-state-demo.json';
+let clock = Date.now() - 3 * 3600000;
+const setup = await createSetup({ allowedOrigins: origins, terminals: false, now: () => clock });
+setup.faux.setResponses(Array.from({ length: 30 }, () => async (_request: unknown, options?: { signal?: AbortSignal }) => {
+	await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }));
+	return fauxAssistantMessage('Synthetic session ended.');
+}));
+const client = await TestClient.open(setup.server); await client.hello();
+const added = await client.request({ type: 'projects.add', path: setup.projectDir });
+if (added.type !== 'projects.add') throw new Error('Could not add synthetic project');
+const projectId = added.project.id;
+await client.request({ type: 'projects.configure', projectId, name: 'Little bakery', coordinatorModel: { provider: 'faux', modelId: 'faux-1' } });
+const view = new ViewClient(client); await view.start(projectId);
+const { runtime } = await setup.server.manager.open(projectId);
+const titles = ['Publish the spring menu', 'Write the menu text', 'Photograph the pastries', 'Print the menu cards', 'Prepare the market stall', 'Order a second awning', 'Repair the big oven', 'Bake the test batch', 'Price the new loaves', 'Tidy the recipe folder', 'Choose the box supplier', 'Fix the till printer', 'Renew the market permit', 'Fill in the permit form', 'Collect the flour delivery'];
+const statuses: BoardTaskInput['status'][] = ['in_progress', 'done', 'in_progress', 'todo', 'done', 'todo', 'in_progress', 'todo', 'review', 'in_progress', 'in_progress', 'blocked', 'todo', 'todo', 'waiting'];
+for (let i = 0; i < titles.length; i++) {
+	await runtime.board.saveTask({ task: { title: titles[i]!, description: 'An invented bakery task.', acceptance: null, status: statuses[i]!, blockedBy: i === 7 ? ['T7'] : [], blockedReason: i === 11 ? 'The repair run failed twice.' : null, writeScopes: [], parent: [1, 2, 3].includes(i) ? 'T1' : i === 13 ? 'T13' : null, foundWhile: i === 5 ? 'T5' : null, ...(i === 14 ? { waitingFor: 'the mill to confirm delivery' } : {}) } }, i === 1 || i === 4 ? 'user' : 'coordinator');
+}
+await runtime.harness.commit(async tx => {
+	const doc = await tx.doc(BoardDoc, runtime.conversation.id);
+	doc.questions.push({ id: 'Q1', revision: 1, kind: 'question', text: 'Paper boxes or tins?', options: ['Paper boxes', 'Tins'], taskId: 'T11', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
+	doc.counters.question = 1;
+}, BACKGROUND_CONTEXT);
+clock = Date.now();
+for (const [id, taskId, title] of [['fern', 'T3', 'Pastry photos'], ['moss', 'T7', 'Oven repair']] as const) {
+	const started = await runtime.threads.start({ id, title, brief: 'Synthetic held session; no tools.', model: null, thinkingLevel: null, onFinish: 'record', startedBy: 'main', scheduleId: null, taskId, key: `state-demo-${id}` });
+	if (!started.ok) throw new Error(started.message);
+}
+await Bun.write(output, JSON.stringify({ url: setup.server.url, projectId, pid: process.pid, root: setup.root }));
+console.log('Synthetic task-state backend ready.');
+process.on('SIGTERM', async () => { client.close(); await setup.cleanup(); process.exit(0); });
+await new Promise(() => {});

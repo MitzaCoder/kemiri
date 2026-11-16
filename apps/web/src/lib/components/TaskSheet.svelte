@@ -268,7 +268,7 @@
 			waitingForm = false;
 			if (archivedTask?.id === task.id) archivedTask = outcome.task;
 		} else if (outcome.kind === 'conflict') problem = `${task.id} changed while you were looking. Check it and try again.`;
-		else problem = outcome.message;
+		else if (outcome.kind === 'failed') problem = outcome.message;
 	}
 </script>
 
@@ -315,7 +315,7 @@
 			>
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-xs text-(--chat-fg-subtle)">{task.id}</span>
-					<TaskStatusMenu status={task.status} disabled={closing} supportsWaiting={backend.supports('task-waiting')} onpick={(status) => {
+					<TaskStatusMenu status={task.status} {task} disabled={closing} supportsWaiting={backend.supports('task-waiting')} onpick={(status) => {
 						confirmDrop = status === 'dropped';
 						waitingForm = status === 'waiting';
 						if (!confirmDrop && !waitingForm) void setStatus(status);

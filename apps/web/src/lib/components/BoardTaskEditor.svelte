@@ -76,7 +76,7 @@
 			onback();
 		} else if (outcome.kind === 'conflict') {
 			conflict = { newer: outcome.newer };
-		} else {
+		} else if (outcome.kind === "failed") {
 			problem = outcome.message;
 		}
 	}

@@ -1,19 +1,19 @@
 <script lang="ts">
  import { DropdownMenu } from 'bits-ui';
- import type { BoardTaskStatus } from '@kemiri/protocol';
+ import type { BoardTaskStatus, BoardTask } from '@kemiri/protocol';
  import TaskStatusBadge from './TaskStatusBadge.svelte';
  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
- import { taskStatusToneClass, taskStatusWords } from '#lib/tasks.js';
+ import { taskDisplayWords, taskDisplayToneClass, taskStatusToneClass, taskStatusWords } from '#lib/tasks.js';
  import { TASK_STATUS_CHOICES } from '#lib/task-waiting.js';
- let {status, supportsWaiting, disabled=false, onpick}: {status:BoardTaskStatus; supportsWaiting:boolean; disabled?:boolean; onpick:(status:BoardTaskStatus)=>void}=$props();
+ let {task, status, supportsWaiting, disabled=false, onpick}: {task?:BoardTask; status:BoardTaskStatus; supportsWaiting:boolean; disabled?:boolean; onpick:(status:BoardTaskStatus)=>void}=$props();
 </script>
 {#if disabled}
- <TaskStatusBadge {status}/>
+ {#if task?.state}<span class="inline-flex items-center gap-2 text-xs {taskDisplayToneClass(task)}"><span class="task-status-dot"></span>{taskDisplayWords(task)}</span>{:else}<TaskStatusBadge {status}/>{/if}
 {:else}
 <DropdownMenu.Root>
- <DropdownMenu.Trigger class="group inline-flex cursor-pointer items-center gap-2 rounded-lg border border-(--chat-border-strong) bg-(--chat-surface) px-2.5 py-1.5 text-xs font-medium text-(--chat-fg) outline-none hover:bg-(--chat-surface-2) active:bg-(--chat-border) data-[state=open]:bg-(--chat-surface-2) focus-visible:ring-2 focus-visible:ring-(--accent-2) focus-visible:ring-offset-2 focus-visible:ring-offset-(--chat-surface)" aria-label="Change task status: {taskStatusWords(status)}" title="Change status" data-status-trigger>
-  <span class="task-status-dot shrink-0 {taskStatusToneClass(status)}" aria-hidden="true"></span>
-  {taskStatusWords(status)}
+ <DropdownMenu.Trigger class="group inline-flex cursor-pointer items-center gap-2 rounded-lg border border-(--chat-border-strong) bg-(--chat-surface) px-2.5 py-1.5 text-xs font-medium text-(--chat-fg) outline-none hover:bg-(--chat-surface-2) active:bg-(--chat-border) data-[state=open]:bg-(--chat-surface-2) focus-visible:ring-2 focus-visible:ring-(--accent-2) focus-visible:ring-offset-2 focus-visible:ring-offset-(--chat-surface)" aria-label="Change task status: {task ? taskDisplayWords(task) : taskStatusWords(status)}" title="Change status" data-status-trigger>
+  <span class="task-status-dot shrink-0 {task ? taskDisplayToneClass(task) : taskStatusToneClass(status)}" aria-hidden="true"></span>
+  {task ? taskDisplayWords(task) : taskStatusWords(status)}
   <ChevronDownIcon class="size-3.5 shrink-0 text-(--chat-fg-muted) transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" aria-hidden="true"/>
  </DropdownMenu.Trigger>
  <DropdownMenu.Portal><DropdownMenu.Content sideOffset={6} align="start" class="z-[100] max-h-[70dvh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-(--chat-border) bg-(--chat-surface) p-1 shadow-xl" data-status-menu>

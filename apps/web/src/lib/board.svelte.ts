@@ -1,3 +1,5 @@
+import { saveWithCloseChoice, type TaskSaveOptions, type OpenPartsChoice } from "./task-close.js";
+import { taskStateSupported, taskWithStateSupport } from "./task-state.js";
 /**
  * One project's board, live: the server pushes the whole board on every change (`board.state`), so a screen replaces
  * what it holds; `board.get` fills it in on connect and after a reconnect. Archived tasks are not pushed, so they are
@@ -18,7 +20,8 @@ import type {
 } from "@kemiri/protocol";
 
 export type SaveOutcome =
-	| { kind: "saved"; task: BoardTask }
+	| { kind: "saved"; task: BoardTask; closedParts?: boolean }
+	| { kind: "cancelled" }
 	/** The row moved on; `newer` is its current state, undefined when it is gone. */
 	| { kind: "conflict"; newer: BoardTask | undefined }
 	| { kind: "failed"; message: string };
@@ -41,6 +44,14 @@ export class ProjectBoard {
 	loaded = $state(false);
 	/** Activity requires an explicit hello capability, unlike legacy assumed support. */
 	activityEnabled = $state(false);
+	stateEnabled = $state(false);
+	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
+
+	async #askClose(text: string): Promise<OpenPartsChoice | undefined> {
+		return new Promise(resolve => {
+			this.closeQuestion = { text, answer: choice => { this.closeQuestion = undefined; resolve(choice); } };
+		});
+	}
 	error = $state<string | undefined>(undefined);
 
 	/** Live tasks and, when asked for, the archived ones. */
@@ -69,6 +80,7 @@ export class ProjectBoard {
 		this.#unsubscribeState = client.subscribe((state) => {
 			if (state.status === "ready") {
 				this.activityEnabled = taskActivitySupported(state.features);
+				this.stateEnabled = taskStateSupported(state.features);
 				void this.load();
 			}
 		});
@@ -81,7 +93,7 @@ export class ProjectBoard {
 			const board = await this.#client.readBoard(this.projectId, { includeArchived: this.showArchived });
 			if (this.#stopped) return;
 			this.#apply(board);
-			if (this.showArchived) this.archived = board.tasks.filter((task) => task.archived);
+			if (this.showArchived) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled));
 		} catch (error) {
 			if (this.#stopped) return;
 			this.error = messageOf(error);
@@ -105,7 +117,8 @@ export class ProjectBoard {
 	/** An archived task (settled for more than a week), which the live board leaves out; undefined when it is gone. */
 	async findArchived(id: string): Promise<BoardTask | undefined> {
 		const board = await this.#client.readBoard(this.projectId, { includeArchived: true });
-		return board.tasks.find((task) => task.id === id);
+		const task = board.tasks.find((task) => task.id === id);
+		return task ? taskWithStateSupport(task, this.stateEnabled) : undefined;
 	}
 
 	/** A task's snapshots, oldest first. */
@@ -132,12 +145,19 @@ export class ProjectBoard {
 	 */
 	async saveTask(
 		input: BoardTaskInput,
-		options: { taskId?: string; expectedRevision?: number; note?: string } = {},
+		options: TaskSaveOptions = {},
 	): Promise<SaveOutcome> {
 		try {
-			const task = await this.#client.saveBoardTask(this.projectId, input, options);
-			if (!this.#stopped) this.#upsertTask(task);
-			return { kind: "saved", task };
+			const outcome = await saveWithCloseChoice(input, options, {
+				enabled: this.stateEnabled, tasks: () => this.tasks,
+				refresh: () => this.#refresh(), ask: text => this.#askClose(text),
+				save: (input, options) => this.#client.saveBoardTask(this.projectId, input, options),
+			});
+			if (outcome.kind === 'saved') {
+				outcome.task = taskWithStateSupport(outcome.task, this.stateEnabled);
+				if (!this.#stopped) this.#upsertTask(outcome.task);
+			}
+			return outcome;
 		} catch (error) {
 			if (boardConflict(error)) {
 				await this.#refresh();
@@ -179,6 +199,7 @@ export class ProjectBoard {
 	}
 
 	stop(): void {
+		this.closeQuestion?.answer(undefined);
 		this.#stopped = true;
 		this.#unsubscribeState();
 		this.#unsubscribeBoard();
@@ -191,19 +212,20 @@ export class ProjectBoard {
 	async #readArchived(): Promise<void> {
 		try {
 			const board = await this.#client.readBoard(this.projectId, { includeArchived: true });
-			if (!this.#stopped) this.archived = board.tasks.filter((task) => task.archived);
+			if (!this.#stopped) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled));
 		} catch (error) {
 			if (!this.#stopped) this.error = messageOf(error);
 		}
 	}
 
 	#apply(board: Board): void {
-		this.board = { ...board, tasks: board.tasks.filter((task) => !task.archived) };
+		this.board = { ...board, tasks: board.tasks.filter((task) => !task.archived).map(task => taskWithStateSupport(task, this.stateEnabled)) };
 		this.loaded = true;
 		this.error = undefined;
 	}
 
 	#upsertTask(task: BoardTask): void {
+		task = taskWithStateSupport(task, this.stateEnabled);
 		if (this.board === undefined) return;
 		const tasks = [...this.board.tasks];
 		const index = tasks.findIndex((entry) => entry.id === task.id);

@@ -155,7 +155,7 @@
 				? undefined
 				: outcome.kind === 'conflict'
 					? `${task.id} changed meanwhile. Open it to review the newer version.`
-					: outcome.message;
+					: outcome.kind === "failed" ? outcome.message : undefined;
 	}
 
 	function ago(iso: string): string {

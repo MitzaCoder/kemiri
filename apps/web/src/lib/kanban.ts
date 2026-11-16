@@ -1,3 +1,4 @@
+import { compareTaskStates, taskWithStateSupport } from "./task-state.js";
 /**
  * The Tasks board: the project's tasks in one column per status (To do, Working, Blocked, Ready for review, Done), and
  * what moving a card means. A move is the user changing the task's status, which the server passes on to the
@@ -10,11 +11,14 @@ import type { Board, BoardQuestion, BoardTask, BoardTaskInput, BoardTaskStatus }
 import { compactRelativeTime, relativeTime } from "./relative-time.ts";
 import { isSettled, looseWaiting, rowGist, waitingOn, type TaskSectionId } from "./tasks.ts";
 
-export type KanbanColumnId = "todo" | "working" | "blocked" | "review" | "waiting" | "done";
+export type KanbanColumnId = "needs_you" | "in_progress" | "closed" | "todo" | "working" | "blocked" | "review" | "waiting" | "done";
 
 export const KANBAN_COLUMN_IDS: readonly KanbanColumnId[] = ["todo", "working", "blocked", "review", "waiting", "done"];
 
 const COLUMN_LABELS: Record<KanbanColumnId, string> = {
+	needs_you: "Needs you",
+	in_progress: "In progress",
+	closed: "Closed",
 	todo: "To do",
 	working: "Working",
 	blocked: "Blocked",
@@ -25,6 +29,9 @@ const COLUMN_LABELS: Record<KanbanColumnId, string> = {
 
 /** What an empty column says. */
 const COLUMN_EMPTY: Record<KanbanColumnId, string> = {
+	needs_you: "Nothing needs you.",
+	in_progress: "Nothing in progress.",
+	closed: "Nothing closed this week.",
 	todo: "Nothing waiting to start.",
 	working: "Nothing running.",
 	blocked: "Nothing stuck.",
@@ -57,6 +64,13 @@ export function columnOfStatus(status: BoardTaskStatus): KanbanColumnId {
 			return "todo";
 	}
 }
+
+export function columnOfTask(task: BoardTask, derived = false): KanbanColumnId {
+	if (task.state) return task.state.group;
+	const legacy = columnOfStatus(task.status);
+	return derived ? ({ working: 'in_progress', review: 'needs_you', blocked: 'needs_you', done: 'closed' } as Partial<Record<KanbanColumnId, KanbanColumnId>>)[legacy] ?? legacy : legacy;
+}
+export const STATE_COLUMN_IDS: readonly KanbanColumnId[] = ['needs_you', 'in_progress', 'waiting', 'todo', 'closed'];
 
 export type KanbanCard = {
 	task: BoardTask;
@@ -111,16 +125,18 @@ function compareIn(column: KanbanColumnId): (left: BoardTask, right: BoardTask) 
  */
 export function kanbanColumns(
 	board: Pick<Board, "tasks" | "questions">,
-	options: { includeArchived?: boolean; doneShown?: number; onlyNeedsYou?: boolean } = {},
+	options: { includeArchived?: boolean; doneShown?: number; onlyNeedsYou?: boolean; stateEnabled?: boolean } = {},
 ): KanbanColumn[] {
+	const derived = options.stateEnabled === true && (board.tasks.length === 0 || board.tasks.some(task => task.state));
 	const cards = board.tasks
+		.map(task => taskWithStateSupport(task, options.stateEnabled === true))
 		.filter((task) => options.includeArchived === true || !task.archived)
-		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id), column: columnOfStatus(task.status) }))
-		.filter((card) => options.onlyNeedsYou !== true || card.waiting.length > 0);
-	return KANBAN_COLUMN_IDS.map((id) => {
+		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id), column: columnOfTask(task, derived) }))
+		.filter((card) => options.onlyNeedsYou !== true || (card.task.state ? card.task.state.group === "needs_you" : card.waiting.length > 0));
+	return (derived ? STATE_COLUMN_IDS : KANBAN_COLUMN_IDS).map((id) => {
 		const compare = compareIn(id);
-		const inColumn = cards.filter((card) => card.column === id).sort((left, right) => compare(left.task, right.task));
-		const limit = id === "done" ? (options.doneShown ?? DONE_SHOWN) : Number.POSITIVE_INFINITY;
+		const inColumn = cards.filter((card) => card.column === id).sort((left, right) => (left.task.state && right.task.state ? compareTaskStates(left.task, right.task) : compare(left.task, right.task)));
+		const limit = (id === "done" || id === "closed") ? (options.doneShown ?? DONE_SHOWN) : Number.POSITIVE_INFINITY;
 		return {
 			id,
 			label: COLUMN_LABELS[id],
@@ -137,12 +153,15 @@ export function kanbanColumns(
  */
 export function needsYouCount(board: Pick<Board, "tasks" | "questions">): number {
 	const tasks = board.tasks.filter(
-		(task) => !task.archived && !isSettled(task.status) && waitingOn(board.questions, task.id).length > 0,
+		(task) => !task.archived && !isSettled(task.status) && (task.state ? task.state.group === "needs_you" : waitingOn(board.questions, task.id).length > 0),
 	).length;
 	return tasks + looseWaiting(board).length;
 }
 
 const COLUMN_SECTIONS: Record<KanbanColumnId, TaskSectionId> = {
+	needs_you: "needs_you",
+	in_progress: "in_progress",
+	closed: "closed",
 	todo: "todo",
 	working: "working",
 	blocked: "blocked",
@@ -195,8 +214,12 @@ const MOVE_CHOICES: readonly MoveChoice[] = [
 ];
 
 /** The moves a "Move to…" menu offers for a task: every target but where it already is. */
-export function moveChoices(status: BoardTaskStatus): MoveChoice[] {
-	return MOVE_CHOICES.filter((choice) => choice.target !== status);
+export function moveChoices(status: BoardTaskStatus, stateEnabled = false, group?: NonNullable<BoardTask['state']>['group']): MoveChoice[] {
+	return MOVE_CHOICES.filter(choice => {
+		if (stateEnabled && choice.target === 'blocked') return false;
+		if (!group || group === 'closed') return choice.target !== status;
+		return choice.target !== group;
+	}).map(choice => stateEnabled && choice.target === "in_progress" ? { ...choice, label: "In progress" } : choice);
 }
 
 /** The status a drop on a column means; undefined for Ready for review, which only the agents fill. */
@@ -204,13 +227,16 @@ export function dropTarget(column: KanbanColumnId, dropped = false): MoveTarget 
 	switch (column) {
 		case "todo":
 			return "todo";
+		case "in_progress":
 		case "working":
 			return "in_progress";
 		case "blocked":
 			return "blocked";
+		case "needs_you":
 		case "waiting":
 		case "review":
 			return undefined;
+		case "closed":
 		case "done":
 			return dropped ? "dropped" : "done";
 	}

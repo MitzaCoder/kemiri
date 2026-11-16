@@ -946,7 +946,7 @@ export class HarnessClient {
 	async saveBoardTask(
 		projectId: string,
 		task: BoardTaskInput,
-		options: { taskId?: string; expectedRevision?: number; note?: string } = {},
+		options: { taskId?: string; expectedRevision?: number; note?: string; openParts?: "close" | "follow_up" } = {},
 	): Promise<BoardTask> {
 		const response = await this.#call<BoardTaskSaveResponse>({
 			type: "board.task.save",
@@ -954,6 +954,7 @@ export class HarnessClient {
 			...(options.taskId === undefined ? {} : { taskId: options.taskId }),
 			...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
 			...(options.note === undefined ? {} : { note: options.note }),
+			...(options.openParts === undefined ? {} : { openParts: options.openParts }),
 			task,
 		});
 		return response.task;

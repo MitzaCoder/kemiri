@@ -1,3 +1,4 @@
+import { compareTaskStates, taskStateLabel, taskStateStatus } from "./task-state.js";
 import { markdownText } from "@kemiri/protocol";
 /**
  * How tasks read in the app once agents keep a report on each: the Tasks view's sections by what a task needs, the
@@ -35,6 +36,13 @@ export function withTask(url: Pick<URL, "pathname" | "search">, taskId: string |
 	else params.set(TASK_PARAM, taskId);
 	const query = params.toString();
 	return query.length === 0 ? url.pathname : `${url.pathname}?${query}`;
+}
+
+export function taskDisplayWords(task: BoardTask, tasks: readonly BoardTask[] = []): string {
+	return taskStateLabel(task, tasks) ?? taskStatusWords(task.status);
+}
+export function taskDisplayToneClass(task: BoardTask): string {
+	return taskStatusToneClass(taskStateStatus(task));
 }
 
 // --- words -------------------------------------------------------------------------------------------------------
@@ -206,10 +214,11 @@ export function firstLine(markdown: string, length = 140): string {
 
 // --- the Tasks view ----------------------------------------------------------------------------------------------
 
-export type TaskSectionId = "needs_you" | "review" | "waiting" | "blocked" | "working" | "todo" | "closed";
+export type TaskSectionId = "in_progress" | "needs_you" | "review" | "waiting" | "blocked" | "working" | "todo" | "closed";
 
 const SECTION_LABELS: Record<TaskSectionId, string> = {
 	needs_you: "Needs you",
+	in_progress: "In progress",
 	review: "Ready for review",
 	waiting: "Waiting",
 	blocked: "Blocked",
@@ -218,7 +227,7 @@ const SECTION_LABELS: Record<TaskSectionId, string> = {
 	closed: "Recently closed",
 };
 
-const SECTION_ORDER: readonly TaskSectionId[] = ["needs_you", "review", "waiting", "blocked", "working", "todo", "closed"];
+const SECTION_ORDER: readonly TaskSectionId[] = ["needs_you", "in_progress", "review", "waiting", "blocked", "working", "todo", "closed"];
 
 export type TaskRow = {
 	task: BoardTask;
@@ -260,7 +269,8 @@ function settledTime(task: BoardTask): number {
 }
 
 /** Where a task belongs: closed ones are history, then anything waiting on the user, then its status. */
-export function taskSectionOf(task: Pick<BoardTask, "status">, waiting: number): TaskSectionId {
+export function taskSectionOf(task: Pick<BoardTask, "status" | "state">, waiting: number): TaskSectionId {
+	if (task.state) return task.state.group;
 	if (isSettled(task.status)) return "closed";
 	if (task.status === "waiting") return "waiting";
 	if (waiting > 0) return "needs_you";
@@ -295,6 +305,7 @@ export function taskSections(
 		const inSection = rows.filter((row) => row.section === id);
 		if (inSection.length === 0) continue;
 		inSection.sort((left, right) => {
+			if (left.task.state && right.task.state) return compareTaskStates(left.task, right.task);
 			if (id === "closed") return settledTime(right.task) - settledTime(left.task);
 			if (id === "needs_you") {
 				const warned = Number(right.waiting.some(isWarning)) - Number(left.waiting.some(isWarning));

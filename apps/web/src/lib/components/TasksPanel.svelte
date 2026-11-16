@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import { automaticTaskActivity } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
@@ -35,8 +36,7 @@
 		rowGist,
 		taskRefs,
 		taskSections,
-		taskStatusToneClass,
-		taskStatusWords,
+		taskDisplayToneClass,
 		type TaskRow,
 		type TaskSection,
 		type TaskSectionId
@@ -192,19 +192,19 @@
 	<li class="task-row-item" data-no-task-preview>
 		<!-- The title's link covers the whole row; the ref chips sit above it, so neither link is inside the other. -->
 		<div
-			class="task-row {taskStatusToneClass(row.task.status)} group relative flex min-w-0 items-start gap-2.5 py-2.5 pr-2 pl-3"
+			class="task-row {taskDisplayToneClass(row.task)} group relative flex min-w-0 items-start gap-2.5 py-2.5 pr-2 pl-3"
 			class:task-row-warning={needsYou && warned}
 			class:task-row-question={needsYou && !warned}
 			class:search-context={searching && searchHitById.get(row.task.id)?.context}
 			data-task={row.task.id}
 		>
 			<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-				{#if needsYou && warned}
+				{#if needsYou && (warned || row.task.state?.kind === 'failed')}
 					<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
-				{:else if needsYou}
+				{:else if needsYou && (!row.task.state || row.task.state.kind === 'answer_needed')}
 					<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 				{:else}
-					<span class="task-status-dot" class:task-row-pulse={row.task.status === 'in_progress'}></span>
+					<span class="task-status-dot" class:task-row-pulse={row.task.state ? row.task.state.kind === 'working' : row.task.status === 'in_progress'}></span>
 				{/if}
 			</span>
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -221,11 +221,11 @@
 					activity={searching && searchHitById.get(row.task.id)?.snippet ? undefined : activity}
 					summary={searching && searchHitById.get(row.task.id)?.snippet ? '' : row.task.status === 'waiting' ? waitingSummary(row.task) : gist}
 					canToggle={family.canToggle} expanded={family.expanded} foldedCount={family.foldedCount} ontoggle={() => toggleFamily(row.task.id)} />
-				{#if needsYou || refs.length > 0}
+				{#if needsYou || (row.task.state && row.task.state.kind !== 'working') || refs.length > 0}
 					<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-						{#if needsYou}
-							<span class="inline-flex shrink-0 items-center gap-1 font-medium text-(--task-status)">
-								<span class="task-status-dot" aria-hidden="true"></span>{taskStatusWords(row.task.status)}
+						{#if needsYou || (row.task.state && row.task.state.kind !== 'working')}
+							<span class="inline-flex min-w-0 items-start gap-1 break-words font-medium text-(--task-status)">
+								<span class="task-status-dot" aria-hidden="true"></span><TaskStateLabel task={row.task} {tasks} />
 							</span>
 							{#if row.waiting.length > 1}
 								<span class="shrink-0">+{row.waiting.length - 1} more</span>

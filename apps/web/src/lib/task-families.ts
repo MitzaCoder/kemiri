@@ -11,7 +11,7 @@ export type TaskFamily = {
 
 /** Only quiet same-status work may fold away. Questions and warnings always remain visible. */
 export function needsFamilyAttention(row: TaskRow): boolean {
-	return row.waiting.length > 0 || ['review', 'blocked', 'waiting'].includes(row.task.status);
+	return row.waiting.length > 0 || (row.task.state ? ['needs_you', 'waiting'].includes(row.task.state.group) : ['review', 'blocked', 'waiting'].includes(row.task.status));
 }
 
 /**
@@ -23,7 +23,7 @@ export function taskFamilies(section: TaskSection, expansion: FamilyExpansion): 
 	const parents = new Map<string, string>();
 	for (const row of section.rows) {
 		const parent = row.task.parent == null ? undefined : byId.get(row.task.parent);
-		if (parent && parent.task.status === row.task.status && parent.task.id !== row.task.id) parents.set(row.task.id, parent.task.id);
+		if (parent && (parent.task.state && row.task.state ? parent.task.state.group === row.task.state.group : parent.task.status === row.task.status) && parent.task.id !== row.task.id) parents.set(row.task.id, parent.task.id);
 	}
 	// A partial/stale board must not lose tasks to a cycle, even though the server rejects cycles.
 	for (const id of parents.keys()) {
