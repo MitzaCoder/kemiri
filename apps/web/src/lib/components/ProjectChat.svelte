@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { rememberConversationView, conversationBack } from "#lib/conversation-navigation.svelte.js";
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
@@ -137,6 +138,11 @@
 	let sidebarOpen = $state(false);
 	let sidebarTab = $state<SidebarTab>('info');
 	let sidebarExpanded = $state(false);
+	rememberConversationView(() => ({ open: sidebarOpen, tab: sidebarTab, expanded: sidebarExpanded, tasksMode: tasksView.mode, taskFocus: taskFilter.focus }), saved => {
+		sidebarOpen = saved.open; sidebarTab = saved.tab; sidebarExpanded = saved.expanded;
+		if (saved.tasksMode) tasksView.set(saved.tasksMode);
+		if (saved.taskFocus) taskFilter.focusOn(saved.taskFocus); else taskFilter.clearFocus();
+	});
 
 	const supportsWorkers = $derived(backend.supports('workers'));
 	const supportsMemory = $derived(backend.supports('memory'));
@@ -867,6 +873,7 @@
 							href={projectHref(backend.id, projectId)}
 							variant="ghost"
 							size="icon-sm"
+							onclick={(event) => conversationBack(event, projectHref(backend.id, projectId))}
 							aria-label="Back to main"
 							title="Back to main"
 						>

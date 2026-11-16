@@ -79,7 +79,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * page. HarnessApp shows it; dismissing goes back.
  */
 @Composable
-fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit) {
+fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         val dark = Jarvis.colors.dark
@@ -106,15 +106,15 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
                     color = Jarvis.colors.bg,
                     shadowElevation = 12.dp,
                     border = androidx.compose.foundation.BorderStroke(1.dp, Jarvis.colors.border),
-                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss) } }
-            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss) } }
+                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
+            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
         }
         }
     }
 }
 
 @Composable
-private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit) {
+private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: androidx.compose.foundation.lazy.LazyListState) {
     val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
     val colors = Jarvis.colors
     val board = context.board
@@ -228,6 +228,12 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val replyInputMaxHeight = (maxHeight * .20f).coerceIn(40.dp, 160.dp)
     val shortViewport = maxHeight < 400.dp
     Column(Modifier.fillMaxSize()) {
+        previousTaskId?.let { id ->
+            val title = view.tasks.firstOrNull { it.id == id }?.title
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+        }
         // The header: ID, status, edit and close; the title, its tickets, when it moved; what the user can do with it.
         Column(Modifier.fillMaxWidth().heightIn(max = headerMaxHeight).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -264,7 +270,6 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         }
         HorizontalDivider(color = colors.border)
 
-        val bodyState = rememberLazyListState()
         val reducedMotion = rememberReducedMotion()
         val sections = taskSheetSections(
             task, questions.size, artifacts.size,

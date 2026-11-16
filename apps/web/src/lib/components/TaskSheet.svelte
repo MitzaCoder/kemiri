@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { drillIntoTask } from "#lib/task-navigation.js";
 	import { timelineGroupsSupported } from '#lib/timeline-groups.js';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity.js';
@@ -108,6 +109,17 @@
 	}
 
 	const requestedId = $derived(taskFromUrl(page.url));
+	const previousTask = $derived(page.state.taskTrail?.at(-1));
+	function openLinkedTask(event: MouseEvent): void {
+		if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		const anchor = (event.target as Element).closest('a[href]');
+		if (!anchor || !task) return;
+		const target = new URL(anchor.getAttribute('href')!, page.url.href);
+		const id = taskFromUrl(target);
+		if (target.origin !== page.url.origin || target.pathname !== page.url.pathname || !id || id === task.id) return;
+		event.preventDefault();
+		void goto(target, { reset: false, persistState: true, state: { taskTrail: drillIntoTask(page.state.taskTrail, task, id) } });
+	}
 	// The sheet keeps showing the task while it fades out.
 	let shownId = $state<string | undefined>(undefined);
 	$effect(() => {
@@ -282,6 +294,7 @@
 		bind:ref={sheet}
 		showCloseButton={false}
 		data-task-sheet
+		onclick={openLinkedTask}
 		onCloseAutoFocus={(event) => {
 			if (pendingQuote === undefined) return;
 			event.preventDefault();
@@ -313,6 +326,11 @@
 			<header
 				class="task-header flex max-h-[35%] shrink-0 flex-col overflow-y-auto overscroll-contain gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3"
 			>
+				{#if previousTask}
+					<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id} · ${previousTask.title}`} onclick={() => history.back()}>
+						<span class="truncate">← {previousTask.id} · {previousTask.title}</span>
+					</Button>
+				{/if}
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-xs text-(--chat-fg-subtle)">{task.id}</span>
 					<TaskStatusMenu status={task.status} {task} disabled={closing} supportsWaiting={backend.supports('task-waiting')} onpick={(status) => {
@@ -372,6 +390,7 @@
 			<div class="task-body-frame relative flex min-h-0 flex-1 flex-col">
 				<div
 					bind:this={body}
+					data-navigation-scroll="task-body"
 					use:overlayScroll={'parent'}
 					class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
 					data-task-body

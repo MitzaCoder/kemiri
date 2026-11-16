@@ -118,6 +118,13 @@
 	/** Follow new output while the reader is at the bottom; leave their position alone otherwise. */
 	let stick = $state(true);
 	const workerTitlesBefore = $derived(workerTitlesBeforeSend(items, workers));
+	$effect(() => {
+		const element = scroller;
+		if (!element) return;
+		const restore = (event: Event) => { stick = (event as CustomEvent<{ follow: boolean }>).detail.follow; };
+		element.addEventListener('conversation-scroll-restore', restore);
+		return () => element.removeEventListener('conversation-scroll-restore', restore);
+	});
 
 	export function scrollToBottom(behavior: ScrollBehavior = 'instant'): void {
 		scroller?.scrollTo({ top: scroller.scrollHeight, behavior });
@@ -222,6 +229,7 @@
 <div class="relative min-h-0 flex-1">
 	<div
 		bind:this={scroller}
+		data-navigation-scroll="transcript"
 		{onscroll}
 		class="absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-contain"
 		style="overflow-anchor: none"

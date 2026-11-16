@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { conversationSnapshot } from "#lib/conversation-navigation.svelte.js";
+	export const snapshot = conversationSnapshot;
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import ProjectChat from '#lib/components/ProjectChat.svelte';

@@ -157,7 +157,7 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (route.workerId != null || thread) {
             val back = if (route.workerId != null) (if (thread) "Back to the thread" else "Back to the coordinator") else "Back to main"
-            IconButton(onClick = { context.navigate(if (route.workerId != null) route.copy(workerId = null) else route.copy(threadId = null, workerId = null)) },
+            IconButton(onClick = { context.goBack?.invoke() ?: context.navigate(if (route.workerId != null) route.copy(workerId = null) else route.copy(threadId = null, workerId = null)) },
                 modifier = Modifier.size(40.dp).semantics { contentDescription = back }) { LucideGlyph(Lucide.ArrowLeft, size = 18.dp) }
         }
         Column(Modifier.weight(1f, fill = false)) {

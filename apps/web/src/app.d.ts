@@ -6,6 +6,7 @@ declare global {
 		// interface Locals {}
 		// interface PageData {}
 		interface PageState {
+			taskTrail?: import('./lib/task-navigation.js').TaskVisit[];
 			navigation?: import('./lib/settings-navigation.js').NavigationEntry;
 			usage?: boolean;
 			mcp?: import('./lib/settings-navigation.js').McpNavigationView;

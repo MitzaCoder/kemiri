@@ -4336,6 +4336,11 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 
 ### Task sheet — Dashboard cards, single column (D27 / D28 / T43)
 
+- **Task return trail (T219 / D83).** Opening any linked task from a task sheet pushes one history entry. Its
+  header shows `← T12 · Parent title` (one line, truncated), naming the task actually opened from, not an inferred
+  parent relation. Repeated drill-downs retain the trail. The control and browser/system Back pop the same entry;
+  Forward can revisit the child. Fresh openings from lists, chat references and external links have no task Back.
+
 Selected by the user on 2026-11-09, after three screenshot proposals. This is the only web task sheet look; there is no
 `look` query parameter, preview bar or stored look preference. Board/list cards are not part of this redesign. Android
 follows the same visual hierarchy in D28, using its existing Jarvis theme and shared reply composer (details below).
@@ -4534,6 +4539,14 @@ Every section has a URL; the last segment is the section name, which Android reu
   `.../settings/coordinator`, the Usage modal's sign-in link to `/settings/backends/<id>/accounts`.
 
 ### Navigation contract
+
+Conversation detours (T219) follow the same rule: worker/thread app-bar Back pops real app history, with a
+coordinator fallback only for a cold entry. Returning restores the originating task sheet and conversation panels,
+including their expansion, Tasks list/board/graph choice and sensible scroll. Web chat routes use per-entry
+SvelteKit snapshots, not the sidebar's shared device defaults: a worker's available tabs must not overwrite the
+origin's view. Snapshots hold only view choices and scroll coordinates; no composer/editor values. Transcript
+restoration preserves whether the reader was following the tail and yields to user input while awaiting content.
+Android retains its task/panel stack, saves each task sheet's scroll state and scopes panel expansion to its chat.
 
 Web and Android use one model (D83/D84): Back follows real history; Up pops to a parent already in this visit,
 or replaces with that parent when absent. Close pops to the exact launch context; cold links replace with project

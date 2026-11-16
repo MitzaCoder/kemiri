@@ -688,6 +688,7 @@
 		<div class="relative flex min-h-0 flex-1 flex-col">
 		<div
 			bind:this={scroller}
+			data-navigation-scroll="tasks-board"
 			use:overlayScroll={'parent'}
 			class="kanban-columns flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-3 pb-3"
 			class:kanban-one-column={oneColumn}
@@ -719,6 +720,7 @@
 						class="kanban-list relative flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 pt-1 pb-2"
 						use:overlayScroll={'parent'}
 						data-column-list
+						data-navigation-scroll={`tasks-column-${column.id}`}
 					>
 						{#each column.cards as card, index (card.task.id)}
 							<li

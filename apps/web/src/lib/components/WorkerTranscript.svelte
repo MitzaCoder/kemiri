@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { rememberConversationView, conversationBack } from "#lib/conversation-navigation.svelte.js";
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -75,6 +76,9 @@
 	let sidebarOpen = $state(false);
 	let sidebarTab = $state<SidebarTab>('info');
 	let sidebarExpanded = $state(false);
+	rememberConversationView(() => ({ open: sidebarOpen, tab: sidebarTab, expanded: sidebarExpanded }), saved => {
+		sidebarOpen = saved.open; sidebarTab = saved.tab; sidebarExpanded = saved.expanded;
+	});
 
 	// The board is the coordinator's: a worker's page has no Board tab.
 	const sidebarTabs = $derived(
@@ -209,6 +213,7 @@
 					<ProjectsMenuButton />
 					<Button
 						href={coordinatorHref}
+						onclick={(event) => conversationBack(event, coordinatorHref)}
 						variant="ghost"
 						size="icon-sm"
 						aria-label="Back to the coordinator"

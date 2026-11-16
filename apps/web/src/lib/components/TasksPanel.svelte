@@ -273,7 +273,7 @@
 
 <div class="flex min-h-0 flex-1 flex-col">
 	<div class="relative flex min-h-0 flex-1 flex-col">
-	<div use:overlayScroll={'parent'} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+	<div data-navigation-scroll="tasks-list" use:overlayScroll={'parent'} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
 		<div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
 			{#if board === undefined}
 				<div class="flex flex-col gap-1.5" role="status" aria-busy="true" aria-label="Loading the tasks">

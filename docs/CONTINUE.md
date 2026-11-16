@@ -36,6 +36,29 @@ onto the artifact-version work; both continuation notes are retained. Rerun the
 isolated root tests, typecheck and web check/build before pushing this candidate.
 The watcher handles deployment only after main moves; never run it manually.
 
+## T219: conversation returns and task Back
+
+Worker/thread Back now pops real history on web/Android instead of opening a fresh chat.
+Web route snapshots preserve panels, expansion, Tasks mode/filter and scroll without draft values;
+transcript restoration keeps tail-follow intent and yields to input. Android preserves panel expansion
+across detours and hoists each task's LazyListState outside Dialog's recreated saveable registry.
+Task links push one entry and show `← T12 · Parent title`, naming the actual origin, not structural
+parentage. Fresh list/chat/external openings have no task trail. App and browser/system Back agree.
+
+Synthetic proof: 36 final media on T219, desktop/phone light/dark and Android emulator. Web return
+before/after: mwjqlpb1-52aa9cfe18 / mwjqlp43-243ced4d0a; trail video mwjqlpei-92861e1143.
+Android return video mwjqo9k1-d17bf240b4; trail videos mwjquqpn-b780a2e62b / mwjququ1-0876519255.
+Web replays cover List/Board/Graph, settings, scroll, Back/Forward; native replay covers worker system
+Back and repeated drill-down. Checks: isolated root 2,834; web 1,219/check/build; typecheck; Android 1,013 JVM tests
+(two skipped), assemble/lint (49 existing warnings); external-denylist/Gitleaks. Initial Android
+runs hit unrelated protocol timing failures; both final full builds pass. No composer-picker changes,
+phone, push, deployment or main movement. Only owned synthetic processes/devices were used.
+
+Q241 approves web deployment and an in-place phone update. Rebased onto T218 with
+all continuation/design notes retained; code merged without conflicts. Rerun the
+isolated root, web and Android gates on the exact candidate before pushing.
+Deployment is requested only by moving main; the watcher handles activation.
+
 ## T214: one state sentence per task row
 
 Web and Android list/board use one derived-colour activity sentence, with no extra

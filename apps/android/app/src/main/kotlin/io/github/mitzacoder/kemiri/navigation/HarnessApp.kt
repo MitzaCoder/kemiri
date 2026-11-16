@@ -74,7 +74,11 @@ fun HarnessApp(
     // The ID a link named that no backend here has (web: the "Unknown backend" page), shown atop the drawer until it
     // closes, the user dismisses it or goes somewhere.
     var unknownBackend by remember { mutableStateOf<String?>(null) }
-    fun pop() { updateBackStack { it.back() } }
+    var expandedPanels by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    fun pop() {
+        (readBackStack().current as? Destination.Panel)?.let { panel -> expandedPanels = expandedPanels - panel.screenStateKey() }
+        updateBackStack { it.back() }
+    }
     fun closeDrawer() { scope.launch { drawer.close() } }
     fun resolvedBack(): (() -> Unit)? = resolveBackTarget(
         if (drawer.isOpen) ::closeDrawer else null,
@@ -120,7 +124,7 @@ fun HarnessApp(
     val backend = sessions.firstOrNull { it.config.key == chat?.backendKey }
     val terminal = current as? Destination.Terminal
     val highlight = (current as? Destination.Chat)?.highlight
-    val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight) else null
+    val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight, goBack = if (backStack.canGoBack) ::pop else null, taskOrigin = (current as? Destination.Task)?.taskId) else null
     // A task sheet opened from a panel keeps the panel under it, so closing the sheet returns to the panel as it was.
     val panelUnderTask = (current as? Destination.Task)?.let { task ->
         panelBehindTask(stack.dropLast(1), task)
@@ -128,9 +132,17 @@ fun HarnessApp(
     val panel = current as? Destination.Panel ?: panelUnderTask
     val latestPanelContext by rememberUpdatedState(context)
     val latestPanelTab by rememberUpdatedState(panel?.tab ?: PanelTab.Info)
-    // A side panel beside the chat can expand over it (web ⤢); closing the panel collapses it again.
-    var panelExpanded by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(panel == null) { if (panel == null) panelExpanded = false }
+    // Expansion belongs to the originating conversation and survives unrelated detours.
+    val panelKey = panel?.screenStateKey()
+    val panelExpanded = panelKey != null && panelKey in expandedPanels
+    fun togglePanelExpanded() {
+        panelKey?.let { key -> expandedPanels = if (key in expandedPanels) expandedPanels - key else expandedPanels + key }
+    }
+    val latestPanelExpanded by rememberUpdatedState(panelExpanded)
+    val latestToggleExpanded by rememberUpdatedState(::togglePanelExpanded)
+    val latestClosePanel by rememberUpdatedState<() -> Unit>({
+        panelKey?.let { key -> expandedPanels = expandedPanels - key }; pop()
+    })
     var panelExpandable by remember { mutableStateOf(false) }
     // One stable composition identity regardless of which adaptive parent hosts it.
     val panelBody = remember {
@@ -138,8 +150,8 @@ fun HarnessApp(
             latestPanelContext?.let { currentContext ->
                 panelState.SaveableStateProvider(currentContext.route.screenStateKey()) {
                     PanelSurface(
-                        currentContext, latestPanelTab, ::pop, panelModifier,
-                        expanded = panelExpanded, toggleExpanded = if (panelExpandable) ({ panelExpanded = !panelExpanded }) else null,
+                        currentContext, latestPanelTab, { latestClosePanel() }, panelModifier,
+                        expanded = latestPanelExpanded, toggleExpanded = if (panelExpandable) ({ latestToggleExpanded() }) else null,
                     )
                 }
             }
@@ -231,7 +243,13 @@ fun HarnessApp(
                 }
             }
             // After the panel's dialog, so the sheet opens over it.
-            if (current is Destination.Task && context != null) TaskSheet(context, current.taskId, onDismiss = ::pop)
+            if (current is Destination.Task && context != null) {
+                val previousTask = (stack.getOrNull(stack.lastIndex - 1) as? Destination.Task)?.takeIf { it.chat == current.chat && it.taskId == current.fromTaskId }
+                screenState.SaveableStateProvider("task-sheet:" + current.screenStateKey() + ":" + current.taskId) {
+                    // Dialog recreates its registry on return; keep the reading position outside it.
+                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId)
+                }
+            }
             if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)
         }
         } }
