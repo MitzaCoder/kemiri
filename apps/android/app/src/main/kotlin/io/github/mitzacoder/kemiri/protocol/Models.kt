@@ -3487,6 +3487,15 @@ data class MemoryMaintenanceSettings(
 )
 
 @Serializable
+data class MemoryMaintenanceRun(
+    val `at`: String,
+    val `trigger`: String,
+    val `outcome`: String,
+    val `commit`: String?,
+    val `message`: String?
+)
+
+@Serializable
 data class MemorySettingsSetRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "memory.settings.set",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -3499,6 +3508,7 @@ data class MemoryScopeStatus(
     val `projectId`: String?,
     val `writesSinceMaintenance`: Long,
     val `maintaining`: Boolean,
+    val `recentRuns`: List<MemoryMaintenanceRun>? = null,
     val `lastMaintenance`: MemoryScopeStatusLastMaintenance?,
     val `nextMaintenanceAt`: String?
 )

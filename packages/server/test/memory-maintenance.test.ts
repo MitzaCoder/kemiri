@@ -6,7 +6,7 @@ import type { TranscriptContext } from "@earendil-works/pi-ai";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { MemoryChange, ModelRef } from "@kemiri/protocol";
-import { maintenanceSlotAtOrBefore, nextMaintenanceSlot } from "../src/memory-maintenance.ts";
+import { MemoryMaintenanceStore, maintenanceSlotAtOrBefore, nextMaintenanceSlot } from "../src/memory-maintenance.ts";
 import { createSetup, errorOf, TestClient, type TestSetup } from "./support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -173,7 +173,12 @@ describe("maintenance", () => {
 		if (saved.type !== "memory.settings.set") throw errorOf(saved);
 		expect(saved.maintenance.afterWrites).toBe(2);
 
-		test.faux.setResponses(Array.from({ length: 20 }, () => maintenanceReply));
+		const sessions: string[] = [];
+		test.faux.setResponses(Array.from({ length: 20 }, () => (request, options) => {
+			if (!options?.sessionId) throw new Error("MissingSessionID");
+			sessions.push(options.sessionId);
+			return maintenanceReply(request);
+		}));
 		await seedTopic(test, projectId, { fileId: "testing", heading: "Suite", text: "Use `bun test`." });
 		await seedTopic(test, projectId, { fileId: "old-ports", title: "Old ports", text: "The server used port 7000." });
 
@@ -187,6 +192,11 @@ describe("maintenance", () => {
 		expect(status.status.writesSinceMaintenance).toBe(0);
 		expect(status.status.lastMaintenance?.outcome).toBe("ok");
 		expect(status.status.lastMaintenance?.commit).not.toBeNull();
+		expect(sessions.length).toBe(2);
+		expect(new Set(sessions).size).toBe(1);
+		expect(status.status.recentRuns).toEqual([{ ...status.status.lastMaintenance!, trigger: "writes" }]);
+		const persisted = new MemoryMaintenanceStore({ dataDir: test.dataDir });
+		expect((await persisted.scopeRecord(`project:${projectId}`)).recentRuns).toEqual(status.status.recentRuns!);
 		expect(status.status.nextMaintenanceAt).toBe(
 			new Date(nextMaintenanceSlot("23:59", clock.now(), "UTC")).toISOString(),
 		);
@@ -285,8 +295,25 @@ describe("maintenance", () => {
 		expect(status.status.lastMaintenance?.outcome).toBe("failed");
 		expect(status.status.lastMaintenance?.message).toContain("provider is down");
 		expect(status.status.lastMaintenance?.commit).toBeNull();
-		expect(status.status.writesSinceMaintenance).toBe(0);
+		expect(status.status.writesSinceMaintenance).toBe(1);
+		expect(status.status.recentRuns?.[0]).toMatchObject({ outcome: "failed", trigger: "writes", message: "provider is down" });
 		expect((await history(test, "project", projectId)).length).toBe(1);
+		const calls = test.faux.state.callCount;
+		await test.server.maintenanceClock.start();
+		await test.server.maintenanceClock.start();
+		expect(test.faux.state.callCount).toBe(calls);
+		// A new write triggers another attempt without losing any of the accumulated write count.
+		await seedTopic(test, projectId, { fileId: "testing", text: "Use `bun test` from the root." });
+		await test.server.maintenanceClock.start();
+		expect(test.faux.state.callCount).toBe(calls + 1);
+		const retried = await client.request({ type: "memory.status", scope: "project", projectId });
+		if (retried.type !== "memory.status") throw errorOf(retried);
+		expect(retried.status.writesSinceMaintenance).toBe(2);
+		// A new night can retry even without another write; subsequent ticks that night cannot.
+		clock.advance(24 * 60 * 60_000);
+		await test.server.maintenanceClock.start();
+		await test.server.maintenanceClock.start();
+		expect(test.faux.state.callCount).toBe(calls + 2);
 	}, 30_000);
 
 	it("runs one scope at a time through memory.maintain", async () => {

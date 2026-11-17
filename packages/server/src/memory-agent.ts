@@ -16,6 +16,7 @@ import type { AssistantMessage, Message, Models, Tool } from "@earendil-works/pi
 import type { MemoryScope, ModelRef, ThinkingLevel } from "@kemiri/protocol";
 import { Type } from "typebox";
 import { ServerError, errorMessage } from "./errors.ts";
+import { newModelSessionId } from "./model-session.ts";
 import {
 	type MemoryBatchChange,
 	type MemoryBatchOperation,
@@ -128,6 +129,7 @@ export async function runMemoryAgent(run: MemoryAgentRun): Promise<string> {
 	if (model === undefined) {
 		throw new ServerError("unknown_model", `Unknown model ${run.model.provider}/${run.model.modelId}`);
 	}
+	const sessionId = newModelSessionId();
 	const messages: Message[] = [{ role: "user", content: run.prompt, timestamp: Date.now() }];
 	let text = "";
 	for (let round = 0; round < MAX_MEMORY_AGENT_ROUNDS; round += 1) {
@@ -135,6 +137,7 @@ export async function runMemoryAgent(run: MemoryAgentRun): Promise<string> {
 			model,
 			{ systemPrompt: run.systemPrompt, messages, tools: run.tools },
 			{
+				sessionId,
 				cacheRetention: "none",
 				maxTokens: Math.min(MAX_ANSWER_TOKENS, model.maxTokens > 0 ? model.maxTokens : MAX_ANSWER_TOKENS),
 				...(run.thinkingLevel === undefined || run.thinkingLevel === null || run.thinkingLevel === "off"

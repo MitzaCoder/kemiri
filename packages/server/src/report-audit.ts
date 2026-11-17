@@ -5,6 +5,7 @@ import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import type { Models, Model } from "@earendil-works/pi-ai";
 import { estimateTextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import type { BoardState } from "./board.ts";
+import { newModelSessionId } from "./model-session.ts";
 import { markReportStale, REPORT_SECTIONS, type ReportSection } from "./task-freshness.ts";
 
 export const AUDIT_HOUR_MS = 3_600_000;
@@ -169,7 +170,7 @@ export class ReportAuditService {
 			});
 			// Anthropic's simple API disables thinking when reasoning is omitted. Asking for
 			// minimal can increase maxTokens to fit a thinking budget, violating our cap.
-			const answer = await Promise.race([o.models.completeSimple(model, { systemPrompt: AUDIT_SYSTEM, messages: [{ role: "user", content: prompt, timestamp: now }] }, { signal: controller.signal, cacheRetention: "none", maxTokens: 100, ...(model.reasoning && !model.api.startsWith("anthropic") ? { reasoning: "minimal" as const } : {}) }), timeout]);
+			const answer = await Promise.race([o.models.completeSimple(model, { systemPrompt: AUDIT_SYSTEM, messages: [{ role: "user", content: prompt, timestamp: now }] }, { sessionId: newModelSessionId(), signal: controller.signal, cacheRetention: "none", maxTokens: 100, ...(model.reasoning && !model.api.startsWith("anthropic") ? { reasoning: "minimal" as const } : {}) }), timeout]);
 			const usage = answer.usage;
 			const tokens = Math.max(0, usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
 			const parsed = answer.stopReason === "stop" && answer.content.every(b => b.type === "text" || b.type === "thinking") ? parseAuditVerdicts(answer.content.filter(b => b.type === "text").map(b => b.text).join(""), new Set(tasks.map(t => t.id))) : undefined;

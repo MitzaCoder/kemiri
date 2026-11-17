@@ -189,11 +189,21 @@ export const MemorySettingsSetRequestSchema = Type.Object({
 });
 export type MemorySettingsSetRequest = Static<typeof MemorySettingsSetRequestSchema>;
 
+export const MemoryMaintenanceRunSchema = Type.Object({
+	at: Type.String(),
+	trigger: Type.Union([Type.Literal("manual"), Type.Literal("nightly"), Type.Literal("writes")]),
+	outcome: Type.Union([Type.Literal("ok"), Type.Literal("nothing_to_do"), Type.Literal("failed")]),
+	commit: Type.Union([Type.String(), Type.Null()]),
+	message: Type.Union([Type.String(), Type.Null()], { description: "Failure reason, if any." }),
+});
+export type MemoryMaintenanceRun = Static<typeof MemoryMaintenanceRunSchema>;
+
 export const MemoryScopeStatusSchema = Type.Object({
 	scope: MemoryScopeSchema,
 	projectId: Type.Union([ProjectIdSchema, Type.Null()]),
 	writesSinceMaintenance: Type.Integer({ minimum: 0 }),
 	maintaining: Type.Boolean({ description: "A maintenance run is in progress on this scope." }),
+	recentRuns: Type.Optional(Type.Array(MemoryMaintenanceRunSchema, { description: "Last ten runs, newest first. Absent on older backends." })),
 	lastMaintenance: Type.Union([
 		Type.Object({
 			at: Type.String(),

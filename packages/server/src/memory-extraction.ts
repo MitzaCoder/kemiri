@@ -9,9 +9,9 @@
  *
  * Durability: the work is driven by what is in storage, not by an in-memory event. `projects/<id>/memory-extraction.json`
  * keeps the newest compaction entry that was handled, every start (or any later commit) scans the durable entries above
- * it, and a compaction is handled once — a restart mid-run re-reads the same entry only if it was never marked, and its
- * commit is one commit, so a crash before the commit writes nothing. Failures are logged and never block the conversation
- * or anything else.
+ * it. Failed extractions retain their attempt count and retry on later wakes or starts (at most three attempts). Only
+ * success or giving up advances progress; the final failure remains recorded. A crash before the memory commit writes
+ * nothing. Failures are logged and never block the conversation.
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
@@ -61,8 +61,16 @@ export type MemoryExtractionStoreOptions = {
 	log?: (message: string) => void;
 };
 
-/** What the file records: main's newest extracted compaction entry, and each background thread's by conversation. */
-type ExtractionRecord = { main: number | null; threads: Record<string, number> };
+/** A failed compaction gets at most this many attempts across wakes and restarts. */
+export const MAX_EXTRACTION_ATTEMPTS = 3;
+export type ExtractionFailure = {
+	entryId: number;
+	attempts: number;
+	outcome: "retry" | "gave_up";
+	reason: string;
+};
+/** Main and background-thread progress, plus the latest failure per conversation. */
+type ExtractionRecord = { main: number | null; threads: Record<string, number>; failures: Record<string, ExtractionFailure> };
 
 function entryIdOrNull(value: unknown): number | null {
 	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
@@ -95,9 +103,9 @@ export class MemoryExtractionStore {
 			value = await readJsonFile(this.fileOf(projectId));
 		} catch (error) {
 			this.#log(`project ${projectId}: ${MEMORY_EXTRACTION_FILE} is unreadable: ${errorMessage(error)}`);
-			return { main: null, threads: {} };
+			return { main: null, threads: {}, failures: {} };
 		}
-		const raw = value as { lastProcessedEntryId?: unknown; threads?: unknown } | undefined;
+		const raw = value as { lastProcessedEntryId?: unknown; threads?: unknown; failures?: Record<string, ExtractionFailure> } | undefined;
 		const threads: Record<string, number> = {};
 		if (typeof raw?.threads === "object" && raw.threads !== null) {
 			for (const [conversationId, entryId] of Object.entries(raw.threads)) {
@@ -105,7 +113,12 @@ export class MemoryExtractionStore {
 				if (id !== null) threads[conversationId] = id;
 			}
 		}
-		const record = { main: entryIdOrNull(raw?.lastProcessedEntryId), threads };
+		const failures: Record<string, ExtractionFailure> = {};
+		for (const [key, failure] of Object.entries(raw?.failures ?? {})) {
+			if (failure && entryIdOrNull(failure.entryId) !== null && Number.isInteger(failure.attempts) && failure.attempts > 0 &&
+				(failure.outcome === "retry" || failure.outcome === "gave_up") && typeof failure.reason === "string") failures[key] = failure;
+		}
+		const record = { main: entryIdOrNull(raw?.lastProcessedEntryId), threads, failures };
 		this.#cache.set(projectId, record);
 		return record;
 	}
@@ -119,6 +132,32 @@ export class MemoryExtractionStore {
 		return conversationId === undefined ? record.main : (record.threads[String(conversationId)] ?? null);
 	}
 
+	/** Most recent failure for this conversation, retained after giving up. */
+	async failure(projectId: string, conversationId?: number): Promise<ExtractionFailure | undefined> {
+		return (await this.#record(projectId)).failures[String(conversationId ?? "main")];
+	}
+
+	/** A failure is durable before any next attempt; later wakes or starts retry, never the same drain loop. */
+	async recordFailure(projectId: string, entryId: number, reason: string, conversationId?: number): Promise<ExtractionFailure> {
+		const run = this.#queue.then(async () => {
+			const current = await this.#record(projectId);
+			const key = String(conversationId ?? "main");
+			const previous = current.failures[key];
+			const attempts = previous?.entryId === entryId ? previous.attempts + 1 : 1;
+			const failure: ExtractionFailure = { entryId, attempts, outcome: attempts >= MAX_EXTRACTION_ATTEMPTS ? "gave_up" : "retry", reason };
+			const next = { ...current, failures: { ...current.failures, [key]: failure } };
+			await this.#save(projectId, next);
+			return failure;
+		});
+		this.#queue = run.catch((error: unknown) => this.#log(`could not record extraction failure: ${errorMessage(error)}`));
+		return run;
+	}
+
+	async #save(projectId: string, next: ExtractionRecord): Promise<void> {
+		await writeJsonFile(this.fileOf(projectId), { version: 1, lastProcessedEntryId: next.main, threads: next.threads, failures: next.failures });
+		this.#cache.set(projectId, next);
+	}
+
 	/** Record that a compaction entry was handled. Only moves forward, so a late write cannot rewind it. */
 	async markProcessed(projectId: string, entryId: number, conversationId?: number): Promise<void> {
 		const run = this.#queue.then(async () => {
@@ -129,8 +168,10 @@ export class MemoryExtractionStore {
 				conversationId === undefined
 					? { ...current, main: entryId }
 					: { ...current, threads: { ...current.threads, [String(conversationId)]: entryId } };
-			await writeJsonFile(this.fileOf(projectId), { version: 1, lastProcessedEntryId: next.main, threads: next.threads });
-			this.#cache.set(projectId, next);
+			next.failures = { ...next.failures };
+			const key = String(conversationId ?? "main");
+			if (next.failures[key]?.entryId === entryId && next.failures[key]?.outcome === "retry") delete next.failures[key];
+			await this.#save(projectId, next);
 		});
 		this.#queue = run.catch((error: unknown) => {
 			this.#log(`project ${projectId}: could not record the extracted compaction: ${errorMessage(error)}`);
@@ -273,14 +314,19 @@ export class MemoryExtractionService {
 		while (!this.#stopped) {
 			const entry = await this.#nextCompaction();
 			if (entry === undefined) return;
-			try {
-				await this.#extract(entry);
-			} catch (error) {
-				this.#log(`extraction from compaction entry ${entry.id} failed: ${errorMessage(error)}`);
+			const projectId = this.#options.project().id;
+			const previous = await this.#options.store.failure(projectId, this.#trackedConversation);
+			// A crash between recording the final failure and advancing progress must not buy another paid attempt.
+			if (previous?.entryId !== entry.id || previous.outcome !== "gave_up") {
+				try {
+					await this.#extract(entry);
+				} catch (error) {
+					const failure = await this.#options.store.recordFailure(projectId, entry.id, errorMessage(error), this.#trackedConversation);
+					this.#log(`extraction from compaction entry ${entry.id} failed (attempt ${failure.attempts}/${MAX_EXTRACTION_ATTEMPTS}, ${failure.outcome}): ${failure.reason}`);
+					if (failure.outcome === "retry") return;
+				}
 			}
-			// Marked even after a failure: a compaction is handled once, so a provider that is down cannot make every
-			// later start retry the same part. The next compaction extracts again.
-			await this.#options.store.markProcessed(this.#options.project().id, entry.id, this.#trackedConversation);
+			await this.#options.store.markProcessed(projectId, entry.id, this.#trackedConversation);
 		}
 	}
 

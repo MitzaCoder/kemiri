@@ -22,6 +22,7 @@ import type { AssistantMessage, Message, Model, Models } from "@earendil-works/p
 import { estimateContextTokens, estimateTextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
 	CompactionTask,
+	ProviderDoc,
 	DEFAULT_COMPACTION_POLICY,
 	type CompactionHooks,
 	type CompactionPolicy,
@@ -393,7 +394,11 @@ export class CompactionService {
 			api.conversationId === this.#conversation.id
 				? this.#conversation
 				: ((await coordinators?.conversation(api.conversationId, context)) ?? this.#conversation);
-		const narrative = await this.#narrate(compaction, conversation, context);
+		// Match normal turns, including pi-durable's migration for legacy conversations.
+		const provider = await api.snapshot(ProviderDoc, conversation.id, context);
+		const sessionId = provider?.sessionId ?? await conversation.commit(async (tx) =>
+			(await tx.doc(ProviderDoc, conversation.id)).sessionId, context);
+		const narrative = await this.#narrate(compaction, conversation, sessionId, context);
 		if (narrative === undefined) return undefined;
 		// The board is the project's, on main's conversation, whichever thread compacts.
 		const board = (await api.snapshot(BoardDoc, this.#conversation.id, context)) as BoardState | undefined;
@@ -412,7 +417,7 @@ export class CompactionService {
 	}
 
 	/** The model's narrative summary of the part being replaced, or undefined to let pi-durable summarize instead. */
-	async #narrate(compaction: BeforeCompact[0], conversation: Conversation, context: Context): Promise<string | undefined> {
+	async #narrate(compaction: BeforeCompact[0], conversation: Conversation, sessionId: string, context: Context): Promise<string | undefined> {
 		const agent = await conversation.agent(context);
 		const ref = agent.model;
 		if (ref === undefined) return undefined;
@@ -431,6 +436,7 @@ export class CompactionService {
 		try {
 			answer = await this.#models.completeSimple(model, { messages }, {
 				// A summary is asked once: it is not worth warming a provider cache with it.
+				sessionId,
 				cacheRetention: "none",
 				maxTokens: summaryMaxTokens(model),
 				...(agent.thinkingLevel === "off" ? {} : { reasoning: agent.thinkingLevel }),

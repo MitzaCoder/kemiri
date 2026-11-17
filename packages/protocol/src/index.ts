@@ -350,6 +350,8 @@ import {
 	type MemoryMaintainRequest,
 	MemoryMaintainRequestSchema,
 	type MemoryMaintenanceSettings,
+	type MemoryMaintenanceRun,
+	MemoryMaintenanceRunSchema,
 	MemoryMaintenanceSettingsSchema,
 	type MemorySettingsSetRequest,
 	MemorySettingsSetRequestSchema,
@@ -1382,6 +1384,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	MemoryStatusRequest: MemoryStatusRequestSchema,
 	MemoryMaintainRequest: MemoryMaintainRequestSchema,
 	MemoryMaintenanceSettings: MemoryMaintenanceSettingsSchema,
+	MemoryMaintenanceRun: MemoryMaintenanceRunSchema,
 	MemorySettingsSetRequest: MemorySettingsSetRequestSchema,
 	MemoryScopeStatus: MemoryScopeStatusSchema,
 	MemoryUndoResponse: MemoryUndoResponseSchema,
@@ -1673,6 +1676,7 @@ export type {
 	MemoryStatusRequest,
 	MemoryMaintainRequest,
 	MemoryMaintenanceSettings,
+	MemoryMaintenanceRun,
 	MemorySettingsSetRequest,
 	MemoryScopeStatus,
 	MemoryUndoResponse,
@@ -1701,7 +1705,7 @@ export * from "./files.ts";
 export { DEFAULT_DRAIN_TIMEOUT_MS, MAX_DRAIN_TIMEOUT_MS } from "./server-status.ts";
 export { PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, THINKING_LEVELS } from "./common.ts";
 export { CHECK_IN_PREFIX, WORKER_REPORT_PREFIX } from "./workers.ts";
-export { MemoryMaintenanceSettingsSchema } from "./memory.ts";
+export { MemoryMaintenanceSettingsSchema, MemoryMaintenanceRunSchema } from "./memory.ts";
 export {
 	ScheduleInputSchema,
 	ScheduleOnReportSchema,

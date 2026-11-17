@@ -33,7 +33,10 @@ const fine = (id = "T1") => fauxAssistantMessage(JSON.stringify({ task: id, resu
 const stale = () => fauxAssistantMessage('{"task":"T1","results":"fine","next":"stale: question changes next action"}');
 
 it("fresh-report evaluation: scripted fine preserves prose and deterministic freshness; unchanged hours cost zero", async () => {
-	const f = fixture(); const service = f.make(); f.faux.setResponses([fine()]);
+	const f = fixture(); const service = f.make(); f.faux.setResponses([(_request, options) => {
+		if (!options?.sessionId) throw new Error("MissingSessionID");
+		return fine();
+	}]);
 	await service.check();
 	expect(f.faux.state.callCount).toBe(1);
 	expect(f.state.tasks[0]!.report.next).toBe("Continue implementation");

@@ -4247,8 +4247,13 @@ builds its context from only the parts relevant to the task.
   forgot to save them. They are written through the same merge rules as
   `memory_write` (an existing topic is updated, never duplicated), one commit
   per scope, of kind `extraction` and sourced from the `pi.compaction` entry.
-  Nothing worth keeping means no commit, and a failure never blocks anything.
-  The web app shows each one with an undo.
+  Nothing worth keeping means no commit, and a failure never blocks the conversation.
+  Failed extractions retry on a later wake (a new compaction or server start), not in the same drain loop.
+  `memory-extraction.json` keeps attempt counts and the latest failure per conversation; only success or giving up
+  after three failed attempts advances its progress mark. Giving up retains the reason and is logged, including
+  across a restart between the final failure and the progress write. Old progress files still load.
+  Each extraction gets one opaque provider session ID, shared by every tool round. The web app shows each commit
+  with an undo.
 
 **Changes and undo**
 
@@ -4269,8 +4274,11 @@ loop, not one per project, so a project nobody opens is maintained too). It
 runs nightly at a time the user chooses (start: 03:00 in the backend's
 timezone) when the scope changed since its last run, and after a number of
 writes since that run (start: 20), with a model the user chooses; no model
-means no maintenance. The last run's commit is the mark the write count is
+means no maintenance. The last successful run's head is the mark the write count is
 counted from, so both survive restarts, and one run per scope runs at a time.
+A failed run keeps that mark. Its attempt head is recorded separately: the write trigger waits for another write,
+while the nightly slot is consumed even on failure and retries no sooner than the next slot (or another trigger).
+Thus failure never clears the pending write count or spins on every clock tick, including after a restart.
 Each run is a model loop over that one scope with the memory tools, and:
 
 - merges duplicate sections and topic files that overlap;
@@ -4288,7 +4296,15 @@ topics show they apply to every worker.
 Each run is one git commit with a readable log of what it did. Its outcome
 (`ok`, `nothing_to_do`, or `failed` with the reason) is what `memory.status`
 reports; `memory.changed` is pushed when a run starts and when it ends, and
-`memory.maintain` starts one by hand. The web app lists the changes, with undo.
+`memory.maintain` starts one by hand. The last ten runs per scope (newest first: time, trigger, outcome, commit,
+and failure reason as `message`) are persisted in `memory-maintenance.json` and returned as optional
+`memory.status.status.recentRuns`; old state files and clients remain supported. The web app lists the changes, with undo.
+
+Every harness-internal model request carries a provider session ID, regardless of provider. Each memory-agent run
+(maintenance or extraction) and report-audit run uses a fresh opaque ID, shared by all rounds of that run. Compaction
+summaries use the conversation's persisted pi-durable `ProviderDoc` identity, just like normal conversation turns;
+legacy conversations initialize that document before requesting a summary. IDs contain no paths or secrets.
+Cache refreshes retain the session ID from their captured conversation request options.
 
 ### Board
 

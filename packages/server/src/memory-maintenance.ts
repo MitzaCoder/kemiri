@@ -19,6 +19,8 @@ import type { Models } from "@earendil-works/pi-ai";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import {
 	MemoryMaintenanceSettingsSchema,
+	MemoryMaintenanceRunSchema,
+	type MemoryMaintenanceRun as RecentMaintenanceRun,
 	type MemoryMaintenanceSettings,
 	type MemoryScope,
 	type MemoryScopeStatus,
@@ -84,14 +86,17 @@ export type MemoryMaintenanceRun = {
 };
 
 export type MemoryScopeRecord = {
-	/** The scope's `HEAD` when the last run ended: writes are counted from it. */
+	/** The scope's `HEAD` when the last successful run ended: writes are counted from it. */
 	lastRunHead: string | null;
+	/** HEAD at the last attempt's start. A failed attempt waits for new writes or a new nightly slot. */
+	lastAttemptHead: string | null;
+	recentRuns: RecentMaintenanceRun[];
 	/** The nightly slot that was already evaluated, so one night triggers at most one run. */
 	nightlyAt: string | null;
 	lastRun: MemoryMaintenanceRun | null;
 };
 
-const EMPTY_SCOPE_RECORD: MemoryScopeRecord = { lastRunHead: null, nightlyAt: null, lastRun: null };
+const EMPTY_SCOPE_RECORD: MemoryScopeRecord = { lastRunHead: null, lastAttemptHead: null, recentRuns: [], nightlyAt: null, lastRun: null };
 
 type MaintenanceFile = {
 	version: 1;
@@ -161,11 +166,15 @@ export class MemoryMaintenanceStore {
 	async scopeRecord(key: string): Promise<MemoryScopeRecord> {
 		const file = await this.#load();
 		const record = file.scopes[key];
-		if (record === undefined || typeof record !== "object") return { ...EMPTY_SCOPE_RECORD };
+		if (record === undefined || record === null || typeof record !== "object") return { ...EMPTY_SCOPE_RECORD };
 		return {
 			lastRunHead: typeof record.lastRunHead === "string" ? record.lastRunHead : null,
 			nightlyAt: typeof record.nightlyAt === "string" ? record.nightlyAt : null,
 			lastRun: record.lastRun ?? null,
+			lastAttemptHead: typeof record.lastAttemptHead === "string" ? record.lastAttemptHead : null,
+			recentRuns: Array.isArray(record.recentRuns)
+				? record.recentRuns.filter((run) => Value.Check(MemoryMaintenanceRunSchema, run)).slice(0, 10)
+				: [],
 		};
 	}
 
@@ -174,6 +183,7 @@ export class MemoryMaintenanceStore {
 		return this.#enqueue(async () => {
 			const file = await this.#load();
 			const next: MemoryScopeRecord = { ...(await this.scopeRecord(key)), ...change };
+			next.recentRuns = next.recentRuns.slice(0, 10);
 			const updated: MaintenanceFile = { ...file, scopes: { ...file.scopes, [key]: next } };
 			await writeJsonFile(this.file, updated);
 			this.#file = updated;
@@ -332,6 +342,7 @@ export class MemoryMaintenanceService {
 			writesSinceMaintenance: writes,
 			maintaining: this.#running.has(key),
 			lastMaintenance: record.lastRun,
+			recentRuns: record.recentRuns,
 			nextMaintenanceAt:
 				settings.model === null
 					? null
@@ -409,6 +420,7 @@ export class MemoryMaintenanceService {
 	): Promise<void> {
 		const key = scopeKey(target);
 		const scopeStore = this.#memory.scope(target);
+		const attemptHead = await scopeStore.head();
 		let outcome: MemoryMaintenanceRun["outcome"] = "nothing_to_do";
 		let commit: string | null = null;
 		let message: string | null = null;
@@ -465,8 +477,14 @@ export class MemoryMaintenanceService {
 		const at = new Date(this.#now()).toISOString();
 		const head = await scopeStore.head().catch(() => null);
 		const run: MemoryMaintenanceRun = { at, outcome, commit, message };
+		const previous = await this.store.scopeRecord(key);
 		await this.store
-			.updateScope(key, { lastRunHead: head, lastRun: run })
+			.updateScope(key, {
+				...(outcome === "failed" ? {} : { lastRunHead: head }),
+				lastAttemptHead: attemptHead,
+				lastRun: run,
+				recentRuns: [{ ...run, trigger: reason }, ...previous.recentRuns].slice(0, 10),
+			})
 			.catch((error: unknown) => {
 				this.#log(`${key}: could not record the maintenance run: ${errorMessage(error)}`);
 			});
@@ -615,7 +633,10 @@ export class MemoryMaintenanceClock {
 					continue;
 				}
 			}
-			if (writes >= settings.afterWrites) await this.#options.service.run(target, "writes");
+			const head = await this.#options.memory.scope(target).head();
+			if (writes >= settings.afterWrites && head !== record.lastAttemptHead) {
+				await this.#options.service.run(target, "writes");
+			}
 		}
 		await this.#arm(settings);
 	}

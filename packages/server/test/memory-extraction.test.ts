@@ -137,13 +137,18 @@ describe("extraction after a compaction", () => {
 		});
 
 		const prompts: string[] = [];
+		const extractionSessions: string[] = [];
+		let summarySession: string | undefined;
 		test.faux.setResponses(
-			Array.from({ length: 40 }, () => (request: TranscriptContext) => {
+			Array.from({ length: 40 }, () => (request: TranscriptContext, options) => {
+				if (!options?.sessionId) throw new Error("MissingSessionID");
 				const { text } = lastMessage(request);
 				if (text.includes("conversation to summarize")) {
+					summarySession = options.sessionId;
 					return fauxAssistantMessage("## Goal\nKeep the preferences and the test command.");
 				}
 				if (systemText(request).includes("You keep the durable memory")) {
+					extractionSessions.push(options.sessionId);
 					if (toolResultCount(request) === 0) prompts.push(text);
 					const results = toolResultCount(request);
 					if (results === 0) {
@@ -199,6 +204,10 @@ describe("extraction after a compaction", () => {
 		await until(async () => (await history(test, "project", projectId)).some((change) => change.kind === "extraction"));
 		await until(async () => (await history(test, "global")).some((change) => change.kind === "extraction"));
 		expect(prompts.length).toBeGreaterThan(0);
+		expect(summarySession).toBeTruthy();
+		expect(extractionSessions.length).toBe(3);
+		expect(new Set(extractionSessions).size).toBe(1);
+		expect(extractionSessions[0]).not.toBe(summarySession);
 		expect(prompts[0]).toContain("I prefer tabs");
 		expect(prompts[0]).toContain("was just compacted");
 
