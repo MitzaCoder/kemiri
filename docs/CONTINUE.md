@@ -1,5 +1,50 @@
 # Continue
 
+## T225: pilot.6 published; site pin switched separately
+
+Published [v0.1.0-pilot.6](https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6)
+as a prerelease with exactly 20 assets. The annotated tag and signed manifest both
+name c457718af5d0da045d6bfed2425cfb0810efe319 (T226 then T225); local and remote
+main were still 2e0efb07ee99 at the start, so no rebase was needed. The tagged tree
+was never changed after signing. CI run 44047837120 passed root/web/protocol/public
+checks and native Linux x64, Linux ARM64 and macOS ARM64 production/faux acceptance
+and version probes. Never replace those binaries with local rehearsal builds.
+
+Permanent external signing inputs were reused with mode 0600; no new key was made.
+Neutral release and notices/source builds pass. APK io.github.mitzacoder.aiki is
+0.1.0-pilot.6 / 1000006. Certificate SHA-256:
+a97bdfae948d34c2589afb4bc78acce22f079d51e6aaa2e4025f7d7d38e611e2.
+APK SHA-256: aa8abe71bb2e00cf83441c82972ee593a2b9fbb942abbacefe6f24ae80695004.
+Apksigner, zipalign -c -P 16 4, sidecars and manifest identity/hash pass. Only the
+six reviewed manual files were attached; only SHA256SUMS was replaced, now covering
+all 12 non-checksum files including dependency notices and manual metadata.
+Independent draft and anonymous public downloads both pass the exact 20-name list,
+all hashes, source RELEASE.json, notices source commit, manual identity, certificate
+and alignment. All public bytes match the verified draft; public bootstrap --help
+passes with explicit pilot.6 and with the new default. No real install was done.
+
+The separate site-pin commit changes homepage commands/APK links, site/install.sh,
+README and current install/agent docs together, after public asset verification.
+Historical release notes remain unchanged. Site check (four pages/123 links), 23
+site tests, and a real headless browser verify the new pin and release navigation.
+Before/after: mwkg9h4b-341627dad3 / mwkg9h5y-203dae09d5; release page
+mwkg9h7l-c490e313bf; interaction mwkg9h96-7fac8dbaaa. Final isolated root tests:
+2,921 passed / 95,627 assertions; typecheck, web check/build and both public-source
+scans pass. The final origin/main push uses a lease on the original base before
+the local main move. Moving main is the only deployment action; end the turn immediately.
+In a later turn verify HTTPS /, /privacy/, /install.sh, /releases/ and the pilot.6
+page, plus backend deployment outcome. Do not run deployment scripts manually.
+
+Same-key emulator install -r over checksum-verified published pilot.5 retained
+first-install time and Neutral/Dark preferences. Before/after proof:
+mwkfp5js-24d90d63d9 / mwkfp5lg-93618a74db; interaction mwkfp5n1-2392e48653.
+An early install ran before Android boot completed and failed; waiting for boot
+resolved it. Owned emulator and Gradle daemon stopped; no physical device or real
+account used. Native macOS service and real-network Android pairing were not
+rehearsed; after clarification the owner/coordinator explicitly directed publication
+to continue. These remain stated experimental limits, not claimed test results.
+The earlier signing-only handoff artifact is superseded by the publication report.
+
 ## T225: pilot.6 prepared, not published
 
 Preparation is based on main 2e0efb07 with T226 kept separate (pqwpnmxz /

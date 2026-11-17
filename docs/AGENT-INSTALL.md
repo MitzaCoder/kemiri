@@ -40,7 +40,7 @@ Pilot.3 and earlier users must update through pilot.4 (see step 6).
 
    ```sh
    # Keep this pin in sync with site/install.sh; scripts/site.test.ts checks it.
-   KEMIRI_VERSION=v0.1.0-pilot.5
+   KEMIRI_VERSION=v0.1.0-pilot.6
    KEMIRI_ROOT="$HOME/kemiri-local"
    KEMIRI_PORT=7317
    export KEMIRI_PORT
@@ -182,7 +182,7 @@ Require `Running at http://127.0.0.1:7317; selected release ...` and
 model-inference or authenticated protocol health test; there is no `/health`
 endpoint. The historical `/aiki-local.json`, `auth.sock`,
 `.aiki-managed`, `.aiki-install.json`, `aiki-local.service` and macOS launch-agent
-`io.github.mitzacoder.aiki.local` names remain internal in pilot.5; do not rename them.
+`io.github.mitzacoder.aiki.local` names remain internal in pilot.6; do not rename them.
 Open the printed loopback URL and confirm the web Welcome/device-sign-in page loads.
 For headless verification, use a fresh browser profile and wait for **Welcome to Kemiri**
 in the rendered DOM before taking a screenshot; an early HTML response or fixed
@@ -263,18 +263,18 @@ and project repositories separately. Protect backups like secrets.
 **Existing pilot.3 and earlier:** use the old command only to reach the bridge:
 stop it, back up, then run `aiki update --version v0.1.0-pilot.4`. For an authorized
 user service use `aiki service remove` before updating. Do not go directly to
-pilot.5. Once on pilot.4, normal standalone installs use
+the current release. Once on pilot.4, normal standalone installs use
 `kemiri update --version "$KEMIRI_VERSION"`, then `kemiri start` (or the separately
 authorized `kemiri service install`). Keep existing folders and pairings.
 
 **Pilot.4 Bun/source installs, Intel Macs and Linux musl:** the embedded updater
-requires an `aiki/` archive and rejects pilot.5's `kemiri/` archive. Instead,
+requires an `aiki/` archive and rejects the current release's `kemiri/` archive. Instead,
 download, checksum-check and review the selected release's installer as in step 3,
 then run it with `--version "$KEMIRI_VERSION" --no-service` and the **same recorded
 absolute --dir**, if originally used. Preserve custom install/config settings;
 never select a new root. Add `--runtime bun` if deliberately retaining Bun. Source
 activation driven by pilot.4 can retain a harmless old `aiki` launcher selecting
-pilot.5; use `kemiri` thereafter. See [INSTALL.md](INSTALL.md#updating-rollback-backup-and-removal).
+the current release; use `kemiri` thereafter. See [INSTALL.md](INSTALL.md#updating-rollback-backup-and-removal).
 
 ```sh
 kemiri update
@@ -318,7 +318,7 @@ human has decided what to retain.
 
 ## Troubleshooting
 
-These are pilot.5 installer/CLI messages (absolute paths and ports may vary).
+These are pilot.6 installer/CLI messages (absolute paths and ports may vary).
 Do not paste surrounding secret output into a report.
 
 | Message | Action |

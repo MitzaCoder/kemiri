@@ -37,9 +37,10 @@ packages/protocol/src/common.ts, the Android default release tag and its increas
 version-code regression, and scripts/release-workflow.test.ts. Pilot.6 is
 `0.1.0-pilot.6` / Android code `1000006`. The release builders embed the approved
 tag and commit; do not manufacture RELEASE.json or signed metadata in source.
-Keep the website bootstrap, homepage downloads and current-install docs on pilot.5
-until pilot.6's public assets verify. Release notes and the dated site page are
-prepared now, but the site page must not reach main before publication.
+Pilot.6 is published and its exact 20 public assets verified. The separate site-pin
+commit updates the website bootstrap, homepage downloads and current-install docs
+together. For future releases, leave these on the previous verified pilot until
+the new public assets verify; a prepared site page must not reach main earlier.
 
 ## Assets
 

@@ -42,9 +42,9 @@ only the deployment job can write Pages and request the deployment OIDC token.
 There is no repository-content write permission, automatic commit or release sync.
 The uploaded artifact is exactly `site/`, not the checkout or its local configuration.
 
-## Pilot.5 publication and live domain
+## Pilot.6 publication and live domain
 
-The bootstrap and download links are pinned to the published pilot.5 release.
+The bootstrap and download links are pinned to the published pilot.6 release.
 The current install command is `curl -fsSL https://kemiri.dev/install.sh | sh`.
 Prefer downloading and reviewing it before execution. For a new release, change
 the pinned version and links only after its public assets and checksums verify.
@@ -72,7 +72,7 @@ Pages cannot provide HTTP redirects, so the domain serves a small, reviewable PO
 shell **bootstrap**, not a second copy of the full installer that might silently
 drift from the release. Download/review it before running; do not use `curl | sh`.
 
-- The default is pinned to `v0.1.0-pilot.5`, never GitHub's `latest` (which excludes
+- The default is pinned to `v0.1.0-pilot.6`, never GitHub's `latest` (which excludes
   prereleases). `--version TAG` selects that exact release's installer and is passed
   unchanged to it. `--version latest`, path fragments and URLs are rejected.
 - It downloads `install.sh` and `install.sh.sha256` only from that version under
