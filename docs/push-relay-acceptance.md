@@ -105,7 +105,7 @@ linked existing coverage, not an Android/browser run performed by this worker.
 | Key invalidation never downgrades | Proven | A.RelayStoreTest.missingKeyDiscardsAuthorityAndRequiresExplicitEnable; A.RelayMessageRouterTest.invalidatedStoreDoesNotDowngradeCurrentMessage |
 | OS notification permission off | Needs the real project | No phone/Android emulator used; JVM protocol checks cannot prove OS permission behavior |
 | Web key pairs persist | Proven | S web-push tests: key persistence; no relay enrollment is required |
-| Independent web worker scopes preserve legacy pushes | Proven | Existing web notification/worker tests and T98 browser recipe in docs/CONTINUE.md; not rerun by T99 |
+| Independent web worker scopes preserve legacy pushes | Proven | Existing web notification/worker tests and apps/web/scripts/push-browser.md (T98 recipe); not rerun by T99 |
 | Release-signed sideload Google OAuth without Play installation | Needs the real project | Fake Google Auth is not OAuth consent, SHA fingerprints, audience or Credential Manager acceptance |
 | Email-link cold/warm mail return | Needs the real project | Emulator OOB-code capture is not Android mail/browser launch routing |
 | Email-link cross-device return | Needs the real project | Requires actual mail and release APK on consented devices |

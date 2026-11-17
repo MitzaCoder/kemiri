@@ -1,6 +1,8 @@
 # Kemiri
 
-Read `docs/CONTINUE.md` first; update it before finishing.
+Search `docs/DESIGN.md` for the as-built design; it is long. Keep it current in
+the same commit as the code. Per-task progress and handoff go in the Kemiri board
+task report or your final report, not in a repo file.
 
 A harness based on pi durable.
 
@@ -21,7 +23,7 @@ A harness based on pi durable.
   pass: `bun test`, `bun run typecheck`, and `bun run check` plus
   `bun run build` in `apps/web`.
 - Deploy only by moving `main`; the watcher does the rest. Never run
-  `deploy/*.sh` or `systemctl` on `aiki` from a tool: when the
+  `deploy/*.sh` or `systemctl` on a deploying backend from a tool: when the
   harness runs you, that restarts the server under the deploy and kills it
   before its health check and rollback. After moving `main`, end the turn;
   the deploy holds new tool calls and restarts once none is running. Its outcome shows in the app.

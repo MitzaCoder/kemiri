@@ -155,7 +155,9 @@ with Print and Close tab behind its own ⋮ popover instead of a title banner.
 The opaque-origin sandbox and optional CSP are unchanged. Full-space web
 frames omit the injected Print button: an exact parent-window message requests
 printing inside the frame, without exposing any host DOM or credentials.
-Source, copy and download still use original bytes, not decorated HTML.
+Escape inside the frame sends a close message; the host accepts it only from
+that viewer's frame window. Source, copy and download still use original bytes,
+not decorated HTML.
 
 Android's HTML branch also drops its filename, Page/Source/version bars and
 app header/sidebar. The existing WebView fills the system-inset viewport;
@@ -194,6 +196,10 @@ Arbitrary transcript text, artifact contents, cron expressions and wire timestam
 are not rewritten.
 
 ## Conversation panel controls
+
+Web and Android use accent-tinted selected header pills with accent text/icons;
+unselected panels stay muted. Overflow rows follow the same selection rule,
+while hover/focus and badges remain distinct. Neutral stays achromatic.
 
 Android follows the same header-only panel selection rule (T192). Its panel surface already supplies the title and
 close action, so PanelsScreen draws only the selected body. Header buttons retain question/running badges and expose
@@ -296,7 +302,8 @@ base origin, multiple-window support or new WebView permissions are added.
 The installed web service worker must leave signed `/artifacts/` requests and
 all Range requests to the browser network stack, including navigations. They
 must never enter the offline shell/runtime caches: capabilities expire, content
-is private, and Cache.put rejects 206 partial responses. Cache writes are best
+is private, and Cache.put rejects 206 partial responses. The worker never caches
+206 or no-store responses, even outside these bypasses. Cache writes are best
 effort and must not turn a successful network response into a failed request.
 This applies equally to installed binaries and production web builds; Vite dev
 mode does not exercise the worker.
@@ -359,6 +366,17 @@ Kemiri is the public product name; canonical marketing and support addresses are
 backend origins, OAuth callbacks, persisted identities or installed data. Current
 guides use `kemiri` and `KEMIRI_*`; old command/process-setting aliases are removed. Historical release notes and protocol literals
 keep their original names. See SITE.md for the owner-operated DNS/mail cutover.
+
+`site/` is static HTML with one local script (`home.js`), a shared stylesheet and
+self-hosted font/assets. The homepage has a self-playing product demo, the
+usual-way/Kemiri comparison, task graph and installation steps. Site checks reject
+off-site resources; privacy shares the stylesheet.
+
+`/releases/` lists releases newest first. From pilot.6, each release has a full
+`/releases/TAG/` page; pilot.1–5 link to GitHub. The homepage header, Current pilot
+line and footer link to the index. Release pages share the homepage's theme and
+copy controls; `home.js` skips the demo when it is absent. SITE.md describes the
+layout and RELEASE.md the publication procedure.
 
 ## Kemiri compatibility bridge (T167)
 
@@ -1236,7 +1254,7 @@ Commands run directly, never through a shell, with the backend user's PATH via
 not definitions, diagnostics or prompts. The installed pi-mcp 1.5.2
 `StdioTransport` provides process-group shutdown, bounded framing and stderr capture.
 Connections start lazily on discovery/use or explicit refresh; idle children stop
-after five minutes. Crashes reconnect with capped exponential backoff, never
+after five minutes. Crashes reconnect with 500 ms–30 s exponential backoff, never
 replaying an in-flight tool call. Disconnect/remove/backend shutdown cancel restarts.
 Settings show status and a bounded, secret-redacted stderr tail. Cached tools retain
 the existing deferred discovery, project/role restrictions and Off/Ask/Allow policy.
@@ -1248,7 +1266,10 @@ Authorization headers map to write-only tokens; unsupported headers are explaine
 rather than silently lost. Explicit SSE imports use a small bounded HTTP+SSE
 adapter with same-origin endpoint enforcement, bearer credentials and no replay;
 stdio and Streamable HTTP use pi-mcp directly. Import text/secrets remain
-transient client state and are never exported to project files.
+transient client state and are never exported to project files. Android clears
+secret forms on activity/theme recreation rather than saving them. Omitting
+command env overrides on an edit retains existing values; remove/re-add to clear
+them all.
 
 ## MCP servers
 
@@ -1939,7 +1960,9 @@ Status: backend, protocol, client and web UI done (milestone 2).
 - Isolation is the coordinator's choice per worker: `shared` (the project directory) or `workspace`, a `jj workspace`
   the server creates under `<data>/projects/<id>/workspaces/<worker>`, never inside the repo, branching off the
   coordinator's `@` so it sees the current checkout. Workspace isolation needs a jj repository; without one the tool
-  fails with a message that says to use `shared`.
+  fails with a message that says to use `shared`. Managed workspace creation, reuse and removal serialize
+  the full list/check/mutate sequence per repository to avoid concurrent jj packed-ref exports. Different
+  repositories have independent queues; a failed operation releases later work.
 - Workspace facts (T198 / D85): isolated workers' instructions name the resolved starting revision and explain that
   VCS-ignored files (dependencies, build outputs, local config) are not copied. The worker decides what setup its project
   needs; there is no technology detection or automatic setup command. Shared workers get none of these new claims.
@@ -2097,6 +2120,8 @@ panel. Choosing another conversation pushes real BackStack history; choosing the
 current one only dismisses. Back dismisses the sheet before popping chat history.
 Returning preserves the originating chat's panels and scroll (T219). Worker titles
 and backends without threads stay plain. No Background jobs header action remains.
+Header height follows system font scaling; the open sheet and Finished fold survive
+theme recreation.
 
 **Android job pages (T224 / D89 phase 3).** A subtle accent-wash band directly
 under the header names the project, starter (Main chat, named schedule or you),
@@ -2234,6 +2259,11 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   (206/416), inline or attachment (`download`), `private, no-store`, `nosniff`, no-referrer and sandbox CSP.
   HTML/SVG force attachment. Required mode uses exact Origin CORS and validated backend origins (or loopback);
   optional/off preserves legacy CORS and forwarded/Host origin derivation during migration, as specified above. Revocation aborts the issuing session's tracked streams.
+  Installed-shell artifact CORS also accepts the two fixed loopback origins at the actual bound port,
+  matching pairing/WebSockets. Same-origin browser URLs are relative. Small text uses GET; larger reads
+  remain bounded even if Range is ignored. Text failures offer retry, including when token recovery
+  remints the same URL. Small server text reads finish before headers, with CORS-bearing read errors
+  and a final capability recheck.
 
 ### Artifact tags and the task media carousel
 
@@ -2374,7 +2404,6 @@ later from this section.
   `positionOnScreen`, the viewer animates a top-left-origin transform from it, `flightTransform`), zoom/pan/pull-down in
   `pointerInput`, and a compare slider whose divider drags only from its handle strip. Motion numbers are `MediaMotion`
   (`slideMs`, `captionMs`, `viewerOpenMs`, `viewerCloseMs`), the same names and values as the web's `MEDIA_MOTION`.
-  Differences are listed in `docs/CONTINUE.md`.
 
 ## Tasks as the place to read
 
@@ -3431,6 +3460,8 @@ handling evidence stay in detail. Each attributed deploy attempt keeps intended 
 latest target states/messages in detail; target updates replace, not append. Branch advances use durable fact IDs.
 Local changes/check outcomes can use the keyed reducer when explicitly declared; no inference from tool logs,
 chat or report text. Existing producers and source attribution rules are unchanged.
+Human-readable change/deploy labels and details show the first 12 hash characters
+(landed, removed, reverted, attempted and serving); structured hashes and refs remain full-length.
 
 `revision` advances when an entry changes; group revision is the sum of visible entry revisions. `factCount`
 counts meaningful lifecycle facts (start/outcome, asked/answered, feedback state changes), not intermediate
@@ -4126,7 +4157,7 @@ The server test suite covers session detachment; reconnecting clients must retai
 
 Status: approved; revised with the user on 2026-11-04 (decisions below).
 
-Implemented 2026-11-04 (memory core; see `docs/CONTINUE.md` for the details): both scopes with git and an FTS5
+Implemented 2026-11-04 (memory core): both scopes with git and an FTS5
 index per scope, the four coordinator tools, the memory section with its prompt-cache key (the newest compaction head,
 so only a new conversation or a compaction changes its text), and the `memory.list/read/search/history` requests plus
 the `memory.changed` event, and the app's read-only Memory tab. Implemented 2026-11-05 (compaction of the coordinator,
@@ -4372,8 +4403,7 @@ Cache refreshes retain the session ID from their captured conversation request o
 ### Board
 
 Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts`. Implemented in
-`packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts` (`docs/CONTINUE.md` has the
-detail).
+`packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts`.
 
 - A pi durable document on the coordinator's conversation, not free text, so it never has to be recalled from a
   summary. It holds tasks, questions waiting on the user, and decisions. No worker presets.
@@ -4405,8 +4435,7 @@ detail).
 
 ### Compaction of the coordinator
 
-Implemented 2026-11-05 in `packages/server/src/compaction.ts` (`docs/CONTINUE.md` has the detail); this section is the
-design it follows.
+Implemented 2026-11-05 in `packages/server/src/compaction.ts`; this section is the design it follows.
 
 pi durable's compaction does the mechanics (thresholds, background
 summaries, placing them at turn boundaries, retry on context overflow). A
@@ -4469,6 +4498,8 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   Anthropic message threads are enabled by pi-ai on its native endpoint; cache maintenance strips `thread`
   and sets `disableContinuation`, keeping the full cached prefix without replacing a real reply's thread.
   pi-durable migrates old live documents and task checkpoints; the SQLite schema remains version 2.
+  The 1.4.0 → 1.5.1 upgrade migrates pi.live v1 → v3, generation v1 → v2 and tool v1/v2 → v3.
+  Downgrading active upgraded tasks is not safe; a stopped-store forward-compatibility check is not rollback proof.
   The thinking-binding beta still uses `drop_block` for prefix edits; dropped thinking can raise
   costs. See [release facts and compatibility](research/fable-5-2.md)
   for the prefix-binding migration, 30-day retention and subscription quota caveats.
@@ -4860,6 +4891,7 @@ continue the visit. Usage and MCP navigation-level views are entries, not untrac
 is shown only with a known earlier app entry, including installed windows. Unknown sections explain and recover.
 Web stores a visit ID, validated local origin, owned entry index and prior visit entries in per-entry PageState;
 SvelteKit `persistState` preserves them on reload. Only view identifiers enter state, never form values/secrets.
+The settings index remains an index on resize; resizing never selects a default section.
 
 Android keeps a saveable, width-independent `BackStack` with a settings-visit origin.
 Back (app bar, system and completed predictive gestures) pops real history; cancelled

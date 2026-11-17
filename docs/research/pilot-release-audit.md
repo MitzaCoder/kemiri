@@ -38,7 +38,7 @@ for 2–5 people. No new tunnel service or Firebase relay is needed. This audit 
 
 GitHub repository: `MitzaCoder/aiki`, public, default branch `main`. Read-only `gh` queries found **zero tags,
 zero releases and zero Actions runs** (`actions/runs.total_count = 0`). There is no existing green CI evidence to
-substitute for these gates. Prior local full-stack evidence is in `docs/CONTINUE.md`; it is not a signed-release or
+substitute for these gates. Prior local full-stack evidence is in the board task reports; it is not a signed-release or
 cross-platform acceptance claim.
 
 The only workflow is `Release`. Its push-tag glob is `v[0-9]*.[0-9]*.[0-9]*`, a GitHub glob, not a SemVer regex;
@@ -62,7 +62,7 @@ platform dependencies: this is not an offline/self-contained distribution.
 
 | Component | Declared/packaged support | Evidence boundary |
 | --- | --- | --- |
-| Backend/local web | Linux x64/arm64, glibc or musl; macOS Intel/Apple Silicon; Windows through WSL only | Earlier clean non-root Debian lifecycle/browser rehearsal is recorded in CONTINUE. This audit reran targeted installer/auth/static-serving tests and built the neutral archive. macOS, WSL, musl and arm64 execution are not certified here. |
+| Backend/local web | Linux x64/arm64, glibc or musl; macOS Intel/Apple Silicon; Windows through WSL only | Earlier clean non-root Debian lifecycle/browser rehearsal is recorded on board task T71. This audit reran targeted installer/auth/static-serving tests and built the neutral archive. macOS, WSL, musl and arm64 execution are not certified here. |
 | Runtime | Private Bun **1.4.4**, six pinned SHA-256 archives; x64 baseline avoids AVX2 | Installer verifies download hash and exact runtime version, no Node fallback/global replacement. Other platform hashes were inspected, not downloaded/executed again. |
 | Terminals | Private zellij **0.45.1**, four OS/architecture pins | Failed download leaves chat usable and explains the limitation. Git/jj and repository toolchains remain user prerequisites. |
 | Android | **Android 12 / API 31+**, target/compile API 37; one universal APK contains `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` native libraries | Neutral release build and manifest/DEX seams pass here. ABI presence is not physical-device testing. No iOS or Play/store release is promised. |
@@ -204,4 +204,4 @@ not this prerelease. With no stable release they cannot bootstrap it. Invitation
 - Clean-checkout public guard fails as described; supplying the operator's external denylist makes the source
   private/generic guard and required Gitleaks scan pass. No protected values were copied into this report.
 - Full root/web/JVM suites, full Android lint, emulator/UI, actual provider inference, remote networking and signed-device
-  lifecycle were **not repeated**. Existing CONTINUE evidence was reviewed; there is no UI change requiring new media.
+  lifecycle were **not repeated**. Existing task evidence was reviewed; there is no UI change requiring new media.

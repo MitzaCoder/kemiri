@@ -43,7 +43,7 @@ with no Bun or dependency directory available.
 The real binary smoke now additionally uploads a synthetic PDF, submits its ID and
 checks the transcript for the extracted marker and original-path notice. Existing
 owner/auth/web/coordinator/codemode/worker/Photon smokes remain enabled. Full gate
-results and executable size are recorded in T140 and `docs/CONTINUE.md`.
+results and executable size are recorded in the T140 board task report.
 The Linux x64 production executable is 130,443,440 bytes (124.40 MiB), about
 1.59 MiB above the qttywtxo reference build; the wrapper's published unpacked
 package size includes types and optional decoders, not just shipped text code.

@@ -9,7 +9,7 @@ Read [sharing the app, option C](sharing-the-app.md) and [Bun executable docs](h
 
 **Recommend pinned Bun + a versioned server/web archive for the first installer.** Keep the binary as the next packaging step, not a reason to delay onboarding. A Node fallback is feasible but **not implemented** and not just a different build target: allow **4–6 engineering days without terminals, 6–10 with terminal parity**. Do not advertise it as an installer fallback until it passes the same acceptance tests.
 
-Only this document and the continuation note ship. The prototype uses build-time source rewrites, hard-coded package-version paths and an in-process image fallback; these are useful experimental evidence, not production code. No bookmark movement, push, deploy, service control or live-data access.
+Only this research document ships; the task handoff is in the T56 board report. The prototype uses build-time source rewrites, hard-coded package-version paths and an in-process image fallback; these are useful experimental evidence, not production code. No bookmark movement, push, deploy, service control or live-data access.
 
 Evidence on T56:
 
