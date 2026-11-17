@@ -35,7 +35,9 @@ Operator prerequisites: Bun, supported Node 22 runtime, the pinned local Firebas
 from `relay/`), and the Google Cloud CLI. Tests additionally need Java and `ss`; production deployment does not run emulators.
 Authenticate the Firebase CLI and Application Default Credentials **yourself**, outside agent tools. CLI login and ADC
 are separate: a Firebase CLI login alone does not authorize `operator.ts`. ADC may be your user ADC or approved
-keyless workload identity. Verify its quota/billing project too: `--project` selects API resources, not a rewrite of
+keyless workload identity. When running `gcloud auth application-default login`, tick every checkbox on the consent
+screen; leaving any unchecked can make the command fail with “Scope has changed”.
+Verify the ADC quota/billing project too: `--project` selects API resources, not a rewrite of
 ADC's quota-project setting; user ADC may also need `serviceusage.services.use` on that reviewed quota project. Do not download a JSON admin key or put credentials in an env file.
 
 All subsequent Firebase commands use the local CLI and an explicit `--project`. Do not rely on a global active project,
@@ -161,8 +163,9 @@ Fill this ignored file privately, replacing **all** placeholders. It contains on
 | `RELAY_DATABASE_ID` | Database ID; default `(default)`. Must match deploy config/operator `--database`. |
 | `RELAY_MAX_INSTANCES` | Positive HTTPS ceiling; default 2. Keep 2 for the pilot unless separately reviewed. |
 
-Verify the actual managed Node 22 builder's package-manager/lockfile handling and build identity; local Bun success
-is not proof of managed-build reproducibility. No manual npm/system-install workaround is part of this procedure.
+Google's Node.js buildpack uses Bun because `relay/bun.lock` is present. The Bun build requires
+`@google-cloud/functions-framework` in `dependencies`; it is pinned at `5.0.5`. Keep the dependency and lockfile.
+Verify the managed Node 22 build and its identity separately; local Bun success does not prove either.
 The SDK exports parameter expressions during discovery; Firestore database resolution is deferred to invocation.
 HTTPS remains Node 22, zero minimum instances, 30 seconds, 256 MiB, ten-second FCM deadline. Reconciliation is hourly,
 540 seconds, one maximum instance, same region/identity/database. No emulator/test/bypass variable may be deployed.
@@ -187,9 +190,12 @@ The local config generator performs no login, project lookup, SDK initialization
 ```sh
 bun --no-env-file tools/deploy-config.ts --rules sole --database '<database-id>'
 ./node_modules/.bin/firebase deploy --project '<project-id>' --config .deploy.firebase.json \
-  --only firestore:rules,firestore:indexes
+  --only firestore
 ```
 
+With the generated array-form config, Firebase CLI 14.22.0 reads `firestore:rules` and `firestore:indexes` as
+selectors for databases named `rules` and `indexes`. For a normal database ID these selectors leave no database
+selected and deployment crashes. Plain `--only firestore` deploys both files for the one configured database.
 Review the generated ignored `.deploy.firebase.json` first. `firestore.rules` denies **all** direct client access;
 never deploy it onto a database used by another app. Admin SDK access bypasses these rules.
 
@@ -222,8 +228,13 @@ Export the selected database's current index configuration privately with the pi
   > .deploy.existing-indexes.json
 bun --no-env-file tools/deploy-config.ts --rules shared --database '<database-id>' \
   --existing-indexes .deploy.existing-indexes.json
-./node_modules/.bin/firebase deploy --project '<project-id>' --config .deploy.firebase.json --only firestore:indexes
+./node_modules/.bin/firebase deploy --project '<project-id>' --config .deploy.firebase.json \
+  --only 'firestore:<database-id>,firestore:indexes'
 ```
+
+In 14.22.0 the database selector picks the array entry, and the `firestore:indexes` selector disables rules deployment.
+Use both, not `firestore:indexes` alone. If the database is literally named `rules`, stop: that selector also enables
+rules handling. Use the existing index owner's separately reviewed index-only procedure instead.
 
 The generated shared config has **no rules property**. It preserves every existing composite index and every non-relay
 field override, adding/replacing only the twelve reserved relay groups' field settings. Review exact changes and every
@@ -260,6 +271,13 @@ Do not resume as a deployment smoke test. Deletion remains available while pause
 ```sh
 ./node_modules/.bin/firebase deploy --project '<project-id>' --config .deploy.firebase.json \
   --only functions:aiki-push-relay:relay,functions:aiki-push-relay:reconcile
+```
+
+If a project's first Functions deploy fails with “Could not authenticate service-…@gcf-admin-robot”, have the
+bootstrap operator create the Cloud Functions service identity, then retry the same narrow deploy:
+
+```sh
+gcloud beta services identity create --service=cloudfunctions.googleapis.com --project '<project-id>'
 ```
 
 Never deploy all functions in a shared project. Verify the preview contains **only** these exports and no unrelated deletion.

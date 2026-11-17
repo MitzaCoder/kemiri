@@ -5799,7 +5799,11 @@ Node 22 v2 HTTPS function, TTL/index configuration and strict local validators. 
 is touched. A deploy-time database ID defaults to `(default)` and can select a dedicated named database. Sole-use rules
 are deny-all; shared databases retain their existing policy and merge exact guarded collection blocks. False denies
 cannot override a broad allow. The local deploy-config generator preserves unrelated shared indexes and omits shared rules.
-It implements verified-account phone enrollment/FCM possession challenges, generation-safe token replacement,
+The config lists databases as an array, so Firebase CLI 14.22.0 needs `--only firestore` for a sole database and a
+matching database selector alongside `firestore:indexes` for a shared index-only deploy (see DEPLOY.md for the `rules`
+name collision). The managed Node.js buildpack uses Bun from `relay/bun.lock` and requires the Functions Framework
+as a runtime dependency.
+The relay implements verified-account phone enrollment/FCM possession challenges, generation-safe token replacement,
 installation inventory/removal, pending/active routes with bounded capacity and leases, independent send/delete
 capabilities and digest-reserved encrypted sends/status. The pure core injects Auth, Firestore, sender, clock,
 randomness and App Check monitoring. Production wiring uses ADC; emulator flags cannot enable a production bypass.

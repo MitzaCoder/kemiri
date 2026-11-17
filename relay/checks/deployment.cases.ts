@@ -100,7 +100,16 @@ test("database selection rejects paths, malformed and UUID-shaped names", () => 
 		expect(() => requireDatabaseId(name)).toThrow();
 });
 
-test("local deploy-config generation preserves unrelated shared indexes and never configures shared rules overwrite", async () => {
+test("documented Firestore selectors pick the generated database and shared config preserves unrelated indexes without rules", async () => {
+	const { getFirestoreConfig } = require("firebase-tools/lib/firestore/fsConfig.js") as {
+		getFirestoreConfig(project: string, options: { config: { src: { firestore: unknown } }; only: string }): unknown[];
+	};
+	const deployGuide = await Bun.file(resolve(root, "DEPLOY.md")).text();
+	const documentedSelectors = [...deployGuide.matchAll(/^  --only ('?firestore[^\n]*)$/gm)].map(([, selector]) =>
+		selector.replaceAll("'", "").replace("<database-id>", "relay-checks"),
+	);
+	expect(documentedSelectors).toEqual(["firestore", "firestore:relay-checks,firestore:indexes"]);
+	const [soleSelector, sharedSelector] = documentedSelectors;
 	const invoke = async (args: string[]) => {
 		const child = Bun.spawn([process.execPath, "--no-env-file", "tools/deploy-config.ts", ...args], {
 			cwd: root,
@@ -121,6 +130,7 @@ test("local deploy-config generation preserves unrelated shared indexes and neve
 	expect(sole.firestore).toEqual([
 		{ database: "relay-checks", rules: "firestore.rules", indexes: "firestore.indexes.json" },
 	]);
+	expect(getFirestoreConfig(projectId, { config: { src: sole }, only: soleSelector })).toEqual(sole.firestore);
 	expect(sole.functions.codebase).toBe("aiki-push-relay");
 	expect(sole.emulators).toBeUndefined();
 	const existing = {
@@ -143,6 +153,7 @@ test("local deploy-config generation preserves unrelated shared indexes and neve
 	).toBe(0);
 	const shared = await Bun.file(resolve(root, ".deploy.firebase.json")).json();
 	expect(shared.firestore).toEqual([{ database: "relay-checks", indexes: ".deploy.indexes.json" }]);
+	expect(getFirestoreConfig(projectId, { config: { src: shared }, only: sharedSelector })).toEqual(shared.firestore);
 	const merged = await Bun.file(resolve(root, ".deploy.indexes.json")).json();
 	expect(merged.indexes).toEqual(existing.indexes);
 	expect(merged.fieldOverrides).toContainEqual(existing.fieldOverrides[0]);

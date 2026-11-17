@@ -136,9 +136,13 @@ its commands are for you after agreement, never for the agent. Do not adapt the 
   Follow [DEPLOY.md's two database cases](../relay/DEPLOY.md#4-firestore-rulesindexes-without-damaging-another-app).
   Only a sole-use database gets `relay/firestore.rules`; shared rules keep their existing owner/source and merge the
   exact guarded blocks in `relay/firestore.shared.rules.example`. False denies do not override broader allows.
-  Preserve unrelated indexes using the config generator's shared-index merge. All relay collection groups are prefixed
-  `relay`; stop on a namespace collision. TTL deletes are billed. Verify client denial, TTL/index readiness and expiry
-  queries on the actual chosen database; keep unfinished cleanup work out of TTL. Leave relay backups/PITR off.
+  Use `--only firestore` for the sole-use database. With the generated array config, Firebase CLI 14.22.0
+  treats suffixes as database selectors. For shared indexes, preserve unrelated indexes with the config generator's
+  shared-index merge and use `--only 'firestore:<database-id>,firestore:indexes'`, not `firestore:indexes` alone.
+  If the database is literally named `rules`, use the existing index owner's reviewed index-only procedure instead.
+  All relay collection groups are prefixed `relay`; stop on a namespace collision. TTL deletes are billed.
+  Verify client denial, TTL/index readiness and expiry queries on the chosen database; keep unfinished cleanup work
+  out of TTL. Leave relay backups/PITR off.
 - [ ] **Configure Auth providers and abuse controls.** Enable Email/Password with Email link enabled for the pilot;
   enable Google only when deliberately adding that optional method. Leave the Web client ID empty for email-only builds;
   disable unused providers. Kemiri must expose no password flow. Enable email enumeration protection and review effective
@@ -174,7 +178,9 @@ its commands are for you after agreement, never for the agent. Do not adapt the 
   one-time links, challenges or ciphertext in application logs. Verify retention settings and inspect synthetic live
   traffic for redaction. Record actual provider/audit-log exceptions in the privacy text: seven days is not a promise
   to erase Google's required logs. Review artifact cleanup so old deploy images do not accumulate charges.
-- [ ] **Prepare switches before deployment.** In the Firestore document `relayControl/settings`, set boolean
+- [ ] **Prepare switches before deployment.** If using user ADC, tick every consent checkbox in
+  `gcloud auth application-default login` to avoid a “Scope has changed” failure.
+  In the Firestore document `relayControl/settings`, set boolean
   `enabled=false` and `enrollmentEnabled=false`, using `operator.ts seed-control --yes` with the selected mode/database.
   Missing settings/boolean fields now mean disabled; numeric limits alone cannot open the relay. Seed paused **before**
   deploying a reachable function; seed refuses to overwrite an existing document. Verify with `status --yes`, retain
@@ -182,9 +188,12 @@ its commands are for you after agreement, never for the agent. Do not adapt the 
   available. `enrollmentEnabled=false` stops new relay accounts/phones only, not Auth signup or existing token repair.
 - [ ] **Deploy paused, only after the built procedure is reviewed and explicitly approved.** Follow
   [DEPLOY.md](../relay/DEPLOY.md): private parameter file (region/runtime SA/database/HTTPS maximum instances), local
-  config generation and selectors for only codebase `aiki-push-relay` exports `relay` and `reconcile`. Verify Node 22,
-  zero minimum/two default maximum HTTPS instances, 30-second request timeout, hourly bounded scheduler, the same
-  runtime identity/database and no emulator flags. Verify private Scheduler invocation and actual repair. Prove the real
+  config generation and selectors for only codebase `aiki-push-relay` exports `relay` and `reconcile`. Google's
+  Node.js buildpack uses Bun because of `relay/bun.lock` and requires `@google-cloud/functions-framework`
+  (already pinned at `5.0.5`). If the first deploy fails with “Could not authenticate service-…@gcf-admin-robot”,
+  have the bootstrap operator run `gcloud beta services identity create --service=cloudfunctions.googleapis.com --project '<project-id>'`
+  and retry the same deploy. Verify Node 22, zero minimum/two default maximum HTTPS instances, 30-second request
+  timeout, hourly bounded scheduler, the same runtime identity/database and no emulator flags. Verify private Scheduler invocation and actual repair. Prove the real
   forwarding suffix before relying on IP budgets (a paused smoke does not exercise it). Expect 503 `relay_disabled` on
   synthetic send, 204/no-store on well-formed absent-route delete. Keep the HTTPS v1 base URL privately; do not open enrollment.
 - [ ] **Supply private Android build values yourself.** Point `harness.googleServicesJson` /
