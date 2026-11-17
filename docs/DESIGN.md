@@ -3796,6 +3796,36 @@ closed selection retention, quiet boundaries, scoped preference serialization an
 The pure web model, family layout, change helpers and busy fixture remain only for Android vector generation,
 with their regression tests; the web bubble renderer does not import them.
 
+**Android bubble foundation (T262 / D97).** The next Android canvas uses the same bubble graph as web, not the
+native family/card tree. This stage adds pure Kotlin under `features/tasks/graph/bubble/`; no screen is wired yet.
+`TaskGraph`, `GraphNode`, `GraphEdge`, mutable Double-precision `GraphPosition`, `GraphCamera` and `GraphLabelBox`
+mirror the web world model. `buildTaskGraph`, `graphNeighborhood`, `visibleGraphEdges` and `graphLabel` preserve
+node order, radii, task-only failure attention, resting crew and all four task relation kinds. Crew have parents
+but never relation edges. `reconcileGraphPositions`, `stepGraphLayout`, `settledGraphPositions`,
+`placeGraphCrewOnRims` and the position/handoff interpolators preserve the web FNV seed, bounded 70-tick solve,
+retained task slots and caption-aware free-slot search. Siblings use explicit UTF-16 identifier order on both
+platforms rather than device locale collation; ordinary task/worker fixture placement is unchanged.
+
+`graphFoldGroups` and `liveTaskGraph` adapt bubble membership to T259's shared candidate/prerequisite/expansion
+rules in `GraphFolding.kt` (not a separate rule implementation). Solve the full All graph first; chips and Live
+visibility never change task coordinates. `graphFoldPosition`, `renderedGraphNodes`, crew viewport/motion,
+departure and report-cue helpers are also pure. `fitGraphCamera` and `placeGraphLabels` match web padding,
+zoom bounds, two-line captions and collision checks. IDs always show, while titles on small bubbles hide below
+0.6 zoom. `graphCounts`, `graphCaptionScale` and `graphEdgeSegment` were extracted unchanged from
+`TaskGraph.svelte` into `task-graph-presentation.ts` and ported. Counts read the full source, not Live membership.
+Android camera load/save helpers validate finite centres and 0.08–4 zoom, using `DeviceSettings.projectBubbleCamera`
+under separate backend/project keys; absent/invalid cameras return null for first-fit, and resizing preserves them.
+These are preference transforms; the canvas stage connects them to the device store.
+
+`apps/android/scripts/graph-bubble-vectors.ts` generates `test-vectors/task-graph-bubble-v1.json` from the actual
+web functions. Shared inputs and compact scenario lines keep the oracle below the repository snapshot size cap.
+It covers busy 90-task desktop/phone views, closed visibility, resting variants, derived states, recursive fold
+prerequisites, retained arrivals/closing/reassignment, cycles/missing parents, Unicode ordering/titles and worker
+motion. `BubbleGraphTest` compares membership, labels, counts, radii, folds and visibility exactly; geometry has
+at most 0.5 world-unit tolerance (zoom/label scale 1e-9, energy 1e-6). Retained task x/y are checked exactly.
+Root `bun test` now runs all three Android graph generators with `--check` (the earlier two were manual only),
+and Gradle tracks the bubble vector file as a unit-test input. Canvas rendering and gestures remain T263.
+
 ### Ticket and pull request links
 
 Decided with the user on 2026-11-06 (cards on 2026-11-07). Contract in `packages/protocol/src/refs.ts` (features

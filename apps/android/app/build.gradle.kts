@@ -145,6 +145,7 @@ tasks.withType<Test>().configureEach {
         .withPropertyName("pushRelayVectors")
     inputs.file(rootProject.file("test-vectors/task-graph-v1.json")).withPropertyName("taskGraphVectors")
     inputs.file(rootProject.file("test-vectors/task-graph-canvas-v1.json")).withPropertyName("taskGraphCanvasVectors")
+    inputs.file(rootProject.file("test-vectors/task-graph-bubble-v1.json")).withPropertyName("taskGraphBubbleVectors")
 }
 
 /** Asserts the shell-only delivery component can never be exported by a release APK. */

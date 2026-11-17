@@ -17,6 +17,7 @@
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { buildTaskGraph, graphLabel, graphNeighborhood, visibleGraphEdges, placeGraphCrewOnRims, type GraphPosition, type TaskGraph } from '#lib/task-graph.js';
 	import { settledGraphPositions } from '#lib/task-graph-layout.js';
+	import { graphCounts, graphCaptionScale, graphEdgeSegment } from '#lib/task-graph-presentation.js';
 	import { graphFoldGroups, liveTaskGraph, revealGraphTask, graphFoldExpansion, graphFoldPosition, renderedGraphNodes, loadGraphMode, saveGraphMode, type GraphMode, type GraphFoldKind } from '#lib/task-graph-live.js';
 	import { fitGraphCamera, loadGraphCamera, saveGraphCamera, placeGraphLabels, type GraphCamera } from '#lib/task-graph-camera.js';
 
@@ -66,9 +67,7 @@
 	let focused=$state<string | null>(null);
 	const neighborhoodTask=$derived(peekTaskId ? `task:${peekTaskId}` : focused ?? (linkedTaskId ? `task:${linkedTaskId}` : selectedTaskId ? `task:${selectedTaskId}` : null));
 	const edges=$derived(visibleGraphEdges(shownGraph,neighborhoodTask,allLinks));
-	const openTasks=$derived(source.nodes.filter(n=>n.kind==='task' && !['done','dropped'].includes(n.task!.status)));
-	const workingCount=$derived(openTasks.filter(n=>['working','in_progress','clarifying'].includes(n.status)).length);
-	const needCount=$derived(openTasks.filter(n=>n.attention).length);
+	const counts=$derived(graphCounts(source));
 	function idleAge(worker:WorkerSummary, now:number):string {
 		const minutes=Math.max(0, Math.floor((now-Date.parse(worker.updatedAt))/60_000));
 		return !Number.isFinite(minutes) ? '' : minutes<60 ? `${minutes} min` : minutes<1440 ? `${Math.floor(minutes/60)} h` : `${Math.floor(minutes/1440)} d`;
@@ -233,8 +232,8 @@
 	});
 	function edgePath(from:string,to:string):string {
 		const a=positions.get(from),b=positions.get(to);if(!a||!b)return '';
-		const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;
-		return `M ${a.x+dx/d*(a.radius+5)} ${a.y+dy/d*(a.radius+5)} L ${b.x-dx/d*(b.radius+9)} ${b.y-dy/d*(b.radius+9)}`;
+		const segment=graphEdgeSegment(a,b);
+		return `M ${segment.x1} ${segment.y1} L ${segment.x2} ${segment.y2}`;
 	}
 </script>
 
@@ -243,7 +242,7 @@
 <section data-no-task-preview class="task-graph" class:motion-still={reduced||camera.zoom<.5} aria-label="Task graph">
 	<div class="graph-toolbar">
 		{@render viewSwitch()}
-		<span class="graph-counts">{openTasks.length} open · {workingCount} working · {needCount} need attention</span>
+		<span class="graph-counts">{counts.open} open · {counts.working} working · {counts.attention} need attention</span>
 		<div class="graph-mode" role="group" aria-label="Task visibility">
 			<button aria-pressed={mode==='live'} onclick={()=>changeMode('live')}>Live</button><button aria-pressed={mode==='all'} onclick={()=>changeMode('all')}>All</button>
 		</div>
@@ -316,7 +315,7 @@
 			{/each}{/if}
 			{#each shownGraph.nodes.filter(n=>n.kind==='task') as node (node.id)}
 				{@const p=positions.get(node.id)}
-				{#if p}<g class="task-caption" class:dimmed={!highlighted.has(node.id)} transform="translate({p.x} {p.y+node.radius+12*Math.max(1,.85/camera.zoom)}) scale({Math.max(1,.85/camera.zoom)})">
+				{#if p}<g class="task-caption" class:dimmed={!highlighted.has(node.id)} transform="translate({p.x} {p.y+node.radius+12*graphCaptionScale(camera.zoom)}) scale({graphCaptionScale(camera.zoom)})">
 					<rect class="graph-task-id-chip" x={-(node.task!.id.length*7+14)/2} y="-8" width={node.task!.id.length*7+14} height="18" rx="6"/><text class="task-id" y="5">{node.task!.id}</text>
 				</g>{/if}
 			{/each}

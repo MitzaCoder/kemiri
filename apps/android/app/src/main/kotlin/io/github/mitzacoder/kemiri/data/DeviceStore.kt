@@ -29,6 +29,8 @@ data class DeviceSettings(
     val projectTasksView: Map<String, Map<String, String>> = emptyMap(),
     /** Backend origin -> project ID -> Live/All graph mode. Chip expansion is session-only. */
     val projectGraphMode: Map<String, Map<String, String>> = emptyMap(),
+    /** Backend origin -> project ID -> bubble world centre/zoom; separate from the old card camera. */
+    val projectBubbleCamera: Map<String, Map<String, io.github.mitzacoder.kemiri.features.tasks.graph.bubble.GraphCamera>> = emptyMap(),
     /** Backend origin -> project ID -> parent ID -> explicit family expansion choice. */
     val taskFamilyExpansion: Map<String, Map<String, Map<String, Boolean>>> = emptyMap(),
     /** Waiting calendar dates resolve at this local wall time on this device. */

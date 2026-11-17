@@ -84,6 +84,9 @@ export function graphLabel(node: GraphNode): string {
 	return `${node.kind === 'task' ? node.task?.id : node.kind}: ${node.title}, ${node.task ? taskStateLabel(node.task) ?? node.status.replaceAll('_',' ') : node.status.replaceAll('_',' ')}${node.attention ? ', needs attention' : ''}${node.task?.subtaskCount ? `, ${node.task.subtaskCount.done} of ${node.task.subtaskCount.total} subtasks done` : ''}`;
 }
 
+/** Identifiers use UTF-16 order on every platform, not the device's locale collation. */
+function compareGraphNodeIds(a: GraphNode, b: GraphNode): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
+
 export type GraphPosition = { x:number; y:number; anchorX:number; anchorY:number; vx:number; vy:number; radius:number; parentId:string | null };
 function seed(id: string): number {
 	let hash = 2166136261;
@@ -111,7 +114,7 @@ export function reconcileGraphPositions(graph: TaskGraph, previous = new Map<str
 		let x: number, y:number;
 		if (parent) {
 			const center = place(parent, visited);
-			const siblings = graph.nodes.filter(n => n.parent === parent.id && (node.kind === 'task' ? n.kind === 'task' : n.kind !== 'task')).sort((a,b) => a.id.localeCompare(b.id));
+			const siblings = graph.nodes.filter(n => n.parent === parent.id && (node.kind === 'task' ? n.kind === 'task' : n.kind !== 'task')).sort(compareGraphNodeIds);
 			const angle = node.kind !== 'task' ? -Math.PI / 2 + (siblings.indexOf(node) - (siblings.length - 1) / 2) * 1.1 : parent.parent ? -Math.PI*0.8 : siblings.indexOf(node) / Math.max(1, siblings.length) * Math.PI*2 - Math.PI/2;
 			const distance = node.kind === 'task' ? (parent.parent ? 200 : 220) : parent.radius + node.radius * .55;
 			x = center.x + Math.cos(angle)*distance; y = center.y + Math.sin(angle)*distance;
@@ -135,7 +138,7 @@ export function placeGraphCrewOnRims(graph: TaskGraph, positions: Map<string, Gr
 	for (const node of graph.nodes.filter(n => n.kind !== 'task' && n.parent)) {
 		const parent = positions.get(node.parent!), position = positions.get(node.id);
 		if (!parent || !position) continue;
-		const siblings = graph.nodes.filter(n => n.kind !== 'task' && n.parent === node.parent).sort((a,b) => a.id.localeCompare(b.id));
+		const siblings = graph.nodes.filter(n => n.kind !== 'task' && n.parent === node.parent).sort(compareGraphNodeIds);
 		const angle = -Math.PI / 2 + (siblings.indexOf(node) - (siblings.length - 1) / 2) * 1.1;
 		const distance = parent.radius + node.radius * .55;
 		position.x = position.anchorX = parent.x + Math.cos(angle) * distance;

@@ -19,7 +19,13 @@ internal fun graphCrewFinishes(status: String?): Boolean = status == null || sta
 
 fun workerMotionPhase(id: String): Long {
     var hash = 2166136261L
-    id.forEach { hash = ((hash xor it.code.toLong()) * 16777619L) and 0xffffffffL }
+    var index = 0
+    // Match JS for-of + charCodeAt(0), including supplementary Unicode identifiers.
+    while (index < id.length) {
+        val char = id[index]
+        hash = ((hash xor char.code.toLong()) * 16777619L) and 0xffffffffL
+        index += if (char.isHighSurrogate() && index + 1 < id.length && id[index + 1].isLowSurrogate()) 2 else 1
+    }
     return hash % 6000L
 }
 
