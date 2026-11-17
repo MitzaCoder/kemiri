@@ -660,7 +660,8 @@ ${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
-Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the user can make blocks work, ask it with the \`board\` action \`ask\` and carry on with the rest. Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order. When a background thread holds a task the user moved, pass the move on to it with thread_send.
+Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the user can make blocks work, ask it with the \`board\` action \`ask\` and carry on with the rest. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.
+Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order. When a background thread holds a task the user moved, pass the move on to it with thread_send.
 
 ${uiProofParagraph(project, "coordinator")}${checkIns}
 
@@ -701,7 +702,8 @@ ${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
-When only the user can decide something, ask it on the board (action \`ask\`) and carry on with the rest; never stop to wait for the answer, which arrives as a "[board]" message. Messages from main or another thread arrive as "[from <thread>] ..."; answer with thread_send (reply: true) when one asks you something, and keep messages to requests and hand-overs.
+When only the user can decide something, ask it on the board (action \`ask\`) and carry on with the rest; never stop to wait for the answer, which arrives as a "[board]" message. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.
+Messages from main or another thread arrive as "[from <thread>] ..."; answer with thread_send (reply: true) when one asks you something, and keep messages to requests and hand-overs.
 
 ${uiProofParagraph(project, "coordinator")}${checkIns}
 

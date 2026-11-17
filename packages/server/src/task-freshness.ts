@@ -13,7 +13,7 @@ export type TaskFactActor = "user" | "coordinator" | "worker" | "harness";
 export type TaskFact = {
 	/** Unknown callers are conservatively treated as harness facts. */
 	actor?: TaskFactActor;
-	kind: "question_asked" | "question_settled" | "blocker_resolved" | "worker_start" | "worker_resume" | "worker_report" | "worker_fail" | "worker_stop" | "thread_handoff" | "thread_finish" | "status" | "feedback" | "feedback_addressed" | "decision" | "milestone" | "commit" | "integration" | "publication" | "deploy" | "check_outcome" | "chat" | "stale";
+	kind: "question_asked" | "question_clarification" | "question_settled" | "blocker_resolved" | "worker_start" | "worker_resume" | "worker_report" | "worker_fail" | "worker_stop" | "thread_handoff" | "thread_finish" | "status" | "feedback" | "feedback_addressed" | "decision" | "milestone" | "commit" | "integration" | "publication" | "deploy" | "check_outcome" | "chat" | "stale";
 	reason: string;
 	at: string;
 	ref?: string | undefined;
@@ -74,7 +74,7 @@ function invalidatedSections(task: BoardTask, fact: TaskFact): readonly ReportSe
 	}
 	if (fact.sections !== undefined) return fact.sections;
 	switch (fact.kind) {
-		case "question_asked": return [];
+		case "question_asked": case "question_clarification": return [];
 		case "question_settled": {
 			const waitsOn = task.report.freshness?.next.waitsOn;
 			return task.report.next.trim() !== "" && (waitsOn === undefined || (fact.ref !== undefined && waitsOn.includes(fact.ref))) ? ["next"] : [];

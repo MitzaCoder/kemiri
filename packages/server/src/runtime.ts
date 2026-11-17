@@ -778,6 +778,11 @@ export class ProjectManager {
 		await runtime.board.reorder(taskIds);
 	}
 
+ async clarifyBoardQuestion(projectId: string, input: { questionId: string; expectedRevision: number; text: string }): Promise<BoardQuestion> {
+  const { runtime } = await this.conversation(projectId);
+  return runtime.board.clarify(input);
+ }
+
 	async answerBoardQuestion(
 		projectId: string,
 		input: { questionId: string; expectedRevision: number; answer: string },

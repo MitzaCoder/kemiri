@@ -14,7 +14,7 @@ import type {
 } from "@kemiri/protocol";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { type BoardState, changeOwner, emptyBoardState, saveTask } from "../src/board.ts";
+import { type BoardState, changeOwner, emptyBoardState, askQuestion, openBoard, saveTask } from "../src/board.ts";
 import { THREAD_ARCHIVE_AFTER_MS, THREAD_MESSAGES_PER_HOUR, MAIN_THREADS_SECTION, threadInstructions } from "../src/threads.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
@@ -723,6 +723,41 @@ describe("background threads", () => {
 		await threadView.waitForView((value) => answeredAfter(value, "[board] The user answered Q1"));
 		expect(userEntries(view.view, "[board] The user answered")).toHaveLength(0);
 	});
+
+ for (const finished of [false, true]) threadTest(`routes Ask back to a ${finished ? "finished (reviving it)" : "live"} asking thread, with Needs you counts`, async () => {
+  const test = await setup({ boardEditDebounceMs: 60_000 });
+  const gate = deferredGate();
+  script(test, async turn => {
+   if (turn.who === "thread" && turn.text === THREAD_BRIEF && !finished) return fauxAssistantMessage("Waiting for work.");
+   if (turn.who === "thread" && turn.text.startsWith("[board] The user asked back")) {
+    await hold(gate.promise, turn.signal);
+    return call("board", { action: "reply_question", id: "Q1", expectedRevision: 2, text: "Here is the clarification." });
+   }
+   if (turn.who === "thread" && turn.toolName === "board") return fauxAssistantMessage("Clarified the question.");
+   return undefined;
+  });
+  const { client, projectId, view } = await openProject(test);
+  await submit(client, projectId, "Start the thread.");
+  await until(async () => (await thread(client, projectId, "jira-run"))?.status === (finished ? "done" : "idle"));
+  const { runtime } = await test.server.manager.open(projectId);
+  await runtime.harness.commit(async tx => {
+   const state = await openBoard(tx, runtime.conversation.id);
+   askQuestion(state, { text: "Which option?", options: [], taskId: null, threadId: "jira-run", now: new Date().toISOString() });
+  }, BACKGROUND_CONTEXT);
+  await until(async () => (await thread(client, projectId, "jira-run"))?.openQuestions === 1);
+  const response = await client.request({ type: "board.question.clarify", projectId, questionId: "Q1", expectedRevision: 1, text: "Why this option?" });
+  expect(response.type).toBe("board.question.clarify");
+  await until(async () => {
+   const current = await thread(client, projectId, "jira-run");
+   return current?.openQuestions === 0 && current.state === "working";
+  });
+  gate.release();
+  const threadView = new ViewClient(client); await threadView.start(projectId, { threadId: "jira-run" });
+  await threadView.waitForView(v => v.entries.some(e => entryText(e) === "Clarified the question."));
+  expect(userEntries(threadView.view, "[board] The user asked back")).toHaveLength(1);
+  expect(userEntries(view.view, "[board] The user asked back")).toHaveLength(0);
+  await until(async () => (await thread(client, projectId, "jira-run"))?.state === "needs_you");
+ });
 
 	threadTest("stops a thread with its workers and releases its tasks; archives only what no longer works", async () => {
 		const test = await setup();

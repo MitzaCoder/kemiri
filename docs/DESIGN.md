@@ -2628,6 +2628,63 @@ seeded from the existing local ok deploy status (including unchanged verificatio
 its serving release; targets with no prior verified journal baseline remain unattributed for that
 initial attempt. Non-Git-backed jj deployment attribution remains deferred.
 
+### Clarifying board questions (T237 / D92, stage 1)
+
+Feature `question-clarify` adds exchanges under the existing question, not a chat jump or a
+new question for the same decision. Web/Android interaction is staged separately (T238/T239).
+Old questions and old apps keep working: all new fields are optional; absent `waitingOn`
+means the owner. Stored status remains `open | answered | withdrawn`.
+
+Protocol on `BoardQuestion`:
+- `waitingOn?: "user" | "agent"`. Applies to open cards only. Agent-waiting cards stay on
+  the board but leave project/sidebar Needs you, thread open-question counts and mascot cues.
+- `exchanges?: { author: BoardWriter, text: string, at: ISO string,
+  previousWording?: { revision: number, text: string, options: string[] },
+  previousAnswer?: { text: string, at: ISO string } }[]`, oldest first. User exchanges use
+  the user writer; replies identify the coordinator thread. A revision stores the earlier
+  wording/options on its reply; reopening retains the original answer there too.
+- `noReplyYet?: boolean`: returned to the owner without a reply. `reopened?: boolean`:
+  the one permitted reopening has been used. `mcpApproval?: boolean`: no Ask back/reopen.
+  Legacy MCP cards are recognized by their fixed approval envelope during normalization.
+
+`board.question.clarify { projectId, questionId, expectedRevision, text }` returns
+`{ question }` with the usual request type/id. It appends a user exchange, bumps revision,
+keeps status open and sets `waitingOn: "agent"`. Questions and warnings are allowed;
+MCP tool approvals are refused (`bad_request`) without settling or changing their policy.
+No push is sent. The input routes exactly like an answer: steer the asking conversation,
+revive a finished thread, use main if the asking thread no longer exists. The stable prompt
+explains the `[board] The user asked back on Qn (rN): ...` message.
+
+Coordinator board actions `reply_question` and `reopen_question` require `id`,
+`expectedRevision`, `text` (the reply), optional `revisedText` and `revisedOptions` (including
+an empty list). Reply appends the exchange, optionally revises the question/options, bumps
+revision, and sets `waitingOn: "user"`. Reopen does the same to an answered question once,
+when the agent judges its answer was really a question; withdrawn questions and approvals
+cannot reopen. Warnings still have no options. The owner may answer at any point with the
+current revision: that settles the card, clears the waiting/reminder state and tells the
+asking agent as today. Stale replies/answers conflict, so a late reply cannot undo an answer.
+Any number of ask/reply rounds is allowed; reply may also clarify after the no-reply fallback.
+
+No timer. The turn-end hook considers only clarification/revision messages actually placed
+in that run, never an earlier round or an unrelated run. If no reply/settlement was recorded,
+one durable, request-keyed follow-up reminds the agent. Ending that turn without replying
+returns the card to Needs you with `noReplyYet: true`; a failed run does this immediately.
+Retrying Ask back clears that mark and starts a new round. `thread_finish` remains refused
+while any of that thread's questions is open, regardless of who it waits on.
+
+Reply/reopen uses the existing `board_question` setting and the same replacement tag for
+that question, with a revision-specific dedup key and title `Reply on Qn · Project`. No-reply
+fallback also uses that setting, with `No reply yet on Qn`. Replies preview the explanation.
+Ask/reply count a quiet clarification fact, not an answer: neither invalidates Results/Next.
+An answer/withdrawal still invalidates Next under the existing dependency/actor rules;
+reopening does not erase a stale mark already produced by the earlier answer. The timeline
+shows asked-back, clarified and revised rows; `show_task`, board lists and compaction retain
+the exchanges and earlier wording. Task state adds D86 rule 3b below; activity uses the
+existing `working` kind with the canonical “<agent> is clarifying Qn” sentence, avoiding a
+second activity-kind contract. The web's status adapter maps this new kind to in_progress;
+its distinct label and all Ask back UI belong to stage 2. Generated Android DTOs and request
+overloads include the same fields and action, with no Android UI change in stage 1.
+
 ### Task states (T208 / D86)
 
 Stage 1 (T209) adds server rules and optional protocol fields. Stage 2 (T210) uses the derived
@@ -2640,8 +2697,10 @@ First match wins, using the same blocking-question, run and deployment facts as 
 1. Stored done/dropped → closed/done|dropped, even with lingering failures or work.
 2. Activity failure (deployment or worker/thread), or stored blocked with a reason or
    without any open task blocker → needs_you/failed. Bare blocked with open blockers uses rule 5.
-3. Open blocking question → needs_you/answer_needed. Questions default blocking, warnings
+3. Open blocking question waiting on the owner → needs_you/answer_needed. Questions default blocking, warnings
    nonblocking; `blocksWork` overrides either. Refs are question IDs.
+3b. Open question/warning waiting on the agent → in_progress/clarifying, refs question IDs.
+   This follows Answer needed and precedes Working, even for nonblocking warnings.
 4. Running task-focused worker/thread/coordinator or deployment → in_progress/working.
 5. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
 6. Stored review → needs_you/review.

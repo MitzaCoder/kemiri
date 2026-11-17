@@ -93,6 +93,7 @@ export type BoardState = {
 	reportAudit?: ReportAuditRecord;
 	tasks: BoardTask[];
 	questions: BoardQuestion[];
+ clarificationReminders?: Record<string, { revision: number; reminded: boolean; pending?: boolean }>;
 	decisions: BoardDecision[];
 	/** The last number given to a task, question and decision; IDs are never reused. */
 	counters: { task: number; question: number; decision: number; /** Absent on boards written before feedback. */ feedback?: number };
@@ -157,6 +158,8 @@ export function emptyReport(): BoardTaskReport {
 
 /** Give every task of a board written before reports, snapshots and refs the empty ones. Changes `state` in place. */
 export function normalizeBoard<T extends BoardState>(state: T): T {
+ // Pre-clarification MCP cards used this fixed envelope rather than an explicit discriminant.
+ for (const question of state.questions) if (question.mcpApproval === undefined && question.text.startsWith("MCP approval: ") && JSON.stringify(question.options) === JSON.stringify(["Approve once", "Always allow this tool", "Deny"])) question.mcpApproval = true;
 	for (const task of state.tasks) {
 		task.report ??= emptyReport();
 		task.snapshots ??= 0;
@@ -858,7 +861,8 @@ export function buildTimeline(
 	}
 	entries.push(...(history?.events ?? []));
 	for (const question of state.questions.filter((candidate) => candidate.taskId === task.id)) {
-		const word = question.kind === "warning" ? "Warning" : "Question";
+		for (const exchange of question.exchanges ?? []) entries.push({ at: exchange.at, kind: "question", label: `${question.id}${exchange.author.author === "user" ? ": you asked back" : exchange.previousWording ? " revised" : " clarified"}`, detail: exchange.text, ref: question.id, by: exchange.author });
+  const word = question.kind === "warning" ? "Warning" : "Question";
 		entries.push({ at: question.askedAt, kind: "question", label: `${word} ${question.id}`, detail: question.text, ref: question.id });
 		if (question.status !== "open" && question.answeredAt !== null) {
 			entries.push({
@@ -1007,7 +1011,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 }
 
 export function openQuestionCount(state: Readonly<BoardState> | undefined): number {
-	return state === undefined ? 0 : state.questions.filter((question) => question.status === "open").length;
+	return state === undefined ? 0 : state.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent").length;
 }
 
 function compareIds(left: string, right: string): number {
@@ -1365,7 +1369,10 @@ export function settleQuestion(
 			revision: question.revision,
 		});
 	}
-	question.status = input.answer === null ? "withdrawn" : "answered";
+	delete question.waitingOn;
+ delete question.noReplyYet;
+ if (state.clarificationReminders) delete state.clarificationReminders[question.id];
+ question.status = input.answer === null ? "withdrawn" : "answered";
 	question.answer = input.answer;
 	question.answeredAt = input.now;
 	question.revision += 1;
@@ -1377,6 +1384,77 @@ export function settleQuestion(
 	if (question.taskId !== null) noteTaskFact(state, question.taskId, { actor: input.actor ?? "user", kind: "question_settled", reason: `${question.id} ${question.status}`, ref: question.id, at: input.now });
 	state.updatedAt = input.now;
 	return plain(question);
+}
+
+/** Shared revision and approval guards for owner/agent clarification writes. */
+function requireClarifiableQuestion(state: BoardState, id: string, revision: number): BoardQuestion {
+ const question = state.questions.find(q => q.id === id);
+ if (!question) throw new ServerError("unknown_task", `No question "${id}" on the board`);
+ if (question.revision !== revision) throw conflict("Question", id, question.revision, revision);
+ if (question.mcpApproval) throw new ServerError("bad_request", "MCP approvals cannot be clarified or reopened.");
+ return question;
+}
+
+function advanceQuestionRevision(state: BoardState, question: BoardQuestion, now: string): BoardQuestion {
+ question.revision += 1;
+ if (question.taskId) {
+  const task = state.tasks.find(task => task.id === question.taskId)!;
+  task.timelineRevision = (task.timelineRevision ?? 0) + 1;
+ }
+ state.updatedAt = now;
+ return plain(question);
+}
+
+export function clarifyQuestion(state: BoardState, input: { questionId: string; expectedRevision: number; text: string; now: string }): BoardQuestion {
+ const question = requireClarifiableQuestion(state, input.questionId, input.expectedRevision);
+ if (question.status !== "open") throw new ServerError("board_conflict", `Question ${question.id} is already ${question.status}`);
+ if (!input.text.trim()) throw new ServerError("bad_request", "A clarification needs text.");
+ question.exchanges ??= [];
+ question.exchanges.push({ author: USER_WRITER, text: input.text, at: input.now });
+ question.waitingOn = "agent";
+ delete question.noReplyYet;
+ if (question.taskId) noteTaskFact(state, question.taskId, { actor: "user", kind: "question_clarification", reason: `${question.id}: asked back`, ref: question.id, at: input.now });
+ const changed = advanceQuestionRevision(state, question, input.now);
+ state.clarificationReminders ??= {};
+ state.clarificationReminders[question.id] = { revision: question.revision, reminded: false };
+ return changed;
+}
+
+export function replyQuestion(state: BoardState, input: { questionId: string; expectedRevision: number; text: string; revisedText?: string | undefined; revisedOptions?: string[] | undefined; reopen?: boolean | undefined; by: BoardWriter; now: string }): BoardQuestion {
+ const question = requireClarifiableQuestion(state, input.questionId, input.expectedRevision);
+ if (!input.text.trim() || (input.revisedText !== undefined && !input.revisedText.trim())) throw new ServerError("bad_request", "A reply and revised question must not be blank.");
+ if (input.reopen ? question.status !== "answered" || question.reopened : question.status !== "open" || !question.exchanges?.length) throw new ServerError("board_conflict", "Reply to an open clarification, or reopen an answered question once.");
+ const previousAnswer = input.reopen && question.answer !== null ? { text: question.answer, at: question.answeredAt! } : undefined;
+ const revised = (input.revisedText !== undefined && input.revisedText !== question.text) || (input.revisedOptions !== undefined && JSON.stringify(input.revisedOptions) !== JSON.stringify(question.options));
+ if (question.kind === "warning" && input.revisedOptions?.length) throw new ServerError("bad_request", "Warnings have no options.");
+ question.exchanges ??= [];
+ question.exchanges.push({ author: input.by, text: input.text, at: input.now,
+  ...(revised ? { previousWording: { revision: question.revision, text: question.text, options: [...question.options] } } : {}),
+  ...(previousAnswer ? { previousAnswer } : {}),
+ });
+ if (input.revisedText !== undefined) question.text = input.revisedText;
+ if (input.revisedOptions !== undefined) question.options = [...input.revisedOptions];
+ if (input.reopen) { question.reopened = true; question.status = "open"; question.answer = null; question.answeredAt = null; }
+ question.waitingOn = "user";
+ delete question.noReplyYet;
+ if (state.clarificationReminders) delete state.clarificationReminders[question.id];
+ if (question.taskId) noteTaskFact(state, question.taskId, { actor: "coordinator", kind: "question_clarification", reason: `${question.id} ${input.reopen ? "reopened" : "clarified"}`, ref: question.id, at: input.now });
+ return advanceQuestionRevision(state, question, input.now);
+}
+
+/** No timer: the first unanswered turn reminds; the second (or a failure) hands back to the owner. */
+export function endQuestionClarification(state: BoardState, input: { questionId: string; expectedRevision: number; now: string; failed?: boolean }): "remind" | "returned" | undefined {
+ const question = state.questions.find(q => q.id === input.questionId);
+ if (!question || question.status !== "open" || question.waitingOn !== "agent" || question.revision !== input.expectedRevision) return;
+ state.clarificationReminders ??= {};
+ state.clarificationReminders[question.id] ??= { revision: question.revision, reminded: false };
+ const reminder = state.clarificationReminders[question.id]!;
+ if (!input.failed && !reminder.reminded) { reminder.reminded = true; reminder.pending = true; return "remind"; }
+ question.waitingOn = "user";
+ question.noReplyYet = true;
+ delete state.clarificationReminders[question.id];
+ advanceQuestionRevision(state, question, input.now);
+ return "returned";
 }
 
 export function addDecision(
@@ -1767,7 +1845,8 @@ export function describeQuestion(question: BoardQuestion): string {
 			: question.answer === null
 				? ""
 				: ` -> ${clip(question.answer, 300)}`;
-	return head + tail;
+	const exchange = (question.exchanges ?? []).map(e => `\n  ${e.author.author} ${e.at}: ${e.text}${e.previousWording ? ` (earlier wording r${e.previousWording.revision}: ${e.previousWording.text}; options: ${e.previousWording.options.join(" / ")})` : ""}${e.previousAnswer ? ` (earlier answer: ${e.previousAnswer.text})` : ""}`).join("");
+ return head + tail + (question.waitingOn === "agent" ? " [waiting for agent]" : question.noReplyYet ? " [No reply yet]" : "") + exchange;
 }
 
 /** How many of a task's latest timeline entries `show_task` prints. */
@@ -2526,13 +2605,44 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const pending = (await this.state()).questions.find(question => question.status === "open" && question.text === input.text && question.threadId === input.threadId);
   if (pending) return pending.id;
   const question = await this.commitFor(change => this.#options.harness.commit(change, BACKGROUND_CONTEXT),
-   (state, now) => askQuestion(state, { text: input.text, options: input.options, threadId: input.threadId, taskId: null, now }),
+   (state, now) => { const q = askQuestion(state, { text: input.text, options: input.options, threadId: input.threadId, taskId: null, now }); state.questions.find(row => row.id === q.id)!.mcpApproval = true; return { ...q, mcpApproval: true }; },
    HARNESS_WRITER, `mcp-approval:${input.key}`);
   this.noticeQuestion(question);
   return question.id;
  }
 
-	async answer(input: { questionId: string; expectedRevision: number; answer: string }): Promise<BoardQuestion> {
+	async clarify(input: { questionId: string; expectedRevision: number; text: string }): Promise<BoardQuestion> {
+  const question = await this.#commit(USER_WRITER, state => clarifyQuestion(state, { ...input, now: this.#iso() }));
+  const asker = await this.#conversationOf(question.threadId);
+  await asker.submit({ type: "input", content: `${BOARD_PREFIX} The user asked back on ${question.id} (r${question.revision}): ${input.text}\nReply with board reply_question (id, expectedRevision, text; optional revisedText/revisedOptions). Do not ask a new question for the same decision.`, whenBusy: "steer", requestId: `board-clarify:${question.id}@${question.revision}` }, BACKGROUND_CONTEXT);
+  await this.#woke(question.threadId);
+  return question;
+ }
+
+ /** Process only clarification messages this run actually saw; stale rounds cannot remind a later round. */
+ async endClarifications(threadId: string, seen: ReadonlyMap<string, number>, key: string, failed = false): Promise<void> {
+  const results = await this.#commit(HARNESS_WRITER, state => {
+   const first = claimHarnessKey(state, key);
+   return state.questions.flatMap(question => {
+    const target = this.knowsThread(question.threadId ?? "main") ? question.threadId ?? "main" : "main";
+    if (target !== threadId || (!failed && seen.get(question.id) !== question.revision)) return [];
+    if (!first) return state.clarificationReminders?.[question.id]?.pending && question.waitingOn === "agent" ? [{ question: plain(question), outcome: "remind" as const }] : [];
+    const outcome = endQuestionClarification(state, { questionId: question.id, expectedRevision: question.revision, now: this.#iso(), failed });
+    return outcome ? [{ question: plain(question), outcome }] : [];
+   });
+  });
+  for (const { question, outcome } of results) {
+   if (outcome === "returned") { this.noticeQuestion(question); continue; }
+   const conversation = await this.#conversationOf(question.threadId);
+   await conversation.submit({ type: "input", content: `${BOARD_PREFIX} Clarification reminder for ${question.id} (r${question.revision}): reply with board reply_question before ending this turn, or withdraw/resolve it. Otherwise it returns to the owner marked No reply yet.`, whenBusy: "followUp", requestId: `board-clarify-reminder:${question.id}@${question.revision}` }, BACKGROUND_CONTEXT);
+   await this.#commit(HARNESS_WRITER, state => {
+    const pending = state.clarificationReminders?.[question.id];
+    if (pending?.revision === question.revision) delete pending.pending;
+   });
+  }
+ }
+
+ async answer(input: { questionId: string; expectedRevision: number; answer: string }): Promise<BoardQuestion> {
 		const now = this.#iso();
 		const question = await this.#commit(USER_WRITER, (state) => settleQuestion(state, { ...input, now, actor: "user" }));
 		await this.onMcpAnswer?.(question.id, input.answer);
@@ -2559,10 +2669,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				projectId: project.id,
 				projectName: project.name,
 				questionId: question.id,
-				text: question.text,
+				text: question.exchanges?.at(-1)?.author.author === "coordinator" ? question.exchanges.at(-1)!.text : question.text,
 				threadId: question.threadId ?? "main",
 				taskId: question.taskId,
 				warning: question.kind === "warning",
+    ...(question.exchanges?.length ? { revision: question.revision, reply: !question.noReplyYet, noReplyYet: question.noReplyYet } : {}),
 			}),
 		);
 	}
@@ -2663,6 +2774,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    signature = next;
    const latest = await this.#options.harness.snapshot(LiveDoc, conversationId as ConversationId, BACKGROUND_CONTEXT);
    await this.#updateTaskFocus(conversationId, threadId, latest);
+   if (latest?.runFailure) await this.endClarifications(threadId, new Map(), `clarification-failed:${conversationId}:${JSON.stringify(latest.runFailure)}`, true);
   };
   await update(watch.value);
   watch.start(async call => { if (call.kind === "failed") throw call.error; await update(call.value); });
@@ -3070,6 +3182,8 @@ const BoardToolParameters = Type.Object({
 			Type.Literal("drop_task"),
 			Type.Literal("ask"),
 			Type.Literal("resolve_question"),
+   Type.Literal("reply_question"),
+   Type.Literal("reopen_question"),
 			Type.Literal("decide"),
 			Type.Literal("write_report"),
 			Type.Literal("show_task"),
@@ -3082,7 +3196,7 @@ const BoardToolParameters = Type.Object({
 		],
 		{
 			description:
-				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and results or next; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
+				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and results or next; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
 		},
 	),
 	waitingFor: Type.Optional(Type.String({ maxLength: 2000, description: "Required when setting waiting: the external review, release or reply the user named." })),
@@ -3118,7 +3232,9 @@ const BoardToolParameters = Type.Object({
 	blockedBy: Type.Optional(Type.Array(Type.String(), { description: "Task IDs this one waits for; they must exist and not form a cycle." })),
 	blockedReason: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	writeScopes: Type.Optional(Type.Array(Type.String(), { description: "Paths the task will change; advisory." })),
-	text: Type.Optional(Type.String({ minLength: 1, description: "The question or warning (ask) or the decision (decide)." })),
+	revisedText: Type.Optional(Type.String({ minLength: 1, description: "reply_question/reopen_question: optional new question wording." })),
+ revisedOptions: Type.Optional(Type.Array(Type.String(), { description: "reply_question/reopen_question: optional replacement options, including an empty list." })),
+ text: Type.Optional(Type.String({ minLength: 1, description: "The reply (reply_question/reopen_question), question or warning (ask) or the decision (decide)." })),
 	blocksWork: Type.Optional(Type.Boolean({ description: "ask: questions default blocking, warnings nonblocking." })),
  activitySourceId: Type.Optional(Type.String({ description: "ask warning: optional failed activity actor ID; acknowledging clears only that source." })),
  kind: Type.Optional(
@@ -3311,6 +3427,17 @@ function createBoardExtension(service: BoardService): Extension {
 							details: { questionId: question.id },
 						});
 					}
+                    case "reply_question":
+                    case "reopen_question": {
+                        const id = need(input.id, input.action, "id");
+                        const question = await service.commitFor(change => api.commit(change, context), (state, now) => replyQuestion(state, {
+                            questionId: id, expectedRevision: need(input.expectedRevision, input.action, "expectedRevision"),
+                            text: need(input.text, input.action, "text"), revisedText: input.revisedText, revisedOptions: input.revisedOptions,
+                            reopen: input.action === "reopen_question", by: writer, now,
+                        }), writer, callKey);
+                        service.noticeQuestion(question);
+                        return toolText(`Replied on ${question.id} (r${question.revision}); waiting for the owner.`, { details: { questionId: question.id } });
+                    }
 					case "resolve_question": {
 						const id = need(input.id, input.action, "id");
 						const question = await service.commitFor(
@@ -3446,6 +3573,7 @@ function createBoardExtension(service: BoardService): Extension {
    if (!service.isCoordinator(api.conversationId)) return undefined;
    const written = new Set<string>();
    const userTasks = new Map<string, number>();
+   const clarifications = new Map<string, number>();
    const validIds = new Set((await service.state()).tasks.map(task => task.id));
    let cursor;
    const texts: string[] = [];
@@ -3454,6 +3582,7 @@ function createBoardExtension(service: BoardService): Extension {
     for (const entry of page.items) for (const message of entry.model ?? []) {
      if (entry.kind === "pi.user" && message.role === "user") {
       const text = typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+      for (const match of text.matchAll(/\[board\] (?:The user asked back on|Clarification reminder for) (Q[1-9]\d*) \(r(\d+)\)/g)) clarifications.set(match[1]!, Number(match[2]));
       for (const id of reportChatUserTasks(text, validIds)) userTasks.set(id, Math.max(userTasks.get(id) ?? 0, message.timestamp));
      }
      if (message.role === "toolResult" && message.toolName === "board" && !message.isError) {
@@ -3471,6 +3600,7 @@ function createBoardExtension(service: BoardService): Extension {
     cursor = page.next;
    } while (cursor !== undefined);
    await service.endTaskFocus(api.conversationId, String(run.first));
+   await service.endClarifications(service.threadIdOf(api.conversationId), clarifications, `clarification-run:${api.conversationId}:${run.first}:${run.last}`);
    await service.noteChat(texts.join("\n"), written, `report-chat:${api.conversationId}:${run.first}:${run.last}`, service.threadIdOf(api.conversationId), userTasks);
    return undefined;
   },

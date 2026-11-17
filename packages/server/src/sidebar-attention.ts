@@ -11,8 +11,8 @@ export const EMPTY_ATTENTION: ProjectAttention = {
 };
 
 export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<ProjectAttention, "questions" | "warnings" | "reviewTasks" | "waitingTasks" | "nextReturnAt" | "questionTaskId" | "warningTaskId" | "reviewTaskId"> {
-	const questions = board.questions.filter((question) => question.status === "open" && question.kind !== "warning");
-	const warnings = board.questions.filter((question) => question.status === "open" && question.kind === "warning");
+	const questions = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind !== "warning");
+	const warnings = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind === "warning");
 	const reviews = board.tasks.filter((task) => task.status === "review");
 	const waiting = board.tasks.filter((task) => task.status === "waiting");
 	const dates = waiting.flatMap((task) => task.waiting?.until && Number.isFinite(Date.parse(task.waiting.until)) ? [task.waiting.until] : []);

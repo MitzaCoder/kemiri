@@ -794,6 +794,35 @@ describe("events", () => {
 		expect(push.ofKind("board_question").length).toBe(1);
 	}, 30_000);
 
+ it("Ask back sends no question push; replies replace the question notification under its existing setting", async () => {
+  const { test, push } = await setupWithPush();
+  const client = await connect(test.server); await client.hello();
+  const projectId = await addProject(client, test.projectDir);
+  await configureCoordinator(client, projectId); await registerDevice(client, push);
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  test.faux.setResponses([
+   fauxAssistantMessage([fauxToolCall("board", { action: "ask", text: "Which storage?" })], { stopReason: "toolUse" }),
+   fauxAssistantMessage("Waiting."),
+   async () => { await gate; return fauxAssistantMessage([fauxToolCall("board", { action: "reply_question", id: "Q1", expectedRevision: 2, text: "Shared storage is remote." })], { stopReason: "toolUse" }); },
+   fauxAssistantMessage("Explained."),
+  ]);
+  const view = new ViewClient(client); await view.start(projectId);
+  await submit(client, projectId, "Plan storage.", "ask-back-notify");
+  await until(() => push.ofKind("board_question").length === 1);
+  await view.waitForView(v => v.entries.some(e => JSON.stringify(e.model).includes("Waiting.")));
+  try {
+   const response = await client.request({ type: "board.question.clarify", projectId, questionId: "Q1", expectedRevision: 1, text: "What does remote mean?" });
+   expect(response.type).toBe("board.question.clarify");
+   expect(push.ofKind("board_question")).toHaveLength(1);
+  } finally { release(); }
+  await until(() => push.ofKind("board_question").length === 2);
+  const [initial, reply] = push.ofKind("board_question");
+  expect(reply!.payload).toMatchObject({ kind: "board_question", title: "Reply on Q1 · project", body: "Shared storage is remote.", projectId, threadId: "main" });
+  expect(initial?.payload?.tag).toBe(`board-question:${projectId}:Q1`);
+  expect(reply?.payload?.tag).toBe(initial?.payload?.tag);
+ }, 30_000);
+
 	it("tells the devices about a warning and a move to review, each naming its task", async () => {
 		const { test, push } = await setupWithPush();
 		const client = await connect(test.server);

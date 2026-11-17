@@ -198,7 +198,7 @@ export type BoardTaskActivity = Static<typeof BoardTaskActivitySchema>;
 /** task-state: derived at emission, never persisted on the task. */
 export const BoardTaskStateSchema = Type.Object({
  group: Type.Union([Type.Literal("needs_you"), Type.Literal("in_progress"), Type.Literal("waiting"), Type.Literal("todo"), Type.Literal("closed")]),
- kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
+ kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("clarifying"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
  since: Type.String(),
  refs: Type.Array(Type.String()),
 });
@@ -266,7 +266,21 @@ export const BoardTaskSchema = Type.Object({
 });
 export type BoardTask = Static<typeof BoardTaskSchema>;
 
+export const BoardQuestionExchangeSchema = Type.Object({
+ author: BoardWriterSchema,
+ text: Type.String({ minLength: 1 }),
+ at: Type.String(),
+ previousWording: Type.Optional(Type.Object({ revision: Revision, text: Type.String(), options: Type.Array(Type.String()) })),
+ previousAnswer: Type.Optional(Type.Object({ text: Type.String(), at: Type.String() })),
+});
+export type BoardQuestionExchange = Static<typeof BoardQuestionExchangeSchema>;
+
 export const BoardQuestionSchema = Type.Object({
+ waitingOn: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("agent")], { description: "Open questions only; absent means user. Agent-waiting questions are not Needs you." })),
+ exchanges: Type.Optional(Type.Array(BoardQuestionExchangeSchema, { description: "Oldest first; revisions retain earlier wording on the reply." })),
+ noReplyYet: Type.Optional(Type.Boolean({ description: "Returned to the owner after an unanswered reminder or failed run." })),
+ reopened: Type.Optional(Type.Boolean({ description: "The agent has used this question's one allowed reopening." })),
+ mcpApproval: Type.Optional(Type.Boolean({ description: "Tool approval: never offer Ask back or reopen." })),
  blocksWork: Type.Optional(Type.Boolean({ description: "Questions default true, warnings false. Only blocking open entries replace task activity." })),
  activitySourceId: Type.Optional(Type.String({ description: "Warning acknowledgement clears only this linked failure source." })),
 	id: Type.String({ minLength: 1, description: 'e.g. "Q3".' }),
@@ -441,6 +455,17 @@ export const BoardTasksReorderRequestSchema = Type.Object({
 	taskIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
 });
 export type BoardTasksReorderRequest = Static<typeof BoardTasksReorderRequestSchema>;
+
+/** question-clarify: ask back without settling a question or warning. */
+export const BoardQuestionClarifyRequestSchema = Type.Object({
+ type: Type.Literal("board.question.clarify"), id: RequestIdSchema, projectId: ProjectIdSchema,
+ questionId: Type.String({ minLength: 1 }), expectedRevision: Revision, text: Type.String({ minLength: 1 }),
+});
+export type BoardQuestionClarifyRequest = Static<typeof BoardQuestionClarifyRequestSchema>;
+export const BoardQuestionClarifyResponseSchema = Type.Object({
+ type: Type.Literal("board.question.clarify"), id: RequestIdSchema, question: BoardQuestionSchema,
+});
+export type BoardQuestionClarifyResponse = Static<typeof BoardQuestionClarifyResponseSchema>;
 
 export const BoardQuestionAnswerRequestSchema = Type.Object({
 	type: Type.Literal("board.question.answer"),

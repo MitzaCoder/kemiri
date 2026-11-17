@@ -371,6 +371,7 @@ export const HARNESS_FEATURES = [
 	"task-freshness",
  "task-activity",
  "task-state",
+ "question-clarify",
 	"report-audit",
 	"sidebar-attention",
 	"cache-keep-warm",
@@ -389,7 +390,7 @@ export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
 /** Missing hello.features is never evidence of device-auth support. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1",);
+	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1",);
 
 export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("projects"),
@@ -438,6 +439,7 @@ export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("task-freshness"),
  Type.Literal("task-activity"),
  Type.Literal("task-state"),
+ Type.Literal("question-clarify"),
 	Type.Literal("report-audit"),
 	Type.Literal("sidebar-attention"),
 	Type.Literal("cache-keep-warm"),

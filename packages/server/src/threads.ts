@@ -637,7 +637,7 @@ export class ThreadService {
 
 	#openQuestions(threadId: string): number {
 		return (this.#board?.questions ?? []).filter(
-			(question) => question.status === "open" && (question.threadId ?? MAIN_THREAD_ID) === threadId,
+			(question) => question.status === "open" && question.waitingOn !== "agent" && (question.threadId ?? MAIN_THREAD_ID) === threadId,
 		).length;
 	}
 

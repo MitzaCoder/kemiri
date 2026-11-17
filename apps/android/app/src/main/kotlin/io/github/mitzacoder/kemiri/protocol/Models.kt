@@ -2451,7 +2451,51 @@ data class BoardTask(
 )
 
 @Serializable
+data class BoardQuestionExchange(
+    val `author`: BoardWriter,
+    val `text`: String,
+    val `at`: String,
+    val `previousWording`: BoardQuestionExchangePreviousWording? = null,
+    val `previousAnswer`: BoardQuestionExchangePreviousAnswer? = null
+)
+
+@Serializable
+data class BoardQuestionExchangePreviousWording(
+    val `revision`: Long,
+    val `text`: String,
+    val `options`: List<String>
+)
+
+@Serializable
+data class BoardQuestionExchangePreviousAnswer(
+    val `text`: String,
+    val `at`: String
+)
+
+@Serializable
+data class BoardQuestionClarifyRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.question.clarify",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `questionId`: String,
+    val `expectedRevision`: Long,
+    val `text`: String
+)
+
+@Serializable
+data class BoardQuestionClarifyResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.question.clarify",
+    val `id`: String,
+    val `question`: BoardQuestion
+)
+
+@Serializable
 data class BoardQuestion(
+    val `waitingOn`: String? = null,
+    val `exchanges`: List<BoardQuestionExchange>? = null,
+    val `noReplyYet`: Boolean? = null,
+    val `reopened`: Boolean? = null,
+    val `mcpApproval`: Boolean? = null,
     val `blocksWork`: Boolean? = null,
     val `activitySourceId`: String? = null,
     val `id`: String,

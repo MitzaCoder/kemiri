@@ -987,6 +987,9 @@ export function boardQuestionNotification(input: {
 	projectId: string;
 	projectName: string;
 	questionId: string;
+ revision?: number;
+ reply?: boolean;
+ noReplyYet?: boolean;
 	text: string;
 	/** The thread that asked; "main" for main. */
 	threadId?: string;
@@ -997,13 +1000,13 @@ export function boardQuestionNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "board_question",
-		title: `${input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
+		title: `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
 		body: notificationLine(markdownText(input.text)),
 		projectId: input.projectId,
 		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
 		...(input.taskId === undefined || input.taskId === null ? {} : { taskId: input.taskId }),
 		tag: `board-question:${input.projectId}:${input.questionId}`,
-		key: `board-question:${input.projectId}:${input.questionId}`,
+		key: `board-question:${input.projectId}:${input.questionId}${input.revision === undefined ? "" : `@${input.revision}`}`,
 	};
 }
 

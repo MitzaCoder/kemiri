@@ -36,7 +36,7 @@ export function taskStateStatus(task: Pick<BoardTask, 'state' | 'status'>): Boar
 	switch (task.state?.kind) {
 		case 'failed': return 'blocked';
 		case 'answer_needed': return 'review';
-		case 'working': return 'in_progress';
+		case 'working': case 'clarifying': return 'in_progress';
 		case 'paused': case 'blocked_by_task': case 'waiting_outside': return 'waiting';
 		default: return task.state?.kind ?? task.status;
 	}

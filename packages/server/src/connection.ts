@@ -854,6 +854,13 @@ export class ClientConnection {
 					this.#respond({ type: "board.tasks.reorder", id: request.id });
 					return;
 				}
+                case "board.question.clarify": {
+                    const question = await this.#manager.clarifyBoardQuestion(request.projectId, {
+                        questionId: request.questionId, expectedRevision: request.expectedRevision, text: request.text,
+                    });
+                    this.#respond({ type: "board.question.clarify", id: request.id, question });
+                    return;
+                }
 				case "board.question.answer": {
 					const question = await this.#manager.answerBoardQuestion(request.projectId, {
 						questionId: request.questionId,

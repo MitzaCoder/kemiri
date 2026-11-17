@@ -37,6 +37,8 @@ export function taskActivity(task: BoardTask, questions: readonly BoardQuestion[
  if (failure) return make("failure", `${failure.actor.name} failed${failure.failure ? `: ${failure.failure.replace(/\s+/g, " ").slice(0, 160)}` : ""}`, failure.since, [failure.actor.id], failure.actor);
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("question", `Waiting for your answer to ${blocking[0].id}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}${workers.length ? ` · ${workers.length} worker${workers.length === 1 ? "" : "s"} still running` : ""}`, blocking[0].askedAt, blocking.map(q => q.id), undefined, blocking.length);
+ const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
+ if (!closed && clarifying[0]) return make("working", `${clarifying[0].threadId && clarifying[0].threadId !== "main" ? clarifying[0].threadId : "Coordinator"} is clarifying ${clarifying[0].id}`, clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
  if (deploy?.state === "active" && tracking?.deployUnknownSince) return make("unknown", "Status unknown", tracking.deployUnknownSince, deploy.refs);
  if (deploy?.state === "active") return make("deploy", deploy.text, deploy.since, deploy.refs);
  const live = closed ? undefined : sources.find(s => s.state === "running");
@@ -88,7 +90,7 @@ export function setActivityPhase(tracking: TaskActivityTracking, id: string, pha
 export const TASK_PAUSED_MS = 15 * 60 * 1000;
 
 export function blockingTaskQuestions(task: BoardTask, questions: readonly BoardQuestion[]): BoardQuestion[] {
- return questions.filter(q => q.taskId === task.id && q.status === "open" && (q.blocksWork ?? q.kind !== "warning")).sort((a, b) => a.askedAt.localeCompare(b.askedAt) || a.id.localeCompare(b.id));
+ return questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn !== "agent" && (q.blocksWork ?? q.kind !== "warning")).sort((a, b) => a.askedAt.localeCompare(b.askedAt) || a.id.localeCompare(b.id));
 }
 
 export function openTaskBlockers(task: Pick<BoardTask, "blockedBy">, tasks: readonly BoardTask[]): BoardTask[] {
@@ -110,6 +112,8 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  if (task.status === "blocked" && (task.blockedReason?.trim() || !blockers.length)) return make("needs_you", "failed");
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("needs_you", "answer_needed", blocking[0].askedAt, blocking.map(q => q.id));
+ const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
+ if (clarifying[0]) return make("in_progress", "clarifying", clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
  const live = Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
  if (live[0] || tracking?.deploy?.state === "active") return make("in_progress", "working", [live[0]?.since, tracking?.deploy?.state === "active" ? tracking.deploy.since : undefined].filter((at): at is string => !!at).sort()[0]!, [...live.map(s => s.actor.id), ...(tracking?.deploy?.state === "active" ? tracking.deploy.refs : [])]);
  if (blockers.length) return make("waiting", "blocked_by_task", since, blockers.map(t => t.id));
