@@ -31,7 +31,8 @@
 		onanswer,
 		onclarify,
 		compact = false,
-		strip = false
+		strip = false,
+		optionsOnly = false
 	}: {
 		question: BoardQuestion;
 		/** "T4 · Fix parser recovery" when the question is about a task. */
@@ -45,6 +46,8 @@
 		compact?: boolean;
 		/** A single-line preview in a job band; full Markdown opens in the existing reader. */
 		strip?: boolean;
+		/** Graph preview: suggested answers only; replies and other actions stay in the full task. */
+		optionsOnly?: boolean;
 	} = $props();
 
 	const warning = $derived(question.kind === 'warning');
@@ -118,6 +121,7 @@
 				<button
 					type="button"
 					disabled={busy}
+					class:preview-option={optionsOnly}
 					class="max-w-full rounded-full border border-(--chat-border) bg-(--chat-surface) px-2.5 py-1 text-left text-xs font-medium break-words text-(--chat-fg) transition-colors hover:border-(--accent-2) hover:bg-(--chat-surface-2) disabled:opacity-50"
 					onclick={() => send(option)}
 				>
@@ -127,6 +131,7 @@
 		</div>
 	{/if}
 
+	{#if !optionsOnly}
 	<div class="flex flex-wrap items-end justify-end gap-1.5">
 		<Textarea
 			bind:value={text}
@@ -166,6 +171,7 @@
 			>Ask back</Button>
 		{/if}
 	</div>
+	{/if}
 	{#if problem}
 		<p class="text-xs break-words {expanded ? 'max-h-16 overflow-y-auto' : ''} text-(--chat-danger)" role="alert">{problem}</p>
 	{/if}
@@ -258,10 +264,11 @@
 					{/if}
 				{/if}
 			</p>
-			{#if strip}
+			{#if strip && !optionsOnly}
 				<button type="button" class="block min-h-11 w-full truncate text-left text-xs underline-offset-2 hover:underline" onclick={() => readingExpanded = true} title="Read the full question">{markdownText(question.text)}</button>
 			{:else}<CardMarkdown source={question.text} />{/if}
 		</div>
+		{#if !optionsOnly}
 		<Dialog.Root bind:open={readingExpanded}>
 			<Dialog.Trigger>
 				{#snippet child({ props })}
@@ -287,13 +294,18 @@
 				{/if}
 			</Dialog.Content>
 		</Dialog.Root>
+		{/if}
 	</div>
 
-	{@render questionDiscussion()}
+	{#if !optionsOnly}{@render questionDiscussion()}{/if}
 	{#if canAnswer}{@render answerForm(false)}{/if}
 </div>
 
 <style>
+	@media (pointer: coarse) {
+		.preview-option { min-height: 44px; }
+	}
+
 	:global(.question-reading-dialog) {
 		top: var(--question-viewport-center, 50%);
 		height: min(52rem, calc(var(--question-viewport-height, 100dvh) - 2rem));

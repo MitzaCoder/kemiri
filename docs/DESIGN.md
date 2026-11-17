@@ -3585,6 +3585,24 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
   taskless idle crew and a taskless failure, including a background-thread resting worker. No installed data or real
   worker tools are used.
 
+**Web task pop-up content (T257 / D96, part A).** `TaskPartsProgress.svelte` owns the list's
+unchanged inline parts bar/text and old-backend done/total ring; `TaskFamilyMeta` still owns its
+native disclosure. `TaskPeek.svelte` is content only (not yet hosted in the graph): 360px card or
+full-width `layout="sheet"`, using theme tokens and a scrollable body. It composes the list state
+glyph/sentence, parent parts progress, direct working/needs-attention parts with a “+ N done” count,
+open task questions, Now, three Results bullets, two-line Next, freshness, workers and relation chips.
+Legacy tasks fall back to stored status, report prose, counts and historical worker IDs when no
+explicit worker assignment is sent. State/parts fields must already be capability-gated as in the list.
+
+Inputs are `task`, optional `tasks`, `questions`, `workers`, `archivedLinks`, `activityEnabled`,
+`freshnessEnabled`, `layout` and `taskHref`. Navigation callbacks are `onWorker(workerId)`,
+`onOpenTask(taskId)` and `onShowLinked(taskId)`. Optional `onAnswer(question, text)` takes the
+question pin's adapter to `ProjectBoard.answer(question.id, question.revision, text)` and returns
+its conflict-aware outcome. `BoardQuestionCard`'s `optionsOnly` mode retains its option wording,
+send/error handling and revision checks but hides replies, clarification, acknowledgment and
+expansion controls. Suggested answers are the only mutation in this pop-up; all other task edits
+and replies remain in the full sheet. Positioning, hover/focus/touch and dismissal belong to part B.
+
 **Android family graph and project canvas (T115–T116).**
 
 Native Tasks offers List | Board | Graph, remembered per backend/project with the old global choice as a fallback.
