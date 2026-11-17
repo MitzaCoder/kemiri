@@ -3524,6 +3524,23 @@ The generated module and CSS are checked by brand tests and
 `bun scripts/generate-brand.ts --check-graph`; `--graph-only` refreshes them without
 raster generation. Part A does not yet replace the canvas creatures or change chat.
 
+**Worker pop-up content (T258, part A).** `WorkerPeek.svelte` accepts either a
+`worker` or a background-job `thread`, route scope (`backendId`, `projectId`),
+optional assigned `task`, `questions`, `models`, `activityEnabled`, and
+`layout: 'card' | 'sheet'`; `onOpenTask(taskId)` opens the full task. The host
+will own hover/touch placement, focus and dismissal; no graph entry points are
+wired in part A. Each card has one private set of mascot gradients and a still
+state pose. Worker activity is used only with the capability enabled and a match
+on task, actor kind/name, conversation and thread (absent worker thread means
+main). Otherwise the last report leads, without repeating it as Doing now.
+Reports use `updatedAt` as the available age, not an invented report timestamp.
+Background jobs show `current` and `summary` instead. Failure, task, model and
+thinking level, isolation wording (never workspace paths), and start time follow.
+`workerHref` keeps a background worker's thread segment; main workers use the
+project route. Jobs use `threadHref` and Open chat. Missing task records retain
+the ID/action; workers without a task omit Open task. Pure selection, isolation
+and transcript-scope helpers plus rendered-content tests cover these fallbacks.
+
 Connected work was reverted at the owner’s request (F22 on T103); Android is unchanged.
 
 Bubble club is the chosen web graph: soft clusters and round worker creatures, without a look flag or alternate
