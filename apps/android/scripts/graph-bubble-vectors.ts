@@ -75,8 +75,14 @@ const motion=['running','idle','failed','done','stopped'].flatMap(status=>[null,
 	const questions:BoardQuestion[]=ask?[{...fixture.board.questions[0]!,taskId:'T1',...ask} as BoardQuestion]:[];
 	return {status,taskStatus,ask,motion:workerMotion({status:status as WorkerSummary['status']},t,questions)};
 })));
+// Camera gestures use the web component's world-centre convention and zoom clamp.
+const cameraGestures = [
+	{camera:{x:120,y:240,zoom:.4},dx:32,dy:-16,factor:1.25},
+	{camera:{x:0,y:0,zoom:.1},dx:-10,dy:10,factor:.1},
+	{camera:{x:-50,y:5,zoom:3},dx:0,dy:0,factor:2},
+].map(input=>({...input,expected:{x:input.camera.x-input.dx/input.camera.zoom,y:input.camera.y-input.dy/input.camera.zoom,zoom:Math.max(.08,Math.min(4,input.camera.zoom*input.factor))}}));
 // One generated scenario per line keeps this large oracle below the repository snapshot limit.
-const source='{\n  "version": 1,\n  "inputs": '+JSON.stringify(inputs)+',\n  "scenarios": [\n'+scenarios.map(s=>'    '+JSON.stringify(s)).join(',\n')+'\n  ],\n  "motion": '+JSON.stringify(motion)+'\n}\n';
+const source='{\n  "version": 1,\n  "inputs": '+JSON.stringify(inputs)+',\n  "scenarios": [\n'+scenarios.map(s=>'    '+JSON.stringify(s)).join(',\n')+'\n  ],\n  "motion": '+JSON.stringify(motion)+',\n  "cameraGestures": '+JSON.stringify(cameraGestures)+'\n}\n';
 const path=new URL('../test-vectors/task-graph-bubble-v1.json',import.meta.url);
 if(Bun.argv.includes('--check')) {
 	if(await Bun.file(path).text()!==source)throw new Error('Bubble graph vectors differ from the web model');

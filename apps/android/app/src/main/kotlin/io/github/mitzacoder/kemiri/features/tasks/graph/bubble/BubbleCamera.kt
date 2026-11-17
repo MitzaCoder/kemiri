@@ -12,6 +12,10 @@ fun loadGraphCamera(settings: DeviceSettings, backend: String, project: String):
 fun saveGraphCamera(settings: DeviceSettings, backend: String, project: String, camera: GraphCamera): DeviceSettings =
     settings.copy(projectBubbleCamera = settings.projectBubbleCamera + (backend to (settings.projectBubbleCamera[backend].orEmpty() + (project to camera))))
 
+/** Gestures use screen dp; the camera always stores world centre, never a pixel translation. */
+fun panGraphCamera(camera: GraphCamera, dx: Double, dy: Double) = camera.copy(x = camera.x - dx / camera.zoom, y = camera.y - dy / camera.zoom)
+fun zoomGraphCamera(camera: GraphCamera, factor: Double) = camera.copy(zoom = (camera.zoom * factor).coerceIn(.08, 4.0))
+
 fun fitGraphCamera(positions: Map<String, GraphPosition>, width: Double, height: Double): GraphCamera {
     if (positions.isEmpty()) return GraphCamera()
     val points = positions.values

@@ -29,34 +29,6 @@ internal fun graphFoldCandidate(status: String, derived: Boolean, section: Strin
 }
 
 /** Port of task-graph-live.ts: full All membership first, then only quiet standalone tasks may fold. */
-fun graphFoldGroups(model: GraphModel, allTaskIds: Set<String>): List<GraphFold> {
-    val tasks = model.details.values.filter { it.task.id in allTaskIds }
-    val family = tasks.flatMap { d -> d.task.parent?.takeIf(allTaskIds::contains)?.let { listOf(d.task.id, it) }.orEmpty() }.toSet()
-    val threadParents = model.threads.filter { !it.main && !it.archived && it.status != "done" }.associate { thread ->
-        thread.id to (thread.taskId?.takeIf(allTaskIds::contains) ?: thread.ownedTasks.firstOrNull(allTaskIds::contains))
-    }
-    val busy = model.threads.filter { !it.main && !it.archived && it.status in listOf("running", "failed") }.mapNotNull { threadParents[it.id] }.toMutableSet()
-    model.workers.filter { it.status in listOf("running", "failed") }.forEach { worker ->
-        val task = model.workerTask(worker)
-        if (!graphWorkerRests(worker.status, task, allTaskIds))
-            (task?.id?.takeIf(allTaskIds::contains) ?: threadParents[worker.threadId])?.let(busy::add)
-    }
-    val candidates = linkedMapOf<String, GraphFoldKind>()
-    tasks.forEach { d ->
-        val task = d.task
-        val section = task.state?.group ?: when {
-            graphClosed(task.status) -> "closed"
-            task.status == "waiting" -> "waiting"
-            d.questions.isNotEmpty() -> "needs_you"
-            else -> task.status
-        }
-        val attention = if (task.state != null) task.state.group == "needs_you" else task.status == "review" || d.questions.isNotEmpty() || model.workers.any { it.status == "failed" && it.taskId == task.id }
-        graphFoldCandidate(task.state?.kind ?: task.status, task.state != null, section,
-            task.id in family || task.parent != null || (task.subtaskCount?.total ?: 0) > 0, task.id in busy, attention)?.let { candidates[task.id] = it }
-    }
-    return graphFoldCandidates(tasks.map { it.task.id }, candidates, tasks.flatMap { d -> d.task.blockedBy.filter(allTaskIds::contains).map { d.task.id to it } })
-}
-
 fun revealGraphTask(groups: List<GraphFold>, expanded: Set<GraphFoldKind>, taskId: String?): Set<GraphFoldKind> =
     expanded + groups.filter { taskId in it.taskIds }.map { it.kind }
 
@@ -76,12 +48,4 @@ internal fun graphFoldExpansion(blockers: List<Pair<String, String>>, groups: Li
         }
     } while (changed)
     return next
-}
-fun graphFoldExpansion(model: GraphModel, groups: List<GraphFold>, expanded: Set<GraphFoldKind>, closing: GraphFoldKind? = null): Set<GraphFoldKind> =
-    graphFoldExpansion(model.details.values.flatMap { d -> d.task.blockedBy.map { d.task.id to it } }, groups, expanded, closing)
-
-fun graphShownTaskIds(model: GraphModel, allTaskIds: Set<String>, groups: List<GraphFold>, mode: GraphMode, expanded: Set<GraphFoldKind>): Set<String> {
-    if (mode == GraphMode.All) return allTaskIds
-    val revealed = graphFoldExpansion(model, groups, expanded)
-    return allTaskIds - groups.filter { it.kind !in revealed }.flatMap { it.taskIds }.toSet()
 }

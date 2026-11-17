@@ -37,8 +37,3 @@ fun graphLoopingWorkers(crew: List<GraphMotionCandidate>, zoom: Float, motion: B
 
 /** The card crew and canvas use exactly the same hide rule, including when closed cards are shown. */
 internal data class GraphCrewMember(val id: String, val status: String, val state: AgentMotion, val background: Boolean)
-internal fun graphTaskCrew(d: GraphTask): List<GraphCrewMember> =
-    d.workers.filter { it.status !in listOf("done", "stopped") && !graphWorkerRests(it.status, d.task, setOf(d.task.id)) }
-        .map { GraphCrewMember("worker:${it.id}", it.status, workerMotion(it.status, d.task, d.questions), false) } +
-    d.threads.filter { !it.main && !it.archived && it.status != "done" }
-        .map { GraphCrewMember("thread:${it.id}", it.status, workerMotion(it.status, d.task, d.questions), true) }

@@ -143,8 +143,6 @@ android {
 tasks.withType<Test>().configureEach {
     inputs.file(rootProject.file("../../packages/protocol/test-vectors/push-relay-v1.json"))
         .withPropertyName("pushRelayVectors")
-    inputs.file(rootProject.file("test-vectors/task-graph-v1.json")).withPropertyName("taskGraphVectors")
-    inputs.file(rootProject.file("test-vectors/task-graph-canvas-v1.json")).withPropertyName("taskGraphCanvasVectors")
     inputs.file(rootProject.file("test-vectors/task-graph-bubble-v1.json")).withPropertyName("taskGraphBubbleVectors")
 }
 

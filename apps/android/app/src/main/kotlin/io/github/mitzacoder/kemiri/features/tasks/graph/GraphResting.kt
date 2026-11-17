@@ -12,6 +12,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
+import io.github.mitzacoder.kemiri.protocol.BoardTask
+import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 internal fun graphIdleTime(worker: WorkerSummary, now: Long): String {
@@ -21,15 +23,15 @@ internal fun graphIdleTime(worker: WorkerSummary, now: Long): String {
 }
 
 @Composable
-internal fun GraphRestingSheet(workers: List<WorkerSummary>, model: GraphModel, now: Long, onWorker: (WorkerSummary) -> Unit) {
+internal fun GraphRestingSheet(workers: List<WorkerSummary>, tasks: List<BoardTask>, questions: List<BoardQuestion>, now: Long, onWorker: (WorkerSummary) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Text("Resting · ${workers.size}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         Text("Idle or failed workers without an open visible task.", style = MaterialTheme.typography.bodyMedium)
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
             items(workers, key = { "${it.threadId}/${it.id}" }) { worker ->
                 TextButton(onClick = { onWorker(worker) }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
-                    val task = model.workerTask(worker)
-                    AgentMascot(workerMotion(worker.status, task, model.details[task?.id]?.questions.orEmpty()), size = 28.dp, animate = false)
+                    val task = tasks.find { it.id == worker.taskId || (worker.taskId == null && worker.id in it.workerIds) }
+                    AgentMascot(workerMotion(worker.status, task, questions), size = 28.dp, animate = false)
                     Spacer(Modifier.width(12.dp))
                     val taskText = task?.let { "${it.id} · ${it.title}" } ?: worker.taskId?.let { "$it · unavailable" } ?: "No task"
                     Text("${worker.id} · ${worker.title}\n$taskText\n${graphIdleTime(worker, now)} · Show worker",

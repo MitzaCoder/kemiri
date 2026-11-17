@@ -230,7 +230,7 @@ fun HarnessApp(
             if (panelWide) Surface(Modifier.fillMaxSize()) { panelBody(Modifier.fillMaxSize()) }
             if (panel != null && !sideBySide && context != null) {
                 // Fullscreen phone sheet: explicit opening only, back/dismiss returns to the same chat/watch.
-                Dialog(onDismissRequest = ::pop, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+                Dialog(onDismissRequest = { resolvedBack()?.invoke() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
                     val view = LocalView.current
                     val dark = Jarvis.colors.dark
                     SideEffect {

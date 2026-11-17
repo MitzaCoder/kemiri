@@ -45,9 +45,5 @@ internal fun graphPeekResults(source: String): List<String> {
 }
 
 internal fun graphWorkerKey(worker: WorkerSummary) = "worker:${worker.threadId ?: "main"}:${worker.conversationId}:${worker.id}"
-internal fun GraphModel.crewSelection(taskId: String, crewId: String): String? = details[taskId]?.let { task ->
-    if (crewId.startsWith("thread:")) task.threads.find { "thread:${it.id}" == crewId }?.let { "thread:${it.id}" }
-    else task.workers.find { "worker:${it.id}" == crewId }?.let(::graphWorkerKey)
-}
 internal fun graphWorkerRoute(route: Destination.Chat, worker: WorkerSummary): Destination.Chat =
     route.copy(workerId = worker.id, threadId = worker.threadId?.takeUnless { it == "main" }, highlight = null)

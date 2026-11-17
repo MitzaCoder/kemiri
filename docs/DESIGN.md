@@ -5,7 +5,7 @@
 Collapsed task IDs use a small accent chip (option A): 6 px/dp corners,
 5 px/dp horizontal inset, 12 px/sp semibold monospace and an 18 px/sp line.
 Web list/sidebar/search/family rows, board cards, parent relations and graph
-nodes share it; Android list/search/family rows, board and graph cards do too.
+nodes share it; Android list/search/family rows, board and graph nodes do too.
 List rows keep the ID alone on the right (T245 / D94), without an age above it.
 Needs you task rows use the same list component; project-level Needs you counts
 contain no task ID. IDs remain identity, never status, selection or a preview
@@ -3598,7 +3598,7 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
   pan the background; wheel, buttons and pinch zoom. Camera state is local per backend/project under
   `task-graph.camera.v1:`. Resizing preserves world centre and zoom. No link editing or task moves.
 - Reduced motion disables floating, typing, transitions, departing fades and antenna flashes, retaining status, progress and
-  attention. List remains the full accessible reading path. Android keeps its separate native family graph below.
+  attention. List remains the full accessible reading path. Android uses the same bubble model in its native canvas below.
 - Synthetic proof uses the throwaway backend seed script. Loopback-only controls exercise reports, reassignment,
   completion, task arrival and 80-task stress loading. `GRAPH_DEMO_SCENARIO=busy` adds idle crew on closed tasks,
   taskless idle crew and a taskless failure, including a background-thread resting worker. No installed data or real
@@ -3688,116 +3688,60 @@ links use normal in-app navigation: the existing conversation snapshot and trans
 return to the expanded graph and its saved camera/Live-All choice; they do not create a new chat
 entry. Escape restores the launch anchor and touch sheets retain the host's focus containment.
 
-**Android family graph and project canvas (T115–T116).**
+**Android bubble graph (T263 / D97).**
 
-Native Tasks offers List | Board | Graph, remembered per backend/project with the old global choice as a fallback.
-Graph starts at one readable family, preferring a linked selection, otherwise the most needs-you tasks after crew
-loads. Previous/next and a family picker preserve tree order. Hidden ancestors and cyclic parentage retain stable
-family identity; roots without subtasks still get their own group. Cards use status colours, marks and words, quiet
-subtask guides, overlapping reason marks, waiting dates, quiet age, family progress and unfinished holds-up totals.
-Official layered mascots stand above the card edge (T259): working, waiting (review or an open blocking question),
-sleeping (six-second breath, closed eyes, drooped leaf, 72% opacity and one z above 28dp), failed (one half-second
-shake then a slump), and successful finish (one hop then a 400ms fade; stopped workers never celebrate). Amber ? and
-red ! badges distinguish waiting/failure without recolouring the mascot. Non-main background jobs are 25% larger
-with a dashed ring. Workers and jobs are keyed by identity; canvas reassignment follows a 650ms world-space arc,
-and a changed non-empty report emits one bounded spark and task ring. Loops are identity-staggered, in-view only,
-limited to twelve, and still below 50% zoom. Disabled animations, background lifecycle and obscuring phone dialogs
-stop decoration without dropping the sleeping/failed pose, status, report text or Updated marks.
-Idle and failed workers whose task is closed, archived, hidden or absent leave both crew bands, even with Show closed.
-There is no age threshold. The toolbar's Resting count opens a native sheet with name, task and idle/failure age;
-rows open the reusable worker sheet, including background-job workers. Running crew are not classified as resting.
-The native card/family/canvas layout remains only as the interim host: D97 replaces it with the web bubble graph
-in a separate Android canvas stage.
+Native Tasks keeps List | Board | Graph per backend/project, with the old global choice as a fallback.
+Graph is now a Compose bubble canvas, not a family/card tree. `BubbleCanvas.kt` draws the web model's
+task circles, attention halos, segmented parts rings, neutral family tint blobs and four relation kinds.
+Task-state glyphs and tones reuse the list's vocabulary; ID chips remain visible at every zoom, while
+two-line titles use the shared full-graph label placement and hide below the small-bubble threshold.
+Subtask links are solid; blocked-by links are grey dashed arrows, red when either end is selected.
+Found-while and related links appear only around the selection unless View → All links is enabled.
+Selection dims unrelated nodes without removing context.
 
-Android Live | All (T259 part B) ports the T255 rules above in pure `GraphFolding.kt`. Live is the default;
-only the mode persists in device settings per backend/project (`projectGraphMode`), while expanded groups are
-session-only. A fixed, horizontally scrollable toolbar row holds the segmented switch and To do/Waiting chips
-in both family view and canvas, with 48dp targets and spoken state/action labels. Chips keep their place in All
-but are disabled there. Search, task links and explicit family selection reveal the entire matching group and
-its prerequisite groups. Closing a prerequisite closes dependent groups. The family picker keeps full All order;
-if a currently read quiet single folds, its header stays and the body explains how to reveal it rather than
-jumping to a different family. Counts always describe the full board.
-Canvas geometry, family/dot anchors, fit bounds and camera use the full All graph; only cards, family decoration,
-edges and crew rendering are filtered. No mode/chip transition solves layout or refits. Idle workers on folded
-tasks join Resting and return on expansion; that sheet now includes small still mascots. Finish/report decoration
-cannot outlive a shown task. Compact shared vectors from the actual web fold functions cover derived/legacy
-states, quiet families, prerequisite chains/cycles, attention and crew; JVM tests also check retained slots,
-project preferences, selection and expansion closure.
+The toolbar shows full-source open/working/attention counts, a shared rounded Live | All track with
+the selected segment filled, and View (Closed tasks, Resting workers on the graph, All links, Legend).
+Live defaults per project; mode and camera persist in device settings, while expanded fold groups are
+session-only. To do/Waiting chips expand in place with prerequisite closure in their own screen-space
+row above the bottom control row (Resting left, − / + / Fit right). One measured column keeps 8dp between
+the rows, including at large system font sizes; narrow control rows wrap rather than overlap.
+The full All graph is solved off the UI
+thread before Live membership is applied. Fold/mode changes never solve, move slots or refit.
+Pan and pinch change the world-centred camera; floating − / + / Fit controls provide the same actions
+without gestures. World paint and the semantic/mascot overlay use retained render layers: pan updates
+layer transforms rather than remeasuring every caption. `BubblePaint` paints list glyph paths and native
+font-scaled ID/title text in the canvas; semantic hit regions remain independent of the drawn radius.
+Fit includes full graph slots and the fold anchor. Resizing preserves centre and zoom.
 
-Android preview sheets (T260 part A, D97) are independent modal Compose APIs in `GraphTaskSheet.kt` and
-`GraphWorkerSheet.kt`, ready for the replacement bubble canvas. The task sheet takes the board lists, task ID,
-activity/freshness flags and open-task/worker/show-linked/dismiss callbacks; its context is used only for the
-existing revision-aware question answer path. It reuses `TaskActivityView`, the extracted `TaskPartsBar`,
-`ReportMarkdown`, `ReportSectionFreshness` and `QuestionCard(optionsOnly = true)`. It lists direct working,
-clarifying and needs-you parts plus a done count, clamps Results to three bullets and Next to two lines,
-shows assigned workers/jobs and relation chips. Suggested answer options are its only mutation; no edits,
-status changes, replies, clarification, warning acknowledgement or long-press actions appear here.
-The worker sheet takes worker/thread IDs, the watched board/crew/model lists, activity flag and explicit
-open-task/transcript/chat/dismiss callbacks. It shows a still state mascot, identity/title/status duration,
-Doing now only from an exact worker actor/thread/conversation match (otherwise last report), failure,
-task, model/thinking, safe isolation words and start time. Background jobs use Open chat; their workers
-use Open transcript with both workerId and threadId. The interim card host opens the same sheets from
-crew, task-worker and Resting rows. Every action/row has a 48dp minimum target and spoken name; content
-scrolls without fixed text heights for large fonts.
-`graphWorkerRoute` preserves a background worker's thread and clears transient highlights.
-The pure `graphNavigateBack` consumes a worker preview before selection/highlights or canvas level;
-closing a worker keeps its task selected. Transcript navigation pushes the existing project route,
-so Back restores the saved worker sheet first, then the graph selection. JVM tests cover this order,
-conversation-safe Doing now, parts filtering/counts and report clamping. Full bubble-canvas integration
-and its tap/transcript/Back recording belong to the later canvas stage, not this sheet stage.
+Official five-state `AgentMascot` composables perch on the shared task-rim positions. Background jobs
+are 25% larger with a dashed ring; waiting/failure badges remain visible when motion stops. Only in-view
+crew can loop, capped at twelve, and all stay still below 50% zoom or with animator scale zero. Obscuring
+sheets/menus also stop decoration. Report sparks, reassignment arcs and finish motion are a later stage;
+the bubble canvas does not run the retired card renderer's transition layer.
 
-The horizontal summary highlights rather than removes context, and offers the next matching family. Search ranks
-ID, title, family, worker and thread matches using the web weights. Picking a result reveals/selects it. Selection
-is stored by ID, so watched replacements update the scrollable native bottom sheet in place, including a missing-task
-notice. The reusable previews use modal sheets at every width. Relationship chips and Open task open the
-existing full TaskSheet; Show linked opens the linked-task List filter. Back dismisses the sheet, then selection/highlight, then the canvas to family view, then returns to List. Loading, empty,
-all-closed/Show closed, no-match and offline/reconnecting states keep stale content rather than clearing the board.
-Controls have 48dp targets, card semantic names include reasons/progress/crew, and the lazy list supplies tree-order
-TalkBack traversal. Text and sections scroll/wrap with system font scaling; the view switch wraps at large sizes.
+The clock-free resting rule moves idle/failed workers without an open visible task into Resting, even
+with Closed tasks enabled. Running workers never rest. A bottom-left Resting count opens a native sheet
+with still mascots, identity, task and idle/failure age; its rows open the worker preview.
 
-The compact native toolbar gives overlapping counters a full-width scroller below the view choice. Search and a
-badged Changes/history icon sit together; connection tint/dot and a spoken Live/Reconnecting/Offline state stay
-compact, with full connection status/age in overflow alongside Show closed/overview/line legend. A pinch out or
-All families opens the project canvas at readable cards. Floating 48dp family/Fit/zoom/Regroup icons, pan,
-pointer-anchored pinch and double-tap change only the camera. A fixed 300×104dp canvas body holds ID/status, two
-title lines and one compact reason/progress/quiet/holds-up row, with a 32dp crew band above and 12dp between occupied
-rows. Initial system-font scaling is retained until Regroup, not recomputed from watched content. Native slots are
-larger than web slots to hold real system text. The pure layout port retains hidden named
-slots, two arrival reservations, family positions and ancestry until explicit Regroup; only overflowing growth can
-move a colliding region. Structural inputs exclude status, reports and crew. Shared web-generated layout vectors
-check exact card/pill/region/slot geometry through hiding, arrivals and overflow.
+Bubble and mascot taps open the reusable modal `GraphTaskSheet` / `GraphWorkerSheet` (T260). The task
+sheet reuses list activity, parts, report Markdown, freshness and options-only question answering; Open
+task and relation chips open the full TaskSheet. Show linked highlights all relation kinds in place.
+The worker sheet shows exact-conversation Doing now (otherwise last report), failure, task, model,
+thinking, isolation and start time. Background jobs use Open chat; their workers use Open transcript.
+`graphWorkerRoute` retains the thread; `graphNavigateBack` dismisses worker/task previews before clearing
+selection. The phone panel dialog delegates system Back to the same nested resolver as the app bar,
+instead of bypassing graph state and popping the panel. Transcript navigation retains the graph route,
+selection, expanded groups and camera, so Back returns through
+the worker preview to the graph. All controls, bubble and mascot hit regions have 48dp minimum targets.
+Each visible node has its full meaningful TalkBack name; labels and toolbar respect system font scaling,
+and native sheets scroll. List remains the complete linear accessible reading path.
 
-Cards yield to single-line pills, then screen-sized family dots at world-anchored region centres. Detail hysteresis
-is asymmetric: leave cards below 12/14 zoom and pills below max(12/22,48/72); re-enter 8% higher. All text stays at
-least 12sp on screen. Dot fit frames anchors instead of tall hidden card bounds, limits zoom to preserve readable
-132–168dp screen-space label budgets (expanded for large fonts), and never detaches anchors. Explicit word-boundary
-wrapping permits two label lines with an end ellipsis; full names remain in TalkBack. Counts inside the ring refer
-to visible tasks; the small badge counts unique needs-you tasks, not summed overlapping reasons. Ring segments use
-the visible status mix. On a phone, readable spacing can require panning rather than fitting every family at once.
-Only nodes/crew within 180dp of
-the viewport compose. Solid subtask routes use branch gutters; found-while is dotted, blocked-by dashed with an arrow
-toward the prerequisite, related dash-dot. Nonparent routes are scoped to the selected task/family and cross-family
-routes use exterior corridors. Canvas nodes expose button semantics in tree/slot order; family view remains the
-complete linear reading path.
+The old card model/layout/edges, family dots, family picker, card canvas and their generators/JSON were
+removed. Shared sheet labels, resting semantics, change helpers and mascot primitives remain; no old
+tree geometry drives this canvas. The old web family modules remain where other web code/tests use them.
 
-Changes retains 50 session entries, fixed one-second batches, latest report lines and an unseen-entry count. Entry
-links explicitly reveal/select their task; incoming changes never refit the camera. Cards get a 1.5s glow/Updated
-mark; closed work lingers with a faded fill for 4.5s and keeps its named slot. An off-screen changes chip reveals
-only on a tap. Weak board-scoped session storage preserves bounded history through responsive remounts. First load,
-remount and reconnect establish a baseline after the shared board and crew reads complete for the current socket
-generation; no guessed delay or invented reconnect arrivals. The pause/clock handling is graph-local, not a new
-background service. Physical-device frame/battery budgets and a full TalkBack session remain unmeasured.
-
-Pure Kotlin semantics live under `features/tasks/graph/`. `apps/android/scripts/graph-vectors.ts` generates the shared
-synthetic `test-vectors/task-graph-v1.json` from the actual web model; `--check` detects parity drift. JVM tests compare
-all task details, counters, search weights/order and cycle/diamond-safe dependency counts, plus native family order,
-closed selection retention, quiet boundaries, scoped preference serialization and Back transitions.
-
-The pure web model, family layout, change helpers and busy fixture remain only for Android vector generation,
-with their regression tests; the web bubble renderer does not import them.
-
-**Android bubble foundation (T262 / D97).** The next Android canvas uses the same bubble graph as web, not the
-native family/card tree. This stage adds pure Kotlin under `features/tasks/graph/bubble/`; no screen is wired yet.
+**Android bubble foundation (T262 / D97).** The Android canvas uses the same bubble graph as web, not the
+native family/card tree. Pure Kotlin under `features/tasks/graph/bubble/` supplies its model and geometry.
 `TaskGraph`, `GraphNode`, `GraphEdge`, mutable Double-precision `GraphPosition`, `GraphCamera` and `GraphLabelBox`
 mirror the web world model. `buildTaskGraph`, `graphNeighborhood`, `visibleGraphEdges` and `graphLabel` preserve
 node order, radii, task-only failure attention, resting crew and all four task relation kinds. Crew have parents
@@ -3810,7 +3754,9 @@ platforms rather than device locale collation; ordinary task/worker fixture plac
 rules in `GraphFolding.kt` (not a separate rule implementation). Solve the full All graph first; chips and Live
 visibility never change task coordinates. `graphFoldPosition`, `renderedGraphNodes`, crew viewport/motion,
 departure and report-cue helpers are also pure. `fitGraphCamera` and `placeGraphLabels` match web padding,
-zoom bounds, two-line captions and collision checks. IDs always show, while titles on small bubbles hide below
+zoom bounds, two-line captions and collision checks. `panGraphCamera` and `zoomGraphCamera` share the web's
+screen-delta/world-centre convention and zoom clamp; camera gesture vectors cover both limits.
+IDs always show, while titles on small bubbles hide below
 0.6 zoom. `graphCounts`, `graphCaptionScale` and `graphEdgeSegment` were extracted unchanged from
 `TaskGraph.svelte` into `task-graph-presentation.ts` and ported. Counts read the full source, not Live membership.
 Android camera load/save helpers validate finite centres and 0.08–4 zoom, using `DeviceSettings.projectBubbleCamera`

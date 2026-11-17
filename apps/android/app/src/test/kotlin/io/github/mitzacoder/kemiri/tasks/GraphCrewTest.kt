@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.features.tasks.graph.*
+import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.AgentMotion
 import org.junit.Assert.*
@@ -26,14 +27,11 @@ class GraphCrewTest {
         val tasks = listOf(task("T1"), task("T2", status = "done"), task("T3").copy(workerIds = listOf("legacy")))
         val workers = listOf(worker("open", "T1"), worker("closed", "T2"), worker("absent", "T99", "failed"),
             worker("none", null), worker("legacy", null), worker("thread", "T2").copy(threadId = "garden"), worker("running", null, "running"))
-        val model = buildGraphModel(tasks, emptyList(), workers, emptyList(), 0)
-        assertEquals(listOf("closed", "absent", "none", "thread"), model.restingWorkers(setOf("T1", "T2", "T3")).map { it.id })
-        assertEquals("T3", model.workerTask(workers[4])?.id)
-        assertEquals("garden", model.restingWorkers(setOf("T1", "T3")).last().threadId)
+        val graph = buildTaskGraph(tasks, emptyList(), workers, emptyList())
+        assertEquals(listOf("closed", "absent", "none", "thread"), graph.resting.map { it.id })
+        assertEquals("garden", graph.resting.last().threadId)
         assertEquals("idle · 0 min", graphIdleTime(workers[0], 0))
-        assertTrue(graphTaskCrew(model.details.getValue("T2")).isEmpty())
-        val layout = layoutGraphFamilies(tasks.map { GraphLayoutTask(it.id, null, it.id) })
-        assertFalse(graphCrewPlacements(layout, model).any { it.taskId == "T2" })
+        assertFalse(graph.nodes.any { it.kind == "worker" && it.parent == "task:T2" })
     }
     @Test fun workerMotionMatchesWebStatusAndBlockingQuestionPrecedence() {
         val open = task("T1")

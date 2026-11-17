@@ -88,9 +88,9 @@ fun TasksViewSwitch(mode: TasksViewMode, onChange: (TasksViewMode) -> Unit) {
                     .background(if (selected) colors.bg else colors.bg.fade(0f))
                     .selectable(selected, role = Role.Tab) { onChange(entry) }
                     .heightIn(min = 48.dp)
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = if (mode == TasksViewMode.Graph) 6.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (mode == TasksViewMode.Graph) 4.dp else 6.dp),
             ) {
                 LucideGlyph(icon, size = 14.dp, tint = if (selected) colors.fg else colors.fgMuted)
                 Text(label, style = textStyle(0.75f, 1.4f, weight = 600), color = if (selected) colors.fg else colors.fgMuted)

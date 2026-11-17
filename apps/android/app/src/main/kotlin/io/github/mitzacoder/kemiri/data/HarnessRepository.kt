@@ -153,6 +153,9 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun setProjectGraphMode(backend: String, project: String, mode: io.github.mitzacoder.kemiri.features.tasks.graph.GraphMode) = update {
         it.copy(projectGraphMode = it.projectGraphMode + (backend to (it.projectGraphMode[backend].orEmpty() + (project to mode.stored))))
     }
+    suspend fun setProjectBubbleCamera(backend: String, project: String, camera: io.github.mitzacoder.kemiri.features.tasks.graph.bubble.GraphCamera) = update {
+        io.github.mitzacoder.kemiri.features.tasks.graph.bubble.saveGraphCamera(it, backend, project, camera)
+    }
     suspend fun setTaskFamilyExpanded(backendKey: String, projectId: String, parentId: String, expanded: Boolean) = update {
         it.withFamilyExpansion(backendKey, projectId, parentId, expanded)
     }

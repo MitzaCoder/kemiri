@@ -134,13 +134,9 @@ class TaskDerivedStateTest {
     @Test fun graphUsesDerivedColourKeysAndOnlyNeedsYouReasons() {
         val tasks = listOf(derived("T1", "waiting", "blocked_by_task"), derived("T2", "in_progress", "paused"), derived("T3", "needs_you", "failed"), derived("T4", "needs_you", "answer_needed"))
         assertEquals(listOf("waiting", "paused", "failed", "answer_needed"), tasks.map(::graphTaskStatus))
-        val model = buildGraphModel(tasks, emptyList(), emptyList(), emptyList(), 0)
-        assertEquals(emptyList<String>(), model.details.getValue("T1").reasons)
-        assertEquals(listOf("failed"), model.details.getValue("T3").reasons)
-        assertEquals(listOf("question"), model.details.getValue("T4").reasons)
-        assertEquals(2, graphDotCounts(model, tasks.map { it.id }).needsYou)
-        assertFalse(model.counters.any { it.key == "reason:waiting" || it.key == "reason:blocked" })
-        assertEquals(1, model.counters.first { it.key == "status:waiting" }.count)
+        val graph = io.github.mitzacoder.kemiri.features.tasks.graph.bubble.buildTaskGraph(tasks, emptyList(), emptyList(), emptyList())
+        assertEquals(listOf(false, false, true, true), graph.nodes.map { it.attention })
+        assertEquals(2, io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphCounts(graph).attention)
     }
 
     @Test fun closeChoiceCountsOnlyOpenDirectPartsIncludingReview() {
