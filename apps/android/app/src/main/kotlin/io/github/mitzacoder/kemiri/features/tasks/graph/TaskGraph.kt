@@ -1,6 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks.graph
 
-import androidx.activity.compose.BackHandler
+import io.github.mitzacoder.kemiri.navigation.NestedBackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.material3.*
@@ -56,6 +56,7 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
     val key = "${context.backend.config.key}/$project"
     var familyId by rememberSaveable(key) { mutableStateOf<String?>(null) }
     var selectedId by rememberSaveable(key) { mutableStateOf(linkedTask) }
+    var workerSelection by rememberSaveable(key) { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable(key) { mutableStateOf(false) }
     var highlight by rememberSaveable(key) { mutableStateOf<String?>(null) }
     var showClosed by rememberSaveable(key) { mutableStateOf(false) }
@@ -105,21 +106,23 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
         val index = family?.cards?.indexOfFirst { it.id == scrollTo } ?: -1
         if (!canvas && index >= 0) { list.scrollToItem(index + 2); scrollTo = null }
     }
-    BackHandler {
+    fun openWorker(selection: String) {
+        workerSelection = selection; sheetOpen = false; restingOpen = false
+    }
+    NestedBackHandler(enabled = context.taskOrigin == null, depth = 50, parentLabel = "Graph") {
         when {
             searchOpen -> searchOpen = false
             pickerOpen -> pickerOpen = false
             changesOpen -> changesOpen = false
             restingOpen -> restingOpen = false
             else -> {
-                val next = graphNavigateBack(GraphNavigation(sheetOpen, selectedId, highlight, canvas))
-                if (next == null) onLeave() else { sheetOpen = next.sheet; selectedId = next.selected; highlight = next.highlight; canvas = next.canvas }
+                val next = graphNavigateBack(GraphNavigation(sheetOpen, selectedId, highlight, canvas, workerSelection))
+                if (next == null) onLeave() else { sheetOpen = next.sheet; selectedId = next.selected; highlight = next.highlight; canvas = next.canvas; workerSelection = next.worker }
             }
         }
     }
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val wide = maxWidth >= 840.dp
-        val decorativeMotion = motion && !searchOpen && !changesOpen && !pickerOpen && !restingOpen && (wide || !sheetOpen)
+    Box(modifier.fillMaxSize()) {
+        val decorativeMotion = motion && !searchOpen && !changesOpen && !pickerOpen && !restingOpen && workerSelection == null && !sheetOpen
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 GraphChrome(viewSwitch, model, highlight, { highlight = it }, { searchOpen = true }, { changesOpen = true }, live.unseen,
@@ -133,7 +136,7 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
                     if (matching.isEmpty()) Text("No matches. Try another counter or Show closed.", color = colors.fg)
                     else TextButton(onClick = { val index = matching.indexOfFirst { it.id == family?.id }; switchFamily(matching[(index + 1) % matching.size].id); canvas = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Next family with a match (${matching.size})") }
                 }
-                if (canvas) GraphCanvas(canvasState, model, families, family?.id, selectedId, highlight, live, now, decorativeMotion, shownTaskIds, ::select, { switchFamily(it); canvas = false }, Modifier.weight(1f))
+                if (canvas) GraphCanvas(canvasState, model, families, family?.id, selectedId, highlight, live, now, decorativeMotion, shownTaskIds, ::select, { switchFamily(it); canvas = false }, { taskId, crewId -> model.crewSelection(taskId, crewId)?.let(::openWorker) }, Modifier.weight(1f))
                 else LazyColumn(Modifier.weight(1f).fillMaxWidth().graphPinchOut { enterCanvas(true) }.semantics { isTraversalGroup = true }, state = list,
                     contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item(key = "switcher") {
@@ -161,24 +164,29 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
                             live.glows[card.id]?.let { it > now } == true, decorativeMotion, live.reports.keys,
                             graphLoopingWorkers(family?.cards.orEmpty().flatMap { c ->
                                 graphTaskCrew(model.details.getValue(c.id)).take(3).map { GraphMotionCandidate(it.id, it.state, list.layoutInfo.visibleItemsInfo.any { item -> item.key == c.id }) }
-                            }, 1f, decorativeMotion)) { select(card.id) }
+                            }, 1f, decorativeMotion), { crewId -> model.crewSelection(card.id, crewId)?.let(::openWorker) }) { select(card.id) }
                     }
                     item(key = "overview") { TextButton(onClick = { enterCanvas() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("All families") } }
                 }
             }
-            if (wide && sheetOpen && selectedId != null) {
-                VerticalDivider()
-                GraphDetails(selectedId!!, model, now, ::select, { context.openTask(selectedId!!) }, { sheetOpen = false }, Modifier.width(360.dp).fillMaxHeight())
-            }
         }
-        if (!wide && sheetOpen && selectedId != null) ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-            GraphDetails(selectedId!!, model, now, ::select, { context.openTask(selectedId!!) }, { sheetOpen = false }, Modifier.fillMaxWidth().fillMaxHeight(.86f))
-        }
+    }
+    if (sheetOpen && selectedId != null) GraphTaskSheet(context, selectedId!!, view.tasks, view.questions,
+        workers, threads, now, connection.supports("task-activity"), connection.supports("task-freshness"),
+        { sheetOpen = false }, context::openTask, ::openWorker,
+        { sheetOpen = false; context.board.showWithLinked(selectedId!!); onLeave() }, view.board?.archivedLinks.orEmpty())
+    if (workerSelection != null) {
+        val worker = workers.find { graphWorkerKey(it) == workerSelection }
+        val thread = threads.find { "thread:${it.id}" == workerSelection }
+        val models by context.backend.models.collectAsStateWithLifecycle()
+        GraphWorkerSheet(worker?.id, worker?.threadId ?: thread?.id, workers, threads, view.tasks, view.questions,
+            models, now, connection.supports("task-activity"), { workerSelection = null }, context::openTask,
+            { workerId, threadId -> context.navigate(context.route.copy(workerId = workerId, threadId = threadId, highlight = null)) },
+            { threadId -> context.navigate(context.route.copy(threadId = threadId, workerId = null, highlight = null)) }, worker?.conversationId)
     }
     if (restingOpen) ModalBottomSheet(onDismissRequest = { restingOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         GraphRestingSheet(resting, model, now, { worker ->
-            restingOpen = false
-            context.navigate(context.route.copy(workerId = worker.id, threadId = worker.threadId?.takeUnless { it == "main" }, highlight = null))
+            openWorker(graphWorkerKey(worker))
         })
     }
     if (searchOpen) GraphSearchDialog(model, query, { query = it }, ::select, { searchOpen = false })

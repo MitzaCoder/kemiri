@@ -3705,8 +3705,9 @@ limited to twelve, and still below 50% zoom. Disabled animations, background lif
 stop decoration without dropping the sleeping/failed pose, status, report text or Updated marks.
 Idle and failed workers whose task is closed, archived, hidden or absent leave both crew bands, even with Show closed.
 There is no age threshold. The toolbar's Resting count opens a native sheet with name, task and idle/failure age;
-rows open the existing transcript route with workerId and threadId, including background-job workers. Running crew
-are not classified as resting. The native card/family/canvas layout stays; web bubbles are not ported.
+rows open the reusable worker sheet, including background-job workers. Running crew are not classified as resting.
+The native card/family/canvas layout remains only as the interim host: D97 replaces it with the web bubble graph
+in a separate Android canvas stage.
 
 Android Live | All (T259 part B) ports the T255 rules above in pure `GraphFolding.kt`. Live is the default;
 only the mode persists in device settings per backend/project (`projectGraphMode`), while expanded groups are
@@ -3723,11 +3724,33 @@ cannot outlive a shown task. Compact shared vectors from the actual web fold fun
 states, quiet families, prerequisite chains/cycles, attention and crew; JVM tests also check retained slots,
 project preferences, selection and expansion closure.
 
+Android preview sheets (T260 part A, D97) are independent modal Compose APIs in `GraphTaskSheet.kt` and
+`GraphWorkerSheet.kt`, ready for the replacement bubble canvas. The task sheet takes the board lists, task ID,
+activity/freshness flags and open-task/worker/show-linked/dismiss callbacks; its context is used only for the
+existing revision-aware question answer path. It reuses `TaskActivityView`, the extracted `TaskPartsBar`,
+`ReportMarkdown`, `ReportSectionFreshness` and `QuestionCard(optionsOnly = true)`. It lists direct working,
+clarifying and needs-you parts plus a done count, clamps Results to three bullets and Next to two lines,
+shows assigned workers/jobs and relation chips. Suggested answer options are its only mutation; no edits,
+status changes, replies, clarification, warning acknowledgement or long-press actions appear here.
+The worker sheet takes worker/thread IDs, the watched board/crew/model lists, activity flag and explicit
+open-task/transcript/chat/dismiss callbacks. It shows a still state mascot, identity/title/status duration,
+Doing now only from an exact worker actor/thread/conversation match (otherwise last report), failure,
+task, model/thinking, safe isolation words and start time. Background jobs use Open chat; their workers
+use Open transcript with both workerId and threadId. The interim card host opens the same sheets from
+crew, task-worker and Resting rows. Every action/row has a 48dp minimum target and spoken name; content
+scrolls without fixed text heights for large fonts.
+`graphWorkerRoute` preserves a background worker's thread and clears transient highlights.
+The pure `graphNavigateBack` consumes a worker preview before selection/highlights or canvas level;
+closing a worker keeps its task selected. Transcript navigation pushes the existing project route,
+so Back restores the saved worker sheet first, then the graph selection. JVM tests cover this order,
+conversation-safe Doing now, parts filtering/counts and report clamping. Full bubble-canvas integration
+and its tap/transcript/Back recording belong to the later canvas stage, not this sheet stage.
+
 The horizontal summary highlights rather than removes context, and offers the next matching family. Search ranks
 ID, title, family, worker and thread matches using the web weights. Picking a result reveals/selects it. Selection
 is stored by ID, so watched replacements update the scrollable native bottom sheet in place, including a missing-task
-notice; wide windows use a 360dp side panel. Relationship links select their endpoints, and Open task opens the
-existing TaskSheet. Back dismisses the sheet, then selection/highlight, then the canvas to family view, then returns to List. Loading, empty,
+notice. The reusable previews use modal sheets at every width. Relationship chips and Open task open the
+existing full TaskSheet; Show linked opens the linked-task List filter. Back dismisses the sheet, then selection/highlight, then the canvas to family view, then returns to List. Loading, empty,
 all-closed/Show closed, no-match and offline/reconnecting states keep stale content rather than clearing the board.
 Controls have 48dp targets, card semantic names include reasons/progress/crew, and the lazy list supplies tree-order
 TalkBack traversal. Text and sections scroll/wrap with system font scaling; the view switch wraps at large sizes.

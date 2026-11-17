@@ -56,7 +56,7 @@ internal fun Modifier.graphPinchOut(onPinch: () -> Unit): Modifier = pointerInpu
 @Composable
 internal fun GraphCanvas(
     state: GraphCanvasState, model: GraphModel, families: List<GraphFamily>, familyId: String?, selected: String?, highlight: String?,
-    live: GraphLive, now: Long, motion: Boolean, shownTaskIds: Set<String>, onSelect: (String) -> Unit, onFamily: (String) -> Unit, modifier: Modifier = Modifier,
+    live: GraphLive, now: Long, motion: Boolean, shownTaskIds: Set<String>, onSelect: (String) -> Unit, onFamily: (String) -> Unit, onWorker: (String, String) -> Unit, modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val colors = Jarvis.colors
@@ -130,7 +130,7 @@ internal fun GraphCanvas(
                                 id in live.linger, (statusTones[graphTaskStatus(d.task)] ?: statusTones.getValue("todo")), camera.zoom, now, model.holdsUp(id).total) { onSelect(id) }
                         }
                     }
-                    if (detail == GraphDetail.Cards) GraphCrewLayer(layout, model, camera, viewport, live.reports, motion, now, shownTaskIds)
+                    if (detail == GraphDetail.Cards) GraphCrewLayer(layout, model, camera, viewport, live.reports, motion, now, shownTaskIds, onWorker)
                 } else {
                     val regions = layout.families.filter { it.taskIds.isNotEmpty() }
                     regions.filter { it.taskIds.any(shownTaskIds::contains) }.forEach { f ->

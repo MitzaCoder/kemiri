@@ -96,8 +96,9 @@ fun batchGraphChanges(entries: List<GraphChangeEntry>, changes: List<GraphChange
     return next.take(50)
 }
 
-data class GraphNavigation(val sheet: Boolean = false, val selected: String? = null, val highlight: String? = null, val canvas: Boolean = false)
+data class GraphNavigation(val sheet: Boolean = false, val selected: String? = null, val highlight: String? = null, val canvas: Boolean = false, val worker: String? = null)
 fun graphNavigateBack(state: GraphNavigation): GraphNavigation? = when {
+    state.worker != null -> state.copy(worker = null, sheet = false)
     state.sheet -> state.copy(sheet = false)
     state.selected != null || state.highlight != null -> state.copy(selected = null, highlight = null)
     state.canvas -> state.copy(canvas = false)

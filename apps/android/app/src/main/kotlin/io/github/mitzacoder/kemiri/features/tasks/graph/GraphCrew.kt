@@ -2,6 +2,8 @@ package io.github.mitzacoder.kemiri.features.tasks.graph
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -77,7 +79,7 @@ internal fun graphCrewPlacements(layout: GraphLayout, model: GraphModel, shownTa
 
 /** Keyed world positions animate reassignment, not camera pan/zoom. Only near-viewport crew mount. */
 @Composable
-internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: GraphCamera, viewport: GraphRect, reports: Map<String, Long>, motion: Boolean, now: Long, shownTaskIds: Set<String>) {
+internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: GraphCamera, viewport: GraphRect, reports: Map<String, Long>, motion: Boolean, now: Long, shownTaskIds: Set<String>, onWorker: (String, String) -> Unit) {
     val current = remember(layout, model, shownTaskIds) { graphCrewPlacements(layout, model, shownTaskIds).associateBy { it.id } }
     var previous by remember { mutableStateOf(current) }
     val retired = remember { mutableStateMapOf<String, Pair<GraphCrewPlacement, Long>>() }
@@ -125,7 +127,9 @@ internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: Grap
             val screen = camera.point(GraphPoint(before.x + (member.point.x - before.x) * p,
                 before.y + (member.point.y - before.y) * p - sin(p * Math.PI).toFloat() * 44f))
             val reporting = reports[member.id]?.let { it > now } == true
-            Box(Modifier.offset(screen.x.dp, screen.y.dp).alpha(opacity.value)) {
+            Box(Modifier.offset(screen.x.dp, screen.y.dp).alpha(opacity.value).sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .clickable(role = Role.Button, onClickLabel = "Show worker") { onWorker(member.taskId, member.id) }
+                .semantics { contentDescription = "Show ${if (member.background) "background job" else "worker"} ${member.id.substringAfter(':')}, ${member.status}" }) {
                 val animate = if (member.state in listOf(AgentMotion.Failed, AgentMotion.Done)) allowed else member.id in looping
                 GraphCrewMascot(GraphCrewMember(member.id, member.status, member.state, member.background), animate, reporting,
                     ((if (member.background) 40 else 32) * camera.zoom).dp)

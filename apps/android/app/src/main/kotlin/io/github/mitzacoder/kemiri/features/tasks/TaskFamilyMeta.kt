@@ -87,23 +87,7 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
                     }.padding(horizontal = 4.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (parts != null) Canvas(Modifier.size(width = 48.dp, height = 6.dp)) {
-                    val gap = if (parts.proportional) 0f else 2.dp.toPx()
-                    val available = size.width - gap * (parts.segments.size - 1)
-                    val total = parts.segments.sumOf { it.count }
-                    var x = 0f
-                    parts.segments.forEach { segment ->
-                        val width = available * segment.count / total
-                        val color = when (segment.tone) {
-                            PartTone.Done -> colors.success
-                            PartTone.Working -> colors.ring
-                            PartTone.NeedsYou -> colors.warning
-                            PartTone.Other -> colors.fgSubtle
-                        }
-                        drawRect(color, Offset(x, 0f), Size(width, size.height))
-                        x += width + gap
-                    }
-                } else Canvas(Modifier.size(13.dp)) {
+                if (parts != null) TaskPartsBar(parts) else Canvas(Modifier.size(13.dp)) {
                     val inset = 1.dp.toPx()
                     val stroke = Stroke(1.5.dp.toPx())
                     val arcSize = Size(size.width - 2 * inset, size.height - 2 * inset)

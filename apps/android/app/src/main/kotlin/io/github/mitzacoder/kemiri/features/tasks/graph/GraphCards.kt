@@ -45,7 +45,7 @@ internal fun graphTaskLabel(d: GraphTask, now: Long): String = buildList {
 }.joinToString(". ")
 
 @Composable
-internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches: Boolean, holdsUp: Int, now: Long, updated: Boolean = false, motion: Boolean = false, reports: Set<String> = emptySet(), loopingCrew: Set<String> = emptySet(), onSelect: () -> Unit) {
+internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches: Boolean, holdsUp: Int, now: Long, updated: Boolean = false, motion: Boolean = false, reports: Set<String> = emptySet(), loopingCrew: Set<String> = emptySet(), onWorker: (String) -> Unit = {}, onSelect: () -> Unit) {
     val colors = Jarvis.colors
     val tone = graphTone(graphTaskStatus(d.task))
     val guide = colors.fgMuted
@@ -80,7 +80,10 @@ internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches:
         }
         Row(Modifier.align(Alignment.TopEnd).offset(y = (-28).dp).padding(end = 12.dp)) {
             crew.take(3).forEach { member -> key(member.id) {
+                Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = "Show worker", onClick = { onWorker(member.id) })
+                    .semantics { contentDescription = "Show ${if (member.background) "background job" else "worker"} ${member.id.substringAfter(':')}, ${member.status}" }, contentAlignment = Alignment.Center) {
                 GraphCrewMascot(member, motion && (member.id in loopingCrew || member.state in listOf(io.github.mitzacoder.kemiri.ui.components.AgentMotion.Failed, io.github.mitzacoder.kemiri.ui.components.AgentMotion.Done)), member.id in reports, if (member.background) 40.dp else 32.dp)
+                }
             } }
             if (crew.size > 3) Text("+${crew.size - 3}", color = colors.fg)
         }

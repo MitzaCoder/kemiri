@@ -32,7 +32,7 @@ internal fun GraphRestingSheet(workers: List<WorkerSummary>, model: GraphModel, 
                     AgentMascot(workerMotion(worker.status, task, model.details[task?.id]?.questions.orEmpty()), size = 28.dp, animate = false)
                     Spacer(Modifier.width(12.dp))
                     val taskText = task?.let { "${it.id} · ${it.title}" } ?: worker.taskId?.let { "$it · unavailable" } ?: "No task"
-                    Text("${worker.id} · ${worker.title}\n$taskText\n${graphIdleTime(worker, now)} · Open transcript",
+                    Text("${worker.id} · ${worker.title}\n$taskText\n${graphIdleTime(worker, now)} · Show worker",
                         color = Jarvis.colors.fg, modifier = Modifier.weight(1f))
                 }
             }

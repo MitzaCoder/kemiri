@@ -47,6 +47,7 @@ fun QuestionCard(
     compact: Boolean = false,
     readOnly: Boolean = false,
     preview: Boolean = false,
+    optionsOnly: Boolean = false,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -133,12 +134,21 @@ fun QuestionCard(
                     style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 else BoardMarkdown(question.text)
             }
-            IconButton(onClick = { readingExpanded = true }) {
+            if (!optionsOnly) IconButton(onClick = { readingExpanded = true }) {
                 LucideGlyph(ExpandQuestionIcon, size = 16.dp, contentDescription = "Expand ${if (warning) "warning" else "question"} ${question.id}")
             }
         }
-        QuestionExchanges(question)
-        if (questionCanAnswer(question, readOnly)) QuestionAnswerForm(
+        if (!optionsOnly) QuestionExchanges(question)
+        if (optionsOnly && questionCanAnswer(question, readOnly) && !warning) {
+            question.options.forEach { option ->
+                OutlinedButton(onClick = { send(option) }, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Answer ${question.id}: $option" }) {
+                    Text(io.github.mitzacoder.kemiri.features.chat.markdownText(option), style = TaskType.xsMedium)
+                }
+            }
+            problem?.let { Text(it, color = colors.danger, style = TaskType.xs) }
+        }
+        if (!optionsOnly && questionCanAnswer(question, readOnly)) QuestionAnswerForm(
             question, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack,
         )
     }

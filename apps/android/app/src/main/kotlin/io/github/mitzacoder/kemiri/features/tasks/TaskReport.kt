@@ -66,21 +66,24 @@ internal fun ReportSectionView(task: BoardTask, now: Long, writerName: (BoardWri
                 if (section == ReportSection.Now && activity != null) TaskActivityView(activity)
                 else if (text.isNotBlank()) ReportMarkdown(text)
                 if (emptyResults) Text("No results yet · work finished", style = TaskType.xs, color = colors.fgMuted)
-                freshness?.let { metadata ->
-                    val age = reportSectionAge(metadata, now)
-                    val meta = buildAnnotatedString {
-                        append(age)
-                        if (metadata.stale) {
-                            if (length > 0) append(" · ")
-                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.fg)) { append("needs update") }
-                            append(reportSectionStaleness(metadata).orEmpty().removePrefix("needs update"))
-                        }
-                    }
-                    if (meta.isNotEmpty()) Text(meta, style = TaskType.meta, color = colors.fgSubtle)
-                }
+                freshness?.let { ReportSectionFreshness(it, now) }
             }
         }
         else Text("Nothing written yet. The agents fill this in as they work.", style = TextStyles.task, color = colors.fgSubtle)
     }
 }
 
+/** Read-only freshness metadata, shared with the graph preview (no stale/edit actions). */
+@Composable
+internal fun ReportSectionFreshness(metadata: BoardReportSection, now: Long) {
+    val colors = Jarvis.colors
+    val meta = buildAnnotatedString {
+        append(reportSectionAge(metadata, now))
+        if (metadata.stale) {
+            if (length > 0) append(" · ")
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.fg)) { append("needs update") }
+            append(reportSectionStaleness(metadata).orEmpty().removePrefix("needs update"))
+        }
+    }
+    if (meta.isNotEmpty()) Text(meta, style = TaskType.meta, color = colors.fgSubtle)
+}

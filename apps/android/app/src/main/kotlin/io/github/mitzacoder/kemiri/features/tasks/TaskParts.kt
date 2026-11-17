@@ -2,6 +2,9 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import android.provider.Settings
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -107,3 +110,26 @@ internal fun Modifier.clickableLink(label: String, onClick: () -> Unit): Modifie
 @Composable
 fun rememberTasksView(client: io.github.mitzacoder.kemiri.data.HarnessClient): Boolean =
     client.state.collectAsStateWithLifecycle().value.supports(HarnessFeature.TASK_REPORTS)
+
+/** Shared segmented bar for the list and graph task preview. */
+@Composable
+internal fun TaskPartsBar(parts: TaskPartProgress) {
+    val colors = Jarvis.colors
+    Canvas(Modifier.size(width = 48.dp, height = 6.dp)) {
+        val gap = if (parts.proportional) 0f else 2.dp.toPx()
+        val available = size.width - gap * (parts.segments.size - 1)
+        val total = parts.segments.sumOf { it.count }
+        var x = 0f
+        parts.segments.forEach { segment ->
+            val width = available * segment.count / total
+            val color = when (segment.tone) {
+                PartTone.Done -> colors.success
+                PartTone.Working -> colors.ring
+                PartTone.NeedsYou -> colors.warning
+                PartTone.Other -> colors.fgSubtle
+            }
+            drawRect(color, Offset(x, 0f), Size(width, size.height))
+            x += width + gap
+        }
+    }
+}
