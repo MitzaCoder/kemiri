@@ -1,5 +1,18 @@
 # Continue
 
+## T226: release notes pages on kemiri.dev
+
+`site/releases/` is a new index of all releases; `site/releases/v0.1.0-pilot.6/` is the
+first full page (background jobs, task states, artifact reviews, project skills, look
+and navigation, how to update). Pilot.1–5 link to GitHub. The homepage links there from
+the header, the Current pilot line and the footer. `scripts/new-release-page.ts` plus
+`scripts/release-page.template.html` start the next page; docs/RELEASE.md has the steps
+and docs/SITE.md the layout. `home.js` now skips the demo on pages without it. The
+pilot.6 page names its GitHub release and update command, so it must reach main only
+with or after the pilot.6 publication (T225); adjust its date there if the release
+slips. The homepage pin stays pilot.5 until the assets verify. Site check and 23 site
+tests pass; proof (desktop/phone, light/dark, scroll recording) is on T226.
+
 ## T224: background-jobs release validation
 
 The owner approved publishing the seven-commit background-jobs stack and

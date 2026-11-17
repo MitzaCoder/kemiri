@@ -1,7 +1,7 @@
 # kemiri.dev
 
 `site/` is a complete static site: the homepage, `/privacy/` (also reachable as
-`/privacy` on Pages), `/install.sh`, one stylesheet (`style.css`), one script
+`/privacy` on Pages), the release notes under `/releases/`, `/install.sh`, one stylesheet (`style.css`), one script
 (`home.js`) and local assets. There is no build, analytics, CDN or external font:
 the app's font (Atkinson Hyperlegible Next, latin, OFL) is served from
 `assets/fonts/`, and the site check fails on any resource loaded from another origin.
@@ -48,6 +48,23 @@ The bootstrap and download links are pinned to the published pilot.5 release.
 The current install command is `curl -fsSL https://kemiri.dev/install.sh | sh`.
 Prefer downloading and reviewing it before execution. For a new release, change
 the pinned version and links only after its public assets and checksums verify.
+
+## Release notes
+
+`/releases/` lists every release, newest first. Releases from pilot.6 on have their own
+page at `/releases/TAG/`; pilot.1 to pilot.5 link to their GitHub release pages. The
+homepage links to the index from the header, the "Current pilot" line and the footer.
+Pages share `style.css` (the "release notes" block) and load `home.js` for the theme
+switch and copy buttons; the demo part of that script runs only on the homepage. Each
+page has highlights, sections of changes, "How to update" and "Limits and help". They
+are hand-written HTML with no build step.
+
+Start the next page with `bun scripts/new-release-page.ts TAG YYYY-MM-DD "Headline"`,
+which fills `scripts/release-page.template.html` and puts the release first in the
+index. The steps, and when the page may go live, are in [RELEASE.md](RELEASE.md).
+`scripts/site.test.ts` checks that every release with notes in `docs/releases/` is in
+the index, that the latest one has a page with its update command and GitHub link, and
+that no template TODO is published.
 
 ## Installer trust model
 

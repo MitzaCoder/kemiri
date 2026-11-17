@@ -1,4 +1,4 @@
-/* kemiri.dev homepage: theme switch, copy buttons and the self-playing demo. The page reads without it. */
+/* kemiri.dev: theme switch and copy buttons on every page that loads it, and the homepage's self-playing demo. Pages read without it. */
 // Theme switch and copy buttons. Nothing is stored.
 (function () {
   var root = document.documentElement;
@@ -22,6 +22,7 @@
 // The demo's mascots are copies of the one inline candlenut in the page.
 (function () {
   var master = document.getElementById("mascot");
+  if (!master) return;
   [].forEach.call(document.querySelectorAll(".mascot"), function (el) { el.appendChild(master.content.cloneNode(true)); });
 })();
 /**
@@ -119,6 +120,7 @@ function createStory(root, options) {
 }
 // The player: steps through the story on a timer, with a pointer for the three clicks.
 (function () {
+  if (!document.querySelector(".win")) return; // only the homepage has the demo
   var win = document.querySelector(".win"), cursor = win.querySelector(".cursor"), count = win.querySelector(".tab-count");
   var phases = [].slice.call(document.querySelectorAll(".phase")), capNow = document.querySelector(".cap-now"), pp = document.querySelector(".pp");
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

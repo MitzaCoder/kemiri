@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="What is new in each Kemiri release, why it matters and how to update.">
+  <meta name="color-scheme" content="light dark">
+  <title>Release notes — Kemiri</title>
+  <link rel="canonical" href="https://kemiri.dev/releases/">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://kemiri.dev/releases/">
+  <meta property="og:title" content="Release notes — Kemiri">
+  <meta property="og:description" content="What is new in each Kemiri release, why it matters and how to update.">
+  <meta property="og:image" content="https://kemiri.dev/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/assets/favicon-16.png" type="image/png" sizes="16x16">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Before first paint: the system decides light or dark; the header button switches by hand. Nothing is stored.
+    (function () {
+      var root = document.documentElement, dark = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", dark.matches ? "dark" : "light");
+      dark.addEventListener("change", function (e) { if (!root.dataset.chosen) root.setAttribute("data-theme", e.matches ? "dark" : "light"); });
+      root.classList.add("js");
+    })();
+  </script>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top wrap">
+  <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
+  <nav aria-label="Main">
+    <a class="hide-s" href="/#start">Install</a>
+    <a href="/releases/" aria-current="page">Releases</a>
+    <a class="hide-s" href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a>
+    <a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">&nbsp;↗</span></a>
+    <button class="theme" type="button" aria-label="Switch between light and dark" title="Light / dark">
+      <svg class="only-dark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></svg>
+      <svg class="only-light" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+    </button>
+  </nav>
+</header>
+<main id="main" class="rel wrap">
+  <div class="rel-head">
+    <p class="kicker">Release notes</p>
+    <h1>What’s new in <span class="grad">Kemiri</span></h1>
+    <p class="lead">Every release, newest first: what changed, why it matters and how to update. Kemiri is an early pilot, so releases come often.</p>
+  </div>
+  <ol class="rel-list" reversed>
+    <!-- releases: newest first. scripts/new-release-page.ts adds the next entry below this line. -->
+    <li class="rel-item latest" id="v0.1.0-pilot.6">
+      <time datetime="2026-11-17">17 November 2026</time>
+      <div>
+        <h2><a class="ver" href="/releases/v0.1.0-pilot.6/">v0.1.0-pilot.6</a> <span class="badge">Latest</span></h2>
+        <p class="rel-title">Background jobs you can follow, task states you can trust</p>
+        <p>Main chat and background jobs get names, states and a switcher. Tasks show what is really happening. Review a report by pointing at it. Plus project skills, a 12/24-hour clock and the candlenut.</p>
+        <a class="more" href="/releases/v0.1.0-pilot.6/">Read the release notes&nbsp;→</a>
+      </div>
+    </li>
+    <li class="rel-item" id="v0.1.0-pilot.5">
+      <time datetime="2026-11-13">13 November 2026</time>
+      <div>
+        <h2><a class="ver" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">v0.1.0-pilot.5</a></h2>
+        <p class="rel-title">One name, one command</p>
+        <p>Aiki finished becoming Kemiri: one <code>kemiri</code> command, a new home at kemiri.dev, and videos that play again in the installed web app.</p>
+        <a class="more" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">Notes and downloads on GitHub&nbsp;↗</a>
+      </div>
+    </li>
+    <li class="rel-item" id="v0.1.0-pilot.4">
+      <time datetime="2026-11-13">13 November 2026</time>
+      <div>
+        <h2><a class="ver" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.4">v0.1.0-pilot.4</a></h2>
+        <p class="rel-title">The first Kemiri release</p>
+        <p>HTML reports open as real pages, artifacts keep their history, and the backend can update itself after you confirm. The bridge for anyone coming from pilot.3 or earlier.</p>
+        <a class="more" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.4">Notes and downloads on GitHub&nbsp;↗</a>
+      </div>
+    </li>
+    <li class="rel-item" id="v0.1.0-pilot.3">
+      <time datetime="2026-11-12">12 November 2026</time>
+      <div>
+        <h2><a class="ver" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.3">v0.1.0-pilot.3</a></h2>
+        <p class="rel-title">Smoother MCP sign-in</p>
+        <p>Notion sign-in fixed on local installs, a sign-in link you can finish in another browser, and the backend version shown in the corner.</p>
+        <a class="more" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.3">Notes and downloads on GitHub&nbsp;↗</a>
+      </div>
+    </li>
+    <li class="rel-item" id="v0.1.0-pilot.2">
+      <time datetime="2026-11-12">12 November 2026</time>
+      <div>
+        <h2><a class="ver" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.2">v0.1.0-pilot.2</a></h2>
+        <p class="rel-title">Attachments, MCP servers and one executable</p>
+        <p>Attach files to chat, connect MCP servers, install a single executable, and see when an update is available.</p>
+        <a class="more" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.2">Notes and downloads on GitHub&nbsp;↗</a>
+      </div>
+    </li>
+    <li class="rel-item" id="v0.1.0-pilot.1">
+      <time datetime="2026-11-11">11 November 2026</time>
+      <div>
+        <h2><a class="ver" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.1">v0.1.0-pilot.1</a></h2>
+        <p class="rel-title">The first pilot</p>
+        <p>Run coding agents on your own computer and follow their work in a browser or the Android app.</p>
+        <a class="more" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.1">Notes and downloads on GitHub&nbsp;↗</a>
+      </div>
+    </li>
+  </ol>
+</main>
+<footer class="foot-site wrap">
+  <p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p>
+  <nav aria-label="More"><a href="/releases/" aria-current="page">Release notes</a><a href="/privacy/">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav>
+</footer>
+<script src="/home.js" defer></script>
+</body>
+</html>

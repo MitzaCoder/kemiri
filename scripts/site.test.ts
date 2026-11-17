@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkSite } from './check-site';
+import { addReleasePage } from './new-release-page';
 
 const bootstrap = resolve(import.meta.dir, '../site/install.sh');
 const releasePrefix = 'https://github.com/MitzaCoder/kemiri/releases/download/';
@@ -52,6 +53,70 @@ test('homepage loads only site files, stores nothing and reuses the mascot maste
 	// Without scripts the demo window is hidden and the flow, comparison and install steps still read.
 	expect(styles).toContain('html:not(.js) .win');
 	for (const text of ['The usual way', 'With Kemiri', 'Personal, not sandboxed.', 'Keep the backend private.']) expect(home).toContain(text);
+});
+
+test('release notes: every release is in the index, the newest has a finished page, and the homepage links there', async () => {
+	const root = resolve(import.meta.dir, '..');
+	const index = await Bun.file(join(root, 'site/releases/index.html')).text();
+	const listed = [...index.matchAll(/<li class="rel-item(?: latest)?" id="([^"]+)">/g)].map((match) => match[1]!);
+	expect(index.match(/class="rel-item latest"/g)).toHaveLength(1);
+	expect(index.match(/<span class="badge">Latest<\/span>/g)).toHaveLength(1);
+	// Every release with notes in the repository is listed, either with its own page or with its GitHub release.
+	const tagged = [...new Bun.Glob('*.md').scanSync(join(root, 'docs/releases'))].map((name) => name.replace(/\.md$/, ''));
+	expect(tagged.length).toBeGreaterThan(4);
+	for (const tag of tagged) expect(listed).toContain(tag);
+	const pinned = (await Bun.file(bootstrap).text()).match(/^version=(v[^\s]+)$/m)?.[1];
+	expect(listed).toContain(pinned!);
+	const pages = [...new Bun.Glob('*/index.html').scanSync(join(root, 'site/releases'))].map((path) => path.split('/')[0]!);
+	expect(pages).toContain(listed[0]!);
+	for (const tag of listed) {
+		const own = pages.includes(tag);
+		expect(index).toContain(own ? `href="/releases/${tag}/"` : `href="https://github.com/MitzaCoder/kemiri/releases/tag/${tag}"`);
+		if (!own) continue;
+		const page = await Bun.file(join(root, 'site/releases', tag, 'index.html')).text();
+		expect(page).toContain(`<link rel="canonical" href="https://kemiri.dev/releases/${tag}/">`);
+		expect(page).toContain(`<title>Kemiri ${tag} — release notes</title>`);
+		expect(page).toContain(`kemiri update --version ${tag}`);
+		expect(page).toContain(`https://github.com/MitzaCoder/kemiri/releases/tag/${tag}`);
+		for (const id of ['id="update"', 'id="limits"', 'mailto:support@kemiri.dev', '<script src="/home.js" defer></script>']) expect(page).toContain(id);
+		expect(page).not.toMatch(/localStorage|sessionStorage|document\.cookie|fetch\(/);
+	}
+	for (const tag of pages) expect(listed).toContain(tag);
+	// Unwritten template text never reaches the published site.
+	for (const path of new Bun.Glob('**/*.html').scanSync(join(root, 'site'))) expect(await Bun.file(join(root, 'site', path)).text()).not.toMatch(/TODO|\{\{/);
+	const home = await Bun.file(join(root, 'site/index.html')).text();
+	expect(home.match(/href="\/releases\/"/g)!.length).toBeGreaterThanOrEqual(3);
+});
+
+test('new-release-page starts the next page from the template and makes it the latest in the index', async () => {
+	const root = resolve(import.meta.dir, '..');
+	const scratch = await mkdtemp(join(tmpdir(), 'kemiri-release-page-'));
+	try {
+		await mkdir(join(scratch, 'releases'), { recursive: true });
+		const before = await Bun.file(join(root, 'site/releases/index.html')).text();
+		const latest = before.match(/<li class="rel-item latest" id="([^"]+)">/)![1]!;
+		await writeFile(join(scratch, 'releases/index.html'), before);
+		const options = { tag: 'v9.8.7-pilot.1', date: '2031-02-03', headline: 'Synthetic <release>', site: scratch };
+		await addReleasePage(options);
+		const page = await Bun.file(join(scratch, 'releases/v9.8.7-pilot.1/index.html')).text();
+		expect(page).toStartWith('<!doctype html>\n<html lang="en">');
+		expect(page).not.toMatch(/\{\{|Release page template/);
+		expect(page).toContain('<title>Kemiri v9.8.7-pilot.1 — release notes</title>');
+		expect(page).toContain('<time datetime="2031-02-03">3 February 2031</time>');
+		expect(page).toContain('<h1>Synthetic &lt;release&gt;</h1>');
+		expect(page).toContain('kemiri update --version v9.8.7-pilot.1\nkemiri start');
+		expect(page).toContain(`Previous: ${latest}`);
+		expect(page).toContain('TODO');
+		const after = await Bun.file(join(scratch, 'releases/index.html')).text();
+		const listed = [...after.matchAll(/<li class="rel-item(?: latest)?" id="([^"]+)">/g)].map((match) => match[1]);
+		expect(listed.slice(0, 2)).toEqual(['v9.8.7-pilot.1', latest]);
+		expect(after.match(/class="rel-item latest"/g)).toHaveLength(1);
+		expect(after.match(/<span class="badge">Latest<\/span>/g)).toHaveLength(1);
+		expect(after).toContain(`href="/releases/${latest}/"`);
+		await expect(addReleasePage(options)).rejects.toThrow('already in the releases index');
+		await expect(addReleasePage({ ...options, tag: 'latest' })).rejects.toThrow('Not a release tag');
+		await expect(addReleasePage({ ...options, tag: 'v9.8.7-pilot.2', date: '3 Feb' })).rejects.toThrow('Not a YYYY-MM-DD date');
+	} finally { await rm(scratch, { recursive: true, force: true }); }
 });
 
 test('homepage install commands match the pinned bootstrap', async () => {

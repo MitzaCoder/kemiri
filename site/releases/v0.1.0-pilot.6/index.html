@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Background jobs you can follow, task states you can trust">
+  <meta name="color-scheme" content="light dark">
+  <title>Kemiri v0.1.0-pilot.6 — release notes</title>
+  <link rel="canonical" href="https://kemiri.dev/releases/v0.1.0-pilot.6/">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://kemiri.dev/releases/v0.1.0-pilot.6/">
+  <meta property="og:title" content="Kemiri v0.1.0-pilot.6 — release notes">
+  <meta property="og:description" content="Background jobs you can follow, task states you can trust">
+  <meta property="og:image" content="https://kemiri.dev/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/assets/favicon-16.png" type="image/png" sizes="16x16">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Before first paint: the system decides light or dark; the header button switches by hand. Nothing is stored.
+    (function () {
+      var root = document.documentElement, dark = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", dark.matches ? "dark" : "light");
+      dark.addEventListener("change", function (e) { if (!root.dataset.chosen) root.setAttribute("data-theme", e.matches ? "dark" : "light"); });
+      root.classList.add("js");
+    })();
+  </script>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top wrap">
+  <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
+  <nav aria-label="Main">
+    <a class="hide-s" href="/#start">Install</a>
+    <a href="/releases/">Releases</a>
+    <a class="hide-s" href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a>
+    <a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">&nbsp;↗</span></a>
+    <button class="theme" type="button" aria-label="Switch between light and dark" title="Light / dark">
+      <svg class="only-dark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></svg>
+      <svg class="only-light" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+    </button>
+  </nav>
+</header>
+<main id="main" class="rel wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/releases/">Release notes</a><span aria-hidden="true">/</span><span>v0.1.0-pilot.6</span></nav>
+  <div class="rel-head">
+    <p class="rel-meta"><span class="ver">v0.1.0-pilot.6</span><time datetime="2026-11-17">17 November 2026</time><span>Web, Android and backend</span></p>
+    <h1>Background jobs you can follow, <span class="grad">task states you can trust</span></h1>
+    <p class="lead">Pilot.6 is about knowing where things stand. Side conversations became background jobs with clear states, tasks say what is really happening to them, and you can review a report by pointing at the part you mean.</p>
+    <div class="actions"><a class="btn" href="#update">How to update</a><a class="btn ghost" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6">Downloads on GitHub <span aria-hidden="true">↗</span></a></div>
+  </div>
+
+  <ul class="glance" aria-label="Highlights">
+    <li><h2>Main chat and background jobs</h2><p>Every job has a state and a place to answer its question. Switch between Main chat and jobs from the title.</p></li>
+    <li><h2>Task states that follow the facts</h2><p>Needs you, working, waiting or paused, the same in the list, board and graph. No more tasks that claim to be in progress while nothing runs.</p></li>
+    <li><h2>Reviews you can point at</h2><p>Select text or pick a block in a report, comment, and send one review. Agents revise from the version you read.</p></li>
+  </ul>
+
+  <div class="rel-cols">
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#jobs">Background jobs</a>
+      <a href="#tasks">Task states</a>
+      <a href="#reviews">Artifact reviews</a>
+      <a href="#projects">Projects and agents</a>
+      <a href="#look">Look and feel</a>
+      <a href="#update">How to update</a>
+      <a href="#limits">Limits and help</a>
+    </nav>
+    <div class="notes">
+      <section id="jobs" aria-labelledby="jobs-title">
+        <p class="kicker">Conversations</p>
+        <h2 id="jobs-title">Main chat and background jobs</h2>
+        <p class="intro">When the coordinator starts a side conversation for a longer piece of work, that is now called a <b>background job</b>, and your ongoing conversation is the <b>Main chat</b>. Both names are used everywhere, so you always know where you are.</p>
+        <ul class="changes">
+          <li><h3>A state on every job <span class="where">Web · Android</span></h3><p>Needs you, Failed, Working, Paused, Finished or Stopped, in that order, so the jobs that wait on you come first. Finished and stopped jobs older than a day fold away under Finished.</p></li>
+          <li><h3>Counts beside the title <span class="where">Web · Android</span></h3><p>The chat header shows how many jobs need you and how many are working. It no longer counts jobs that are merely unfinished.</p></li>
+          <li><h3>Switch from the title <span class="where">Web · Android</span></h3><p>Press the conversation title to move between Main chat and any job. Each choice is a normal step in your history, so Back takes you where you were.</p></li>
+          <li><h3>A job explains itself <span class="where">Web · Android</span></h3><p>A band under the job’s header says which project it belongs to, who started it and when, and where its report will go. Its open question sits right there with the answer form, next to a link to Main chat and a Stop button that asks before it stops.</p></li>
+          <li><h3>What Main chat sees <span class="where">Web · Android</span></h3><p>A note by the composer reminds you that Main chat sees only the job’s report, not the messages you type inside the job.</p></li>
+        </ul>
+      </section>
+
+      <section id="tasks" aria-labelledby="tasks-title">
+        <p class="kicker">Tasks</p>
+        <h2 id="tasks-title">Task states that match what is happening</h2>
+        <p class="intro">A task’s state now follows the facts: an open question, a failure, a running worker or a task it is waiting for. List, board, task sheet and graph all agree.</p>
+        <ul class="changes">
+          <li><h3>Needs you, working, waiting, paused <span class="where">Web · Android</span></h3><p>Tasks are grouped by what they need. A task that says in progress but has had nothing running for 15 minutes shows as paused, and its coordinator is nudged once to sort it out.</p></li>
+          <li><h3>Blocked by another task</h3><p>A task can wait on other tasks. It shows which ones, and picks up again when they are done or dropped.</p></li>
+          <li><h3>Closing a task that has open parts <span class="where">Web · Android</span></h3><p>Closing a parent while some of its parts are still open now asks what to do with them, instead of quietly leaving them behind.</p></li>
+          <li><h3>Each state shown once <span class="where">Web · Android</span></h3><p>Rows and cards say the state in one coloured sentence instead of repeating it in a second line. A part of a task is no longer also listed as something found along the way.</p></li>
+          <li><h3>Task numbers you can scan <span class="where">Web · Android</span></h3><p>Task IDs are small chips in lists, boards and the graph. Task mentions in a task’s own text are now live links with a preview, as they already were in chat, and pointing at one highlights the matching row or card.</p></li>
+          <li><h3>Back goes back <span class="where">Web · Android</span></h3><p>Opening a task from another task shows a named Back control to where you came from. Leaving a conversation and returning restores the panel, the Tasks view and your scroll position.</p></li>
+        </ul>
+      </section>
+
+      <section id="reviews" aria-labelledby="reviews-title">
+        <p class="kicker">Artifacts</p>
+        <h2 id="reviews-title">Review a report by pointing at it</h2>
+        <p class="intro">Reports and other artifacts are where you check the work. Giving feedback on them used to mean describing the spot in words.</p>
+        <ul class="changes">
+          <li><h3>Comment on the exact place <span class="where">Web · Android</span></h3><p>Select text, or pick a block in an HTML report, say what you want and add more comments as you read. Send them together as one review. It goes to the chat and to the task’s feedback, tied to the version you read. Unsent reviews stay on your device.</p></li>
+          <li><h3>Agents work from the version you reviewed</h3><p>Agents can open any kept version of an artifact, edit a private copy and publish the result as the next version, so a revision starts from the real file.</p></li>
+          <li><h3>HTML reports get the whole screen <span class="where">Web · Android</span></h3><p>An HTML report fills the viewer without a second title bar, with its actions in a ⋮ menu. On wide screens it opens as a large centred window; Escape closes it.</p></li>
+          <li><h3>Large reports and links work <span class="where">Web · Android</span></h3><p>HTML reports up to 20 MiB render as pages instead of opening as source, which helps with image-heavy ones. Links inside a report now work.</p></li>
+        </ul>
+      </section>
+
+      <section id="projects" aria-labelledby="projects-title">
+        <p class="kicker">Projects and agents</p>
+        <h2 id="projects-title">More say over how agents work</h2>
+        <ul class="changes">
+          <li><h3>Skills per project <span class="where">Web · Android</span></h3><p>Project settings have a Skills page. Choose which of the discovered skills that project’s agents are offered, and see where each skill comes from. Skills you have not decided on stay available, as before.</p></li>
+          <li><h3>See the worker models <span class="where">Web · Android</span></h3><p>The model picker in the composer now lists the project’s worker models with their provider and thinking level, and links to Worker settings.</p></li>
+          <li><h3>Tell Kemiri your name <span class="where">Web · Android</span></h3><p>An optional <b>Your name</b> field in backend settings. Agents use it when they write about what you did or asked for. Leave it empty and nothing changes.</p></li>
+          <li><h3>Workers stay on current code</h3><p>A worker in its own jj workspace is checked before each step and repaired once if its workspace went stale. It is told which revision it started from, and that ignored files such as installed dependencies are not copied in.</p></li>
+        </ul>
+      </section>
+
+      <section id="look" aria-labelledby="look-title">
+        <p class="kicker">Look and feel</p>
+        <h2 id="look-title">A candlenut, and calmer navigation</h2>
+        <ul class="changes">
+          <li><h3>Meet the candlenut <span class="where">Web · Android</span></h3><p>Kemiri has a mascot. It is the app icon on web and Android, and in chat it breathes while an agent works and hops when the work finishes well. With reduced motion on, it stays still.</p></li>
+          <li><h3>12 or 24-hour time <span class="where">Web · Android</span></h3><p>Appearance has a time setting: Automatic, 24-hour or 12-hour. It applies to every clock in the app on that device.</p></li>
+          <li><h3>One set of panel buttons <span class="where">Web · Android</span></h3><p>Tasks, artifacts and the other panels are chosen from the chat header only, and the open one is clearly marked.</p></li>
+          <li><h3>Settings: Back, Up and Close <span class="where">Web · Android</span></h3><p>Back returns to the previous page, Up goes to the parent section and Close returns to where you opened settings from, at every screen width.</p></li>
+          <li><h3>A new kemiri.dev</h3><p>The homepage now shows how Kemiri works with a small self-playing demo. These release notes are new too.</p></li>
+        </ul>
+      </section>
+
+      <section id="update" aria-labelledby="update-title">
+        <p class="kicker">How to update</p>
+        <h2 id="update-title">Update from pilot.5</h2>
+        <p class="intro">Your projects, paired devices, credentials and settings stay where they are. Back up your Kemiri config and data folders first: an update can migrate data, and a rollback restores code, not data. This release converts your tasks once to the new states when it first starts. The app and the backend can be updated in either order; an older one keeps showing the earlier view until both are current.</p>
+        <ol class="how">
+          <li>
+            <h3>Update the backend from the app</h3>
+            <p>On an installed release, choose <b>Update now</b> beside the version in the navigation, or in Settings → About. Check the from → to versions and confirm. Kemiri waits for commands that are already running, restarts, and puts the previous version back by itself if the new one does not come up healthy.</p>
+          </li>
+          <li>
+            <h3>Or update from a terminal</h3>
+            <p>Stop Kemiri first: Ctrl-C in its terminal, or <code>kemiri service remove</code> if it runs as a user service. Then:</p>
+            <div class="code"><div class="code-bar">Terminal<button class="copy" type="button" data-copy="kemiri update --version v0.1.0-pilot.6&#10;kemiri start">Copy</button></div><pre><code>kemiri update --version v0.1.0-pilot.6
+kemiri start</code></pre></div>
+            <p style="margin-top:.8rem">With a user service, run <code>kemiri service install</code> instead of <code>kemiri start</code>.</p>
+          </li>
+          <li>
+            <h3>Update the Android app</h3>
+            <p>Updating the backend does not update your phone. Get the signed APK from the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6">v0.1.0-pilot.6 release page</a> and install it over the app you have. Do not uninstall first.</p>
+          </li>
+        </ol>
+        <p style="margin-top:1.2rem">Still on pilot.3 or earlier? Go through pilot.4 first, as the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">pilot.5 notes</a> describe. New here? <a href="/#start">Start with the install steps</a>.</p>
+      </section>
+
+      <section id="limits" aria-labelledby="limits-title">
+        <p class="kicker">Good to know</p>
+        <h2 id="limits-title">Limits and help</h2>
+        <aside class="bounds"><strong>Still an early pilot.</strong> Linux is the tested host; macOS and Windows through WSL are experimental. The Android app needs Android 12 or newer and your backend reachable over HTTPS. There are no phone push notifications yet. Every paired device has full owner access, so keep the backend private.</aside>
+        <p style="margin-top:1.2rem">Something off? Write to <a href="mailto:support@kemiri.dev">support@kemiri.dev</a> with your version and what you saw. Never send credentials, pairing links or private conversations.</p>
+      </section>
+      <div class="rel-end"><a href="/releases/">←&nbsp;All releases</a><a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">Previous: v0.1.0-pilot.5&nbsp;↗</a></div>
+    </div>
+  </div>
+</main>
+<footer class="foot-site wrap">
+  <p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p>
+  <nav aria-label="More"><a href="/releases/">Release notes</a><a href="/privacy/">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav>
+</footer>
+<script src="/home.js" defer></script>
+</body>
+</html>

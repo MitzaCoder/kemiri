@@ -67,6 +67,39 @@ must be in the next release notes. Self-update acceptance also covers held tools
 Cancel, force confirmation, checksum refusal and broken-candidate rollback.
 A code rollback never rolls back data; retained releases must read the new state.
 
+## Release notes page on kemiri.dev
+
+Every release gets a page at `https://kemiri.dev/releases/TAG/`, listed first in
+`site/releases/index.html`. It is written for people who use Kemiri: what is new and
+why it matters, what changed, how to update. It is not the commit log and not a copy
+of `docs/releases/TAG.md`, which stays the GitHub release text with the exact upgrade
+detail. Prepare the page in the release-preparation commit:
+
+```sh
+bun scripts/new-release-page.ts "$TAG" YYYY-MM-DD "One line on what this release is about"
+```
+
+This writes `site/releases/TAG/index.html` from `scripts/release-page.template.html`,
+adds TAG to the index as Latest and turns the previous latest into an ordinary row.
+Then, by hand:
+
+1. Read `git log PREVIOUS_TAG..COMMIT` (subjects, bodies, Kemiri-Task trailers) and the
+   board tasks. Group changes by what a user notices; skip internal work. Claim only
+   what the commits and docs support. Name no task IDs, hosts, people or private details.
+2. Replace every TODO in the page and in its index entry: the lead, three highlights,
+   the sections (copy the section block as often as needed and keep the "On this page"
+   links in step), and anything special about this update. Keep the update and limits
+   sections true for this release; they must agree with `docs/releases/TAG.md`.
+3. Run `bun scripts/check-site.ts && bun test scripts/site.test.ts`. The tests fail while
+   a TODO is left, a listed release has no page or link, or a release with notes under
+   `docs/releases/` is missing from the index. Look at the page in light and dark, wide
+   and narrow (preview command in [SITE.md](SITE.md)).
+4. The page links to the GitHub release and names `kemiri update --version TAG`, so it
+   must not go live before the release is published. Pages publishes `site/` when main
+   moves: let main reach the page commit only together with, or after, publication.
+   Change the pinned version on the homepage and in `site/install.sh` separately, after
+   the public assets verify (see SITE.md).
+
 ## Signing and publication (owner approval required)
 
 Android is signed locally, not in CI. Public package stays
