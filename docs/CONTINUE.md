@@ -1,5 +1,50 @@
 # Continue
 
+## T225: pilot.6 prepared, not published
+
+Preparation is based on main 2e0efb07 with T226 kept separate (pqwpnmxz /
+323e83ea; already based on main, so rebasing needed no conflict resolution).
+Workspace/lockfile/protocol versions and Android default now say pilot.6 /
+1000006. GitHub notes link to the site page. The date remains 17 November 2026,
+the preparation day. Website bootstrap, homepage downloads and current-install
+docs deliberately stay on pilot.5 until pilot.6 public assets verify.
+
+Corrected the page's upgrade claims against code: historical task combinations
+are repaired once per initialized project board, not converted wholesale on
+first server start. Stored statuses remain compatible; visible states are derived.
+Mixed app/backend versions connect, but old clients lack the close-parts prompt
+and the new backend may refuse such edits. Update both for the new workflows.
+The page now explains pilot.4's source/Bun exception and the older-release bridge.
+
+Sequential gates pass with isolated HOME/XDG and both AIKI_*/KEMIRI_* prefixes
+unset: frozen install; root 2,921 tests / 95,627 assertions; typecheck; web check
+zero diagnostics, 1,284 tests / 80,799 assertions and build; protocol 403 DTOs /
+110 overloads; Android checkReleaseVersion, 1,048 JVM tests (two skipped, no
+failures), assembleDebug/lintDebug (zero errors, 51 warnings, four hints); external
+denylist + required Gitleaks, public-CI scan; site check and 23 tests. Android used
+an explicit empty external properties file and --no-daemon; owned Gradle/Kotlin
+processes exited. No T221 retry was needed. No hosted candidate CI run: the tree
+is not on a public ref and no push was allowed.
+
+Checksum-verified published pilot.4 installer/binary update to a locally built
+pilot.6 canonical binary, restart and roll back with synthetic config/data and a
+paired session retained. Pilot.4's forced-source updater refuses the canonical
+archive without switching; the reviewed new installer at the same root succeeds
+with --runtime bun and rolls back to pilot.4. Settings get a backed-up prefix
+migration. Rehearsal evidence: mwkefujp-1edf69eb57. Root self-update tests cover
+held calls, Cancel, force cap, verification refusal and failed-health rollback.
+These local binaries are not publication assets.
+
+T225 has eight desktop/phone light/dark before/after screenshots; navigation/theme
+recording mwke8n0y-0ea403a026. No real backend/phone, account switch, push, tag,
+signing, GitHub release, main movement, site publication or deployment was done.
+Remaining owner steps: approve exact commit; permanent-key APK signing/notices and
+same-key emulator update; native macOS service and real-network Android acceptance;
+annotated-tag push triggering native CI/draft; exact 20-asset verification and
+manual metadata/SHA256SUMS uploads; publication/public checks; separate site pin
+and installation-docs bump, then coordinator-only main/Pages movement. The release
+page must not reach main before the release is public.
+
 ## T226: release notes pages on kemiri.dev
 
 `site/releases/` is a new index of all releases; `site/releases/v0.1.0-pilot.6/` is the

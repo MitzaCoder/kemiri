@@ -1,7 +1,7 @@
 # Release procedure
 
-The bridge is **v0.1.0-pilot.4**. This procedure describes **v0.1.0-pilot.5**,
-the canonical-only release. Owner approval is required for publication.
+The bridge is **v0.1.0-pilot.4**. This procedure describes **v0.1.0-pilot.6**.
+Pilot.5 introduced canonical-only releases. Owner approval is required for publication.
 Never move main, retarget a published tag, or deploy as a release step.
 Past release notes under `releases/` remain historical records.
 
@@ -10,11 +10,11 @@ Past release notes under `releases/` remain historical records.
 **Pilot.3 and earlier must go through pilot.4.** Stop the old release, run
 `aiki update --version v0.1.0-pilot.4`, then use `kemiri` for later updates.
 Pilot.4's installed installer already fetches `kemiri-TAG-PLATFORM` executables,
-checks their sidecar and SHA256SUMS entry, and requires `Kemiri TAG`. The next
-release no longer builds legacy asset names or the legacy version probe.
+checks their sidecar and SHA256SUMS entry, and requires `Kemiri TAG`. Pilot.5
+and later no longer build legacy asset names or the legacy version probe.
 
 Important source-fallback limit: pilot.4's embedded installer still validates an
-`aiki/` source tree. The next archive uses `kemiri/`. Pilot.4's normal supported
+`aiki/` source tree. Pilot.5 and later archives use `kemiri/`. Pilot.4's normal supported
 binary update works. Intel Macs and Linux musl x64/ARM64 have no standalone
 asset; they always use the fallback. For these platforms or `--runtime bun`, download,
 review and run the **new release's installer** with the same `--dir`, rather than
@@ -29,6 +29,17 @@ original in .bak and logs key names only. Process/build/signing settings must be
 renamed before updating. Both prefixes stay scrubbed from child/MCP environments.
 Existing config/data folders, .aiki project context, storage IDs, sockets and
 service/state names stay in place. Never rename them as part of this release.
+
+## Preparation identity
+
+Bump the four workspace package versions and bun.lock, SERVER_VERSION in
+packages/protocol/src/common.ts, the Android default release tag and its increasing
+version-code regression, and scripts/release-workflow.test.ts. Pilot.6 is
+`0.1.0-pilot.6` / Android code `1000006`. The release builders embed the approved
+tag and commit; do not manufacture RELEASE.json or signed metadata in source.
+Keep the website bootstrap, homepage downloads and current-install docs on pilot.5
+until pilot.6's public assets verify. Release notes and the dated site page are
+prepared now, but the site page must not reach main before publication.
 
 ## Assets
 
@@ -57,6 +68,8 @@ bun apps/android/scripts/generate-protocol.ts --check
 apps/android/scripts/build.sh :app:checkReleaseVersion :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 bun scripts/check-public.ts --denylist="$PRIVATE_DENYLIST" --require-scanner
 bun scripts/check-public.ts --public-ci
+bun scripts/check-site.ts
+bun test scripts/site.test.ts
 ```
 
 Use an explicit empty external HARNESS_ANDROID_PROPERTIES, never operator config.

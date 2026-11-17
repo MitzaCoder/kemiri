@@ -76,7 +76,7 @@ fun androidReleaseVersion(tag: String): Pair<String, Int> {
 }
 val releaseTag = providers.gradleProperty("kemiri.version").orElse(providers.environmentVariable("KEMIRI_RELEASE_VERSION")).orNull
     ?: if (providers.environmentVariable("GITHUB_REF_TYPE").orNull == "tag") providers.environmentVariable("GITHUB_REF_NAME").orNull else null
-val releaseVersion = androidReleaseVersion(releaseTag ?: "v0.1.0-pilot.5")
+val releaseVersion = androidReleaseVersion(releaseTag ?: "v0.1.0-pilot.6")
 tasks.register("checkReleaseVersion") {
     val validCases = listOf(
         androidReleaseVersion("v0.1.0-pilot.1") == ("0.1.0-pilot.1" to 1_000_001),
@@ -85,6 +85,8 @@ tasks.register("checkReleaseVersion") {
         androidReleaseVersion("v0.1.0-pilot.3").second > androidReleaseVersion("v0.1.0-pilot.2").second,
         androidReleaseVersion("v0.1.0-pilot.5") == ("0.1.0-pilot.5" to 1_000_005),
         androidReleaseVersion("v0.1.0-pilot.5").second > androidReleaseVersion("v0.1.0-pilot.4").second,
+        androidReleaseVersion("v0.1.0-pilot.6") == ("0.1.0-pilot.6" to 1_000_006),
+        androidReleaseVersion("v0.1.0-pilot.6").second > androidReleaseVersion("v0.1.0-pilot.5").second,
         androidReleaseVersion("v0.1.0").second > androidReleaseVersion("v0.1.0-pilot.9998").second,
         androidReleaseVersion("v0.1.1-pilot.1").second > androidReleaseVersion("v0.1.0").second,
     )

@@ -136,7 +136,7 @@
       <section id="update" aria-labelledby="update-title">
         <p class="kicker">How to update</p>
         <h2 id="update-title">Update from pilot.5</h2>
-        <p class="intro">Your projects, paired devices, credentials and settings stay where they are. Back up your Kemiri config and data folders first: an update can migrate data, and a rollback restores code, not data. This release converts your tasks once to the new states when it first starts. The app and the backend can be updated in either order; an older one keeps showing the earlier view until both are current.</p>
+        <p class="intro">Your projects, paired devices, credentials and settings stay where they are. Back up your Kemiri config and data folders first: an update can migrate data, and a rollback restores code, not data. When each project’s board is initialized, the backend repairs historical task combinations once, including parent links and contradictory blockers; the visible states are then derived from activity and questions. Either update order can connect, but update both app and backend before relying on the new workflows: older clients keep the old display and may have edits refused when the new backend requires a choice about open parts.</p>
         <ol class="how">
           <li>
             <h3>Update the backend from the app</h3>
@@ -154,7 +154,8 @@ kemiri start</code></pre></div>
             <p>Updating the backend does not update your phone. Get the signed APK from the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6">v0.1.0-pilot.6 release page</a> and install it over the app you have. Do not uninstall first.</p>
           </li>
         </ol>
-        <p style="margin-top:1.2rem">Still on pilot.3 or earlier? Go through pilot.4 first, as the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.5">pilot.5 notes</a> describe. New here? <a href="/#start">Start with the install steps</a>.</p>
+        <p style="margin-top:1.2rem"><b>On pilot.4?</b> Standalone installs on Linux glibc x64/ARM64 and macOS ARM64 can use the terminal update above. Intel Macs, Linux musl and Bun/source installs must instead download, checksum-check and read <a href="https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.6/install.sh">pilot.6’s installer</a>, then run it with the same absolute <code>--dir</code> if originally set, <code>--version v0.1.0-pilot.6 --runtime bun --no-service</code>. Pilot.4’s embedded source updater cannot read the new archive layout. Rename external <code>AIKI_*</code> process settings to <code>KEMIRI_*</code> before restarting; do not rename data folders.</p>
+        <p style="margin-top:1.2rem"><b>Pilot.3 or earlier:</b> while stopped, first run <code>aiki update --version v0.1.0-pilot.4</code>, then follow the pilot.4 path above. See the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6">GitHub notes</a> for checksum commands, service steps and backup details. New here? <a href="/#start">Start with the install steps</a>.</p>
       </section>
 
       <section id="limits" aria-labelledby="limits-title">
