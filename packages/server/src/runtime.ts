@@ -1,3 +1,4 @@
+import { WorkerBrowserService } from "./worker-browser.ts";
 import { backgroundJobCounts } from "@kemiri/protocol";
 import type { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
@@ -182,6 +183,7 @@ type RuntimeEntry = {
 };
 
 export type ProjectManagerOptions = {
+	browsers?: WorkerBrowserService;
 	userSettings?: UserSettingsStore;
  mcp?: McpService;
  skills?: ProjectSkillStore;
@@ -342,6 +344,7 @@ export class ProjectManager {
 	#closing = false;
 	/** The last activity seen for each project, so a summary never waits for a disk read. */
 	readonly #activities = new Map<string, ProjectActivity>();
+	readonly browsers: WorkerBrowserService;
 	readonly #runtimes = new Map<string, RuntimeEntry>();
 	readonly #extractions: MemoryExtractionStore;
 	readonly #toolCallCapMs: number;
@@ -371,6 +374,7 @@ export class ProjectManager {
  this.#homeDir = options.homeDir;
 		this.models = options.models;
 		this.#log = options.log ?? ((message) => console.log(message));
+		this.browsers = options.browsers ?? new WorkerBrowserService({ dataDir: options.store.dataDir, log: this.#log });
 		this.artifacts = options.artifacts ?? new ArtifactStore({ dataDir: options.store.dataDir, log: this.#log });
 		this.#onProjectState = options.onProjectState;
 		this.#onArchivedChange = options.onArchivedChange;
@@ -1148,6 +1152,7 @@ export class ProjectManager {
 				this.#log(`project ${entry.project.id}: close failed: ${errorMessage(error)}`);
 			});
 		}
+		await this.browsers.sweep();
 		await this.#attentionStore.flush();
 		// A script in flight resumes with the next process's sandbox (pi-durable's codemode docs), so closing this one is
 		// not an outcome for it; this only frees the worker-thread pool.
@@ -1335,6 +1340,7 @@ export class ProjectManager {
 		};
 
 		const workers = new WorkerService({
+			browsers: this.browsers,
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,
 			project: () => entry.project,
@@ -1420,6 +1426,7 @@ export class ProjectManager {
 		registry.install(threads.finishExtension);
 		registry.install(workers.taskExtension);
 		registry.install(workers.workspaceExtension);
+		registry.install(workers.browserExtension);
 		// The worker a conversation is, and the thread whose worker it is; undefined for a coordinator.
 		const workerOf = async (conversationId: number): Promise<{ workerId: string; threadId: string; scheduleId: string | null } | undefined> => {
 			for (const place of coordinators.places()) {

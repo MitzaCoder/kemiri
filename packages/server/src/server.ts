@@ -1,3 +1,4 @@
+import type { WorkerBrowserService } from "./worker-browser.ts";
 import { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
 import { McpService } from "./mcp.ts";
@@ -84,6 +85,7 @@ import { TerminalHost, type TerminalHostOptions, terminalsEnabled } from "./term
 import { resolveToolCallCapMs } from "./tool-caps.ts";
 
 export type StartServerOptions = {
+	browsers?: WorkerBrowserService;
 	updates?: Omit<ReleaseUpdateOptions, "file" | "onChange">;
 	/** Usually `resolveDataDir()`; tests use a temp directory. */
 	dataDir: string;
@@ -555,6 +557,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	await userSettings.open();
 	const manager = new ProjectManager({
+		browsers: options.browsers,
 		userSettings,
 		mcp,
 		skills,
@@ -601,6 +604,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of connections) connection.notifyWorkers(projectId, workers, defaults);
 		},
 	});
+
+	await manager.browsers.ready;
 
 	// The backend's clock. It reads the persisted next runs, arms one timer for the soonest, and opens a project only when
 	// one of its schedules comes due; `start()` also catches up once on whatever was missed while the process was off.

@@ -1,3 +1,4 @@
+import { type WorkerBrowserAvailability, type WorkerBrowserService, workerBrowserInstructions } from "./worker-browser.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
 import { activityTracking, endActivitySource } from "./task-activity.ts";
@@ -311,6 +312,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
       await syncWorkerActivity(tx, service, worker, runtime.conversationId);
 					}, context);
 					if (forgotten) return null;
+					await service.waitBrowser(conversationId);
 					const worker = await runtime.conversation(conversationId as ConversationId, context);
 					return worker?.submit(
 						{ type: "input", content: message, whenBusy: followUp ? "followUp" : "steer", requestId: `worker-message:${callId}` },
@@ -380,6 +382,8 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 			notify: async (reporter, runtime, context) => service.withReportAdmission(async () => {
 				const { workerId, callId, schedule, conversationId } = reporter.input;
 				const { text, status, failure } = reporter.state.checkpoint;
+				// Bounded cleanup never delays the durable report or notifications.
+				if (status !== "idle" || schedule?.isolation === "shared") void service.cleanupBrowser(conversationId, schedule?.isolation === "shared");
 				const owner = (await service.coordinators.conversation(runtime.conversationId)) ?? service.coordinator;
 				const report = text === null ? failureReport(workerId, failure) : reportText(workerId, text);
 				const scheduledRecord = schedule?.onReport === "record";
@@ -718,6 +722,7 @@ When the work is done, or cannot go on, call thread_finish with a summary for ma
 export function workerInstructions(options: {
 	/** Already rendered at creation; persisted by configure in the conversation's AgentDoc. */
 	projectBrief?: string;
+	browserInstructions?: string;
 	id: string;
 	title: string;
 	project: Project;
@@ -749,7 +754,7 @@ export function workerInstructions(options: {
 		: "";
 	return `You are the worker "${id}" of the project "${project.name}", working on: ${title}
 
-${workspace}${workspaceFacts}
+${workspace}${workspaceFacts}${options.browserInstructions ? `\n\n${options.browserInstructions}` : ""}
 Add an \`Kemiri-Task: T…\` trailer to commit descriptions.
 
 The coordinator sent you one brief. Do it, then answer with a report. Verification has diminishing returns: check what the brief asks for, then stop and report. You cannot start workers and nobody is waiting on your intermediate steps; do not ask questions you can answer yourself. If you are blocked, say what is missing.${task}
@@ -1039,6 +1044,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 // --- the service -------------------------------------------------------------------------------------------------
 
 export type WorkerServiceOptions = {
+	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
 	memory?: Pick<MemoryStore, "read">;
@@ -1106,6 +1112,7 @@ export type ScheduledRunResult =
 
 /** What a worker's creation commit needs, shared by the coordinator's `worker_spawn` and the schedule clock. */
 type CreateWorkerInput = {
+	browserAvailability: WorkerBrowserAvailability;
  /** Optional transaction-local collector for the spawn tool reply. */
  boardNotices?: string[];
 	id: string;
@@ -1138,6 +1145,7 @@ export class WorkerService {
 	#extension: Extension | undefined;
 	#taskExtension: Extension | undefined;
 	#workspaceExtension: Extension | undefined;
+	#browserExtension: Extension | undefined;
 	#checkInTask: Task<null, CheckInState, null, object> | undefined;
 	#reporterTask: Task<ReporterInput, ReporterState, null, object> | undefined;
 	#threadCheckIns: ThreadCheckIns | undefined;
@@ -1152,6 +1160,23 @@ export class WorkerService {
 				checkout: () => options.project().path,
 				workspacesDir: options.workspacesDir,
 			});
+	}
+
+	ensureBrowserReady(): Promise<WorkerBrowserAvailability> {
+		return this.#options.browsers?.ensureReady() ?? Promise.resolve("browser service not configured.");
+	}
+
+	waitBrowser(conversationId: number): Promise<void> {
+		return this.#options.browsers?.wait(this.project.id, conversationId) ?? Promise.resolve();
+	}
+
+	get browserExtension(): Extension {
+		this.#browserExtension ??= createWorkerBrowserExtension(this);
+		return this.#browserExtension;
+	}
+
+	cleanupBrowser(conversationId: number, forget = false): Promise<void> {
+		return this.#options.browsers?.cleanup(this.project.id, conversationId, forget) ?? Promise.resolve();
 	}
 
 	/** Serialize only admission and release, never a worker's answer or workspace cleanup. */
@@ -1646,6 +1671,7 @@ export class WorkerService {
 		};
 		const anchor = await tx.createTask(WorkerAnchor, null, background);
 		const conversation = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+		const browser = await this.#options.browsers?.prepare(project.id, conversation.id, input.browserAvailability, `${coordinatorId}:${input.callId}`);
 		await configure(tx, conversation.id, {
 			model: input.model,
 			thinkingLevel: input.thinkingLevel,
@@ -1654,6 +1680,7 @@ export class WorkerService {
 			// configure persists this complete text in pi.agent; restart/send never re-render it.
 			instructions: workerInstructions({
 				projectBrief,
+				browserInstructions: workerBrowserInstructions(browser ?? "browser service not configured."),
 				id: input.id,
 				title: input.title,
 				project,
@@ -1784,9 +1811,11 @@ export class WorkerService {
 		}
 		// A `record` run must not wake the coordinator, and a check-in would.
 		const checkIn = run.onReport === "review" ? await this.checkInNeeded() : false;
+		const browserAvailability = await this.ensureBrowserReady();
 		const conversationId = await this.harness.commit(
 			(tx) =>
 				this.createWorkerIn(tx, this.coordinator.id, {
+					browserAvailability,
 					id: workerId,
 					title: run.title.slice(0, 120),
 					task: run.brief,
@@ -2069,9 +2098,11 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 			const title = args.title ?? args.task.split("\n")[0]?.slice(0, 120) ?? args.task.slice(0, 120);
 			const checkIn = await service.checkInNeeded(context, api.conversationId);
+			const browserAvailability = await service.ensureBrowserReady();
 			const created = await api.commit(async (tx) => {
     const boardNotices: string[] = [];
     const conversationId = await service.createWorkerIn(tx, api.conversationId, {
+					browserAvailability,
      boardNotices,
 					id: args.id,
 					title,
@@ -2210,6 +2241,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 			if (record.status === "done") return toolText(`Worker "${args.id}" is already forgotten.`);
 			const worker = await api.conversation(record.conversationId as ConversationId, context);
 			await worker?.abort(context);
+			void service.cleanupBrowser(record.conversationId);
 			await api.commit(async (tx) => {
 				const doc = await tx.doc(WorkersDoc, api.conversationId);
 				const current = doc.workers[args.id];
@@ -2339,6 +2371,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 				inbox.items = inbox.items.filter((item) => item.mode === "write");
 				pruneDone(doc);
 			}, context));
+			void service.cleanupBrowser(record.conversationId, true);
 			let cleanup = "";
 			if (remove && record.isolation === "workspace" && path !== null) {
 				try {
@@ -2370,6 +2403,23 @@ function createWorkerExtension(service: WorkerService): Extension {
 				return undefined;
 			}),
 		],
+	});
+}
+
+/** Separate from board task tools: every worker, including scheduled/shared workers without a board task. */
+export function createWorkerBrowserExtension(service: Pick<WorkerService, "workerOf" | "waitBrowser" | "cleanupBrowser">): Extension {
+	return defineExtension({
+		name: "worker-browser",
+		hooks: [hook(GenerationTask, {
+			beforeRequest: async (_request, api, context) => {
+				if (await service.workerOf(api.conversationId, context)) await service.waitBrowser(api.conversationId);
+				return undefined;
+			},
+			afterRun: async (_run, api, context) => {
+				if (await service.workerOf(api.conversationId, context)) void service.cleanupBrowser(api.conversationId);
+				return undefined;
+			},
+		})],
 	});
 }
 

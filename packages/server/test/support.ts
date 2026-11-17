@@ -1,3 +1,4 @@
+import { WorkerBrowserService } from "../src/worker-browser.ts";
 /** Test harness: a real server on a free port, a faux pi-ai provider, and a WebSocket client. */
 import { applyImmutable } from "@earendil-works/chord/delta";
 import type { Op } from "@earendil-works/chord/delta";
@@ -93,6 +94,7 @@ export async function createSetup(options?: {
 
 	const start = (): Promise<HarnessServer> =>
 		startServer({
+			browsers: new WorkerBrowserService({ dataDir, findBrowser: () => null, log: () => {} }),
 			dataDir,
 			...(options?.updates === undefined ? {} : { updates: options.updates }),
 			auth: options?.auth ?? { mode: "off" },

@@ -442,18 +442,81 @@ release location, so unchanged deploys keep the same read paths and rendered ski
 Missing or edited copies are repaired on render; identical files are not rewritten. Old hash directories are retained
 because another server may still use them. Relative template paths remain siblings of their materialized `SKILL.md`.
 
-The bundled `agent-browser` skill (T247 / D95 stage 1) is generic across projects: isolated CLI sessions,
+The bundled `agent-browser` skill (T247–T248 / D95 stages 1–2) is generic across projects: isolated CLI sessions,
 ref-based web UI checks, viewport/media emulation, screenshots and short recordings, named proof files, and cleanup.
-It contains no app-specific setup. Both source releases and the binary builder's `builtinSkillFiles` enumeration ship
-it; the CLI itself is not bundled in this stage. `builtinSkillAvailable` gates only this bundled fallback, before
-shadowing and role choices in `loadAgentContext`, so prompts and `skills.project.get` share the same availability.
-`html-artifacts` stays unconditional; personal/project overrides are not gated.
-`agentBrowserCommand()` in `agent-browser.ts` is the single discovery point: `Bun.which` searches the server child
-PATH for `agent-browser`, or resolves `KEMIRI_AGENT_BROWSER_COMMAND` when explicitly configured (an executable path
-or command name). Both success and absence are cached on first lookup for the server process lifetime to keep
-prompt catalogues stable. Restart the server after installation/configuration changes. No binary means no catalogue
-entry and no error. Custom CLI paths must also be named in agent instructions until managed environment support lands.
-A future managed pinned install can extend this lookup without changing either catalogue.
+Both source releases and the binary builder's `builtinSkillFiles` enumeration ship the skill, not the native CLI.
+`builtinSkillAvailable` gates only this bundled fallback, before shadowing and role choices in `loadAgentContext`, so
+prompts and `skills.project.get` share availability. `html-artifacts` stays unconditional; personal/project overrides
+are not gated. `agentBrowserCommand()` starts absent unless an explicit executable override and browser are found;
+a successful managed install can enable it once for the process lifetime. It never toggles back off on later probes.
+The coordinator's lazy catalogue picks up that one addition on its next model request after the first successful
+worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
+Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
+
+### Managed worker browsers (T248)
+
+`agent-browser-pin.ts` carries native agent-browser **0.43.0**, upstream `vercel-labs/agent-browser`, with each npm
+package name, tarball URL and sha512 SRI for Linux x64/arm64 glibc/musl and macOS x64/arm64. Refresh with
+`bun scripts/pin-agent-browser.ts <version>` and review the generated diff as part of a Kemiri release. Runtime does
+not resolve npm metadata or use Node/npm: it fetches the pinned native package directly, verifies the complete archive's
+sha512 **before** decompression, reads only the exact regular `package/bin/agent-browser` member in memory (never
+extracting archive paths or links), then atomically renames a private staging directory. The executable is mode 0755.
+A version/platform/integrity/binary-sha256 marker in `install.json` is checked on first use in each backend process.
+Missing or corrupt copies are removed before downloading; a successful verified binary path is cached for that process. Successful install removes other version/staging directories. The installation
+is `<data>/tools/agent-browser/<version>-<platform>/agent-browser`. `WorkerBrowserService.ensureReady()` performs discovery/install/verification outside durable transactions: both
+`worker_spawn.execute` and scheduled firing await it before opening their creation commit. Concurrent callers share
+one in-flight readiness promise; success is cached for the process and failures retry on a later pre-commit call.
+Inside the commit, `prepare()` accepts only that settled binary/browser result (or its plain unavailable reason), never
+fetching, hashing the executable, probing Chromium or awaiting startup cleanup. It only makes small local directory,
+launcher and index writes. A stable coordinator/spawn-call key serializes and reuses the same directory across commit
+retries, even if a retried transaction allocates a different conversation ID; the index is rebound instead of leaving
+extra `kab-` directories. Failed downloads/checksums/unsupported platforms are logged, leave no runnable candidate, and retry only at a later
+worker spawn, never every prompt. A Kemiri update with a different pin therefore installs that pin at the next spawn;
+no extra self-update channel is involved. A durable worker resumed after a backend restart verifies/ensures the
+current pin through the same process-cached readiness result at its first request boundary, outside a durable commit,
+rewriting its existing launcher without changing persisted instructions
+or restrictions. A failed resume disables that launcher with a plain stderr reason rather than running an obsolete pin;
+it does not retry on every model step. Linux libc detection uses the runtime report's glibc version.
+
+Browser discovery happens before any download: `KEMIRI_BROWSER_EXECUTABLE` first, otherwise the child PATH's
+`chromium`, `chromium-browser`, `google-chrome`, `google-chrome-stable`, `chrome`, then common macOS app bundles.
+An explicit missing executable does not silently fall back. Without a browser, no install is attempted and the persisted
+worker instructions say `Browser unavailable: no Chromium or Chrome found; install one or set KEMIRI_BROWSER_EXECUTABLE.`
+`KEMIRI_AGENT_BROWSER_COMMAND` is an explicit executable path/command override that skips the managed CLI install,
+but keeps worker isolation, browser discovery and restrictions. `KEMIRI_BROWSER_ALLOWED_DOMAINS` can widen the default
+`localhost,127.0.0.1,[::1],::1`; an empty setting uses the default. These are private server settings, scrubbed from
+normal tool environments with the other KEMIRI/AIKI settings. They are not project/browser-profile settings.
+
+Every worker creation (main, background thread or schedule; shared or jj-isolated) gets a distinct mode-0700
+`<tmp>/kab-<random>/` with `home/`, `s/` sockets, `tmp/` Chromium scratch profiles, `proof/` and a mode-0700
+`agent-browser` shell launcher. The short temp path avoids putting Unix sockets under deep backend/workspace paths.
+The launcher exports HOME, TMPDIR, AGENT_BROWSER_SESSION, AGENT_BROWSER_SOCKET_DIR, AGENT_BROWSER_EXECUTABLE_PATH,
+AGENT_BROWSER_NO_VERSION_CHECK=1, AGENT_BROWSER_ALLOWED_DOMAINS and BROWSER_PROOF_DIR, then execs the pinned native
+binary. It works across independent shell tool calls without relying on inherited shell functions or exports.
+No real profile, browser attachment or auto-connect is used. Proof is outside the backend data directory under the
+system temp directory, so existing `artifact_save` source rules accept it without adding a secret-bearing source root.
+The coding environment factory is shared and keyed by cwd, not worker conversation; it is deliberately not given a
+worker PATH/HOME override (shared workers have identical cwd). Workers instead use the absolute launcher named in
+instructions as `ab`, and the named proof folder. The short environment paragraph names launcher, session, proof,
+allowlist, no real profile/auto-connect, and automatic close/proof retention. It is rendered once at creation and
+persisted with the other instructions; it does not flap or retry setup during later prompts.
+
+A private `<data>/tools/browser-workers/<hash(project,conversation)>.json` index survives restarts. Run-end hooks
+start cleanup without awaiting it in report delivery; the next request waits for any outstanding cleanup so an old
+close cannot race a new browser run. Failures, explicit stop and forget also request cleanup. Forget removes the entire
+browser directory and index; normal report/stop/startup keeps proof and launcher for later use. Startup sweeps indexed
+crash leftovers before schedules/listening; orderly shutdown sweeps too. Cleanup errors are logged, never delivered as
+worker/report errors; graceful `close` has 1.5 seconds and each cleanup has a six-second budget (on timeout retain the
+directory/index for retry). Cleanup removes Chromium scratch files, not proof.
+
+Ownership is not a broad executable-name match. Before close, enumerate processes: Linux `/proc` provides inherited
+HOME/socket environment and start ticks; macOS `ps eww` provides environment, parent and start time. Exact private
+HOME+socket identifies the daemon/session; exact `--user-data-dir` under the worker's TMPDIR identifies orphaned
+Chromium too. Read the session pid file but trust its PID only when ownership also matches; capture its descendants
+and other verified browser roots before graceful close. Re-scan afterwards, then SIGTERM/SIGKILL only captured session processes whose start identity
+still matches, guarding PID reuse. Unrelated sessions/processes are left alone. This is lifecycle hygiene under the
+backend account, not a security boundary against an agent deliberately changing process environment/state.
+Unsaved proof listing/retention UX is a later stage; proof is kept until forget (or host temp-directory eviction).
 
 HTML previews on web (dialog and new tab) and Android prepend theme defaults with zero-specificity selectors, matching
 `--tone-*` colours, type, spacing and radius tokens. The document's `data-theme` follows the app's light/dark choice;
@@ -654,6 +717,11 @@ travels in ordinary transcript updates.
 Name: Kemiri (command and fresh data directory: `kemiri`; legacy aliases remain supported).
 
 ## Pilot release identity and notices
+
+agent-browser 0.43.0 is Apache-2.0, downloaded at runtime from its pinned npm native packages, not redistributed
+inside Kemiri source/binary/Android release assets. The existing bundled third-party notices therefore need no new
+redistribution entry for it. The managed-browser design above records its upstream, licence, pin and fetch boundary;
+review notices again if a future release bundles the executable or archive instead.
 
 Release CI has an explicit `check-public.ts --public-ci` mode: generic source checks
 and mandatory Gitleaks still run; only the unavailable private-term scan is skipped.
@@ -1700,7 +1768,7 @@ feature) and get it pushed as `conversation.context.changed` while they watch th
   Shared agents skills follow Claude: `<homeDir>/.agents/skills/*/SKILL.md`, then
   `<cwd>/.agents/skills/*/SKILL.md` (home is injectable through the server/loader options).
   Built-in harness skills are last, as fallbacks; they have `origin: "builtin"` in the project catalogue.
-  `html-artifacts` is always offered; bundled `agent-browser` is offered only when the process-cached command lookup
+  `html-artifacts` is always offered; bundled `agent-browser` is offered only when the monotonic command lookup
   finds its CLI (see HTML artifact design above). This applies to both the prompt and project skills catalogue.
   Name and description come from the YAML frontmatter (the directory name when it has none). They are offered in the
   prompt like pi's `<available_skills>` — name, description, absolute path — and the model reads the file with its
