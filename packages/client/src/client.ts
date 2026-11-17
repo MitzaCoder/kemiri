@@ -189,6 +189,8 @@ export type HarnessClientOptions = {
 	requestTimeoutMs?: number;
 	/** Default true. `false` disables automatic reconnects; an object tunes the backoff. */
 	reconnect?: boolean | BackoffOptions;
+	/** Application-level liveness checks (browser sockets have no ping API). Defaults: 30 s interval, 10 s timeout. */
+	heartbeat?: { intervalMs?: number; timeoutMs?: number };
 };
 
 export type ProjectChange = {
@@ -303,6 +305,10 @@ export class HarnessClient {
 	readonly #requestTimeoutMs: number;
 	readonly #reconnect: boolean;
 	readonly #backoff: BackoffOptions;
+	readonly #heartbeatIntervalMs: number;
+	readonly #heartbeatTimeoutMs: number;
+	#heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
+	#checkingSocket: HarnessWebSocket | undefined;
 
 	#state: ClientState = { status: "idle", attempt: 0 };
 	readonly #listeners = new Set<(state: ClientState) => void>();
@@ -344,6 +350,8 @@ export class HarnessClient {
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? 20_000;
 		this.#reconnect = options.reconnect !== false;
 		this.#backoff = typeof options.reconnect === "object" ? options.reconnect : {};
+		this.#heartbeatIntervalMs = options.heartbeat?.intervalMs ?? 30_000;
+		this.#heartbeatTimeoutMs = options.heartbeat?.timeoutMs ?? 10_000;
 	}
 
 	get state(): ClientState {
@@ -546,6 +554,7 @@ export class HarnessClient {
 		this.#closedByUser = true;
 		this.#readySince = undefined;
 		this.#clearReconnect();
+		this.#clearHeartbeat();
 		const socket = this.#socket;
 		this.#socket = undefined;
 		if (socket !== undefined) {
@@ -564,7 +573,48 @@ export class HarnessClient {
 	 * the background and does not trust the old socket.
 	 */
 	disconnect(reason = "Connection dropped by the client"): void {
-		this.#socket?.close(1000, reason);
+		const socket = this.#socket;
+		if (socket === undefined) return;
+		// A half-open socket may never finish its close handshake. Invalidate it locally first;
+		// late messages and close events must not affect the replacement connection.
+		this.#handleClose(socket, { reason });
+		try {
+			socket.close(1000, reason);
+		} catch {
+			// Already gone.
+		}
+	}
+
+	/** Check the round trip now (for example on foreground resume); coalesced with periodic checks. */
+	async checkConnection(): Promise<void> {
+		const socket = this.#socket;
+		if (socket === undefined || this.#state.status !== "ready" || this.#checkingSocket === socket) return;
+		this.#checkingSocket = socket;
+		this.#clearHeartbeat();
+		try {
+			// A read-only, already supported request: even unknown_request on an old backend
+			// proves the round trip works. Unrelated output does not substitute for its response.
+			await this.#sendOn(socket, { type: "server.status" }, this.#heartbeatTimeoutMs);
+		} catch {
+			if (this.#socket === socket) this.disconnect("Connection check timed out");
+		} finally {
+			if (this.#checkingSocket === socket) this.#checkingSocket = undefined;
+			if (this.#socket === socket && this.#state.status === "ready") this.#scheduleHeartbeat();
+		}
+	}
+
+	#scheduleHeartbeat(): void {
+		this.#clearHeartbeat();
+		this.#heartbeatTimer = setTimeout(() => {
+			this.#heartbeatTimer = undefined;
+			void this.checkConnection();
+		}, this.#heartbeatIntervalMs);
+		this.#heartbeatTimer.unref?.();
+	}
+
+	#clearHeartbeat(): void {
+		clearTimeout(this.#heartbeatTimer);
+		this.#heartbeatTimer = undefined;
 	}
 
 	/** Send one request (an ID is added when absent) and return its response, errors included. */
@@ -1636,6 +1686,7 @@ export class HarnessClient {
 				features: response.features ?? [...LEGACY_HARNESS_FEATURES],
 				error: undefined,
 			});
+			if (this.#socket === socket && this.#state.status === "ready") this.#scheduleHeartbeat();
 		} catch (error) {
 			if (this.#socket !== socket) return;
 			this.#setState({
@@ -1907,6 +1958,7 @@ export class HarnessClient {
 
 	#handleClose(socket: HarnessWebSocket, event: { code?: number; reason?: string }): void {
 		if (this.#socket !== socket) return;
+		this.#clearHeartbeat();
 		this.#socket = undefined;
 		if (this.#readySince !== undefined && Date.now() - this.#readySince >= 60_000) this.#attempt = 0;
 		this.#readySince = undefined;

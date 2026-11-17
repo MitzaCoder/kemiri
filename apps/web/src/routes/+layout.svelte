@@ -88,16 +88,25 @@
 		void notifications.start();
 		// The published list of backends beside the app: offered as one-tap adds, empty when the host publishes none.
 		suggestedBackends.load();
+		const checkConnections = (): void => {
+			if (document.visibilityState !== 'visible') return;
+			for (const backend of harness.backends) void backend.client.checkConnection();
+		};
 		const onVisibility = (): void => {
+			checkConnections();
 			void notifications.reportPresence(harness.backends, page.url.pathname);
 		};
 		document.addEventListener('visibilitychange', onVisibility);
+		window.addEventListener('pageshow', checkConnections);
+		window.addEventListener('focus', checkConnections);
 		// Using the app drops the notifications the backends are holding for it (throttled, see lib/interaction.ts).
 		const stopInteraction = startInteractionReporting(window, () =>
 			reportInteraction(harness.backends, notifications.deviceId)
 		);
 		return () => {
 			document.removeEventListener('visibilitychange', onVisibility);
+			window.removeEventListener('pageshow', checkConnections);
+			window.removeEventListener('focus', checkConnections);
 			stopInteraction();
 		};
 	});

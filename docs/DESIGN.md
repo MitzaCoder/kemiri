@@ -4028,6 +4028,16 @@ here and nothing depends on xterm.js.
   bar sits above the soft keyboard: Esc, Tab, Ctrl (sticky), Alt (sticky), the arrows, `|`, `~`, `/`, `-`. When the
   socket drops the view says so and reattaches by itself with the same session names once the connection is back (the
   client library does this: `openTerminal` returns a handle that reopens on `ready`).
+  Browser WebSockets expose no ping API, and silent transport loss need not deliver a close event. The shared
+  TypeScript client therefore checks a correlated, read-only `server.status` round trip every 30 seconds with a
+  10-second deadline (`heartbeat` options shorten these in tests). Even an unsupported-request response proves the
+  link works; unrelated streamed output does not. Failure locally invalidates the old socket, rejects its requests
+  and starts normal reconnect/reattach without waiting for its close handshake; late old-socket traffic is ignored.
+  The web app also checks immediately on visible/focus/pageshow resume, coalescing concurrent checks. Until failure
+  is detected the last screen remains; on detection the existing connection badge and reattaching message change.
+  PTYs continue draining into bounded queues while clients are slow; the watchdog does not stop or signal sessions.
+  Android already has native terminals (`TerminalHandle`) and OkHttp transport pings every 30 seconds, with its own
+  reconnect/reattach loop; this browser-specific heartbeat change does not alter Android or the wire protocol.
 - **Security.** The terminal is a shell as the backend's user: the same reach as an agent's `bash` tool, which the user
   already hands to every coordinator and worker. Who can open one is exactly who can drive the app on that backend:
   a valid full-owner device session in required mode, plus the exact browser Origin allowlist
