@@ -383,9 +383,16 @@ guides use `kemiri` and `KEMIRI_*`; old command/process-setting aliases are remo
 keep their original names. See SITE.md for the owner-operated DNS/mail cutover.
 
 `site/` is static HTML with one local script (`home.js`), a shared stylesheet and
-self-hosted font/assets. The homepage has a self-playing product demo, the
-usual-way/Kemiri comparison, task graph and installation steps. Site checks reject
-off-site resources; privacy shares the stylesheet.
+self-hosted font/assets. The homepage has a self-playing product demo, a
+Kept-by-hand/With-Kemiri comparison, a two-column "While you're away" timeline,
+the task graph with a five-state explanation, and installation steps. The timeline
+stacks on phones and the state descriptions remain visible. Work-tracking claims
+are limited to the published pilot.6; check-ins are described as a configurable
+10-minute default while workers run, Paused applies to quiet in-progress work after
+15 minutes, and nightly memory maintenance requires a configured model and changed
+memory. SITE.md records the homepage/defaults coupling. Inline SVG icons and shared
+theme tokens add no network loads or scripts. Site checks reject off-site resources;
+privacy shares the stylesheet.
 
 `/releases/` lists releases newest first. From pilot.6, each release has a full
 `/releases/TAG/` page; pilot.1–5 link to GitHub. The homepage header, Current pilot

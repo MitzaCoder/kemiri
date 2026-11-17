@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkSite } from './check-site';
 import { addReleasePage } from './new-release-page';
+import { DEFAULT_CHECK_INS } from '../packages/protocol/src/projects';
+import { TASK_PAUSED_MS } from '../packages/server/src/task-activity';
 
 const bootstrap = resolve(import.meta.dir, '../site/install.sh');
 const releasePrefix = 'https://github.com/MitzaCoder/kemiri/releases/download/';
@@ -52,7 +54,29 @@ test('homepage loads only site files, stores nothing and reuses the mascot maste
 	for (const shape of shapes) expect(home).toContain(` d="${shape}"`);
 	// Without scripts the demo window is hidden and the flow, comparison and install steps still read.
 	expect(styles).toContain('html:not(.js) .win');
-	for (const text of ['The usual way', 'With Kemiri', 'Personal, not sandboxed.', 'Keep the backend private.']) expect(home).toContain(text);
+	for (const text of ['Kept by hand', 'With Kemiri', 'Personal, not sandboxed.', 'Keep the backend private.']) expect(home).toContain(text);
+});
+
+test('homepage weaves pilot work tracking into the comparison and graph, with qualified defaults', async () => {
+	const home = await Bun.file(resolve(import.meta.dir, '../site/index.html')).text();
+	const why = home.match(/<section[^>]+aria-labelledby="why-title">([\s\S]*?)<\/section>/)![1]!;
+	const real = home.match(/<section[^>]+aria-labelledby="real-title"[^>]*>([\s\S]*?)<\/section>/)![1]!;
+	expect(why).toContain('Without a harness, every one of these is a habit you or your agents must remember.');
+	expect(why.match(/<s>/g)).toHaveLength(7);
+	const timeline = why.match(/<ol class="away-timeline">([\s\S]*?)<\/ol>/)![1]!;
+	expect(timeline.match(/<li[ >]/g)).toHaveLength(6);
+	// These defaults are public promises. Changes need a homepage review too.
+	expect(DEFAULT_CHECK_INS).toEqual({ enabled: true, intervalMinutes: 10 });
+	expect(TASK_PAUSED_MS).toBe(15 * 60 * 1000);
+	for (const text of ['10 min check-ins', 'By default, while workers run', '15 min quiet', 'Quiet in-progress work', 'one nudge per quiet spell', 'With a maintenance model configured, changed memory']) expect(timeline).toContain(text);
+	expect(real.indexOf('class="task-states"')).toBeGreaterThan(real.indexOf('</figure>'));
+	const groups = real.match(/<ul class="state-groups"[^>]*>([\s\S]*?)<\/ul>/)![1]!;
+	expect([...groups.matchAll(/<b>([^<]+)<\/b>/g)].map(match => match[1])).toEqual(['Needs you', 'In progress', 'Waiting', 'To do', 'Closed']);
+	expect(real).toContain('Task updates'); // States include authored updates, not only live facts.
+	expect(home).toContain('no phone push yet');
+	// Every new diagram icon is local and defined exactly once.
+	const references = new Set([...home.matchAll(/<use href="#(h-[^"]+)"/g)].map(match => match[1]));
+	for (const id of references) expect(home.match(new RegExp(`<symbol id="${id}"`, 'g'))).toHaveLength(1);
 });
 
 test('release notes: every release is in the index, the newest has a finished page, and the homepage links there', async () => {

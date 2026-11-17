@@ -406,3 +406,49 @@ html:not(.js) .player { grid-template-columns: 1fr; }
 }
 @media print { .toc, .crumbs, .rel-end { display: none; } }
 .notes code { white-space: nowrap; } .notes pre code { white-space: inherit; }
+
+/* ---------- work tracking ---------- */
+.work-symbols { position: absolute; }
+.work-icon { width: 20px; height: 20px; flex: none; }
+.away-title { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; letter-spacing: -.015em; margin: clamp(40px, 6vw, 72px) 0 22px; }
+.away-title .work-icon { color: var(--primary-text); width: 22px; height: 22px; }
+.away-timeline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 40px; margin-bottom: 36px; }
+.away-timeline li { position: relative; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 4px 16px; align-content: start; }
+.away-timeline li::before { content: ""; position: absolute; left: 20px; top: 48px; bottom: -18px; width: 2px; background: var(--border2); }
+.away-timeline li:nth-last-child(-n+2)::before { display: none; }
+.work-event-icon { --event-color: var(--primary); position: relative; grid-row: span 2; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px;
+  color: color-mix(in oklab, var(--event-color) 82%, var(--fg)); background: color-mix(in oklab, var(--event-color) 14%, var(--card)); border: 1px solid color-mix(in oklab, var(--event-color) 30%, transparent); }
+.event-check { --event-color: var(--pink); }
+.event-pause { --event-color: var(--subtle); }
+.event-memory { --event-color: var(--orange); }
+.event-return { --event-color: var(--ok); }
+.event-when { padding-top: 2px; font-size: .74rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--orange); }
+.event-description { color: var(--muted); }
+.event-description b { color: var(--fg); }
+.board-return .event-description { color: var(--fg); }
+.task-states-title { font-size: 1.3rem; letter-spacing: -.015em; margin: 32px 0 18px; }
+.task-states { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr); gap: 22px; align-items: center; padding: 22px; border: 1px solid var(--border); border-radius: 22px; background: var(--card); box-shadow: var(--shadow); }
+.state-facts, .state-groups { display: grid; gap: 8px; }
+.state-facts li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: var(--surface); font-weight: 650; font-size: .95rem; }
+.state-facts .work-icon { color: var(--muted); width: 18px; height: 18px; }
+.state-derivation { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: center; max-width: 120px; }
+.state-derivation span { font-size: 1.6rem; color: var(--primary-text); line-height: 1; }
+.state-groups li { --state-color: var(--subtle); display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 10px; border-radius: 12px; border: 1px solid var(--border); }
+.state-groups li::before { content: ""; width: 6px; flex: none; align-self: stretch; min-height: 26px; border-radius: 9px; background: var(--state-color); }
+.state-groups b { font-size: 1rem; flex: none; }
+.state-groups small { color: var(--muted); font-size: .85rem; margin-left: auto; text-align: right; }
+.state-groups .task-state-needs-you { --state-color: var(--warn); }
+.state-groups .task-state-in-progress { --state-color: var(--primary); }
+.state-groups .task-state-waiting { --state-color: var(--pink); }
+.state-groups .task-state-closed { --state-color: var(--ok); }
+@media (max-width: 760px) {
+  .away-timeline { grid-template-columns: 1fr; }
+  .away-timeline li:nth-last-child(2)::before { display: block; }
+  .task-states { grid-template-columns: 1fr; padding: 16px; }
+  .state-facts { display: flex; flex-wrap: wrap; }
+  .state-derivation { flex-direction: row; max-width: none; justify-content: center; }
+  .state-derivation span { transform: rotate(90deg); }
+  .state-groups li { display: grid; grid-template-columns: 6px minmax(0, 1fr); gap: 4px 12px; }
+  .state-groups li::before { grid-row: span 2; }
+  .state-groups small { grid-column: 2; margin: 0; text-align: left; }
+}

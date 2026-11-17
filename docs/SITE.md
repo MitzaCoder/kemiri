@@ -9,9 +9,15 @@ The app/backend deployment is unrelated.
 
 The homepage follows one made-up request ("Add dark mode and fix login on mobile.")
 through a product window that plays by itself: ask, delegate, step in, review. Under
-it sit the "usual way / with Kemiri" comparison, the real task graph and the install
-steps. `home.js` drives the demo (`STEPS` is the story, `PLAN` its timing), the
-light/dark button and the copy buttons; it stores and sends nothing. Without scripts
+it sit the "Kept by hand / With Kemiri" comparison, a two-column "While you're away"
+timeline (one column on phones), the real task graph with a five-state explanation,
+and the install steps. The work-tracking content describes the published pilot.6:
+check-ins default to every 10 minutes while workers run, quiet in-progress work
+becomes Paused after 15 minutes, and nightly memory maintenance requires a configured
+model and changed memory. Changing these defaults or conditions means updating the
+homepage too. The diagram combines task updates with live facts; it does not claim
+that people or agents never set a task status. `home.js` drives the demo (`STEPS` is
+the story, `PLAN` its timing), the light/dark button and the copy buttons; it stores and sends nothing. Without scripts
 the window is hidden and the four step cards, the comparison and the install steps
 still read. The system preference picks light or dark; `prefers-reduced-motion`
 starts the demo paused. The privacy page uses the same stylesheet and no script.
