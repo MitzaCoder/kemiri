@@ -3522,7 +3522,25 @@ jobs use the same colours at 1.25× size with a dashed ring. The canvas must ren
 into finite done/failed motion; it defaults off so historical states do not replay.
 The generated module and CSS are checked by brand tests and
 `bun scripts/generate-brand.ts --check-graph`; `--graph-only` refreshes them without
-raster generation. Part A does not yet replace the canvas creatures or change chat.
+raster generation. Chat keeps its existing component and mapping.
+
+**Graph mascot integration (T256, part B).** The canvas now renders `GraphCrew`
+with one shared `GraphMascotDefs`; task-rim positions are unchanged. `zoom` on
+`GraphMascot` makes the 28 px z cutoff and 32 px reduced travel use screen size.
+Resting rows show a 24 px still pose. `graph-worker-motion.ts` resolves each
+crew member's task/state, padded viewport bounds, real departures and report cues.
+A changed nonempty report emits one 650 ms spark into the task followed by one
+500 ms expanding ring; initial history and cleared reports emit nothing.
+Reassignment follows a bounded upward arc over 650 ms. Completion/removal holds
+the crew for the 1.3 s hop and 400 ms fade; stopped crew only fade for 400 ms.
+View filtering and moving into Resting never celebrate. New arrivals fade for
+300 ms; initial history does not. Failure shakes only on a visible state change.
+Offscreen loops stop, the visible loop cap is 12, and below 50% zoom or with
+reduced motion transitions, departures and report cues stop immediately. Blocker
+dashes move toward the blocker over 2.4 s only with either endpoint focused or
+selected; they stay grey and still otherwise. Attention halos remain static.
+The synthetic busy demo adds waiting/failed crew and `/reset` for repeatable
+report, reassignment, rest and finish checks; `/stress` remains the load fixture.
 
 **Worker pop-up content (T258, part A).** `WorkerPeek.svelte` accepts either a
 `worker` or a background-job `thread`, route scope (`backendId`, `projectId`),

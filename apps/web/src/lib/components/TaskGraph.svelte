@@ -17,13 +17,23 @@
 	import type { ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { buildTaskGraph, graphLabel, graphNeighborhood, visibleGraphEdges, placeGraphCrewOnRims, type GraphPosition, type TaskGraph } from '#lib/task-graph.js';
-	import { settledGraphPositions, interpolateGraphPositions } from '#lib/task-graph-layout.js';
+	import { settledGraphPositions } from '#lib/task-graph-layout.js';
 	import { fitGraphCamera, loadGraphCamera, saveGraphCamera, placeGraphLabels, type GraphCamera } from '#lib/task-graph-camera.js';
 
 	let { board, scope, workers = [], threads = [], taskHref, workerHref, selectedTaskId = null, viewSwitch }: {
 		board:ProjectBoard | undefined; scope:string; workers?:readonly WorkerSummary[]; threads?:readonly ThreadSummary[];
 		selectedTaskId?:string | null; taskHref:(id:string)=>string; workerHref?:(worker:WorkerSummary)=>string; viewSwitch:Snippet;
 	} = $props();
+	import GraphMascotDefs from './graph/GraphMascotDefs.svelte';
+	import GraphMascot from './graph/GraphMascot.svelte';
+	import GraphCrew from './graph/GraphCrew.svelte';
+	import GraphReport from './graph/GraphReport.svelte';
+	import { workerMotionBudget } from '#lib/worker-motion.js';
+	import { crewHandoffMs, crewFinishMs, graphCrewMotion, graphCrewInView, departingGraphCrew, interpolateCrewHandoff, graphReportCues, type GraphReportCue } from '#lib/graph-worker-motion.js';
+	import type { GraphNode } from '#lib/task-graph.js';
+	const componentId = $props.id();
+	const gradientPrefix = 'graph-mascot-' + componentId;
+	let departures = $state(new Map<string, GraphNode>());
 	let showClosed = $state(false);
 	let showResting = $state(false), allLinks = $state(false), showLegend = $state(false);
 	let viewOpen = $state(false), restingOpen = $state(false);
@@ -33,10 +43,13 @@
 	let camera = $state<GraphCamera>({x:0,y:0,zoom:1});
 	let svg:SVGSVGElement | null = $state(null);
 	let width=$state(0), height=$state(0), reduced=$state(false), mounted=$state(false);
+	const renderedNodes = $derived([...graph.nodes, ...departures.values()].filter((node, index, nodes) => nodes.findIndex(other => other.id === node.id) === index));
+	const crewStates = $derived(new Map(renderedNodes.filter(node => node.kind !== 'task').map(node => [node.id, departures.has(node.id) ? 'done' as const : graphCrewMotion(node, board?.tasks ?? [], board?.board?.questions ?? [])])));
+	const motionBudget = $derived(workerMotionBudget(renderedNodes.filter(node => node.kind !== 'task').map(node => ({ id: node.id, state: crewStates.get(node.id)!, inView: graphCrewInView(positions.get(node.id), camera, width, height) })), camera.zoom, reduced));
 	let framed=false, frame=0;
 	let enterDuration=$state(0);
 	function arrive(_node:Element,options:{duration:number}) {return {duration:options.duration,css:(t:number)=>`opacity:${t}`};}
-	let departureTimer:ReturnType<typeof setTimeout> | undefined;
+	const departureTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	let destination=new Map<string,GraphPosition>();
 	function storage():Storage | undefined {try{return localStorage;}catch{return undefined;}}
 	let focused=$state<string | null>(null);
@@ -56,7 +69,7 @@
 	const tooltipX=$derived(focusPosition ? Math.max(130,Math.min(width-130,(focusPosition.x-camera.x)*camera.zoom+width/2)) : 0);
 	const tooltipY=$derived(focusPosition ? Math.max(90,(focusPosition.y-camera.y)*camera.zoom+height/2-35) : 0);
 	const viewBox=$derived(`${camera.x-width/camera.zoom/2} ${camera.y-height/camera.zoom/2} ${Math.max(1,width)/camera.zoom} ${Math.max(1,height)/camera.zoom}`);
-	let reports=$state<Record<string,string>>({});
+	let reportCues=$state<GraphReportCue[]>([]);
 	const seenReports=new Map<string,string | null>();
 	const reportTimers=new Set<ReturnType<typeof setTimeout>>();
 	let saveTimer:ReturnType<typeof setTimeout> | undefined;
@@ -79,29 +92,41 @@
 	}
 	function publish(next:TaskGraph) {
 		cancelAnimationFrame(frame);
-		clearTimeout(departureTimer);
-		const from=positions;
-		const target=settledGraphPositions(next,from,width/Math.max(1,height));
-		destination=target;
-		positions=target;
-		frameFirstGraph();
-		enterDuration=reduced || from.size===0 ? 0 : 300;
-		graph=next;
-		if(reduced || from.size===0) return;
-		const departing=[...from].filter(([id])=>!target.has(id));
-		const traveling=[...target].some(([id,p])=>{const old=from.get(id);return old && Math.hypot(old.x-p.x,old.y-p.y)>.1;});
-		if(!traveling) {
-			if(departing.length) {positions=new Map([...departing,...target]);departureTimer=setTimeout(()=>{positions=target;},320);}
-			return;
+		const from = positions;
+		const target = settledGraphPositions(next, from, width / Math.max(1, height));
+		const leaving = reduced || camera.zoom < .5 ? [] : departingGraphCrew(graph, next, workers, threads)
+			.filter(node => graphCrewInView(from.get(node.id), camera, width, height));
+		for (const node of leaving) {
+			departures.set(node.id, node);
+			clearTimeout(departureTimers.get(node.id));
+			departureTimers.set(node.id, setTimeout(() => {
+				departures.delete(node.id); departures = new Map(departures);
+				positions = new Map([...positions].filter(([id]) => id !== node.id || source.nodes.some(node => node.id === id)));
+				if (!source.nodes.some(next => next.id === node.id)) destination.delete(node.id);
+				departureTimers.delete(node.id);
+			}, node.status === 'stopped' ? 400 : crewFinishMs));
 		}
-		const start=performance.now();
-		const animate=(now:number)=>{
-			const progress=Math.min(1,(now-start)/650);
-			positions=progress<1 ? new Map([...departing,...interpolateGraphPositions(from,target,progress)]) : target;
-			if(progress<1) frame=requestAnimationFrame(animate);
+		for (const node of next.nodes) {
+			departures.delete(node.id); clearTimeout(departureTimers.get(node.id)); departureTimers.delete(node.id);
+		}
+		departures = reduced || camera.zoom < .5 ? new Map() : new Map(departures);
+		const departingPositions = [...from].filter(([id]) => departures.has(id));
+		destination = new Map([...departingPositions, ...target]);
+		positions = destination;
+		frameFirstGraph();
+		enterDuration = reduced || camera.zoom < .5 || from.size === 0 ? 0 : 300;
+		graph = next;
+		if (reduced || camera.zoom < .5 || from.size === 0) return;
+		const traveling = [...target].some(([id, position]) => { const old = from.get(id); return old && Math.hypot(old.x - position.x, old.y - position.y) > .1; });
+		if (!traveling) return;
+		const start = performance.now();
+		const animate = (now:number) => {
+			const progress = Math.min(1, (now - start) / crewHandoffMs);
+			positions = new Map([...departingPositions, ...interpolateCrewHandoff(from, target, progress)]);
+			if (progress < 1) frame = requestAnimationFrame(animate);
 		};
-		positions=new Map([...departing,...interpolateGraphPositions(from,target,0)]);
-		frame=requestAnimationFrame(animate);
+		positions = new Map([...departingPositions, ...interpolateCrewHandoff(from, target, 0)]);
+		frame = requestAnimationFrame(animate);
 	}
 	// Yield the first frame to the view switch. Solve only once, before publishing SVG, not on every paint.
 	$effect(()=>{
@@ -110,29 +135,41 @@
 		const timer=setTimeout(()=>untrack(()=>publish(next)),untrack(()=>positions.size ? 0 : 160));
 		return ()=>clearTimeout(timer);
 	});
-	$effect(()=>{
-		for(const worker of workers) {
-			if(seenReports.has(worker.id) && worker.lastReport && seenReports.get(worker.id)!==worker.lastReport) {
-				untrack(()=>{reports={...reports,[worker.id]:worker.updatedAt};});
-				const timer=setTimeout(()=>{const next={...reports};delete next[worker.id];reports=next;reportTimers.delete(timer);},1800);
+	$effect(() => {
+		const cues = graphReportCues(seenReports, workers, source);
+		untrack(() => {
+			for (const cue of cues) if (!reduced && camera.zoom >= .5
+				&& graphCrewInView(positions.get(cue.workerId), camera, width, height)
+				&& graphCrewInView(positions.get(cue.taskId), camera, width, height)) {
+				reportCues = [...reportCues, cue];
+				const timer = setTimeout(() => { reportCues = reportCues.filter(report => report.id !== cue.id); reportTimers.delete(timer); }, 1200);
 				reportTimers.add(timer);
 			}
-			seenReports.set(worker.id,worker.lastReport);
-		}
+		});
+		for (const worker of workers) seenReports.set(worker.id, worker.lastReport);
 	});
 	onMount(()=>{
 		const media=matchMedia('(prefers-reduced-motion: reduce)');reduced=media.matches;
-		const motionChange=()=>{reduced=media.matches;if(reduced) {cancelAnimationFrame(frame);positions=destination;}};
+		const motionChange=()=>{reduced=media.matches;if(reduced) {cancelAnimationFrame(frame);stopTransientMotion();}};
 		media.addEventListener('change',motionChange);
 		const observer=new ResizeObserver(([entry])=>{if(!entry)return;width=entry.contentRect.width;height=entry.contentRect.height;frameFirstGraph();});
 		if(svg) observer.observe(svg);
 		mounted=true;
 		return ()=>{
-			observer.disconnect();media.removeEventListener('change',motionChange);cancelAnimationFrame(frame);clearTimeout(departureTimer);
+			observer.disconnect();media.removeEventListener('change',motionChange);cancelAnimationFrame(frame);for(const timer of departureTimers.values())clearTimeout(timer);
 			if(saveTimer) {clearTimeout(saveTimer);saveGraphCamera(scope,camera,storage());}
 			for(const timer of reportTimers)clearTimeout(timer);
 		};
 	});
+	function stopTransientMotion() {
+		cancelAnimationFrame(frame);
+		positions = new Map([...destination].filter(([id]) => !departures.has(id)));
+		destination = positions;
+		departures = new Map(); reportCues = [];
+		for (const timer of departureTimers.values()) clearTimeout(timer);
+		departureTimers.clear();
+	}
+	$effect(() => { if (reduced || camera.zoom < .5) untrack(stopTransientMotion); });
 	function changeZoom(factor:number) {camera={...camera,zoom:Math.max(.08,Math.min(4,camera.zoom*factor))};remember();}
 	function pointerDown(event:PointerEvent) {
 		if(event.button!==0)return;
@@ -150,7 +187,7 @@
 		if(!drag.moved&&Math.hypot(dx,dy)*camera.zoom<4)return;
 		if(!drag.moved) {svg?.setPointerCapture(event.pointerId);cancelAnimationFrame(frame);focused=null;}
 		drag.moved=true;
-		if(drag.id) {for(const [id,p] of positions)if(id===drag.id||p.parentId===drag.id) {p.x+=dx;p.y+=dy;p.anchorX=p.x;p.anchorY=p.y;}placeGraphCrewOnRims(graph,positions);positions=new Map(positions);}
+		if(drag.id) {for(const [id,p] of positions)if(id===drag.id||p.parentId===drag.id) {p.x+=dx;p.y+=dy;p.anchorX=p.x;p.anchorY=p.y;}placeGraphCrewOnRims(graph,positions);positions=new Map(positions);destination=positions;}
 		else {camera={...camera,x:camera.x-dx,y:camera.y-dy};remember();}
 		drag.x=event.clientX;drag.y=event.clientY;
 	}
@@ -165,7 +202,7 @@
 
 <svelte:window onkeydown={event=>{if(event.key==='Escape'){viewOpen=false;restingOpen=false;}}}/>
 
-<section data-no-task-preview class="task-graph" aria-label="Task graph">
+<section data-no-task-preview class="task-graph" class:motion-still={reduced||camera.zoom<.5} aria-label="Task graph">
 	<div class="graph-toolbar">
 		{@render viewSwitch()}
 		<span class="graph-counts">{openTasks.length} open · {workingCount} working · {needCount} need attention</span>
@@ -186,7 +223,7 @@
 				<strong>Resting workers</strong>
 				<ul>{#each source.resting as worker (worker.id)}
 					{@const task=board?.tasks.find(task=>task.id===worker.taskId || (!worker.taskId && task.workerIds.includes(worker.id)))}
-					<li><a href={workerHref?.(worker)} class:failed={worker.status==='failed'}><b>{worker.id}</b><span>{task ? `${task.id} · ${task.title}` : worker.taskId ? `${worker.taskId} · task unavailable` : 'No task'}</span><small>{worker.status==='failed'?'Failed':'Idle'} · {idleAge(worker,$activityMinute)}</small></a></li>
+					<li><a href={workerHref?.(worker)} class:failed={worker.status==='failed'}><svg width="24" height="24" viewBox="0 0 24 24" class="resting-mascot" aria-hidden="true"><GraphMascot state={worker.status==='failed'?'failed':'sleeping'} size={24} still reducedMotion {gradientPrefix}/></svg><b>{worker.id}</b><span>{task ? `${task.id} · ${task.title}` : worker.taskId ? `${worker.taskId} · task unavailable` : 'No task'}</span><small>{worker.status==='failed'?'Failed':'Idle'} · {idleAge(worker,$activityMinute)}</small></a></li>
 				{/each}</ul>
 			</div>{/if}
 		</div>{/if}
@@ -195,6 +232,7 @@
 		<!-- Pointer gestures only move the camera or nodes; tasks remain ordinary keyboard links. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<svg bind:this={svg} class="graph-canvas" {viewBox} role="group" aria-label="Interactive task graph. Drag to pan; pinch or use zoom buttons. Tab to nodes, Enter opens a task. List has all task details." onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp} onwheel={wheel}>
+			<GraphMascotDefs {gradientPrefix}/>
 			<defs><marker id="task-graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker><radialGradient id="task-graph-shine" cx="30%" cy="20%"><stop offset="0%" stop-color="white" stop-opacity=".45"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs>
 			{#each graph.nodes.filter(n=>n.kind==='task'&&n.radius>35&&!n.parent) as node (node.id)}
 				{@const p=positions.get(node.id)}
@@ -203,12 +241,12 @@
 			{#each edges as edge (edge.id)}
 				<path class="edge {edge.kind}" class:edge-focused={neighborhoodTask===edge.from||neighborhoodTask===edge.to} class:dimmed={!highlighted.has(edge.from)||!highlighted.has(edge.to)} d={edgePath(edge.from,edge.to)} marker-end={edge.kind==='blockedBy'?'url(#task-graph-arrow)':undefined}/>
 			{/each}
-			{#each graph.nodes as node,index (node.id)}
+			{#each renderedNodes as node (node.id)}
 				{@const p=positions.get(node.id)}
 				{#if p}
-					<g transform="translate({p.x} {p.y})" class="node-position" class:dimmed={!highlighted.has(node.id)} in:arrive|global={{duration:enterDuration}} out:fade|global={{duration:reduced?0:280}}>
+					<g transform="translate({p.x} {p.y})" class="node-position" class:dimmed={!highlighted.has(node.id)&&!departures.has(node.id)} in:arrive|global={{duration:enterDuration}} out:fade|global={{duration:reduced||camera.zoom<.5||departures.has(node.id)?0:280}}>
 						<a href={node.kind==='task'?taskHref(node.task!.id):undefined} role={node.kind==='task'?undefined:'img'} tabindex="0" aria-label={graphLabel(node)} data-node={node.id} onmouseenter={()=>focused=node.id} onmouseleave={()=>focused=null} onfocus={()=>focused=node.id} onblur={()=>focused=null} onclick={(event)=>{if(drag?.moved)event.preventDefault();}}>
-							<g class="node {node.kind} status-{node.status}" class:closed={node.status==='done'||node.status==='dropped'} class:reporting={!!reports[node.worker?.id??'']} style="--delay:{index*-.37}s">
+							<g class="node {node.kind} status-{node.status}" class:closed={node.kind==='task'&&(node.status==='done'||node.status==='dropped')}>
 								{#if node.kind==='task'&&node.attention}<circle class="attention-halo" r={node.radius+12}/>{/if}
 								{#if node.kind==='task'}
 									<circle class="task-body" r={node.radius}/><circle r={node.radius-2} fill="url(#task-graph-shine)"/>
@@ -224,20 +262,17 @@
 									{#if StateIcon}<StateIcon x={-10} y={-10} width={20} height={20} class="state-glyph" aria-hidden="true"/>{:else}<circle class="working-dot" r="6"/>{/if}
 									<title>{activity?.text ?? graphLabel(node)}</title>
 								{:else}
-									<g class="creature" class:busy={node.status==='running'} class:resting={node.status==='idle'}>
-										<ellipse class="creature-shadow" cy={node.radius+7} rx={node.radius*.8} ry="5"/>
-										<path class="antenna" d="M 0 -20 Q -10 -42 3 -39"/><circle class="antenna-tip" cx="3" cy="-39" r="4"/>
-										<rect class="creature-body" x={-node.radius} y={-node.radius} width={node.radius*2} height={node.radius*2} rx={node.radius*.7}/>
-										{#if node.status==='idle'}<path class="face" d="M -12 -2 q 4 5 8 0 M 4 -2 q 4 5 8 0"/><text class="sleep" x="24" y="-23">z</text>{:else}<ellipse class="eye" cx="-8" cy="-3" rx="3" ry="4"/><ellipse class="eye" cx="8" cy="-3" rx="3" ry="4"/>{/if}
-										<path class="face" d="M -4 7 Q 0 11 4 7"/><circle class="cheek" cx="-14" cy="6" r="4"/><circle class="cheek" cx="14" cy="6" r="4"/>
-										{#if node.status==='running'}<g class="working-hands"><path d="M -25 15 l 12 7 M 25 15 l -12 7"/><rect x="-16" y="19" width="32" height="11" rx="3"/><path d="M -9 24 h 5 M 0 24 h 5"/></g>{/if}
-									</g>
+									<GraphCrew {node} state={crewStates.get(node.id)!} allowance={motionBudget.get(node.id)!} zoom={camera.zoom} {reduced} departing={departures.has(node.id)} {gradientPrefix}/>
 								{/if}
 							</g>
 						</a>
 					</g>
 				{/if}
 			{/each}
+			{#if !reduced && camera.zoom >= .5}{#each reportCues as cue (cue.id)}
+				{@const from=positions.get(cue.workerId)}{@const to=positions.get(cue.taskId)}
+				{#if from&&to}<GraphReport {from} {to}/>{/if}
+			{/each}{/if}
 			{#each graph.nodes.filter(n=>n.kind==='task') as node (node.id)}
 				{@const p=positions.get(node.id)}
 				{#if p}<g class="task-caption" class:dimmed={!highlighted.has(node.id)} transform="translate({p.x} {p.y+node.radius+12*Math.max(1,.85/camera.zoom)}) scale({Math.max(1,.85/camera.zoom)})">
@@ -254,18 +289,18 @@
 <style>
 	.task-graph{--graph-todo:var(--chat-fg-subtle);--graph-working:var(--task-status-working);--graph-blocked:var(--tone-danger);--graph-review:var(--task-status-review);--graph-waiting:var(--chat-fg-subtle);display:flex;flex-direction:column;min-height:0;height:100%;color:var(--chat-fg);background:var(--chat-bg);overflow:hidden}
 	.graph-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--chat-border);font-size:12px;z-index:4}.graph-counts{color:var(--chat-fg-muted);font-size:11px}.view-menu{position:relative;margin-left:auto}.menu-toggle,.resting-chip{border:1px solid var(--chat-border);border-radius:16px;background:var(--chat-surface);padding:7px 12px;font-size:12px;cursor:pointer}.menu-panel{position:absolute;right:0;top:calc(100% + 8px);width:260px;max-width:calc(100vw - 30px);background:var(--chat-surface);border:1px solid var(--chat-border);border-radius:12px;box-shadow:var(--tone-shadow);padding:6px;z-index:5}.menu-panel label{display:flex;align-items:center;gap:8px;padding:10px 8px;min-height:40px;cursor:pointer}input{accent-color:var(--graph-working)}
-	.resting-workers{position:absolute;left:12px;bottom:12px;z-index:3}.resting-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:310px;max-width:calc(100vw - 32px);max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--chat-border);border-radius:14px;background:var(--chat-surface);box-shadow:var(--tone-shadow);font-size:12px}.resting-panel ul{list-style:none;padding:0;margin:6px 0 0}.resting-panel a{display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px}.resting-panel a:hover{background:var(--chat-surface-2)}.resting-panel span,.resting-panel small{color:var(--chat-fg-muted)}.resting-panel .failed small{color:var(--graph-blocked)}
+	.resting-workers{position:absolute;left:12px;bottom:12px;z-index:3}.resting-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:310px;max-width:calc(100vw - 32px);max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--chat-border);border-radius:14px;background:var(--chat-surface);box-shadow:var(--tone-shadow);font-size:12px}.resting-panel ul{list-style:none;padding:0;margin:6px 0 0}.resting-mascot{position:absolute;left:8px;top:8px}.resting-panel a{position:relative;padding-left:40px!important;display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px}.resting-panel a:hover{background:var(--chat-surface-2)}.resting-panel span,.resting-panel small{color:var(--chat-fg-muted)}.resting-panel .failed small{color:var(--graph-blocked)}
 	.graph-controls{position:absolute;bottom:12px;right:12px;display:flex;gap:4px;z-index:2}.graph-controls button{height:34px;min-width:34px;border:1px solid var(--chat-border);border-radius:10px;background:var(--chat-surface);font-size:14px;padding:0 8px;cursor:pointer}.graph-controls button:hover{background:var(--chat-surface-2)}
 	.graph-stage{position:relative;flex:1;min-height:220px;overflow:hidden;animation:arrive .5s ease-out}.graph-canvas{width:100%;height:100%;touch-action:none;cursor:grab;user-select:none;background:radial-gradient(ellipse at 40% 35%,color-mix(in srgb,var(--graph-working) 5%,transparent),transparent 65%)}.graph-canvas:active{cursor:grabbing}.dimmed{opacity:.15;transition:opacity .2s}.node-position{transition:opacity .2s}.node{--node-color:var(--graph-todo)}.status-working,.status-clarifying,.status-in_progress,.status-running{--node-color:var(--graph-working)}.status-blocked,.status-failed{--node-color:var(--graph-blocked)}.status-answer_needed,.status-review{--node-color:var(--graph-review)}.status-paused{--node-color:var(--chat-fg-subtle)}.status-blocked_by_task,.status-waiting_outside,.status-waiting{--node-color:var(--chat-fg-subtle)}.status-done{--node-color:var(--tone-success)}.closed{opacity:.35}
 	.cluster{fill:color-mix(in srgb,var(--chat-fg-subtle) 5%,var(--chat-bg));stroke:color-mix(in srgb,var(--chat-fg-subtle) 14%,transparent);stroke-width:1}
-	.edge{fill:none;stroke:var(--chat-fg-subtle);stroke-width:1.6;opacity:.45}.edge.parent{stroke:var(--graph-working);stroke-width:2}.edge.foundWhile{stroke:var(--graph-waiting);stroke-dasharray:2 6;stroke-linecap:round}.edge.blockedBy{stroke:var(--chat-fg-subtle);stroke-width:1.8;stroke-dasharray:5 5}.edge.blockedBy.edge-focused{stroke:var(--graph-blocked);opacity:.85}.edge.related{stroke:var(--graph-review);stroke-dasharray:8 6}.edge.dimmed{opacity:.08}
+	.edge{fill:none;stroke:var(--chat-fg-subtle);stroke-width:1.6;opacity:.45}.edge.parent{stroke:var(--graph-working);stroke-width:2}.edge.foundWhile{stroke:var(--graph-waiting);stroke-dasharray:2 6;stroke-linecap:round}.edge.blockedBy{stroke:var(--chat-fg-subtle);stroke-width:1.8;stroke-dasharray:5 5}.edge.blockedBy.edge-focused{stroke:var(--graph-blocked);opacity:.85;animation:blocked-dashes 2.4s linear infinite}.motion-still .edge.blockedBy.edge-focused{animation:none}.edge.related{stroke:var(--graph-review);stroke-dasharray:8 6}.edge.dimmed{opacity:.08}
 	.task-body{fill:color-mix(in srgb,var(--node-color) 23%,var(--chat-bg));stroke:var(--node-color);stroke-width:2}.task-id{font-size:12px;font-weight:600;font-family:var(--font-mono);fill:light-dark(#4338ca,#c7d2fe);text-anchor:middle;pointer-events:none}.graph-task-id-chip{fill:color-mix(in srgb,var(--accent-2) 12%,var(--chat-bg));pointer-events:none}:global([data-theme="neutral"]) .task-id{fill:var(--chat-fg)}.graph-label{fill:var(--chat-fg);stroke:var(--chat-bg);paint-order:stroke;text-anchor:middle;font-weight:550;pointer-events:none;stroke-linejoin:round}.progress-track{fill:none;stroke:var(--chat-border);stroke-width:3}.progress{fill:none;stroke:var(--graph-working);stroke-width:3;stroke-linecap:round}.attention-halo{fill:color-mix(in srgb,var(--node-color) 4%,transparent);stroke:var(--node-color);stroke-width:2;opacity:.4;}
-	a{cursor:pointer;outline:none}a:focus-visible .task-body,a:focus-visible .creature-body{stroke:var(--chat-fg);stroke-width:4}a:hover .task-body{stroke-width:3}
-	.creature-body{fill:color-mix(in srgb,var(--node-color) 60%,var(--chat-bg));stroke:var(--node-color);stroke-width:2}.thread .creature-body{fill:color-mix(in srgb,var(--graph-review) 55%,var(--chat-bg));stroke:var(--graph-review)}.eye{fill:var(--chat-fg);animation:blink 6s infinite;transform-origin:center;transform-box:fill-box}.face,.antenna{fill:none;stroke:var(--chat-fg);stroke-width:2;stroke-linecap:round}.antenna-tip{fill:var(--graph-waiting)}.reporting .antenna-tip{animation:report 1.6s ease-out}.cheek{fill:var(--graph-blocked);opacity:.6}.creature-shadow{fill:var(--chat-fg);opacity:.08}.working-hands{stroke:var(--chat-fg);stroke-width:2;fill:var(--chat-surface-2);animation:typing .55s ease-in-out infinite alternate;transform-origin:center}.busy{animation:busy 2.5s ease-in-out infinite;animation-delay:var(--delay)}.resting{animation:breathe 5s ease-in-out infinite;transform-origin:center}.sleep{font-size:18px;fill:var(--chat-fg-subtle)}
+	a{cursor:pointer;outline:none}a:focus-visible .task-body{stroke:var(--chat-fg);stroke-width:4}a:hover .task-body{stroke-width:3}
+
 	.node-tooltip{position:absolute;transform:translate(-50%,-100%);width:240px;max-width:calc(100% - 20px);border:1px solid var(--chat-border);border-radius:12px;padding:10px 12px;background:var(--chat-surface);box-shadow:var(--tone-shadow);pointer-events:none;z-index:2;font-size:13px;overflow-wrap:anywhere}.node-tooltip strong{display:block;font-weight:600}.node-tooltip span{display:block;margin-top:4px;font-size:11px;color:var(--chat-fg-muted)}.empty-graph{position:absolute;top:45%;width:100%;text-align:center;font-size:13px;color:var(--chat-fg-muted);pointer-events:none}
 	.legend{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;gap:12px;max-width:calc(100% - 24px);border:1px solid var(--chat-border);border-radius:10px;padding:8px 12px;background:var(--chat-surface);font-size:11px;color:var(--chat-fg-muted);z-index:2}
 	.part-done{stroke:var(--task-status-done)}.part-working{stroke:var(--task-status-working)}.part-needs-you{stroke:var(--task-status-review)}.part-other{stroke:var(--chat-fg-subtle)}:global(.state-glyph){color:var(--node-color)}.working-dot{fill:var(--node-color);animation:working-pulse 3s ease-in-out infinite}.task-caption{pointer-events:none}@keyframes working-pulse{50%{opacity:.4}}
-	@keyframes arrive{from{opacity:0}to{opacity:1}}@keyframes busy{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg) translateY(-2px)}}@keyframes typing{to{transform:translateY(1.5px) rotate(2deg)}}@keyframes breathe{50%{transform:scale(1.025) translateY(-1px)}}@keyframes blink{0%,43%,47%,100%{transform:scaleY(1)}45%{transform:scaleY(.15)}}@keyframes report{25%{fill:var(--graph-working);r:7}100%{r:4}}
+	@keyframes arrive{from{opacity:0}to{opacity:1}}@keyframes blocked-dashes{to{stroke-dashoffset:-20}}
 	@media(max-width:640px){.graph-toolbar{gap:8px;padding:8px 10px}.graph-counts{order:3;flex-basis:100%;font-size:11px}.graph-controls button,.menu-toggle,.resting-chip{min-height:40px;min-width:40px}.graph-controls{gap:3px}}
-	@media(prefers-reduced-motion:reduce){.graph-stage,.node-position,.busy,.resting,.eye,.working-hands,.attention-halo,.working-dot,.reporting .antenna-tip{animation:none}.dimmed,.node-position{transition:none}}
+	@media(prefers-reduced-motion:reduce){.graph-stage,.node-position,.attention-halo,.working-dot,.edge.blockedBy.edge-focused{animation:none}.dimmed,.node-position{transition:none}}
 </style>

@@ -47,6 +47,8 @@ await runtime.harness.commit(async tx=>{
 		for (const [id, taskId, status] of [['sketch','T3','idle'], ['soil','T11','idle'], ['archive','T24','idle'], ['scout',null,'idle'], ['plan',null,'idle'], ['retry',null,'failed']] as const) {
 			main.workers[id] = { ...workerFixture(id, taskId, status), updatedAt: new Date(Date.now() - 3_600_000 * (Object.keys(main.workers).length - 2)).toISOString(), ...(status === 'failed' ? { failure: 'Synthetic interrupted exploration' } : {}) };
 		}
+		main.workers['wait'] = workerFixture('wait', 'T5', 'idle');
+		main.workers['fix'] = { ...workerFixture('fix', 'T6', 'failed'), failure: 'Synthetic interrupted lens check' };
 		garden.workers['tidy'] = { ...workerFixture('tidy','T11','idle'), updatedAt: new Date(Date.now() - 7_200_000).toISOString() };
 	}
 },BACKGROUND_CONTEXT);
@@ -67,6 +69,10 @@ const controls=Bun.serve({port:0,hostname:'127.0.0.1',async fetch(request){
 			worker.updatedAt=new Date().toISOString();
 		},BACKGROUND_CONTEXT);
 		return new Response('worker changed');
+	}
+	if(path==='/reset') {
+		await runtime.harness.commit(async tx=>{const doc=await tx.doc(WorkersDoc,runtime.conversation.id);doc.workers.pip!.status='running';doc.workers.pip!.taskId='T4';doc.workers.dot!.status='running';},BACKGROUND_CONTEXT);
+		return new Response('workers reset');
 	}
 	if(path==='/arrive') {
 		const task=await runtime.board.saveTask({task:{title:'Check the miniature telescope carrying case and its soft lining',description:'Synthetic live arrival.',acceptance:null,status:'todo',blockedBy:[],blockedReason:null,writeScopes:[],parent:'T4'}},'coordinator');
