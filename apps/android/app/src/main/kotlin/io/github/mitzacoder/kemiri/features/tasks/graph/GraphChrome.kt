@@ -18,7 +18,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 @Composable
 internal fun GraphChrome(viewSwitch: @Composable () -> Unit, model: GraphModel, highlight: String?, onHighlight: (String?) -> Unit,
     onSearch: () -> Unit, onChanges: () -> Unit, unseen: Int, showClosed: Boolean, onClosed: () -> Unit, canvas: Boolean,
-    onCanvas: () -> Unit, connection: String, lastDataAt: Long, now: Long,
+    onCanvas: () -> Unit, connection: String, lastDataAt: Long, now: Long, restingCount: Int, onResting: () -> Unit,
 ) {
     var overflow by remember { mutableStateOf(false) }
     val status = when (connection) { "Ready" -> "Live"; "Reconnecting", "Connecting" -> "Reconnecting"; else -> "Offline" }
@@ -48,6 +48,7 @@ internal fun GraphChrome(viewSwitch: @Composable () -> Unit, model: GraphModel, 
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).semantics { contentDescription = "Task counters. Needs-you reasons overlap; a task can count in several reasons." }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (restingCount > 0) AssistChip(onClick = onResting, label = { Text("Resting · $restingCount") }, modifier = Modifier.heightIn(min = 48.dp))
                 model.counters.forEach { counter ->
                     FilterChip(selected = highlight == counter.key, onClick = { onHighlight(counter.key.takeUnless { it == highlight }) },
                         label = { Text("${counter.mark} ${counter.label} ${counter.count}") }, modifier = Modifier.heightIn(min = 48.dp))

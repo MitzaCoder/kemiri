@@ -9,6 +9,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
@@ -22,8 +25,10 @@ import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.R
 import kotlinx.coroutines.isActive
 
-enum class AgentMotion { Idle, Working, Waiting, Done }
-data class MascotPose(val y: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f, val leaf: Float = 0f, val blink: Float = 1f, val gazeX: Float = 0f, val gazeY: Float = 0f)
+enum class AgentMotion { Idle, Working, Waiting, Sleeping, Failed, Done }
+data class MascotPose(val y: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f, val leaf: Float = 0f, val blink: Float = 1f, val gazeX: Float = 0f, val gazeY: Float = 0f,
+    val rotation: Float = 0f, val mouthX: Float = 1f, val mouthY: Float = 1f, val opacity: Float = 1f,
+    val zOpacity: Float = 0f, val zTravel: Float = 0f, val zScale: Float = .6f)
 private val mascotEase = CubicBezierEasing(.42f, 0f, .58f, 1f)
 private fun keyframed(at: Float, vararg frames: Pair<Float, Float>): Float {
     val next = frames.indexOfFirst { it.first >= at }
@@ -43,6 +48,17 @@ fun mascotPose(state: AgentMotion, elapsedMs: Long): MascotPose {
                 leaf = keyframed(f,0f to 0f,.3f to -4.5f,.6f to 4.5f,1f to 0f),
                 blink = keyframed((t % 6000) / 6000f,0f to 1f,.91f to 1f,.925f to .08f,.94f to 1f,1f to 1f))
         }
+        AgentMotion.Sleeping -> {
+            val f = (t % 6000) / 6000f
+            val breath = keyframed(f, 0f to 0f, .5f to 1f, 1f to 0f)
+            MascotPose(scaleX = 1f + .02f * breath, scaleY = 1f - .02f * breath, leaf = 11f, blink = .1f,
+                mouthX = .55f, mouthY = .55f, opacity = .72f,
+                zOpacity = keyframed(f, 0f to 0f, .35f to 0f, .5f to .9f, .8f to 0f, 1f to 0f),
+                zTravel = keyframed(f, 0f to 0f, .35f to 0f, .8f to 1f, 1f to 1f),
+                zScale = keyframed(f, 0f to .6f, .35f to .6f, .8f to 1f, 1f to 1f))
+        }
+        AgentMotion.Failed -> MascotPose(rotation = keyframed((t / 500f).coerceAtMost(1f),
+            0f to -9f, .2f to -15f, .4f to -4f, .6f to -12f, .8f to -7f, 1f to -9f), blink = .45f, leaf = 17f, mouthY = -1f)
         AgentMotion.Done -> {
             val f = (t / 1300f).coerceAtMost(1f)
             MascotPose(y = keyframed(f,0f to 0f,.15f to 0f,.34f to -42f,.49f to -27.3f,.65f to 0f,.82f to -4f,1f to 0f),
@@ -74,8 +90,9 @@ fun mascotPose(state: AgentMotion, elapsedMs: Long): MascotPose {
 }
 
 /** Generated vector layers, animated in Compose. Idle and reduced-motion instances never run a frame loop. */
-@Composable fun AgentMascot(state: AgentMotion, modifier: Modifier = Modifier, size: Dp = 40.dp, label: String? = null) {
-    val reduced = rememberAgentReducedMotion()
+@Composable fun AgentMascot(state: AgentMotion, modifier: Modifier = Modifier, size: Dp = 40.dp, label: String? = null,
+    animate: Boolean = true, phaseMs: Long = 0L) {
+    val reduced = rememberAgentReducedMotion() || !animate
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(state,reduced) {
         elapsed = 0L
@@ -83,14 +100,19 @@ fun mascotPose(state: AgentMotion, elapsedMs: Long): MascotPose {
         var start = 0L
         while(isActive) {
             withFrameNanos { now -> if(start == 0L) start = now; elapsed = (now - start) / 1_000_000 }
-            if(state == AgentMotion.Done && elapsed >= 1300L) { elapsed = 1300L; break }
+            val duration = when (state) { AgentMotion.Done -> 1300L; AgentMotion.Failed -> 500L; else -> Long.MAX_VALUE }
+            if(elapsed >= duration) { elapsed = duration; break }
         }
     }
-    val pose = if(reduced) MascotPose() else mascotPose(state,elapsed)
+    val stillState = state in listOf(AgentMotion.Sleeping, AgentMotion.Failed, AgentMotion.Waiting)
+    val loop = state in listOf(AgentMotion.Working, AgentMotion.Waiting, AgentMotion.Sleeping)
+    val pose = if(reduced) { if(stillState) mascotPose(state,0) else MascotPose() }
+        else mascotPose(state,elapsed + if(loop) phaseMs else 0L)
+    val travel = if(size <= 32.dp) .45f else 1f
     fun origin(x: Float,y: Float) = TransformOrigin((x - 122f) / 780f,(y - 115f) / 780f)
     Box(modifier.size(size).semantics { if(label != null) contentDescription = label }) {
         Box(Modifier.fillMaxSize().graphicsLayer {
-            transformOrigin = origin(512f,850f); translationY = pose.y / 780f * size.toPx(); scaleX = pose.scaleX; scaleY = pose.scaleY
+            transformOrigin = origin(512f,850f); translationY = pose.y * travel / 780f * size.toPx(); scaleX = pose.scaleX; scaleY = pose.scaleY; rotationZ = pose.rotation; alpha = pose.opacity
         }) {
             Image(painterResource(R.drawable.ic_mascot_leaf),null,Modifier.fillMaxSize().graphicsLayer { transformOrigin = origin(523f,380f); rotationZ = pose.leaf })
             Image(painterResource(R.drawable.ic_mascot_body),null,Modifier.fillMaxSize())
@@ -98,7 +120,12 @@ fun mascotPose(state: AgentMotion, elapsedMs: Long): MascotPose {
                 Image(painterResource(R.drawable.ic_mascot_eye_left),null,Modifier.fillMaxSize().graphicsLayer { transformOrigin = origin(422f,592f); scaleY = pose.blink })
                 Image(painterResource(R.drawable.ic_mascot_eye_right),null,Modifier.fillMaxSize().graphicsLayer { transformOrigin = origin(602f,592f); scaleY = pose.blink })
             }
-            Image(painterResource(R.drawable.ic_mascot_mouth),null,Modifier.fillMaxSize())
+            Image(painterResource(R.drawable.ic_mascot_mouth),null,Modifier.fillMaxSize().graphicsLayer { transformOrigin = origin(512f,645f); scaleX = pose.mouthX; scaleY = pose.mouthY })
         }
+        if(state == AgentMotion.Sleeping && size >= 28.dp && !reduced) Text("z", fontSize = (size.value * .3f).sp,
+            modifier = Modifier.offset(x = size * .78f, y = size * -.12f).graphicsLayer {
+                alpha = pose.zOpacity; translationX = 70f * pose.zTravel / 780f * size.toPx(); translationY = -150f * pose.zTravel / 780f * size.toPx()
+                scaleX = pose.zScale; scaleY = pose.zScale
+            })
     }
 }

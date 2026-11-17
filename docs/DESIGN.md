@@ -3695,10 +3695,18 @@ Graph starts at one readable family, preferring a linked selection, otherwise th
 loads. Previous/next and a family picker preserve tree order. Hidden ancestors and cyclic parentage retain stable
 family identity; roots without subtasks still get their own group. Cards use status colours, marks and words, quiet
 subtask guides, overlapping reason marks, waiting dates, quiet age, family progress and unfinished holds-up totals.
-Compose creatures stand above the card edge: rounded bodies, antennae, busy typing/sway, resting eyes/breathing/z,
-and a failure mark. Workers and non-main threads are keyed by identity; canvas reassignment travels in world space,
-arrivals/finishes fade, and a changed non-empty report emits one bounded drawn spark. Disabled animations, background
-lifecycle and obscuring phone dialogs stop decoration without dropping status, report text or Updated marks.
+Official layered mascots stand above the card edge (T259): working, waiting (review or an open blocking question),
+sleeping (six-second breath, closed eyes, drooped leaf, 72% opacity and one z above 28dp), failed (one half-second
+shake then a slump), and successful finish (one hop then a 400ms fade; stopped workers never celebrate). Amber ? and
+red ! badges distinguish waiting/failure without recolouring the mascot. Non-main background jobs are 25% larger
+with a dashed ring. Workers and jobs are keyed by identity; canvas reassignment follows a 650ms world-space arc,
+and a changed non-empty report emits one bounded spark and task ring. Loops are identity-staggered, in-view only,
+limited to twelve, and still below 50% zoom. Disabled animations, background lifecycle and obscuring phone dialogs
+stop decoration without dropping the sleeping/failed pose, status, report text or Updated marks.
+Idle and failed workers whose task is closed, archived, hidden or absent leave both crew bands, even with Show closed.
+There is no age threshold. The toolbar's Resting count opens a native sheet with name, task and idle/failure age;
+rows open the existing transcript route with workerId and threadId, including background-job workers. Running crew
+are not classified as resting. The native card/family/canvas layout stays; web bubbles are not ported.
 
 The horizontal summary highlights rather than removes context, and offers the next matching family. Search ranks
 ID, title, family, worker and thread matches using the web weights. Picking a result reveals/selects it. Selection

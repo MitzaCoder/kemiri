@@ -45,14 +45,14 @@ internal fun graphTaskLabel(d: GraphTask, now: Long): String = buildList {
 }.joinToString(". ")
 
 @Composable
-internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches: Boolean, holdsUp: Int, now: Long, updated: Boolean = false, motion: Boolean = false, reports: Set<String> = emptySet(), onSelect: () -> Unit) {
+internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches: Boolean, holdsUp: Int, now: Long, updated: Boolean = false, motion: Boolean = false, reports: Set<String> = emptySet(), loopingCrew: Set<String> = emptySet(), onSelect: () -> Unit) {
     val colors = Jarvis.colors
     val tone = graphTone(graphTaskStatus(d.task))
     val guide = colors.fgMuted
     val shape = RoundedCornerShape(18.dp)
     val status = graphTaskLabel(d.task)
     val largeText = LocalDensity.current.fontScale > 1.3f
-    val crew = d.workers.map { it.status } + d.threads.filter { !it.main && !it.archived }.map { it.status }
+    val crew = graphCardCrew(d)
     Box(Modifier.fillMaxWidth().padding(top = if (crew.isEmpty()) 0.dp else 28.dp, start = depth.coerceAtMost(4).times(10).dp).drawBehind {
         if (depth > 0) drawLine(guide, Offset(2.dp.toPx(), 0f), Offset(2.dp.toPx(), size.height), 1.dp.toPx())
     }.padding(start = if (depth > 0) 10.dp else 0.dp)) {
@@ -79,9 +79,10 @@ internal fun GraphTaskCard(d: GraphTask, depth: Int, selected: Boolean, matches:
             if (holdsUp > 0) Text("⊣ holds up $holdsUp", color = colors.fg, style = MaterialTheme.typography.bodyMedium)
         }
         Row(Modifier.align(Alignment.TopEnd).offset(y = (-28).dp).padding(end = 12.dp)) {
-            val members = d.workers.map { Triple("worker:${it.id}", it.status, it.id) } + d.threads.filter { !it.main && !it.archived }.map { Triple("thread:${it.id}", it.status, it.id) }
-            members.take(3).forEach { (id, status, _) -> key(id, id in reports) { GraphCreature(status, tone, motion, id in reports) } }
-            if (members.size > 3) Text("+${members.size - 3}", color = colors.fg)
+            crew.take(3).forEach { member -> key(member.id) {
+                GraphCrewMascot(member, motion && (member.id in loopingCrew || member.state in listOf(io.github.mitzacoder.kemiri.ui.components.AgentMotion.Failed, io.github.mitzacoder.kemiri.ui.components.AgentMotion.Done)), member.id in reports, if (member.background) 40.dp else 32.dp)
+            } }
+            if (crew.size > 3) Text("+${crew.size - 3}", color = colors.fg)
         }
     }
 }

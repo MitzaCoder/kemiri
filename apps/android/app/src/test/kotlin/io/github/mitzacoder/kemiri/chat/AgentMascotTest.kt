@@ -44,6 +44,27 @@ class AgentMascotTest {
         assertEquals(MascotPose(),mascotPose(AgentMotion.Idle,1800))
         assertTrue(mascotPose(AgentMotion.Done,442).y < 0f)
     }
+    @Test fun sleepingBreathesSlowlyWithOneZAndKeepsItsStillPose() {
+        val still = mascotPose(AgentMotion.Sleeping, 0)
+        assertEquals(still, mascotPose(AgentMotion.Sleeping, 6000))
+        assertEquals(.72f, still.opacity, 0f); assertEquals(.1f, still.blink, 0f)
+        assertEquals(11f, still.leaf, 0f); assertEquals(.55f, still.mouthX, 0f)
+        val peak = mascotPose(AgentMotion.Sleeping, 3000)
+        assertEquals(1.02f, peak.scaleX, .001f); assertEquals(.98f, peak.scaleY, .001f)
+        assertEquals(.9f, peak.zOpacity, .001f)
+        assertEquals(0f, mascotPose(AgentMotion.Sleeping, 2100).zOpacity, 0f)
+        val gone = mascotPose(AgentMotion.Sleeping, 4800)
+        assertEquals(0f, gone.zOpacity, 0f); assertEquals(1f, gone.zTravel, 0f); assertEquals(1f, gone.zScale, 0f)
+    }
+    @Test fun failedShakesOnceThenKeepsTheSlump() {
+        listOf(-9f, -15f, -4f, -12f, -7f, -9f).forEachIndexed { i, expected ->
+            assertEquals(expected, mascotPose(AgentMotion.Failed, i * 100L).rotation, .001f)
+        }
+        val still = mascotPose(AgentMotion.Failed, 0)
+        assertEquals(still, mascotPose(AgentMotion.Failed, 500))
+        assertEquals(still, mascotPose(AgentMotion.Failed, 9000))
+        assertEquals(.45f, still.blink, 0f); assertEquals(17f, still.leaf, 0f); assertEquals(-1f, still.mouthY, 0f)
+    }
     @Test fun largerMascotUsesFullVectorMotion() {
         assertEquals(-12f,mascotPose(AgentMotion.Working,1500).y,.001f)
         assertEquals(-4.5f,mascotPose(AgentMotion.Working,900).leaf,.001f)

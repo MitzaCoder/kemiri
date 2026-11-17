@@ -60,11 +60,13 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
     var searchOpen by rememberSaveable(key) { mutableStateOf(false) }
     var pickerOpen by rememberSaveable(key) { mutableStateOf(false) }
     var changesOpen by rememberSaveable(key) { mutableStateOf(false) }
+    var restingOpen by rememberSaveable(key) { mutableStateOf(false) }
     var canvas by rememberSaveable(key) { mutableStateOf(false) }
     var query by rememberSaveable(key) { mutableStateOf("") }
     var scrollTo by rememberSaveable(key) { mutableStateOf<String?>(null) }
     val canvasState = remember(key) { GraphCanvasState() }
     val families = remember(model, showClosed, selectedId, live.linger.keys.toSet()) { model.families(showClosed, selectedId, live.linger.keys.toSet()) }
+    val resting = model.restingWorkers(families.flatMap { it.cards }.map { it.id }.toSet())
     val family = families.find { it.id == familyId } ?: families.find { it.id == initialGraphFamily(families, selectedId?.let(model.details::get)) }
     val scope = rememberCoroutineScope(); val list = rememberLazyListState(); val colors = Jarvis.colors
     LaunchedEffect(family?.id, authoritative) { if (familyId == null && family != null && authoritative) familyId = family.id }
@@ -84,6 +86,7 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
             searchOpen -> searchOpen = false
             pickerOpen -> pickerOpen = false
             changesOpen -> changesOpen = false
+            restingOpen -> restingOpen = false
             else -> {
                 val next = graphNavigateBack(GraphNavigation(sheetOpen, selectedId, highlight, canvas))
                 if (next == null) onLeave() else { sheetOpen = next.sheet; selectedId = next.selected; highlight = next.highlight; canvas = next.canvas }
@@ -92,12 +95,12 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
-        val decorativeMotion = motion && !searchOpen && !changesOpen && !pickerOpen && (wide || !sheetOpen)
+        val decorativeMotion = motion && !searchOpen && !changesOpen && !pickerOpen && !restingOpen && (wide || !sheetOpen)
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 GraphChrome(viewSwitch, model, highlight, { highlight = it }, { searchOpen = true }, { changesOpen = true }, live.unseen,
                     showClosed, { showClosed = !showClosed }, canvas, { if (canvas) canvas = false else enterCanvas() },
-                    connection.status.name, live.lastDataAt, now)
+                    connection.status.name, live.lastDataAt, now, resting.size, { restingOpen = true })
                 view.error?.let { Text(it, color = colors.fg) }
                 if (highlight != null) {
                     val matching = families.filter { f -> f.cards.any { model.matches(it.id, highlight) } }
@@ -126,7 +129,10 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
                     items(family?.cards.orEmpty(), key = { it.id }) { card ->
                         val d = model.details.getValue(card.id)
                         GraphTaskCard(d, card.depth, selectedId == card.id, model.matches(card.id, highlight), model.holdsUp(card.id).total, now,
-                            live.glows[card.id]?.let { it > now } == true, decorativeMotion, live.reports.keys) { select(card.id) }
+                            live.glows[card.id]?.let { it > now } == true, decorativeMotion, live.reports.keys,
+                            graphLoopingWorkers(family?.cards.orEmpty().flatMap { c ->
+                                graphTaskCrew(model.details.getValue(c.id)).take(3).map { GraphMotionCandidate(it.id, it.state, list.layoutInfo.visibleItemsInfo.any { item -> item.key == c.id }) }
+                            }, 1f, decorativeMotion)) { select(card.id) }
                     }
                     item(key = "overview") { TextButton(onClick = { enterCanvas() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("All families") } }
                 }
@@ -139,6 +145,12 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
         if (!wide && sheetOpen && selectedId != null) ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             GraphDetails(selectedId!!, model, now, ::select, { context.openTask(selectedId!!) }, { sheetOpen = false }, Modifier.fillMaxWidth().fillMaxHeight(.86f))
         }
+    }
+    if (restingOpen) ModalBottomSheet(onDismissRequest = { restingOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        GraphRestingSheet(resting, model, now, { worker ->
+            restingOpen = false
+            context.navigate(context.route.copy(workerId = worker.id, threadId = worker.threadId?.takeUnless { it == "main" }, highlight = null))
+        })
     }
     if (searchOpen) GraphSearchDialog(model, query, { query = it }, ::select, { searchOpen = false })
     if (changesOpen) GraphChangesDialog(live.entries, now, ::select, { changesOpen = false })

@@ -49,7 +49,16 @@ fun graphWaitingDate(until: String?, now: Long): String {
     return if (at < now) "overdue" else "until " + DateTimeFormatter.ofPattern("MMM d").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at))
 }
 
-class GraphModel(val details: Map<String, GraphTask>) {
+/** No clock: closed, archived, hidden and absent tasks cannot keep idle/failed workers on the graph. */
+fun graphWorkerRests(status: String, task: BoardTask?, visibleTaskIds: Set<String>): Boolean =
+    status in listOf("idle", "failed") && (task == null || task.archived || graphClosed(task.status) || task.id !in visibleTaskIds)
+
+class GraphModel(val details: Map<String, GraphTask>, val workers: List<WorkerSummary> = emptyList()) {
+    fun workerTask(worker: WorkerSummary): BoardTask? = worker.taskId?.let { details[it]?.task }
+        ?: if (worker.taskId == null) details.values.firstOrNull { worker.id in it.task.workerIds }?.task else null
+    fun restingWorkers(visibleTaskIds: Set<String>): List<WorkerSummary> = workers.filter {
+        graphWorkerRests(it.status, workerTask(it), visibleTaskIds)
+    }
     private val counted = details.values.filter { !it.task.archived }
     private val derived = counted.any { it.task.state != null }
     private val counterReasons = if (derived) listOf("failed", "question", "review").map { graphReason(it, true) } else graphReasons
@@ -89,7 +98,7 @@ class GraphModel(val details: Map<String, GraphTask>) {
         if (needle.isEmpty()) return emptyList()
         return counted.mapNotNull { d ->
             val candidates = listOf(Triple(d.task.id, 100, "Task ID"), Triple(d.task.title, 80, "Title"), Triple(d.familyTitle, 50, "Family")) +
-                d.workers.flatMap { listOf(Triple(it.id, 70, "Worker"), Triple(it.title, 60, "Worker")) } + d.threads.map { Triple(it.title, 40, "Thread") }
+                d.workers.flatMap { listOf(Triple(it.id, 70, "Worker"), Triple(it.title, 60, "Worker")) } + d.threads.map { Triple(it.title, 40, "Background job") }
             val best = candidates.map { (text, weight, kind) ->
                 val value = text.lowercase()
                 GraphSearchResult(d.task.id, when { value == needle -> weight + 20; value.startsWith(needle) -> weight + 10; needle in value -> weight; else -> 0 }, kind)
@@ -178,7 +187,7 @@ fun buildGraphModel(tasks: List<BoardTask>, questions: List<BoardQuestion>, work
         task.id to GraphTask(task, familyId, byId[familyId]?.title ?: familyId, progress.getValue(familyId), reasons, taskQuestions,
             !graphClosed(task.status) && (graphTimestamp(task.updatedAt)?.let { now - it >= 48 * 3_600_000L } ?: false),
             children[task.id].orEmpty().map { it.id }, blocks[task.id].orEmpty(), taskWorkers, threadsByTask[task.id].orEmpty())
-    })
+    }, workers)
 }
 
 /** Sheet dismissal preserves selection. The next Back clears selection/highlights; the next leaves Graph. */
