@@ -20,6 +20,14 @@ describe('graph caption collision and level of detail',()=>{
 			}
 		}
 	});
+	it('keeps every eligible two-line title, without one enlarged caption hiding its neighbours',()=>{
+		const positions=settledGraphPositions(graph);
+		for(const zoom of [.6,.7,1,2]) {
+			const labels=placeGraphLabels(graph,positions,{x:0,y:0,zoom},1440,900);
+			expect(labels.size).toBe(graph.nodes.length);
+			for(const label of labels.values())expect(label.lines.length).toBeLessThanOrEqual(2);
+		}
+	});
 	it('hides minor labels at low zoom, truncates only captions, leaves full titles intact',()=>{
 		const positions=settledGraphPositions(graph);
 		const labels=placeGraphLabels(graph,positions,{x:650,y:850,zoom:.25},1440,1000);
@@ -34,6 +42,19 @@ describe('pre-settled stable updates and worker travel',()=>{
 		const next=settledGraphPositions(buildTaskGraph([...board.map(t=>({...t,status:'review' as const})),task('T81','T2')],[],[],[]),previous);
 		for(const [id,p] of previous) {expect(next.get(id)!.x).toBe(p.x);expect(next.get(id)!.y).toBe(p.y);}
 	});
+	it('adds whole families around retained tasks without overlapping bubbles or captions',()=>{
+		const small=buildTaskGraph(board.slice(0,24),[],[],[]),previous=settledGraphPositions(small);
+		const positions=settledGraphPositions(graph,previous);
+		for(const [id,p] of previous)expect(positions.get(id)).toEqual(p);
+		const circles=[...positions.values()];
+		for(let i=0;i<circles.length;i++)for(let j=i+1;j<circles.length;j++) {
+			const a=circles[i]!,b=circles[j]!;
+			expect(Math.hypot(a.x-b.x,a.y-b.y)).toBeGreaterThan(a.radius+b.radius+20);
+		}
+		const labels=[...placeGraphLabels(graph,positions,{x:0,y:0,zoom:1},1440,900).values()];
+		expect(labels).toHaveLength(graph.nodes.length);
+		for(let i=0;i<labels.length;i++)for(let j=i+1;j<labels.length;j++)expect(boxesOverlap(labels[i]!,labels[j]!)).toBe(false);
+	});
 	it('reanchors a worker when its task changes; interpolates, then removes it',()=>{
 		const worker={id:'pip',title:'Care for the lens',status:'running' as const,model:{provider:'faux',modelId:'faux-1'},thinkingLevel:null,isolation:'shared' as const,workspacePath:null,conversationId:2,spawnedByCallId:null,createdAt:'2026-01-01',updatedAt:'2026-01-01',lastReport:null,failure:null,taskId:'T2'};
 		const first=settledGraphPositions(buildTaskGraph(board,[],[worker],[]));
@@ -45,6 +66,20 @@ describe('pre-settled stable updates and worker travel',()=>{
 		expect(Math.hypot(halfway.x-to.x,halfway.y-to.y)).toBeGreaterThan(0);
 		expect(interpolateGraphPositions(first,destination,1)).toEqual(destination);
 		expect(settledGraphPositions(buildTaskGraph(board,[],[{...worker,status:'done'}],[]),destination).has('worker:pip')).toBe(false);
+	});
+	it('perches workers and background jobs on the task rim, including multiple crew and retained updates',()=>{
+		const worker={id:'one',title:'One',status:'running' as const,model:{provider:'faux',modelId:'faux-1'},thinkingLevel:null,isolation:'shared' as const,workspacePath:null,conversationId:2,spawnedByCallId:null,createdAt:'2026-01-01',updatedAt:'2026-01-01',lastReport:null,failure:null,taskId:'T1'};
+		const thread={id:'crew',title:'Crew',main:false,archived:false,status:'running',taskId:'T1',ownedTasks:['T1']} as import('@kemiri/protocol').ThreadSummary;
+		const graph=buildTaskGraph(board,[],[worker,{...worker,id:'two'}],[thread]);
+		const first=settledGraphPositions(graph),next=settledGraphPositions(graph,first);
+		for(const positions of [reconcileGraphPositions(graph),first,next]) {
+			const parent=positions.get('task:T1')!;
+			for(const node of graph.nodes.filter(n=>n.kind!=='task')) {
+				const p=positions.get(node.id)!;
+				expect(Math.hypot(p.x-parent.x,p.y-parent.y)).toBeCloseTo(parent.radius+node.radius*.55,6);
+			}
+			expect(positions.get('worker:one')).not.toEqual(positions.get('worker:two'));
+		}
 	});
 	it('precomputes deterministic finite positions and does not mutate its previous map',()=>{
 		const previous=reconcileGraphPositions(graph), copy=structuredClone(previous);

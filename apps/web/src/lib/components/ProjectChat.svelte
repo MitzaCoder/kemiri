@@ -66,7 +66,7 @@
 	import { visibleSidebarTabs, type SidebarTab } from '#lib/sidebar.js';
 	import { questionBadgeText, questionsWaitingLabel } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
-	import { taskRefs, withTask } from '#lib/tasks.js';
+	import { taskFromUrl, taskRefs, withTask } from '#lib/tasks.js';
 	import { notifications } from '#lib/notifications.svelte.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { headerActionShowsLabel, headerLayout, visibleHeaderActions } from '#lib/chat/header.js';
@@ -666,8 +666,8 @@
 		await backend.client.submit(projectId, text, { whenBusy: 'steer', taskId });
 	}
 
-	function workerLink(worker: { id: string }): string {
-		return workerHref(backend.id, projectId, worker.id, threadId);
+	function workerLink(worker: { id: string; threadId?: string }): string {
+		return workerHref(backend.id, projectId, worker.id, worker.threadId ?? threadId);
 	}
 
 	function taskLink(taskId: string): string {
@@ -1114,6 +1114,7 @@
 								{board}
 								workers={workerList}
 								graphWorkers={workers?.allWorkers ?? []}
+								selectedTaskId={taskFromUrl(page.url)}
 								scope={`${backend.id}:${projectId}`}
 								threads={threadList}
 								workerHref={(worker) => workerLink(worker)}

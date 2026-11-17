@@ -3510,28 +3510,43 @@ Bubble club is the chosen web graph: soft clusters and round worker creatures, w
 renderers. Expanded Tasks offers List | Board | Graph; the narrow sidebar stays a list. The choice is local per
 backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only; tasks open the existing sheet.
 
-- Active tasks appear by default; Show closed adds faded done/dropped tasks. Archived tasks stay out. Parent families
-  gather together, including nested descendants. Solid parent, dotted found-while, dashed related and arrowed blocked-by
-  edges have a legend. Arrows point from the blocked task to what it needs. Status has colour and spoken words;
-  parent progress rings show done/total. With task-state, node colours/attention use the derived kind: failed,
-  answer needed and review need the owner, paused is quiet rather than working, task blockers use Waiting.
-  Without state, review, open questions/warnings and failed workers retain their previous attention mapping.
+- Active tasks appear by default; View → Closed tasks adds faded done/dropped tasks. Archived tasks stay out.
+  Parent families gather together, including nested descendants. Solid parent links and grey dashed blocked-by arrows
+  remain visible; a hovered/selected endpoint turns its blocker red. Found-while/related links appear only around the
+  hovered/selected task's family/blocker neighbourhood, or with View → All links. Arrows point to the prerequisite. View also contains
+  the optional legend and Resting workers on the graph. Counts replace the decorative heading; zoom controls float
+  bottom right with 40px touch targets. There is no always-on legend, read-only badge or gesture hint.
+- Task bubbles contain the list's state glyphs and slow working dot, in list tones (working indigo, needs-you amber,
+  failed red; waiting/to-do/paused grey). Each has an ID chip below it and a two-line title; small task titles disappear
+  below 60% zoom, but IDs remain. Family blobs share one neutral tint. Segmented rings reuse `taskPartProgress` from
+  `subtaskStates`, with done/total arcs for old backends. Attention halos are static and task-only.
 - Existing board/worker/thread watches supply real shapes. The graph reads the project-wide worker list without
   changing the chat's thread filter. Running creatures type and sway gently; idle ones breathe and sleep. Changed
-  nonempty reports send one spark, never a periodic fake report. Reassigned workers travel to their new task;
-  finished/removed workers fade away. Threads are bigger characters linked to their tasks and workers.
+  nonempty reports flash the antenna once, never a periodic fake report. Reassigned workers travel to their new task;
+  finished/removed workers fade away. Threads are bigger characters on their task's rim, as are workers; neither has
+  worker/owns edges. Idle/failed workers whose task is closed, archived, hidden or absent go to a separate `resting`
+  list (no age threshold, even with closed tasks visible). Running workers stay. The Resting count chip opens a list
+  with worker name, task, status and idle age, linking directly to the transcript, including the background thread.
+  View can put resting workers back on the canvas; unassigned crew use free grid slots, never a parking column.
+  The pure `graphWorkerRests`, `visibleGraphTasks` and `visibleGraphEdges` helpers live in `task-graph.ts`, ready for
+  the later Live/All folding stage (T255). Mascot artwork and pop-ups remain later stages (T256–T258).
 - A small deterministic layout module pre-settles new nodes before rendering. Existing task positions stay fixed on
   watch replacements; arrivals ease in and updates never refit the camera. Collision bounds include caption space.
-  Label placement excludes nodes and other labels; minor labels disappear at low zoom or when no safe slot remains.
+  Collision footprints reserve below-bubble captions; rim placement runs after settling. Caption sizing shrinks
+  toward world size if necessary to avoid nodes/other titles, reserving every eligible title before enlarging any.
+  At overview zoom a parent title with no safe slot is omitted; IDs and full-title tooltips remain. Narrow initial
+  layouts use one family column and three single-task columns; existing task positions remain fixed.
   Hover/focus reveals a full-title tooltip and highlights family/blockers. Every node is keyboard focusable.
 - Initial cluster columns follow the viewport aspect ratio; retained positions do not reflow on resize or watch updates.
   First open fits the active graph with padding on desktop and phone. Fit resets framing explicitly. Drag nodes or
   pan the background; wheel, buttons and pinch zoom. Camera state is local per backend/project under
   `task-graph.camera.v1:`. Resizing preserves world centre and zoom. No link editing or task moves.
-- Reduced motion disables floating, typing, transitions, departing fades and sparks, retaining status, progress and
+- Reduced motion disables floating, typing, transitions, departing fades and antenna flashes, retaining status, progress and
   attention. List remains the full accessible reading path. Android keeps its separate native family graph below.
 - Synthetic proof uses the throwaway backend seed script. Loopback-only controls exercise reports, reassignment,
-  completion, task arrival and 80 tasks/10 workers. No installed data or real worker tools are used.
+  completion, task arrival and 80-task stress loading. `GRAPH_DEMO_SCENARIO=busy` adds idle crew on closed tasks,
+  taskless idle crew and a taskless failure, including a background-thread resting worker. No installed data or real
+  worker tools are used.
 
 **Android family graph and project canvas (T115–T116).**
 

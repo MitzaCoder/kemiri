@@ -27,7 +27,7 @@ const titles=['Build a tiny observatory','Create a pocket garden','Sketch the do
 const states:BoardTaskInput['status'][]=['in_progress','in_progress','done','in_progress','review','blocked','todo','in_progress','todo','waiting','done','review','todo','blocked','todo','blocked','todo','review','todo','review','todo','waiting','todo','done','todo'];
 for(let i=0;i<titles.length;i++) {
 	const parent=i>=2&&i<=6?'T1':i>=7&&i<=11?'T2':i===12?'T4':null;
-	await runtime.board.saveTask({task:{title:titles[i]!,description:'An invented task for the graph look study.',acceptance:null,refs:[],status:states[i]!,blockedBy:i===5?['T5']:i===13?['T6']:i===15?['T14']:[],blockedReason:null,writeScopes:[],parent,foundWhile:i===13?'T4':i===14?'T8':null,related:i===18?['T17']:[],...(states[i]==='waiting'?{waitingFor:'A sample parcel'}:{})}},'coordinator');
+	await runtime.board.saveTask({task:{title:titles[i]!,description:'An invented task for the graph look study.',acceptance:null,refs:[],status:states[i]!,blockedBy:i===5?['T5']:i===13?['T6']:i===15?['T14']:[],blockedReason:states[i]==='blocked'?'Synthetic check needs repair':null,writeScopes:[],parent,foundWhile:i===13?'T4':i===14?'T8':null,related:i===18?['T17']:[],...(states[i]==='waiting'?{waitingFor:'A sample parcel'}:{})}},'coordinator');
 }
 await runtime.harness.commit(async tx=>{
 	const doc=await tx.doc(BoardDoc,runtime.conversation.id);const now=new Date().toISOString();
@@ -37,12 +37,18 @@ await runtime.harness.commit(async tx=>{
 const started=await runtime.threads.start({id:'garden',title:'Garden crew',brief:'Synthetic held session.',model:null,thinkingLevel:null,onFinish:'record',startedBy:'main',scheduleId:null,taskId:'T2',key:'graph-demo'});
 if(!started.ok)throw new Error(started.message);
 const threadId=started.record.conversationId;
-const workerFixture=(id:string,taskId:string,status:WorkerRecord['status']):WorkerRecord=>({id,title:`Care for ${taskId}`,conversationId:runtime.conversation.id,anchorTaskId:0,isolation:'shared',workspacePath:null,model:{provider:'faux',modelId:'faux-1'},thinkingLevel:null,status,taskId,spawnedByCallId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),lastReport:null,failure:null});
+const workerFixture=(id:string,taskId:string|null,status:WorkerRecord['status']):WorkerRecord=>({id,title:taskId ? `Care for ${taskId}` : 'Explore next steps',conversationId:runtime.conversation.id,anchorTaskId:0,isolation:'shared',workspacePath:null,model:{provider:'faux',modelId:'faux-1'},thinkingLevel:null,status,taskId,spawnedByCallId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),lastReport:null,failure:null});
 // Durable fixture records drive the same workers.state/threads.state watches as real runs.
 await runtime.harness.commit(async tx=>{
 	const main=await tx.doc(WorkersDoc,runtime.conversation.id);const garden=await tx.doc(WorkersDoc,threadId as never);
 	for(const [id,task,status] of [['pip','T4','running'],['dot','T5','running'],['moss','T19','running'],['nap','T7','idle']] as const)main.workers[id]=workerFixture(id,task,status);
 	garden.workers['bud']=workerFixture('bud','T8','running');garden.workers['dew']=workerFixture('dew','T9','running');
+	if (process.env.GRAPH_DEMO_SCENARIO === 'busy') {
+		for (const [id, taskId, status] of [['sketch','T3','idle'], ['soil','T11','idle'], ['archive','T24','idle'], ['scout',null,'idle'], ['plan',null,'idle'], ['retry',null,'failed']] as const) {
+			main.workers[id] = { ...workerFixture(id, taskId, status), updatedAt: new Date(Date.now() - 3_600_000 * (Object.keys(main.workers).length - 2)).toISOString(), ...(status === 'failed' ? { failure: 'Synthetic interrupted exploration' } : {}) };
+		}
+		garden.workers['tidy'] = { ...workerFixture('tidy','T11','idle'), updatedAt: new Date(Date.now() - 7_200_000).toISOString() };
+	}
 },BACKGROUND_CONTEXT);
 let sequence=0;
 let stressSeeded=false;

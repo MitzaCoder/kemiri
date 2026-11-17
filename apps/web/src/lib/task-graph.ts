@@ -6,14 +6,32 @@ export type GraphNode = {
 	task?: BoardTask; worker?: WorkerSummary; thread?: ThreadSummary;
 	parent: string | null; attention: boolean; radius: number;
 };
-export type GraphEdge = { id: string; from: string; to: string; kind: BoardLinkKind | 'working' | 'owns' };
-export type TaskGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
+export type GraphEdge = { id: string; from: string; to: string; kind: BoardLinkKind };
+export type TaskGraph = { nodes: GraphNode[]; edges: GraphEdge[]; resting: WorkerSummary[] };
+
+/** No clock: idle/failed crew rest whenever their task is not open and visible. */
+export function graphWorkerRests(worker: WorkerSummary, task: BoardTask | undefined, visibleTaskIds: ReadonlySet<string>): boolean {
+	return ['idle', 'failed'].includes(worker.status) && (!task || task.archived || ['done', 'dropped'].includes(task.status) || !visibleTaskIds.has(task.id));
+}
+
+export function visibleGraphTasks(tasks: readonly BoardTask[], showClosed = false): BoardTask[] {
+	return tasks.filter(task => !task.archived && (showClosed || !['done', 'dropped'].includes(task.status)));
+}
+
+/** Keep the complete relation model; only presentation filters optional links. */
+export function visibleGraphEdges(graph: TaskGraph, focused: string | null = null, allLinks = false): GraphEdge[] {
+	const neighborhood = focused ? graphNeighborhood(graph, focused) : new Set<string>();
+	return graph.edges.filter(edge => edge.kind === 'parent' || edge.kind === 'blockedBy' || (['foundWhile', 'related'].includes(edge.kind) && (allLinks || neighborhood.has(edge.from) || neighborhood.has(edge.to))));
+}
 const taskKey = (id: string) => `task:${id}`;
-export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly BoardQuestion[], workers: readonly WorkerSummary[], threads: readonly ThreadSummary[], showClosed = false): TaskGraph {
-	const shown = tasks.filter(task => !task.archived && (showClosed || !['done', 'dropped'].includes(task.status)));
+export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly BoardQuestion[], workers: readonly WorkerSummary[], threads: readonly ThreadSummary[], showClosed = false, showResting = false): TaskGraph {
+	const shown = visibleGraphTasks(tasks, showClosed);
+	const visibleTaskIds = new Set(shown.map(task => task.id));
+	const resting: WorkerSummary[] = [];
+	const failedTasks = new Set(workers.filter(worker => worker.status === 'failed' && worker.taskId).map(worker => worker.taskId));
 	const attention = new Set(questions.filter(q => q.status === 'open' && q.waitingOn !== 'agent').flatMap(q => q.taskId ? [q.taskId] : []));
 	for (const worker of workers) if (worker.status === 'failed' && worker.taskId) attention.add(worker.taskId);
-	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: graphTaskState(task), task,
+	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: !task.state && failedTasks.has(task.id) ? 'failed' : graphTaskState(task), task,
 		parent: task.parent ? taskKey(task.parent) : null, attention: task.state ? task.state.group === 'needs_you' : task.status === 'review' || attention.has(task.id), radius: (task.subtaskCount?.total ?? tasks.filter(t => t.parent === task.id).length) > 0 ? 47 : 29 }));
 	const edges: GraphEdge[] = [];
 	const add = (from: string, to: string, kind: GraphEdge['kind']) => {
@@ -26,20 +44,24 @@ export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly 
 			for (const target of targets) add(taskKey(task.id), taskKey(target), kind);
 	}
 	for (const thread of threads.filter(t => !t.main && !t.archived && t.status !== 'done')) {
-		const parent = thread.taskId ?? thread.ownedTasks.find(id => shown.some(t => t.id === id));
-		nodes.push({id:`thread:${thread.id}`, kind:'thread', title:thread.title, status:thread.status, thread, parent:parent ? taskKey(parent) : null, attention:thread.status === 'failed', radius:32});
-		for (const id of new Set([...(thread.taskId ? [thread.taskId] : []), ...thread.ownedTasks])) add(`thread:${thread.id}`, taskKey(id), 'owns');
+		const parent = thread.taskId && visibleTaskIds.has(thread.taskId) ? thread.taskId : thread.ownedTasks.find(id => visibleTaskIds.has(id));
+		nodes.push({id:`thread:${thread.id}`, kind:'thread', title:thread.title, status:thread.status, thread, parent:parent ? taskKey(parent) : null, attention:false, radius:32});
+
 	}
 	for (const worker of workers.filter(w => !['done','stopped'].includes(w.status))) {
-		const task = worker.taskId ?? shown.find(t => t.workerIds.includes(worker.id))?.id;
 		const thread = nodes.find(n => n.id === `thread:${worker.threadId}`);
+		const taskId = worker.taskId ?? tasks.find(t => t.workerIds.includes(worker.id))?.id;
+		const task = tasks.find(t => t.id === taskId);
+		if (graphWorkerRests(worker, task, visibleTaskIds)) {
+			resting.push(worker);
+			if (!showResting) continue;
+		}
 		if (!task && !thread && worker.status !== 'running' && worker.status !== 'idle' && worker.status !== 'failed') continue;
-		nodes.push({id:`worker:${worker.id}`, kind:'worker', title:worker.title, status:worker.status, worker, parent:task && shown.some(t => t.id === task) ? taskKey(task) : thread?.id ?? null, attention:worker.status === 'failed', radius:21});
-		if (task) add(`worker:${worker.id}`, taskKey(task), 'working');
-		if (thread) add(`worker:${worker.id}`, thread.id, 'owns');
+		nodes.push({id:`worker:${worker.id}`, kind:'worker', title:worker.title, status:worker.status, worker, parent:task && visibleTaskIds.has(task.id) ? taskKey(task.id) : thread?.parent ?? null, attention:false, radius:21});
+
 	}
 	const ids = new Set(nodes.map(n => n.id));
-	return {nodes, edges:edges.filter(e => ids.has(e.from) && ids.has(e.to))};
+	return {nodes, resting, edges:edges.filter(e => ids.has(e.from) && ids.has(e.to))};
 }
 
 /** Family to any depth, plus blockers in either direction. No unrelated found-while expansion. */
@@ -54,7 +76,8 @@ export function graphNeighborhood(graph: TaskGraph, id: string | null): Set<stri
 		}
 	}
 	const highlighted = new Set(family);
-	for (const edge of graph.edges) if ((edge.kind === 'blockedBy' || edge.kind === 'working' || edge.kind === 'owns') && (family.has(edge.from) || family.has(edge.to))) { highlighted.add(edge.from); highlighted.add(edge.to); }
+	for (const edge of graph.edges) if (edge.kind === 'blockedBy' && (family.has(edge.from) || family.has(edge.to))) { highlighted.add(edge.from); highlighted.add(edge.to); }
+	for (const node of graph.nodes) if (node.kind !== 'task' && node.parent && highlighted.has(node.parent)) highlighted.add(node.id);
 	return highlighted;
 }
 export function graphLabel(node: GraphNode): string {
@@ -74,8 +97,9 @@ export function reconcileGraphPositions(graph: TaskGraph, previous = new Map<str
 	const roots = graph.nodes.filter(n => n.kind === 'task' && !graph.nodes.some(p => p.id === n.parent));
 	const families = roots.filter(n => graph.nodes.some(child => child.kind === 'task' && child.parent === n.id));
 	const singles = roots.filter(n => !families.includes(n));
-	const columns = aspect < 1 ? 2 : Math.max(2,Math.min(5,Math.ceil(Math.sqrt(families.length*aspect*.8))));
+	const columns = aspect < 1 ? 1 : Math.max(2,Math.min(5,Math.ceil(Math.sqrt(families.length*aspect*.8))));
 	const familyRows = Math.ceil(families.length/columns);
+	const singleColumns = aspect < 1 ? 3 : 6;
 	for (const node of graph.nodes) {
 		const retained = previous.get(node.id);
 		if (retained && (node.kind === 'task' || retained.parentId === node.parent)) positions.set(node.id, {...retained, radius:node.radius});
@@ -87,22 +111,37 @@ export function reconcileGraphPositions(graph: TaskGraph, previous = new Map<str
 		let x: number, y:number;
 		if (parent) {
 			const center = place(parent, visited);
-			const siblings = graph.nodes.filter(n => n.parent === parent.id && n.kind === node.kind).sort((a,b) => a.id.localeCompare(b.id));
-			const angle = node.kind === 'thread' ? -0.75 : node.kind === 'worker' ? (parent.kind === 'thread' ? -Math.PI/2 + siblings.indexOf(node)*1.6 : -0.45) : parent.parent ? -Math.PI*0.8 : siblings.indexOf(node) / Math.max(1, siblings.length) * Math.PI*2 - Math.PI/2;
-			const distance = node.kind === 'task' ? (parent.parent ? 180 : 190) : node.kind === 'thread' ? 235 : parent.kind === 'thread' ? 88 : 100;
+			const siblings = graph.nodes.filter(n => n.parent === parent.id && (node.kind === 'task' ? n.kind === 'task' : n.kind !== 'task')).sort((a,b) => a.id.localeCompare(b.id));
+			const angle = node.kind !== 'task' ? -Math.PI / 2 + (siblings.indexOf(node) - (siblings.length - 1) / 2) * 1.1 : parent.parent ? -Math.PI*0.8 : siblings.indexOf(node) / Math.max(1, siblings.length) * Math.PI*2 - Math.PI/2;
+			const distance = node.kind === 'task' ? (parent.parent ? 200 : 220) : parent.radius + node.radius * .55;
 			x = center.x + Math.cos(angle)*distance; y = center.y + Math.sin(angle)*distance;
 		} else if (families.includes(node)) {
 			const index = families.indexOf(node); x = 300 + index%columns*680; y = 280 + Math.floor(index/columns)*540;
 		} else {
-			const index = Math.max(0, singles.indexOf(node)); x = 135 + index%6*220; y = familyRows*540 + 180 + Math.floor(index/6)*175;
-			if (node.kind !== 'task') { x = 1140; y = 170 + graph.nodes.filter(n => n.kind !== 'task').indexOf(node)*90; }
+			const index = Math.max(0, singles.indexOf(node)); x = 135 + index%singleColumns*220; y = familyRows*540 + 180 + Math.floor(index/singleColumns)*175;
+			if (node.kind !== 'task') { const free = graph.nodes.filter(n => n.kind !== 'task' && !n.parent).indexOf(node) + singles.length; x = 135 + free % singleColumns * 220; y = familyRows * 540 + 180 + Math.floor(free / singleColumns) * 175; }
 		}
 		const angle = seed(node.id + ':position')*Math.PI*2;
 		const position = {x:x+Math.cos(angle)*18,y:y+Math.sin(angle)*18,anchorX:x,anchorY:y,vx:0,vy:0,radius:node.radius,parentId:node.parent};
 		positions.set(node.id, position); return position;
 	};
 	for (const node of graph.nodes) place(node);
+	placeGraphCrewOnRims(graph, positions);
 	return positions;
+}
+
+/** Crew use their task's rim, including after relaxation or task dragging. */
+export function placeGraphCrewOnRims(graph: TaskGraph, positions: Map<string, GraphPosition>): void {
+	for (const node of graph.nodes.filter(n => n.kind !== 'task' && n.parent)) {
+		const parent = positions.get(node.parent!), position = positions.get(node.id);
+		if (!parent || !position) continue;
+		const siblings = graph.nodes.filter(n => n.kind !== 'task' && n.parent === node.parent).sort((a,b) => a.id.localeCompare(b.id));
+		const angle = -Math.PI / 2 + (siblings.indexOf(node) - (siblings.length - 1) / 2) * 1.1;
+		const distance = parent.radius + node.radius * .55;
+		position.x = position.anchorX = parent.x + Math.cos(angle) * distance;
+		position.y = position.anchorY = parent.y + Math.sin(angle) * distance;
+		position.vx = position.vy = 0;
+	}
 }
 
 /** Bounded O(n²) collision relaxation. Dormant after settling; no perpetual force timer. */
@@ -111,7 +150,9 @@ export function stepGraphLayout(positions: Map<string, GraphPosition>, pinned: s
 	for (let i=0;i<entries.length;i++) for(let j=i+1;j<entries.length;j++) {
 		const [,a] = entries[i]!, [,b] = entries[j]!;
 		const dx = b.x-a.x || 0.01, dy=b.y-a.y || 0.01, distance=Math.hypot(dx,dy);
-		const minimum = a.radius+b.radius+72;
+		// Attached crew are projected onto the rim after the task-only solve.
+		if ((a.parentId && !entries[i]![0].startsWith('task:')) || (b.parentId && !entries[j]![0].startsWith('task:'))) continue;
+		const minimum = a.radius+b.radius+110;
 		if(distance >= minimum) continue;
 		const force=(minimum-distance)*0.09;
 		a.vx-=dx/distance*force; a.vy-=dy/distance*force; b.vx+=dx/distance*force; b.vy+=dy/distance*force;
