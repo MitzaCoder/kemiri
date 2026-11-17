@@ -19,13 +19,12 @@ class ArtifactPageThumbTest {
         assertEquals("text", source.first().id)
     }
 
-    @Test fun pageChipIsFirstAndNeverDoubleCountsTextInEitherGallery() {
+    @Test fun pageChipIsFirstAndNeverDoubleCountsText() {
         val text = page.copy(id = "text", kind = "text", name = "notes.txt", mimeType = "text/plain")
         val image = page.copy(id = "image", kind = "image", name = "image.png", mimeType = "image/png")
         val mimePage = page.copy(id = "mime", kind = "file", name = "page", mimeType = "application/xhtml+xml")
         val mixed = listOf(text, image, page, mimePage)
         val expected = listOf("page" to 2, "image" to 1, "text" to 1)
-        assertEquals(expected, artifactKindCounts(mixed))
         assertEquals(expected, io.github.mitzacoder.kemiri.features.panels.panelArtifactKinds(mixed))
         assertEquals(listOf(page, mimePage), filterByKind(mixed, "page"))
         assertEquals(listOf(text), filterByKind(mixed, "text"))

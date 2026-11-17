@@ -16,7 +16,6 @@
 	import MemoryPanel from '#lib/components/MemoryPanel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import TranscriptColumn from '#lib/components/chat/TranscriptColumn.svelte';
-	import ArtifactsSection from '#lib/components/artifacts/ArtifactsSection.svelte';
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { provideRefLinks } from '#lib/ref-links.svelte.js';
 	import RefCardHost from '#lib/components/RefCardHost.svelte';
@@ -379,13 +378,7 @@
 						context={projectContext?.context}
 						loaded={projectContext?.loaded ?? false}
 						error={projectContext?.error}
-					>
-						{#snippet extra()}
-							{#if backend.supports('artifacts')}
-								<ArtifactsSection client={backend.client} {projectId} filter={{ workerId }} />
-							{/if}
-						{/snippet}
-					</ContextPanel>
+					/>
 				{/snippet}
 				{#snippet memoryPanel()}
 					<MemoryPanel {memory} hrefForProject={(id) => projectHref(backend.id, id)} />

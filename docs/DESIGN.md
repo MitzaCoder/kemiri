@@ -2157,7 +2157,8 @@ Status: backend, protocol, client and web UI done (milestone 2).
   collapsed rendered markdown; the skills this conversation read in their own group and the rest folded, each
   grouped by source (Harness, pi, Claude) and then by scope (global, project), with a filter;
   tools grouped by extension, one line each and filtered; and the system prompt with its size, token estimate, a
-  monospace viewer and copy. Workers
+  monospace viewer and copy. On web and Android, Info contains no Artifacts section; artifacts remain in the dedicated
+  Artifacts panel, task sheets and transcript previews. Workers
   is the panel per project (status, title, model, isolation/workspace, last report or failure) that used to have its own
   sidebar. Memory is the read-only browser for what the backend remembers (`memory.list`/`read`/`search`/`history`, live
   from `memory.changed` and re-read on reconnect): a global/project switch (the project's scope first, remembered per

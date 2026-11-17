@@ -45,7 +45,6 @@
 	import { draftChannel } from '#lib/draft-channel.js';
 	import EmptyState from '#lib/components/chat/EmptyState.svelte';
 	import TranscriptColumn from '#lib/components/chat/TranscriptColumn.svelte';
-	import ArtifactsSection from '#lib/components/artifacts/ArtifactsSection.svelte';
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { taskOptions } from '#lib/task-chat.js';
 	import { boardTaskLinks, provideTaskLinks } from '#lib/task-links.svelte.js';
@@ -1151,13 +1150,7 @@
 							compacting={projectContext?.compacting ?? false}
 							compactError={projectContext?.compactError}
 							oncompact={(instructions) => projectContext?.compact(instructions)}
-						>
-							{#snippet extra()}
-								{#if backend.supports('artifacts')}
-									<ArtifactsSection client={backend.client} {projectId} filter={{ threadId: threadId ?? 'main' }} />
-								{/if}
-							{/snippet}
-						</ContextPanel>
+						/>
 					{/snippet}
 					{#snippet memoryPanel()}
 						<MemoryPanel {memory} hrefForProject={(id) => projectHref(backend.id, id)} />

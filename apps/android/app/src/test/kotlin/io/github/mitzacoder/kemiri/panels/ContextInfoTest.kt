@@ -7,6 +7,15 @@ import org.junit.Test
 
 /** The Info tab's usage block, tool groups and overview; mirrors the web's `context-usage.test.ts` and `context.test.ts`. */
 class ContextInfoTest {
+    @Test fun infoShowsContextWithoutDuplicatingTheArtifactsPanel() {
+        val root = java.io.File("src/main/kotlin/io/github/mitzacoder/kemiri/features/panels")
+        val info = root.resolve("InfoPanel.kt").readText()
+        assertTrue(info.contains("ContextUsageMeter(view)"))
+        assertFalse(info.contains("ConversationArtifacts"))
+        assertFalse(info.contains("ArtifactsListRequest"))
+        assertTrue(root.resolve("PanelsScreen.kt").readText().contains("PanelTab.Artifacts -> ArtifactsPanel(context)"))
+    }
+
     private val now = java.time.Instant.parse("2026-11-05T12:00:00.000Z").toEpochMilli()
 
     private fun usage(

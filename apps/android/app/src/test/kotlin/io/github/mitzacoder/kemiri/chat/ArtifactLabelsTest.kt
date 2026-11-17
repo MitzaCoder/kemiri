@@ -38,9 +38,8 @@ class ArtifactLabelsTest {
         assertEquals("file", kindFromName("README"))
     }
 
-    @Test fun countsAndNarrowsByKind() {
+    @Test fun narrowsByKind() {
         val list = listOf(artifact("1"), artifact("2", kind = "image"), artifact("3"))
-        assertEquals(listOf("video" to 2, "image" to 1), artifactKindCounts(list))
         assertEquals(listOf("2"), filterByKind(list, "image").map { it.id })
         assertEquals(list, filterByKind(list, null))
         assertEquals("Videos", artifactKindLabel("video", plural = true))

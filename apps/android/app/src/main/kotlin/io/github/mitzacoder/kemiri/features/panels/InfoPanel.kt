@@ -58,7 +58,6 @@ import io.github.mitzacoder.kemiri.protocol.*
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); now = System.currentTimeMillis() } }
     PanelBody(data) { info ->
-        if (connection.supports("artifacts")) ConversationArtifacts(context)
         info.usage?.let { usage ->
             val view = contextUsageView(usage, now)
             PanelCard("CONTEXT USAGE", header = {

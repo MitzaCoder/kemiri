@@ -26,7 +26,6 @@
 		type SkillSourceGroup
 	} from '#lib/context.js';
 	import type { ConversationContext, SkillInfo, ToolInfo } from '@kemiri/protocol';
-	import type { Snippet } from 'svelte';
 
 	/**
 	 * The sidebar's Info tab: what this conversation's model is given besides the
@@ -45,8 +44,7 @@
 		canCompact = false,
 		compacting = false,
 		compactError,
-		oncompact,
-		extra
+		oncompact
 	}: {
 		context: ConversationContext | undefined;
 		/** The first `conversation.context` answer has arrived. */
@@ -58,8 +56,6 @@
 		compacting?: boolean;
 		compactError?: string;
 		oncompact?: (instructions?: string) => void | Promise<void>;
-		/** More sections at the top, such as the conversation's artifacts. */
-		extra?: Snippet;
 	} = $props();
 
 	let panel = $state<HTMLDivElement>();
@@ -231,8 +227,6 @@
 		{#if error}
 			<Banner tone="error">{error}</Banner>
 		{/if}
-
-		{@render extra?.()}
 
 		{#if context === undefined}
 			{#if !loaded && !error}

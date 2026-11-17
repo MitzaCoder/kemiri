@@ -22,8 +22,7 @@
 		layout = 'grid',
 		limit,
 		collapsedCount,
-		emptyText = 'No artifacts yet.',
-		onloaded
+		emptyText = 'No artifacts yet.'
 	}: {
 		client: HarnessClient;
 		projectId: string;
@@ -36,8 +35,6 @@
 		collapsedCount?: number;
 		/** Shown when the list is empty; an empty string shows nothing. */
 		emptyText?: string;
-		/** How many the list holds, once read. */
-		onloaded?: (count: number) => void;
 	} = $props();
 
 	const feed = useArtifactFeed(() =>
@@ -55,9 +52,6 @@
 	let dialogOpen = $state(false);
 	const opened = $derived(all.find((artifact) => artifact.id === openId));
 
-	$effect(() => {
-		if (loaded) onloaded?.(all.length);
-	});
 	// A kind whose last artifact went away falls back to all.
 	$effect(() => {
 		if (kind !== 'all' && !counts.some((entry) => entry.kind === kind)) kind = 'all';

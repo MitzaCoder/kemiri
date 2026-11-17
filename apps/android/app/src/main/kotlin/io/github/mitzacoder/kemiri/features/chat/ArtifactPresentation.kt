@@ -35,9 +35,6 @@ internal fun imageCanRenew(attempts: Int): Boolean = attempts in 0..1
 
 // --- labels and facts (web lib/artifacts.ts) ------------------------------------------------------------------------
 
-/** The kinds in the order the filters list them. */
-internal val ARTIFACT_KINDS = listOf("video", "image", "audio", "text", "file")
-
 /** How many times a thumbnail that failed to load asks for a fresh URL before it gives up (web `MEDIA_RETRY_LIMIT`). */
 internal const val MEDIA_RETRY_LIMIT = 2
 
@@ -72,10 +69,6 @@ internal fun savedByLabel(artifact: Artifact): String {
 
 /** Page is a gallery category, not a stored kind; reuse the reader's HTML detection. */
 internal fun artifactFilterKind(artifact: Artifact): String = if (isHtmlArtifact(artifact.name, artifact.mimeType)) "page" else artifact.kind
-
-/** Page first after All, then ordinary kinds; HTML never contributes to Text. */
-internal fun artifactKindCounts(artifacts: List<Artifact>): List<Pair<String, Int>> =
-    (listOf("page") + ARTIFACT_KINDS).map { kind -> kind to artifacts.count { artifactFilterKind(it) == kind } }.filter { it.second > 0 }
 
 /** The list narrowed to one kind, or whole for null. */
 internal fun filterByKind(artifacts: List<Artifact>, kind: String?): List<Artifact> =
