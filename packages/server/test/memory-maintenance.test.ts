@@ -7,6 +7,7 @@ import type { SetTimer } from "@earendil-works/pi-durable";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { MemoryChange, ModelRef } from "@kemiri/protocol";
 import { MemoryMaintenanceStore, maintenanceSlotAtOrBefore, nextMaintenanceSlot } from "../src/memory-maintenance.ts";
+import { MAX_WORKER_LESSON_PROMPT_CHARS } from "../src/worker-lessons.ts";
 import { createSetup, errorOf, TestClient, type TestSetup } from "./support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -382,4 +383,114 @@ describe("maintenance", () => {
 		expect(global.status.scope).toBe("global");
 		expect(global.status.projectId).toBeNull();
 	});
+});
+
+
+describe("maintenance worker lessons", () => {
+	function capture(test: TestSetup, projectId: string, text: string): void {
+		test.server.memoryMaintenance.lessons.capture({ projectId, workerId: "reader", taskId: "T12", threadId: "topic",
+			at: new Date(START).toISOString(), report: `## Report\nWorth remembering: ${text}` });
+	}
+
+	it("keeps lessons without a model; global runs never harvest; project success with no changes consumes", async () => {
+		const test = await setup({ now: () => START, timezone: "UTC" });
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		capture(test, projectId, "Use the portable shell for scripts.");
+		const target = { scope: "project" as const, projectId };
+		await test.server.memoryMaintenance.run(target, "nightly");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(1);
+		await test.server.memoryMaintenance.setSettings({ model: FAUX, thinkingLevel: null, time: "03:00", afterWrites: 100 });
+		await test.server.memory.write({ target: { scope: "global" }, fileId: "global-rules", text: "Use clear names." });
+		const prompts: string[] = [];
+		test.faux.setResponses(Array.from({ length: 8 }, () => (request) => {
+			prompts.push(request.messages.map(messageText).join("\n"));
+			return fauxAssistantMessage("Nothing to change.");
+		}));
+		await test.server.memoryMaintenance.run({ scope: "global" }, "manual");
+		expect(prompts[0]).not.toContain("Lessons workers reported since the last run");
+		expect(prompts[0]).not.toContain("portable shell");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(1);
+		await test.server.memoryMaintenance.run(target, "nightly");
+		expect(prompts.at(-1)).toContain("Lessons workers reported since the last run");
+		expect(prompts.at(-1)).toContain("Worker reader; task T12; thread topic; date");
+		expect(prompts.at(-1)).toContain("Search existing topics first");
+		expect(prompts.at(-1)).toContain("Never save credentials or secrets");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(0);
+		const record = await test.server.memoryMaintenance.store.scopeRecord(`project:${projectId}`);
+		expect(record.lastRun).toMatchObject({ outcome: "nothing_to_do", lessonsConsidered: 1 });
+		expect(record.lastRun?.lessonIds).toHaveLength(1);
+	}, 30_000);
+
+	it("keeps failed lessons across restart and consumes only the capped batch after success", async () => {
+		const test = await setup({ now: () => START, timezone: "UTC" });
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		for (let i = 0; i < 15; i++) capture(test, projectId, `Fact ${i}: ${"use the portable shell. ".repeat(80)}`);
+		const target = { scope: "project" as const, projectId };
+		const all = await test.server.memoryMaintenance.lessons.list(projectId);
+		await test.server.memoryMaintenance.setSettings({ model: FAUX, thinkingLevel: null, time: "03:00", afterWrites: 100 });
+		test.faux.setResponses([() => { throw new Error("maintenance provider unavailable"); }]);
+		await test.server.memoryMaintenance.run(target, "nightly");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toEqual(all);
+		expect((await test.server.memoryMaintenance.store.scopeRecord(`project:${projectId}`)).lastRun?.outcome).toBe("failed");
+		await test.restart();
+		let prompt = "";
+		test.faux.setResponses([request => { prompt = request.messages.map(messageText).join("\n"); return fauxAssistantMessage("Nothing to change."); }]);
+		await test.server.memoryMaintenance.run(target, "manual");
+		const record = await test.server.memoryMaintenance.store.scopeRecord(`project:${projectId}`);
+		const ids = record.lastRun?.lessonIds ?? [];
+		expect(ids.length).toBeGreaterThan(0);
+		expect(ids.length).toBeLessThan(all.length);
+		expect(prompt.slice(prompt.indexOf("Lessons workers reported since the last run")).length).toBeLessThanOrEqual(MAX_WORKER_LESSON_PROMPT_CHARS);
+		expect(prompt).toContain("Fact 0:");
+		expect(prompt).not.toContain("Fact 14:");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toEqual(all.slice(ids.length));
+	}, 30_000);
+
+	it("runs newly discovered lesson-only projects when their first nightly slot is already due", async () => {
+		const clock = fakeClock();
+		const test = await setup({ now: clock.now, setTimer: clock.setTimer, timezone: "UTC" });
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await test.server.memoryMaintenance.setSettings({ model: FAUX, thinkingLevel: null, time: "03:00", afterWrites: 100 });
+		await test.server.maintenanceClock.start();
+		// No memory directory existed at the first scan; a report alone makes the project discoverable.
+		capture(test, projectId, "Use the portable shell.");
+		await test.server.memoryMaintenance.lessons.list(projectId);
+		test.faux.setResponses([() => fauxAssistantMessage("Nothing to change.")]);
+		clock.advance(90 * 60_000);
+		await test.server.maintenanceClock.start();
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(0);
+		const record = await test.server.memoryMaintenance.store.scopeRecord(`project:${projectId}`);
+		expect(record.lastRun).toMatchObject({ outcome: "nothing_to_do", lessonsConsidered: 1 });
+	}, 30_000);
+
+	it("replays a successful run's interrupted acknowledgement without re-presenting consumed lessons", async () => {
+		const test = await setup({ now: () => START, timezone: "UTC" });
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		capture(test, projectId, "Old already considered lesson.");
+		const old = await test.server.memoryMaintenance.lessons.list(projectId);
+		await test.server.memoryMaintenance.setSettings({ model: FAUX, thinkingLevel: null, time: "03:00", afterWrites: 100 });
+		test.faux.setResponses(Array.from({ length: 5 }, () => () => fauxAssistantMessage("Nothing to change.")));
+		const target = { scope: "project" as const, projectId };
+		await test.server.memoryMaintenance.run(target, "manual");
+		// Restore the pre-acknowledgement file: the success record is durable but the queue removal was interrupted.
+		const { writeJsonFile } = await import("../src/fs-json.ts");
+		const { join } = await import("node:path");
+		await writeJsonFile(join(test.dataDir, "projects", projectId, "worker-lessons.json"), old);
+		await test.restart();
+		capture(test, projectId, "New still pending lesson.");
+		let prompt = "";
+		test.faux.setResponses([request => { prompt = request.messages.map(messageText).join("\n"); return fauxAssistantMessage("Nothing to change."); }]);
+		await test.server.memoryMaintenance.run(target, "manual");
+		expect(prompt).not.toContain("Old already considered lesson.");
+		expect(prompt).toContain("New still pending lesson.");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(0);
+	}, 30_000);
 });

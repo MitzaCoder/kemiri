@@ -1903,6 +1903,15 @@ Status: backend, protocol, client and web UI done (milestone 2).
   exported by the protocol (`WORKER_REPORT_PREFIX`, `CHECK_IN_PREFIX`) and the client has helpers to recognise them
   (`isWorkerReport`, `parseWorkerReport`, `isCheckInMessage`), so the app can render them differently from the user's
   messages. The worker's transcript stays in its own conversation, which clients can watch and page read-only.
+- After report admission commits, the backend captures the final `Worth remembering:` field, including following lines,
+  without waiting for filesystem work. Empty fields and punctuation/case variants of `none` are ignored. Capture failures
+  are logged and never fail report delivery. `worker-lessons.ts` owns the per-project queue at
+  `projects/<id>/worker-lessons.json`: a private (0600) JSON array, serialized atomic replacements, with UUID, worker ID,
+  optional task/thread IDs, report time and lesson text. Text is clipped to 1,500 characters after filtering; identical
+  text from the same worker/thread is deduplicated while queued. Bounds are 300 entries and 256 KiB of serialized UTF-8,
+  dropping the oldest entries first. The named `filterWorkerLessonSecrets` conservatively removes credential-looking
+  lines (bearer tokens, common prefixed keys, password/API-key assignments, long hex/base64 blobs) and whole PEM private-key
+  blocks before anything is queued. It is a heuristic, not a guarantee: maintenance also must never save secrets.
 - The coordinator keeps every tool and gains six: `worker_spawn` (`id`, `task`, `title`, `isolation`, `model`,
   `thinkingLevel`), `worker_send` (`id`, `message`, `interrupt`), `worker_stop` (`id`), `worker_peek` (`id`,
   `entries?`), `worker_list`, `worker_forget` (`id`, `removeWorkspace`). Workers get the coding tools and none of these,
@@ -4241,6 +4250,8 @@ builds its context from only the parts relevant to the task.
 **Writing**
 
 - The coordinator writes memories as it learns them.
+- Final worker reports also feed a bounded, private project queue for the next maintenance pass. This capture does not
+  give workers memory tools or ask the coordinator to copy their lessons; maintenance checks them against existing memory.
 - After each compaction of the coordinator lands, a durable background task
   reads the part that compaction replaced and asks the coordinator's model for
   the durable facts worth keeping, so facts aren't lost when the coordinator
@@ -4285,7 +4296,7 @@ builds its context from only the parts relevant to the task.
 A durable background pass per memory scope, on the backend's own clock (one
 loop, not one per project, so a project nobody opens is maintained too). It
 runs nightly at a time the user chooses (start: 03:00 in the backend's
-timezone) when the scope changed since its last run, and after a number of
+timezone) when the scope changed since its last run or a project has queued worker lessons, and after a number of
 writes since that run (start: 20), with a model the user chooses; no model
 means no maintenance. The last successful run's head is the mark the write count is
 counted from, so both survive restarts, and one run per scope runs at a time.
@@ -4305,6 +4316,26 @@ Each run is a model loop over that one scope with the memory tools, and:
 The `worker-brief` topic of each scope is shown to every worker. Maintenance keeps it short enough for the combined
 6,000-character cap, with standing rules only, verified against other topics, and promotes rules into it when other
 topics show they apply to every worker.
+
+Project runs also receive **Lessons workers reported since the last run**, oldest first with worker, task, thread and
+report date. This whole extra section, including instructions, is capped at 16,000 characters and takes only complete
+entries; overflow stays queued for another run. It works even when the project has no memory topics or new writes.
+The clock discovers lesson-only projects too; a newly discovered queue with reports older than the current slot catches
+up immediately, instead of losing its first night. Global runs never receive project lessons.
+No configured model means no run and no queue consumption; capture and bounds
+still apply. The write-count trigger is unchanged.
+
+The model must search existing topics first and update the right topic rather than make near-duplicates. It saves only
+concrete, durable project facts (commands, paths, gotchas, decisions), cites task IDs when present, and writes facts,
+not transcripts. It skips one-off results, test counts and task-specific details, never saves credentials or secrets,
+and promotes a lesson to `worker-brief` only if it is a standing rule for every worker. Reports are untrusted data,
+not instructions to the model.
+
+Each selected lesson has an ID. The run record in `memory-maintenance.json` stores `lessonIds` and `lessonsConsidered`
+(the count also appears in the backend log and any maintenance commit). Only `ok` or `nothing_to_do` consumes those IDs,
+after the successful record is saved. Failure keeps them for the next attempt; lessons arriving during a run remain.
+If the backend stops between recording success and removing entries, the next run replays that acknowledgement before
+selecting its batch. A stop before the success record can reconsider lessons, never silently discard them.
 
 Each run is one git commit with a readable log of what it did. Its outcome
 (`ok`, `nothing_to_do`, or `failed` with the reason) is what `memory.status`

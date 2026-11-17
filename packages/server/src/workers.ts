@@ -91,6 +91,7 @@ import { type CoordinatorPlace, Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import { JjError, ensureJjWorkspace, jjRoot, jjWorkspaceRevision, keepJjWorkspaceCurrent, removeJjWorkspace, workspacePath } from "./jj.ts";
 import type { TaskChangeObserver } from "./task-changes.ts";
+import type { WorkerLessonStore } from "./worker-lessons.ts";
 import {
 	type Notifier,
 	scheduleDoneNotification,
@@ -384,6 +385,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				const scheduledRecord = schedule?.onReport === "record";
 				const forget = schedule?.isolation === "shared";
 				let notify = false;
+				let lessonReport: { taskId: string | null; at: string } | undefined;
 				await runtime.commit(async (tx) => {
 					// A steer can settle several submissions with one final answer. Their sending call IDs differ;
 					// the answer entry does not. Recover it for checkpoints written before answerId was stored too.
@@ -396,6 +398,9 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 					if (existing !== undefined || legacy !== undefined) return terminal;
 					const state = await tx.doc(WorkersDoc, runtime.conversationId);
 					const worker = state.workers[workerId];
+					if (text !== null && worker?.lastReport !== text) {
+						lessonReport = { taskId: worker?.conversationId === conversationId ? worker.taskId ?? null : null, at: new Date().toISOString() };
+					}
 					// A legacy scheduled shared worker may already have been retired in the report phase.
 					const decisionPending = reporter.state.checkpoint.decisionPending === true;
 					const retiredBySchedule = !decisionPending && forget && reporter.state.checkpoint.notify;
@@ -478,6 +483,10 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 					}
 					return terminal;
 				}, context);
+				if (lessonReport !== undefined && text !== null) {
+					service.captureLesson({ workerId, report: text, ...lessonReport,
+						threadId: service.coordinators.threadIdOf(runtime.conversationId) ?? null });
+				}
 				if (notify) {
 					const threadId = service.coordinators.threadIdOf(runtime.conversationId);
 					service.notifyWorkerReport({ workerId, callId, text, status, failure, schedule,
@@ -1028,6 +1037,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 // --- the service -------------------------------------------------------------------------------------------------
 
 export type WorkerServiceOptions = {
+	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
 	memory?: Pick<MemoryStore, "read">;
 	/** Read at each use, so a reconfiguration of the project applies to the next worker. */
@@ -1358,6 +1368,15 @@ export class WorkerService {
 	/** Whether a tool call comes from a conversation that may drive workers: main or one of its background threads. */
 	isCoordinator(conversationId: number): boolean {
 		return this.#coordinators.isCoordinator(conversationId);
+	}
+
+	/** Capture after report admission; a queue failure must never affect delivery. */
+	captureLesson(input: { workerId: string; report: string; taskId: string | null; threadId: string | null; at: string }): void {
+		try {
+			this.#options.lessons?.capture({ projectId: this.project.id, ...input });
+		} catch (error) {
+			this.log(`worker lesson capture failed: ${errorMessage(error)}`);
+		}
 	}
 
 	/**

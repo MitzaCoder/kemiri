@@ -1653,3 +1653,77 @@ describe("quiet worker reports", () => {
 		expect(s.counts().reportTurns).toBe(0);
 	});
 });
+
+
+describe("worker lesson harvest", () => {
+	workerTest("harvests a real worker report at the nightly slot with no memory writes and commits the lesson", async () => {
+		let now = new Date().setUTCHours(2, 0, 0, 0);
+		const test = await setup({ now: () => now, timezone: "UTC", setTimer: (() => () => undefined) as SetTimer });
+		const client = await connect(test.server);
+		await greet(client);
+		const projectId = await addProject(client, test.projectDir);
+		await configure(client, projectId);
+		const { runtime } = await test.server.manager.open(projectId);
+		await runtime.harness.commit(async (tx) => {
+			const board = await openBoard(tx, runtime.conversation.id);
+			saveTask(board, { task: { title: "Read the README", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] }, author: "coordinator", now: new Date(now).toISOString() });
+		}, BACKGROUND_CONTEXT);
+		await test.server.memoryMaintenance.setSettings({ model: FAUX, thinkingLevel: null, time: "03:00", afterWrites: 100 });
+		let maintenancePrompt = "";
+		const worker: ScriptOptions = { delegate: { text: "Delegate the reading.", call: { id: "reader", task: BRIEF, title: "Read the README", taskId: "T1" } },
+			workerAnswer: "## Report\nOutcome: done\nWorth remembering: Scripts must use the portable shell.\nThe optional interactive shell is not installed." };
+		test.faux.setResponses(Array.from({ length: 40 }, () => (request) => {
+			if (request.messages.some(message => message.role === "system" && systemText(message).includes("You maintain a coding assistant"))) {
+				if (!request.messages.some(message => message.role === "toolResult")) {
+					maintenancePrompt = request.messages.map(messageText).join("\n");
+					return fauxAssistantMessage([fauxToolCall("memory_search", { query: "portable shell" })], { stopReason: "toolUse" });
+				}
+				if (request.messages.filter(message => message.role === "toolResult").length === 1) {
+					return fauxAssistantMessage([fauxToolCall("memory_write", { fileId: "shells", title: "Shells", text: "Scripts use the portable shell; the optional interactive shell is not installed (T1)." })], { stopReason: "toolUse" });
+				}
+				return fauxAssistantMessage("Saved the shell rule.");
+			}
+			return scripted(worker, request);
+		}));
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: "harvest-report", content: "Delegate the reading." });
+		await view.waitForView(value => sawReport(value, "portable shell"));
+		await until(async () => (await test.server.memoryMaintenance.lessons.list(projectId)).length === 1);
+		const queued = await test.server.memoryMaintenance.lessons.list(projectId);
+		expect(queued[0]).toMatchObject({ workerId: "reader", taskId: "T1", threadId: "main" });
+		expect((await test.server.memoryMaintenance.status({ scope: "project", projectId })).writesSinceMaintenance).toBe(0);
+		await test.server.maintenanceClock.start();
+		now += 90 * 60_000;
+		await test.server.maintenanceClock.start();
+		expect(maintenancePrompt).toContain("Lessons workers reported since the last run");
+		expect(maintenancePrompt).toContain("Worker reader; task T1;");
+		expect(maintenancePrompt).toContain("The optional interactive shell is not installed.");
+		expect(await test.server.memoryMaintenance.lessons.list(projectId)).toHaveLength(0);
+		const stored = await test.server.manager.memory.read("project", projectId, "shells");
+		expect(stored.body).toContain("(T1)");
+		const changes = await test.server.manager.memory.history("project", projectId, 10);
+		expect(changes).toHaveLength(1);
+		expect(changes[0]!.kind).toBe("maintenance");
+		expect(changes[0]!.message).toContain("Worker lessons considered: 1");
+		const record = await test.server.memoryMaintenance.store.scopeRecord(`project:${projectId}`);
+		expect(record.recentRuns[0]).toMatchObject({ trigger: "nightly", outcome: "ok", lessonsConsidered: 1, lessonIds: [queued[0]!.id] });
+	});
+
+	workerTest("delivers the real worker report even when the lesson queue cannot be written", async () => {
+		const logs: string[] = [];
+		const test = await setup({ log: message => { logs.push(message); } });
+		const client = await connect(test.server);
+		await greet(client);
+		const projectId = await addProject(client, test.projectDir);
+		await configure(client, projectId);
+		await mkdir(join(test.dataDir, "projects", projectId, "worker-lessons.json"));
+		test.faux.setResponses(Array.from({ length: 40 }, () => script({ workerAnswer: "## Report\nOutcome: done\nWorth remembering: Use the portable shell." })));
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: "failed-lesson-capture", content: "Delegate the reading." });
+		await view.waitForView(value => sawReport(value, "Use the portable shell."));
+		await until(async () => logs.some(line => line.includes("worker lesson capture failed")));
+		expect((await listWorkers(client, projectId)).workers[0]!.lastReport).toContain("Use the portable shell.");
+	});
+});
