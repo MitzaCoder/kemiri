@@ -33,7 +33,7 @@ data class BoardView(
         return live + archived.filterNot { it.id in ids }
     }
     val questions: List<BoardQuestion> get() = board?.questions.orEmpty()
-    val openQuestionCount: Int get() = questions.count { it.status == "open" }
+    val openQuestionCount: Int get() = questions.count { it.status == "open" && it.waitingOn != "agent" }
     fun task(id: String): BoardTask? = tasks.firstOrNull { it.id == id }
     fun question(id: String): BoardQuestion? = questions.firstOrNull { it.id == id }
 }
@@ -50,6 +50,12 @@ sealed interface AnswerOutcome {
     data class Answered(val question: BoardQuestion) : AnswerOutcome
     data class Conflict(val newer: BoardQuestion?) : AnswerOutcome
     data class Failed(val message: String) : AnswerOutcome
+}
+
+sealed interface ClarifyOutcome {
+    data object Sent : ClarifyOutcome
+    data class Conflict(val newer: BoardQuestion?) : ClarifyOutcome
+    data class Failed(val message: String) : ClarifyOutcome
 }
 
 /**
@@ -180,6 +186,22 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
     catch (error: Exception) {
         if (boardConflict(error)) { load(); AnswerOutcome.Conflict(view.value.question(questionId)) }
         else AnswerOutcome.Failed(error.message ?: "Could not answer")
+    }
+
+    suspend fun clarify(questionId: String, expectedRevision: Long, text: String): ClarifyOutcome {
+        if (!client.supports("question-clarify")) return ClarifyOutcome.Failed("This backend does not support Ask back.")
+        return try {
+            val question = client.request(BoardQuestionClarifyRequest(projectId = projectId, questionId = questionId, expectedRevision = expectedRevision, text = text)).question
+            mutableView.update { current ->
+                val board = current.board ?: return@update current
+                current.copy(board = board.copy(questions = board.questions.map { if (it.id == question.id && it.revision <= question.revision) question else it }))
+            }
+            ClarifyOutcome.Sent
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            if (boardConflict(error)) { load(); ClarifyOutcome.Conflict(view.value.question(questionId)) }
+            else ClarifyOutcome.Failed(error.message ?: "Could not ask back")
+        }
     }
 
     private suspend fun readArchived() {

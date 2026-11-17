@@ -62,6 +62,7 @@ internal fun QuestionReadingDialog(
                         ProvideTextStyle(MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 28.sp)) {
                             RichMarkdown(question.text, userMessage = true)
                         }
+                        QuestionExchanges(question)
                     }
                     if (canAnswer) {
                         HorizontalDivider(color = colors.border)

@@ -33,6 +33,7 @@ internal fun taskRowActivity(task: BoardTask, enabled: Boolean, title: (String) 
         "answer_needed" -> activity?.kind == "question"
         "review" -> activity?.kind == "review"
         "working" -> activity?.kind in listOf("working", "deploy")
+        "clarifying" -> activity?.kind == "working" && activity.text.contains("clarifying", ignoreCase = true)
         "blocked_by_task" -> activity?.kind == "blocked"
         "waiting_outside" -> activity?.kind == "waiting"
         "done" -> activity?.kind == "done"

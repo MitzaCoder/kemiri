@@ -32,7 +32,7 @@ fun graphReason(key: String, derived: Boolean): GraphStatus = graphReasons.first
     if (!derived) it else it.copy(label = when (key) { "failed" -> "Failed"; "question" -> "Answer needed"; "review" -> "Ready for review"; else -> it.label })
 }
 fun graphTaskStatus(task: BoardTask): String = when (task.state?.kind) {
-    "working" -> "in_progress"
+    "working", "clarifying" -> "in_progress"
     "blocked_by_task", "waiting_outside" -> "waiting"
     null -> task.status
     else -> task.state.kind
@@ -154,7 +154,7 @@ fun buildGraphModel(tasks: List<BoardTask>, questions: List<BoardQuestion>, work
         val subtasks = members.filter { it.id != root && it.status != "dropped" }
         "${subtasks.count { it.status == "done" }} of ${subtasks.size} subtasks done"
     }
-    val questionsByTask = questions.filter { it.status == "open" }.groupBy { it.taskId }
+    val questionsByTask = questions.filter { it.status == "open" && it.waitingOn != "agent" }.groupBy { it.taskId }
     val workersByTask = workers.flatMap { worker ->
         (worker.taskId?.let(::listOf) ?: tasks.filter { worker.id in it.workerIds }.map { it.id }).map { it to worker }
     }.groupBy({ it.first }, { it.second })

@@ -45,6 +45,13 @@ import io.github.mitzacoder.kemiri.ui.theme.textStyle
 internal fun pinnedQuestions(questions: List<BoardQuestion>, threadId: String?): List<BoardQuestion> =
     questions.filter { it.status == "open" && (threadId == null || threadId == "main" || it.threadId == threadId) }
 
+internal fun questionPinSummary(questions: List<BoardQuestion>): String {
+    val needsAnswer = questions.filter { it.waitingOn != "agent" }
+    val agentCount = questions.size - needsAnswer.size
+    return listOfNotNull(itemsWaitingLabel(needsAnswer).takeIf { needsAnswer.isNotEmpty() },
+        "$agentCount waiting for the agent".takeIf { agentCount > 0 }).joinToString(" · ")
+}
+
 internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activePanel != PanelTab.Board
 
 /**
@@ -74,7 +81,8 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     val collapsed = !wide && !expanded
     val pin = questionPin(waiting, chosen)
     val current = pin.current ?: return
-    val warned = waiting.any(::isWarning)
+    val warned = waiting.any { it.waitingOn != "agent" && isWarning(it) }
+    val quiet = waiting.all { it.waitingOn == "agent" }
     val summaryTask = current.taskId
     val small = textStyle(0.75f, 1f / 0.75f)
     Column(
@@ -83,13 +91,13 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     ) {
         if (!wide) PinRow(
             icon = if (warned) TaskIcons.TriangleAlert else TaskIcons.CircleHelp,
-            tone = if (warned) colors.warning else colors.accent2,
+            tone = if (quiet) colors.fgSubtle else if (warned) colors.warning else colors.accent2,
             modifier = Modifier.semantics { stateDescription = if (expanded) "Open" else "Closed" },
             label = if (expanded) "Hide the questions waiting" else "Show the questions waiting",
             onClick = { expanded = !expanded },
         ) {
             Text(
-                itemsWaitingLabel(waiting) + (summaryTask?.let { " · $it" } ?: ""),
+                questionPinSummary(waiting) + (summaryTask?.let { " · $it" } ?: ""),
                 Modifier.weight(1f), style = small, color = if (warned) colors.warning else colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             LucideGlyph(Lucide.ChevronDown, Modifier.rotate(if (expanded) 180f else 0f), size = 14.dp, tint = colors.fgSubtle)
@@ -109,7 +117,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
                     val warning = isWarning(question)
                     PinRow(
                         icon = if (warning) TaskIcons.TriangleAlert else TaskIcons.CircleHelp,
-                        tone = if (warning) colors.warning else colors.accent2,
+                        tone = if (question.waitingOn == "agent") colors.fgSubtle else if (warning) colors.warning else colors.accent2,
                         label = "${if (warning) "Acknowledge" else "Answer"} ${question.id}",
                         onClick = { chosen = question.id },
                     ) {
@@ -121,7 +129,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    itemsWaitingLabel(waiting) + if (pin.more > 0) " · ${pin.more} more in ${if (tasksView) "Tasks" else "the Board"}" else "",
+                    questionPinSummary(waiting) + if (pin.more > 0) " · ${pin.more} more in ${if (tasksView) "Tasks" else "the Board"}" else "",
                     Modifier.weight(1f), style = small, color = colors.fgSubtle,
                 )
                 TextButton(onClick = { context.navigate(Destination.Panel(context.route, PanelTab.Board)) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -139,7 +147,7 @@ private fun PinRow(icon: LucideIcon, tone: Color, label: String, onClick: () -> 
     Row(
         modifier.fillMaxWidth().clip(shape).background(tone.copy(alpha = .07f)).border(1.dp, tone.copy(alpha = .35f), shape)
             .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
-            .heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+            .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

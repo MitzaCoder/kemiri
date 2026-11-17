@@ -17,15 +17,18 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.chat.markdownText
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
-import io.github.mitzacoder.kemiri.ui.components.Lucide
-import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 
 internal fun questionCanAnswer(question: BoardQuestion, readOnly: Boolean = false): Boolean = question.status == "open" && !readOnly
-internal fun questionCanAnswerExpanded(question: BoardQuestion, readOnly: Boolean = false): Boolean = questionCanAnswer(question, readOnly) && !isWarning(question)
+internal fun questionCanAnswerExpanded(question: BoardQuestion, readOnly: Boolean = false): Boolean = questionCanAnswer(question, readOnly)
+internal fun questionCanClarify(question: BoardQuestion, supported: Boolean, readOnly: Boolean = false): Boolean =
+    supported && questionCanAnswer(question, readOnly) && question.mcpApproval != true
+internal fun askBackIsPrimary(text: String): Boolean = text.trimEnd().endsWith("?")
+internal fun askBackText(question: BoardQuestion, draft: String): String =
+    draft.trim().ifEmpty { if (question.noReplyYet == true) question.exchanges.orEmpty().lastOrNull { it.author.author == "user" }?.text.orEmpty() else "" }
 
-/** Both presentations edit the card's one draft and invoke the card's one guarded send action. */
+/** Both presentations share the card's draft and guarded answer / Ask back actions. */
 @Composable
 internal fun QuestionAnswerForm(
     question: BoardQuestion,
@@ -37,7 +40,8 @@ internal fun QuestionAnswerForm(
     compact: Boolean = false,
     expanded: Boolean = false,
     maxChoicesHeight: Dp = 112.dp,
-    choiceMinHeight: Dp = 32.dp,
+    choiceMinHeight: Dp = 48.dp,
+    onAskBack: ((String) -> Unit)? = null,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -63,11 +67,11 @@ internal fun QuestionAnswerForm(
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
-                modifier = Modifier.weight(1f).semantics { contentDescription = if (warning) "Note for ${question.id}" else "Answer to ${question.id}" },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = if (warning) "Note for ${question.id}" else "Answer to ${question.id}" },
                 placeholder = { Text(if (warning) "Add a note (optional)" else if (question.options.isNotEmpty()) "Or answer in your own words" else "Your answer", style = TaskType.xs) },
                 textStyle = if (expanded) TextStyles.base else TextStyles.sm,
                 minLines = if (expanded || compact) 1 else 2,
@@ -76,15 +80,22 @@ internal fun QuestionAnswerForm(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 shape = RoundedCornerShape(10.dp),
             )
-            if (warning) {
-                Button(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    LucideGlyph(Lucide.Check, size = 16.dp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Acknowledge")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                val askPrimary = onAskBack != null && askBackIsPrimary(text)
+                if (onAskBack != null) {
+                    val label = if (question.noReplyYet == true) "Ask again" else "Ask back"
+                    val askText = askBackText(question, text)
+                    val askModifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$label about ${question.id}" }
+                    if (askPrimary) Button(onClick = { onAskBack(askText) }, enabled = !busy && askText.isNotBlank(), modifier = askModifier) { Text(label) }
+                    else OutlinedButton(onClick = { onAskBack(askText) }, enabled = !busy && askText.isNotBlank(), modifier = askModifier) { Text(label) }
                 }
-            } else {
-                FilledIconButton(onClick = { onSend(text) }, enabled = !busy && text.isNotBlank()) {
-                    LucideGlyph(TaskIcons.Send, size = 16.dp, contentDescription = "Send the answer to ${question.id}")
+                if (warning) {
+                    if (askPrimary) OutlinedButton(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Acknowledge") }
+                    else Button(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Acknowledge") }
+                } else {
+                    val sendModifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Send the answer to ${question.id}" }
+                    if (askPrimary) OutlinedButton(onClick = { onSend(text) }, enabled = !busy && text.isNotBlank(), modifier = sendModifier) { Text("Send answer") }
+                    else Button(onClick = { onSend(text) }, enabled = !busy && text.isNotBlank(), modifier = sendModifier) { Text("Send answer") }
                 }
             }
         }

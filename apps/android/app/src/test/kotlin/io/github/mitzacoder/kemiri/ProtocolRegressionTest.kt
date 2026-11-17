@@ -387,6 +387,61 @@ class ProtocolRegressionTest {
         }
     }
 
+    @Test fun askBackUsesRevisionUpdatesSharedBoardAndReloadsConflicts() = runBlocking {
+        val original = io.github.mitzacoder.kemiri.tasks.question("Q1", "T1")
+        val waiting = original.copy(revision = 2, waitingOn = "agent", exchanges = listOf(BoardQuestionExchange(BoardWriter(author = "user", threadId = null, workerId = null), "Why?", "2026-01-01T09:00:00Z")))
+        var latest = original
+        var conflict = false
+        var fail = false
+        fun questionJson(question: BoardQuestion) = wireJson.encodeToJsonElement(BoardQuestion.serializer(), question).toString()
+        Stub(features = listOf("board", "question-clarify"), timeoutMs = 2000, onRequest = { _, ws, request ->
+            when (request.type) {
+                "board.get" -> reply(ws, request, """{"board":{"tasks":[],"questions":[${questionJson(latest)}],"decisions":[],"updatedAt":null}}""")
+                "board.question.clarify" -> when {
+                    conflict -> reply(ws, request, """{"error":{"code":"board_conflict","message":"Changed"}}""", "error")
+                    fail -> reply(ws, request, """{"error":{"code":"bad_request","message":"Cannot ask"}}""", "error")
+                    else -> reply(ws, request, """{"question":${questionJson(waiting)}}""")
+                }
+            }
+        }).use { stub ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val board = ProjectBoard(stub.client, "p", scope)
+                stub.ready()
+                withTimeout(2000) { board.view.first { it.loaded } }
+                assertEquals(ClarifyOutcome.Sent, board.clarify("Q1", 1, "Why?"))
+                assertEquals(waiting, board.view.value.question("Q1"))
+                val sent = stub.awaitRequest("board.question.clarify")
+                assertEquals(JsonPrimitive("p"), sent["projectId"])
+                assertEquals(JsonPrimitive("Q1"), sent["questionId"])
+                assertEquals(JsonPrimitive(1), sent["expectedRevision"])
+                assertEquals(JsonPrimitive("Why?"), sent["text"])
+                latest = waiting.copy(revision = 3, waitingOn = "user", text = "Revised question")
+                conflict = true
+                assertEquals(ClarifyOutcome.Conflict(latest), board.clarify("Q1", 2, "A stale draft?"))
+                assertEquals(latest, board.view.value.question("Q1"))
+                conflict = false
+                fail = true
+                assertTrue(board.clarify("Q1", 3, "Still retained?") is ClarifyOutcome.Failed)
+                assertEquals(latest, board.view.value.question("Q1"))
+            } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun askBackIsNeverSentWithoutTheCapability() = runBlocking {
+        Stub(features = listOf("board"), onRequest = { _, ws, request ->
+            if (request.type == "board.get") reply(ws, request, """{"board":{"tasks":[],"questions":[],"decisions":[],"updatedAt":null}}""")
+        }).use { stub ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                stub.ready()
+                val board = ProjectBoard(stub.client, "p", scope)
+                assertTrue(board.clarify("Q1", 1, "Why?") is ClarifyOutcome.Failed)
+                assertEquals(0, stub.requests.count { it.second.type == "board.question.clarify" })
+            } finally { scope.cancel() }
+        }
+    }
+
     private class Stub(
         val timeoutMs: Long = 300,
         val openingDelayMs: Long = 0,

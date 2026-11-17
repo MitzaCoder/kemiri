@@ -78,7 +78,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val eligible = sections.flatMap { it.rows }.filter { !isSettled(it.task.status) || sectionExpansion[TaskSectionId.Closed.name] == true }.map { it.task.id }.toSet()
     val searchHits = if (searching) search.index.search(search.query, eligible) else emptyList()
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
-    val loose = if (loadedBoard == null) emptyList() else looseWaiting(loadedBoard.copy(tasks = tasks))
+    val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks))
     val answered = view.questions.filter { it.status == "answered" }
     val decisions = loadedBoard?.decisions.orEmpty()
     val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
@@ -129,11 +129,11 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 Text("The coordinator adds a task for each thing you bring up. You can also add one yourself.", Modifier.padding(horizontal = 4.dp), style = TextStyles.sm, color = colors.fgSubtle)
             }
         }
-        if (loose.isNotEmpty()) {
-            item(key = "loose") {
+        loose.groupBy { it.waitingOn == "agent" }.forEach { (agentWaiting, questions) ->
+            item(key = "loose-$agentWaiting") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SectionTitle("Waiting for you", loose.size, accent = true)
-                    loose.forEach { question ->
+                    SectionTitle(if (agentWaiting) "Waiting for the agent" else "Waiting for you", questions.size, accent = !agentWaiting)
+                    questions.forEach { question ->
                         key(question.id) {
                             QuestionCard(
                                 context, question,

@@ -53,7 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
-import io.github.mitzacoder.kemiri.features.tasks.looseWaiting
+import io.github.mitzacoder.kemiri.features.tasks.looseQuestions
 import io.github.mitzacoder.kemiri.features.tasks.taskIdOrder
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
@@ -167,7 +167,7 @@ fun TaskBoard(
         kanbanColumns(visibleTasks, questions, view.showArchived, if (doneExpanded) Int.MAX_VALUE else DONE_SHOWN, onlyNeedsYou)
     }
     val needsYou = needsYouCount(visibleTasks, questions)
-    val loose = if (view.board == null) emptyList() else looseWaiting(Board(tasks = tasks, questions = questions, decisions = emptyList(), updatedAt = null))
+    val loose = if (view.board == null) emptyList() else looseQuestions(Board(tasks = tasks, questions = questions, decisions = emptyList(), updatedAt = null))
     val archivedShown = if (view.showArchived) tasks.count { it.archived } else 0
     val columnOf = remember(columns) { columns.flatMap { column -> column.cards.map { it.task.id to column.id } }.toMap() }
     val latestColumnOf by rememberUpdatedState(columnOf)
@@ -422,15 +422,17 @@ fun TaskBoard(
             if (loose.isNotEmpty()) {
                 Column(
                     Modifier.fillMaxWidth().heightIn(max = boardHeight * 0.4f).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)
-                        .semantics { contentDescription = "Waiting for you, not about a task" },
+                        .semantics { contentDescription = "Questions not about a task" },
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Waiting for you", style = textStyle(0.8125f, 1.4f, weight = 600), color = colors.accent2)
-                        CountPill(loose.size, accent = true)
-                    }
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), maxItemsInEachRow = if (wide >= 1100.dp) 3 else if (wide >= 760.dp) 2 else 1) {
-                        loose.forEach { question -> Box(Modifier.weight(1f)) { key(question.id) { looseQuestion(question) } } }
+                    loose.filter { !onlyNeedsYou || it.waitingOn != "agent" }.groupBy { it.waitingOn == "agent" }.forEach { (agentWaiting, questions) ->
+                        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(if (agentWaiting) "Waiting for the agent" else "Waiting for you", style = textStyle(0.8125f, 1.4f, weight = 600), color = if (agentWaiting) colors.fgMuted else colors.accent2)
+                            CountPill(questions.size, accent = !agentWaiting)
+                        }
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), maxItemsInEachRow = if (wide >= 1100.dp) 3 else if (wide >= 760.dp) 2 else 1) {
+                            questions.forEach { question -> Box(Modifier.weight(1f)) { key(question.id) { looseQuestion(question) } } }
+                        }
                     }
                 }
             }

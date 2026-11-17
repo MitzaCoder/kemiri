@@ -21,6 +21,7 @@ fun taskStateLabel(task: BoardTask, title: (String) -> String? = { null }): Stri
     "answer_needed" -> "Answer needed"
     "review" -> "Ready for review"
     "working" -> "Working"
+    "clarifying" -> "Clarifying"
     "paused" -> "Paused"
     "blocked_by_task" -> "Blocked by " + task.state.refs.joinToString(", ") { id ->
         id + (title(id)?.let { " ${firstLine(it, 48)}" } ?: "")
@@ -39,7 +40,7 @@ fun taskRowStateLabel(task: BoardTask, title: (String) -> String? = { null }): S
 fun taskStateTone(task: BoardTask): TaskStatusTone = when (task.state?.kind) {
     "failed" -> TaskStatusTone.Blocked
     "answer_needed", "review" -> TaskStatusTone.Review
-    "working" -> TaskStatusTone.Working
+    "working", "clarifying" -> TaskStatusTone.Working
     "paused" -> TaskStatusTone.Paused
     "blocked_by_task", "waiting_outside" -> TaskStatusTone.Waiting
     else -> taskStatusTone(task.status)

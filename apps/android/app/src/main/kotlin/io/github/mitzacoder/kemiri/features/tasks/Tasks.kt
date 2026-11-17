@@ -149,13 +149,15 @@ private fun warningsFirst(questions: List<BoardQuestion>) = questions.filter(::i
 
 /** A task's open questions and warnings, warnings first, then in the board's order. */
 fun waitingOn(questions: List<BoardQuestion>, taskId: String): List<BoardQuestion> =
-    warningsFirst(questions.filter { it.status == "open" && it.taskId == taskId })
+    warningsFirst(questions.filter { it.status == "open" && it.waitingOn != "agent" && it.taskId == taskId })
 
 /** Open questions and warnings that name no task on the board; the Tasks view answers them where it lists tasks. */
-fun looseWaiting(board: Board): List<BoardQuestion> {
+fun looseQuestions(board: Board): List<BoardQuestion> {
     val known = board.tasks.mapTo(HashSet()) { it.id }
     return warningsFirst(board.questions.filter { it.status == "open" && (it.taskId == null || it.taskId !in known) })
 }
+
+fun looseWaiting(board: Board): List<BoardQuestion> = looseQuestions(board).filter { it.waitingOn != "agent" }
 
 /** Task IDs in their natural order: T2 before T10. */
 val taskIdOrder: Comparator<String> = Comparator { left, right ->

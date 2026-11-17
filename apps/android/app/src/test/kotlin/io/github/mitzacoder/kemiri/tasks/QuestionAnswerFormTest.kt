@@ -19,10 +19,10 @@ class QuestionAnswerFormTest {
         }
     }
 
-    @Test fun warningsKeepOnlyTheirExistingInlineAcknowledgement() {
+    @Test fun warningsCanAlsoBeAnsweredInTheFullReader() {
         val warning = question("Q2", "T1", kind = "warning")
         assertTrue(questionCanAnswer(warning))
-        assertFalse(questionCanAnswerExpanded(warning))
+        assertTrue(questionCanAnswerExpanded(warning))
         assertFalse(questionCanAnswer(warning, readOnly = true))
     }
 }

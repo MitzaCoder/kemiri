@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.data.AnswerOutcome
+import io.github.mitzacoder.kemiri.data.ClarifyOutcome
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -48,7 +50,10 @@ fun QuestionCard(
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
-    val tone = if (warning) colors.warning else colors.accent2
+    val waitingForAgent = question.status == "open" && question.waitingOn == "agent"
+    val tone = if (waitingForAgent) colors.fgSubtle else if (warning) colors.warning else colors.accent2
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val canClarify = questionCanClarify(question, connection.supports("question-clarify"), readOnly)
     val key = "${context.backend.config.key}/${context.route.projectId}/${question.id}"
     var text by rememberSaveable(key) { mutableStateOf("") }
     var busy by remember(key) { mutableStateOf(false) }
@@ -68,13 +73,31 @@ fun QuestionCard(
                 is AnswerOutcome.Conflict -> problem = when {
                     outcome.newer == null || outcome.newer.status != "open" ->
                         if (warning) "This warning was already acknowledged or withdrawn." else "This question was already answered or withdrawn."
-                    else -> "The coordinator changed this question. Read it again and send your answer."
+                    else -> "The coordinator changed this question. Read it again and send the answer."
                 }
                 is AnswerOutcome.Failed -> problem = outcome.message
             }
             busy = false
         }
     }
+    fun askBack(draft: String) {
+        val trimmed = draft.trim()
+        if (trimmed.isEmpty() || busy || !questionCanClarify(latest, connection.supports("question-clarify"), readOnly)) return
+        busy = true
+        problem = null
+        scope.launch {
+            val current = latest
+            when (val outcome = context.board.clarify(current.id, current.revision, trimmed)) {
+                ClarifyOutcome.Sent -> { text = ""; readingExpanded = false }
+                is ClarifyOutcome.Conflict -> problem = if (outcome.newer?.status == "open")
+                    "The coordinator changed this question. Read it again before asking back."
+                    else "This question was already answered or withdrawn."
+                is ClarifyOutcome.Failed -> problem = outcome.message
+            }
+            busy = false
+        }
+    }
+    val onAskBack: ((String) -> Unit)? = if (canClarify) ::askBack else null
     Column(
         modifier.fillMaxWidth()
             .background(tone.copy(alpha = if (warning) .10f else .08f), RoundedCornerShape(16.dp))
@@ -114,15 +137,16 @@ fun QuestionCard(
                 LucideGlyph(ExpandQuestionIcon, size = 16.dp, contentDescription = "Expand ${if (warning) "warning" else "question"} ${question.id}")
             }
         }
+        QuestionExchanges(question)
         if (questionCanAnswer(question, readOnly)) QuestionAnswerForm(
-            question, text, { text = it }, busy, problem, ::send, compact = compact, choiceMinHeight = if (preview) 48.dp else 32.dp,
+            question, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack,
         )
     }
     if (readingExpanded) QuestionReadingDialog(
         question, taskLabel, onDismiss = { readingExpanded = false },
         canAnswer = questionCanAnswerExpanded(question, readOnly),
         answerFooter = { maxChoicesHeight ->
-            QuestionAnswerForm(question, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight)
+            QuestionAnswerForm(question, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight, onAskBack = onAskBack)
         },
     )
 }

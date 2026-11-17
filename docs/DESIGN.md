@@ -2755,6 +2755,36 @@ mascot's waiting cue; question pins and sections retain them with neutral waitin
 Light/dark tokens, wrapping controls, keyboard shortcuts, labelled actions, native history
 disclosures and a scrollable expanded reader also apply at phone width.
 
+### Android clarifying questions (T239 / D92, stage 3)
+
+Android uses the shared `QuestionCard` / `QuestionAnswerForm` in task sheets, loose
+Needs-you cards, board panels and chat question widgets, including the full reader.
+Negotiated `question-clarify` enables Ask back beside Send answer (or Acknowledge on
+warnings); MCP approvals and read-only cards never expose it. Trailing `?` makes Ask
+back the filled primary action without confirmation. Answer chips still answer directly.
+
+`ProjectBoard.clarify` sends the question ID and expected revision, updates the shared
+board from the response without replacing a newer pushed revision, and reloads conflicts.
+The card keeps the unsent draft on conflict/failure and clears it only on success; inline
+and expanded forms share that draft and the in-flight guard.
+
+`QuestionExchanges` renders author/time (the reader is labelled You) and the latest two
+exchanges; Earlier unfolds the rest. Revised and Earlier share a compact wrapping action
+row. Revised exposes prior wording/options and stays visible even when a later exchange
+has no revision. Reopened answers remain available in history. Agent-waiting
+cards keep their place and answer controls, with muted borders and “Waiting for the
+agent”; “No reply yet” offers Ask again, reusing the last ask when the draft is empty.
+New actions/choices have 48dp targets and question-specific accessibility labels, using
+the existing light/dark theme tokens.
+
+Attention counts, legacy waiting adapters, mascot cues and graph question reasons exclude
+agent-waiting questions; loose cards remain in a separate quiet group. Task sheets and
+chat widgets retain all open questions. The shared task-state label/tone and graph mapping
+render `in_progress/clarifying` as Clarifying. Reply and fallback notifications already
+use the existing `board_question` route, replacement tag and destination; Android needs
+no new notification kind. The isolated synthetic walkthrough backend is
+`apps/android/verification/clarifying-questions-demo.ts`.
+
 ### Task states (T208 / D86)
 
 Stage 1 (T209) adds server rules and optional protocol fields. Stage 2 (T210) uses the derived

@@ -196,7 +196,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
             finally { feedbackBusy = false }
         }
     }
-    val questions = waitingOn(view.questions, task.id)
+    val questions = view.questions.filter { it.status == "open" && it.taskId == task.id }
     val decisions = decisionsFor(view.board?.decisions.orEmpty(), task.id)
     val blockers = blockersOf(task, view.tasks).filterNot { it.settled }
     val owner = taskOwner(task, threads)

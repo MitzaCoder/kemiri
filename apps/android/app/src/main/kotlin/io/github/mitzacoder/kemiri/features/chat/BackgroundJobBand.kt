@@ -68,7 +68,7 @@ internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSumm
         }
         if (question != null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("It is waiting for your answer", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.warning)
+                Text(if (question.waitingOn == "agent") "Waiting for the agent" else if (question.noReplyYet == true) "No reply yet" else "It is waiting for your answer", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = if (question.waitingOn == "agent") Jarvis.colors.fgMuted else Jarvis.colors.warning)
                 if (waiting.size > 1) TextButton(onClick = { chosen = waiting[(waiting.indexOf(question) + 1) % waiting.size].id }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Show another waiting question" }) { Text("+${waiting.size - 1} more") }
             }
             key(question.id) { QuestionCard(context, question, compact = true, preview = true) }
