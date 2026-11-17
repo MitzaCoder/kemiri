@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -56,6 +60,8 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
     var query by remember { mutableStateOf("") }
     var includeArchived by rememberSaveable { mutableStateOf(false) }
     var history by rememberSaveable { mutableStateOf(false) }
+    var runsExpanded by rememberSaveable(scope) { mutableStateOf(false) }
+    var runDetails by remember(scope) { mutableStateOf<MemoryRunRow?>(null) }
     /** The open file: its scope and ID. */
     var opened by remember { mutableStateOf<Pair<String, String>?>(null) }
     var undoTarget by remember { mutableStateOf<MemoryChangeRow?>(null) }
@@ -180,6 +186,9 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
                     val status = memoryStatusView(response.status, now)
                     OutlinedCard(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
                         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            memoryFailureWarning(response.status.recentRuns)?.let { warning ->
+                                Text(warning, style = MaterialTheme.typography.bodySmall, color = colors.warning)
+                            }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 val small = MaterialTheme.typography.labelSmall
                                 when {
@@ -194,12 +203,32 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
                                 else status.next?.let { Text("Next run ${it.first}", style = small, color = colors.fgSubtle) }
                                 Text("· ${status.writes}", style = small, color = colors.fgSubtle)
                             }
-                            status.last?.second?.takeIf { status.last.third }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle) }
-                            OutlinedButton(onClick = ::runMaintenance, enabled = !status.running && !maintenanceStarting && !status.off, contentPadding = PaddingValues(horizontal = 10.dp), modifier = Modifier.heightIn(min = 32.dp)) {
+                            if (response.status.recentRuns.isNullOrEmpty()) status.last?.second?.takeIf { status.last.third }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle) }
+                            OutlinedButton(onClick = ::runMaintenance, enabled = !status.running && !maintenanceStarting && !status.off, contentPadding = PaddingValues(horizontal = 10.dp), modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text("Run maintenance now", style = MaterialTheme.typography.labelMedium)
                             }
                             Text(memoryMaintenanceSummary(response.maintenance, response.timezone), style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
                             maintenanceError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                            response.status.recentRuns?.takeIf { it.isNotEmpty() }?.let { runs ->
+                                TextButton(onClick = { runsExpanded = !runsExpanded }, modifier = Modifier.heightIn(min = 48.dp).semantics {
+                                    stateDescription = if (runsExpanded) "Expanded" else "Collapsed"
+                                    contentDescription = "Recent maintenance runs (${runs.size})"
+                                }) { Text("${if (runsExpanded) "▾" else "▸"} Recent maintenance runs (${runs.size})", style = MaterialTheme.typography.labelMedium) }
+                                if (runsExpanded) memoryRunRows(runs, now).forEach { row ->
+                                    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Show maintenance run details") { runDetails = row }
+                                        .semantics(mergeDescendants = true) { contentDescription = "${row.time}, ${row.trigger}, ${row.outcome}${row.reason?.let { ", $it" } ?: ""}" }
+                                        .padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("${row.mark} ${row.outcome}", style = MaterialTheme.typography.labelSmall, color = if (row.run.outcome == "failed") colors.warning else colors.fgMuted)
+                                            Text(row.trigger, style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
+                                            Text(row.time, style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
+                                        }
+                                        row.reason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted) }
+                                        row.run.commit?.let { Text(it.take(7), style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle, fontFamily = FontFamily.Monospace) }
+                                    }
+                                    HorizontalDivider(color = colors.border)
+                                }
+                            }
                         }
                     }
                 }
@@ -256,6 +285,19 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
                 }
             }
         }
+    }
+    runDetails?.let { row ->
+        AlertDialog(
+            onDismissRequest = { runDetails = null },
+            title = { Text("Maintenance run") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${row.trigger} · ${row.outcome}")
+                Text(row.exactTime)
+                if (row.reason != null) Text(row.run.message?.takeIf { it.isNotBlank() } ?: row.reason)
+                row.run.commit?.let { Text(it, fontFamily = FontFamily.Monospace) }
+            } },
+            confirmButton = { TextButton(onClick = { runDetails = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Close") } },
+        )
     }
     undoTarget?.let { row ->
         val files = row.change.files.size

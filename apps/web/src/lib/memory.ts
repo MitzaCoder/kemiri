@@ -20,6 +20,7 @@ import type {
 	MemoryChangeKind,
 	MemoryFileSummary,
 	MemoryMaintenanceSettings,
+	MemoryMaintenanceRun,
 	MemoryScope,
 	MemoryScopeStatus,
 	MemorySearchHit,
@@ -352,6 +353,35 @@ const MAINTENANCE_OUTCOMES: Record<"ok" | "nothing_to_do" | "failed", string> = 
 	nothing_to_do: "nothing to do",
 	failed: "failed",
 };
+
+/** Only the newest consecutive failures count; a successful/no-op run breaks the streak. */
+export function memoryFailureStreak(runs: readonly MemoryMaintenanceRun[] | undefined): number {
+	const firstSuccess = runs?.findIndex(run => run.outcome !== "failed") ?? 0;
+	return firstSuccess === -1 ? runs!.length : firstSuccess;
+}
+
+/** One compact line, with the original message kept separately for the full-text disclosure. */
+export function shortMemoryReason(message: string | null): string {
+	const line = message?.replace(/\s+/gu, " ").trim() || "No failure reason was recorded.";
+	return [...line].length > 100 ? [...line].slice(0, 99).join("").trimEnd() + "…" : line;
+}
+
+export function memoryFailureWarning(runs: readonly MemoryMaintenanceRun[] | undefined): string | undefined {
+	const count = memoryFailureStreak(runs);
+	return count >= 2 ? `The last ${count} maintenance runs failed: ${shortMemoryReason(runs?.[0]?.message ?? null)}` : undefined;
+}
+
+export function memoryRunRows(runs: readonly MemoryMaintenanceRun[], now: number) {
+	return runs.map(run => ({
+		run,
+		when: relativeTime(run.at, now),
+		whenTitle: exactTime(run.at),
+		trigger: { manual: "Manual", nightly: "Nightly", writes: "After writes" }[run.trigger],
+		outcome: MAINTENANCE_OUTCOMES[run.outcome],
+		mark: { ok: "✓", nothing_to_do: "–", failed: "!" }[run.outcome],
+		reason: run.outcome === "failed" ? shortMemoryReason(run.message) : undefined,
+	}));
+}
 
 /** A scope's maintenance state as one small status line. */
 export type MemoryStatusView = {

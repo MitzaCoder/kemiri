@@ -17,6 +17,8 @@
 		memoryChangeRows,
 		memoryLinkViews,
 		memoryMaintenanceSummary,
+		memoryFailureWarning,
+		memoryRunRows,
 		memoryScopeLabel,
 		memoryLinkTarget,
 		memorySearchRows,
@@ -426,6 +428,10 @@
 								</p>
 							{:else}
 								{@const view = memoryStatusView(memory.status, now)}
+								{@const warning = memoryFailureWarning(memory.status.recentRuns)}
+								{#if warning}
+									<p data-maintenance-warning class="text-xs break-words text-(--chat-warning)">{warning}</p>
+								{/if}
 								<div
 									class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[0.6875rem] text-(--chat-fg-subtle)"
 								>
@@ -466,6 +472,32 @@
 										</span>
 									{/if}
 								</div>
+								{#if memory.status.recentRuns && memory.status.recentRuns.length > 0}
+									{#key memory.scope}
+										<details data-maintenance-history class="min-w-0 text-[0.6875rem] text-(--chat-fg-muted)">
+											<summary class="min-h-8 cursor-pointer content-center rounded-md focus-visible:ring-2 focus-visible:ring-(--chat-fg-subtle)">Recent maintenance runs ({memory.status.recentRuns.length})</summary>
+											<ol class="mt-1 flex flex-col divide-y divide-(--chat-border)">
+												{#each memoryRunRows(memory.status.recentRuns, now) as row, index (index)}
+													<li class="min-w-0 py-2">
+														<div class="flex flex-wrap items-center gap-x-2 gap-y-1" class:text-(--chat-warning)={row.run.outcome === 'failed'}>
+															<span aria-hidden="true">{row.mark}</span>
+															<span>{row.outcome}</span>
+															<span class="text-(--chat-fg-subtle)">{row.trigger}</span>
+															<time class="ml-auto text-(--chat-fg-subtle)" datetime={row.run.at} title={row.whenTitle}>{row.when}</time>
+														</div>
+														{#if row.reason}
+															<details data-maintenance-reason class="mt-1 break-words">
+																<summary class="min-h-8 cursor-pointer content-center" aria-label="Full failure reason: {row.reason}">{row.reason}</summary>
+																<p class="py-1 whitespace-pre-wrap break-words">{row.run.message?.trim() || row.reason}</p>
+															</details>
+														{/if}
+														{#if row.run.commit}<code class="text-(--chat-fg-subtle)" title={row.run.commit}>{row.run.commit.slice(0, 7)}</code>{/if}
+													</li>
+												{/each}
+											</ol>
+										</details>
+									{/key}
+								{/if}
 							{/if}
 							{#if memory.maintenanceError !== undefined && memory.status !== undefined}
 								<Banner tone="error">{memory.maintenanceError}</Banner>

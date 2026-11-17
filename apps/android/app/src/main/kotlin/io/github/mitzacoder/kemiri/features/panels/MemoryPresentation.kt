@@ -9,6 +9,7 @@ import io.github.mitzacoder.kemiri.features.status.shortCommit
 import io.github.mitzacoder.kemiri.protocol.MemoryChange
 import io.github.mitzacoder.kemiri.protocol.MemoryFileSummary
 import io.github.mitzacoder.kemiri.protocol.MemoryFileSummarySource
+import io.github.mitzacoder.kemiri.protocol.MemoryMaintenanceRun
 import io.github.mitzacoder.kemiri.protocol.MemoryMaintenanceSettings
 import io.github.mitzacoder.kemiri.protocol.MemoryScopeStatus
 import java.time.Instant
@@ -134,6 +135,30 @@ fun memoryChangeRows(changes: List<MemoryChange>, now: Long): List<MemoryChangeR
             memoryChangeKindLabel(change.kind), memoryChangeUndoable(change), change.source?.entryId?.takeIf { change.kind == "extraction" },
         )
     }
+
+/** A no-op or a successful run breaks the newest-first failure streak. Old backends have no history. */
+fun memoryFailureStreak(runs: List<MemoryMaintenanceRun>?): Int = runs.orEmpty().takeWhile { it.outcome == "failed" }.size
+
+fun shortMemoryReason(message: String?): String {
+    val line = message?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() } ?: "No failure reason was recorded."
+    val points = line.codePoints().toArray()
+    return if (points.size > 100) String(points, 0, 99).trimEnd() + "…" else line
+}
+
+fun memoryFailureWarning(runs: List<MemoryMaintenanceRun>?): String? {
+    val count = memoryFailureStreak(runs)
+    return if (count >= 2) "The last $count maintenance runs failed: ${shortMemoryReason(runs?.firstOrNull()?.message)}" else null
+}
+
+data class MemoryRunRow(val run: MemoryMaintenanceRun, val time: String, val exactTime: String, val trigger: String, val outcome: String, val mark: String, val reason: String?)
+
+fun memoryRunRows(runs: List<MemoryMaintenanceRun>, now: Long): List<MemoryRunRow> = runs.map { run ->
+    MemoryRunRow(run, relativeTime(memoryInstant(run.at), now), exactTime(memoryInstant(run.at)),
+        when (run.trigger) { "manual" -> "Manual"; "nightly" -> "Nightly"; "writes" -> "After writes"; else -> run.trigger },
+        when (run.outcome) { "ok" -> "changed memory"; "nothing_to_do" -> "nothing to do"; "failed" -> "failed"; else -> run.outcome },
+        when (run.outcome) { "ok" -> "✓"; "nothing_to_do" -> "–"; else -> "!" },
+        if (run.outcome == "failed") shortMemoryReason(run.message) else null)
+}
 
 /** A scope's maintenance as one status line: the last run, the next one, and the writes waiting for it. */
 data class MemoryStatusView(

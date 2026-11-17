@@ -4342,7 +4342,26 @@ Each run is one git commit with a readable log of what it did. Its outcome
 reports; `memory.changed` is pushed when a run starts and when it ends, and
 `memory.maintain` starts one by hand. The last ten runs per scope (newest first: time, trigger, outcome, commit,
 and failure reason as `message`) are persisted in `memory-maintenance.json` and returned as optional
-`memory.status.status.recentRuns`; old state files and clients remain supported. The web app lists the changes, with undo.
+`memory.status.status.recentRuns`; old state files and clients remain supported.
+
+The web and Android Memory tab's History view keeps the last/next run, pending writes and "Run maintenance now".
+Below that, "Recent maintenance runs (N)" is collapsed by default, separately from the git commit history. Each row
+shows relative time, trigger (Manual, Nightly or After writes), a status mark plus outcome text, a short failure reason
+and a commit when present. Web reasons unfold inline; Android rows open a scrollable native details dialog, with
+exact time, full reason and commit. Android history and details targets are at least 48 dp with TalkBack labels.
+Two or more consecutive newest failed runs add a visible warning above the maintenance state, even while history is
+collapsed; a successful or nothing-to-do run breaks the streak. Reasons flatten whitespace and clip to 100 Unicode
+code points for previews, never the stored text. Missing `recentRuns` preserves the old last-run-only view.
+Both platforms test this presentation independently. The git changes below still offer undo.
+
+Synthetic proof recipe: `bun packages/server/scripts/memory-maintenance-demo.ts` uses `createSetup`, seeds only its
+temporary `memory-maintenance.json`, then restarts. Project scope has three failures followed by successful runs;
+global scope has only successful/no-op runs. Connection details go to `/tmp/memory-maintenance-demo.json` (override
+with `MEMORY_DEMO_OUTPUT`). Start Vite at `MEMORY_WEB_ORIGIN` (default localhost port 5297) and a dedicated headless
+Chromium with CDP at port 9497; `bun packages/server/scripts/memory-maintenance-web-proof.ts` captures desktop/phone,
+light/dark matrices and a history/full-reason interaction video. `MEMORY_PROOF_PHASE=before` omits new controls.
+Android uses a free `HARNESS_ANDROID_DEVICE` emulator track, reverses the demo's ephemeral backend port, adds that
+address via the native backend form, then opens Memory → History; Project/Global switch failure/ok states.
 
 Every harness-internal model request carries a provider session ID, regardless of provider. Each memory-agent run
 (maintenance or extraction) and report-audit run uses a fresh opaque ID, shared by all rounds of that run. Compaction
