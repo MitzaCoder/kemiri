@@ -17,6 +17,14 @@ export function taskNowText(task: BoardTask, enabled: boolean): string {
 }
 
 export function taskActivityAge(activity: BoardTaskActivity, now: number): string {
+	if (activity.ageFormat === 'none') return '';
+	if (activity.ageFormat === 'duration') {
+		const minutes = Math.max(0, Math.round((now - Date.parse(activity.since)) / 60_000));
+		if (!Number.isFinite(minutes)) return '';
+		if (minutes < 60) return `${minutes} min`;
+		const hours = Math.round(minutes / 60);
+		return hours < 24 ? `${hours} h` : `${Math.round(hours / 24)} d`;
+	}
 	if (activity.kind === 'unknown' || activity.kind === 'not_started') return '';
 	// Delivery/state summaries may already include a verified “since” clock. Never add a second age.
 	if (['delivery', 'waiting', 'review', 'done', 'dropped', 'idle'].includes(activity.kind) && /\bsince\b/i.test(activity.text)) return '';
@@ -37,6 +45,7 @@ export function taskRowActivity(task: BoardTask, enabled: boolean, tasks: readon
 	const state = task.state;
 	if (!state) return activity;
 	if (activity && taskUsesPartsSentence(task)) return activity;
+	if (state.sentence) return state.sentence;
 	const conveysState: Partial<Record<typeof state.kind, readonly BoardTaskActivity['kind'][]>> = {
 		failed: ['failure'], answer_needed: ['question'], review: ['review'],
 		working: ['working', 'deploy'], blocked_by_task: ['blocked'],

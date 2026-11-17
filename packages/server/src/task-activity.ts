@@ -104,7 +104,7 @@ export function taskQuietSince(task: BoardTask, tracking: TaskActivityTracking |
 /** One shared state, first match wins. Facts are the same ones used by activity. */
 export function taskState(task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number, parts: readonly { id: string; state: BoardTaskState }[] = []): BoardTaskState {
  const since = tracking?.statusSince ?? task.updatedAt;
- const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs });
+ const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs, sentence: taskStateSentence(kind, task, questions, tasks, tracking, now, at, refs) });
  if (task.status === "done" || task.status === "dropped") return make("closed", task.status, task.settledAt ?? since);
  const activity = taskActivity(task, questions, tasks, tracking, now);
  const blockers = openTaskBlockers(task, tasks);
@@ -129,6 +129,49 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
   return make("in_progress", paused ? "paused" : "working", paused ? new Date(Date.parse(quiet) + TASK_PAUSED_MS).toISOString() : quiet);
  }
  return make("todo", "todo");
+}
+
+/** Compact state wording is shared by both clients. Durations still tick locally. */
+function taskStateSentence(kind: BoardTaskState["kind"], task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number, since: string, refs: string[]): BoardTaskActivity {
+ const activity = taskActivity(task, questions, tasks, tracking, now);
+ const make = (activityKind: BoardTaskActivity["kind"], text: string, ageFormat: BoardTaskActivity["ageFormat"] = "duration", at = since, agePrefix?: string): BoardTaskActivity => ({ kind: activityKind, text, since: at, refs, ageFormat, ...(agePrefix ? { agePrefix } : {}) });
+ const short = (text: string, limit = 160) => {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trimEnd()}…` : clean;
+ };
+ switch (kind) {
+  case "failed": return make("failure", activity.kind === "failure" ? `Failed: ${short(activity.text.replace(/^failed:\s*/i, ""))}` : task.blockedReason ? `Failed: ${short(task.blockedReason)}` : "Failed");
+  case "answer_needed": {
+   const blocking = blockingTaskQuestions(task, questions);
+   return make("question", `Answer needed: ${short(blocking[0]?.text ?? "Answer the question")}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}`, "none");
+  }
+  case "clarifying": return { ...activity, ageFormat: "duration" };
+  case "review": return make("review", "Ready for review");
+  case "working": {
+   if (activity.kind === "deploy") return { ...activity, ageFormat: "duration" };
+   if (activity.kind === "working" && activity.actor) {
+    const source = Object.values(tracking?.sources ?? {}).find(source => source.actor.id === activity.actor?.id);
+    return { ...activity, text: `${activity.actor.name} is ${source?.phase || "working"}`, ageFormat: "duration" };
+   }
+   return activity.kind === "working" ? { ...activity, ageFormat: "duration" } : make("working", "Working");
+  }
+  case "paused": return make("idle", "Paused", "duration", taskQuietSince(task, tracking), " · nothing has run on it for ");
+  case "blocked_by_task": {
+   const blockers = openTaskBlockers(task, tasks);
+   const first = blockers[0];
+   return make("blocked", `Blocked by ${first ? `${first.id} ${short(first.title, 80)}` : refs[0]}${blockers.length > 1 ? ` and ${blockers.length - 1} more` : ""}`, "none");
+  }
+  case "waiting_outside": {
+   const note = task.waiting?.note?.trim();
+   return make("waiting", note ? /^waiting for\b/i.test(note) ? note : `Waiting for ${note}` : "Waiting for external review");
+  }
+  case "todo": {
+   const origin = tasks.find(other => other.id === task.foundWhile);
+   return make("not_started", `Not started${task.foundWhile ? ` · follow-up of ${task.foundWhile}${origin ? ` (${origin.status === "in_progress" ? "in progress" : origin.status})` : ""}` : ""}`, "none");
+  }
+  case "done": return make("done", "Done");
+  case "dropped": return make("dropped", "Dropped");
+ }
 }
 
 export function pauseEpisode(task: BoardTask, tracking: TaskActivityTracking | undefined): string {

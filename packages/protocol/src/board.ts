@@ -192,6 +192,8 @@ export const BoardTaskActivitySchema = Type.Object({
  refs: Type.Array(Type.String()),
  actor: Type.Optional(BoardActivityActorSchema),
  count: Type.Optional(Type.Integer({ minimum: 0 })),
+ ageFormat: Type.Optional(Type.Union([Type.Literal("duration"), Type.Literal("none")])),
+ agePrefix: Type.Optional(Type.String({ description: "Sentence connector before the locally formatted duration; defaults to a middle dot." })),
 });
 export type BoardTaskActivity = Static<typeof BoardTaskActivitySchema>;
 
@@ -201,6 +203,7 @@ export const BoardTaskStateSchema = Type.Object({
  kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("clarifying"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
  since: Type.String(),
  refs: Type.Array(Type.String()),
+ sentence: Type.Optional(BoardTaskActivitySchema),
 });
 export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 

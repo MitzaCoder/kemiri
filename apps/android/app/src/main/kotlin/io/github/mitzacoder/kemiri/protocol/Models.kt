@@ -2663,7 +2663,8 @@ data class BoardTaskState(
     val `group`: String,
     val `kind`: String,
     val `since`: String,
-    val `refs`: List<String>
+    val `refs`: List<String>,
+    val `sentence`: BoardTaskActivity? = null
 )
 
 @Serializable
@@ -2673,7 +2674,9 @@ data class BoardTaskActivity(
     val `since`: String,
     val `refs`: List<String>,
     val `actor`: BoardActivityActor? = null,
-    val `count`: Long? = null
+    val `count`: Long? = null,
+    val `ageFormat`: String? = null,
+    val `agePrefix`: String? = null
 )
 
 @Serializable

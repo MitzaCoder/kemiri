@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask, BoardTaskActivity } from '@kemiri/protocol';
-import { automaticTaskActivity, taskActivityAge, taskActivitySupported, taskActivityTone, taskNowText } from '../src/lib/task-activity.js';
+import { automaticTaskActivity, taskRowActivity, taskActivityAge, taskActivitySupported, taskActivityTone, taskNowText } from '../src/lib/task-activity.js';
 import { rowGist, type TaskRow } from '../src/lib/tasks.js';
 import { cardGist, type KanbanCard } from '../src/lib/kanban.js';
 import { TaskSearchIndex } from '../src/lib/task-search.js';
@@ -8,6 +8,19 @@ const activity: BoardTaskActivity = { kind: 'working', text: 'fern is testing th
 const task = { id: 'T1', title: 'Card view', status: 'in_progress', description: 'Synthetic task', report: { now: 'Old prose', results: '', next: '' }, activity } as BoardTask;
 const now = Date.parse('2026-01-01T12:04:00Z');
 describe('automatic Now', () => {
+	test('prefers the optional server state sentence and uses duration ages without ago or calendar dates', () => {
+		const sentence: BoardTaskActivity = { ...activity, text: 'Paused', ageFormat: 'duration', agePrefix: ' · nothing has run on it for ' };
+		const modern = { ...task, state: { group: 'in_progress', kind: 'paused', since: activity.since, refs: [], sentence } } as BoardTask;
+		expect(taskRowActivity(modern, true)).toBe(sentence);
+		expect(taskActivityAge(sentence, now)).toBe('4 min');
+		expect(taskActivityAge(sentence, now + 30_000)).toBe('5 min');
+		expect(taskActivityAge(sentence, now + 146 * 60_000)).toBe('3 h');
+		expect(taskActivityAge(sentence, now + 3 * 3600_000)).toBe('3 h');
+		expect(taskActivityAge(sentence, now + 45 * 86400_000)).toBe('45 d');
+		expect(taskActivityAge({ ...sentence, ageFormat: 'none' }, now)).toBe('');
+		expect(taskActivityAge({ ...sentence, since: 'invalid' }, now)).toBe('');
+		expect(taskRowActivity({ ...modern, state: { ...modern.state!, sentence: undefined } }, true)?.text).toBe('Paused');
+	});
 	test('requires the explicit feature and optional field; otherwise preserves old prose', () => {
 		expect(taskActivitySupported(undefined)).toBe(false);
 		expect(taskActivitySupported(['task-freshness'])).toBe(false);

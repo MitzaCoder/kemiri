@@ -30,7 +30,7 @@ it("advertises optional state separately, not on legacy backends", () => {
 
 it.each(["done", "dropped"] as const)("closed %s wins over failures, blocking questions and running sources", status => {
  const s = emptyBoardState(); add(s, { status }); source(s, "failed"); source(s, "running", "run-2"); askQuestion(s, { taskId: "T1", text: "Choose", options: [], now: at() });
- expect(derive(s)).toEqual({ group: "closed", kind: status, since: at(), refs: [] });
+ expect(derive(s)).toMatchObject({ group: "closed", kind: status, since: at(), refs: [] });
 });
 
 it.each(["source", "deploy", "stored"] as const)("failure %s wins over questions and work", failure => {
@@ -72,7 +72,7 @@ it("paused begins at exactly 15 minutes of quiet, max(status start, run end), wi
  const s = emptyBoardState(); add(s, { status: "in_progress" }); source(s); const tracking = activityTracking(s, "T1"); endActivitySource(tracking, "run-1", at(30_000));
  const before = JSON.stringify(s);
  expect(derive(s, 30_000 + TASK_PAUSED_MS - 1).kind).toBe("working");
- expect(derive(s, 30_000 + TASK_PAUSED_MS)).toEqual({ group: "in_progress", kind: "paused", since: at(30_000 + TASK_PAUSED_MS), refs: [] });
+ expect(derive(s, 30_000 + TASK_PAUSED_MS)).toMatchObject({ group: "in_progress", kind: "paused", since: at(30_000 + TASK_PAUSED_MS), refs: [] });
  expect(JSON.stringify(s)).toBe(before);
  tracking.statusSince = at(60_000); expect(derive(s, TASK_PAUSED_MS + 30_000).kind).toBe("working");
 });
@@ -306,7 +306,7 @@ it("parent follows live direct and descendant work, but not idle grace or unknow
  activityTracking(s, "T5").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
  const before = JSON.stringify(s);
  const board = boardView(s, START + 2 * TASK_PAUSED_MS, true);
- expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), refs: ["T3"] });
+ expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), refs: ["T3"], sentence: { kind: "working", text: "1 of 3 parts done · 1 working", since: at(2), refs: ["T3"], ageFormat: "none" } });
  expect(board.tasks[0]!.subtaskCount).toEqual({ done: 1, total: 3 });
  expect(board.tasks[0]!.subtaskStates).toEqual(["done", "working", "todo"]);
  expect(board.tasks[0]!.activity!.text).toBe("1 of 3 parts done · 1 working");

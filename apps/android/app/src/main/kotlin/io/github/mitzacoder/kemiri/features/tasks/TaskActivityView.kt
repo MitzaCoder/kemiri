@@ -47,10 +47,9 @@ internal fun TaskActivityView(activity: BoardTaskActivity, maxLines: Int = Int.M
     val age = activityAge(activity, now)
     Row(Modifier.semantics(mergeDescendants = true) { contentDescription = activityDescription(activity, now) },
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.padding(top = 6.dp).size(5.dp).background(tint, CircleShape))
         if (inlineAge) Text(buildAnnotatedString {
             append(activity.text)
-            if (age.isNotEmpty()) withStyle(SpanStyle(color = colors.fgSubtle)) { append(" · $age") }
+            if (age.isNotEmpty()) withStyle(SpanStyle(color = colors.fgSubtle)) { append((activity.agePrefix ?: " · ") + age) }
         }, Modifier.weight(1f), style = TaskType.xs, color = colors.fgMuted, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
         else Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(activity.text, style = TaskType.xs, color = colors.fgMuted, maxLines = maxLines, overflow = TextOverflow.Ellipsis)

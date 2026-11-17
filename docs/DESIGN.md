@@ -6,6 +6,7 @@ Collapsed task IDs use a small accent chip (option A): 6 px/dp corners,
 5 px/dp horizontal inset, 12 px/sp semibold monospace and an 18 px/sp line.
 Web list/sidebar/search/family rows, board cards, parent relations and graph
 nodes share it; Android list/search/family rows, board and graph cards do too.
+List rows keep the ID alone on the right (T245 / D94), without an age above it.
 Needs you task rows use the same list component; project-level Needs you counts
 contain no task ID. IDs remain identity, never status, selection or a preview
 trigger. T206's task-navigation opt-out remains in force.
@@ -2838,8 +2839,24 @@ Family nesting compares derived groups, retaining attention visibility and the d
 Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
 has a quiet distinct tone and task blockers belong to Waiting. Graph mapping stays Android-only.
 
-**One state sentence per row/card (T214, web and Android).** The compact activity line carries
-state, with its dot coloured by the derived kind. No separate kind-label line or footer label.
+**One state sentence per row/card (T214, web and Android; T245 / D94).** The compact activity line carries
+state. List rows have one leading theme-coloured glyph: warning triangle for Failed, question
+for Answer needed (also Clarifying, in its active tone), eye for Ready for review, pulsing dot for Working, pause for Paused,
+lock for task blockers, clock for outside waits, empty circle for Not started, check for Done
+and ban for Dropped. Colour is never the only distinction. The activity sentence has no second
+dot; no separate kind-label line or footer label. List titles are semibold, with unchanged
+line heights, line limits and padding; the ID chip alone stays on the right.
+The server emits optional `state.sentence` (a typed activity) for both clients. Its text names
+the first blocking question or task (plus “and N more”), says “Not started” (including a
+found-while follow-up and its source status), “Ready for review”, “Failed: reason”, or an
+outside wait without repeating “Waiting for”. Working names the actor and reported phase;
+without a phase it says “name is working”, never the task title again. Question and blocker
+sentences omit ages. Others use `ageFormat: duration`: “12 min”, “3 h”, “2 d”, not “ago” or
+a calendar date. Paused uses the last quiet time and server `agePrefix` to say “Paused ·
+nothing has run on it for 3 h”, not time since the pause threshold. The shared local minute
+clock ticks these lengths without server reads; exact times remain in tooltips/task sheets.
+Board cards consume the same sentence and age format. All fields are optional: old backends
+retain the T214 fallback below, and old clients ignore the new sentence.
 Keep the canonical activity sentence when its typed kind conveys the state: failure, question,
 review, working/deploy, blocked, waiting, done or dropped. Otherwise use the derived kind label
 and its since clock (including Paused instead of Idle, and Working during a short idle gap).
@@ -2847,7 +2864,7 @@ Failed retains a stored failure reason; blocker/waiting fallbacks name the tasks
 To do has no activity age. Done and Dropped stay explicit under Closed. Search snippets and
 relation controls remain separate context, not a replacement for state. Board cards omit the
 additional textual Waits for fact when the state sentence already names task blockers; relation
-links still work. Dots align to the first text line, also when sentences wrap. Legacy backends
+links still work. Leading glyphs align to the title's first line; wrapped sentences add no indicator. Legacy backends
 retain their existing activity/status display. Header status and group/count summaries do not
 change; the task sheet still offers the full activity details.
 **Parent parts (T244 / D94 stage 1).** Feature `task-part-states` advertises optional
@@ -3266,7 +3283,7 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 
 The web task list uses collapsible families, with no prototype switch or query flag. Kanban remains unchanged.
 Quiet same-group children nest beneath their parent (same stored status on old backends) with a 14px guide/indent capped visually at three levels.
-A task having subtasks never adds a leading column: status, title, status line and trailing time/ID keep exactly the
+A task having subtasks never adds a leading column: status, title, status line and trailing ID keep exactly the
 same positions as plain rows at every width. The direct-parts bar and summary (T244 / D94) are
 the disclosure itself, with a small rotating chevron; non-foldable families show progress without a
 chevron. Up to 12 parts, one segment per direct part is ordered done, working, needs-you, then

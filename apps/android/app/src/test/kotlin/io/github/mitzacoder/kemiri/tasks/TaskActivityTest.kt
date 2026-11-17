@@ -20,6 +20,20 @@ class TaskActivityTest {
         assertEquals("Legacy prose", taskNowText(task, false))
         assertEquals("Legacy prose", taskNowText(task.copy(activity = null), true))
     }
+    @Test fun serverSentenceAndDurationAges() {
+        val sentence = activity.copy(text = "Paused", ageFormat = "duration", agePrefix = " · nothing has run on it for ")
+        val task = task("T1").copy(state = BoardTaskState("in_progress", "paused", activity.since, emptyList(), sentence))
+        assertEquals(sentence, taskRowActivity(task, true))
+        assertEquals("4 min", activityAge(sentence, now))
+        assertEquals("5 min", activityAge(sentence, now + 30000))
+        assertEquals("3 h", activityAge(sentence, now + 146 * 60000))
+        assertEquals("3 h", activityAge(sentence, now + 3 * 3600000))
+        assertEquals("45 d", activityAge(sentence, now + 45L * 86400000))
+        assertEquals("Paused · nothing has run on it for 4 min", activityDescription(sentence, now))
+        assertEquals("", activityAge(sentence.copy(ageFormat = "none"), now))
+        assertEquals("", activityAge(sentence.copy(since = "invalid"), now))
+        assertEquals("Paused", taskRowActivity(task.copy(state = task.state!!.copy(sentence = null)), true)?.text)
+    }
     @Test fun ageTicksWithoutChangingCanonicalText() {
         assertEquals("4 min ago", activityAge(activity, now))
         assertEquals("5 min ago", activityAge(activity, now + 60000))

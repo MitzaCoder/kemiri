@@ -15,7 +15,13 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
-	import { formatMinutes } from '@kemiri/client';
+	import EyeIcon from '@lucide/svelte/icons/eye';
+	import PauseIcon from '@lucide/svelte/icons/pause';
+	import LockIcon from '@lucide/svelte/icons/lock';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import CircleIcon from '@lucide/svelte/icons/circle';
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import BanIcon from '@lucide/svelte/icons/ban';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Banner from '#lib/components/Banner.svelte';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
@@ -26,7 +32,7 @@
 	import { applyTaskFilter } from '#lib/task-relations.js';
 	import { taskFilter } from '#lib/tasks-view.svelte.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
-	import { compactRelativeTime, relativeTime } from '#lib/relative-time.js';
+	import { relativeTime } from '#lib/relative-time.js';
 	import { answeredQuestions } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import {
@@ -142,19 +148,6 @@
 		return title === undefined ? question.taskId : `${question.taskId} · ${title}`;
 	}
 
-	/** The row's time, short enough for its narrow column: time in progress while working, else how long ago it moved. */
-	function timeOf(row: TaskRow): string {
-		const { task, section } = row;
-		if (section === 'working' && task.inProgressMinutes !== undefined) return formatMinutes(task.inProgressMinutes);
-		return compactRelativeTime(section === 'closed' ? (task.settledAt ?? task.updatedAt) : task.updatedAt, Date.now());
-	}
-
-	function timeTitleOf(row: TaskRow): string {
-		const { task, section } = row;
-		if (section === 'working' && task.inProgressMinutes !== undefined) return `${formatMinutes(task.inProgressMinutes)} in progress`;
-		if (section === 'closed') return `${task.status === 'dropped' ? 'Dropped' : 'Done'} ${ago(task.settledAt ?? task.updatedAt)}`;
-		return `Updated ${ago(task.updatedAt)}`;
-	}
 </script>
 
 {#snippet countPill(count: number, accent = false)}
@@ -199,7 +192,10 @@
 			data-task={row.task.id}
 		>
 			<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-				{#if needsYou && (warned || row.task.state?.kind === 'failed')}
+				{#if row.task.state && row.task.state.kind !== 'working'}
+					{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
+					<StateIcon class="size-3.5 text-(--task-status)" />
+				{:else if needsYou && (warned || row.task.state?.kind === 'failed')}
 					<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
 				{:else if needsYou && (!row.task.state || row.task.state.kind === 'answer_needed')}
 					<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
@@ -211,7 +207,7 @@
 				<a
 					href={taskHref(row.task.id)}
 					onclick={() => onopentask?.(row.task.id)}
-					class="task-row-link line-clamp-2 text-[0.875rem] leading-5 font-medium break-words outline-none {row.section === 'closed'
+					class="task-row-link line-clamp-2 text-[0.875rem] leading-5 font-semibold break-words outline-none {row.section === 'closed'
 						? 'text-(--chat-fg-muted)'
 						: 'text-(--chat-fg)'}"
 					aria-label="Open {row.task.id}: {row.task.title}">{#each row.task.title.split('') as letter, at}{#if searching && searchHitById.get(row.task.id)?.ranges.some(([start, end]) => at >= start && at < end)}<mark>{letter}</mark>{:else}{letter}{/if}{/each}</a
@@ -225,7 +221,7 @@
 					<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
 						{#if !row.task.state && needsYou}
 							<span class="inline-flex min-w-0 items-center gap-1 break-words font-medium text-(--task-status)">
-								<span class="task-status-dot" aria-hidden="true"></span><TaskStateLabel task={row.task} {tasks} />
+								<TaskStateLabel task={row.task} {tasks} />
 							</span>
 						{/if}
 						{#if row.waiting.length > 1}<span class="shrink-0">+{row.waiting.length - 1} more</span>{/if}
@@ -234,7 +230,6 @@
 				{/if}
 			</span>
 			<span class="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-				<span class="whitespace-nowrap tabular-nums" title={timeTitleOf(row)}>{timeOf(row)}</span>
 				<TaskIdChip taskId={row.task.id} />
 			</span>
 			<ChevronRightIcon class="task-row-chevron mt-0.5 size-3.5 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />

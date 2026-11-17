@@ -2,6 +2,7 @@ package io.github.mitzacoder.kemiri.features.tasks
 
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
+import kotlin.math.roundToLong
 
 internal fun taskActivity(task: BoardTask, enabled: Boolean): BoardTaskActivity? = task.activity.takeIf { enabled }
 internal fun taskNowText(task: BoardTask, enabled: Boolean): String = taskActivity(task, enabled)?.text ?: task.report.now
@@ -16,18 +17,29 @@ internal fun activityTone(kind: String): ActivityTone = when (kind) {
 }
 
 internal fun activityAge(activity: BoardTaskActivity, now: Long): String =
-    if (Regex("\\bsince\\b", RegexOption.IGNORE_CASE).containsMatchIn(activity.text)) ""
+    if (activity.ageFormat == "none") ""
+    else if (activity.ageFormat == "duration") activityDuration(activity.since, now)
+    else if (Regex("\\bsince\\b", RegexOption.IGNORE_CASE).containsMatchIn(activity.text)) ""
     else if (runCatching { java.time.Instant.parse(activity.since) }.isFailure) ""
     else relativeTime(activity.since, now)
 
 internal fun activityDescription(activity: BoardTaskActivity, now: Long): String =
-    listOf(activity.text, activityAge(activity, now)).filter { it.isNotBlank() }.joinToString(" · ")
+    activity.text + activityAge(activity, now).takeIf { it.isNotBlank() }?.let { (activity.agePrefix ?: " · ") + it }.orEmpty()
+
+internal fun activityDuration(since: String, now: Long): String {
+    val at = runCatching { java.time.Instant.parse(since).toEpochMilli() }.getOrNull() ?: return ""
+    val minutes = kotlin.math.max(0L, ((now - at) / 60_000.0).roundToLong())
+    if (minutes < 60) return "$minutes min"
+    val hours = (minutes / 60.0).roundToLong()
+    return if (hours < 24) "$hours h" else "${(hours / 24.0).roundToLong()} d"
+}
 
 /** Compact rows use typed kinds to keep state and activity in one sentence. */
 internal fun taskRowActivity(task: BoardTask, enabled: Boolean, title: (String) -> String? = { null }): BoardTaskActivity? {
     val activity = taskActivity(task, enabled)
     val state = task.state ?: return activity
     if (activity != null && taskUsesPartsSentence(task)) return activity
+    state.sentence?.let { return it }
     val conveysState = when (state.kind) {
         "failed" -> activity?.kind == "failure"
         "answer_needed" -> activity?.kind == "question"

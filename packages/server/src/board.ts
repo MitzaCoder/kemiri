@@ -986,17 +986,19 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 			const counted = subtasks.map((id) => byId.get(id)).filter((child): child is BoardTask => child !== undefined && child.status !== "dropped");
    const derived = state.taskStateEnabled ? stateFor(task) : undefined;
    const subtaskStates = state.taskPartStatesEnabled && derived && subtasks.length ? counted.map(child => stateFor(child).kind) : undefined;
-   if (activity && subtaskStates?.length && (derived?.group === "in_progress" || derived?.group === "todo")) {
+   let shown = derived;
+   if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
     const done = subtaskStates.filter(kind => kind === "done").length;
     const working = subtaskStates.filter(kind => kind === "working").length;
     const needsYou = subtaskStates.filter(kind => ["failed", "answer_needed", "review"].includes(kind)).length;
     activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${subtaskStates.length} parts done${working ? ` · ${working} working` : ""}${needsYou ? ` · ${needsYou} needs you` : ""}`, since: derived.since, refs: derived.refs };
+    shown = { ...derived, sentence: { ...activity, ageFormat: "none" } };
    }
 			return {
 				...task,
 				report: { ...(task.report ?? emptyReport()), ...(activity ? { now: activity.text } : {}) },
     ...(activity ? { activity } : {}),
-    ...(derived ? { state: derived } : {}),
+    ...(shown ? { state: shown } : {}),
     ...(subtaskStates ? { subtaskStates } : {}),
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],

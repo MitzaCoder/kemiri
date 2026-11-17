@@ -3,7 +3,7 @@ import { createServer } from 'vite';
 import type { BoardTask } from '@kemiri/protocol';
 
 // Render the actual list metadata and board card: a second kind label must not return.
-test('list metadata and board cards render one state sentence with a derived-colour dot', async () => {
+test('list metadata and board cards render one state sentence without a second indicator', async () => {
 	const vite = await createServer({ root: import.meta.dir + '/..', server: { middlewareMode: true }, logLevel: 'error' });
 	try {
 		const { default: TaskCard } = await vite.ssrLoadModule('/src/lib/components/TaskCard.svelte');
@@ -30,7 +30,7 @@ test('list metadata and board cards render one state sentence with a derived-col
 			for (const html of [card, metadata]) {
 				expect(html).not.toContain(duplicate);
 				expect(html.match(/class="activity-line /g)?.length).toBe(1);
-				expect(html).toContain('var(--task-status)');
+				expect(html).not.toContain('activity-dot');
 				expect(html).toContain(kind === 'paused' ? 'Paused' : sentence);
 			}
 		}
