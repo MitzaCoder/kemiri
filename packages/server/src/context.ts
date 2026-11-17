@@ -9,7 +9,7 @@ import { userNameInstructions } from "./user-settings.ts";
  */
 import type { ProjectSkillStore } from "./skills.ts";
 import type { SkillRole, ProjectSkill } from "@kemiri/protocol";
-import { builtinSkillsDirectory } from "./builtin-skills.ts";
+import { builtinSkillAvailable, builtinSkillsDirectory } from "./builtin-skills.ts";
 import { serverSettings } from "./server-settings.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { contentText, getSystemMessageText } from "@earendil-works/pi-ai";
@@ -547,7 +547,8 @@ function uniqueSkills(candidates: readonly LoadedSkill[]): LoadedSkill[] {
  * Read fresh on every call, and synchronously: it runs inside the request that renders the prompt, where a handful of
  * small reads costs less than the awaits that would let other work in between.
  *
- * Everything the returned prompt text depends on is file content and absolute paths, in a fixed order: no timestamps,
+ * Built-in command availability is cached for the server process. Otherwise the returned prompt text depends on
+ * file content and absolute paths, in a fixed order: no timestamps,
  * sizes or counts, and nothing about this conversation. A turn whose files did not change therefore renders the same
  * section text as the last one, the harness finds nothing to patch, and the provider's prompt cache still hits.
  */
@@ -557,6 +558,8 @@ export function loadAgentContext(options: {
 	claudeDir: string;
 	cwd: string;
 	homeDir?: string;
+	/** Injectable binary discovery; defaults to the process-cached server lookup. */
+	agentBrowserCommand?: () => string | null;
 	/** The conversation's model, whose notes are read too; none without one. */
 	model?: { provider: string; modelId: string } | undefined;
 }): LoadedAgentContext {
@@ -597,7 +600,9 @@ export function loadAgentContext(options: {
 		...claudePluginSkills("project"),
 		...readSkillsDir(join(options.homeDir ?? homedir(), ".agents", SKILLS_DIR_NAME), "global", "agents"),
 		...readSkillsDir(join(options.cwd, ".agents", SKILLS_DIR_NAME), "project", "agents"),
-		...readSkillsDir(builtinSkillsDirectory(options.configDir), "global", "harness").map(skill => ({ ...skill, origin: "builtin" as const })),
+		...readSkillsDir(builtinSkillsDirectory(options.configDir), "global", "harness")
+			.filter(skill => builtinSkillAvailable(skill.name, options.agentBrowserCommand))
+			.map(skill => ({ ...skill, origin: "builtin" as const })),
 	]);
 	return { files, skills };
 }

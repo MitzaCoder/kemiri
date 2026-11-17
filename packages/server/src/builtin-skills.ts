@@ -3,6 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { packagedResources } from "./packaged-resources.ts";
+import { agentBrowserCommand } from "./agent-browser.ts";
+
+/** Availability gates only bundled fallbacks, never project or personal skills. */
+export function builtinSkillAvailable(name: string, browserCommand: () => string | null = agentBrowserCommand): boolean {
+	return name !== "agent-browser" || browserCommand() !== null;
+}
 
 function validateSkillPath(name: string): void {
 	const parts = name.split("/");

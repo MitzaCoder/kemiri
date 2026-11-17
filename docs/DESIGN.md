@@ -441,6 +441,19 @@ release location, so unchanged deploys keep the same read paths and rendered ski
 Missing or edited copies are repaired on render; identical files are not rewritten. Old hash directories are retained
 because another server may still use them. Relative template paths remain siblings of their materialized `SKILL.md`.
 
+The bundled `agent-browser` skill (T247 / D95 stage 1) is generic across projects: isolated CLI sessions,
+ref-based web UI checks, viewport/media emulation, screenshots and short recordings, named proof files, and cleanup.
+It contains no app-specific setup. Both source releases and the binary builder's `builtinSkillFiles` enumeration ship
+it; the CLI itself is not bundled in this stage. `builtinSkillAvailable` gates only this bundled fallback, before
+shadowing and role choices in `loadAgentContext`, so prompts and `skills.project.get` share the same availability.
+`html-artifacts` stays unconditional; personal/project overrides are not gated.
+`agentBrowserCommand()` in `agent-browser.ts` is the single discovery point: `Bun.which` searches the server child
+PATH for `agent-browser`, or resolves `KEMIRI_AGENT_BROWSER_COMMAND` when explicitly configured (an executable path
+or command name). Both success and absence are cached on first lookup for the server process lifetime to keep
+prompt catalogues stable. Restart the server after installation/configuration changes. No binary means no catalogue
+entry and no error. Custom CLI paths must also be named in agent instructions until managed environment support lands.
+A future managed pinned install can extend this lookup without changing either catalogue.
+
 HTML previews on web (dialog and new tab) and Android prepend theme defaults with zero-specificity selectors, matching
 `--tone-*` colours, type, spacing and radius tokens. The document's `data-theme` follows the app's light/dark choice;
 changes reload an open preview (interactive page state resets). Author styles still win. Print controls (in the full-space viewer's actions menu) and
@@ -1686,6 +1699,8 @@ feature) and get it pushed as `conversation.context.changed` while they watch th
   Shared agents skills follow Claude: `<homeDir>/.agents/skills/*/SKILL.md`, then
   `<cwd>/.agents/skills/*/SKILL.md` (home is injectable through the server/loader options).
   Built-in harness skills are last, as fallbacks; they have `origin: "builtin"` in the project catalogue.
+  `html-artifacts` is always offered; bundled `agent-browser` is offered only when the process-cached command lookup
+  finds its CLI (see HTML artifact design above). This applies to both the prompt and project skills catalogue.
   Name and description come from the YAML frontmatter (the directory name when it has none). They are offered in the
   prompt like pi's `<available_skills>` — name, description, absolute path — and the model reads the file with its
   `read` tool when a task matches; `read` in the response says whether this conversation's transcript already did.
