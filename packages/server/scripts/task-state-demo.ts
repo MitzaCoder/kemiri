@@ -28,7 +28,10 @@ for (let i = 0; i < titles.length; i++) {
 await runtime.harness.commit(async tx => {
 	const doc = await tx.doc(BoardDoc, runtime.conversation.id);
 	doc.questions.push({ id: 'Q1', revision: 1, kind: 'question', text: 'Paper boxes or tins?', options: ['Paper boxes', 'Tins'], taskId: 'T11', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
-	doc.counters.question = 1;
+	if (process.env.DEMO_PART_QUESTION === '1') {
+		doc.questions.push({ id: 'Q2', revision: 1, kind: 'question', text: 'Daylight or lamp?', options: ['Daylight', 'Lamp'], blocksWork: true, taskId: 'T3', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
+	}
+	doc.counters.question = doc.questions.length;
 }, BACKGROUND_CONTEXT);
 for (const [id, taskId, title] of [['fern', 'T3', 'Pastry photos'], ['moss', 'T7', 'Oven repair']] as const) {
 	const started = await runtime.threads.start({ id, title, brief: 'Synthetic held session; no tools.', model: null, thinkingLevel: null, onFinish: 'record', startedBy: 'main', scheduleId: null, taskId, key: `state-demo-${id}` });

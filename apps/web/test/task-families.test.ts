@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-	familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies,
+	familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies, taskFamilySections, taskFamilyCount,
 	type FamilyExpansion, type TaskFamily
 } from '../src/lib/task-families.js';
 import { taskSections, type TaskRow } from '../src/lib/tasks.js';
@@ -21,7 +21,7 @@ function question(taskId: string, kind: 'question' | 'warning' = 'question'): Qu
 	return { id: 'Q1', revision: 1, taskId, kind, text: 'Choose a sample label', options: [], status: 'open', answer: null } as Question;
 }
 function grouped(tasks: BoardTask[], questions: Question[] = [], expansion: FamilyExpansion = {}) {
-	return taskSections({ tasks, questions }).map((section) => ({ section, families: taskFamilies(section, expansion) }));
+	return taskFamilySections(taskSections({ tasks, questions })).map((section) => ({ section, families: taskFamilies(section, expansion) }));
 }
 function visible(families: TaskFamily[]): string[] {
 	return families.flatMap((family) => [family.row.task.id, ...visible(family.children)]);
@@ -124,5 +124,44 @@ describe('local family choices', () => {
 		expect(loadFamilyExpansion('key', { getItem: () => '{"T1":true,"T2":false,"T3":"yes","other":true}' })).toEqual({ T1: true, T2: false });
 		expect(loadFamilyExpansion('key', { getItem: () => { throw new Error('blocked'); } })).toEqual({});
 		expect(() => saveFamilyExpansion('key', { T1: true }, { setItem: () => { throw new Error('full'); } })).not.toThrow();
+	});
+});
+
+function derived(id: string, group: NonNullable<BoardTask['state']>['group'], kind: NonNullable<BoardTask['state']>['kind'], parent?: string): BoardTask {
+	return task(id, { parent, status: group === 'closed' ? kind === 'dropped' ? 'dropped' : 'done' : 'in_progress', state: { group, kind, since: '2026-11-05T10:00:00Z', refs: [] } });
+}
+describe('D94 families across derived groups', () => {
+	const tasks = [derived('T1', 'in_progress', 'working'), derived('T2', 'closed', 'done', 'T1'), derived('T3', 'waiting', 'waiting_outside', 'T1'), derived('T4', 'todo', 'todo', 'T1'), derived('T5', 'closed', 'dropped', 'T1')];
+	test('parts move to the parent group, finished last, and counts ignore folded parts', () => {
+		const sections = grouped(tasks, [], { T1: true });
+		expect(sections).toHaveLength(1);
+		expect(visible(sections[0]!.families)).toEqual(['T1', 'T3', 'T4', 'T2', 'T5']);
+		expect(taskFamilyCount(sections[0]!.section)).toBe(1);
+		expect(visible(grouped(tasks)[0]!.families)).toEqual(['T1']);
+	});
+	test('needs-you parts have an independent root even in the same group, plus the unfolded family copy', () => {
+		for (const kind of ['failed', 'answer_needed', 'review'] as const) {
+			for (const parentGroup of ['in_progress', 'needs_you'] as const) {
+				const family = [derived('T1', parentGroup, parentGroup === 'needs_you' ? 'review' : 'paused'), derived('T2', 'needs_you', kind, 'T1')];
+				const folded = grouped(family, [], { T1: false });
+				expect(folded.find(s => s.section.id === 'needs_you')!.families.some(f => f.row.task.id === 'T2')).toBe(true);
+				expect(folded.flatMap(s => visible(s.families)).filter(id => id === 'T2')).toHaveLength(1);
+				const opened = grouped(family, [], { T1: true });
+				expect(opened.flatMap(s => visible(s.families)).filter(id => id === 'T2')).toHaveLength(2);
+				expect(taskFamilyCount(opened.find(s => s.section.id === 'needs_you')!.section)).toBe(parentGroup === 'needs_you' ? 2 : 1);
+			}
+		}
+	});
+	test('nested cross-group parents retain independent fold choices', () => {
+		const family = [derived('T1', 'todo', 'todo'), derived('T2', 'waiting', 'waiting_outside', 'T1'), derived('T3', 'closed', 'done', 'T2')];
+		expect(visible(grouped(family, [], { T1: true, T2: true })[0]!.families)).toEqual(['T1', 'T2', 'T3']);
+		expect(visible(grouped(family, [], { T1: false, T2: true })[0]!.families)).toEqual(['T1']);
+	});
+	test('closed parents retain closed parts; filtered or archived parents leave root parts', () => {
+		const family = [derived('T1', 'closed', 'done'), derived('T2', 'closed', 'done', 'T1')];
+		expect(grouped(family)[0]!.section.id).toBe('closed');
+		expect(visible(grouped(family, [], { T1: true })[0]!.families)).toEqual(['T1', 'T2']);
+		expect(visible(grouped(family.slice(1))[0]!.families)).toEqual(['T2']);
+		expect(visible(grouped([{ ...family[0]!, archived: true }, family[1]!])[0]!.families)).toEqual(['T2']);
 	});
 });

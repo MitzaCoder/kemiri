@@ -7,6 +7,7 @@ import io.github.mitzacoder.kemiri.data.wireJson
 import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.protocol.BoardTask
+import io.github.mitzacoder.kemiri.protocol.BoardTaskState
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -14,7 +15,7 @@ import org.junit.Test
 class TaskFamiliesTest {
     private val quietFamily = listOf(task("T1"), task("T2").copy(parent = "T1"), task("T3").copy(parent = "T2"), task("T4"))
     private fun grouped(tasks: List<BoardTask>, questions: List<BoardQuestion> = emptyList(), expansion: Map<String, Boolean> = emptyMap()) =
-        taskSections(tasks, questions).associate { it.id to taskFamilies(it, expansion) }
+        taskFamilySections(taskSections(tasks, questions)).associate { it.id to taskFamilies(it, expansion) }
     private fun visible(families: List<TaskFamily>): List<String> = families.flatMap { listOf(it.row.task.id) + visible(it.children) }
 
     @Test fun quietSameStatusFamiliesStartFoldedAndCountsStillIncludeFoldedTasks() {
@@ -115,5 +116,33 @@ class TaskFamiliesTest {
         assertEquals(mapOf("T1" to true), restored.familyExpansion("https://one.example.test", "q"))
         assertTrue(restored.familyExpansion("https://one.example.test", "missing").isEmpty())
         assertTrue(wireJson.decodeFromString(DeviceSettings.serializer(), "{}").taskFamilyExpansion.isEmpty())
+    }
+
+    private fun derived(id: String, group: String, kind: String, parent: String? = null) =
+        task(id, if (group == "closed") kind else "in_progress").copy(parent = parent, state = BoardTaskState(group, kind, "2026-11-05T10:00:00Z", emptyList()))
+    @Test fun derivedPartsMoveToParentFinishedLastAndCountsIgnoreFoldedParts() {
+        val tasks = listOf(derived("T1", "in_progress", "working"), derived("T2", "closed", "done", "T1"), derived("T3", "waiting", "waiting_outside", "T1"), derived("T4", "todo", "todo", "T1"), derived("T5", "closed", "dropped", "T1"))
+        val section = taskFamilySections(taskSections(tasks, emptyList())).single()
+        assertEquals(1, taskFamilyCount(section))
+        assertEquals(listOf("T1"), visible(taskFamilies(section)))
+        assertEquals(listOf("T1", "T3", "T4", "T2", "T5"), visible(taskFamilies(section, mapOf("T1" to true))))
+    }
+    @Test fun derivedNeedsYouPartsHaveIndependentRootsAndUnfoldedCopiesEvenInSameGroup() {
+        for (kind in listOf("failed", "answer_needed", "review")) for (parentGroup in listOf("in_progress", "needs_you")) {
+            val tasks = listOf(derived("T1", parentGroup, if (parentGroup == "needs_you") "review" else "paused"), derived("T2", "needs_you", kind, "T1"))
+            val sections = taskFamilySections(taskSections(tasks, emptyList()))
+            assertEquals(1, sections.flatMap { visible(taskFamilies(it, mapOf("T1" to false))) }.count { it == "T2" })
+            assertEquals(2, sections.flatMap { visible(taskFamilies(it, mapOf("T1" to true))) }.count { it == "T2" })
+            assertEquals(if (parentGroup == "needs_you") 2 else 1, taskFamilyCount(sections.first { it.id == TaskSectionId.NeedsYou }))
+        }
+    }
+    @Test fun derivedNestedParentsRetainFoldMemoryAndClosedPartsStayWithClosedParents() {
+        val tasks = listOf(derived("T1", "todo", "todo"), derived("T2", "waiting", "waiting_outside", "T1"), derived("T3", "closed", "done", "T2"))
+        assertEquals(listOf("T1", "T2", "T3"), visible(grouped(tasks, expansion = mapOf("T1" to true, "T2" to true)).values.single()))
+        assertEquals(listOf("T1"), visible(grouped(tasks, expansion = mapOf("T1" to false, "T2" to true)).values.single()))
+        val closed = listOf(derived("T1", "closed", "done"), derived("T2", "closed", "done", "T1"))
+        assertEquals(listOf("T1", "T2"), visible(grouped(closed, expansion = mapOf("T1" to true)).getValue(TaskSectionId.Closed)))
+        assertEquals(listOf("T2"), visible(grouped(closed.drop(1)).values.single()))
+        assertEquals(listOf("T2"), visible(grouped(listOf(closed[0].copy(archived = true), closed[1])).values.single()))
     }
 }

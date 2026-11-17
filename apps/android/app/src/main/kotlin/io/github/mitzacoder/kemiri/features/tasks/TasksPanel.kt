@@ -164,15 +164,15 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 }
             }
         }
-        (if (searching) emptyList() else sections).forEach { section ->
+        (if (searching) emptyList() else taskFamilySections(sections)).forEach { section ->
             val open = sectionExpansion[section.id.name] ?: familySectionStartsOpen(section)
             val families = taskFamilies(section, expansion)
             item(key = "section-${section.id.name}") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (section.collapsedByDefault) FoldHeading(section.label, open, onToggle = {
                         sectionExpansion = sectionExpansion + (section.id.name to !open)
-                    }, count = section.rows.size, chevronFirst = false, style = TaskType.sectionTitle)
-                    else SectionTitle(section.label, section.rows.size, accent = section.id == TaskSectionId.NeedsYou)
+                    }, count = taskFamilyCount(section), chevronFirst = false, style = TaskType.sectionTitle)
+                    else SectionTitle(section.label, taskFamilyCount(section), accent = section.id == TaskSectionId.NeedsYou)
                     if (open) TaskGroup {
                         TaskFamilyRows(
                             families, now, reducedMotion, connection.supports("task-links"), loadedBoard?.archivedLinks.orEmpty(),
@@ -218,7 +218,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     }
 }
 
-/** Same-status descendants stay within the section; guides stop consuming width after three levels. */
+/** Descendants stay within their parent’s section; guides stop consuming width after three levels. */
 @Composable
 private fun TaskFamilyRows(
     families: List<TaskFamily>, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,

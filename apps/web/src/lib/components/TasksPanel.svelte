@@ -7,7 +7,7 @@
 	import { useTaskSearch } from '#lib/task-search.svelte.js';
 	import { page } from '$app/state';
 	import TaskFamilyMeta from './TaskFamilyMeta.svelte';
-	import { familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies, type TaskFamily } from '#lib/task-families.js';
+	import { familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies, taskFamilySections, taskFamilyCount, type TaskFamily } from '#lib/task-families.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import ArchiveIcon from '@lucide/svelte/icons/archive';
@@ -122,7 +122,7 @@
 			? []
 			: taskSections({ tasks: shownTasks, questions: board.board.questions }, { includeArchived: board.showArchived })
 	);
-	const familySections = $derived(sections.map((section) => ({ section, families: taskFamilies(section, expansion) })));
+	const familySections = $derived(taskFamilySections(sections).map((section) => ({ section, families: taskFamilies(section, expansion) })));
 	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks, questions: board.board.questions }));
 	const answered = $derived(board?.board === undefined ? [] : answeredQuestions(board.board));
 	const decisions = $derived(board?.board?.decisions ?? []);
@@ -357,11 +357,11 @@
 								onclick={() => toggle(section)}
 							>
 								{section.label}
-								{@render countPill(section.rows.length)}
+								{@render countPill(taskFamilyCount(section))}
 								<ChevronRightIcon class="size-3.5 text-(--chat-fg-subtle) transition-transform {isOpen(section) ? 'rotate-90' : ''}" />
 							</button>
 						{:else}
-							{@render sectionTitle(section.label, section.rows.length, section.id === 'needs_you')}
+							{@render sectionTitle(section.label, taskFamilyCount(section), section.id === 'needs_you')}
 						{/if}
 						{#if isOpen(section)}
 							<ul class="task-group">
