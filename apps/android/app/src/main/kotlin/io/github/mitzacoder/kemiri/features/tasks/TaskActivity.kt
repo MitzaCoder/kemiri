@@ -27,6 +27,7 @@ internal fun activityDescription(activity: BoardTaskActivity, now: Long): String
 internal fun taskRowActivity(task: BoardTask, enabled: Boolean, title: (String) -> String? = { null }): BoardTaskActivity? {
     val activity = taskActivity(task, enabled)
     val state = task.state ?: return activity
+    if (activity != null && taskUsesPartsSentence(task)) return activity
     val conveysState = when (state.kind) {
         "failed" -> activity?.kind == "failure"
         "answer_needed" -> activity?.kind == "question"

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { taskPartProgress, taskUsesPartsSentence } from '#lib/task-parts.js';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import type { BoardTaskActivity } from '@kemiri/protocol';
@@ -28,6 +29,8 @@
 	} = $props();
 	const parent = $derived(task.parent == null ? undefined : linkTarget(task.parent, tasks, archivedLinks));
 	const progress = $derived(task.subtaskCount);
+	const parts = $derived(taskPartProgress(task));
+	const partsSentence = $derived(taskUsesPartsSentence(task));
 	const feedback = $derived(openFeedbackCount(task));
 	const hints = $derived(linkGroups(task, tasks, archivedLinks).filter(group => ['foundWhile', 'blockedBy', 'related'].includes(group.kind)));
 	let openGroup = $state<string | null>(null);
@@ -43,7 +46,12 @@
 {/snippet}
 
 {#snippet progressCount()}
-	{#if progress && progress.total > 0}
+	{#if parts}
+		<span class="parts-bar" class:proportional={parts.proportional} aria-hidden="true">
+			{#each parts.segments as segment}<span class="part-segment {segment.tone}" style:flex-grow={segment.count}></span>{/each}
+		</span>
+		<span class="parts-text">{parts.text}</span>
+	{:else if progress && progress.total > 0}
 		<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
 			<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2" />
 			<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5" pathLength="1" stroke-dasharray="{progress.done / progress.total} 1" transform="rotate(-90 8 8)" />
@@ -54,7 +62,7 @@
 
 {#if activity || summary || (parent && !nested) || (progress && progress.total > 0) || canToggle || hints.length > 0 || feedback > 0}
 	<span class="family-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-		{#if activity}<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />{:else if summary}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
+		{#if activity && !partsSentence}<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />{:else if summary && !partsSentence}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
 		{#if parent && !nested}
 			{@const label = relationLabel('Subtask of', parent)}
 			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>↳ <TaskIdChip taskId={parent.id} /></a>
@@ -83,7 +91,7 @@
 			{/if}
 		{/each}
 		{#if (progress && progress.total > 0) || canToggle}
-			{@const label = progress && progress.total > 0 ? `${progress.done} of ${progress.total} subtasks done` : `Subtasks of ${task.id}`}
+			{@const label = parts?.text ?? (progress && progress.total > 0 ? `${progress.done} of ${progress.total} subtasks done` : `Subtasks of ${task.id}`)}
 			{#if canToggle}
 				<button type="button" class="family-link family-progress" aria-label="{expanded ? 'Collapse' : 'Expand'} subtasks of {task.id}, {label}" aria-expanded={expanded} title="{label} · {expanded ? 'Collapse subtasks' : `Expand subtasks (${foldedCount} folded)`}" onclick={ontoggle} data-subtask-chip>
 					{@render progressCount()}<ChevronRightIcon class="size-3 {expanded ? 'rotate-90' : ''}" aria-hidden="true" />
@@ -100,7 +108,14 @@
 	.family-meta :global(.family-link) { position: relative; z-index: 1; border-radius: 3px; }
 	.family-meta :global(.family-link:hover) { color: var(--chat-fg); }
 	.family-meta :global(.family-link:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 3px; }
-	.family-progress { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklab, var(--chat-fg-subtle) 8%, transparent); white-space: nowrap; }
+	.parts-bar { display: inline-flex; flex: 0 0 48px; height: 6px; gap: 2px; overflow: hidden; border-radius: 2px; }
+	.parts-bar.proportional { gap: 0; }
+	.part-segment { flex-basis: 0; min-width: 0; background: var(--chat-fg-subtle); }
+	.part-segment.done { background: var(--chat-success); }
+	.part-segment.working { background: var(--tone-ring); }
+	.part-segment.needs-you { background: var(--chat-warning); }
+	.parts-text { white-space: normal; }
+	.family-progress { max-width: 100%; display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklab, var(--chat-fg-subtle) 8%, transparent); white-space: nowrap; }
 	/* Hit areas grow out of the inline box, never adding a disclosure column or a padded metadata row. */
 	button.family-progress::before { content: ''; position: absolute; inset: -12px -4px; }
 	@media (pointer: coarse) {

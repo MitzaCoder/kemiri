@@ -102,7 +102,7 @@ export function taskQuietSince(task: BoardTask, tracking: TaskActivityTracking |
 }
 
 /** One shared state, first match wins. Facts are the same ones used by activity. */
-export function taskState(task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number): BoardTaskState {
+export function taskState(task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number, parts: readonly { id: string; state: BoardTaskState }[] = []): BoardTaskState {
  const since = tracking?.statusSince ?? task.updatedAt;
  const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs });
  if (task.status === "done" || task.status === "dropped") return make("closed", task.status, task.settledAt ?? since);
@@ -119,6 +119,10 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  if (blockers.length) return make("waiting", "blocked_by_task", since, blockers.map(t => t.id));
  if (task.status === "review") return make("needs_you", "review");
  if (task.status === "waiting") return make("waiting", "waiting_outside", task.waiting?.since ?? since);
+ // A direct part counts only with live work (refs), never the short idle grace period.
+ // Part states are derived bottom-up, so live descendant work follows the same rule at every level.
+ const workingParts = parts.filter(part => part.state.kind === "working" && part.state.refs.length > 0);
+ if (workingParts.length) return make("in_progress", "working", workingParts.map(part => part.state.since).sort()[0]!, workingParts.map(part => part.id));
  if (task.status === "in_progress") {
   const quiet = taskQuietSince(task, tracking);
   const paused = now - Date.parse(quiet) >= TASK_PAUSED_MS;

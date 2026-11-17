@@ -5,10 +5,8 @@ export function taskStateSupported(features: readonly string[] | undefined): boo
 	return features?.includes('task-state') ?? false;
 }
 
-export function taskWithStateSupport(task: BoardTask, enabled: boolean): BoardTask {
-	if (enabled || !task.state) return task;
-	const { state: _state, ...legacy } = task;
-	return legacy;
+export function taskWithStateSupport(task: BoardTask, enabled: boolean, partsEnabled = false): BoardTask {
+	return { ...task, state: enabled ? task.state : undefined, subtaskStates: partsEnabled ? task.subtaskStates : undefined };
 }
 
 export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks: readonly Pick<BoardTask, 'id' | 'title'>[] = []): string | undefined {

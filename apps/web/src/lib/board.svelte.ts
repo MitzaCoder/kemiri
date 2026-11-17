@@ -53,6 +53,7 @@ export class ProjectBoard {
 	activityEnabled = $state(false);
 	stateEnabled = $state(false);
 	clarifyEnabled = $state(false);
+	partsEnabled = $state(false);
 	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
 
 	async #askClose(text: string): Promise<OpenPartsChoice | undefined> {
@@ -90,6 +91,7 @@ export class ProjectBoard {
 				this.activityEnabled = taskActivitySupported(state.features);
 				this.stateEnabled = taskStateSupported(state.features);
 				this.clarifyEnabled = questionClarifySupported(state.features);
+				this.partsEnabled = state.features?.includes("task-part-states") ?? false;
 				void this.load();
 			}
 		});
@@ -102,7 +104,7 @@ export class ProjectBoard {
 			const board = await this.#client.readBoard(this.projectId, { includeArchived: this.showArchived });
 			if (this.#stopped) return;
 			this.#apply(board);
-			if (this.showArchived) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled));
+			if (this.showArchived) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled, this.partsEnabled));
 		} catch (error) {
 			if (this.#stopped) return;
 			this.error = messageOf(error);
@@ -127,7 +129,7 @@ export class ProjectBoard {
 	async findArchived(id: string): Promise<BoardTask | undefined> {
 		const board = await this.#client.readBoard(this.projectId, { includeArchived: true });
 		const task = board.tasks.find((task) => task.id === id);
-		return task ? taskWithStateSupport(task, this.stateEnabled) : undefined;
+		return task ? taskWithStateSupport(task, this.stateEnabled, this.partsEnabled) : undefined;
 	}
 
 	/** A task's snapshots, oldest first. */
@@ -163,7 +165,7 @@ export class ProjectBoard {
 				save: (input, options) => this.#client.saveBoardTask(this.projectId, input, options),
 			});
 			if (outcome.kind === 'saved') {
-				outcome.task = taskWithStateSupport(outcome.task, this.stateEnabled);
+				outcome.task = taskWithStateSupport(outcome.task, this.stateEnabled, this.partsEnabled);
 				if (!this.#stopped) this.#upsertTask(outcome.task);
 			}
 			return outcome;
@@ -239,20 +241,20 @@ export class ProjectBoard {
 	async #readArchived(): Promise<void> {
 		try {
 			const board = await this.#client.readBoard(this.projectId, { includeArchived: true });
-			if (!this.#stopped) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled));
+			if (!this.#stopped) this.archived = board.tasks.filter((task) => task.archived).map(task => taskWithStateSupport(task, this.stateEnabled, this.partsEnabled));
 		} catch (error) {
 			if (!this.#stopped) this.error = messageOf(error);
 		}
 	}
 
 	#apply(board: Board): void {
-		this.board = { ...board, tasks: board.tasks.filter((task) => !task.archived).map(task => taskWithStateSupport(task, this.stateEnabled)) };
+		this.board = { ...board, tasks: board.tasks.filter((task) => !task.archived).map(task => taskWithStateSupport(task, this.stateEnabled, this.partsEnabled)) };
 		this.loaded = true;
 		this.error = undefined;
 	}
 
 	#upsertTask(task: BoardTask): void {
-		task = taskWithStateSupport(task, this.stateEnabled);
+		task = taskWithStateSupport(task, this.stateEnabled, this.partsEnabled);
 		if (this.board === undefined) return;
 		const tasks = [...this.board.tasks];
 		const index = tasks.findIndex((entry) => entry.id === task.id);

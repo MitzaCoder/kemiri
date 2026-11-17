@@ -240,6 +240,7 @@ export const BoardTaskSchema = Type.Object({
 	ledTo: Type.Optional(Type.Array(Type.String(), { description: "Derived: the tasks whose `foundWhile` is this one." })),
 	blocks: Type.Optional(Type.Array(Type.String(), { description: "Derived: the tasks that list this one in `blockedBy`." })),
 	subtaskCount: Type.Optional(BoardSubtaskCountSchema),
+ subtaskStates: Type.Optional(Type.Array(BoardTaskStateSchema.properties.kind, { description: "task-part-states: derived kinds of direct parts in task order, excluding dropped; matches subtaskCount.total." })),
 	feedback: Type.Optional(BoardFeedbackCountsSchema),
 	timelineRevision: Type.Optional(
 		Type.Integer({ minimum: 0, description: "Bumped whenever the task's timeline gains an entry the board itself does not carry, so a reader knows to read it again." }),

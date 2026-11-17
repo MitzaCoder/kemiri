@@ -78,6 +78,7 @@ export type BoardState = {
 	taskFreshnessEnabled?: boolean;
  taskActivityEnabled?: boolean;
  taskStateEnabled?: boolean;
+ taskPartStatesEnabled?: boolean;
  taskStateMigrated?: boolean;
  pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
@@ -957,19 +958,46 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 	const found = reverse((task) => (task.foundWhile == null || task.foundWhile === task.parent ? [] : [task.foundWhile]));
 	const blocking = reverse((task) => task.blockedBy);
 	const byId = new Map(state.tasks.map((task) => [task.id, task]));
+ const trackingFor = (task: BoardTask): TaskActivityTracking | undefined => {
+  const tracking = state.taskActivity?.[task.id];
+  return tracking && !state.deployFeedConfigured ? { ...tracking, deploy: undefined, deployFailure: undefined, deployUnknownSince: undefined, delivery: tracking.delivery?.text.startsWith("Live on") ? undefined : tracking.delivery } : tracking;
+ };
+ const derivedStates = new Map<string, NonNullable<BoardTask["state"]>>();
+ const deriving = new Set<string>();
+ const stateFor = (task: BoardTask): NonNullable<BoardTask["state"]> => {
+  const cached = derivedStates.get(task.id);
+  if (cached) return cached;
+  deriving.add(task.id);
+  const parts = (children.get(task.id) ?? []).flatMap(id => {
+   const child = byId.get(id);
+   return child && child.status !== "dropped" && !deriving.has(id) ? [{ id, state: stateFor(child) }] : [];
+  });
+  const derived = taskState(task, state.questions, state.tasks, trackingFor(task), now, parts);
+  deriving.delete(task.id);
+  derivedStates.set(task.id, derived);
+  return derived;
+ };
 	const all = state.tasks
 		.map((task) => {
-			let tracking = state.taskActivity?.[task.id];
-			if (tracking && !state.deployFeedConfigured) tracking = { ...tracking, deploy: undefined, deployFailure: undefined, deployUnknownSince: undefined, delivery: tracking.delivery?.text.startsWith("Live on") ? undefined : tracking.delivery };
-			const activity = state.taskActivityEnabled ? taskActivity(task, state.questions, state.tasks, tracking, now) : undefined;
+   const tracking = trackingFor(task);
+			let activity = state.taskActivityEnabled ? taskActivity(task, state.questions, state.tasks, tracking, now) : undefined;
    const minutes = inProgressMinutes(state, task.id, now);
 			const subtasks = children.get(task.id) ?? [];
 			const counted = subtasks.map((id) => byId.get(id)).filter((child): child is BoardTask => child !== undefined && child.status !== "dropped");
+   const derived = state.taskStateEnabled ? stateFor(task) : undefined;
+   const subtaskStates = state.taskPartStatesEnabled && derived && subtasks.length ? counted.map(child => stateFor(child).kind) : undefined;
+   if (activity && subtaskStates?.length && (derived?.group === "in_progress" || derived?.group === "todo")) {
+    const done = subtaskStates.filter(kind => kind === "done").length;
+    const working = subtaskStates.filter(kind => kind === "working").length;
+    const needsYou = subtaskStates.filter(kind => ["failed", "answer_needed", "review"].includes(kind)).length;
+    activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${subtaskStates.length} parts done${working ? ` · ${working} working` : ""}${needsYou ? ` · ${needsYou} needs you` : ""}`, since: derived.since, refs: derived.refs };
+   }
 			return {
 				...task,
 				report: { ...(task.report ?? emptyReport()), ...(activity ? { now: activity.text } : {}) },
     ...(activity ? { activity } : {}),
-    ...(state.taskStateEnabled ? { state: taskState(task, state.questions, state.tasks, tracking, now) } : {}),
+    ...(derived ? { state: derived } : {}),
+    ...(subtaskStates ? { subtaskStates } : {}),
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],
 				parent: task.parent ?? null,
@@ -2063,6 +2091,7 @@ export type BoardServiceOptions = {
 	taskFreshness?: boolean;
  taskActivity?: boolean;
  taskState?: boolean;
+ taskPartStates?: boolean;
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
  threadTitle?: (threadId: string) => Promise<string | undefined>;
@@ -2346,6 +2375,7 @@ export class BoardService {
 			state.taskFreshnessEnabled = this.#options.taskFreshness !== false;
    state.taskActivityEnabled = this.#options.taskActivity !== false;
    state.taskStateEnabled = this.#options.taskState !== false;
+   state.taskPartStatesEnabled = this.#options.taskPartStates !== false;
    await this.#change(tx, HARNESS_WRITER, "task-state-migration", (doc, now) => {
     const notices = migrateTaskStates(doc, now);
     if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
@@ -2856,7 +2886,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    const due = [
     ...(state.pausedNotices?.length ? [this.#options.now() + 1000] : []),
     ...board.tasks.filter(task => task.activity?.kind === "delivery").map(task => Date.parse(task.activity!.since) + DELIVERY_ACTIVITY_MS),
-    ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(s => s.state === "running") && state.taskActivity?.[task.id]?.deploy?.state !== "active").map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
+    ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !task.state.refs.length && !Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(s => s.state === "running") && state.taskActivity?.[task.id]?.deploy?.state !== "active").map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
    ].filter(at => at > this.#options.now());
    if (board.tasks.some(task => task.state?.kind === "paused") || state.pausedNotices?.length) void this.checkPaused().catch(error => this.#options.log(`board paused: ${errorMessage(error)}`));
    if (due.length) { expiry = setTimeout(() => publish(watch.value), Math.min(...due) - this.#options.now()); expiry.unref?.(); }

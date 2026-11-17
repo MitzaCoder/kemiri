@@ -2433,6 +2433,7 @@ data class BoardTask(
     val `ledTo`: List<String>? = null,
     val `blocks`: List<String>? = null,
     val `subtaskCount`: BoardSubtaskCount? = null,
+    val `subtaskStates`: List<String>? = null,
     val `feedback`: BoardFeedbackCounts? = null,
     val `timelineRevision`: Long? = null,
     val `writeScopes`: List<String>,

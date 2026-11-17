@@ -30,11 +30,12 @@ await runtime.harness.commit(async tx => {
 	doc.questions.push({ id: 'Q1', revision: 1, kind: 'question', text: 'Paper boxes or tins?', options: ['Paper boxes', 'Tins'], taskId: 'T11', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
 	doc.counters.question = 1;
 }, BACKGROUND_CONTEXT);
-clock = Date.now();
 for (const [id, taskId, title] of [['fern', 'T3', 'Pastry photos'], ['moss', 'T7', 'Oven repair']] as const) {
 	const started = await runtime.threads.start({ id, title, brief: 'Synthetic held session; no tools.', model: null, thinkingLevel: null, onFinish: 'record', startedBy: 'main', scheduleId: null, taskId, key: `state-demo-${id}` });
 	if (!started.ok) throw new Error(started.message);
 }
+// Advance only after the synthetic live work exists, avoiding an artificial pause episode during seeding.
+clock = Date.now();
 await Bun.write(output, JSON.stringify({ url: setup.server.url, projectId, pid: process.pid, root: setup.root }));
 console.log('Synthetic task-state backend ready.');
 process.on('SIGTERM', async () => { client.close(); await setup.cleanup(); process.exit(0); });

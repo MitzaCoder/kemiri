@@ -43,6 +43,7 @@ internal fun TaskListRow(
     val warned = row.waiting.any(::isWarning)
     val activity = taskRowActivity(task, LocalTaskActivityEnabled.current) { taskLinks?.title(it) }
     val gist = rowGist(row, LocalTaskActivityEnabled.current)
+    val partsSummary = taskPartProgress(task)?.text
     val wash = when {
         needsYou && warned -> colors.warning.copy(alpha = .09f)
         needsYou -> colors.accent2.copy(alpha = .08f)
@@ -57,7 +58,7 @@ internal fun TaskListRow(
                 contentDescription = listOfNotNull(
                     "${task.id}: ${task.title}", activity?.text ?: taskStateLabel(task),
                     task.parent?.takeIf { nested }?.let { "Subtask of $it" },
-                    task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" }, rowTime(row, now),
+                    if (partsSummary != null) partsSummary.takeUnless { it == activity?.text } else task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" }, rowTime(row, now),
                 ).joinToString(". ")
             }
             .padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
@@ -80,7 +81,7 @@ internal fun TaskListRow(
             if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val summary = if (!searchHit?.snippet.isNullOrEmpty()) "" else if (task.status == "waiting") waitingSummary(task, now) else gist
             if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) {
-                TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
+                if (!linksEnabled || !taskUsesPartsSentence(task)) TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
                 if (linksEnabled) TaskFamilyMeta(family, nested, archived, "", onToggle)
             }
             else if (linksEnabled) TaskFamilyMeta(family, nested, archived, summary, onToggle)

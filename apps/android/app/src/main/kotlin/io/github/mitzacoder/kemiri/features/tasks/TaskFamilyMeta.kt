@@ -36,10 +36,11 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
     val parent = groups.firstOrNull { it.kind == "parent" }?.items?.firstOrNull()?.takeUnless { nested }
     val hints = groups.filter { it.kind in setOf("foundWhile", "blockedBy", "related") }
     val progress = task.subtaskCount?.takeIf { it.total > 0 }
+    val parts = taskPartProgress(task)
     val feedback = openFeedbackCount(task)
     if (summary.isEmpty() && parent == null && hints.isEmpty() && progress == null && !family.canToggle && feedback == 0L) return
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-        if (summary.isNotEmpty()) Text(
+        if (summary.isNotEmpty() && !taskUsesPartsSentence(task)) Text(
             summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
             maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
         )
@@ -75,7 +76,7 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
             }
         }
         if (progress != null || family.canToggle) {
-            val label = progress?.let { "${it.done} of ${it.total} subtasks done" } ?: "Subtasks of ${task.id}"
+            val label = parts?.text ?: progress?.let { "${it.done} of ${it.total} subtasks done" } ?: "Subtasks of ${task.id}"
             // Foundation clickable expands touch bounds to the platform's 48dp minimum without a layout column.
             Row(
                 Modifier.background(colors.fgSubtle.copy(alpha = .08f), RoundedCornerShape(4.dp))
@@ -86,14 +87,30 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
                     }.padding(horizontal = 4.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Canvas(Modifier.size(13.dp)) {
+                if (parts != null) Canvas(Modifier.size(width = 48.dp, height = 6.dp)) {
+                    val gap = if (parts.proportional) 0f else 2.dp.toPx()
+                    val available = size.width - gap * (parts.segments.size - 1)
+                    val total = parts.segments.sumOf { it.count }
+                    var x = 0f
+                    parts.segments.forEach { segment ->
+                        val width = available * segment.count / total
+                        val color = when (segment.tone) {
+                            PartTone.Done -> colors.success
+                            PartTone.Working -> colors.ring
+                            PartTone.NeedsYou -> colors.warning
+                            PartTone.Other -> colors.fgSubtle
+                        }
+                        drawRect(color, Offset(x, 0f), Size(width, size.height))
+                        x += width + gap
+                    }
+                } else Canvas(Modifier.size(13.dp)) {
                     val inset = 1.dp.toPx()
                     val stroke = Stroke(1.5.dp.toPx())
                     val arcSize = Size(size.width - 2 * inset, size.height - 2 * inset)
                     drawArc(colors.fgSubtle.copy(alpha = .2f), -90f, 360f, false, Offset(inset, inset), arcSize, style = stroke)
                     drawArc(colors.fgSubtle, -90f, 360f * (subtaskFraction(task) ?: 0f), false, Offset(inset, inset), arcSize, style = stroke)
                 }
-                Text(progress?.let { "${it.done}/${it.total}" } ?: "Subtasks", style = TaskType.meta, color = colors.fgSubtle)
+                Text(parts?.text ?: progress?.let { "${it.done}/${it.total}" } ?: "Subtasks", modifier = Modifier.weight(1f, fill = false), style = TaskType.meta, color = colors.fgSubtle)
                 if (family.canToggle) LucideGlyph(Lucide.ChevronRight, Modifier.rotate(if (family.expanded) 90f else 0f), size = 12.dp, tint = colors.fgSubtle)
             }
         }

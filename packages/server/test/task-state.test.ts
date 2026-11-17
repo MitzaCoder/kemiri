@@ -296,3 +296,63 @@ it("dropping a blocker sends the owning coordinator a resolved-blockers notice",
  await view.waitForView(v => v.entries.some(e => entryText(e).includes('is dropped, so T2')));
  expect(view.view!.entries.filter(e => entryText(e).includes('is dropped, so T2'))).toHaveLength(1);
 });
+
+
+it("parent follows live direct and descendant work, but not idle grace or unknown work", () => {
+ const s = emptyBoardState(); s.taskStateEnabled = true; s.taskPartStatesEnabled = true; s.taskActivityEnabled = true;
+ add(s, { status: "in_progress" }); add(s, { parent: "T1", status: "done" });
+ add(s, { parent: "T1", status: "in_progress" }); add(s, { parent: "T1" }); add(s, { parent: "T3", status: "in_progress" });
+ add(s, { parent: "T1", status: "dropped" });
+ activityTracking(s, "T5").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
+ const before = JSON.stringify(s);
+ const board = boardView(s, START + 2 * TASK_PAUSED_MS, true);
+ expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), refs: ["T3"] });
+ expect(board.tasks[0]!.subtaskCount).toEqual({ done: 1, total: 3 });
+ expect(board.tasks[0]!.subtaskStates).toEqual(["done", "working", "todo"]);
+ expect(board.tasks[0]!.activity!.text).toBe("1 of 3 parts done · 1 working");
+ expect(JSON.stringify(s)).toBe(before);
+ activityTracking(s, "T5").sources.fern!.state = "unknown";
+ expect(boardView(s, START + 2 * TASK_PAUSED_MS, true).tasks[0]!.state!.kind).toBe("paused");
+ activityTracking(s, "T3").statusSince = at(2 * TASK_PAUSED_MS);
+ expect(boardView(s, START + 2 * TASK_PAUSED_MS, true).tasks[0]!.state!.kind).toBe("paused");
+ s.taskPartStatesEnabled = false;
+ expect(boardView(s, START, true).tasks[0]!.subtaskStates).toBeUndefined();
+ expect(HARNESS_FEATURES).toContain("task-part-states"); expect(LEGACY_HARNESS_FEATURES).not.toContain("task-part-states");
+});
+
+it.each(["failed", "answer_needed", "review", "blocked_by_task", "waiting_outside", "done"] as const)("parent's own %s is not replaced by parts", kind => {
+ const s = emptyBoardState(); s.taskStateEnabled = true; s.taskPartStatesEnabled = true; s.taskActivityEnabled = true;
+ add(s, { status: "in_progress" }); add(s, { parent: "T1", status: "in_progress" }); add(s);
+ activityTracking(s, "T2").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
+ const root = s.tasks[0]!;
+ if (kind === "failed") { root.status = "blocked"; root.blockedReason = "Stuck"; }
+ if (kind === "answer_needed") askQuestion(s, { taskId: root.id, text: "Choose", options: [], now: at() });
+ if (kind === "review") root.status = "review";
+ if (kind === "blocked_by_task") root.blockedBy = ["T3"];
+ if (kind === "waiting_outside") { root.status = "waiting"; root.waiting = { note: "Council", since: at(), by: "user" }; }
+ if (kind === "done") root.status = "done";
+ const parent = boardView(s, START + TASK_PAUSED_MS, true).tasks[0]!;
+ expect(parent.state!.kind).toBe(kind);
+ expect(parent.activity!.text).not.toContain("parts done");
+});
+
+it("live parts suppress parent pause notices until work ends, with an injected clock", async () => {
+ const { runtime, clock } = await integration();
+ await runtime.board.saveTask({ task: input({ status: "in_progress" }) }, "user");
+ await runtime.board.saveTask({ task: input({ parent: "T1", status: "in_progress" }) }, "user");
+ await runtime.harness.commit(async tx => {
+  const s = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  activityTracking(s, "T2").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
+ }, BACKGROUND_CONTEXT);
+ clock(2 * TASK_PAUSED_MS); await runtime.board.checkPaused();
+ expect((await runtime.board.get()).tasks[0]!.state!.kind).toBe("working");
+ expect((await runtime.board.state()).taskActivity?.T1?.pauseNudgedEpisode).toBeUndefined();
+ expect((await runtime.board.state()).pausedNotices ?? []).toEqual([]);
+ await runtime.harness.commit(async tx => {
+  const s = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  endActivitySource(activityTracking(s, "T2"), "fern", at(2 * TASK_PAUSED_MS));
+ }, BACKGROUND_CONTEXT);
+ await runtime.board.checkPaused();
+ expect((await runtime.board.get()).tasks[0]!.state!.kind).toBe("paused");
+ expect((await runtime.board.state()).taskActivity!.T1!.pauseNudgedEpisode).toBeDefined();
+}, 20_000);

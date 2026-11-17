@@ -1,4 +1,5 @@
 import type { BoardTask, BoardTaskActivity } from '@kemiri/protocol';
+import { taskUsesPartsSentence } from './task-parts.js';
 import { taskStateLabel } from './task-state.js';
 import { relativeTime } from './relative-time.js';
 
@@ -35,6 +36,7 @@ export function taskRowActivity(task: BoardTask, enabled: boolean, tasks: readon
 	const activity = automaticTaskActivity(task, enabled);
 	const state = task.state;
 	if (!state) return activity;
+	if (activity && taskUsesPartsSentence(task)) return activity;
 	const conveysState: Partial<Record<typeof state.kind, readonly BoardTaskActivity['kind'][]>> = {
 		failed: ['failure'], answer_needed: ['question'], review: ['review'],
 		working: ['working', 'deploy'], blocked_by_task: ['blocked'],

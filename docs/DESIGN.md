@@ -2756,9 +2756,14 @@ First match wins, using the same blocking-question, run and deployment facts as 
 5. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
 6. Stored review → needs_you/review.
 7. Stored waiting → waiting/waiting_outside.
-8. Stored in_progress without work → in_progress/working until 15 minutes quiet, then
-   in_progress/paused. Quiet begins at max(last run ended, stored status began); paused
-   `since` is that time plus 15 minutes. Unknown sources are not live work.
+8. A parent with a direct part in derived working with live work → in_progress/working,
+   after its own failure/question/blocker/review/outside-wait rules. Part states are derived
+   bottom-up once per emission: descendant work propagates through working parts, but not
+   through a part that itself needs attention or waits. Working refs name those direct parts;
+   `since` is the earliest live part start. Idle grace (working without refs), unknown sources
+   and dropped parts do not count as live work. Otherwise stored in_progress without work →
+   in_progress/working until 15 minutes quiet, then in_progress/paused. Quiet begins at
+   max(last run ended, stored status began); paused `since` is that time plus 15 minutes.
 9. Stored todo → todo/todo.
 
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
@@ -2771,13 +2776,16 @@ per-second writes. One `[board]` follow-up nudges the owning coordinator (else m
 finished, back to To do if it is not being worked on, or ask the user.” The durable outbox
 and episode-derived request ID deduplicate crash replay. The admitted/nudged episode survives
 restart; overdue pauses nudge once. Only a status change or new running work starts another
-episode; editing prose does not. `BoardService.checkPaused()` supports injected clocks.
+episode; editing prose does not. A parent following live parts is not paused and receives no
+pause nudge; queued notices are revalidated against the same derived board before delivery.
+Inherited work does not reset the parent's own quiet clock or nudge episode: when it ends,
+its own quiet clock applies again. `BoardService.checkPaused()` supports injected clocks.
 
 **Android (T211, stage 3).** List and board use the five derived groups when advertised;
 missing capability/field retains the legacy display. Needs you sorts Failed, Answer needed,
 Ready for review, oldest within each kind; the list shows Working before Paused, while the
 board's In progress and Waiting sort oldest first. To do retains priority and Closed newest first.
-Family nesting compares derived groups, retaining attention visibility and the direct-parts pill.
+Family nesting compares derived groups, retaining attention visibility and the direct-parts progress disclosure.
 Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
 has a quiet distinct tone and task blockers belong to Waiting. Graph mapping stays Android-only.
 
@@ -2793,6 +2801,15 @@ additional textual Waits for fact when the state sentence already names task blo
 links still work. Dots align to the first text line, also when sentences wrap. Legacy backends
 retain their existing activity/status display. Header status and group/count summaries do not
 change; the task sheet still offers the full activity details.
+**Parent parts (T244 / D94 stage 1).** Feature `task-part-states` advertises optional
+`BoardTask.subtaskStates`, an array of direct parts' derived state kinds in task order,
+excluding dropped (including archived done parts), next to the existing `subtaskCount`.
+It is derived, never persisted as a new task fact. The done/total count and array cover the
+same parts. Old clients ignore it; new clients without the capability or field keep the ring.
+A parent's activity/state sentence is “N of M parts done”, appending nonzero “· K working”
+and “· K needs you” counts (failed/answer_needed/review). Its own Needs you or Waiting
+sentence takes precedence; closed parents retain Done/Dropped. List metadata renders the
+summary once inside the fold disclosure instead of repeating it as an activity line.
 Ages share the existing local minute clock, with no additional reads. Board moves offer To do,
 In progress (start now, including resuming Paused), Done and Dropped; Waiting needs its note form.
 The shared save path asks about open direct parts for sheet/editor/board closures, also after an
@@ -3201,9 +3218,13 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 The web task list uses collapsible families, with no prototype switch or query flag. Kanban remains unchanged.
 Quiet same-group children nest beneath their parent (same stored status on old backends) with a 14px guide/indent capped visually at three levels.
 A task having subtasks never adds a leading column: status, title, status line and trailing time/ID keep exactly the
-same positions as plain rows at every width. The neutral direct-subtask progress pill (ring, done/total excluding
-dropped, and a small rotating chevron) is the disclosure itself; non-foldable families show progress without a
-chevron. Parent links, grouped relation glyphs/counts and progress share a compact inline meta line with the gist
+same positions as plain rows at every width. The direct-parts bar and summary (T244 / D94) are
+the disclosure itself, with a small rotating chevron; non-foldable families show progress without a
+chevron. Up to 12 parts, one segment per direct part is ordered done, working, needs-you, then
+other: success green, ring violet, warning amber and subtle grey theme tokens. Above 12 parts,
+one gapless bar uses proportional shares in the same order. Dropped parts are excluded. The text
+reads “N of M parts done”, with nonzero “· K working” and “· K needs you” counts. Without the
+`task-part-states` capability/field, the previous neutral ring and done/total remain. Parent links, grouped relation glyphs/counts and progress share a compact inline meta line with the gist
 where it fits, with no padded metadata row. Grouped relations expose every target in their menu and full tooltip
 and accessible description. Waiting notes already beginning with “waiting for” (case insensitive) are not prefixed again. Root families and siblings
 retain priority order; nesting puts a parent before its children. Section counts still include folded rows.
@@ -3235,7 +3256,8 @@ and native keyboard activation. No disclosure column is reserved for parents or 
 use the same invisible minimum touch expansion; grouped menus retain individual target navigation. No expansion
 animation is used; the existing reduced-motion setting also stops working-dot motion. Small relation controls
 supply spoken labels and long-press tooltips instead of browser title tooltips. Explicit list filters and section
-folding remain user controls; attention sections start open. No protocol/backend change is needed.
+folding remain user controls; attention sections start open. Android uses the same optional
+`task-part-states` field, bar, summary, ordering, threshold and old-backend ring fallback as web.
 
 ### Combined task search (T114)
 

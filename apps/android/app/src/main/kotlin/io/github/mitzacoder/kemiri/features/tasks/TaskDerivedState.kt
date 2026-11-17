@@ -4,8 +4,8 @@ import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 
 /** The data boundary removes unadvertised state; a missing field retains the old UI. */
-fun taskWithSupportedState(task: BoardTask, supported: Boolean): BoardTask =
-    if (supported) task else task.copy(state = null)
+fun taskWithSupportedState(task: BoardTask, supported: Boolean, partsSupported: Boolean = false): BoardTask =
+    task.copy(state = task.state.takeIf { supported }, subtaskStates = task.subtaskStates.takeIf { partsSupported })
 
 fun derivedTaskSection(task: BoardTask, waiting: Int = 0): TaskSectionId = when (task.state?.group) {
     "needs_you" -> TaskSectionId.NeedsYou

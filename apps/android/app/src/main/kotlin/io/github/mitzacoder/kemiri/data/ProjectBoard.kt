@@ -145,7 +145,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
                 // Keep the revision the owner edited; fetching parts must not rebase stale prose.
                 client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts)
             }
-            val task = taskWithSupportedState(saved, client.supports("task-state"))
+            val task = taskWithSupportedState(saved, client.supports("task-state"), client.supports("task-part-states"))
             upsertTask(task)
             SaveOutcome.Saved(task)
         } catch (error: CancellationException) { throw error }
@@ -190,7 +190,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         catch (error: Exception) { mutableView.update { it.copy(error = error.message ?: "Could not read archived tasks") } }
     }
 
-    private fun supportedBoard(board: Board) = board.copy(tasks = board.tasks.map { taskWithSupportedState(it, client.supports("task-state")) })
+    private fun supportedBoard(board: Board) = board.copy(tasks = board.tasks.map { taskWithSupportedState(it, client.supports("task-state"), client.supports("task-part-states")) })
 
     private fun upsertTask(task: BoardTask) = mutableView.update { current ->
         val board = current.board ?: return@update current
