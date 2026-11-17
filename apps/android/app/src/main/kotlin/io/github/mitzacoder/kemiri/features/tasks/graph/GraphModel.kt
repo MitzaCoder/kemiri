@@ -53,7 +53,7 @@ fun graphWaitingDate(until: String?, now: Long): String {
 fun graphWorkerRests(status: String, task: BoardTask?, visibleTaskIds: Set<String>): Boolean =
     status in listOf("idle", "failed") && (task == null || task.archived || graphClosed(task.status) || task.id !in visibleTaskIds)
 
-class GraphModel(val details: Map<String, GraphTask>, val workers: List<WorkerSummary> = emptyList()) {
+class GraphModel(val details: Map<String, GraphTask>, val workers: List<WorkerSummary> = emptyList(), val threads: List<ThreadSummary> = emptyList()) {
     fun workerTask(worker: WorkerSummary): BoardTask? = worker.taskId?.let { details[it]?.task }
         ?: if (worker.taskId == null) details.values.firstOrNull { worker.id in it.task.workerIds }?.task else null
     fun restingWorkers(visibleTaskIds: Set<String>): List<WorkerSummary> = workers.filter {
@@ -187,7 +187,7 @@ fun buildGraphModel(tasks: List<BoardTask>, questions: List<BoardQuestion>, work
         task.id to GraphTask(task, familyId, byId[familyId]?.title ?: familyId, progress.getValue(familyId), reasons, taskQuestions,
             !graphClosed(task.status) && (graphTimestamp(task.updatedAt)?.let { now - it >= 48 * 3_600_000L } ?: false),
             children[task.id].orEmpty().map { it.id }, blocks[task.id].orEmpty(), taskWorkers, threadsByTask[task.id].orEmpty())
-    }, workers)
+    }, workers, threads)
 }
 
 /** Sheet dismissal preserves selection. The next Back clears selection/highlights; the next leaves Graph. */

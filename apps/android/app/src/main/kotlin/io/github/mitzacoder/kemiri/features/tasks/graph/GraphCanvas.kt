@@ -56,7 +56,7 @@ internal fun Modifier.graphPinchOut(onPinch: () -> Unit): Modifier = pointerInpu
 @Composable
 internal fun GraphCanvas(
     state: GraphCanvasState, model: GraphModel, families: List<GraphFamily>, familyId: String?, selected: String?, highlight: String?,
-    live: GraphLive, now: Long, motion: Boolean, onSelect: (String) -> Unit, onFamily: (String) -> Unit, modifier: Modifier = Modifier,
+    live: GraphLive, now: Long, motion: Boolean, shownTaskIds: Set<String>, onSelect: (String) -> Unit, onFamily: (String) -> Unit, modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val colors = Jarvis.colors
@@ -80,8 +80,8 @@ internal fun GraphCanvas(
                 state.camera = GraphCamera(16 - card.box.x, 48 - card.box.y, 1f)
             }
             val boxes = layout.cards.mapValues { (_, card) -> if (detail == GraphDetail.Pills) card.pill else card.occupied }
-            val near = boxes.filterValues { camera.box(it).overlaps(viewport.expand(180f)) }.keys
-            val visible = boxes.filterValues { camera.box(it).overlaps(viewport) }.keys
+            val near = boxes.filter { (id, box) -> id in shownTaskIds && camera.box(box).overlaps(viewport.expand(180f)) }.keys
+            val visible = boxes.filter { (id, box) -> id in shownTaskIds && camera.box(box).overlaps(viewport) }.keys
             val relationships = remember(model, layout, selected, familyId) { graphRelationships(model, layout, selected, familyId) }
             val edges = remember(layout, relationships, detail) { routeGraphRelationships(layout, relationships, detail) }
             Box(Modifier.fillMaxSize()
@@ -97,11 +97,11 @@ internal fun GraphCanvas(
             ) {
                 if (detail != GraphDetail.Dots) {
                     Canvas(Modifier.fillMaxSize()) {
-                        layout.families.filter { camera.box(it.bounds).overlaps(viewport.expand(180f)) }.forEach { f ->
+                        layout.families.filter { it.taskIds.any(shownTaskIds::contains) && camera.box(it.bounds).overlaps(viewport.expand(180f)) }.forEach { f ->
                             val b = camera.box(f.bounds)
                             drawRoundRect(colors.surface2.copy(alpha = .45f), Offset(b.x.dp.toPx(), b.y.dp.toPx()), androidx.compose.ui.geometry.Size(b.width.dp.toPx(), b.height.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(18.dp.toPx()))
                         }
-                        edges.filter { it.relationship.from in near || it.relationship.to in near }.forEach { route ->
+                        edges.filter { it.relationship.from in shownTaskIds && it.relationship.to in shownTaskIds && (it.relationship.from in near || it.relationship.to in near) }.forEach { route ->
                             val points = route.points.map { camera.point(it).let { p -> Offset(p.x.dp.toPx(), p.y.dp.toPx()) } }
                             if (points.size < 2) return@forEach
                             val path = Path().apply { moveTo(points[0].x, points[0].y); points.drop(1).forEach { lineTo(it.x, it.y) } }
@@ -116,7 +116,7 @@ internal fun GraphCanvas(
                             }
                         }
                     }
-                    layout.families.filter { it.taskIds.isNotEmpty() && camera.box(it.bounds.copy(height = layout.options.headerHeight)).overlaps(viewport) }.forEach { f ->
+                    layout.families.filter { it.taskIds.any(shownTaskIds::contains) && camera.box(it.bounds.copy(height = layout.options.headerHeight)).overlaps(viewport) }.forEach { f ->
                         val b = camera.box(f.bounds)
                         TextButton(onClick = { onFamily(f.id) }, modifier = Modifier.offset(b.x.dp, b.y.dp).width(b.width.dp).heightIn(min = 48.dp)) {
                             Text(model.details[f.taskIds.first()]?.familyTitle ?: f.id, fontSize = max(12f, 16 * camera.zoom).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.fg)
@@ -130,17 +130,17 @@ internal fun GraphCanvas(
                                 id in live.linger, (statusTones[graphTaskStatus(d.task)] ?: statusTones.getValue("todo")), camera.zoom, now, model.holdsUp(id).total) { onSelect(id) }
                         }
                     }
-                    if (detail == GraphDetail.Cards) GraphCrewLayer(layout, model, camera, viewport, live.reports, motion, now)
+                    if (detail == GraphDetail.Cards) GraphCrewLayer(layout, model, camera, viewport, live.reports, motion, now, shownTaskIds)
                 } else {
                     val regions = layout.families.filter { it.taskIds.isNotEmpty() }
-                    regions.forEach { f ->
+                    regions.filter { it.taskIds.any(shownTaskIds::contains) }.forEach { f ->
                         val p = camera.point(f.bounds.center)
                         val neighbor = regions.filter { it.id != f.id && abs(it.bounds.center.y - f.bounds.center.y) < 100 }.minOfOrNull { abs(it.bounds.center.x - f.bounds.center.x) * camera.zoom }
                         val labelWidth = (neighbor?.minus(GRAPH_DOT_LABEL_GAP) ?: GRAPH_DOT_LABEL_MAX_WIDTH * density.fontScale.coerceAtMost(1.5f)).coerceIn(dotWidth, GRAPH_DOT_LABEL_MAX_WIDTH * density.fontScale.coerceAtMost(1.5f))
                         val b = GraphRect(p.x - labelWidth / 2, p.y - dotHeight / 2, labelWidth, dotHeight)
                         if (b.overlaps(viewport.expand(48f))) {
                             val title = model.details[f.taskIds.first()]?.familyTitle ?: f.id
-                            GraphFamilyDot(title, graphDotCounts(model, f.taskIds), b) { onFamily(f.id) }
+                            GraphFamilyDot(title, graphDotCounts(model, f.taskIds.filter(shownTaskIds::contains)), b) { onFamily(f.id) }
                         }
                     }
                 }

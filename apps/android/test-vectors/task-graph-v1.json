@@ -1,4 +1,358 @@
 {
+  "folding": [
+    {
+      "name": "derived kinds",
+      "tasks": [
+        {
+          "id": "T1",
+          "state": {
+            "kind": "failed",
+            "group": "needs_you",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T2",
+          "state": {
+            "kind": "answer_needed",
+            "group": "needs_you",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T3",
+          "state": {
+            "kind": "review",
+            "group": "needs_you",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T4",
+          "state": {
+            "kind": "working",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T5",
+          "state": {
+            "kind": "clarifying",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T6",
+          "state": {
+            "kind": "paused",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T7",
+          "state": {
+            "kind": "blocked_by_task",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T8",
+          "state": {
+            "kind": "todo",
+            "group": "todo",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T9",
+          "state": {
+            "kind": "waiting_outside",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T10",
+          "state": {
+            "kind": "done",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        },
+        {
+          "id": "T11",
+          "state": {
+            "kind": "dropped",
+            "group": "waiting",
+            "refs": [],
+            "since": "2026-06-12T12:00:00Z"
+          }
+        }
+      ],
+      "workers": [],
+      "questions": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T8"
+          ]
+        },
+        {
+          "kind": "waiting",
+          "label": "Waiting",
+          "taskIds": [
+            "T9"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo"
+      ]
+    },
+    {
+      "name": "legacy attention",
+      "tasks": [
+        {
+          "id": "T1"
+        },
+        {
+          "id": "T2",
+          "status": "waiting"
+        },
+        {
+          "id": "T3",
+          "status": "review"
+        },
+        {
+          "id": "T4",
+          "status": "blocked"
+        },
+        {
+          "id": "T5",
+          "status": "in_progress"
+        },
+        {
+          "id": "T6"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "taskId": "T1"
+        },
+        {
+          "id": "Q2",
+          "taskId": "T6",
+          "waitingOn": "agent"
+        }
+      ],
+      "workers": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T6"
+          ]
+        },
+        {
+          "kind": "waiting",
+          "label": "Waiting",
+          "taskIds": [
+            "T2"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo"
+      ]
+    },
+    {
+      "name": "quiet families and hidden parts",
+      "tasks": [
+        {
+          "id": "T1"
+        },
+        {
+          "id": "T2",
+          "parent": "T1"
+        },
+        {
+          "id": "T3",
+          "subtaskCount": {
+            "done": 1,
+            "total": 1
+          }
+        },
+        {
+          "id": "T4"
+        }
+      ],
+      "workers": [],
+      "questions": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T4"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo"
+      ]
+    },
+    {
+      "name": "recursive prerequisites not neighbours",
+      "tasks": [
+        {
+          "id": "T1",
+          "status": "in_progress",
+          "blockedBy": [
+            "T2"
+          ]
+        },
+        {
+          "id": "T2",
+          "blockedBy": [
+            "T3"
+          ]
+        },
+        {
+          "id": "T3"
+        },
+        {
+          "id": "T4",
+          "blockedBy": [
+            "T1"
+          ]
+        },
+        {
+          "id": "T5",
+          "related": [
+            "T2"
+          ],
+          "foundWhile": "T1"
+        }
+      ],
+      "workers": [],
+      "questions": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T4",
+            "T5"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo"
+      ]
+    },
+    {
+      "name": "group dependency cycle",
+      "tasks": [
+        {
+          "id": "T1",
+          "blockedBy": [
+            "T2"
+          ]
+        },
+        {
+          "id": "T2",
+          "status": "waiting",
+          "blockedBy": [
+            "T1"
+          ]
+        }
+      ],
+      "workers": [],
+      "questions": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T1"
+          ]
+        },
+        {
+          "kind": "waiting",
+          "label": "Waiting",
+          "taskIds": [
+            "T2"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo",
+        "waiting"
+      ]
+    },
+    {
+      "name": "busy crew and resting",
+      "tasks": [
+        {
+          "id": "T1"
+        },
+        {
+          "id": "T2"
+        },
+        {
+          "id": "T3"
+        }
+      ],
+      "workers": [
+        {
+          "id": "busy",
+          "taskId": "T1",
+          "status": "running"
+        },
+        {
+          "id": "idle",
+          "taskId": "T2",
+          "status": "idle"
+        },
+        {
+          "id": "failed",
+          "taskId": "T3",
+          "status": "failed"
+        }
+      ],
+      "questions": [],
+      "groups": [
+        {
+          "kind": "todo",
+          "label": "To do",
+          "taskIds": [
+            "T2"
+          ]
+        }
+      ],
+      "expandedTodo": [
+        "todo"
+      ]
+    }
+  ],
   "now": "2026-06-12T12:00:00Z",
   "tasks": [
     {

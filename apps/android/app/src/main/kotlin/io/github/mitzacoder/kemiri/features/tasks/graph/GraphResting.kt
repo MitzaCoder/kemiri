@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import io.github.mitzacoder.kemiri.ui.components.AgentMascot
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -27,9 +29,11 @@ internal fun GraphRestingSheet(workers: List<WorkerSummary>, model: GraphModel, 
             items(workers, key = { "${it.threadId}/${it.id}" }) { worker ->
                 TextButton(onClick = { onWorker(worker) }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
                     val task = model.workerTask(worker)
+                    AgentMascot(workerMotion(worker.status, task, model.details[task?.id]?.questions.orEmpty()), size = 28.dp, animate = false)
+                    Spacer(Modifier.width(12.dp))
                     val taskText = task?.let { "${it.id} · ${it.title}" } ?: worker.taskId?.let { "$it · unavailable" } ?: "No task"
                     Text("${worker.id} · ${worker.title}\n$taskText\n${graphIdleTime(worker, now)} · Open transcript",
-                        color = Jarvis.colors.fg, modifier = Modifier.fillMaxWidth())
+                        color = Jarvis.colors.fg, modifier = Modifier.weight(1f))
                 }
             }
         }

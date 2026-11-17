@@ -3708,6 +3708,21 @@ There is no age threshold. The toolbar's Resting count opens a native sheet with
 rows open the existing transcript route with workerId and threadId, including background-job workers. Running crew
 are not classified as resting. The native card/family/canvas layout stays; web bubbles are not ported.
 
+Android Live | All (T259 part B) ports the T255 rules above in pure `GraphFolding.kt`. Live is the default;
+only the mode persists in device settings per backend/project (`projectGraphMode`), while expanded groups are
+session-only. A fixed, horizontally scrollable toolbar row holds the segmented switch and To do/Waiting chips
+in both family view and canvas, with 48dp targets and spoken state/action labels. Chips keep their place in All
+but are disabled there. Search, task links and explicit family selection reveal the entire matching group and
+its prerequisite groups. Closing a prerequisite closes dependent groups. The family picker keeps full All order;
+if a currently read quiet single folds, its header stays and the body explains how to reveal it rather than
+jumping to a different family. Counts always describe the full board.
+Canvas geometry, family/dot anchors, fit bounds and camera use the full All graph; only cards, family decoration,
+edges and crew rendering are filtered. No mode/chip transition solves layout or refits. Idle workers on folded
+tasks join Resting and return on expansion; that sheet now includes small still mascots. Finish/report decoration
+cannot outlive a shown task. Compact shared vectors from the actual web fold functions cover derived/legacy
+states, quiet families, prerequisite chains/cycles, attention and crew; JVM tests also check retained slots,
+project preferences, selection and expansion closure.
+
 The horizontal summary highlights rather than removes context, and offers the next matching family. Search ranks
 ID, title, family, worker and thread matches using the web weights. Picking a result reveals/selects it. Selection
 is stored by ID, so watched replacements update the scrollable native bottom sheet in place, including a missing-task

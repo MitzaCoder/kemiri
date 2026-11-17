@@ -150,6 +150,9 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun setProjectTasksView(backend: String, project: String, stored: String) = update {
         it.copy(projectTasksView = it.projectTasksView + (backend to (it.projectTasksView[backend].orEmpty() + (project to stored))))
     }
+    suspend fun setProjectGraphMode(backend: String, project: String, mode: io.github.mitzacoder.kemiri.features.tasks.graph.GraphMode) = update {
+        it.copy(projectGraphMode = it.projectGraphMode + (backend to (it.projectGraphMode[backend].orEmpty() + (project to mode.stored))))
+    }
     suspend fun setTaskFamilyExpanded(backendKey: String, projectId: String, parentId: String, expanded: Boolean) = update {
         it.withFamilyExpansion(backendKey, projectId, parentId, expanded)
     }

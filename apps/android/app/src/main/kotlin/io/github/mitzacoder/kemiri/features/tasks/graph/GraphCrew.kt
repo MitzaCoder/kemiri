@@ -62,9 +62,10 @@ internal fun GraphCrewMascot(member: GraphCrewMember, motion: Boolean, reporting
 
 internal data class GraphCrewPlacement(val id: String, val taskId: String, val status: String, val point: GraphPoint,
     val state: AgentMotion = AgentMotion.Idle, val background: Boolean = false)
-internal fun graphCrewPlacements(layout: GraphLayout, model: GraphModel): List<GraphCrewPlacement> {
+internal fun graphCrewPlacements(layout: GraphLayout, model: GraphModel, shownTaskIds: Set<String> = layout.cards.keys): List<GraphCrewPlacement> {
     val seen = mutableSetOf<String>()
     return layout.cards.values.flatMap { card ->
+        if (card.id !in shownTaskIds) return@flatMap emptyList()
         val d = model.details[card.id] ?: return@flatMap emptyList()
         val crew = graphTaskCrew(d).take(3)
         crew.mapIndexedNotNull { index, member ->
@@ -76,8 +77,8 @@ internal fun graphCrewPlacements(layout: GraphLayout, model: GraphModel): List<G
 
 /** Keyed world positions animate reassignment, not camera pan/zoom. Only near-viewport crew mount. */
 @Composable
-internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: GraphCamera, viewport: GraphRect, reports: Map<String, Long>, motion: Boolean, now: Long) {
-    val current = remember(layout, model) { graphCrewPlacements(layout, model).associateBy { it.id } }
+internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: GraphCamera, viewport: GraphRect, reports: Map<String, Long>, motion: Boolean, now: Long, shownTaskIds: Set<String>) {
+    val current = remember(layout, model, shownTaskIds) { graphCrewPlacements(layout, model, shownTaskIds).associateBy { it.id } }
     var previous by remember { mutableStateOf(current) }
     val retired = remember { mutableStateMapOf<String, Pair<GraphCrewPlacement, Long>>() }
     val origins = remember { mutableStateMapOf<String, Pair<GraphPoint, Long>>() }
@@ -99,7 +100,7 @@ internal fun GraphCrewLayer(layout: GraphLayout, model: GraphModel, camera: Grap
         retired.keys.filter { retired.getValue(it).second <= now }.forEach { retired.remove(it) }
         origins.keys.filter { origins.getValue(it).second <= now }.forEach { origins.remove(it) }
     }
-    val crew = current.values + retired.values.map { it.first }
+    val crew = (current.values + retired.values.map { it.first }).filter { it.taskId in shownTaskIds }
     fun inView(member: GraphCrewPlacement) = camera.box(GraphRect(member.point.x, member.point.y, 40f, 40f)).overlaps(viewport)
     val looping = graphLoopingWorkers(crew.map { GraphMotionCandidate(it.id, it.state, inView(it)) }, camera.zoom, motion)
     crew.forEach { member ->

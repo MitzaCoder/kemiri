@@ -27,6 +27,8 @@ data class DeviceSettings(
     val timelineNewestFirst: Boolean = true,
     /** Backend origin -> project ID -> List, Board or Graph. Legacy global choice is the fallback. */
     val projectTasksView: Map<String, Map<String, String>> = emptyMap(),
+    /** Backend origin -> project ID -> Live/All graph mode. Chip expansion is session-only. */
+    val projectGraphMode: Map<String, Map<String, String>> = emptyMap(),
     /** Backend origin -> project ID -> parent ID -> explicit family expansion choice. */
     val taskFamilyExpansion: Map<String, Map<String, Map<String, Boolean>>> = emptyMap(),
     /** Waiting calendar dates resolve at this local wall time on this device. */

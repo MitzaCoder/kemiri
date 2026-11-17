@@ -33,6 +33,8 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
+    val settings by context.repository.settings.collectAsStateWithLifecycle()
+    val mode = settings.graphMode(context.backend.config.key, project)
     val linkedTask by context.board.linkedTask.collectAsStateWithLifecycle()
     val workersRead = if (connection.supports("workers")) panelData(context, "graph-workers", { it is WorkersStateEvent && it.projectId == project }) {
         context.backend.client.request(WorkersListRequest(projectId = project)).workers
@@ -66,16 +68,38 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
     var scrollTo by rememberSaveable(key) { mutableStateOf<String?>(null) }
     val canvasState = remember(key) { GraphCanvasState() }
     val families = remember(model, showClosed, selectedId, live.linger.keys.toSet()) { model.families(showClosed, selectedId, live.linger.keys.toSet()) }
-    val resting = model.restingWorkers(families.flatMap { it.cards }.map { it.id }.toSet())
+    val allTaskIds = families.flatMap { it.cards }.map { it.id }.toSet()
+    val folds = remember(model, allTaskIds) { graphFoldGroups(model, allTaskIds) }
+    var expandedFolds by remember(key) { mutableStateOf(emptySet<GraphFoldKind>()) }
+    var pendingReveal by remember(key) { mutableStateOf(selectedId) }
+    LaunchedEffect(folds, pendingReveal) {
+        if (pendingReveal in model.details) {
+            expandedFolds = graphFoldExpansion(model, folds, revealGraphTask(folds, expandedFolds, pendingReveal))
+            pendingReveal = null
+        }
+    }
+    LaunchedEffect(linkedTask) { if (linkedTask != null) pendingReveal = linkedTask }
+    val shownTaskIds = graphShownTaskIds(model, allTaskIds, folds, mode, expandedFolds)
+    val resting = model.restingWorkers(shownTaskIds)
     val family = families.find { it.id == familyId } ?: families.find { it.id == initialGraphFamily(families, selectedId?.let(model.details::get)) }
     val scope = rememberCoroutineScope(); val list = rememberLazyListState(); val colors = Jarvis.colors
     LaunchedEffect(family?.id, authoritative) { if (familyId == null && family != null && authoritative) familyId = family.id }
     LaunchedEffect(changesOpen, live.serial) { if (changesOpen) live.markSeen() }
     fun select(id: String) {
+        expandedFolds = graphFoldExpansion(model, folds, revealGraphTask(folds, expandedFolds, id))
         selectedId = id; model.details[id]?.let { familyId = it.familyId }
         sheetOpen = true; scrollTo = id; searchOpen = false; changesOpen = false
     }
-    fun switchFamily(id: String) { familyId = id; scope.launch { list.scrollToItem(0) } }
+    fun switchFamily(id: String) {
+        families.find { it.id == id }?.cards?.firstOrNull()?.id?.let { taskId ->
+            expandedFolds = graphFoldExpansion(model, folds, revealGraphTask(folds, expandedFolds, taskId))
+        }
+        familyId = id; scope.launch { list.scrollToItem(0) }
+    }
+    fun toggleFold(kind: GraphFoldKind) {
+        expandedFolds = if (kind in expandedFolds) graphFoldExpansion(model, folds, expandedFolds, closing = kind)
+            else graphFoldExpansion(model, folds, expandedFolds + kind)
+    }
     fun enterCanvas(pinch: Boolean = false) { canvasState.entryZoom = if (pinch) .80f else 1f; canvasState.camera = null; canvas = true }
     LaunchedEffect(scrollTo, family?.id, canvas) {
         val index = family?.cards?.indexOfFirst { it.id == scrollTo } ?: -1
@@ -101,13 +125,15 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
                 GraphChrome(viewSwitch, model, highlight, { highlight = it }, { searchOpen = true }, { changesOpen = true }, live.unseen,
                     showClosed, { showClosed = !showClosed }, canvas, { if (canvas) canvas = false else enterCanvas() },
                     connection.status.name, live.lastDataAt, now, resting.size, { restingOpen = true })
+                GraphFoldControls(mode, { next -> scope.launch { context.repository.setProjectGraphMode(context.backend.config.key, project, next) } },
+                    folds, expandedFolds, ::toggleFold)
                 view.error?.let { Text(it, color = colors.fg) }
                 if (highlight != null) {
                     val matching = families.filter { f -> f.cards.any { model.matches(it.id, highlight) } }
                     if (matching.isEmpty()) Text("No matches. Try another counter or Show closed.", color = colors.fg)
                     else TextButton(onClick = { val index = matching.indexOfFirst { it.id == family?.id }; switchFamily(matching[(index + 1) % matching.size].id); canvas = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Next family with a match (${matching.size})") }
                 }
-                if (canvas) GraphCanvas(canvasState, model, families, family?.id, selectedId, highlight, live, now, decorativeMotion, ::select, { switchFamily(it); canvas = false }, Modifier.weight(1f))
+                if (canvas) GraphCanvas(canvasState, model, families, family?.id, selectedId, highlight, live, now, decorativeMotion, shownTaskIds, ::select, { switchFamily(it); canvas = false }, Modifier.weight(1f))
                 else LazyColumn(Modifier.weight(1f).fillMaxWidth().graphPinchOut { enterCanvas(true) }.semantics { isTraversalGroup = true }, state = list,
                     contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item(key = "switcher") {
@@ -126,7 +152,10 @@ private fun TaskGraphContent(context: ProjectScreenContext, modifier: Modifier, 
                             else -> GraphFamilyHeader(family, model)
                         }
                     }
-                    items(family?.cards.orEmpty(), key = { it.id }) { card ->
+                    if (family != null && family.cards.none { it.id in shownTaskIds }) item(key = "folded-family") {
+                        Text("This family is folded in Live. Open a chip above or choose All to show it.", color = colors.fg, modifier = Modifier.padding(12.dp))
+                    }
+                    items(family?.cards.orEmpty().filter { it.id in shownTaskIds }, key = { it.id }) { card ->
                         val d = model.details.getValue(card.id)
                         GraphTaskCard(d, card.depth, selectedId == card.id, model.matches(card.id, highlight), model.holdsUp(card.id).total, now,
                             live.glows[card.id]?.let { it > now } == true, decorativeMotion, live.reports.keys,
