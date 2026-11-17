@@ -7,12 +7,14 @@ import { taskStateSupported, taskWithStateSupport } from "./task-state.js";
  * report a conflict as an outcome, with the newer row read back, instead of throwing.
  */
 import { taskActivitySupported } from './task-activity.js';
-import { boardConflict, boardStateIsFor, type HarnessClient } from "@kemiri/client";
+import { boardConflict, boardStateIsFor, errorFromResponse, type HarnessClient } from "@kemiri/client";
+import { questionClarifySupported, questionNeedsAnswer } from "./question-clarify.js";
 import type {
 	Board,
 	BoardFeedback,
 	BoardFeedbackState,
 	BoardQuestion,
+	BoardQuestionClarifyResponse,
 	BoardTask,
 	BoardTaskBrief,
 	BoardTaskInput,
@@ -24,6 +26,11 @@ export type SaveOutcome =
 	| { kind: "cancelled" }
 	/** The row moved on; `newer` is its current state, undefined when it is gone. */
 	| { kind: "conflict"; newer: BoardTask | undefined }
+	| { kind: "failed"; message: string };
+
+export type ClarifyOutcome =
+	| { kind: "clarified"; question: BoardQuestion }
+	| { kind: "conflict"; newer: BoardQuestion | undefined }
 	| { kind: "failed"; message: string };
 
 export type AnswerOutcome =
@@ -45,6 +52,7 @@ export class ProjectBoard {
 	/** Activity requires an explicit hello capability, unlike legacy assumed support. */
 	activityEnabled = $state(false);
 	stateEnabled = $state(false);
+	clarifyEnabled = $state(false);
 	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
 
 	async #askClose(text: string): Promise<OpenPartsChoice | undefined> {
@@ -61,7 +69,7 @@ export class ProjectBoard {
 		const ids = new Set(live.map((task) => task.id));
 		return [...live, ...this.archived.filter((task) => !ids.has(task.id))];
 	});
-	readonly openQuestionCount = $derived((this.board?.questions ?? []).filter((question) => question.status === "open").length);
+	readonly openQuestionCount = $derived((this.board?.questions ?? []).filter(questionNeedsAnswer).length);
 
 	readonly #client: HarnessClient;
 	readonly #unsubscribeBoard: () => void;
@@ -81,6 +89,7 @@ export class ProjectBoard {
 			if (state.status === "ready") {
 				this.activityEnabled = taskActivitySupported(state.features);
 				this.stateEnabled = taskStateSupported(state.features);
+				this.clarifyEnabled = questionClarifySupported(state.features);
 				void this.load();
 			}
 		});
@@ -198,6 +207,24 @@ export class ProjectBoard {
 		}
 	}
 
+	async clarify(questionId: string, expectedRevision: number, text: string): Promise<ClarifyOutcome> {
+		if (!this.clarifyEnabled) return { kind: "failed", message: "This backend does not support Ask back." };
+		try {
+			const response = await this.#client.request<BoardQuestionClarifyResponse>({
+				type: "board.question.clarify", projectId: this.projectId, questionId, expectedRevision, text,
+			});
+			if (response.type === "error") throw errorFromResponse(response);
+			if (!this.#stopped) this.#upsertQuestion(response.question);
+			return { kind: "clarified", question: response.question };
+		} catch (error) {
+			if (boardConflict(error)) {
+				await this.#refresh();
+				return { kind: "conflict", newer: this.question(questionId) };
+			}
+			return { kind: "failed", message: messageOf(error) };
+		}
+	}
+
 	stop(): void {
 		this.closeQuestion?.answer(undefined);
 		this.#stopped = true;
@@ -236,7 +263,7 @@ export class ProjectBoard {
 
 	#upsertQuestion(question: BoardQuestion): void {
 		if (this.board === undefined) return;
-		const questions = this.board.questions.map((entry) => (entry.id === question.id ? question : entry));
+		const questions = this.board.questions.map((entry) => (entry.id === question.id && entry.revision <= question.revision ? question : entry));
 		this.board = { ...this.board, questions };
 	}
 }

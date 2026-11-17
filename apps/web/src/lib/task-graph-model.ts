@@ -87,7 +87,7 @@ export function buildGraphModel(tasks: readonly BoardTask[], questions: readonly
 			if (task.state.group === 'waiting') reasons.push('waiting');
 		} else {
 			if (task.status === 'review' || task.status === 'blocked' || task.status === 'waiting') reasons.push(task.status);
-			if (taskQuestions.length) reasons.push('question');
+			if (taskQuestions.some(q => q.waitingOn !== 'agent')) reasons.push('question');
 			if (taskWorkers.some(w => w.status === 'failed')) reasons.push('failed');
 		}
 		details.set(task.id, { task, familyId, familyTitle: byId.get(familyId)?.title ?? familyId,

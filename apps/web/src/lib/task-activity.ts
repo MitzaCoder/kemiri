@@ -41,5 +41,5 @@ export function taskRowActivity(task: BoardTask, enabled: boolean, tasks: readon
 		waiting_outside: ['waiting'], done: ['done'], dropped: ['dropped'],
 	};
 	if (activity && conveysState[state.kind]?.includes(activity.kind)) return activity;
-	return { kind: state.kind === 'todo' ? 'not_started' : 'idle', text: state.kind === 'failed' && task.blockedReason ? `Failed: ${task.blockedReason}` : taskStateLabel(task, tasks)!, since: state.since, refs: state.refs };
+	return { kind: state.kind === 'todo' ? 'not_started' : state.kind === 'clarifying' ? 'working' : 'idle', text: state.kind === 'failed' && task.blockedReason ? `Failed: ${task.blockedReason}` : taskStateLabel(task, tasks)!, since: state.since, refs: state.refs };
 }

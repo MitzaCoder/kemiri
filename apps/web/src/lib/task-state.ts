@@ -17,6 +17,7 @@ export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks
 		case 'answer_needed': return 'Answer needed';
 		case 'review': return 'Ready for review';
 		case 'working': return 'Working';
+		case 'clarifying': return 'Clarifying';
 		case 'paused': return 'Paused';
 		case 'blocked_by_task': return `Blocked by ${task.state.refs.map(id => {
 			const title = tasks.find(task => task.id === id)?.title;
@@ -42,7 +43,7 @@ export function taskStateStatus(task: Pick<BoardTask, 'state' | 'status'>): Boar
 	}
 }
 
-const KIND_ORDER: Record<string, number> = { failed: 0, answer_needed: 1, review: 2, working: 0, paused: 1 };
+const KIND_ORDER: Record<string, number> = { failed: 0, answer_needed: 1, review: 2, working: 0, clarifying: 0, paused: 1 };
 /** Derived groups share the same sorting on the list and board. */
 export function compareTaskStates(left: BoardTask, right: BoardTask): number {
 	if (!left.state || !right.state) return left.order - right.order;

@@ -129,7 +129,7 @@ export function backgroundJobPresentation(
 	stopped: "border-(--chat-border) bg-transparent text-(--chat-fg-subtle)",
 	};
 	const lines = {
-	needs_you: questions.find(q => q.status === "open" && q.threadId === thread.id)?.text ?? "1 question for you",
+	needs_you: questions.find(q => q.status === "open" && q.waitingOn !== "agent" && q.threadId === thread.id)?.text ?? "1 question for you",
 	working: thread.current?.trim() ? thread.current : "Working…",
 	paused: "Nothing is running. Send it a message to continue.",
 	failed: `${thread.failure || "Its last turn failed."} Send a message to retry.`,

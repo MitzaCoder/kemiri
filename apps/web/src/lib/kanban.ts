@@ -9,6 +9,7 @@ import { compareTaskStates, taskWithStateSupport } from "./task-state.js";
 import { formatMinutes } from "@kemiri/client";
 import type { Board, BoardQuestion, BoardTask, BoardTaskInput, BoardTaskStatus } from "@kemiri/protocol";
 import { compactRelativeTime, relativeTime } from "./relative-time.ts";
+import { questionNeedsAnswer } from "./question-clarify.js";
 import { isSettled, looseWaiting, rowGist, waitingOn, type TaskSectionId } from "./tasks.ts";
 
 export type KanbanColumnId = "needs_you" | "in_progress" | "closed" | "todo" | "working" | "blocked" | "review" | "waiting" | "done";
@@ -132,7 +133,7 @@ export function kanbanColumns(
 		.map(task => taskWithStateSupport(task, options.stateEnabled === true))
 		.filter((task) => options.includeArchived === true || !task.archived)
 		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id), column: columnOfTask(task, derived) }))
-		.filter((card) => options.onlyNeedsYou !== true || (card.task.state ? card.task.state.group === "needs_you" : card.waiting.length > 0));
+		.filter((card) => options.onlyNeedsYou !== true || (card.task.state ? card.task.state.group === "needs_you" : card.waiting.some(questionNeedsAnswer)));
 	return (derived ? STATE_COLUMN_IDS : KANBAN_COLUMN_IDS).map((id) => {
 		const compare = compareIn(id);
 		const inColumn = cards.filter((card) => card.column === id).sort((left, right) => (left.task.state && right.task.state ? compareTaskStates(left.task, right.task) : compare(left.task, right.task)));
@@ -153,9 +154,9 @@ export function kanbanColumns(
  */
 export function needsYouCount(board: Pick<Board, "tasks" | "questions">): number {
 	const tasks = board.tasks.filter(
-		(task) => !task.archived && !isSettled(task.status) && (task.state ? task.state.group === "needs_you" : waitingOn(board.questions, task.id).length > 0),
+		(task) => !task.archived && !isSettled(task.status) && (task.state ? task.state.group === "needs_you" : waitingOn(board.questions, task.id).some(questionNeedsAnswer)),
 	).length;
-	return tasks + looseWaiting(board).length;
+	return tasks + looseWaiting(board).filter(questionNeedsAnswer).length;
 }
 
 const COLUMN_SECTIONS: Record<KanbanColumnId, TaskSectionId> = {
@@ -172,7 +173,7 @@ const COLUMN_SECTIONS: Record<KanbanColumnId, TaskSectionId> = {
 
 /** The line under a card's title: the waiting question when one is, else the report line that fits its column. */
 export function cardGist(card: KanbanCard, activityEnabled = false): string {
-	const section = card.waiting.length > 0 ? "needs_you" : COLUMN_SECTIONS[card.column];
+	const section = card.waiting.some(questionNeedsAnswer) ? "needs_you" : COLUMN_SECTIONS[card.column];
 	return rowGist({ task: card.task, waiting: card.waiting, section }, activityEnabled);
 }
 

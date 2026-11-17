@@ -420,6 +420,7 @@
 												<BoardQuestionCard
 													{question}
 													askedBy={questionAskedBy(question, threads)}
+													onclarify={board?.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined}
 													onanswer={(entry, text) => board!.answer(entry.id, entry.revision, text)}
 												/>
 											{/each}

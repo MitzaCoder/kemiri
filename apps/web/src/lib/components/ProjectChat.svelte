@@ -161,6 +161,7 @@
 	provideRefLinks(() => ({ links: project?.links, status: (ref) => refStatus?.status(ref) }));
 	const taskChoices = $derived(!isThread && supportsTaskReports && board !== undefined ? taskOptions(board.board?.tasks ?? []) : undefined);
 	const questionsWaiting = $derived(board?.openQuestionCount ?? 0);
+	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open') ?? false);
 	/** A mute toggle belongs in the header when this backend can push to this device at all. */
 	const supportsNotifications = $derived(backend.supports('notifications'));
 	const muted = $derived(notifications.isMuted(backend.id, projectId));
@@ -1040,7 +1041,7 @@
 						{#if sendError}
 							<Banner tone="error">{sendError}</Banner>
 						{/if}
-						{#if !isThread && board !== undefined && questionsWaiting > 0 && !(sidebarOpen && sidebarTab === 'board')}
+						{#if !isThread && board !== undefined && hasOpenQuestions && !(sidebarOpen && sidebarTab === 'board')}
 							<BoardQuestionPin
 								{board}
 								threads={threadList}

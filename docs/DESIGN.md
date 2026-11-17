@@ -2682,8 +2682,37 @@ shows asked-back, clarified and revised rows; `show_task`, board lists and compa
 the exchanges and earlier wording. Task state adds D86 rule 3b below; activity uses the
 existing `working` kind with the canonical “<agent> is clarifying Qn” sentence, avoiding a
 second activity-kind contract. The web's status adapter maps this new kind to in_progress;
-its distinct label and all Ask back UI belong to stage 2. Generated Android DTOs and request
+its distinct label and Ask back UI are described in stage 2 below. Generated Android DTOs and request
 overloads include the same fields and action, with no Android UI change in stage 1.
+
+### Clarifying board questions on web (T238 / D92, stage 2)
+
+Every web question surface uses `BoardQuestionCard`: task sheet, list/board question
+sections, main/background chat pins, job band and the expanded reader. After the explicit
+`question-clarify` hello capability, `ProjectBoard.clarify` sends the revision-checked request
+through the client's public request API (stage 1 has no convenience method). Conflicts
+refresh the board; errors and drafts stay on the card. Late request responses cannot replace
+a newer pushed question revision.
+
+Ask back sits next to Send (or Acknowledge for warnings); MCP approvals never offer it.
+Trailing `?` highlights Ask back and makes Ctrl/Cmd+Enter ask rather than answer, without
+a confirmation dialog. Send and option chips remain deliberate final answers. A typed draft
+remembers the revision it began on: a live revision cannot silently turn it into an answer
+to new wording. A conflict keeps the draft and requires another deliberate send.
+
+Exchanges appear under the current question with writer and time (the reader is labelled
+You, matching other writer labels). More than two fold into
+Earlier (N). Revised opens earlier wording/options and any retained answer from reopening.
+Inline and expanded reader share the same draft, thread and actions; asking keeps the reader
+open. Agent-waiting cards stay quiet and answerable, labelled Waiting for the agent.
+No reply yet offers Ask again, resending the last clarification at the current revision.
+No local timer is involved.
+
+Clarifying has its own task label across list, board, sheet and graph, using in-progress
+colour. Agent-waiting questions do not count toward Needs you, graph attention or the
+mascot's waiting cue; question pins and sections retain them with neutral waiting labels.
+Light/dark tokens, wrapping controls, keyboard shortcuts, labelled actions, native history
+disclosures and a scrollable expanded reader also apply at phone width.
 
 ### Task states (T208 / D86)
 

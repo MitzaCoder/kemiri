@@ -3,7 +3,7 @@ export type AgentMotion = 'idle' | 'working' | 'waiting' | 'done';
 
 /** Only explicit blocking asks in this conversation count; retries, queues and warnings do not. */
 export function agentWaitingForUser(questions: readonly BoardQuestion[], threadId?: string, workerTaskId?: string | null, worker = false): boolean {
-	return questions.some(question => question.status === 'open'
+	return questions.some(question => question.status === 'open' && question.waitingOn !== 'agent'
 		&& (question.blocksWork ?? question.kind !== 'warning')
 		&& (question.threadId ?? 'main') === (threadId ?? 'main')
 		&& (!worker || (workerTaskId != null && question.taskId === workerTaskId)));

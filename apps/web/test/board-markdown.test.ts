@@ -46,7 +46,7 @@ describe('board Markdown plain previews', () => {
 		expect(card).toContain('bind:value={text}');
 		expect(card).toContain('busy || !canAnswer || onanswer === undefined');
 		expect(card).toContain("question.status === 'open' && onanswer !== undefined");
-		expect(card).toContain('{#if canAnswer && !warning}');
+		expect(card).toContain('{#if canAnswer}');
 		expect(card).toContain('data-question-answer-footer');
 		expect(card).toContain('flex shrink-0');
 		expect(card).toContain('max-height: min(7rem');

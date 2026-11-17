@@ -34,11 +34,12 @@
 	{#if pin.current && board}
 		<div class="pb-2" data-job-question>
 			<div class="flex items-center gap-2 text-xs text-(--chat-fg-muted)">
-				<p class="py-1 font-medium text-(--chat-warning)">It is waiting for your answer</p>
+				<p class="py-1 font-medium text-(--chat-warning)">{pin.current.waitingOn === 'agent' ? 'Waiting for the agent' : 'It is waiting for your answer'}</p>
 				{#if waiting.length > 1}<button type="button" class="ml-auto min-h-11 px-2 text-(--accent-2)" onclick={nextQuestion} aria-label="Show another waiting question">+{waiting.length - 1} more</button>{/if}
 			</div>
 			{#key pin.current.id}
-				<BoardQuestionCard question={pin.current} compact strip onanswer={(question, answer) => board!.answer(question.id, question.revision, answer)} />
+				<BoardQuestionCard question={pin.current} compact strip onanswer={(question, answer) => board!.answer(question.id, question.revision, answer)}
+					onclarify={board.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined} />
 			{/key}
 		</div>
 	{/if}

@@ -55,7 +55,7 @@
 	);
 	const pin = $derived(questionPin(waiting, chosen));
 	/** A warning anywhere in the waiting list colours the closed line, not only when it is the one on top. */
-	const warned = $derived(waiting.some((question) => isWarning(question)));
+	const warned = $derived(waiting.some((question) => isWarning(question) && question.waitingOn !== 'agent'));
 	/** The task the open question belongs to: "T15", so the closed line says which work it unblocks. */
 	const summaryTask = $derived(pin.current?.taskId === null || pin.current?.taskId === undefined ? undefined : pin.current.taskId);
 
@@ -102,6 +102,7 @@
 					askedBy={questionAskedBy(pin.current, threads)}
 					taskHref={pin.current.taskId !== null && taskHref !== undefined ? taskHref(pin.current.taskId) : undefined}
 					compact
+					onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
 					onanswer={(entry, text) => board.answer(entry.id, entry.revision, text)}
 				/>
 			{/key}

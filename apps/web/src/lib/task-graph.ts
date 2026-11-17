@@ -11,7 +11,7 @@ export type TaskGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 const taskKey = (id: string) => `task:${id}`;
 export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly BoardQuestion[], workers: readonly WorkerSummary[], threads: readonly ThreadSummary[], showClosed = false): TaskGraph {
 	const shown = tasks.filter(task => !task.archived && (showClosed || !['done', 'dropped'].includes(task.status)));
-	const attention = new Set(questions.filter(q => q.status === 'open').flatMap(q => q.taskId ? [q.taskId] : []));
+	const attention = new Set(questions.filter(q => q.status === 'open' && q.waitingOn !== 'agent').flatMap(q => q.taskId ? [q.taskId] : []));
 	for (const worker of workers) if (worker.status === 'failed' && worker.taskId) attention.add(worker.taskId);
 	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: graphTaskState(task), task,
 		parent: task.parent ? taskKey(task.parent) : null, attention: task.state ? task.state.group === 'needs_you' : task.status === 'review' || attention.has(task.id), radius: (task.subtaskCount?.total ?? tasks.filter(t => t.parent === task.id).length) > 0 ? 47 : 29 }));

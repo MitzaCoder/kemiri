@@ -336,14 +336,15 @@
 				{/if}
 
 				{#if loose.length > 0}
-					<section class="flex flex-col gap-1.5" aria-label="Waiting for you, not about a task">
-						{@render sectionTitle('Waiting for you', loose.length, true)}
+					<section class="flex flex-col gap-1.5" aria-label="Questions not about a task">
+						{@render sectionTitle(loose.some(q => q.waitingOn === 'agent') ? 'Questions' : 'Waiting for you', loose.length, loose.some(q => q.waitingOn !== 'agent'))}
 						{#each loose as question (question.id)}
 							<BoardQuestionCard
 								{question}
 								taskLabel={taskLabelOf(question)}
 								taskHref={question.taskId === null ? undefined : taskHref(question.taskId)}
 								askedBy={questionAskedBy(question, threads)}
+								onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
 								onanswer={(entry, text) => board.answer(entry.id, entry.revision, text)}
 							/>
 						{/each}

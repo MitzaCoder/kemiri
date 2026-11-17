@@ -367,12 +367,13 @@
 
 				{#if questions.length > 0}
 					<section class="flex flex-col gap-1.5" aria-label="Questions for you">
-						{@render sectionTitle('Questions for you', questions.length)}
+						{@render sectionTitle(questions.some(q => q.waitingOn === 'agent') ? 'Questions' : 'Questions for you', questions.length)}
 						{#each questions as question (question.id)}
 							<BoardQuestionCard
 								{question}
 								taskLabel={taskLabelOf(question.taskId)}
 								askedBy={questionAskedBy(question, threads)}
+								onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
 								onanswer={answer}
 							/>
 						{/each}

@@ -1,3 +1,4 @@
+import { questionNeedsAnswer } from "./question-clarify.js";
 import { compareTaskStates, taskStateLabel, taskStateStatus } from "./task-state.js";
 import { markdownText } from "@kemiri/protocol";
 /**
@@ -138,7 +139,9 @@ export function shortWriterLabel(writer: BoardWriter | null, threads: readonly T
 }
 
 /** "2 questions waiting for you", "1 warning waiting for you", "1 question and 1 warning waiting for you". */
-export function itemsWaitingLabel(items: readonly Pick<BoardQuestion, "kind">[]): string {
+export function itemsWaitingLabel(items: readonly Pick<BoardQuestion, "kind" | "waitingOn">[]): string {
+	const agentCount = items.filter(item => item.waitingOn === "agent").length;
+	if (agentCount > 0) return agentCount === items.length ? "Waiting for the agent" : `${items.length - agentCount} needing attention · ${agentCount} waiting for the agent`;
 	const warnings = items.filter((item) => item.kind === "warning").length;
 	const questions = items.length - warnings;
 	const part = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -298,7 +301,7 @@ export function taskSections(
 		.filter((task) => options.includeArchived === true || !task.archived)
 		.map((task): TaskRow => {
 			const waiting = waitingOn(board.questions, task.id);
-			return { task, waiting, section: taskSectionOf(task, waiting.length) };
+			return { task, waiting, section: taskSectionOf(task, waiting.filter(questionNeedsAnswer).length) };
 		});
 	const sections: TaskSection[] = [];
 	for (const id of SECTION_ORDER) {

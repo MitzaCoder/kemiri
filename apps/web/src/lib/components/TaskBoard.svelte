@@ -638,9 +638,9 @@
 		{/if}
 
 		{#if loose.length > 0}
-			<section class="flex shrink-0 flex-col gap-1.5 px-3 pb-2" aria-label="Waiting for you, not about a task">
+			<section class="flex shrink-0 flex-col gap-1.5 px-3 pb-2" aria-label="Questions not about a task">
 				<h3 class="flex items-center gap-1.5 px-1 text-[0.8125rem] font-semibold text-(--accent-2)">
-					Waiting for you{@render countPill(loose.length, true)}
+					{loose.some(q => q.waitingOn === 'agent') ? 'Questions' : 'Waiting for you'}{@render countPill(loose.length, loose.some(q => q.waitingOn !== 'agent'))}
 				</h3>
 				<div class="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
 					{#each loose as question (question.id)}
@@ -650,6 +650,7 @@
 							taskLabel={taskLabelOf(question)}
 							taskHref={question.taskId === null ? undefined : taskHref(question.taskId)}
 							askedBy={questionAskedBy(question, threads)}
+							onclarify={board?.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined}
 							onanswer={(entry, text) => board!.answer(entry.id, entry.revision, text)}
 						/>
 					{/each}
