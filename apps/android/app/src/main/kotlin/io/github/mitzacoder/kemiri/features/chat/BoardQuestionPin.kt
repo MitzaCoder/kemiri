@@ -49,8 +49,8 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
 
 /**
  * The questions and warnings waiting on the user, pinned above the composer so they are answered where the conversation
- * is (web `BoardQuestionPin.svelte`). Main pins every thread's, labelled with the thread that asked; a background
- * thread's chat pins only its own. One question is open to answer and the others wait as one-line rows that switch to
+ * is (web `BoardQuestionPin.svelte`). Main pins every thread's, labelled with the thread that asked; job pages put
+ * their own questions in BackgroundJobBand instead. One question is open to answer and the others wait as one-line rows that switch to
  * it. On a phone the pin starts as one line, how many are waiting and which task, in the warning's colour when a
  * warning waits, and opens on a tap.
  */

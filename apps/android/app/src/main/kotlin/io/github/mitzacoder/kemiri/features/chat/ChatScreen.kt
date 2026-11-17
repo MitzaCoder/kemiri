@@ -167,9 +167,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         }
     }
     var scheduleTitles by remember(context.route) { mutableStateOf<Map<String,String>>(emptyMap()) }
-    LaunchedEffect(connection.status,context.route,workers.any { it.scheduleId != null }) {
-        // Only a worker a schedule started needs the schedule's name.
-        if(connection.status == ConnectionStatus.Ready && connection.supports("schedules") && workers.any { it.scheduleId != null })
+    LaunchedEffect(connection.status,context.route,(workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null })) {
+        // Scheduled jobs and workers share the catalog of display names.
+        if(connection.status == ConnectionStatus.Ready && connection.supports("schedules") && (workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null }))
             runCatching { context.backend.client.request(SchedulesListRequest(projectId = context.route.projectId)).schedules }.onSuccess { list -> scheduleTitles = list.associate { it.id to it.title } }
     }
     val rows = remember(state.entries, state.view) { transcript(state.entries, state.view?.docs?.get("pi.live"), state.view?.keepWarm.orEmpty()) }
@@ -285,6 +285,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             activeWorker?.let { WorkerFacts(it,models,Modifier.padding(horizontal = 16.dp,vertical = 4.dp)) }
             ChatBanners()
         }
+        if (isBackgroundJobPage(context.route)) activeThread?.let {
+            BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get))
+        }
         val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
@@ -350,7 +353,11 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             ChatBanners()
         }
         if (context.route.workerId == null) {
-            BoardQuestionPin(context)
+            if (!isBackgroundJobPage(context.route)) BoardQuestionPin(context)
+            backgroundJobComposerNote(context.route)?.let {
+                Text(it, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
+            }
             val pickerOpen = taskChoicesSource != null && (pickerListOpen || trigger != null)
             fun closePicker() { trigger?.let { dismissedAt = it.start }; trigger = null; pickerListOpen = false }
             fun syncTrigger(value: TextFieldValue) {

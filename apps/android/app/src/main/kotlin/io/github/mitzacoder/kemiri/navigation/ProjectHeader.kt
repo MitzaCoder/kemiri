@@ -94,7 +94,7 @@ fun modelLabel(model: ModelRef?, models: List<ModelInfo>): String {
 
 /** A list the backend pushes whole (`workers.state`, `threads.state`), read on connect and replaced by each push. */
 @Composable
-private fun <T> rememberPushedList(client: HarnessClient, key: Any, enabled: Boolean, pushed: (ProtocolEvent) -> List<T>?, read: suspend () -> List<T>): List<T> {
+internal fun <T> rememberPushedList(client: HarnessClient, key: Any, enabled: Boolean, pushed: (ProtocolEvent) -> List<T>?, read: suspend () -> List<T>): List<T> {
     var items by remember(client, key) { mutableStateOf(emptyList<T>()) }
     val ready = client.state.collectAsStateWithLifecycle().value.status == ConnectionStatus.Ready
     LaunchedEffect(client, key, enabled, ready) {

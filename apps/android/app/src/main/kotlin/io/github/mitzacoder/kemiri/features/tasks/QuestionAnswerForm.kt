@@ -37,6 +37,7 @@ internal fun QuestionAnswerForm(
     compact: Boolean = false,
     expanded: Boolean = false,
     maxChoicesHeight: Dp = 112.dp,
+    choiceMinHeight: Dp = 32.dp,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -52,7 +53,7 @@ internal fun QuestionAnswerForm(
                             shape = RoundedCornerShape(50),
                             color = colors.surface,
                             border = BorderStroke(1.dp, colors.border),
-                            modifier = Modifier.heightIn(min = 32.dp),
+                            modifier = Modifier.heightIn(min = choiceMinHeight),
                         ) {
                             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
                                 Text(markdownText(option), style = TaskType.xsMedium, color = colors.fg)

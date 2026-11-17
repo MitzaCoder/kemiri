@@ -1,5 +1,35 @@
 # Continue
 
+## T224: background-jobs release validation
+
+The owner approved publishing the seven-commit background-jobs stack and
+updating the existing phone app without uninstalling it. The stack already
+starts at current main, so no rebase was needed. Run isolated root tests,
+root typecheck, web check/tests/build, Android JVM/assemble/lint and the public
+source check before publishing. Existing T222–T224 proof indexes below cover
+the visible changes. The release worker must leave the local main bookmark
+unchanged; the coordinator moves it only after reviewing the release report.
+
+## T224: Android job band, question and steering note (D89 phase 3)
+
+Job pages have an accent-wash band below the header: project, starter/time,
+report destination or terminal outcome, push link to Main chat and Stop except
+Finished/Stopped. Stop shares the panel's confirmation/action, pending guard and
+errors. Own open questions now live only in the band: one-line Markdown preview,
+full reader, existing revision-aware options/free text, +N more cycling. Main
+chat keeps its shared composer pin. Jobs explain that Main chat sees only their
+report, not these messages; typing stays available. The selected drawer project
+adds Open: <job title> (rail: accessible name). Worker pages are unchanged.
+Six new JVM tests cover starter/state/Stop text, question placement/filtering,
+composer note and drawer scope, and shared Stop wiring. Checks pass: 1,048 JVM
+tests (two skipped), assemble/lint (zero errors, 51 warnings, four hints), root
+typecheck and external-denylist/Gitleaks checks. An initial known MockWebServer
+teardown flake passed in the final full suite and focused 23-test class rerun.
+T224 proof index mwjyfyxl-a61775333e links 21 light/dark phase-2 before/after
+screenshots and recording mwjyfmdu-8660c00f5a: answer Photo library audit in the
+band → Main chat → Catalogue rework → Stop → confirm → Stopped. Same committed
+synthetic demo, emulator only. No push, bookmark movement or deployment.
+
 ## T223: Android title conversation switcher (D89 phase 2)
 
 The title opens one live Material bottom sheet from Main chat or any job, with

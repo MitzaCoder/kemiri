@@ -44,6 +44,7 @@ fun QuestionCard(
     onOpenTask: (() -> Unit)? = null,
     compact: Boolean = false,
     readOnly: Boolean = false,
+    preview: Boolean = false,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -105,14 +106,16 @@ fun QuestionCard(
                         )
                     }
                 }
-                BoardMarkdown(question.text)
+                if (preview) Text(io.github.mitzacoder.kemiri.features.chat.markdownText(question.text),
+                    style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                else BoardMarkdown(question.text)
             }
             IconButton(onClick = { readingExpanded = true }) {
                 LucideGlyph(ExpandQuestionIcon, size = 16.dp, contentDescription = "Expand ${if (warning) "warning" else "question"} ${question.id}")
             }
         }
         if (questionCanAnswer(question, readOnly)) QuestionAnswerForm(
-            question, text, { text = it }, busy, problem, ::send, compact = compact,
+            question, text, { text = it }, busy, problem, ::send, compact = compact, choiceMinHeight = if (preview) 48.dp else 32.dp,
         )
     }
     if (readingExpanded) QuestionReadingDialog(

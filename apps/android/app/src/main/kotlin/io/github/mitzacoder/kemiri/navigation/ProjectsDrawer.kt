@@ -34,7 +34,7 @@ import io.github.mitzacoder.kemiri.features.status.StatusGlyphs
 import io.github.mitzacoder.kemiri.features.status.SelfUpdateControls
 import io.github.mitzacoder.kemiri.features.status.kemiriVersionLabel
 import io.github.mitzacoder.kemiri.features.status.visibleReleaseUpdate
-import io.github.mitzacoder.kemiri.protocol.ProjectSummary
+import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.delay
@@ -170,8 +170,13 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
                         val selected = currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id
                         val open = { navigate(Destination.Chat(backend.config.key, project.id)) }
                         val board = backend.existingBoard(project.id)?.view?.collectAsStateWithLifecycle()?.value?.board
-                        if (rail) RailProject(backend.config.name, project, unread, selected, now, board, open)
-                        else ProjectRow(project, unread, selected, now, board, open)
+                        val jobRoute = currentChat?.takeIf { selected && io.github.mitzacoder.kemiri.features.chat.isBackgroundJobPage(it) }
+                        val openThreads = rememberPushedList(backend.client, project.id, jobRoute != null && connection.supports("threads"),
+                            pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == project.id }?.threads },
+                            read = { backend.client.request(ThreadsListRequest(projectId = project.id, includeArchived = true)).threads })
+                        val openJob = io.github.mitzacoder.kemiri.features.chat.openBackgroundJobLabel(jobRoute, openThreads)
+                        if (rail) RailProject(backend.config.name, project, unread, selected, now, board, openJob, open)
+                        else ProjectRow(project, unread, selected, now, board, openJob, open)
                     }
                     if (!rail && archived.isNotEmpty()) {
                         TextButton(onClick = { showArchived = !showArchived }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Archived (${archived.size}) ${if (showArchived) "⌃" else "⌄"}", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgSubtle) }
@@ -277,7 +282,7 @@ private fun RailBackend(name: String, status: ConnectionStatus, attempt: Int) {
 
 /** A project in the rail: its initial, a ring for an unseen reply, action count and status dot. */
 @Composable
-private fun RailProject(backendName: String, project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, onClick: () -> Unit) {
+private fun RailProject(backendName: String, project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, openJob: String? = null, onClick: () -> Unit) {
     val status = projectStatus(project, now)
     val colors = Jarvis.colors
     val count = attentionCount(project, board)
@@ -286,6 +291,7 @@ private fun RailProject(backendName: String, project: ProjectSummary, unread: Bo
     val description = buildString {
         append("$backendName: ${project.name} — ${summary.label}")
         status.detail?.let { append(" · $it") }
+        openJob?.let { append(" · $it") }
         if (unread) append(", new reply")
         if (actionBadge != null) append(", $count outstanding actions")
     }
@@ -309,11 +315,11 @@ private fun RailProject(backendName: String, project: ProjectSummary, unread: Bo
 internal fun projectInitial(name: String): String = name.trim().firstOrNull()?.uppercase() ?: "?"
 
 @Composable
-private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, onClick: () -> Unit) {
+private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boolean, now: Long, board: io.github.mitzacoder.kemiri.protocol.Board? = null, openJob: String? = null, onClick: () -> Unit) {
     val status = projectStatus(project, now)
     val colors = Jarvis.colors
     val summary = sidebarStatus(project, status, board)
-    val description = listOfNotNull(project.name, summary.label, projectBackgroundJobsText(project.activity), if (unread) "New reply since you last looked" else null).joinToString(", ")
+    val description = listOfNotNull(project.name, summary.label, openJob, projectBackgroundJobsText(project.activity), if (unread) "New reply since you last looked" else null).joinToString(", ")
     NavigationDrawerItem(
         label = {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -324,6 +330,7 @@ private fun ProjectRow(project: ProjectSummary, unread: Boolean, selected: Boole
                     Text(project.name, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(summary.label, style = MaterialTheme.typography.bodySmall,
                         color = if (summary.urgent) colors.warning else colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    openJob?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     projectBackgroundJobsText(project.activity)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle) }
                 }
                 if (unread) Box(Modifier.padding(top = 6.dp).size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))

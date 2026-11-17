@@ -161,16 +161,9 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         }
     }
     stopping?.let { thread ->
-        AlertDialog(onDismissRequest = { if (busy != thread.id) stopping = null }, title = { Text("Stop ${thread.title.ifEmpty { "this background job" }}?") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Its running turn and its workers are aborted, and it does no more work. Main chat keeps what it reported so far.")
-                problem?.takeIf { it.first == thread.id }?.let { Text(it.second, color = MaterialTheme.colorScheme.error) }
-            }
-        }, confirmButton = {
-            TextButton(enabled = busy != thread.id, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), onClick = {
-                act(thread, done = { stopping = null }) { client.request(ThreadsStopRequest(projectId = project, threadId = thread.id)) }
-            }) { Text("Stop") }
-        }, dismissButton = { TextButton(enabled = busy != thread.id, onClick = { stopping = null }) { Text("Keep it running") } })
+        io.github.mitzacoder.kemiri.features.chat.ThreadStopConfirmation(context, thread,
+            onDismiss = { stopping = null }, onPending = { busy = if (it) thread.id else null },
+            onStopped = { stopping = null; data.refresh.trySend(Unit) })
     }
 }
 

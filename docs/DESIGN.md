@@ -2070,8 +2070,7 @@ It is reachable from a job as well, with You are here on that row. The header sh
 amber needs-you and quiet working counts, preferring backgroundJobs and deriving
 from threads only when absent. Drawer notes omit zero counts and use N background
 jobs on older servers. Started cards stay outside N steps; finished/failed notices
-use the same card shape, preserving Open and artifact strips. The job-page band
-remains a later phase.
+use the same card shape, preserving Open and artifact strips.
 
 **Android title switcher (T223 / D89).** On thread-capable backends the title is a
 48 dp button with a caret: project name over Main chat, or job title with its state.
@@ -2084,6 +2083,19 @@ panel. Choosing another conversation pushes real BackStack history; choosing the
 current one only dismisses. Back dismisses the sheet before popping chat history.
 Returning preserves the originating chat's panels and scroll (T219). Worker titles
 and backends without threads stay plain. No Background jobs header action remains.
+
+**Android job pages (T224 / D89 phase 3).** A subtle accent-wash band directly
+under the header names the project, starter (Main chat, named schedule or you),
+relative start time and report destination; terminal states instead explain the
+outcome. ← Main chat pushes normal history, preserving T219 restoration on Back.
+Stop is absent for Finished/Stopped and shares the panel's confirmation, guarded
+request, pending state and errors. Its open questions move out of the composer pin
+into the band: one-line Markdown preview, full reader, existing revision-aware
+answer form and +N more cycling. Main chat keeps its shared pin. The composer
+explains that Main chat sees only the report, not these messages; typing remains
+available. The drawer adds Open: <job title> only for the selected job conversation
+(rail: accessible name). The band scrolls when tall; actions and suggested answers
+have 48 dp targets. Worker pages are unchanged.
 
 Decided with the user on 2026-11-04; contracts in `packages/protocol/src/threads.ts` and `artifacts.ts`.
 
@@ -2124,7 +2136,7 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   existing right-sidebar panel; there is no separate Background jobs header action or overflow row. Choosing
   another conversation pushes normal history; choosing the current row only closes. T219 snapshots restore
   the Main chat's panels and sensible scroll on Back; cold links still work. Without the threads feature the
-  title stays plain. Web job pages have a subtle accent-wash band directly below the header: project, starter
+  title stays plain. Web and Android job pages have a subtle accent-wash band directly below the header: project, starter
   (Main chat, named schedule or user), relative start time and report destination. Finished, Stopped and Failed
   instead describe their outcome. Its ← Main chat link pushes normal history; Stop (except Finished/Stopped)
   reuses the panel's confirmation and stop action, disabling while pending. The duplicated job header context
