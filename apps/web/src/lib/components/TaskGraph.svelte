@@ -12,7 +12,7 @@
 	import { taskPartProgress } from '#lib/task-parts.js';
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { taskDisplayWords } from '#lib/tasks.js';
-	import { onMount, untrack, type Snippet } from 'svelte';
+	import { onMount, tick, untrack, type Snippet } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import type { ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
@@ -29,6 +29,8 @@
 	import GraphMascot from './graph/GraphMascot.svelte';
 	import GraphCrew from './graph/GraphCrew.svelte';
 	import GraphReport from './graph/GraphReport.svelte';
+	import GraphTaskPeekHost from './graph/GraphTaskPeekHost.svelte';
+	import { graphPeekWorkerFolds } from '#lib/graph-peek.js';
 	import { workerMotionBudget } from '#lib/worker-motion.js';
 	import { crewHandoffMs, crewFinishMs, graphCrewMotion, graphCrewInView, departingGraphCrew, interpolateCrewHandoff, graphReportCues, type GraphReportCue } from '#lib/graph-worker-motion.js';
 	import type { GraphNode } from '#lib/task-graph.js';
@@ -48,6 +50,9 @@
 	let positions = $state(new Map<string,GraphPosition>());
 	let camera = $state<GraphCamera>({x:0,y:0,zoom:1});
 	let svg:SVGSVGElement | null = $state(null);
+	let stage:HTMLDivElement | null = $state(null);
+	let peekTaskId=$state<string | null>(null), linkedTaskId=$state<string | null>(null);
+	let workerToReveal=$state<string | null>(null);
 	let width=$state(0), height=$state(0), reduced=$state(false), mounted=$state(false);
 	const renderedNodes = $derived(renderedGraphNodes(shownGraph, [...departures.values()]));
 	const crewStates = $derived(new Map(renderedNodes.filter(node => node.kind !== 'task').map(node => [node.id, departures.has(node.id) ? 'done' as const : graphCrewMotion(node, board?.tasks ?? [], board?.board?.questions ?? [])])));
@@ -59,7 +64,7 @@
 	let destination=new Map<string,GraphPosition>();
 	function storage():Storage | undefined {try{return localStorage;}catch{return undefined;}}
 	let focused=$state<string | null>(null);
-	const neighborhoodTask=$derived(focused ?? (selectedTaskId ? `task:${selectedTaskId}` : null));
+	const neighborhoodTask=$derived(peekTaskId ? `task:${peekTaskId}` : focused ?? (linkedTaskId ? `task:${linkedTaskId}` : selectedTaskId ? `task:${selectedTaskId}` : null));
 	const edges=$derived(visibleGraphEdges(shownGraph,neighborhoodTask,allLinks));
 	const openTasks=$derived(source.nodes.filter(n=>n.kind==='task' && !['done','dropped'].includes(n.task!.status)));
 	const workingCount=$derived(openTasks.filter(n=>['working','in_progress','clarifying'].includes(n.status)).length);
@@ -214,6 +219,22 @@
 	}
 	function pointerUp(event:PointerEvent) {pointers.delete(event.pointerId);pinchDistance=0;if(drag?.moved)setTimeout(()=>{drag=null;},0);else drag=null;}
 	function wheel(event:WheelEvent) {event.preventDefault();changeZoom(Math.exp(-event.deltaY*.0015));}
+	/** T258 worker pop-up hook: task-preview worker rows arrive here. */
+	function openWorkerPeek(workerId:string) {
+		if(source.resting.some(worker=>worker.id===workerId)) showResting=true;
+		expandedFolds=graphPeekWorkerFolds(graph,folds,expandedFolds,workerId);
+		workerToReveal=workerId;
+	}
+	$effect(()=>{
+		if(!workerToReveal) return;
+		const id=`worker:${workerToReveal}`, position=positions.get(id);
+		if(!position || !shownGraph.nodes.some(node=>node.id===id)) return;
+		untrack(()=>{
+			camera={x:position.x,y:position.y,zoom:Math.max(.8,camera.zoom)};
+			focused=id; workerToReveal=null; remember();
+			void tick().then(()=>svg?.querySelector<SVGAElement>(`[data-node="${CSS.escape(id)}"]`)?.focus({preventScroll:true}));
+		});
+	});
 	function edgePath(from:string,to:string):string {
 		const a=positions.get(from),b=positions.get(to);if(!a||!b)return '';
 		const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;
@@ -240,7 +261,7 @@
 			</div>{/if}
 		</div>
 	</div>
-	<div class="graph-stage">
+	<div class="graph-stage" bind:this={stage}>
 		{#if shownGraph.resting.length}<div class="resting-workers">
 			<button class="resting-chip" aria-expanded={restingOpen} onclick={()=>{restingOpen=!restingOpen;viewOpen=false;}}>Resting · {shownGraph.resting.length}</button>
 			{#if restingOpen}<div class="resting-panel" role="region" aria-label="Resting workers">
@@ -312,7 +333,10 @@
 			{/if}
 		</svg>
 		{#if board?.loaded&&graph.nodes.length===0}<p class="empty-graph">No active tasks. Show closed or use List.</p>{/if}
-		{#if focusNode&&focusPosition}<div class="node-tooltip" role="tooltip" style="left:{tooltipX}px;top:{tooltipY}px"><strong>{focusNode.title}</strong><span>{focusNode.task?.id ?? focusNode.worker?.id ?? focusNode.thread?.id} · {focusNode.task ? taskDisplayWords(focusNode.task, board?.tasks ?? []) : focusNode.status.replaceAll('_',' ')}{focusNode.attention?' · needs you':''}{focusNode.task?.subtaskCount?` · ${focusNode.task.subtaskCount.done}/${focusNode.task.subtaskCount.total} subtasks done`:''}</span></div>{/if}
+		<GraphTaskPeekHost {stage} {board} {workers} {taskHref} {viewBox} {positions}
+			visibleTaskIds={new Set(shownGraph.nodes.filter(node=>node.kind==='task').map(node=>node.task!.id))}
+			onTaskChange={taskId=>peekTaskId=taskId} onShowLinked={taskId=>linkedTaskId=taskId} onWorker={openWorkerPeek} />
+		{#if focusNode&&focusPosition&&focusNode.kind!=='task'&&!peekTaskId}<div class="node-tooltip" role="tooltip" style="left:{tooltipX}px;top:{tooltipY}px"><strong>{focusNode.title}</strong><span>{focusNode.task?.id ?? focusNode.worker?.id ?? focusNode.thread?.id} · {focusNode.task ? taskDisplayWords(focusNode.task, board?.tasks ?? []) : focusNode.status.replaceAll('_',' ')}{focusNode.attention?' · needs you':''}{focusNode.task?.subtaskCount?` · ${focusNode.task.subtaskCount.done}/${focusNode.task.subtaskCount.total} subtasks done`:''}</span></div>{/if}
 	</div>
 </section>
 

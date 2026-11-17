@@ -3590,9 +3590,9 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
   watch replacements; arrivals ease in and updates never refit the camera. Collision bounds include caption space.
   Collision footprints reserve below-bubble captions; rim placement runs after settling. Caption sizing shrinks
   toward world size if necessary to avoid nodes/other titles, reserving every eligible title before enlarging any.
-  At overview zoom a parent title with no safe slot is omitted; IDs and full-title tooltips remain. Narrow initial
+  At overview zoom a parent title with no safe slot is omitted; IDs and full-title previews remain. Narrow initial
   layouts use one family column and three single-task columns; existing task positions remain fixed.
-  Hover/focus reveals a full-title tooltip and highlights family/blockers. Every node is keyboard focusable.
+  Hover/focus reveals the task pop-up (a tooltip for crew) and highlights family/blockers. Every node is keyboard focusable.
 - Initial cluster columns follow the viewport aspect ratio; retained positions do not reflow on resize or watch updates.
   First open fits the active graph with padding on desktop and phone. Fit resets framing explicitly. Drag nodes or
   pan the background; wheel, buttons and pinch zoom. Camera state is local per backend/project under
@@ -3640,9 +3640,9 @@ with regression cases in `test/task-graph-live.test.ts`. Android can port these 
    new lower rows would overlap it. This advancement is on board updates, never on folding. Initial
    framing/Fit includes that row in both modes; resizing retains the normal camera rules.
 
-**Web task pop-up content (T257 / D96, part A).** `TaskPartsProgress.svelte` owns the list's
+**Web task pop-ups (T257 / D96).** `TaskPartsProgress.svelte` owns the list's
 unchanged inline parts bar/text and old-backend done/total ring; `TaskFamilyMeta` still owns its
-native disclosure. `TaskPeek.svelte` is content only (not yet hosted in the graph): 360px card or
+native disclosure. `TaskPeek.svelte` is content only: 360px card or
 full-width `layout="sheet"`, using theme tokens and a scrollable body. It composes the list state
 glyph/sentence, parent parts progress, direct working/needs-attention parts with a “+ N done” count,
 open task questions, Now, three Results bullets, two-line Next, freshness, workers and relation chips.
@@ -3656,7 +3656,28 @@ question pin's adapter to `ProjectBoard.answer(question.id, question.revision, t
 its conflict-aware outcome. `BoardQuestionCard`'s `optionsOnly` mode retains its option wording,
 send/error handling and revision checks but hides replies, clarification, acknowledgment and
 expansion controls. Suggested answers are the only mutation in this pop-up; all other task edits
-and replies remain in the full sheet. Positioning, hover/focus/touch and dismissal belong to part B.
+and replies remain in the full sheet.
+
+`graph/GraphTaskPeekHost.svelte` replaces the task tooltip, with delegated listeners limited to the
+graph stage. Mouse hover opens after 250ms; 180ms of leave grace allows pointer travel onto the
+card. Keyboard focus opens immediately; Tab enters the card and then continues to the next node,
+Shift+Tab returns to the anchor, and Escape closes just the preview and restores anchor focus.
+Desktop clicks still follow the task link. Touch/coarse taps open a stage-bottom sheet with focus
+containment, close/backdrop dismissal and the selected family's graph highlight. The sheet's 44px
+close control is inset inside its padding, clear of the rounded corner. Four pixels of pointer
+travel or a second pointer cancels preview opening so dragging and pinching remain gestures.
+Card placement reuses the reference-card geometry, clipped to the stage and visible viewport;
+resize, camera/position changes and live content growth remeasure it. Removed/hidden tasks dismiss
+it; answering an option keeps it open even when the focused option leaves the DOM. Open task
+navigates via the existing task href; Show linked retains that task's neighbourhood selection.
+
+The host passes `ProjectBoard`'s capability-gated activity/freshness flags and already-gated state/
+parts fields, and answers through the same `ProjectBoard.answer` path as the question pin.
+`TaskGraph.openWorkerPeek(workerId)` is the T258 integration hook reached by the host's `onWorker`:
+for now it reveals a resting worker if necessary, opens a folded task's whole chip (and prerequisite
+chips), centres the camera and focuses its mascot after the visible graph renders. Live/All's
+`shownGraph` still controls edges, highlights and crew; fold chips are not task anchors and never
+open task previews.
 
 **Android family graph and project canvas (T115–T116).**
 

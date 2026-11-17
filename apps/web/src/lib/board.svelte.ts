@@ -51,6 +51,7 @@ export class ProjectBoard {
 	loaded = $state(false);
 	/** Activity requires an explicit hello capability, unlike legacy assumed support. */
 	activityEnabled = $state(false);
+	freshnessEnabled = $state(false);
 	stateEnabled = $state(false);
 	clarifyEnabled = $state(false);
 	partsEnabled = $state(false);
@@ -89,6 +90,7 @@ export class ProjectBoard {
 		this.#unsubscribeState = client.subscribe((state) => {
 			if (state.status === "ready") {
 				this.activityEnabled = taskActivitySupported(state.features);
+				this.freshnessEnabled = state.features?.includes('task-freshness') ?? false;
 				this.stateEnabled = taskStateSupported(state.features);
 				this.clarifyEnabled = questionClarifySupported(state.features);
 				this.partsEnabled = state.features?.includes("task-part-states") ?? false;
