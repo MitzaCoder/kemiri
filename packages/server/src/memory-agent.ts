@@ -113,6 +113,8 @@ export type MemoryAgentRun = {
 	models: Models;
 	model: ModelRef;
 	thinkingLevel?: ThinkingLevel | null;
+	/** Share a provider session across the independently budgeted parts of one extraction. */
+	sessionId?: string;
 	systemPrompt: string;
 	prompt: string;
 	execute: (name: string, args: Record<string, unknown>) => Promise<{ text: string; isError?: boolean }>;
@@ -129,7 +131,7 @@ export async function runMemoryAgent(run: MemoryAgentRun): Promise<string> {
 	if (model === undefined) {
 		throw new ServerError("unknown_model", `Unknown model ${run.model.provider}/${run.model.modelId}`);
 	}
-	const sessionId = newModelSessionId();
+	const sessionId = run.sessionId ?? newModelSessionId();
 	const messages: Message[] = [{ role: "user", content: run.prompt, timestamp: Date.now() }];
 	let text = "";
 	for (let round = 0; round < MAX_MEMORY_AGENT_ROUNDS; round += 1) {

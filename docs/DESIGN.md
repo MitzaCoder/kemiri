@@ -4247,12 +4247,25 @@ builds its context from only the parts relevant to the task.
   forgot to save them. They are written through the same merge rules as
   `memory_write` (an existing topic is updated, never duplicated), one commit
   per scope, of kind `extraction` and sourced from the `pi.compaction` entry.
+  Extraction describes every compacted entry (keeping the 1,500-character cut per message),
+  then splits at entry boundaries, oldest first. Each part gets fresh model messages but shares
+  one staged MemoryEditor, so later parts can search/read earlier writes. Prompts name the part
+  and say earlier parts were handled. Only after all parts succeed does the editor commit.
+  The transcript budget estimates four characters per token and uses 20% of the extraction
+  model's context window, clamped to 8,000–128,000 characters. A missing/invalid window defaults
+  to 32,000 tokens. This leaves room for instructions, memory tool results and answers.
+  At most 16 parts are processed. Before dropping anything, chunks grow (doubling) up to 40%
+  of the window, with the same clamps; if still too many, only the newest 16 chunks are kept
+  and the skipped entry/serialized-character counts are logged and noted in each prompt.
+  A single entry larger than this maximum is clipped to it (marked with …) rather than failing the run.
+  Worker compactions still do not extract memories; coordinator background threads still do.
   Nothing worth keeping means no commit, and a failure never blocks the conversation.
+  Failure in any part discards all staged writes and uses the same retry path for the whole span.
   Failed extractions retry on a later wake (a new compaction or server start), not in the same drain loop.
   `memory-extraction.json` keeps attempt counts and the latest failure per conversation; only success or giving up
   after three failed attempts advances its progress mark. Giving up retains the reason and is logged, including
   across a restart between the final failure and the progress write. Old progress files still load.
-  Each extraction gets one opaque provider session ID, shared by every tool round. The web app shows each commit
+  Each extraction gets one opaque provider session ID, shared by every part and tool round. The web app shows each commit
   with an undo.
 
 **Changes and undo**

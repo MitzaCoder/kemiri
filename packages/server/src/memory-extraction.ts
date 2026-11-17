@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { errorMessage } from "./errors.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 import { MemoryEditor, describeBatchChanges, memoryAgentExecutor, memoryAgentTools, runMemoryAgent } from "./memory-agent.ts";
+import { newModelSessionId } from "./model-session.ts";
 import type { MemoryStore } from "./memory.ts";
 import type { Project, ProjectStore } from "./projects.ts";
 
@@ -38,8 +39,16 @@ const COMPACTION_ENTRY = "pi.compaction";
 const SCAN_PAGE_ENTRIES = 200;
 /** A scan stops after this many entries: a backlog that old is not worth an extraction run apiece. */
 const SCAN_MAX_ENTRIES = 2_000;
-/** Characters of the compacted part one extraction reads. */
-export const EXTRACTION_TRANSCRIPT_CHARS = 24_000;
+/** Reserve most of the context for instructions, memory tool results and answers (estimated at four chars/token). */
+export const EXTRACTION_CONTEXT_FRACTION = 0.2;
+/** A long span may use more context to stay within the call cap, but still leaves 60% for the tool loop. */
+export const EXTRACTION_MAX_CONTEXT_FRACTION = 0.4;
+export const EXTRACTION_DEFAULT_CONTEXT_TOKENS = 32_000;
+/** Avoid tiny calls, and bound cost even for models with very large context windows. */
+export const EXTRACTION_MIN_CHUNK_CHARS = 8_000;
+export const EXTRACTION_MAX_CHUNK_CHARS = 128_000;
+export const MAX_EXTRACTION_CHUNKS = 16;
+const ESTIMATED_CHARS_PER_TOKEN = 4;
 /** Characters of one tool result or message the serialized transcript keeps. */
 const EXTRACTION_MESSAGE_CHARS = 1_500;
 
@@ -207,26 +216,58 @@ export function describeCompactedEntry(entry: EntryRecord): string[] {
 	return lines.map((line) => (line.length <= EXTRACTION_MESSAGE_CHARS ? line : `${line.slice(0, EXTRACTION_MESSAGE_CHARS)}…`));
 }
 
-/** The compacted part as one prompt, newest last, within `budget` characters (the oldest is cut first). */
-export function serializeCompactedPart(
-	entries: readonly EntryRecord[],
-	budget = EXTRACTION_TRANSCRIPT_CHARS,
-): { text: string; omitted: number } {
-	const chunks = entries.map((entry) => describeCompactedEntry(entry).join("\n\n")).filter((chunk) => chunk.length > 0);
-	const kept: string[] = [];
-	let used = 0;
-	let omitted = 0;
-	for (let index = chunks.length - 1; index >= 0; index--) {
-		const chunk = chunks[index] ?? "";
-		if (used + chunk.length > budget) {
-			omitted = index + 1;
-			break;
+/** Transcript budgets in characters, derived from the model rather than its provider or name. */
+export function extractionChunkBudgets(contextWindow?: number): { preferred: number; maximum: number } {
+	const window = contextWindow !== undefined && Number.isFinite(contextWindow) && contextWindow > 0
+		? contextWindow : EXTRACTION_DEFAULT_CONTEXT_TOKENS;
+	const chars = window * ESTIMATED_CHARS_PER_TOKEN;
+	const clamp = (fraction: number) => Math.max(EXTRACTION_MIN_CHUNK_CHARS,
+		Math.min(EXTRACTION_MAX_CHUNK_CHARS, Math.floor(chars * fraction)));
+	return { preferred: clamp(EXTRACTION_CONTEXT_FRACTION), maximum: clamp(EXTRACTION_MAX_CONTEXT_FRACTION) };
+}
+
+/** All described entries, oldest first; grow chunks before resorting to dropping the oldest ones. */
+export function chunkCompactedPart(entries: readonly EntryRecord[], contextWindow?: number): {
+	chunks: string[]; omittedEntries: number; omittedChars: number;
+} {
+	const { preferred, maximum } = extractionChunkBudgets(contextWindow);
+	// An entry larger than a whole chunk (many long messages in one turn) is clipped rather than failing the run, which
+	// would only retry the same span and give up.
+	const described = entries
+		.map(entry => describeCompactedEntry(entry).join("\n\n"))
+		.filter(text => text.length > 0)
+		.map(text => (text.length <= maximum ? text : `${text.slice(0, maximum - 1)}…`));
+	const largest = described.reduce((size, text) => Math.max(size, text.length), 0);
+	const pack = (budget: number): string[][] => {
+		const chunks: string[][] = [];
+		let chunk: string[] = [];
+		let used = 0;
+		for (const text of described) {
+			const size = text.length + (chunk.length > 0 ? 2 : 0);
+			if (chunk.length > 0 && used + size > budget) {
+				chunks.push(chunk);
+				chunk = [];
+				used = 0;
+			}
+			used += text.length + (chunk.length > 0 ? 2 : 0);
+			chunk.push(text);
 		}
-		used += chunk.length;
-		kept.push(chunk);
+		if (chunk.length > 0) chunks.push(chunk);
+		return chunks;
+	};
+	let budget = Math.max(preferred, largest);
+	let packed = pack(budget);
+	// Doubling keeps planning cheap even for an unusually large backlog.
+	while (packed.length > MAX_EXTRACTION_CHUNKS && budget < maximum) {
+		budget = Math.min(maximum, budget * 2);
+		packed = pack(budget);
 	}
-	kept.reverse();
-	return { text: kept.join("\n\n"), omitted };
+	const omitted = packed.slice(0, Math.max(0, packed.length - MAX_EXTRACTION_CHUNKS));
+	return {
+		chunks: packed.slice(-MAX_EXTRACTION_CHUNKS).map(chunk => chunk.join("\n\n")),
+		omittedEntries: omitted.reduce((count, chunk) => count + chunk.length, 0),
+		omittedChars: omitted.reduce((count, chunk) => count + chunk.join("\n\n").length, 0),
+	};
 }
 
 export type MemoryExtractionServiceOptions = {
@@ -391,8 +432,12 @@ export class MemoryExtractionService {
 		this.#noModelLogged = false;
 		const compacted = await this.compactedEntries(entry);
 		if (compacted.length === 0) return;
-		const serialized = serializeCompactedPart(compacted);
-		if (serialized.text.trim().length === 0) return;
+		const model = this.#options.models.getModel(agent.model.provider, agent.model.modelId);
+		const serialized = chunkCompactedPart(compacted, model?.contextWindow);
+		if (serialized.omittedEntries > 0) {
+			this.#log(`compaction entry ${entry.id}: skipped ${serialized.omittedEntries} oldest compacted entries (${serialized.omittedChars} serialized characters); extraction capped at ${MAX_EXTRACTION_CHUNKS} chunks`);
+		}
+		if (serialized.chunks.length === 0) return;
 		const editor = new MemoryEditor({
 			store: this.#options.memory,
 			projectId: project.id,
@@ -400,28 +445,40 @@ export class MemoryExtractionService {
 			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id },
 			log: this.#log,
 		});
-		const prompt = [
-			`The earlier part of this conversation (entries before ${entry.head}) was just compacted. Here it is, as it was:`,
-			"",
-			"<compacted>",
-			serialized.text,
-			"</compacted>",
-			...(serialized.omitted > 0
-				? ["", `${serialized.omitted} older entries are not repeated here; save only from what is shown.`]
-				: []),
-			"",
-			"Search memory first, then save what is worth keeping. Then answer with what you saved.",
-		].join("\n");
-		const answer = await runMemoryAgent({
-			models: this.#options.models,
-			model: agent.model,
-			thinkingLevel: agent.thinkingLevel,
-			systemPrompt: EXTRACTION_SYSTEM_PROMPT,
-			prompt,
-			tools: memoryAgentTools({ scopes: ["global", "project"], archives: false }),
-			execute: memoryAgentExecutor(editor),
-			log: this.#log,
-		});
+		const sessionId = newModelSessionId();
+		const answers: string[] = [];
+		const tools = memoryAgentTools({ scopes: ["global", "project"], archives: false });
+		const execute = memoryAgentExecutor(editor);
+		for (const [index, text] of serialized.chunks.entries()) {
+			const prompt = [
+				`The earlier part of this conversation (entries before ${entry.head}) was just compacted. Here it is, as it was:`,
+				`Part ${index + 1} of ${serialized.chunks.length}, oldest first.`,
+				index === 0 ? "This is the first part."
+					: "Earlier parts were already handled. Their memory writes are staged and visible through the memory tools; search before adding anything.",
+				"",
+				"<compacted>",
+				text,
+				"</compacted>",
+				...(serialized.omittedEntries > 0
+					? ["", `${serialized.omittedEntries} oldest entries were skipped by the safety cap; save only from what is shown.`]
+					: []),
+				"",
+				"Search memory first, then save what is worth keeping. Then answer with what you saved.",
+			].join("\n");
+			// Fresh messages per part avoid accumulating the transcript; one editor and session belong to the whole run.
+			answers.push(await runMemoryAgent({
+				models: this.#options.models,
+				model: agent.model,
+				thinkingLevel: agent.thinkingLevel,
+				sessionId,
+				systemPrompt: EXTRACTION_SYSTEM_PROMPT,
+				prompt,
+				tools,
+				execute,
+				log: this.#log,
+			}));
+		}
+		const answer = answers.filter(text => text.trim().length > 0).join("\n\n");
 		const { commits } = await editor.commit({
 			kind: "extraction",
 			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id },
