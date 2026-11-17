@@ -13,6 +13,8 @@ export type TaskFactActor = "user" | "coordinator" | "worker" | "harness";
 export type TaskFact = {
 	/** Unknown callers are conservatively treated as harness facts. */
 	actor?: TaskFactActor;
+	/** Report writer identity lets milestones distinguish ongoing task work from unbound writes. */
+	writer?: BoardWriter;
 	kind: "question_asked" | "question_clarification" | "question_settled" | "blocker_resolved" | "worker_start" | "worker_resume" | "worker_report" | "worker_fail" | "worker_stop" | "thread_handoff" | "thread_finish" | "status" | "feedback" | "feedback_addressed" | "decision" | "milestone" | "commit" | "integration" | "publication" | "deploy" | "check_outcome" | "chat" | "stale";
 	reason: string;
 	at: string;
@@ -65,13 +67,20 @@ export function initializeTaskFreshness(state: BoardState, task: BoardTask): voi
 	}
 }
 
-function invalidatedSections(task: BoardTask, fact: TaskFact): readonly ReportSection[] {
+function invalidatedSections(state: BoardState, task: BoardTask, fact: TaskFact): readonly ReportSection[] {
 	if ((task.status === "done" || task.status === "dropped") && !(fact.kind === "stale" && fact.actor === "user")) return [];
 	if (fact.kind === "worker_start" || fact.kind === "worker_resume") return [];
 	if (fact.actor === "coordinator") {
 		// Missing review evidence is a real gap, even when the coordinator made the move.
 		return fact.kind === "status" && task.status === "review" && task.report.results.trim() === "" ? ["results"] : [];
 	}
+	// A bound worker's progress is not a new request for coordinator synthesis.
+	// Keep counting the fact/activity for coverage and the existing age backstop.
+	const writer = fact.writer;
+	if (fact.kind === "milestone" && fact.actor === "worker" && writer?.author === "worker" &&
+		Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(source =>
+			source.state === "running" && source.actor.kind === "worker" &&
+			source.actor.threadId === writer.threadId && source.actor.name === writer.workerId)) return [];
 	if (fact.sections !== undefined) return fact.sections;
 	switch (fact.kind) {
 		case "question_asked": case "question_clarification": return [];
@@ -105,7 +114,7 @@ export function noteTaskFact(state: BoardState, taskId: string, fact: TaskFact):
 
 function invalidateReportSections(state: BoardState, task: BoardTask, fact: TaskFact): void {
 	const tracking = state.reportTracking![task.id]!;
-	for (const name of invalidatedSections(task, fact)) {
+	for (const name of invalidatedSections(state, task, fact)) {
 		const section = task.report.freshness![name];
 		const reason = fact.reason.replace(/[\r\n\t]+/g, " ").trim().slice(0, 160) || "needs update";
 		tracking.invalidated[name] = { seq: task.eventSeq ?? 0, reason };

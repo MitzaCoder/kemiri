@@ -4,9 +4,10 @@ import { BoardReportStaleRequestSchema, BoardTaskSchema } from "../../protocol/s
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { BoardDoc, BoardService, addDecision, moveTaskForWorker, changeOwner, askQuestion, coordinatorWriter, emptyBoardState, normalizeBoard, saveTask, settleQuestion, writeReport, type BoardState } from "../src/board.ts";
+import { BoardDoc, BoardService, addDecision, moveTaskForWorker, changeOwner, askQuestion, coordinatorWriter, emptyBoardState, normalizeBoard, saveTask, settleQuestion, writeReport, workerWriter, type BoardState } from "../src/board.ts";
 import { acknowledgeReportNudge, markReportStale, noteTaskFact, prepareReportNudges, reportDueAt, substantiveTaskMentions, reportChatUserTasks, sweepReportAge, type TaskFact } from "../src/task-freshness.ts";
 import { createSetup, errorOf, TestClient } from "./support.ts";
+import { activityTracking } from "../src/task-activity.ts";
 
 const START = Date.parse("2026-11-12T12:00:00.000Z");
 const at = (ms = 0) => new Date(START + ms).toISOString();
@@ -172,12 +173,52 @@ it.each(["review", "done"] as const)("empty Results at %s needs a write, but unw
 	expect(state.reportOutbox![0]!.content).toContain("T1 Results stale");
 });
 
-it("worker outcomes still invalidate both written sections and queue a nudge", () => {
+function bindRunningWorker(state: BoardState, threadId = "main") {
+ const source = { actor: { id: `${threadId}:42:run`, kind: "worker" as const, name: "synthetic", threadId, conversationId: 42, runId: "run" }, state: "running" as const, since: at(), title: "Synthetic delivery" };
+ activityTracking(state, "T1").sources[source.actor.id] = source;
+ state.tasks[0]!.workerIds.push("synthetic");
+ return source.actor.id;
+}
+
+it.each(["worker_report", "worker_fail", "worker_stop"] as const)("running worker %s still invalidates both sections and queues a nudge", kind => {
 	const state = task(); write(state, { results: "Historical tests", next: "Continue" });
-	noteTaskFact(state, "T1", { actor: "worker", kind: "worker_report", reason: "worker reported", at: at() });
+ bindRunningWorker(state);
+	noteTaskFact(state, "T1", { actor: "worker", writer: workerWriter("main", "synthetic"), kind, reason: "worker outcome", at: at() });
 	for (const name of ["results", "next"] as const) expect(meta(state)[name]).toMatchObject({ stale: true, eventsSince: 1 });
 	prepareReportNudges(state, START + 30_000, owner);
 	expect(state.reportOutbox).toHaveLength(1);
+});
+
+it.each(["ended", "failed", "unknown", "other-task", "other-thread", "other-worker", "coordinator-source", "missing-writer"] as const)("milestone without a matching running task worker still stales and nudges: %s", mismatch => {
+ const state = task(); write(state, { results: "Historical tests", next: "Continue" });
+ const id = bindRunningWorker(state);
+ const sources = state.taskActivity!.T1!.sources;
+ const source = sources[id]!;
+ if (mismatch === "ended" || mismatch === "failed" || mismatch === "unknown") source.state = mismatch;
+ if (mismatch === "other-task") { activityTracking(state, "T2").sources[id] = source; delete sources[id]; }
+ if (mismatch === "other-thread") source.actor.threadId = "another-thread";
+ if (mismatch === "other-worker") source.actor.name = "another-worker";
+ if (mismatch === "coordinator-source") source.actor.kind = "coordinator";
+ noteTaskFact(state, "T1", { actor: "worker", ...(mismatch === "missing-writer" ? {} : { writer: workerWriter("main", "synthetic") }), kind: "milestone", reason: "Checks pass", sections: ["results", "next"], at: at(1) });
+ for (const name of ["results", "next"] as const) expect(meta(state)[name]).toMatchObject({ stale: true, reasons: ["Checks pass"] });
+ prepareReportNudges(state, START + 30_001, owner);
+ expect(state.reportOutbox).toHaveLength(1);
+});
+
+it("running worker milestones preserve existing stale causes and the two-hour age backstop", () => {
+ const state = task(); write(state, { results: "Historical tests", next: "Continue" });
+ bindRunningWorker(state);
+ const milestone = () => noteTaskFact(state, "T1", { actor: "worker", writer: workerWriter("main", "synthetic"), kind: "milestone", reason: "Checks pass", sections: ["results", "next"], at: at(1) });
+ milestone();
+ for (const name of ["results", "next"] as const) expect(meta(state)[name]).toMatchObject({ stale: false, eventsSince: 1, reasons: [] });
+ expect(tracking(state).pending).toBeUndefined();
+ expect(tracking(state).activityAt).toBe(at(1));
+ sweepReportAge(state, START); sweepReportAge(state, START + 2 * 3_600_000);
+ for (const name of ["results", "next"] as const) expect(meta(state)[name]).toMatchObject({ stale: true, reasons: ["new activity since this section was written"] });
+ milestone();
+ for (const name of ["results", "next"] as const) expect(meta(state)[name].reasons).toEqual(["new activity since this section was written"]);
+ prepareReportNudges(state, START + 2 * 3_600_000 + 30_000, owner);
+ expect(state.reportOutbox).toHaveLength(1);
 });
 
 it("T71 replay: answered owner request merges into one nudge, suppresses unchanged versions, covered rewrite rearms", () => {
@@ -481,7 +522,31 @@ it("outgoing coordinator prose stales and nudges once per turn; a same-turn repo
  expect(rewritten.reportOutbox).toEqual([]);
 }, 15_000);
 
-it("coordinator milestones count without invalidation and report rewrites alone do not add timeline rows", async () => {
+it.each(["main", "synthetic-thread"])("running %s worker milestone writes keep unwritten Results/Next fresh, without a nudge", async threadId => {
+ const { runtime } = await integration();
+ const commit = <R>(change: Parameters<typeof runtime.harness.commit<R>>[0]) => runtime.harness.commit(change, BACKGROUND_CONTEXT);
+ await commit(async tx => { bindRunningWorker(await tx.doc(BoardDoc, runtime.conversation.id) as BoardState, threadId); });
+ await runtime.board.writeReport(commit, { taskId: "T1", sections: { results: "Historical tests", next: "Worker: finish verification" }, by }, "initial-write");
+ const before = await runtime.board.timeline("T1");
+ const writer = workerWriter(threadId, "synthetic");
+ await runtime.board.writeReport(commit, { taskId: "T1", sections: { now: "Checking evidence" }, by: writer, coveredEventSeq: 0, milestone: "Checks pass" }, "worker-milestone");
+ const state = await runtime.board.state();
+ for (const name of ["results", "next"] as const) expect(meta(state)[name]).toMatchObject({ stale: false, eventsSince: 1, reasons: [] });
+ expect(tracking(state).pending).toBeUndefined();
+ prepareReportNudges(state, START + 30_000, owner);
+ expect(state.reportOutbox).toEqual([]);
+ expect((await runtime.board.timeline("T1")).entries.length).toBe(before.entries.length + 1);
+ await runtime.board.writeReport(commit, { taskId: "T1", sections: {}, addResult: "Synthetic checks pass", by: writer, coveredEventSeq: 1, milestone: "Proof saved" }, "worker-result");
+ const added = await runtime.board.state();
+ expect(added.tasks[0]!.report.results).toBe("Historical tests\n- Synthetic checks pass");
+ expect(meta(added).results).toMatchObject({ stale: false, coveredEventSeq: 2, eventsSince: 0 });
+ expect(meta(added).next).toMatchObject({ stale: false, eventsSince: 2, reasons: [] });
+ prepareReportNudges(added, START + 30_000, owner);
+ expect(added.reportOutbox).toEqual([]);
+}, 15_000);
+
+it.each(["main", "synthetic-thread"])("%s coordinator milestones count without invalidation and report rewrites alone do not add timeline rows", async threadId => {
+ const by = coordinatorWriter(threadId);
  const { runtime } = await integration();
  const commit = <R>(change: Parameters<typeof runtime.harness.commit<R>>[0]) => runtime.harness.commit(change, BACKGROUND_CONTEXT);
  await runtime.board.writeReport(commit, { taskId: "T1", sections: { results: "- Synthetic tests pass", next: "Review assets" }, by, coveredEventSeq: 0 }, "initial-write");

@@ -466,7 +466,7 @@ export async function writeReportIn(
 			const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
 			return prose.split("\n").pop() === bullet;
 		});
-		noteTaskFact(state, input.taskId, { actor: input.by.author, kind: "milestone", reason: input.milestone, at, sections: unchanged });
+		noteTaskFact(state, input.taskId, { actor: input.by.author, writer: input.by, kind: "milestone", reason: input.milestone, at, sections: unchanged });
 		if (coverage === before) coverage += 1; // The writer authored this fact, but cannot cover an earlier unseen gap.
 	}
 	const written = writeReport(state, { ...input, coveredEventSeq: coverage, now: at });

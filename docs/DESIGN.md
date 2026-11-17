@@ -3222,8 +3222,15 @@ A no-op covers nothing, whether coverage is omitted or explicit. A substantive r
 bumps only that section's version and date; identical prose does not clear staleness or rearm nudges.
 A covered rewrite clears its stale causes and rearms that section. An uncovered rewrite retains its
 pending admission or delivered suppression, rather than creating a nag loop. Milestones are authored
-facts: non-coordinator milestones invalidate only sections not substantively rewritten with the milestone; they may advance
-explicit coverage over their own event only when no unseen sequence gap precedes it.
+facts: non-coordinator milestones invalidate only sections not substantively rewritten with the milestone,
+except a running worker's own progress milestone (T147). Its writer must match a running worker activity
+source on that task by both thread ID and worker name; historical task worker IDs alone do not qualify.
+Such milestones invalidate neither Next nor Results and queue no new nudge, but still count for coverage,
+save their snapshot, and retain meaningful activity for the unchanged two-hour age backstop. They do not
+clear existing stale causes. Unbound, ended, failed or unknown worker milestones keep the normal rule;
+worker final reports, failures, stops and other lifecycle facts are unaffected. Main and thread coordinator
+milestones still follow the coordinator rule. Milestones may advance explicit coverage over their own
+event only when no unseen sequence gap precedes it.
 
 The reducer `noteTaskFact(state, taskId, fact)` (and BoardService method) is the entry point for lifecycle
 facts and later verified commit/deploy adapters. Internal facts carry an actor (user, coordinator, worker,
