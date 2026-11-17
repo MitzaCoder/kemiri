@@ -114,6 +114,25 @@ async function urlOf(client: TestClient, projectId: string, artifactId: string, 
 }
 
 describe("artifact_save", () => {
+	it("accepts paths through the agent schema and reports both saved and failed files", async () => {
+		const { test, client, projectId } = await start();
+		await writeFile(join(test.projectDir, "board--WEB-phone.txt"), "board");
+		await writeFile(join(test.projectDir, "report.txt"), "report");
+		const results = await saveThroughTool(test, client, projectId, [
+			{ paths: ["board--WEB-phone.txt", "missing.txt", "report.txt"], taskId: "T1", tags: ["custom"] },
+			{ path: "report.txt", paths: ["report.txt"] },
+			{},
+		]);
+		expect(results[0]).toContain('"board--WEB-phone.txt": Saved artifact');
+		expect(results[0]).toContain('"report.txt": Saved artifact');
+		expect(results[0]).toContain("does not exist");
+		expect(results[1]).toBe("Give exactly one of path or paths (1–50 files).");
+		expect(results[2]).toBe("Give exactly one of path or paths (1–50 files).");
+		const saved = await list(client, projectId);
+		expect(saved).toHaveLength(2);
+		expect(saved.find((artifact) => artifact.name.startsWith("board"))?.tags).toEqual(["custom", "web", "phone"]);
+	});
+
 	it("updates by name with short version results and pins signed URLs to selected snapshots", async () => {
 		const { test, client, projectId } = await start();
 		const path = join(test.projectDir, "report.html");
@@ -629,7 +648,9 @@ describe("tags", () => {
 		});
 		const tool = extension.tools?.find((candidate) => candidate.name === "artifact_save");
 		expect(tool?.description).toContain(ARTIFACT_TAG_GUIDANCE);
-		expect(tool?.description).toContain("`web, phone, dark`");
+		expect(tool?.description).toContain("`task-board--web-phone-dark-after.png`");
+		expect(tool?.description).toContain("list only the files you mean to keep");
+		expect(JSON.stringify(tool?.parameters)).toContain('"paths"');
 		expect(JSON.stringify(tool?.parameters)).toContain('"tags"');
 	});
 

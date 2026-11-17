@@ -548,7 +548,8 @@ Legacy index rows read as version 1 without writes or byte moves. Only the next 
 same-name cards are not merged retroactively (no lost IDs or history). Version 1 retains its original file location;
 new snapshots use `<artifactId>.versions/<number>/<name>` (a sibling cannot collide with any legacy filename).
 A project write queue serializes copy/index publication; replay receipts keep a durable tool rerun from creating
-another version. Keep the most recent 20 snapshots
+another version. Batch `artifact_save` calls use one memoized receipt per input index, so each file versions independently;
+single-`path` calls retain the original `artifactId` memo key for in-flight replay compatibility. Keep the most recent 20 snapshots
 (`ARTIFACT_VERSION_LIMIT`), with monotonic numbers even after pruning. Publish the index before pruning old bytes;
 a crash can leave extra bytes but never references missing bytes. Deleting the artifact deletes all versions.
 Web and Android artifact dialogs and full-screen media viewers select retained metadata and fetch its version address;
@@ -2337,7 +2338,7 @@ Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-
 
 ## Artifacts
 
-Files a thread or worker keeps for the user (demo videos, screenshots, logs, reports): `artifact_save` copies a file
+Files a thread or worker keeps (demo videos, screenshots, logs, reports): `artifact_save` copies selected files
 from its working directory into the project's artifact store on that backend (`<data>/projects/<id>/artifacts/`).
 The app lists them per thread, worker and task, and plays videos, shows images and reads text inline, from a signed
 URL with byte ranges. They stay on the backend; publishing them elsewhere is up to the user's instructions.
@@ -2349,12 +2350,24 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   extension and the first bytes (the bytes win, except a media extension on a container that holds video or audio:
   `.mkv`, `.weba`, `.ogv`); kind from the MIME; `durationSeconds` from `ffprobe` when it is on PATH. One file may
   have `AIKI_ARTIFACT_MAX_BYTES` (default 2 GiB); a project's total is unbounded.
-- `artifact_save { path, title?, note?, taskId? }`: every conversation (workers keep it, scripts may call it). The
-  path is relative to the conversation's cwd or absolute (`~/` expands); after symlinks it must be a regular readable
+- `artifact_save { path?, paths?, title?, note?, taskId?, tags? }` (T249): every conversation, including workers and
+  code mode. Exactly one of `path` or `paths` is required; `paths` holds 1–50 nonempty file paths. List only the files
+  meant to be kept, never whole frame folders. `taskId`, `note` and explicit `tags` apply to every file; `title` applies
+  only when the call contains one file (including one-element `paths`). Multiple files are untitled; no derived title
+  exposes a file-name tag suffix. Each path is relative to the conversation's cwd or absolute (`~/` expands);
+  after symlinks it must be a regular readable
   file under that cwd, the project directory or the system temp directory, and nothing in the data directory except
   the project's worker workspaces and the background threads' directories (`threads/<thread>/`: checkouts and their
   workers' workspaces). `threadId` is the coordinator's thread, or for a worker the thread whose workers list holds
-  it; `workerId` comes from that list. The ID is memoized, so a rerun saves once.
+  it; `workerId` comes from that list. Each file's ID is memoized before copying. A failed file does not stop later
+  saves; the result text lists each requested path, saved artifact ID/version or error. Batch result details contain
+  `files: [{ path, artifactId, version } | { path, error }]` plus the first saved `artifactId` for existing chat cards;
+  any failure marks the call as an error, including partial
+  success. One-file success retains `{ artifactId }` details and the short legacy text; single-`path` failures retain
+  the legacy absence of details. Same-filename-and-scope
+  versioning is unchanged per file. Existing web/Android chat cards still render a single artifact preview on success
+  (the first for a batch); task/project artifact lists receive every saved file through the existing pushes. Partial
+  failures expose the complete saved/failed text in the card's error disclosure; no protocol change is needed.
 - `artifact_read { artifactId, version? }` (T215): every conversation, including code mode, can open a retained
   snapshot within its project. Bare ID reads latest; `id~N` and `version` must agree when both are supplied.
   Returns snapshot metadata, retained/latest numbers, and an editable exact-byte copy in a private system-temp
@@ -2388,10 +2401,15 @@ later from this section.
   become one `-`, characters other than letters, digits, `-`, `_`, `.`, `+`, `:` are dropped, separators trimmed from the
   ends, **at most 24 characters** per tag, duplicates dropped (the first wins), **at most 12 tags** per artifact (the rest
   are dropped). `SUGGESTED_ARTIFACT_TAGS`: web, android, phone, desktop, tablet, dark, light, before, after.
-- **Saving.** `artifact_save` takes an optional `tags` array. Its description carries fixed text
-  (`ARTIFACT_TAG_GUIDANCE`) that asks the model to tag screenshots and videos by platform and state, e.g. a web screenshot of
-  the phone layout in dark mode is `web, phone, dark`, and a before/after pair the same tags except `before` and `after`;
-  the worker/coordinator report rules say the same in one sentence. The text is a constant, so prompts stay byte-stable.
+- **Saving.** `artifact_save` accepts explicit `tags` and file-name tags for both `path` and `paths` (T249).
+  Convention: `<subject>--<tag>-<tag>.<ext>`, e.g. `task-board--web-phone-dark-after.png`. Only the suffix after the
+  **last** `--` in the basename, before its final extension, counts; extension-less names use the entire suffix.
+  No `--` means no inferred tags. Split on `-`, lowercase, discard empty/invalid words: each must be 1–24 ASCII letters
+  or digits (no punctuation, spaces or repaired characters). Explicit tags come first, then inferred tags; the store's
+  existing normalisation deduplicates and enforces the 12-tag limit on the combined list. Invalid explicit tags still
+  follow the ordinary store rules above. The exported `artifactTagsFromFileName` in `artifact-file-tags.ts` is reusable
+  independently of tool execution. Its fixed description text (`ARTIFACT_TAG_GUIDANCE`) explains the naming convention,
+  `paths`, explicit-first order and matching before/after pairs, keeping prompts byte-stable.
 - **Changing tags from the app.** `artifacts.update { projectId, artifactId, tags }` replaces the tags with the normalised
   list (an empty list clears them) and answers `artifacts.update { artifact }` with the stored row; the server also pushes
   `artifacts.changed` (`deleted: false`) to every connection, which the live lists already take in as a replacement. Only

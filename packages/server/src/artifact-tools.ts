@@ -17,6 +17,7 @@ import { constants } from "node:fs";
 import { access, chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { artifactTagsFromFileName } from "./artifact-file-tags.ts";
 import { Type } from "typebox";
 import { type ArtifactStore, newArtifactId } from "./artifacts.ts";
 import { errorMessage } from "./errors.ts";
@@ -31,10 +32,10 @@ export const ARTIFACT_EXTENSION = "artifact-tools";
  * app groups a task's photos and videos by tag and pairs `before` with `after` for its compare slide.
  */
 export const ARTIFACT_TAG_GUIDANCE =
-	"Tag screenshots and videos by platform and state with `tags`: short lowercase words such as web, android, phone, " +
-	"desktop, tablet, dark, light, before, after (free-form; use others when they fit). A web screenshot of the phone " +
-	"layout in dark mode is `web, phone, dark`; give a before/after pair the same tags except `before` and `after`. " +
-	"The app filters a task's media by tag and compares a before with its after.";
+	"Tag media by platform and state with `tags` or names like `task-board--web-phone-dark-after.png` " +
+	"(last `--`, hyphen-separated letters/digits, lowercase, 1–24 characters each). " +
+	"For `path` or `paths`, explicit tags come first, then file-name tags. " +
+	"Give before/after pairs the same tags except `before` and `after`; the app filters and compares by tag.";
 
 export type ArtifactToolsOptions = {
 	store: ArtifactStore;
@@ -76,7 +77,7 @@ export async function resolveArtifactSource(options: {
 	const real = await realOrUndefined(requested);
 	if (real === undefined) return { ok: false, message: `${requested} does not exist.` };
 	const info = await stat(real);
-	if (info.isDirectory()) return { ok: false, message: `${requested} is a directory; save the files in it one by one, or an archive of it.` };
+	if (info.isDirectory()) return { ok: false, message: `${requested} is a directory; list only the files you mean to keep with paths, or save an archive of it.` };
 	if (!info.isFile()) return { ok: false, message: `${requested} is not a regular file.` };
 
 	const roots = (await Promise.all([options.cwd, options.projectPath, tmpdir()].map(realOrUndefined))).filter(
@@ -114,7 +115,7 @@ function formatBytes(size: number): string {
 	return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
-function toolText(text: string, isError = false, details?: { artifactId: string }) {
+function toolText(text: string, isError = false, details?: { artifactId: string } | { artifactId?: string; files: ArtifactSaveFileResult[] }) {
 	return {
 		output: [{ type: "text" as const, text }],
 		...(isError ? { isError: true } : {}),
@@ -151,20 +152,31 @@ async function copyArtifactForReading(store: ArtifactStore, artifact: Artifact):
 	}
 }
 
+type ArtifactSaveFileResult = { path: string } & (
+	{ artifactId: string; version: number } | { error: string }
+);
+
 export function createArtifactExtension(options: ArtifactToolsOptions): Extension {
 	const threadIdOf = options.threadIdOf ?? (async () => MAIN_THREAD_ID);
 	const saveTool = defineTool({
 		name: ARTIFACT_SAVE_TOOL,
 		description:
-			"Keep a file for the user as an artifact: a demo video, screenshot, log or report they can open in the app " +
-			"(videos play, images and text show inline). Copies the file (it stays where it is) into the project's " +
-			"artifact store on this backend. `path` is relative to your working directory or absolute; it must be a file " +
-			"under your working directory, the project directory or the temp directory. Give `taskId` when it is evidence " +
-			"for a board task. Same filename and taskId (else conversation) saves a new version. " +
+			"Keep files as artifacts: videos, screenshots, logs or reports shown in the app. " +
+			"Give exactly one of `path` or `paths` (1–50 files); list only the files you mean to keep, never whole frame folders. " +
+			"Sources stay in place; copies go into the project's artifact store on this backend. " +
+			"Paths are absolute or relative to the working directory, under it, the project or temp directory. " +
+			"`taskId`, `note` and `tags` apply to every file; `title` only to a single file (otherwise untitled). " +
+			"Give `taskId` for board evidence. Same filename and taskId (else conversation) saves a new version. " +
+			"Failures are reported per file; other files still save. " +
 			ARTIFACT_TAG_GUIDANCE,
 		parameters: Type.Object({
-			path: Type.String({ minLength: 1, description: "The file to keep." }),
-			title: Type.Optional(Type.String({ minLength: 1, description: "What it shows, in a few words." })),
+			path: Type.Optional(Type.String({ minLength: 1, description: "One file to keep; omit when giving paths." })),
+			paths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
+				minItems: 1,
+				maxItems: 50,
+				description: "Files to keep; omit path. List only the files meant to be kept.",
+			})),
+			title: Type.Optional(Type.String({ minLength: 1, description: "What a single file shows; ignored for several files." })),
 			note: Type.Optional(Type.String({ minLength: 1, description: "Longer description, Markdown." })),
 			taskId: Type.Optional(Type.String({ minLength: 1, description: "The board task it is evidence for, e.g. T3." })),
 			tags: Type.Optional(
@@ -174,42 +186,59 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 				}),
 			),
 		}),
-		// The ID is memoized before the copy, so a rerun returns the first run's artifact.
+		// Keep the legacy single-path key for in-flight calls; each batch entry gets its own receipt.
 		replay: "safe",
 		execute: async (args, api, context: Context) => {
-			const project = options.project();
-			try {
-				const agent = await api.agent(context);
-				const source = await resolveArtifactSource({
-					path: args.path,
-					cwd: agent.cwd ?? project.path,
-					projectPath: project.path,
-					dataDir: options.store.dataDir,
-					workspaceDirs: options.workspaceDirs,
-				});
-				if (!source.ok) return toolText(source.message, true);
-				const artifactId = await api.memo<string>("artifactId", newArtifactId(api.now()), context);
-				const artifact = await options.store.save({
-					projectId: project.id,
-					sourcePath: source.path,
-					title: args.title ?? null,
-					note: args.note ?? null,
-					threadId: await threadIdOf(api.conversationId),
-					workerId: await options.workerIdOf(api.conversationId),
-					taskId: args.taskId ?? null,
-					...(args.tags === undefined ? {} : { tags: args.tags }),
-					artifactId,
-				});
-				const duration = artifact.durationSeconds === null ? "" : `, ${artifact.durationSeconds.toFixed(1)} s`;
-				const tags = artifact.tags === undefined || artifact.tags.length === 0 ? "" : `, tags ${artifact.tags.join(", ")}`;
-				return toolText(
-					`${(artifact.version ?? 1) > 1 ? `Saved version ${artifact.version} of ${artifact.name}` : `Saved artifact ${artifact.id}: ${artifact.name}`} (${artifact.kind}, ${formatBytes(artifact.size)}${duration}${tags}).`,
-					false,
-					{ artifactId: artifact.id },
-				);
-			} catch (error) {
-				return toolText(`Saving the artifact failed: ${errorMessage(error)}`, true);
+			if ((args.path === undefined) === (args.paths === undefined)) {
+				return toolText("Give exactly one of path or paths (1–50 files).", true);
 			}
+			const paths = args.paths ?? [args.path!];
+			if (paths.length < 1 || paths.length > 50) return toolText("paths must contain 1–50 files.", true);
+			const project = options.project();
+			const files: ArtifactSaveFileResult[] = [];
+			const messages: string[] = [];
+			for (const [index, path] of paths.entries()) {
+				try {
+					const agent = await api.agent(context);
+					const source = await resolveArtifactSource({
+						path,
+						cwd: agent.cwd ?? project.path,
+						projectPath: project.path,
+						dataDir: options.store.dataDir,
+						workspaceDirs: options.workspaceDirs,
+					});
+					if (!source.ok) throw new Error(source.message);
+					const artifactId = await api.memo<string>(args.paths === undefined ? "artifactId" : `artifactId:${index}`, newArtifactId(api.now()), context);
+					const artifact = await options.store.save({
+						projectId: project.id,
+						sourcePath: source.path,
+						title: paths.length === 1 ? args.title ?? null : null,
+						note: args.note ?? null,
+						threadId: await threadIdOf(api.conversationId),
+						workerId: await options.workerIdOf(api.conversationId),
+						taskId: args.taskId ?? null,
+						tags: [...(args.tags ?? []), ...artifactTagsFromFileName(source.path)],
+						artifactId,
+					});
+					files.push({ path, artifactId: artifact.id, version: artifact.version ?? 1 });
+					const duration = artifact.durationSeconds === null ? "" : `, ${artifact.durationSeconds.toFixed(1)} s`;
+					const tags = artifact.tags === undefined || artifact.tags.length === 0 ? "" : `, tags ${artifact.tags.join(", ")}`;
+					messages.push(paths.length > 1
+						? `${JSON.stringify(path)}: Saved artifact ${artifact.id}~${artifact.version ?? 1}: ${artifact.name} (${artifact.kind}, ${formatBytes(artifact.size)}${duration}${tags}).`
+						: `${(artifact.version ?? 1) > 1 ? `Saved version ${artifact.version} of ${artifact.name}` : `Saved artifact ${artifact.id}: ${artifact.name}`} (${artifact.kind}, ${formatBytes(artifact.size)}${duration}${tags}).`);
+				} catch (error) {
+					const message = errorMessage(error);
+					files.push({ path, error: message });
+					messages.push(`${JSON.stringify(path)}: Saving the artifact failed: ${message}`);
+				}
+			}
+			const failed = files.some((file) => "error" in file);
+			const single = files.length === 1 ? files[0] : undefined;
+			const firstSaved = files.find((file) => "artifactId" in file);
+			return toolText(messages.join("\n"), failed,
+				single !== undefined && "artifactId" in single ? { artifactId: single.artifactId }
+					: args.path !== undefined ? undefined
+						: { ...(firstSaved !== undefined && "artifactId" in firstSaved ? { artifactId: firstSaved.artifactId } : {}), files });
 		},
 	});
 	const readTool = defineTool({
