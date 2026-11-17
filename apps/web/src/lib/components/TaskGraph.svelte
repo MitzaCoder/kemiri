@@ -18,6 +18,7 @@
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { buildTaskGraph, graphLabel, graphNeighborhood, visibleGraphEdges, placeGraphCrewOnRims, type GraphPosition, type TaskGraph } from '#lib/task-graph.js';
 	import { settledGraphPositions } from '#lib/task-graph-layout.js';
+	import { graphFoldGroups, liveTaskGraph, revealGraphTask, graphFoldExpansion, graphFoldPosition, renderedGraphNodes, loadGraphMode, saveGraphMode, type GraphMode, type GraphFoldKind } from '#lib/task-graph-live.js';
 	import { fitGraphCamera, loadGraphCamera, saveGraphCamera, placeGraphLabels, type GraphCamera } from '#lib/task-graph-camera.js';
 
 	let { board, scope, workers = [], threads = [], taskHref, workerHref, selectedTaskId = null, viewSwitch }: {
@@ -39,11 +40,16 @@
 	let viewOpen = $state(false), restingOpen = $state(false);
 	const source = $derived(buildTaskGraph(board?.tasks ?? [], board?.board?.questions ?? [], workers, threads, showClosed, showResting));
 	let graph = $state<TaskGraph>({nodes:[],edges:[],resting:[]});
+	let mode = $state<GraphMode>('live');
+	let expandedFolds = $state(new Set<GraphFoldKind>());
+	let foldPosition = $state<GraphPosition | null>(null);
+	const folds = $derived(graphFoldGroups(graph,board?.board?.questions ?? []));
+	const shownGraph = $derived(liveTaskGraph(graph,folds,mode,expandedFolds,showResting));
 	let positions = $state(new Map<string,GraphPosition>());
 	let camera = $state<GraphCamera>({x:0,y:0,zoom:1});
 	let svg:SVGSVGElement | null = $state(null);
 	let width=$state(0), height=$state(0), reduced=$state(false), mounted=$state(false);
-	const renderedNodes = $derived([...graph.nodes, ...departures.values()].filter((node, index, nodes) => nodes.findIndex(other => other.id === node.id) === index));
+	const renderedNodes = $derived(renderedGraphNodes(shownGraph, [...departures.values()]));
 	const crewStates = $derived(new Map(renderedNodes.filter(node => node.kind !== 'task').map(node => [node.id, departures.has(node.id) ? 'done' as const : graphCrewMotion(node, board?.tasks ?? [], board?.board?.questions ?? [])])));
 	const motionBudget = $derived(workerMotionBudget(renderedNodes.filter(node => node.kind !== 'task').map(node => ({ id: node.id, state: crewStates.get(node.id)!, inView: graphCrewInView(positions.get(node.id), camera, width, height) })), camera.zoom, reduced));
 	let framed=false, frame=0;
@@ -54,7 +60,7 @@
 	function storage():Storage | undefined {try{return localStorage;}catch{return undefined;}}
 	let focused=$state<string | null>(null);
 	const neighborhoodTask=$derived(focused ?? (selectedTaskId ? `task:${selectedTaskId}` : null));
-	const edges=$derived(visibleGraphEdges(graph,neighborhoodTask,allLinks));
+	const edges=$derived(visibleGraphEdges(shownGraph,neighborhoodTask,allLinks));
 	const openTasks=$derived(source.nodes.filter(n=>n.kind==='task' && !['done','dropped'].includes(n.task!.status)));
 	const workingCount=$derived(openTasks.filter(n=>['working','in_progress','clarifying'].includes(n.status)).length);
 	const needCount=$derived(openTasks.filter(n=>n.attention).length);
@@ -62,8 +68,9 @@
 		const minutes=Math.max(0, Math.floor((now-Date.parse(worker.updatedAt))/60_000));
 		return !Number.isFinite(minutes) ? '' : minutes<60 ? `${minutes} min` : minutes<1440 ? `${Math.floor(minutes/60)} h` : `${Math.floor(minutes/1440)} d`;
 	}
-	const highlighted=$derived(graphNeighborhood(graph,neighborhoodTask));
-	const labels=$derived(placeGraphLabels(graph,positions,camera,width,height));
+	const highlighted=$derived(graphNeighborhood(shownGraph,neighborhoodTask));
+	// Reserve every All-view title, so even captions stay fixed when a chip opens.
+	const labels=$derived([...placeGraphLabels(graph,positions,camera,width,height)].filter(([id])=>shownGraph.nodes.some(node=>node.id===id)));
 	const focusNode=$derived(graph.nodes.find(n=>n.id===focused));
 	const focusPosition=$derived(focused ? positions.get(focused) : undefined);
 	const tooltipX=$derived(focusPosition ? Math.max(130,Math.min(width-130,(focusPosition.x-camera.x)*camera.zoom+width/2)) : 0);
@@ -81,13 +88,21 @@
 		clearTimeout(saveTimer);
 		saveTimer=setTimeout(()=>{saveGraphCamera(scope,camera,storage());saveTimer=undefined;},180);
 	}
+	function framingPositions() {
+		return new Map([...positions,...(foldPosition ? [['folds',foldPosition] as const] : [])]);
+	}
+	function changeMode(next:GraphMode) { mode=next;saveGraphMode(scope,next,storage()); }
+	function toggleFold(kind:GraphFoldKind) {
+		if(expandedFolds.has(kind)) expandedFolds=graphFoldExpansion(graph,folds,expandedFolds,kind);
+		else expandedFolds=graphFoldExpansion(graph,folds,new Set([...expandedFolds,kind]));
+	}
 	function fit(rememberChoice=true) {
-		camera=fitGraphCamera(positions,width,height);
+		camera=fitGraphCamera(framingPositions(),width,height);
 		if(rememberChoice) remember();
 	}
 	function frameFirstGraph() {
 		if(framed || !width || !height || !positions.size) return;
-		camera=loadGraphCamera(scope,storage()) ?? fitGraphCamera(positions,width,height);
+		camera=loadGraphCamera(scope,storage()) ?? fitGraphCamera(framingPositions(),width,height);
 		framed=true;
 	}
 	function publish(next:TaskGraph) {
@@ -113,6 +128,7 @@
 		const departingPositions = [...from].filter(([id]) => departures.has(id));
 		destination = new Map([...departingPositions, ...target]);
 		positions = destination;
+		if(graphFoldGroups(next,board?.board?.questions ?? []).length) foldPosition=graphFoldPosition(target,foldPosition);
 		frameFirstGraph();
 		enterDuration = reduced || camera.zoom < .5 || from.size === 0 ? 0 : 300;
 		graph = next;
@@ -135,8 +151,12 @@
 		const timer=setTimeout(()=>untrack(()=>publish(next)),untrack(()=>positions.size ? 0 : 160));
 		return ()=>clearTimeout(timer);
 	});
+	$effect(()=>{
+		const groups=folds, selected=selectedTaskId, fullGraph=graph;
+		untrack(()=>{expandedFolds=graphFoldExpansion(fullGraph,groups,revealGraphTask(groups,expandedFolds,selected));});
+	});
 	$effect(() => {
-		const cues = graphReportCues(seenReports, workers, source);
+		const cues = graphReportCues(seenReports, workers, shownGraph);
 		untrack(() => {
 			for (const cue of cues) if (!reduced && camera.zoom >= .5
 				&& graphCrewInView(positions.get(cue.workerId), camera, width, height)
@@ -149,6 +169,7 @@
 		for (const worker of workers) seenReports.set(worker.id, worker.lastReport);
 	});
 	onMount(()=>{
+		mode=loadGraphMode(scope,storage());
 		const media=matchMedia('(prefers-reduced-motion: reduce)');reduced=media.matches;
 		const motionChange=()=>{reduced=media.matches;if(reduced) {cancelAnimationFrame(frame);stopTransientMotion();}};
 		media.addEventListener('change',motionChange);
@@ -206,6 +227,9 @@
 	<div class="graph-toolbar">
 		{@render viewSwitch()}
 		<span class="graph-counts">{openTasks.length} open · {workingCount} working · {needCount} need attention</span>
+		<div class="graph-mode" role="group" aria-label="Task visibility">
+			<button aria-pressed={mode==='live'} onclick={()=>changeMode('live')}>Live</button><button aria-pressed={mode==='all'} onclick={()=>changeMode('all')}>All</button>
+		</div>
 		<div class="view-menu">
 			<button class="menu-toggle" aria-expanded={viewOpen} onclick={()=>{viewOpen=!viewOpen;restingOpen=false;}}>View ▾</button>
 			{#if viewOpen}<div class="menu-panel" role="group" aria-label="Graph view options">
@@ -217,11 +241,11 @@
 		</div>
 	</div>
 	<div class="graph-stage">
-		{#if source.resting.length}<div class="resting-workers">
-			<button class="resting-chip" aria-expanded={restingOpen} onclick={()=>{restingOpen=!restingOpen;viewOpen=false;}}>Resting · {source.resting.length}</button>
+		{#if shownGraph.resting.length}<div class="resting-workers">
+			<button class="resting-chip" aria-expanded={restingOpen} onclick={()=>{restingOpen=!restingOpen;viewOpen=false;}}>Resting · {shownGraph.resting.length}</button>
 			{#if restingOpen}<div class="resting-panel" role="region" aria-label="Resting workers">
 				<strong>Resting workers</strong>
-				<ul>{#each source.resting as worker (worker.id)}
+				<ul>{#each shownGraph.resting as worker (worker.id)}
 					{@const task=board?.tasks.find(task=>task.id===worker.taskId || (!worker.taskId && task.workerIds.includes(worker.id)))}
 					<li><a href={workerHref?.(worker)} class:failed={worker.status==='failed'}><svg width="24" height="24" viewBox="0 0 24 24" class="resting-mascot" aria-hidden="true"><GraphMascot state={worker.status==='failed'?'failed':'sleeping'} size={24} still reducedMotion {gradientPrefix}/></svg><b>{worker.id}</b><span>{task ? `${task.id} · ${task.title}` : worker.taskId ? `${worker.taskId} · task unavailable` : 'No task'}</span><small>{worker.status==='failed'?'Failed':'Idle'} · {idleAge(worker,$activityMinute)}</small></a></li>
 				{/each}</ul>
@@ -234,7 +258,7 @@
 		<svg bind:this={svg} class="graph-canvas" {viewBox} role="group" aria-label="Interactive task graph. Drag to pan; pinch or use zoom buttons. Tab to nodes, Enter opens a task. List has all task details." onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp} onwheel={wheel}>
 			<GraphMascotDefs {gradientPrefix}/>
 			<defs><marker id="task-graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker><radialGradient id="task-graph-shine" cx="30%" cy="20%"><stop offset="0%" stop-color="white" stop-opacity=".45"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs>
-			{#each graph.nodes.filter(n=>n.kind==='task'&&n.radius>35&&!n.parent) as node (node.id)}
+			{#each shownGraph.nodes.filter(n=>n.kind==='task'&&n.radius>35&&!n.parent) as node (node.id)}
 				{@const p=positions.get(node.id)}
 				{#if p}<path class="cluster" class:dimmed={!highlighted.has(node.id)} transform="translate({p.x} {p.y}) scale(1.15)" d="M -190 -35 C -220 -190 -45 -215 30 -190 C 210 -225 245 -40 185 60 C 190 215 -20 230 -90 165 C -210 165 -245 60 -190 -35"/>{/if}
 			{/each}
@@ -271,15 +295,21 @@
 			{/each}
 			{#if !reduced && camera.zoom >= .5}{#each reportCues as cue (cue.id)}
 				{@const from=positions.get(cue.workerId)}{@const to=positions.get(cue.taskId)}
-				{#if from&&to}<GraphReport {from} {to}/>{/if}
+				{#if from&&to&&shownGraph.nodes.some(node=>node.id===cue.workerId)&&shownGraph.nodes.some(node=>node.id===cue.taskId)}<GraphReport {from} {to}/>{/if}
 			{/each}{/if}
-			{#each graph.nodes.filter(n=>n.kind==='task') as node (node.id)}
+			{#each shownGraph.nodes.filter(n=>n.kind==='task') as node (node.id)}
 				{@const p=positions.get(node.id)}
 				{#if p}<g class="task-caption" class:dimmed={!highlighted.has(node.id)} transform="translate({p.x} {p.y+node.radius+12*Math.max(1,.85/camera.zoom)}) scale({Math.max(1,.85/camera.zoom)})">
 					<rect class="graph-task-id-chip" x={-(node.task!.id.length*7+14)/2} y="-8" width={node.task!.id.length*7+14} height="18" rx="6"/><text class="task-id" y="5">{node.task!.id}</text>
 				</g>{/if}
 			{/each}
-			{#each [...labels] as [id,label] (id)}<text class="graph-label" class:dimmed={!highlighted.has(id)} x={label.x+label.width/2} y={label.y+12*label.scale} font-size={12*label.scale} stroke-width={4*label.scale}>{#each label.lines as line,i}<tspan x={label.x+label.width/2} dy={i?16*label.scale:0}>{line}</tspan>{/each}</text>{/each}
+			{#each labels as [id,label] (id)}<text class="graph-label" class:dimmed={!highlighted.has(id)} x={label.x+label.width/2} y={label.y+12*label.scale} font-size={12*label.scale} stroke-width={4*label.scale}>{#each label.lines as line,i}<tspan x={label.x+label.width/2} dy={i?16*label.scale:0}>{line}</tspan>{/each}</text>{/each}
+			{#if mode==='live' && folds.length && foldPosition}
+				{@const chipWidth=Math.min(folds.length*170,width-24)}
+				<foreignObject x={-chipWidth/2} y="-22" width={chipWidth} height="44" transform="translate({foldPosition.x} {foldPosition.y}) scale({1/camera.zoom})">
+					<div class="fold-chips">{#each folds as fold (fold.kind)}<button class="fold-chip" aria-expanded={expandedFolds.has(fold.kind)} aria-label={`${fold.label} · ${fold.taskIds.length}`} onpointerdown={event=>event.stopPropagation()} onclick={()=>toggleFold(fold.kind)}>{fold.label} · {fold.taskIds.length} <span aria-hidden="true">{expandedFolds.has(fold.kind)?'▾':'▸'}</span></button>{/each}</div>
+				</foreignObject>
+			{/if}
 		</svg>
 		{#if board?.loaded&&graph.nodes.length===0}<p class="empty-graph">No active tasks. Show closed or use List.</p>{/if}
 		{#if focusNode&&focusPosition}<div class="node-tooltip" role="tooltip" style="left:{tooltipX}px;top:{tooltipY}px"><strong>{focusNode.title}</strong><span>{focusNode.task?.id ?? focusNode.worker?.id ?? focusNode.thread?.id} · {focusNode.task ? taskDisplayWords(focusNode.task, board?.tasks ?? []) : focusNode.status.replaceAll('_',' ')}{focusNode.attention?' · needs you':''}{focusNode.task?.subtaskCount?` · ${focusNode.task.subtaskCount.done}/${focusNode.task.subtaskCount.total} subtasks done`:''}</span></div>{/if}
@@ -288,6 +318,7 @@
 
 <style>
 	.task-graph{--graph-todo:var(--chat-fg-subtle);--graph-working:var(--task-status-working);--graph-blocked:var(--tone-danger);--graph-review:var(--task-status-review);--graph-waiting:var(--chat-fg-subtle);display:flex;flex-direction:column;min-height:0;height:100%;color:var(--chat-fg);background:var(--chat-bg);overflow:hidden}
+	.graph-mode{display:flex;border:1px solid var(--chat-border);border-radius:16px;background:var(--chat-surface);padding:2px;flex-shrink:0}.graph-mode button{padding:6px 10px;border-radius:12px;cursor:pointer;min-height:32px}.graph-mode button[aria-pressed=true]{background:var(--chat-surface-2);color:var(--chat-fg);box-shadow:0 1px 3px color-mix(in srgb,var(--chat-fg) 12%,transparent);font-weight:650}.fold-chips{display:flex;gap:8px;padding:2px}.fold-chip{flex:1;min-width:0;min-height:40px;border:1px solid var(--chat-border);border-radius:20px;background:var(--chat-surface);color:var(--chat-fg);font-size:14px;cursor:pointer}.fold-chip:hover,.fold-chip[aria-expanded=true]{background:var(--chat-surface-2)}.fold-chip:focus-visible,.graph-mode button:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
 	.graph-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--chat-border);font-size:12px;z-index:4}.graph-counts{color:var(--chat-fg-muted);font-size:11px}.view-menu{position:relative;margin-left:auto}.menu-toggle,.resting-chip{border:1px solid var(--chat-border);border-radius:16px;background:var(--chat-surface);padding:7px 12px;font-size:12px;cursor:pointer}.menu-panel{position:absolute;right:0;top:calc(100% + 8px);width:260px;max-width:calc(100vw - 30px);background:var(--chat-surface);border:1px solid var(--chat-border);border-radius:12px;box-shadow:var(--tone-shadow);padding:6px;z-index:5}.menu-panel label{display:flex;align-items:center;gap:8px;padding:10px 8px;min-height:40px;cursor:pointer}input{accent-color:var(--graph-working)}
 	.resting-workers{position:absolute;left:12px;bottom:12px;z-index:3}.resting-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:310px;max-width:calc(100vw - 32px);max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--chat-border);border-radius:14px;background:var(--chat-surface);box-shadow:var(--tone-shadow);font-size:12px}.resting-panel ul{list-style:none;padding:0;margin:6px 0 0}.resting-mascot{position:absolute;left:8px;top:8px}.resting-panel a{position:relative;padding-left:40px!important;display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px}.resting-panel a:hover{background:var(--chat-surface-2)}.resting-panel span,.resting-panel small{color:var(--chat-fg-muted)}.resting-panel .failed small{color:var(--graph-blocked)}
 	.graph-controls{position:absolute;bottom:12px;right:12px;display:flex;gap:4px;z-index:2}.graph-controls button{height:34px;min-width:34px;border:1px solid var(--chat-border);border-radius:10px;background:var(--chat-surface);font-size:14px;padding:0 8px;cursor:pointer}.graph-controls button:hover{background:var(--chat-surface-2)}

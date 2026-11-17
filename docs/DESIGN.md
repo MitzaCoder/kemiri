@@ -3565,7 +3565,8 @@ Bubble club is the chosen web graph: soft clusters and round worker creatures, w
 renderers. Expanded Tasks offers List | Board | Graph; the narrow sidebar stays a list. The choice is local per
 backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only; tasks open the existing sheet.
 
-- Active tasks appear by default; View → Closed tasks adds faded done/dropped tasks. Archived tasks stay out.
+- Live is the default graph visibility; All retains the full stage-1 graph. View → Closed tasks adds faded
+  done/dropped tasks in either mode. Archived tasks stay out.
   Parent families gather together, including nested descendants. Solid parent links and grey dashed blocked-by arrows
   remain visible; a hovered/selected endpoint turns its blocker red. Found-while/related links appear only around the
   hovered/selected task's family/blocker neighbourhood, or with View → All links. Arrows point to the prerequisite. View also contains
@@ -3584,7 +3585,7 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
   with worker name, task, status and idle age, linking directly to the transcript, including the background thread.
   View can put resting workers back on the canvas; unassigned crew use free grid slots, never a parking column.
   The pure `graphWorkerRests`, `visibleGraphTasks` and `visibleGraphEdges` helpers live in `task-graph.ts`, ready for
-  the later Live/All folding stage (T255). Mascot artwork and pop-ups remain later stages (T256–T258).
+  Live/All presentation below (T255). Mascot artwork and pop-ups remain later stages (T256–T258).
 - A small deterministic layout module pre-settles new nodes before rendering. Existing task positions stay fixed on
   watch replacements; arrivals ease in and updates never refit the camera. Collision bounds include caption space.
   Collision footprints reserve below-bubble captions; rim placement runs after settling. Caption sizing shrinks
@@ -3602,6 +3603,42 @@ backend/project under the name-neutral `tasks.view.v2:` key. Graph is read-only;
   completion, task arrival and 80-task stress loading. `GRAPH_DEMO_SCENARIO=busy` adds idle crew on closed tasks,
   taskless idle crew and a taskless failure, including a background-thread resting worker. No installed data or real
   worker tools are used.
+
+**Live | All folding (T255 / D96, web).** Pure data-only rules live in `task-graph-live.ts`,
+with regression cases in `test/task-graph-live.test.ts`. Android can port these rules without a layout change:
+
+1. Build the full All graph with the existing archived/closed/resting options first. Only quiet **singles**
+   are candidates: kind `todo`, or `waiting_outside` (legacy status `waiting` without derived state).
+   Never fold a task with a parent, a visible parent edge at either end, or a positive reported part count.
+   This deliberately retains quiet-only families too; family folding is not part of this stage.
+2. Exclude the list's `taskSectionOf` needs-you/review/blocked/working/in-progress/closed sections, using
+   `waitingOn(...).filter(questionNeedsAnswer)` for old backends. A derived state group is authoritative.
+   Also exclude graph attention and any task with attached running or failed crew (workers or jobs),
+   even when the task state has not caught up. Paused and blocked-by-task kinds never become candidates.
+3. Start with every noncandidate task shown. Follow outgoing `blockedBy` edges recursively to retain all
+   prerequisites, stopping at the fixed point (cycles terminate). Do not expand reverse dependents,
+   found-while or related links. Remaining candidates form at most two chips, To do then Waiting,
+   retaining the All graph's task order. Empty groups are omitted; counts are full group counts.
+4. Live removes collapsed groups and their dangling edges only; All bypasses this filter. Opening a chip
+   reveals the whole group at its reserved All positions; the same chip closes it. If an opened group
+   depends on the other folded group, open that prerequisite group too; closing it closes its dependent
+   groups. These group dependencies reach a fixed point, including cycles. Selecting a folded task
+   through a task link/search opens its whole group. Expanded groups survive mode switches, but are
+   session-only. Live/All alone persists per encoded backend/project scope in `task-graph.mode.v1:`;
+   absent, invalid or unavailable storage defaults to Live. Toolbar counts always read the full graph.
+5. Idle workers on folded tasks join the existing Resting list, with no age threshold. Opening that group
+   returns them to its task rims. View's resting override still shows them at retained positions, without
+   a visible parent. Running tasks never fold; failed attached workers protect their task too. Idle
+   background jobs retain stage-1 visibility (the Resting list contains workers, not jobs). Mascot
+   rendering and motion budgeting use `shownGraph`, plus finish hops only while their parent task is
+   shown. Report cues also use shown crew/tasks, so folding cannot leave a mascot or spark on a hidden task.
+6. Always solve/retain the **full All graph**, including hidden task/crew slots, before presentation.
+   Folding, mode changes and unfolding never run the layout solver or refit the camera. Full-graph label
+   reservations also prevent visible captions from shifting. New quiet arrivals reserve their All slots
+   and increment chips without moving existing tasks. Chips share a world anchor centred below the
+   full quiet row, with screen-sized 40px buttons; the anchor's x stays retained and y only advances if
+   new lower rows would overlap it. This advancement is on board updates, never on folding. Initial
+   framing/Fit includes that row in both modes; resizing retains the normal camera rules.
 
 **Web task pop-up content (T257 / D96, part A).** `TaskPartsProgress.svelte` owns the list's
 unchanged inline parts bar/text and old-backend done/total ring; `TaskFamilyMeta` still owns its
