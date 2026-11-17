@@ -272,6 +272,21 @@ describe("background threads", () => {
 		const test = await setup();
 		script(test);
 		const { client, projectId, view } = await openProject(test);
+		const { runtime } = await test.server.manager.open(projectId);
+		await runtime.memory.store.write({
+			target: { scope: "global" },
+			fileId: "formatting",
+			title: "Formatting",
+			summary: "Prefer short reports.",
+			text: "Synthetic preference.",
+		});
+		await runtime.memory.store.write({
+			target: { scope: "project", projectId },
+			fileId: "testing",
+			title: "Testing",
+			summary: "Run the suite with Bun.",
+			text: "Synthetic convention.",
+		});
 		await submit(client, projectId, "Start the thread.");
 
 		const finished = await view.waitForView((value) => answeredAfter(value, "[thread jira-run finished]"));
@@ -321,6 +336,10 @@ describe("background threads", () => {
 		for (const name of ["thread_start", "thread_stop", "thread_archive", "thread_send", "schedule_save"]) expect(mainTools).toContain(name);
 		expect(mainTools).not.toContain("thread_finish");
 		expect(mainContext.systemPrompt).toContain(MAIN_THREADS_SECTION);
+		const memorySection = (prompt: string) => prompt.match(/<memory>[\s\S]*?<\/memory>/)?.[0];
+		expect(memorySection(threadContext.systemPrompt)).toContain("global:formatting — Formatting: Prefer short reports.");
+		expect(memorySection(threadContext.systemPrompt)).toContain("project:testing — Testing: Run the suite with Bun.");
+		expect(memorySection(threadContext.systemPrompt)).toBe(memorySection(mainContext.systemPrompt));
 
 		// The thread's transcript can be watched and paged on its own.
 		const threadView = new ViewClient(client);
@@ -602,6 +621,8 @@ describe("background threads", () => {
 		const workerContext = await context(client, projectId, { threadId: "jira-run", workerId: "reader" });
 		expect(workerContext.cwd).toBe(join(test.dataDir, "projects", projectId, "threads", "jira-run", "checkout"));
 		expect(workerContext.systemPrompt).toContain('workspace of the background thread "jira-run"');
+		expect(workerContext.systemPrompt).not.toContain("<memory>");
+		expect(workerContext.systemPrompt).not.toContain("Memory index");
 		expect(workerContext.tools.map((tool) => tool.name).filter((name) => name.startsWith("thread_"))).toEqual([]);
 		expect(errorOf(await client.request({ type: "workers.list", projectId, threadId: "nope" })).code).toBe("unknown_thread");
 		const pushed = await client.waitFor(

@@ -140,7 +140,7 @@ export {
 	memorySectionKey,
 	memorySectionMarker,
 	renderMemorySection,
-	type MemoryCatalog,
+	type MemoryTopicIndex,
 	type MemoryServiceOptions,
 } from "./memory-tools.ts";
 export { OAuthLoginManager, type OAuthLoginManagerOptions } from "./logins.ts";

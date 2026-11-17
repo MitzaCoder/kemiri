@@ -4113,7 +4113,7 @@ The server test suite covers session detachment; reconnecting clients must retai
 Status: approved; revised with the user on 2026-11-04 (decisions below).
 
 Implemented 2026-11-04 (memory core; see `docs/CONTINUE.md` for the details): both scopes with git and an FTS5
-index per scope, the four coordinator tools, the catalog section with its prompt-cache key (the newest compaction head,
+index per scope, the four coordinator tools, the memory section with its prompt-cache key (the newest compaction head,
 so only a new conversation or a compaction changes its text), and the `memory.list/read/search/history` requests plus
 the `memory.changed` event, and the app's read-only Memory tab. Implemented 2026-11-05 (compaction of the coordinator,
 phase 2): the thresholds as fractions of the model's window, the summary through `beforeCompact`, `ConversationContext.usage`
@@ -4134,9 +4134,9 @@ Decisions of 2026-11-04:
 - Build order: memory core first, then compaction, then extraction at compaction, then maintenance, then the board.
 - Each backend keeps its own memory and never syncs it: the remote VM's stays on the VM. Memory starts empty, nothing
   is imported.
-- No pinned memories for now. The only memory text in the system prompt is the instructions and a short catalog,
-  refreshed only when a conversation starts and at each compaction (when the prompt changes anyway), so a memory write
-  never costs a prompt-cache miss.
+- No pinned memories for now. The only memory text in the system prompt is the instructions and a compact topic index
+  (replacing the short tag-count catalog in T228), refreshed only when a conversation starts and at each compaction
+  (when the prompt changes anyway), so a memory write never costs a prompt-cache miss.
 - Workers get no memory tools and no memory in their prompt: only what the coordinator puts in their brief.
 - The web app shows memory read-only (browse, search, history). No editing or pinning in the app for now.
 - Maintenance runs with a model chosen per backend.
@@ -4211,8 +4211,13 @@ builds its context from only the parts relevant to the task.
 **What is always in context**
 
 - No pinned sections for now (decided 2026-11-04).
-- A short catalog: counts per tag, so the model knows what exists to
-  search for. Rendered when the conversation starts and at each compaction, not on every write.
+- A compact topic index for main and background coordinators: one line per non-archived topic,
+  `scope:fileId — title: summary`, global first and then project, sorted by file ID within each scope.
+  The index body is capped at 6,000 characters, keeping whole lines and an exact
+  “... and N more topics: memory_search finds them” notice when needed. Summaries are clipped to 160 characters,
+  titles to 120; metadata is flattened to one line and angle brackets escaped so it cannot close the memory block
+  or forge its cache marker. Titles and summaries are data, not instructions. Rendered when the conversation starts
+  and at each compaction, never on a memory write; the existing transcript-key marker keeps the shown text unchanged.
 - Everything else only through search; no automatic recall at first. The
   system prompt tells the coordinator to search memory before planning
   each task, and to pass

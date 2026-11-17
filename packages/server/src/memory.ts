@@ -1527,7 +1527,7 @@ export class MemoryStore {
 		return this.scope(target).archive(fileId, options);
 	}
 
-	/** The catalog: how many topics and tags each scope has, for the coordinator's prompt and its tools. */
+	/** How many topics and tags each scope has. The prompt uses topic metadata from list instead. */
 	async stats(projectId: string): Promise<{ global: MemoryScopeStats; project: MemoryScopeStats }> {
 		const global = this.scope({ scope: "global" });
 		const project = this.scope({ scope: "project", projectId: this.#requireProject(projectId) });
