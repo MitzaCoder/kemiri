@@ -99,6 +99,8 @@ import {
 } from "./notifications.ts";
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
+import type { MemoryStore } from "./memory.ts";
+import { readWorkerBrief } from "./worker-brief.ts";
 
 /** How many forgotten workers stay in the list as history. */
 export const KEPT_DONE_WORKERS = 20;
@@ -703,6 +705,8 @@ When the work is done, or cannot go on, call thread_finish with a summary for ma
 
 /** What a worker is told when it is created; it replaces the coordinator's instructions. */
 export function workerInstructions(options: {
+	/** Already rendered at creation; persisted by configure in the conversation's AgentDoc. */
+	projectBrief?: string;
 	id: string;
 	title: string;
 	project: Project;
@@ -743,7 +747,7 @@ Read files with the read tool, not a bash \`cat\` chain: a \`&&\` chain whose la
 
 ${uiProofParagraph(project, "worker")}${CODEMODE_GUIDANCE}
 
-${WRITING_RULE}
+${WRITING_RULE}${options.projectBrief ? `\n\n${options.projectBrief}` : ""}
 
 If a queued message asks for something you already did and have reported, and you have no new result, warning or question, answer with exactly one line: ${NO_NEW_WORKER_REPORT} Do not repeat the full report or do more checks. This line is recorded without waking the coordinator. Otherwise, end your answer with this report and nothing after it:
 
@@ -1024,6 +1028,8 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 // --- the service -------------------------------------------------------------------------------------------------
 
 export type WorkerServiceOptions = {
+	/** Used only at worker creation, never when its conversation resumes. */
+	memory?: Pick<MemoryStore, "read">;
 	/** Read at each use, so a reconfiguration of the project applies to the next worker. */
 	project(): Project;
 	harness: Harness;
@@ -1601,6 +1607,7 @@ export class WorkerService {
 		const project = this.project;
 		const place = this.placeOf(coordinatorId);
 		const checkout = place?.checkout ?? project.path;
+		const projectBrief = this.#options.memory === undefined ? "" : await readWorkerBrief(this.#options.memory, project.id, (message) => this.log(message));
 		// A transaction may not read tables after its first write, so the document comes first. The board is main's.
 		const doc = await tx.doc(WorkersDoc, coordinatorId);
 		const board = input.taskId === null ? undefined : await openBoard(tx, this.mainId as ConversationId);
@@ -1623,7 +1630,9 @@ export class WorkerService {
 			thinkingLevel: input.thinkingLevel,
 			cwd: input.workspace ?? checkout,
 			extensions: { add: [mcpRoleExtension(input.scheduleId ? "coordinator" : "workers")], remove: [mcpRoleExtension(input.scheduleId ? "workers" : "coordinator"), mcpRoleExtension("background"), this.extension, ...this.removedExtensions, ...(input.taskId === null ? [this.taskExtension] : [])] },
+			// configure persists this complete text in pi.agent; restart/send never re-render it.
 			instructions: workerInstructions({
+				projectBrief,
 				id: input.id,
 				title: input.title,
 				project,

@@ -368,6 +368,7 @@ describe("workers", () => {
 		const workerPrompt = prompts.find((text) => text.includes('You are the worker "reader"'));
 		expect(workerPrompt).toBeTypeOf("string");
 		expect(workerPrompt).not.toContain("You coordinate the project");
+		expect(workerPrompt).not.toContain("<project-brief>");
 		expect(workerPrompt).toContain("Otherwise, end your answer with this report");
 		expect(workerPrompt).toContain("Add an `Kemiri-Task: T…` trailer to commit descriptions.");
 	});
@@ -907,8 +908,40 @@ describe("worker defaults without a message", () => {
 	});
 });
 
+describe("worker memory briefs", () => {
+	for (const scenario of ["archived", "read failure"] as const) workerTest(`starts without a memory block on ${scenario}`, async () => {
+		const logs: string[] = [];
+		const test = await setup({ log: message => logs.push(message) });
+		const client = await connect(test.server);
+		await greet(client);
+		const projectId = await addProject(client, test.projectDir);
+		await configure(client, projectId);
+		if (scenario === "archived") {
+			for (const target of [{ scope: "global" }, { scope: "project", projectId }] as const) {
+				await test.server.memory.write({ target, fileId: "worker-brief", title: "Worker brief", text: "An obsolete rule." });
+				await test.server.memory.archive(target, "worker-brief");
+			}
+		} else {
+			test.server.memory.read = async () => { throw new Error("Synthetic read failure"); };
+		}
+		let workerPrompt = "";
+		test.faux.setResponses(Array.from({ length: 40 }, () => (request: TranscriptContext) => {
+			if (lastMessage(request).text === BRIEF) workerPrompt = request.messages.filter(message => message.role === "system").map(systemText).join("\n");
+			return scripted({}, request);
+		}));
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: "memory-brief", content: "Delegate the reading." });
+		await view.waitForView(value => sawReport(value));
+		expect(workerPrompt).toContain('You are the worker "reader"');
+		expect(workerPrompt).not.toContain("<project-brief>");
+		expect(workerPrompt).not.toContain("An obsolete rule.");
+		expect(logs.some(message => message.includes("starting without it: Synthetic read failure"))).toBe(scenario === "read failure");
+	});
+});
+
 describe("worker restarts", () => {
-	workerTest("reports an answer that arrives after the server restarted", async () => {
+	workerTest("reports after restart with the original memory brief despite edits and archival", async () => {
 		const test = await setup();
 		const client = await connect(test.server);
 		await greet(client);
@@ -919,12 +952,16 @@ describe("worker restarts", () => {
 		const held = new Promise<void>((resolve) => {
 			release = resolve;
 		});
+		await test.server.memory.write({ target: { scope: "global" }, fileId: "worker-brief", title: "Worker brief", text: "Use short reports." });
+		await test.server.memory.write({ target: { scope: "project", projectId }, fileId: "worker-brief", title: "Worker brief", text: "Install dependencies in a fresh workspace." });
+		const workerPrompts: string[] = [];
 		let asked = 0;
 		test.faux.setResponses(
 			Array.from({ length: 60 }, () => async (request: TranscriptContext, options: { signal?: AbortSignal } | undefined) => {
 				const { role, text } = lastMessage(request);
 				if (role === "toolResult") return fauxAssistantMessage("Tool call finished.");
 				if (text === BRIEF) {
+					workerPrompts.push(request.messages.filter(message => message.role === "system").map(systemText).join("\n"));
 					asked += 1;
 					if (asked === 1) {
 						// The first attempt is cut off by the restart: it waits until the caller closes, so the process can stop.
@@ -951,6 +988,10 @@ describe("worker restarts", () => {
 		await client.request({ type: "conversation.submit", projectId, requestId: "r1", content: "Delegate the reading." });
 		await until(async () => (await listWorkers(client, projectId)).workers.length === 1);
 		await until(async () => asked > 0);
+		expect(workerPrompts[0]).toContain("<project-brief>");
+		expect(workerPrompts[0]!.indexOf("Use short reports.")).toBeLessThan(workerPrompts[0]!.indexOf("Install dependencies"));
+		await test.server.memory.write({ target: { scope: "global" }, fileId: "worker-brief", text: "A different rule for future workers." });
+		await test.server.memory.archive({ scope: "project", projectId }, "worker-brief");
 
 		// The process dies while the worker is working; its report still arrives afterwards.
 		const restarted = await test.restart();
@@ -963,6 +1004,10 @@ describe("worker restarts", () => {
 		const list = await listWorkers(next, projectId);
 		expect(list.workers).toHaveLength(1);
 		expect(list.workers[0]?.status).toBe("idle");
+		expect(workerPrompts).toHaveLength(2);
+		const briefBlock = (prompt: string) => prompt.slice(prompt.indexOf("<project-brief>"), prompt.indexOf("</project-brief>") + "</project-brief>".length);
+		expect(briefBlock(workerPrompts[1]!)).toBe(briefBlock(workerPrompts[0]!));
+		expect(workerPrompts[1]).not.toContain("A different rule for future workers.");
 	});
 });
 

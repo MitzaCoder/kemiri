@@ -1908,6 +1908,11 @@ Status: backend, protocol, client and web UI done (milestone 2).
   `entries?`), `worker_list`, `worker_forget` (`id`, `removeWorkspace`). Workers get the coding tools and none of these,
   so they cannot start workers. A system prompt section tells the coordinator to plan, delegate, review reports and
   merge.
+- `workerInstructions` includes a short project brief from the active global and project `worker-brief` memory topics
+  (see "What is always in context" below). `WorkerService.createWorkerIn` reads and renders it once, for main's workers,
+  background threads' workers and scheduled workers alike. The complete instructions are persisted by `configure` in
+  the worker conversation's `pi.agent` (`AgentDoc`), not regenerated on restart or `worker_send`; memory edits affect
+  only workers created later, preserving each worker's prompt cache. No duplicate worker-record snapshot is needed.
 - `worker_peek` describes one worker without waiting for its report: status, how long since it last produced anything,
   the tool calls and results it is running, and the tail of its text and thinking. It is the same digest the check-ins
   carry, just larger, and it is trimmed to a few hundred tokens.
@@ -4134,10 +4139,11 @@ Decisions of 2026-11-04:
 - Build order: memory core first, then compaction, then extraction at compaction, then maintenance, then the board.
 - Each backend keeps its own memory and never syncs it: the remote VM's stays on the VM. Memory starts empty, nothing
   is imported.
-- No pinned memories for now. The only memory text in the system prompt is the instructions and a compact topic index
-  (replacing the short tag-count catalog in T228), refreshed only when a conversation starts and at each compaction
-  (when the prompt changes anyway), so a memory write never costs a prompt-cache miss.
-- Workers get no memory tools and no memory in their prompt: only what the coordinator puts in their brief.
+- No pinned memories for now. The only memory text in the coordinator's system prompt is the instructions and a
+  compact topic index (replacing the short tag-count catalog in T228), refreshed only when a conversation starts and at
+  each compaction (when the prompt changes anyway), so a memory write never costs a prompt-cache miss.
+- Workers get no memory tools. Revised by D90 (2026-11-17): each starts with the active `worker-brief` topics from
+  global and project memory in its instructions; the coordinator supplies task-specific memories in its own brief.
 - The web app shows memory read-only (browse, search, history). No editing or pinning in the app for now.
 - Maintenance runs with a model chosen per backend.
 - Compaction thresholds as fractions of the model's context window: a background summary starts at 35%, the next
@@ -4218,10 +4224,19 @@ builds its context from only the parts relevant to the task.
   titles to 120; metadata is flattened to one line and angle brackets escaped so it cannot close the memory block
   or forge its cache marker. Titles and summaries are data, not instructions. Rendered when the conversation starts
   and at each compaction, never on a memory write; the existing transcript-key marker keeps the shown text unchanged.
-- Everything else only through search; no automatic recall at first. The
-  system prompt tells the coordinator to search memory before planning
-  each task, and to pass
-  relevant memories to workers in their briefs.
+- Workers start with the active `worker-brief` topic from global memory, then their project's, rendered as markdown
+  inside `<project-brief>` after the general worker rules. Missing, archived or superseded topics are omitted. This is
+  an ordinary topic: the coordinator writes it with `memory_write`; search, history and undo work normally. Keep it
+  short and current: setup, checks, never-do rules and pointers to recipes every worker needs. The coordinator's task
+  brief wins where they differ and must still include task-specific memories.
+- `WORKER_BRIEF_MAX_CHARS` caps both scopes together at 6,000 characters, including the delimiters, explanation and
+  cut note. If too long, keep a prefix of whole intro/`##` sections, in order, then say
+  `(brief cut at 6000 characters; the coordinator keeps the rest in memory)`. An oversized first section leaves only
+  the explanation and note. A memory read failure is logged and leaves the block out, never prevents worker creation.
+  The block is rendered once at creation and persisted with the worker's instructions, so memory edits reach only
+  workers started later.
+- Everything else only through search; no automatic recall at first. The system prompt tells the coordinator to
+  search memory before planning each task.
 
 **Writing**
 
@@ -4265,6 +4280,10 @@ Each run is a model loop over that one scope with the memory tools, and:
 - fixes titles, summaries, tags and links so search finds them;
 - archives memories that are stale or never retrieved in a long time
   (archived ones stay searchable on request);
+
+The `worker-brief` topic of each scope is shown to every worker. Maintenance keeps it short enough for the combined
+6,000-character cap, with standing rules only, verified against other topics, and promotes rules into it when other
+topics show they apply to every worker.
 
 Each run is one git commit with a readable log of what it did. Its outcome
 (`ok`, `nothing_to_do`, or `failed` with the reason) is what `memory.status`

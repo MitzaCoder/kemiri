@@ -1326,6 +1326,7 @@ export class ProjectManager {
 		};
 
 		const workers = new WorkerService({
+			memory: this.#memory,
 			project: () => entry.project,
 			taskChanges,
 			harness,

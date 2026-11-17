@@ -46,7 +46,7 @@ export const MEMORY_INSTRUCTIONS = [
 	"Search memory before planning a task (`memory_search`, trying a few phrasings and tags), read a topic before editing it, and write durable facts as you learn them (`memory_write`).",
 	"Update an existing topic instead of starting a near-duplicate, write facts rather than transcripts, and archive a topic that no longer holds instead of deleting it.",
 	"A failure is not a durable fact from one attempt: a flaky network, a missing env var, a transient error can look permanent and not be. Retry it, or try another way, before memory_write turns it into \"X doesn't work\" — and when it really is durable, write what you tried and saw, not just the conclusion, so the entry is evidence rather than a guess.",
-	"Workers have no memory tools: put the relevant memories into a worker's brief, and write down what its report teaches you.",
+	"Workers have no memory tools. Every worker starts with the `worker-brief` topics (global and project) in its instructions. Keep there, short and current, the facts and standing rules every worker needs (setup, checks, never-do rules, where recipes are); put task-specific memories into the worker's brief yourself, and write down what its report teaches you.",
 ].join("\n");
 
 /** Maximum characters in the index body, including the omitted-topics notice. Instructions are separate. */

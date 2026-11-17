@@ -71,6 +71,8 @@ Make the memory smaller, truer and easier to find, and change as little as possi
 - Do not invent facts, do not add commentary, and do not reformat text that is already fine.
 - When there is nothing to improve, change nothing and say so in one line.
 
+The \`worker-brief\` topic of this scope is shown to every worker. Keep it short (both scopes together must fit 6,000 characters), with standing rules only, verified against the other topics. Promote a rule into it when other topics show it applies to every worker.
+
 Every write is staged; the whole run becomes one commit. Finish with a short paragraph saying what you changed.`;
 
 /** What one maintenance run did, as `memory.status` shows it. */

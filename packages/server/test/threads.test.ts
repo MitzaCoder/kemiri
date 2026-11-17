@@ -587,7 +587,7 @@ describe("background threads", () => {
 		expect(flood.find((result) => result.isError)?.text).toContain("in the last hour");
 	});
 
-	threadTest("resumes a thread and its workers after a restart, and lists the thread's workers", async () => {
+	threadTest("resumes a thread and its workers after a restart with the same memory brief", async () => {
 		const test = await setup();
 		const gate = deferredGate();
 		let attempts = 0;
@@ -610,6 +610,8 @@ describe("background threads", () => {
 			return undefined;
 		});
 		const { client, projectId } = await openProject(test);
+		await test.server.memory.write({ target: { scope: "global" }, fileId: "worker-brief", title: "Worker brief", text: "Use short reports." });
+		await test.server.memory.write({ target: { scope: "project", projectId }, fileId: "worker-brief", title: "Worker brief", text: "Install dependencies in a fresh workspace." });
 		await submit(client, projectId, "Start the thread.");
 		await until(() => attempts === 1);
 
@@ -623,6 +625,9 @@ describe("background threads", () => {
 		expect(workerContext.systemPrompt).toContain('workspace of the background thread "jira-run"');
 		expect(workerContext.systemPrompt).not.toContain("<memory>");
 		expect(workerContext.systemPrompt).not.toContain("Memory index");
+		expect(workerContext.systemPrompt).toContain("<project-brief>");
+		expect(workerContext.systemPrompt.indexOf("Use short reports.")).toBeLessThan(workerContext.systemPrompt.indexOf("Install dependencies"));
+		await test.server.memory.write({ target: { scope: "project", projectId }, fileId: "worker-brief", text: "A different rule for future workers." });
 		expect(workerContext.tools.map((tool) => tool.name).filter((name) => name.startsWith("thread_"))).toEqual([]);
 		expect(errorOf(await client.request({ type: "workers.list", projectId, threadId: "nope" })).code).toBe("unknown_thread");
 		const pushed = await client.waitFor(
@@ -642,6 +647,10 @@ describe("background threads", () => {
 		expect(userEntries(nextView.view, "[thread jira-run finished]")).toHaveLength(1);
 		expect((await thread(next, projectId, "jira-run"))?.status).toBe("done");
 		expect((await workers(next, projectId, "jira-run")).workers[0]?.status).toBe("idle");
+		const resumedContext = await context(next, projectId, { threadId: "jira-run", workerId: "reader" });
+		const briefBlock = (prompt: string) => prompt.slice(prompt.indexOf("<project-brief>"), prompt.indexOf("</project-brief>") + "</project-brief>".length);
+		expect(briefBlock(resumedContext.systemPrompt)).toBe(briefBlock(workerContext.systemPrompt));
+		expect(resumedContext.systemPrompt).not.toContain("A different rule for future workers.");
 	});
 
 	threadTest("lets threads claim tasks with a revision check and routes a question's answer to the thread that asked", async () => {
