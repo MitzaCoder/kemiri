@@ -20,6 +20,8 @@
 		graphWorkers = workers,
 		selectedTaskId = null,
 		scope,
+		backendId,
+		projectId,
 		threads = [],
 		workerHref,
 		taskHref,
@@ -31,6 +33,8 @@
 		graphWorkers?: readonly WorkerSummary[];
 		selectedTaskId?: string | null;
 		scope: string;
+		backendId: string;
+		projectId: string;
 		threads?: readonly ThreadSummary[];
 		workerHref?: (worker: WorkerSummary) => string;
 		taskHref: (taskId: string) => string;
@@ -67,7 +71,7 @@
 {#if tasksView.mode === 'board'}
 	<TaskBoard {board} {workers} {threads} {workerHref} {taskHref} {canNote} {onsendreason} {viewSwitch} />
 {:else if tasksView.mode === 'graph'}
-	{#key scope}<TaskGraph {board} {scope} {selectedTaskId} workers={graphWorkers} {threads} {workerHref} {taskHref} {viewSwitch} />{/key}
+	{#key scope}<TaskGraph {board} {scope} {backendId} {projectId} {selectedTaskId} workers={graphWorkers} {threads} {taskHref} {viewSwitch} />{/key}
 {:else}
 	<TasksPanel {board} {threads} {workers} {workerHref} {taskHref} toolbarStart={viewSwitch} />
 {/if}

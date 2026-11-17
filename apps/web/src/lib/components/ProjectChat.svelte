@@ -1116,6 +1116,8 @@
 								graphWorkers={workers?.allWorkers ?? []}
 								selectedTaskId={taskFromUrl(page.url)}
 								scope={`${backend.id}:${projectId}`}
+								backendId={backend.id}
+								{projectId}
 								threads={threadList}
 								workerHref={(worker) => workerLink(worker)}
 								taskHref={taskLink}

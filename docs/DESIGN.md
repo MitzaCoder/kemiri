@@ -3658,7 +3658,7 @@ send/error handling and revision checks but hides replies, clarification, acknow
 expansion controls. Suggested answers are the only mutation in this pop-up; all other task edits
 and replies remain in the full sheet.
 
-`graph/GraphTaskPeekHost.svelte` replaces the task tooltip, with delegated listeners limited to the
+`graph/GraphPeekHost.svelte` hosts both task and worker previews, with delegated listeners limited to the
 graph stage. Mouse hover opens after 250ms; 180ms of leave grace allows pointer travel onto the
 card. Keyboard focus opens immediately; Tab enters the card and then continues to the next node,
 Shift+Tab returns to the anchor, and Escape closes just the preview and restores anchor focus.
@@ -3673,11 +3673,20 @@ navigates via the existing task href; Show linked retains that task's neighbourh
 
 The host passes `ProjectBoard`'s capability-gated activity/freshness flags and already-gated state/
 parts fields, and answers through the same `ProjectBoard.answer` path as the question pin.
-`TaskGraph.openWorkerPeek(workerId)` is the T258 integration hook reached by the host's `onWorker`:
-for now it reveals a resting worker if necessary, opens a folded task's whole chip (and prerequisite
-chips), centres the camera and focuses its mascot after the visible graph renders. Live/All's
-`shownGraph` still controls edges, highlights and crew; fold chips are not task anchors and never
-open task previews.
+**Worker preview entry points (T258, part B).** The same host owns one preview at a time,
+replacing the old worker tooltip as well. Mascots are keyboard buttons: hover intent/focus opens
+a card, desktop click or Enter/Space opens it without navigating, and touch opens a sheet.
+Resting rows are buttons that open the worker card/sheet in place (without putting resting crew
+back on the canvas). Background-job mascots use the same host with WorkerPeek's Open chat.
+`TaskGraph.openWorkerPeek(workerId)` is reached by a task preview's worker rows: it reveals a
+resting worker if necessary, opens its folded task's whole chip (and prerequisite chips), centres
+the camera, then asks the host to open its mascot's worker preview after the graph renders.
+Live/All's `shownGraph` still controls edges, highlights and crew; fold chips never open previews.
+The host receives explicit backend/project route scope through TasksView rather than parsing its
+storage scope. WorkerPeek's Open task uses the same full task-sheet href as TaskPeek. Transcript
+links use normal in-app navigation: the existing conversation snapshot and transcript Back action
+return to the expanded graph and its saved camera/Live-All choice; they do not create a new chat
+entry. Escape restores the launch anchor and touch sheets retain the host's focus containment.
 
 **Android family graph and project canvas (T115–T116).**
 

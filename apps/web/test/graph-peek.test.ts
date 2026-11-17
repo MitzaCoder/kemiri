@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { GRAPH_PEEK_HOVER_MS, GRAPH_PEEK_LEAVE_MS, graphPeekDragged, graphPeekTaskId, graphPeekUsesSheet, graphPeekWorkerFolds, placeGraphPeek } from '../src/lib/graph-peek.js';
+import { GRAPH_PEEK_HOVER_MS, GRAPH_PEEK_LEAVE_MS, graphPeekActivation, graphPeekDragged, graphPeekTarget, graphPeekTaskId, graphPeekUsesSheet, graphPeekWorkerFolds, placeGraphPeek } from '../src/lib/graph-peek.js';
 
 import { liveTaskGraph } from '../src/lib/task-graph-live.js';
 import type { GraphFold, GraphFoldKind } from '../src/lib/task-graph-live.js';
@@ -9,6 +9,17 @@ const viewport = { width: 1200, height: 900 };
 const stage = { left: 240, top: 100, width: 960, height: 800 };
 
 describe('graph preview interaction', () => {
+	test('task, worker and background-job targets share a host; folds and malformed IDs do not', () => {
+		for (const kind of ['task', 'worker', 'thread'] as const) {
+			expect(graphPeekTarget(`${kind}:synthetic:id`)).toEqual({ kind, id: 'synthetic:id' });
+		}
+		for (const id of [null, undefined, '', 'task:', 'worker:', 'thread:', 'fold:todo', 'other:fern']) expect(graphPeekTarget(id)).toBeUndefined();
+	});
+	test('desktop task clicks navigate, desktop mascots open cards, and touch opens sheets for all', () => {
+		expect(graphPeekActivation('task', false)).toBe('navigate');
+		for (const kind of ['worker', 'thread'] as const) expect(graphPeekActivation(kind, false)).toBe('card');
+		for (const kind of ['task', 'worker', 'thread'] as const) expect(graphPeekActivation(kind, true)).toBe('sheet');
+	});
 	test('only task anchors open a task preview, including nested glyph/caption targets', () => {
 		expect(graphPeekTaskId('task:T18')).toBe('T18');
 		for (const id of [null, undefined, '', 'task:', 'worker:fern', 'thread:garden', 'fold:todo', 'fold:waiting']) expect(graphPeekTaskId(id)).toBeUndefined();

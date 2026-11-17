@@ -5,6 +5,19 @@ import type { TaskGraph } from './task-graph.js';
 export const GRAPH_PEEK_HOVER_MS = 250;
 export const GRAPH_PEEK_LEAVE_MS = 180;
 
+export type GraphPeekTarget = { kind: 'task' | 'worker' | 'thread'; id: string };
+
+/** Only real graph identities (not fold chips) can open a preview. Preserve colons in IDs. */
+export function graphPeekTarget(nodeId: string | null | undefined): GraphPeekTarget | undefined {
+	const match = /^(task|worker|thread):(.+)$/.exec(nodeId ?? '');
+	return match ? { kind: match[1] as GraphPeekTarget['kind'], id: match[2]! } : undefined;
+}
+
+/** Desktop task clicks still navigate; mascot activation always opens a preview. */
+export function graphPeekActivation(kind: GraphPeekTarget['kind'], touch: boolean): 'navigate' | 'card' | 'sheet' {
+	return touch ? 'sheet' : kind === 'task' ? 'navigate' : 'card';
+}
+
 /** Captions and glyphs are inside the SVG link; only its task identity opens a task preview. */
 export function graphPeekTaskId(nodeId: string | null | undefined): string | undefined {
 	return nodeId?.startsWith('task:') && nodeId.length > 5 ? nodeId.slice(5) : undefined;

@@ -11,7 +11,6 @@
 	import { taskRowActivity } from '#lib/task-activity.js';
 	import { taskPartProgress } from '#lib/task-parts.js';
 	import { activityMinute } from '#lib/activity-minute.js';
-	import { taskDisplayWords } from '#lib/tasks.js';
 	import { onMount, tick, untrack, type Snippet } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import type { ThreadSummary, WorkerSummary } from '@kemiri/protocol';
@@ -21,15 +20,15 @@
 	import { graphFoldGroups, liveTaskGraph, revealGraphTask, graphFoldExpansion, graphFoldPosition, renderedGraphNodes, loadGraphMode, saveGraphMode, type GraphMode, type GraphFoldKind } from '#lib/task-graph-live.js';
 	import { fitGraphCamera, loadGraphCamera, saveGraphCamera, placeGraphLabels, type GraphCamera } from '#lib/task-graph-camera.js';
 
-	let { board, scope, workers = [], threads = [], taskHref, workerHref, selectedTaskId = null, viewSwitch }: {
-		board:ProjectBoard | undefined; scope:string; workers?:readonly WorkerSummary[]; threads?:readonly ThreadSummary[];
-		selectedTaskId?:string | null; taskHref:(id:string)=>string; workerHref?:(worker:WorkerSummary)=>string; viewSwitch:Snippet;
+	let { board, scope, backendId, projectId, workers = [], threads = [], taskHref, selectedTaskId = null, viewSwitch }: {
+		board:ProjectBoard | undefined; scope:string; backendId:string; projectId:string; workers?:readonly WorkerSummary[]; threads?:readonly ThreadSummary[];
+		selectedTaskId?:string | null; taskHref:(id:string)=>string; viewSwitch:Snippet;
 	} = $props();
 	import GraphMascotDefs from './graph/GraphMascotDefs.svelte';
 	import GraphMascot from './graph/GraphMascot.svelte';
 	import GraphCrew from './graph/GraphCrew.svelte';
 	import GraphReport from './graph/GraphReport.svelte';
-	import GraphTaskPeekHost from './graph/GraphTaskPeekHost.svelte';
+	import GraphPeekHost from './graph/GraphPeekHost.svelte';
 	import { graphPeekWorkerFolds } from '#lib/graph-peek.js';
 	import { workerMotionBudget } from '#lib/worker-motion.js';
 	import { crewHandoffMs, crewFinishMs, graphCrewMotion, graphCrewInView, departingGraphCrew, interpolateCrewHandoff, graphReportCues, type GraphReportCue } from '#lib/graph-worker-motion.js';
@@ -51,6 +50,7 @@
 	let camera = $state<GraphCamera>({x:0,y:0,zoom:1});
 	let svg:SVGSVGElement | null = $state(null);
 	let stage:HTMLDivElement | null = $state(null);
+	let peekHost:GraphPeekHost | undefined = $state();
 	let peekTaskId=$state<string | null>(null), linkedTaskId=$state<string | null>(null);
 	let workerToReveal=$state<string | null>(null);
 	let width=$state(0), height=$state(0), reduced=$state(false), mounted=$state(false);
@@ -76,10 +76,6 @@
 	const highlighted=$derived(graphNeighborhood(shownGraph,neighborhoodTask));
 	// Reserve every All-view title, so even captions stay fixed when a chip opens.
 	const labels=$derived([...placeGraphLabels(graph,positions,camera,width,height)].filter(([id])=>shownGraph.nodes.some(node=>node.id===id)));
-	const focusNode=$derived(graph.nodes.find(n=>n.id===focused));
-	const focusPosition=$derived(focused ? positions.get(focused) : undefined);
-	const tooltipX=$derived(focusPosition ? Math.max(130,Math.min(width-130,(focusPosition.x-camera.x)*camera.zoom+width/2)) : 0);
-	const tooltipY=$derived(focusPosition ? Math.max(90,(focusPosition.y-camera.y)*camera.zoom+height/2-35) : 0);
 	const viewBox=$derived(`${camera.x-width/camera.zoom/2} ${camera.y-height/camera.zoom/2} ${Math.max(1,width)/camera.zoom} ${Math.max(1,height)/camera.zoom}`);
 	let reportCues=$state<GraphReportCue[]>([]);
 	const seenReports=new Map<string,string | null>();
@@ -219,7 +215,7 @@
 	}
 	function pointerUp(event:PointerEvent) {pointers.delete(event.pointerId);pinchDistance=0;if(drag?.moved)setTimeout(()=>{drag=null;},0);else drag=null;}
 	function wheel(event:WheelEvent) {event.preventDefault();changeZoom(Math.exp(-event.deltaY*.0015));}
-	/** T258 worker pop-up hook: task-preview worker rows arrive here. */
+	/** Reveal a folded worker without changing the launch context of its transcript. */
 	function openWorkerPeek(workerId:string) {
 		if(source.resting.some(worker=>worker.id===workerId)) showResting=true;
 		expandedFolds=graphPeekWorkerFolds(graph,folds,expandedFolds,workerId);
@@ -232,7 +228,7 @@
 		untrack(()=>{
 			camera={x:position.x,y:position.y,zoom:Math.max(.8,camera.zoom)};
 			focused=id; workerToReveal=null; remember();
-			void tick().then(()=>svg?.querySelector<SVGAElement>(`[data-node="${CSS.escape(id)}"]`)?.focus({preventScroll:true}));
+			void tick().then(()=>peekHost?.openWorker(id.slice('worker:'.length)));
 		});
 	});
 	function edgePath(from:string,to:string):string {
@@ -268,7 +264,7 @@
 				<strong>Resting workers</strong>
 				<ul>{#each shownGraph.resting as worker (worker.id)}
 					{@const task=board?.tasks.find(task=>task.id===worker.taskId || (!worker.taskId && task.workerIds.includes(worker.id)))}
-					<li><a href={workerHref?.(worker)} class:failed={worker.status==='failed'}><svg width="24" height="24" viewBox="0 0 24 24" class="resting-mascot" aria-hidden="true"><GraphMascot state={worker.status==='failed'?'failed':'sleeping'} size={24} still reducedMotion {gradientPrefix}/></svg><b>{worker.id}</b><span>{task ? `${task.id} · ${task.title}` : worker.taskId ? `${worker.taskId} · task unavailable` : 'No task'}</span><small>{worker.status==='failed'?'Failed':'Idle'} · {idleAge(worker,$activityMinute)}</small></a></li>
+					<li><button type="button" aria-haspopup="dialog" data-node={`worker:${worker.id}`} data-resting-worker class:failed={worker.status==='failed'}><svg width="24" height="24" viewBox="0 0 24 24" class="resting-mascot" aria-hidden="true"><GraphMascot state={worker.status==='failed'?'failed':'sleeping'} size={24} still reducedMotion {gradientPrefix}/></svg><b>{worker.id}</b><span>{task ? `${task.id} · ${task.title}` : worker.taskId ? `${worker.taskId} · task unavailable` : 'No task'}</span><small>{worker.status==='failed'?'Failed':'Idle'} · {idleAge(worker,$activityMinute)}</small></button></li>
 				{/each}</ul>
 			</div>{/if}
 		</div>{/if}
@@ -276,7 +272,7 @@
 		{#if showLegend}<div class="legend" aria-label="Relationship legend"><span>— Subtask</span><span>┄ Blocked by →</span><span>·· Found while</span><span>╌ Related</span></div>{/if}
 		<!-- Pointer gestures only move the camera or nodes; tasks remain ordinary keyboard links. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<svg bind:this={svg} class="graph-canvas" {viewBox} role="group" aria-label="Interactive task graph. Drag to pan; pinch or use zoom buttons. Tab to nodes, Enter opens a task. List has all task details." onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp} onwheel={wheel}>
+		<svg bind:this={svg} class="graph-canvas" {viewBox} role="group" aria-label="Interactive task graph. Drag to pan; pinch or use zoom buttons. Tab to nodes, Enter opens a task or worker preview. List has all task details." onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp} onwheel={wheel}>
 			<GraphMascotDefs {gradientPrefix}/>
 			<defs><marker id="task-graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker><radialGradient id="task-graph-shine" cx="30%" cy="20%"><stop offset="0%" stop-color="white" stop-opacity=".45"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs>
 			{#each shownGraph.nodes.filter(n=>n.kind==='task'&&n.radius>35&&!n.parent) as node (node.id)}
@@ -290,7 +286,7 @@
 				{@const p=positions.get(node.id)}
 				{#if p}
 					<g transform="translate({p.x} {p.y})" class="node-position" class:dimmed={!highlighted.has(node.id)&&!departures.has(node.id)} in:arrive|global={{duration:enterDuration}} out:fade|global={{duration:reduced||camera.zoom<.5||departures.has(node.id)?0:280}}>
-						<a href={node.kind==='task'?taskHref(node.task!.id):undefined} role={node.kind==='task'?undefined:'img'} tabindex="0" aria-label={graphLabel(node)} data-node={node.id} onmouseenter={()=>focused=node.id} onmouseleave={()=>focused=null} onfocus={()=>focused=node.id} onblur={()=>focused=null} onclick={(event)=>{if(drag?.moved)event.preventDefault();}}>
+						<a href={node.kind==='task'?taskHref(node.task!.id):undefined} role={node.kind==='task'?undefined:'button'} aria-haspopup={node.kind==='task'?undefined:'dialog'} tabindex="0" aria-label={graphLabel(node)} data-node={node.id} onmouseenter={()=>focused=node.id} onmouseleave={()=>focused=null} onfocus={()=>focused=node.id} onblur={()=>focused=null} onclick={(event)=>{if(drag?.moved)event.preventDefault();}}>
 							<g class="node {node.kind} status-{node.status}" class:closed={node.kind==='task'&&(node.status==='done'||node.status==='dropped')}>
 								{#if node.kind==='task'&&node.attention}<circle class="attention-halo" r={node.radius+12}/>{/if}
 								{#if node.kind==='task'}
@@ -333,10 +329,9 @@
 			{/if}
 		</svg>
 		{#if board?.loaded&&graph.nodes.length===0}<p class="empty-graph">No active tasks. Show closed or use List.</p>{/if}
-		<GraphTaskPeekHost {stage} {board} {workers} {taskHref} {viewBox} {positions}
-			visibleTaskIds={new Set(shownGraph.nodes.filter(node=>node.kind==='task').map(node=>node.task!.id))}
+		<GraphPeekHost bind:this={peekHost} {stage} {board} {workers} {threads} {backendId} {projectId} {taskHref} {viewBox} {positions}
+			visibleNodeIds={new Set(shownGraph.nodes.map(node=>node.id))}
 			onTaskChange={taskId=>peekTaskId=taskId} onShowLinked={taskId=>linkedTaskId=taskId} onWorker={openWorkerPeek} />
-		{#if focusNode&&focusPosition&&focusNode.kind!=='task'&&!peekTaskId}<div class="node-tooltip" role="tooltip" style="left:{tooltipX}px;top:{tooltipY}px"><strong>{focusNode.title}</strong><span>{focusNode.task?.id ?? focusNode.worker?.id ?? focusNode.thread?.id} · {focusNode.task ? taskDisplayWords(focusNode.task, board?.tasks ?? []) : focusNode.status.replaceAll('_',' ')}{focusNode.attention?' · needs you':''}{focusNode.task?.subtaskCount?` · ${focusNode.task.subtaskCount.done}/${focusNode.task.subtaskCount.total} subtasks done`:''}</span></div>{/if}
 	</div>
 </section>
 
@@ -344,15 +339,16 @@
 	.task-graph{--graph-todo:var(--chat-fg-subtle);--graph-working:var(--task-status-working);--graph-blocked:var(--tone-danger);--graph-review:var(--task-status-review);--graph-waiting:var(--chat-fg-subtle);display:flex;flex-direction:column;min-height:0;height:100%;color:var(--chat-fg);background:var(--chat-bg);overflow:hidden}
 	.graph-mode{display:flex;border:1px solid var(--chat-border);border-radius:16px;background:var(--chat-surface);padding:2px;flex-shrink:0}.graph-mode button{padding:6px 10px;border-radius:12px;cursor:pointer;min-height:32px}.graph-mode button[aria-pressed=true]{background:var(--chat-surface-2);color:var(--chat-fg);box-shadow:0 1px 3px color-mix(in srgb,var(--chat-fg) 12%,transparent);font-weight:650}.fold-chips{display:flex;gap:8px;padding:2px}.fold-chip{flex:1;min-width:0;min-height:40px;border:1px solid var(--chat-border);border-radius:20px;background:var(--chat-surface);color:var(--chat-fg);font-size:14px;cursor:pointer}.fold-chip:hover,.fold-chip[aria-expanded=true]{background:var(--chat-surface-2)}.fold-chip:focus-visible,.graph-mode button:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
 	.graph-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--chat-border);font-size:12px;z-index:4}.graph-counts{color:var(--chat-fg-muted);font-size:11px}.view-menu{position:relative;margin-left:auto}.menu-toggle,.resting-chip{border:1px solid var(--chat-border);border-radius:16px;background:var(--chat-surface);padding:7px 12px;font-size:12px;cursor:pointer}.menu-panel{position:absolute;right:0;top:calc(100% + 8px);width:260px;max-width:calc(100vw - 30px);background:var(--chat-surface);border:1px solid var(--chat-border);border-radius:12px;box-shadow:var(--tone-shadow);padding:6px;z-index:5}.menu-panel label{display:flex;align-items:center;gap:8px;padding:10px 8px;min-height:40px;cursor:pointer}input{accent-color:var(--graph-working)}
-	.resting-workers{position:absolute;left:12px;bottom:12px;z-index:3}.resting-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:310px;max-width:calc(100vw - 32px);max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--chat-border);border-radius:14px;background:var(--chat-surface);box-shadow:var(--tone-shadow);font-size:12px}.resting-panel ul{list-style:none;padding:0;margin:6px 0 0}.resting-mascot{position:absolute;left:8px;top:8px}.resting-panel a{position:relative;padding-left:40px!important;display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px}.resting-panel a:hover{background:var(--chat-surface-2)}.resting-panel span,.resting-panel small{color:var(--chat-fg-muted)}.resting-panel .failed small{color:var(--graph-blocked)}
+	.resting-workers{position:absolute;left:12px;bottom:12px;z-index:3}.resting-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:310px;max-width:calc(100vw - 32px);max-height:55vh;overflow:auto;padding:12px;border:1px solid var(--chat-border);border-radius:14px;background:var(--chat-surface);box-shadow:var(--tone-shadow);font-size:12px}.resting-panel ul{list-style:none;padding:0;margin:6px 0 0}.resting-mascot{position:absolute;left:8px;top:8px}.resting-panel li>button{width:100%;text-align:left;cursor:pointer;position:relative;padding-left:40px!important;display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px}.resting-panel li>button:hover{background:var(--chat-surface-2)}.resting-panel span,.resting-panel small{color:var(--chat-fg-muted)}.resting-panel .failed small{color:var(--graph-blocked)}
 	.graph-controls{position:absolute;bottom:12px;right:12px;display:flex;gap:4px;z-index:2}.graph-controls button{height:34px;min-width:34px;border:1px solid var(--chat-border);border-radius:10px;background:var(--chat-surface);font-size:14px;padding:0 8px;cursor:pointer}.graph-controls button:hover{background:var(--chat-surface-2)}
 	.graph-stage{position:relative;flex:1;min-height:220px;overflow:hidden;animation:arrive .5s ease-out}.graph-canvas{width:100%;height:100%;touch-action:none;cursor:grab;user-select:none;background:radial-gradient(ellipse at 40% 35%,color-mix(in srgb,var(--graph-working) 5%,transparent),transparent 65%)}.graph-canvas:active{cursor:grabbing}.dimmed{opacity:.15;transition:opacity .2s}.node-position{transition:opacity .2s}.node{--node-color:var(--graph-todo)}.status-working,.status-clarifying,.status-in_progress,.status-running{--node-color:var(--graph-working)}.status-blocked,.status-failed{--node-color:var(--graph-blocked)}.status-answer_needed,.status-review{--node-color:var(--graph-review)}.status-paused{--node-color:var(--chat-fg-subtle)}.status-blocked_by_task,.status-waiting_outside,.status-waiting{--node-color:var(--chat-fg-subtle)}.status-done{--node-color:var(--tone-success)}.closed{opacity:.35}
 	.cluster{fill:color-mix(in srgb,var(--chat-fg-subtle) 5%,var(--chat-bg));stroke:color-mix(in srgb,var(--chat-fg-subtle) 14%,transparent);stroke-width:1}
 	.edge{fill:none;stroke:var(--chat-fg-subtle);stroke-width:1.6;opacity:.45}.edge.parent{stroke:var(--graph-working);stroke-width:2}.edge.foundWhile{stroke:var(--graph-waiting);stroke-dasharray:2 6;stroke-linecap:round}.edge.blockedBy{stroke:var(--chat-fg-subtle);stroke-width:1.8;stroke-dasharray:5 5}.edge.blockedBy.edge-focused{stroke:var(--graph-blocked);opacity:.85;animation:blocked-dashes 2.4s linear infinite}.motion-still .edge.blockedBy.edge-focused{animation:none}.edge.related{stroke:var(--graph-review);stroke-dasharray:8 6}.edge.dimmed{opacity:.08}
 	.task-body{fill:color-mix(in srgb,var(--node-color) 23%,var(--chat-bg));stroke:var(--node-color);stroke-width:2}.task-id{font-size:12px;font-weight:600;font-family:var(--font-mono);fill:light-dark(#4338ca,#c7d2fe);text-anchor:middle;pointer-events:none}.graph-task-id-chip{fill:color-mix(in srgb,var(--accent-2) 12%,var(--chat-bg));pointer-events:none}:global([data-theme="neutral"]) .task-id{fill:var(--chat-fg)}.graph-label{fill:var(--chat-fg);stroke:var(--chat-bg);paint-order:stroke;text-anchor:middle;font-weight:550;pointer-events:none;stroke-linejoin:round}.progress-track{fill:none;stroke:var(--chat-border);stroke-width:3}.progress{fill:none;stroke:var(--graph-working);stroke-width:3;stroke-linecap:round}.attention-halo{fill:color-mix(in srgb,var(--node-color) 4%,transparent);stroke:var(--node-color);stroke-width:2;opacity:.4;}
+	a[role=button]:focus-visible{outline:2px solid var(--accent-2);outline-offset:3px}.resting-panel li>button:focus-visible{outline:2px solid var(--accent-2)}
 	a{cursor:pointer;outline:none}a:focus-visible .task-body{stroke:var(--chat-fg);stroke-width:4}a:hover .task-body{stroke-width:3}
 
-	.node-tooltip{position:absolute;transform:translate(-50%,-100%);width:240px;max-width:calc(100% - 20px);border:1px solid var(--chat-border);border-radius:12px;padding:10px 12px;background:var(--chat-surface);box-shadow:var(--tone-shadow);pointer-events:none;z-index:2;font-size:13px;overflow-wrap:anywhere}.node-tooltip strong{display:block;font-weight:600}.node-tooltip span{display:block;margin-top:4px;font-size:11px;color:var(--chat-fg-muted)}.empty-graph{position:absolute;top:45%;width:100%;text-align:center;font-size:13px;color:var(--chat-fg-muted);pointer-events:none}
+	.empty-graph{position:absolute;top:45%;width:100%;text-align:center;font-size:13px;color:var(--chat-fg-muted);pointer-events:none}
 	.legend{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;gap:12px;max-width:calc(100% - 24px);border:1px solid var(--chat-border);border-radius:10px;padding:8px 12px;background:var(--chat-surface);font-size:11px;color:var(--chat-fg-muted);z-index:2}
 	.part-done{stroke:var(--task-status-done)}.part-working{stroke:var(--task-status-working)}.part-needs-you{stroke:var(--task-status-review)}.part-other{stroke:var(--chat-fg-subtle)}:global(.state-glyph){color:var(--node-color)}.working-dot{fill:var(--node-color);animation:working-pulse 3s ease-in-out infinite}.task-caption{pointer-events:none}@keyframes working-pulse{50%{opacity:.4}}
 	@keyframes arrive{from{opacity:0}to{opacity:1}}@keyframes blocked-dashes{to{stroke-dashoffset:-20}}

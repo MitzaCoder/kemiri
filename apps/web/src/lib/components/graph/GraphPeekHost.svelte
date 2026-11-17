@@ -1,30 +1,34 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
-	import type { WorkerSummary } from '@kemiri/protocol';
+	import type { ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import type { GraphPosition } from '#lib/task-graph.js';
-	import { GRAPH_PEEK_HOVER_MS, GRAPH_PEEK_LEAVE_MS, graphPeekDragged, graphPeekTaskId, graphPeekUsesSheet, placeGraphPeek } from '#lib/graph-peek.js';
+	import { GRAPH_PEEK_HOVER_MS, GRAPH_PEEK_LEAVE_MS, graphPeekActivation, graphPeekDragged, graphPeekTarget, graphPeekUsesSheet, placeGraphPeek } from '#lib/graph-peek.js';
 	import TaskPeek from '../TaskPeek.svelte';
+	import WorkerPeek from '../WorkerPeek.svelte';
 
-	let { stage, board, workers, taskHref, viewBox, positions, visibleTaskIds, onTaskChange, onShowLinked, onWorker }: {
+	let { stage, board, workers, threads, backendId, projectId, taskHref, viewBox, positions, visibleNodeIds, onTaskChange, onShowLinked, onWorker }: {
 		stage: HTMLDivElement | null;
 		board: ProjectBoard | undefined;
 		workers: readonly WorkerSummary[];
+		threads: readonly ThreadSummary[];
+		backendId: string;
+		projectId: string;
 		taskHref: (taskId: string) => string;
 		viewBox: string;
 		positions: ReadonlyMap<string, GraphPosition>;
-		visibleTaskIds: ReadonlySet<string>;
+		visibleNodeIds: ReadonlySet<string>;
 		onTaskChange: (taskId: string | null) => void;
 		onShowLinked: (taskId: string) => void;
-		/** T258 can replace selection/panning at this boundary with the worker pop-up. */
+		/** Reveal a task row's worker mascot, then open its preview. */
 		onWorker: (workerId: string) => void;
 	} = $props();
 
 	type Anchor = HTMLElement | SVGElement;
-	type Shown = { taskId: string; anchor: Anchor; via: 'hover' | 'focus' | 'tap' };
+	type Shown = { nodeId: string; anchor: Anchor; via: 'hover' | 'focus' | 'click' | 'tap' };
 	const componentId = $props.id();
-	const cardId = `graph-task-peek-${componentId}`;
+	const cardId = `graph-peek-${componentId}`;
 	const tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 	let shown = $state<Shown | null>(null);
 	let card = $state<HTMLDivElement | null>(null);
@@ -37,12 +41,19 @@
 	let lastPointer = { type: '', at: 0 };
 	let gesture: { x: number; y: number; moved: boolean } | null = null;
 	const pointers = new Set<number>();
-	const task = $derived(shown && visibleTaskIds.has(shown.taskId) ? board?.task(shown.taskId) : undefined);
+	const target = $derived(graphPeekTarget(shown?.nodeId));
+	const available = $derived(!!shown && (visibleNodeIds.has(shown.nodeId) || shown.anchor.hasAttribute('data-resting-worker')));
+	const task = $derived(available && target?.kind === 'task' ? board?.task(target.id) : undefined);
+	const worker = $derived(available && target?.kind === 'worker' ? workers.find(worker => worker.id === target.id) : undefined);
+	const thread = $derived(available && target?.kind === 'thread' ? threads.find(thread => thread.id === target.id) : undefined);
+	const hasContent = $derived(!!(task || worker || thread));
+	const label = $derived(task ? `Task ${task.id}` : worker ? `Worker ${worker.id}` : `Background job ${thread?.title ?? ''}`);
+	const closeLabel = $derived(task ? 'Close task preview' : 'Close worker preview');
 
 	function anchorOf(target: EventTarget | null): Anchor | null {
 		if (!(target instanceof Element)) return null;
 		const anchor = target.closest<Anchor>('[data-node]');
-		return anchor && stage?.contains(anchor) && graphPeekTaskId(anchor.getAttribute('data-node')) ? anchor : null;
+		return anchor && stage?.contains(anchor) && graphPeekTarget(anchor.getAttribute('data-node')) ? anchor : null;
 	}
 	function inCard(target: EventTarget | null): boolean { return target instanceof Node && !!card?.contains(target); }
 	function inAnchor(target: EventTarget | null): boolean { return target instanceof Node && !!shown?.anchor.contains(target); }
@@ -60,18 +71,25 @@
 		}
 	}
 	async function show(anchor: Anchor, via: Shown['via']) {
-		const taskId = graphPeekTaskId(anchor.getAttribute('data-node'));
-		if (!taskId || !board?.task(taskId)) return;
+		const nodeId = anchor.getAttribute('data-node');
+		const target = graphPeekTarget(nodeId);
+		if (!nodeId || !target) return;
+		const entry = target.kind === 'task' ? board?.task(target.id) : target.kind === 'worker'
+			? workers.find(worker => worker.id === target.id) : threads.find(thread => thread.id === target.id);
+		if (!entry) return;
 		clearOpen(); clearClose();
-		if (shown?.anchor === anchor) return;
+		if (shown?.anchor === anchor) {
+			if (via !== 'hover') shown = { ...shown, via };
+			return;
+		}
 		close();
 		place = { ...place, ready: false };
-		shown = { taskId, anchor, via };
+		shown = { nodeId, anchor, via };
 		anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-controls', cardId);
-		onTaskChange(taskId);
+		onTaskChange(target.kind === 'task' ? target.id : 'taskId' in entry ? entry.taskId ?? null : null);
 		await tick();
 		requestReposition();
-		if (via === 'tap') tabbables(card)[0]?.focus();
+		if (via === 'tap' || via === 'click') tabbables(card)[0]?.focus();
 	}
 	function scheduleOpen(anchor: Anchor) {
 		clearClose();
@@ -88,13 +106,13 @@
 		if (!shown || !stage || !card) return;
 		if (!shown.anchor.isConnected) return close();
 		const target = placeGraphPeek(shown.anchor.getBoundingClientRect(), stage.getBoundingClientRect(), card.getBoundingClientRect(), { width: innerWidth, height: innerHeight });
-		if (target.outside || !task) return close();
+		if (target.outside || !hasContent) return close();
 		place = { ...target, ready: true };
 	}
 	function requestReposition() { if (!frame) frame = requestAnimationFrame(reposition); }
 	$effect(() => {
 		void viewBox; void positions;
-		if (shown && !task) { close(); return; }
+		if (shown && !hasContent) { close(); return; }
 		if (!shown || !card || !stage) return;
 		requestReposition();
 		const observer = new ResizeObserver(requestReposition);
@@ -102,6 +120,14 @@
 		return () => observer.disconnect();
 	});
 	function openTask(taskId: string) { close(); void goto(taskHref(taskId)); }
+
+	/** Used after TaskGraph reveals/pans to a task-preview worker row's mascot. */
+	export function openWorker(workerId: string) {
+		const anchor = stage?.querySelector<Anchor>(`.graph-canvas [data-node="${CSS.escape(`worker:${workerId}`)}"]`);
+		if (!anchor) return;
+		const touch = graphPeekUsesSheet(lastPointer.type, matchMedia('(hover: none), (pointer: coarse)').matches, navigator.maxTouchPoints);
+		void show(anchor, touch ? 'tap' : 'click');
+	}
 
 	$effect(() => {
 		const root = stage;
@@ -140,8 +166,10 @@
 			if (!anchor) return;
 			if (gesture?.moved && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); return; }
 			const touch = graphPeekUsesSheet((event as PointerEvent).pointerType, coarse.matches, navigator.maxTouchPoints) || (lastPointer.type === 'touch' && Date.now() - lastPointer.at < 1000);
-			if (touch && event.detail !== 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
-				event.preventDefault(); event.stopPropagation(); void show(anchor, 'tap');
+			const target = graphPeekTarget(anchor.getAttribute('data-node'))!;
+			const activation = graphPeekActivation(target.kind, touch && event.detail !== 0);
+			if (activation !== 'navigate' && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+				event.preventDefault(); event.stopPropagation(); void show(anchor, activation === 'sheet' ? 'tap' : 'click');
 			} else close();
 		};
 		const focusin = (event: FocusEvent) => {
@@ -158,6 +186,10 @@
 			if (shown && !inAnchor(event.relatedTarget) && !inCard(event.relatedTarget)) scheduleClose();
 		};
 		const keydown = (event: KeyboardEvent) => {
+			const anchor = anchorOf(event.target);
+			if (anchor && graphPeekTarget(anchor.getAttribute('data-node'))?.kind !== 'task' && (event.key === 'Enter' || event.key === ' ')) {
+				event.preventDefault(); event.stopPropagation(); void show(anchor, 'focus'); return;
+			}
 			if (!shown) { if (event.key === 'Escape') clearOpen(); return; }
 			if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); return; }
 			if (event.key !== 'Tab' || !card) return;
@@ -192,15 +224,17 @@
 	});
 </script>
 
-{#if shown && task}
-	{#if shown.via === 'tap'}<button class="peek-backdrop" tabindex="-1" aria-label="Close task preview" onclick={() => close(true)}></button>{/if}
-	<div bind:this={card} id={cardId} class="peek-host" class:sheet={shown.via === 'tap'} role="dialog" aria-modal={shown.via === 'tap' ? true : undefined} aria-label="Task {task.id}" data-graph-task-peek
+{#if shown && hasContent}
+	{#if shown.via === 'tap'}<button class="peek-backdrop" tabindex="-1" aria-label={closeLabel} onclick={() => close(true)}></button>{/if}
+	<div bind:this={card} id={cardId} class="peek-host" class:sheet={shown.via === 'tap'} role="dialog" aria-modal={shown.via === 'tap' ? true : undefined} aria-label={label} data-graph-task-peek={task ? '' : undefined} data-graph-worker-peek={worker || thread ? '' : undefined}
 		style={shown.via === 'tap' ? '' : `left:${place.left}px;top:${place.top}px;width:${place.width}px;max-height:${place.maxHeight}px;visibility:${place.ready ? 'visible' : 'hidden'}`}>
-		<button type="button" class="peek-close" aria-label="Close task preview" onclick={() => close(true)}>×</button>
-		<TaskPeek {task} tasks={board?.tasks} questions={board?.board?.questions} {workers} archivedLinks={board?.archivedLinks} {taskHref}
+		<button type="button" class="peek-close" aria-label={closeLabel} onclick={() => close(true)}>×</button>
+		{#if task}<TaskPeek {task} tasks={board?.tasks} questions={board?.board?.questions} {workers} archivedLinks={board?.archivedLinks} {taskHref}
 			activityEnabled={board?.activityEnabled} freshnessEnabled={board?.freshnessEnabled} layout={shown.via === 'tap' ? 'sheet' : 'card'}
 			onAnswer={board ? (question, answer) => board.answer(question.id, question.revision, answer) : undefined}
 			onOpenTask={openTask} onShowLinked={taskId => { close(); onShowLinked(taskId); }} onWorker={workerId => { close(); onWorker(workerId); }} />
+		{:else if worker}<WorkerPeek {worker} {backendId} {projectId} task={board?.task(worker.taskId ?? '')} questions={board?.board?.questions} activityEnabled={board?.activityEnabled} layout={shown.via === 'tap' ? 'sheet' : 'card'} onOpenTask={openTask} />
+		{:else if thread}<WorkerPeek {thread} {backendId} {projectId} task={board?.task(thread.taskId ?? '')} questions={board?.board?.questions} layout={shown.via === 'tap' ? 'sheet' : 'card'} onOpenTask={openTask} />{/if}
 	</div>
 {/if}
 
@@ -209,11 +243,11 @@
 	.peek-close { position: absolute; z-index: 1; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; background: var(--chat-surface-2); color: var(--chat-fg-muted); font-size: 18px; line-height: 1; }
 	.peek-close:hover { color: var(--chat-fg); }
 	.peek-close:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
-	.peek-host :global(.task-peek > header) { padding-right: 22px; }
-	.peek-host :global(.task-peek) { width: 100%; }
+	.peek-host :global(article > header) { padding-right: 22px; }
+	.peek-host :global(article) { width: 100%; }
 	.sheet { left: 0; right: 0; bottom: 0; width: 100%; max-height: calc(100% - 8px); border-radius: 20px 20px 0 0; }
 	.peek-backdrop { position: absolute; inset: 0; z-index: 5; background: color-mix(in oklab, var(--chat-bg) 12%, transparent); }
-	@media (pointer: coarse) { .peek-close { width: 44px; height: 44px; top: 0; right: 0; } .peek-host :global(.task-peek > header) { padding-right: 30px; } }
+	@media (pointer: coarse) { .peek-close { width: 44px; height: 44px; top: 0; right: 0; } .peek-host :global(article > header) { padding-right: 30px; } }
 	.sheet .peek-close { top: 16px; right: 16px; }
-	.sheet :global(.task-peek > header) { padding-right: 44px; min-height: 44px; }
+	.sheet :global(article > header) { padding-right: 44px; min-height: 44px; }
 </style>
