@@ -49,6 +49,8 @@ export type ArtifactToolsOptions = {
 	workerIdOf: (conversationId: number) => Promise<string | null>;
 	/** The thread a conversation belongs to, a worker's being its coordinator's; main when not given. */
 	threadIdOf?: (conversationId: number) => Promise<string>;
+	/** Best-effort durable proof receipt, including saves replayed after a restart. Must not fail the save. */
+	onSavedSource?: (conversationId: number, path: string) => Promise<void>;
 };
 
 /** Whether `path` is `root` or inside it. Both must already be real paths. */
@@ -220,6 +222,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 						tags: [...(args.tags ?? []), ...artifactTagsFromFileName(source.path)],
 						artifactId,
 					});
+					await options.onSavedSource?.(api.conversationId, source.path).catch(() => {});
 					files.push({ path, artifactId: artifact.id, version: artifact.version ?? 1 });
 					const duration = artifact.durationSeconds === null ? "" : `, ${artifact.durationSeconds.toFixed(1)} s`;
 					const tags = artifact.tags === undefined || artifact.tags.length === 0 ? "" : `, tags ${artifact.tags.join(", ")}`;

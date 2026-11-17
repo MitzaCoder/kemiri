@@ -1442,6 +1442,10 @@ export class ProjectManager {
 				store: this.artifacts,
 				project: () => entry.project,
 				workspaceDirs: [this.store.workspacesDir(project.id), threadsDir],
+				onSavedSource: async (conversationId, source) => {
+					try { await this.browsers.recordSavedProof(project.id, conversationId, source); }
+					catch (error) { this.#log(`proof receipt: ${errorMessage(error)}`); }
+				},
 				workerIdOf: async (conversationId) => (await workerOf(conversationId))?.workerId ?? null,
 				threadIdOf: async (conversationId) =>
 					coordinators.threadIdOf(conversationId) ?? (await workerOf(conversationId))?.threadId ?? MAIN_THREAD_ID,

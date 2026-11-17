@@ -499,7 +499,9 @@ The coding environment factory is shared and keyed by cwd, not worker conversati
 worker PATH/HOME override (shared workers have identical cwd). Workers instead use the absolute launcher named in
 instructions as `ab`, and the named proof folder. The short environment paragraph names launcher, session, proof,
 allowlist, no real profile/auto-connect, and automatic close/proof retention. It is rendered once at creation and
-persisted with the other instructions; it does not flap or retry setup during later prompts.
+persisted with the other instructions; it does not flap or retry setup during later prompts. Before delivering a
+worker's answer, its durable reporter may send one proof reminder (T249): select files with `artifact_save` or explain
+why they are not worth keeping. This is advisory, never auto-save; see **Unsaved worker proof** under Artifacts.
 
 A private `<data>/tools/browser-workers/<hash(project,conversation)>.json` index survives restarts. Run-end hooks
 start cleanup without awaiting it in report delivery; the next request waits for any outstanding cleanup so an old
@@ -516,7 +518,10 @@ Chromium too. Read the session pid file but trust its PID only when ownership al
 and other verified browser roots before graceful close. Re-scan afterwards, then SIGTERM/SIGKILL only captured session processes whose start identity
 still matches, guarding PID reuse. Unrelated sessions/processes are left alone. This is lifecycle hygiene under the
 backend account, not a security boundary against an agent deliberately changing process environment/state.
-Unsaved proof listing/retention UX is a later stage; proof is kept until forget (or host temp-directory eviction).
+Proof is kept until forget (or host temp-directory eviction). A private `saved-proof.json` beside the proof folder
+records saved source real paths, independently of artifact retention/deletion. It is atomically replaced through a
+per-worker write queue after successful `artifact_save` calls (including batch entries, versions and replay). The
+worker's browser index and these receipts survive backend restarts; forget removes them with the browser directory.
 
 HTML previews on web (dialog and new tab) and Android prepend theme defaults with zero-specificity selectors, matching
 `--tone-*` colours, type, spacing and radius tokens. The document's `data-theme` follows the app's light/dark choice;
@@ -2387,6 +2392,29 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   remain bounded even if Range is ignored. Text failures offer retry, including when token recovery
   remints the same URL. Small server text reads finish before headers, with CORS-bearing read errors
   and a final capability recheck.
+
+### Unsaved worker proof (T249 / D95)
+
+Every worker's managed browser has a private `proof/` folder, kept until forget. Successful `artifact_save` calls
+record source real paths in that worker's browser directory; aliases resolve to the same receipt. Failed saves do not
+record a receipt. Receipts mean **ever saved**, not "current bytes match": a file changed at the same path is still
+considered saved. Artifact pruning, deletion, or another worker updating the same artifact cannot undo the receipt.
+
+After the worker first answers, the durable worker reporter scans regular files recursively, without following
+symlinks, ignoring dotfiles/dot-directories and scratch directories named `tmp`, `temp` or `scratch`. If unsaved files
+remain, it checkpoints a short notice, submits one follow-up with a request ID keyed by worker conversation and the
+original answer ID, then waits for that answer. The notice lists up to **20** quoted relative names, "and N more"
+when capped, and the proof directory; it asks the worker to save only selected files with `artifact_save paths` or say
+why not. Multiple reporters sharing an answer and backend restarts reuse that submission rather than posting another
+notice. The reminder's answer goes straight to report delivery, never another proof-reminder loop. A later separate
+worker request can receive its own single reminder. Browser cleanup hooks still run at each model-run boundary.
+
+Before coordinator delivery, a fresh scan appends `Unsaved proof files: …` to the final report if files still remain;
+the same capped names are included on failure reports. Empty/missing folders, workers without a browser record, and
+backends without a browser service produce nothing. Scans are best-effort with a **one-second** budget; scan/receipt
+errors are logged, reminder delivery errors fall back to the original answer, and none may fail report delivery.
+Explicitly stopped/forgotten workers are not restarted for a reminder. The harness never saves or deletes proof on
+this path, and the coordinator receives only the final answer plus remaining names, not the intervening transcript.
 
 ### Artifact tags and the task media carousel
 

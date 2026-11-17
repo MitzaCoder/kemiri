@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, lstat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, lstat, realpath, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, dirname, basename } from "node:path";
+import { join, dirname, basename, relative, isAbsolute } from "node:path";
 import { AgentBrowserInstaller } from "./agent-browser-install.ts";
 import { findBrowserExecutable, offerManagedAgentBrowser } from "./agent-browser.ts";
 import { childEnvironment } from "./child-environment.ts";
 import { serverSettings } from "./server-settings.ts";
+
+export type UnsavedProof = { directory: string; names: string[]; total: number };
+/** Bounded, quoted names keep file names from injecting lines into steering or reports. */
+export function unsavedProofList(proof: UnsavedProof): string {
+	return proof.names.map(name => JSON.stringify(name)).join(", ") + (proof.total > proof.names.length ? `, and ${proof.total - proof.names.length} more` : "");
+}
 
 export type WorkerBrowserAvailability = { binary: string; chromium: string } | string;
 export type WorkerBrowser = { directory: string; launcher: string; session: string; proof: string; socket: string; allowedDomains: string };
@@ -81,6 +87,7 @@ export class WorkerBrowserService {
 	readonly ready: Promise<void>;
 	readonly #installer: Pick<AgentBrowserInstaller, "ensure">;
 	readonly #closing = new Map<string, Promise<void>>();
+	readonly #proofWrites = new Map<string, Promise<void>>();
 	readonly #resumed = new Map<string, Promise<void>>();
 	readonly #root: string;
 	#verified: Exclude<WorkerBrowserAvailability, string> | undefined;
@@ -198,6 +205,58 @@ export class WorkerBrowserService {
 			await writeFile(browser.launcher, workerBrowserLauncher(availability.binary, availability.chromium, browser), { mode: 0o700 })
 				.catch(error => this.options.log(`agent-browser resume: ${error}`));
 		}
+	}
+	/** Save real-path receipts separately from retained artifact versions, so deletion/pruning cannot undo a save. */
+	async recordSavedProof(projectId: string, conversationId: number, source: string): Promise<void> {
+		const key = this.#key(projectId, conversationId);
+		const write = (this.#proofWrites.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
+			const browser = await this.#read(key);
+			if (!browser) return;
+			const [directory, path] = await Promise.all([realpath(browser.proof), realpath(source)]);
+			const name = relative(directory, path);
+			if (!name || name === ".." || name.startsWith("../") || isAbsolute(name)) return;
+			const receipt = join(browser.directory, "saved-proof.json");
+			const saved = await this.#savedProof(browser);
+			saved.add(path);
+			await writeFile(`${receipt}.partial`, JSON.stringify([...saved]), { mode: 0o600 });
+			await rename(`${receipt}.partial`, receipt);
+		});
+		this.#proofWrites.set(key, write);
+		try { await write; } finally { if (this.#proofWrites.get(key) === write) this.#proofWrites.delete(key); }
+	}
+	async #savedProof(browser: WorkerBrowser): Promise<Set<string>> {
+		try { return new Set(JSON.parse(await readFile(join(browser.directory, "saved-proof.json"), "utf8")) as string[]); }
+		catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set(); throw error; }
+	}
+	/** Read only: never follow symlinks or save proof automatically. Missing folders are ordinary. */
+	async unsavedProof(projectId: string, conversationId: number): Promise<UnsavedProof | undefined> {
+		const key = this.#key(projectId, conversationId);
+		await this.#proofWrites.get(key);
+		const browser = await this.#read(key);
+		if (!browser) return undefined;
+		try {
+			const info = await lstat(browser.proof);
+			if (!info.isDirectory() || info.isSymbolicLink()) return undefined;
+			const directory = await realpath(browser.proof);
+			const saved = await this.#savedProof(browser);
+			const names: string[] = [];
+			let total = 0;
+			const walk = async (folder: string) => {
+				const entries = await readdir(folder, { withFileTypes: true });
+				entries.sort((a, b) => a.name.localeCompare(b.name));
+				for (const entry of entries) {
+					if (entry.name.startsWith(".")) continue;
+					const path = join(folder, entry.name);
+					if (entry.isDirectory() && !["tmp", "temp", "scratch"].includes(entry.name)) await walk(path);
+					else if (entry.isFile() && !saved.has(await realpath(path))) {
+						total++;
+						if (names.length < 20) names.push(relative(directory, path));
+					}
+				}
+			};
+			await walk(directory);
+			return total === 0 ? undefined : { directory, names, total };
+		} catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
 	}
 	cleanup(projectId: string, conversationId: number, forget = false): Promise<void> {
 		return this.#cleanup(this.#key(projectId, conversationId), forget);

@@ -1,4 +1,4 @@
-import { type WorkerBrowserAvailability, type WorkerBrowserService, workerBrowserInstructions } from "./worker-browser.ts";
+import { type WorkerBrowserAvailability, type WorkerBrowserService, type UnsavedProof, workerBrowserInstructions, unsavedProofList } from "./worker-browser.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
 import { activityTracking, endActivitySource } from "./task-activity.ts";
@@ -276,9 +276,10 @@ type ReporterInput = {
 
 type ReporterState =
 	| { phase: "deliver" }
+	| { phase: "proof"; answerId?: EntryId; text: string | null; notice: string }
 	| { phase: "report"; answerId?: EntryId; text: string | null; status: WorkerStatus; failure: string | null }
 	// Older notify checkpoints already committed their board changes and recorded/notify decision.
-	| { phase: "notify"; answerId?: EntryId; text: string | null; status: WorkerStatus; failure: string | null; recorded: boolean; notify: boolean; decisionPending?: boolean };
+	| { phase: "notify"; answerId?: EntryId; text: string | null; status: WorkerStatus; failure: string | null; recorded: boolean; notify: boolean; decisionPending?: boolean; proofSuffix?: string };
 
 /**
  * Delivers one message to one worker and reports its answer back.
@@ -360,23 +361,63 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 
 				// The report is the answer's text; the rest of the worker's transcript stays in its conversation.
 				const answered = settled.answer;
+				const proof = await service.unsavedProof(conversationId);
+				const notice = proof === undefined ? undefined : `Unsaved proof files in ${JSON.stringify(proof.directory)}: ${unsavedProofList(proof)} (${proof.names.length} of ${proof.total}). Save the ones you mean to keep with artifact_save paths, or say why not. This is the only proof reminder for this run.`;
 				await runtime.commit(
 					async (tx) => {
 						const answer = answered === undefined ? undefined : await tx.entry(AssistantEntry, answered);
 						const text = answerText(answer?.model?.[0] as AssistantMessage | undefined);
 						return {
 							status: "running",
-							checkpoint: { phase: "report", answerId: answered, text, status: "idle", failure: null },
+							checkpoint: notice === undefined
+								? { phase: "report", answerId: answered, text, status: "idle", failure: null }
+								: { phase: "proof", answerId: answered, text, notice },
 						};
 					},
 					context,
 				);
 			},
+			proof: async (reporter, runtime, context) => {
+				// The notice is checkpointed before submission. Its request ID deduplicates restart/reporter retries.
+				const { conversationId, callId } = reporter.input;
+				const { answerId, text, notice } = reporter.state.checkpoint;
+				let nextAnswer = answerId;
+				let answered = false;
+				let stopped = false;
+				try {
+					const submission = await service.withReportAdmission(async () => {
+						const place = await service.workerOf(conversationId, context);
+						stopped = place === undefined || place.record.status === "stopped" || place.record.status === "done";
+						if (stopped) return undefined;
+						await service.waitBrowser(conversationId);
+						const worker = await runtime.conversation(conversationId as ConversationId, context);
+						return worker?.submit({ type: "input", content: notice, whenBusy: "followUp",
+							requestId: `worker-proof:${conversationId}:${answerId ?? callId}` }, context);
+					});
+					const settled = await submission?.wait(context);
+					if (settled?.status === "done") { nextAnswer = settled.answer; answered = true; }
+					else if (settled?.status === "unanswered" && settled.reason === "aborted") stopped = true;
+				} catch (error) { service.log(`worker proof reminder: ${errorMessage(error)}`); }
+				// Never re-enter the proof phase for the reminder's answer, even if files remain unsaved.
+				await runtime.commit(async tx => {
+					const answer = !answered || nextAnswer === undefined ? undefined : await tx.entry(AssistantEntry, nextAnswer);
+					return { status: "running", checkpoint: {
+						phase: "report", answerId: nextAnswer,
+						text: stopped ? null : answered ? answerText(answer?.model?.[0] as AssistantMessage | undefined) : text,
+						status: stopped ? "stopped" : "idle", failure: null,
+					} };
+				}, context);
+			},
 			report: async (reporter, runtime, context) => {
 				// Keep the old phase boundary so reporters persisted by earlier releases can resume.
+				const proof = await service.unsavedProof(reporter.input.conversationId);
+				const checkpoint = reporter.state.checkpoint;
+				const suffix = proof === undefined ? "" : `\n\nUnsaved proof files: ${unsavedProofList(proof)} (${proof.names.length} of ${proof.total}).`;
 				await runtime.commit(() => ({
 					status: "running",
-					checkpoint: { ...reporter.state.checkpoint, phase: "notify", recorded: false, notify: true, decisionPending: true },
+					checkpoint: { ...checkpoint, text: checkpoint.text === null ? null : checkpoint.text + suffix,
+						proofSuffix: checkpoint.text === null ? suffix : "",
+						phase: "notify", recorded: false, notify: true, decisionPending: true },
 				}), context);
 			},
 			notify: async (reporter, runtime, context) => service.withReportAdmission(async () => {
@@ -385,7 +426,8 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				// Bounded cleanup never delays the durable report or notifications.
 				if (status !== "idle" || schedule?.isolation === "shared") void service.cleanupBrowser(conversationId, schedule?.isolation === "shared");
 				const owner = (await service.coordinators.conversation(runtime.conversationId)) ?? service.coordinator;
-				const report = text === null ? failureReport(workerId, failure) : reportText(workerId, text);
+				const body = text === null ? failureReport(workerId, failure) : reportText(workerId, text);
+				const report = body === null ? null : body + (reporter.state.checkpoint.proofSuffix ?? "");
 				const scheduledRecord = schedule?.onReport === "record";
 				const forget = schedule?.isolation === "shared";
 				let notify = false;
@@ -1160,6 +1202,17 @@ export class WorkerService {
 				checkout: () => options.project().path,
 				workspacesDir: options.workspacesDir,
 			});
+	}
+
+	/** Proof is advisory: slow or broken local files must not fail or indefinitely hold a report. */
+	async unsavedProof(conversationId: number): Promise<UnsavedProof | undefined> {
+		if (!this.#options.browsers) return undefined;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([this.#options.browsers.unsavedProof(this.project.id, conversationId),
+				new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 1000); })]);
+		} catch (error) { this.log(`worker proof scan: ${errorMessage(error)}`); return undefined; }
+		finally { clearTimeout(timer); }
 	}
 
 	ensureBrowserReady(): Promise<WorkerBrowserAvailability> {
