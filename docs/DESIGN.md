@@ -5027,10 +5027,26 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   `models.ts`. `model-catalog-extensions.ts` holds a small temporary extra-model table for
   releases pi-ai has not shipped yet. Its provider wrapper extends both chat/all-model lists,
   so runtime lookup, `models.list`, web/Android pickers, usage costs and cache stats agree.
-  A native entry with the same ID always wins; the temporary table remains empty with pi-ai 1.5.2.
-  This patch adds chat models `meta/muse-ember-1.0`, `opencode/minimax-m3.1-flash-free`,
+  A native entry with the same ID always wins, including its thinking map and compat flags.
+  With pi-ai 1.5.2 the table adds GPT-6.2 Astra/Sol for OpenAI, OpenAI Codex and Azure
+  (pi main e56d35ce + cead615b); Azure remains outside the harness provider set.
+  Both inherit text/image input, reasoning, 128K output and provider-specific compat/input limits
+  from GPT-6 Astra / GPT-6.1 Sol. Context: OpenAI/Azure 1.05M, Codex Astra 272K / Sol 500K.
+  OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and
+  [Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) pages (checked 2026-11-17 UTC)
+  take precedence over pi's intentional OpenAI 272K short-tier cap; max output remains 128K.
+  OpenAI's [Codex docs](https://developers.openai.com/codex/models) confirm the Codex defaults.
+  Per-million input/cache-read/cache-write/output prices are $8/$0.40/$10/$40 for Astra and
+  $2/$0.10/$2.50/$10 for Sol. Above 272K input tokens, input/cache rates double and output is 1.5×, matching
+  OpenAI's [pricing](https://developers.openai.com/api/docs/pricing) (30-minute cache writes).
+  The [migration guide](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
+  directs callers using none/minimal to low.
+  The server sends low/medium/high/xhigh/max to both clients, with no Off or Minimal; Codex's
+  upstream Minimal → Low alias is deliberately hidden by a merged thinking-map override.
+  Web and Android use that server-supplied list; neither needs a client change.
+  pi-ai 1.5.2 itself adds chat models `meta/muse-ember-1.0`, `opencode/minimax-m3.1-flash-free`,
   `openrouter/nex-agi/nex-n2.6`, `radius/claude-fable-5-2` and classifier
-  `openrouter/nace-ai/drex-max-finance` upstream; the four harness provider catalogs are unchanged.
+  `openrouter/nace-ai/drex-max-finance` upstream; those additions do not affect the harness provider catalogs.
   The harness's Anthropic user-agent override matches pi-ai's Claude Code identity, 2.1.322.
   Chord's new host-keyed members preserve existing contract fingerprints; a stopped synthetic
   1.5.1 durable-store copy loads and continues conversations under 1.5.2 without migration errors.

@@ -52,8 +52,8 @@ export function createHarnessModels(options: { credentials: CredentialStore }): 
 		getAllModels: () => (anthropic.getAllModels?.() ?? anthropic.getModels()).map(model =>
 			model.type === undefined || model.type === "chat" ? anthropicChatModel(model) : model),
 	});
-	models.setProvider(openaiProvider());
-	models.setProvider(openaiCodexProvider());
+	models.setProvider(withModelCatalogExtensions(openaiProvider()));
+	models.setProvider(withModelCatalogExtensions(openaiCodexProvider()));
 	return models;
 }
 
