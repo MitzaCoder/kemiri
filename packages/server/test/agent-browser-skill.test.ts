@@ -20,7 +20,7 @@ test("agent-browser is a short, project-independent lazy skill shipped by the bi
 	expect(frontmatter.name).toBe("agent-browser");
 	expect(frontmatter.description).toMatch(/web UI/);
 	expect(frontmatter.description).toMatch(/screenshots.*recordings/);
-	expect(Buffer.byteLength(body)).toBeLessThanOrEqual(6000);
+	expect(Buffer.byteLength(body)).toBeLessThanOrEqual(6500);
 	expect(body).not.toMatch(/kemiri|aiki|\/home\/|\/Users\/|\/etc\/profiles\/|\/nix\/store\//i);
 	expect(body).not.toContain("localStorage[");
 	for (const instruction of ["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION", "AGENT_BROWSER_EXECUTABLE_PATH",

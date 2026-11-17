@@ -25,6 +25,7 @@ PROOF="$RUN/proof"
 cat > "$RUN/ab" <<EOF
 #!/usr/bin/env bash
 export HOME='$RUN/home'
+export TMPDIR='$RUN'
 export AGENT_BROWSER_SOCKET_DIR='$RUN/socket'
 export AGENT_BROWSER_SESSION='proof-$(basename "$RUN")'
 export AGENT_BROWSER_EXECUTABLE_PATH='$CHROME'
@@ -60,7 +61,7 @@ ab wait --text "Saved"
 ab snapshot -i
 ```
 
-Refs/labels are examples. Refresh snapshots after UI changes; stale/ambiguous refs need a new snapshot, not blind retries. Act through refs, not CSS selectors or eval. Scope the snapshot when busy pages are noisy (a full busy-page tree can cost ~600 tokens):
+Refs/labels are examples. Refresh snapshots after UI changes; stale/ambiguous refs need a new snapshot, not blind retries. Act through refs, not CSS selectors or eval; bring off-screen items into view with `ab scrollintoview @e7`. Scope snapshots on busy pages (measure bytes/4: text-rich pages can exceed 1,500 tokens):
 
 ```bash
 ab snapshot -i -c -d 5 -s main
