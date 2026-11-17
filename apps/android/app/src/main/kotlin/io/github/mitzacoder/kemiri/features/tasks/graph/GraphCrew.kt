@@ -26,7 +26,7 @@ import kotlin.math.sin
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun GraphCrewMascot(member: GraphCrewMember, motion: Boolean, reporting: Boolean = false, mascotSize: Dp = 32.dp) {
+internal fun GraphCrewMascot(member: GraphCrewMember, motion: Boolean, reporting: Boolean = false, mascotSize: Dp = 32.dp, canvasManaged: Boolean = false) {
     val ink = Jarvis.colors.fg
     val badgeTone = when (member.state) {
         AgentMotion.Failed -> Jarvis.colors.danger
@@ -38,7 +38,8 @@ internal fun GraphCrewMascot(member: GraphCrewMember, motion: Boolean, reporting
     val opacity = remember { Animatable(if (motion && member.state != AgentMotion.Done) 0f else 1f) }
     LaunchedEffect(member.state == AgentMotion.Done, motion) {
         val done = member.state == AgentMotion.Done
-        if (!motion) opacity.snapTo(if (done) 0f else 1f)
+        if (canvasManaged) opacity.snapTo(1f)
+        else if (!motion) opacity.snapTo(if (done) 0f else 1f)
         else opacity.animateTo(if (done) 0f else 1f, tween(if (done) 400 else 300, delayMillis = if (done) 1300 else 0))
     }
     LaunchedEffect(reporting, motion) {

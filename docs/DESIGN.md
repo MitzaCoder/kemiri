@@ -3716,8 +3716,19 @@ Fit includes full graph slots and the fold anchor. Resizing preserves centre and
 Official five-state `AgentMascot` composables perch on the shared task-rim positions. Background jobs
 are 25% larger with a dashed ring; waiting/failure badges remain visible when motion stops. Only in-view
 crew can loop, capped at twelve, and all stay still below 50% zoom or with animator scale zero. Obscuring
-sheets/menus also stop decoration. Report sparks, reassignment arcs and finish motion are a later stage;
-the bubble canvas does not run the retired card renderer's transition layer.
+sheets/menus also stop decoration. Android live motion (T264) consumes authoritative board/crew reads,
+seeding history on first load and socket-generation changes. `BubbleMotionBaseline` uses the vector-checked
+report/departure helpers; View, Live/All and Resting changes never invent arrivals or replay reports.
+A changed nonempty worker report sends one 650 ms spark to its task rim, followed by one 500 ms expanding
+ring. New crew fade in for 300 ms; reassignment uses `interpolateCrewHandoff`'s bounded upward 650 ms arc.
+Completion/removal retains the old mascot position for a 1.3 s hop and 400 ms fade; stopped crew only fade
+for 400 ms. Animator scale zero, obscuring UI and zoom below 50% immediately clear finite cues/departures
+without replay when motion resumes. Loop phases are stable per crew ID. Selected blocked-by dashes march
+toward the blocker over 2.4 s by translating retained dash paint inside a segment clip, with no per-frame
+edge or task/label repaint. Report sparks/rings, handoff positions, arrival/departure opacity and mascot
+poses read animation clocks in render
+layers, preserving the canvas's pan performance. JVM tests cover snapshot baselines, no-replay visibility,
+real departures, arrivals, vector-backed arcs and the visible twelve-worker motion budget.
 
 The clock-free resting rule moves idle/failed workers without an open visible task into Resting, even
 with Closed tasks enabled. Running workers never rest. A bottom-left Resting count opens a native sheet

@@ -106,8 +106,11 @@ fun mascotPose(state: AgentMotion, elapsedMs: Long): MascotPose {
     }
     val stillState = state in listOf(AgentMotion.Sleeping, AgentMotion.Failed, AgentMotion.Waiting)
     val loop = state in listOf(AgentMotion.Working, AgentMotion.Waiting, AgentMotion.Sleeping)
-    val pose = if(reduced) { if(stillState) mascotPose(state,0) else MascotPose() }
+    // Read the frame clock only in render-layer callbacks; no per-frame composition/layout.
+    val pose by remember(state, reduced, phaseMs) { derivedStateOf {
+        if(reduced) { if(stillState) mascotPose(state,0) else MascotPose() }
         else mascotPose(state,elapsed + if(loop) phaseMs else 0L)
+    } }
     val travel = if(size <= 32.dp) .45f else 1f
     fun origin(x: Float,y: Float) = TransformOrigin((x - 122f) / 780f,(y - 115f) / 780f)
     Box(modifier.size(size).semantics { if(label != null) contentDescription = label }) {

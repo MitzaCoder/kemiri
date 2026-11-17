@@ -58,6 +58,12 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     val counts = remember(graph) { graphCounts(graph) }
     val canvas = remember(key) { BubbleCanvasState(loadGraphCamera(settings, backend, project)) }
     val scope = rememberCoroutineScope()
+    val motionBaseline = remember(key) { BubbleMotionBaseline() }
+    var motionBatch by remember(key) { mutableStateOf(BubbleMotionBatch()) }
+    val readsComplete = graphReadsComplete(connection.generation, view.generation, workersRead?.generation, threadsRead?.generation)
+    LaunchedEffect(graph, workers, threads, readsComplete, connection.generation) {
+        if (readsComplete) motionBatch = motionBaseline.read(graph, workers, threads, connection.generation)
+    }
     LaunchedEffect(canvas) {
         snapshotFlow { canvas.camera }.filterNotNull().collectLatest { camera ->
             delay(180)
@@ -93,7 +99,7 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
                 else graphFoldExpansion(graph, folds, expandedFolds + kind)
         }, selectedId?.let { "task:$it" }, allLinks, showLegend,
             graphMotionAllowed() && !sheetOpen && workerSelection == null && !restingOpen && !viewOpen,
-            view.tasks, view.questions, { node ->
+            motionBatch, view.tasks, view.questions, { node ->
                 if (node.kind == "task") { selectedId = node.task!!.id; sheetOpen = true }
                 else node.worker?.let { openWorker(graphWorkerKey(it)) } ?: node.thread?.let { openWorker("thread:${it.id}") }
             }, { restingOpen = true }, Modifier.weight(1f))
