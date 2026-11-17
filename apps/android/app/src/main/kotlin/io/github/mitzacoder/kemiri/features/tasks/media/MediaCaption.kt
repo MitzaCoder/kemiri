@@ -81,6 +81,7 @@ internal fun MediaCaption(
     onStartEdit: () -> Unit,
     modifier: Modifier = Modifier,
     seek: ((Artifact, Int) -> Unit)? = null,
+    showTitle: Boolean = true,
 ) {
     val colors = Jarvis.colors
     val duration = if (reducedMotion) 0 else MediaMotion.captionMs
@@ -98,8 +99,8 @@ internal fun MediaCaption(
             var editing by remember(id) { mutableStateOf(false) }
             var noteOpen by remember(id) { mutableStateOf(false) }
             val now = remember(artifact.id) { System.currentTimeMillis() }
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(artifactTitle(artifact), Modifier.weight(1f).semantics { heading() }, style = TextStyles.task.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = if (showTitle) Arrangement.spacedBy(8.dp) else Arrangement.End) {
+                if (showTitle) Text(artifactTitle(artifact), Modifier.weight(1f).semantics { heading() }, style = TextStyles.task.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
                 if (onDetails != null) Box(
                     Modifier.size(32.dp).clip(RoundedCornerShape(50)).clickable(role = Role.Button, onClickLabel = "Details, download, delete") { onDetails(artifact) },
                     contentAlignment = Alignment.Center,

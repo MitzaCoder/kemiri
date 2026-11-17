@@ -2287,8 +2287,25 @@ later from this section.
   `artifacts.changed` (`deleted: false`) to every connection, which the live lists already take in as a replacement. Only
   tags can change. Errors: `unknown_artifact`. The app offers tag editing only when the hello's features hold
   `artifact-tags`; on older backends it still shows no tags (there are none).
-- **The Files section of a task** shows the task's artifacts in two parts. **Media** (images and videos) is a carousel;
-  **other files** (text, audio, anything else) stay the simple row list under it, opening `ArtifactDialog` as before. Media
+- **Gallery titles and pages (T234).** Titles sit above each grid tile/preview and above each image/video carousel
+  slide, including peeking neighbours. Long grid/slide titles wrap to two lines; page rows show the full title.
+  HTML is recognised by MIME or extension with the viewer's existing predicate. Project/conversation lists stably
+  put pages first, labelled **Page**, with a scaled 800×450, non-interactive render instead of a text-file icon.
+  Their kind filters place **Page** immediately after All (Pages for more than one); **Text** counts only non-HTML
+  text. The UI category reuses the same HTML predicate for counts and filtering, without changing the stored kind.
+  Task Files puts page cards before the media carousel and ordinary file rows; page groups initially show four.
+  Opening a page still uses the ordinary artifact dialog/Android route, preserving Page/Source and review actions.
+  Web `ArtifactPageThumb.svelte` shares the viewer's opaque-origin sandbox, no-referrer policy, theme prelude and
+  project CSP setting (fail closed while project settings load). Frames are inert and out of the tab order; only
+  intersecting cells acquire one of four live-frame slots (`page-preview.ts`), released/destroyed when hidden.
+  Android `ArtifactPageThumb.kt` similarly admits only visible cells to two live WebViews; it shares the existing
+  origin-less loader, theme/CSP and WebView policy, **additionally disabling JavaScript** as a cheap static preview.
+  All native preview navigation is blocked and an overlay opens the full reader, not the thumbnail document.
+  Neither platform keeps a disk cache or signed URLs in saved state. Thumbnail source reads are capped at **1 MiB**
+  (separate from the full reader's 20 MiB limit); oversized/failed pages show an open-page fallback, never a partial
+  document. Hidden previews cancel their reads and discard source, so long lists do not keep running page scripts.
+- **The Files section of a task** shows pages first, **Media** (images and videos) as a carousel, and **other files**
+  (text, audio, anything else) as the simple row list under it, opening `ArtifactDialog` as before. Media
   is ordered **oldest first** (save order), so a before/after sequence reads in order and "3 of 8" is stable while new
   ones arrive at the end.
 - **The viewer's size follows the kind (T161).** `ArtifactDialog` sizes itself with `artifactDialogSizing`
@@ -2319,7 +2336,7 @@ later from this section.
   with the same Page/Source segmented control in the preview's bar. The choice is kept while the process lives
   (`ArtifactPageChoice`, the web's module variable) and never written to storage; Copy still copies the source, and the
   Wrap toggle disappears while the page is drawn. The screen is the only place an HTML artifact is read on Android:
-  chat cards and lists show a file row or a thumbnail, never an inline page, so there is no compact frame. The page
+  chat cards keep their compact presentation; galleries now show cheap page thumbnails (T234), not a second reader. The page
   fills all remaining height below a compact Page/Source bar, edge to edge horizontally, respecting the navigation
   scaffold's system insets. HTML uses a non-scrolling column with a weighted viewport: WebView owns page scrolling,
   while Source has its own full-height text scroller. The info button holds the title, facts, note, source path and
@@ -2360,8 +2377,9 @@ later from this section.
   touch-only devices), ←/→, Home and End when the carousel has focus, and a **thumbnail strip** below (the current one
   outlined and kept in view) move between slides. The active slide is the one nearest the centre; tapping a peeking
   neighbour scrolls to it. Moves are a 220 ms own ease-out animation (`MEDIA_MOTION`). Reduced motion: no animated scrolling and no scale animation.
-- **The caption** under the slide: title, its tags as chips (the editor's entry point), the facts line, and the note as
-  Markdown clamped to three lines with "more". It cross-fades when the slide changes. The slide's accessible name is
+- **The caption** under the slide: its tags as chips (the editor's entry point), the facts line, and the note as
+  Markdown. The title is above each inline slide (T234); the full-screen viewer keeps its title bar and caption.
+  The note is Markdown clamped to three lines with "more". It cross-fades when the slide changes. The slide's accessible name is
   "Screenshot 3 of 8: <title>" ("Video 3 of 8: …"; the position is among the filtered media).
 - **Videos** play in the slide with the existing `ArtifactVideo` (resume place, speed, controls). Only the active slide and
   its neighbours mount a video player at all; the others show the first-frame thumbnail. A video **pauses when it stops

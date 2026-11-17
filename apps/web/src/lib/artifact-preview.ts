@@ -30,6 +30,11 @@ export function isHtmlArtifact(artifact: Pick<Artifact, "name" | "mimeType">): b
 	return /\.(html|htm|xhtml)$/i.test(artifact.name);
 }
 
+/** Stable partition: pages get prominence without disturbing order within either group. */
+export function pagesFirst<T extends Pick<Artifact, "name" | "mimeType">>(artifacts: readonly T[]): T[] {
+	return artifacts.toSorted((a, b) => Number(isHtmlArtifact(b)) - Number(isHtmlArtifact(a)));
+}
+
 /** Text for the wrapper's markup and its title: the artifact's own name is never interpreted. */
 export function escapeHtml(text: string): string {
 	return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");

@@ -42,6 +42,7 @@ internal val ARTIFACT_KINDS = listOf("video", "image", "audio", "text", "file")
 internal const val MEDIA_RETRY_LIMIT = 2
 
 internal fun artifactKindLabel(kind: String, plural: Boolean = false): String = when (kind) {
+    "page" -> if (plural) "Pages" else "Page"
     "video" -> if (plural) "Videos" else "Video"
     "image" -> if (plural) "Images" else "Image"
     "audio" -> "Audio"
@@ -69,13 +70,16 @@ internal fun savedByLabel(artifact: Artifact): String {
     return "Worker $worker of ${if (main) "Main chat" else "background job ${artifact.threadId}"}"
 }
 
-/** How many of each kind a list holds, in the kinds' order, leaving out the absent ones. */
+/** Page is a gallery category, not a stored kind; reuse the reader's HTML detection. */
+internal fun artifactFilterKind(artifact: Artifact): String = if (isHtmlArtifact(artifact.name, artifact.mimeType)) "page" else artifact.kind
+
+/** Page first after All, then ordinary kinds; HTML never contributes to Text. */
 internal fun artifactKindCounts(artifacts: List<Artifact>): List<Pair<String, Int>> =
-    ARTIFACT_KINDS.map { kind -> kind to artifacts.count { it.kind == kind } }.filter { it.second > 0 }
+    (listOf("page") + ARTIFACT_KINDS).map { kind -> kind to artifacts.count { artifactFilterKind(it) == kind } }.filter { it.second > 0 }
 
 /** The list narrowed to one kind, or whole for null. */
 internal fun filterByKind(artifacts: List<Artifact>, kind: String?): List<Artifact> =
-    if (kind == null) artifacts else artifacts.filter { it.kind == kind }
+    if (kind == null) artifacts else artifacts.filter { artifactFilterKind(it) == kind }
 
 /** The kind of a file from its name alone, for an artifact the chat names before its record is read. */
 internal fun kindFromName(name: String): String {

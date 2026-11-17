@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import io.github.mitzacoder.kemiri.features.chat.artifactFilterKind
 import io.github.mitzacoder.kemiri.features.status.exactTime
 import io.github.mitzacoder.kemiri.features.status.relativeTime
 import io.github.mitzacoder.kemiri.navigation.PanelTab
@@ -114,10 +115,11 @@ internal fun sortWorkers(workers: List<WorkerSummary>): List<WorkerSummary> =
 
 // --- Artifacts tab kind filter (web lib/artifacts.ts) --------------------------------------------------------------
 
-private val artifactKindOrder = listOf("video", "image", "audio", "text", "file")
+private val artifactKindOrder = listOf("page", "video", "image", "audio", "text", "file")
 
 /** A kind as a chip says it: "Video", or "Videos" for more than one. */
 internal fun panelArtifactKindLabel(kind: String, plural: Boolean = false): String = when (kind) {
+    "page" -> if (plural) "Pages" else "Page"
     "video" -> if (plural) "Videos" else "Video"
     "image" -> if (plural) "Images" else "Image"
     "audio" -> "Audio"
@@ -128,7 +130,7 @@ internal fun panelArtifactKindLabel(kind: String, plural: Boolean = false): Stri
 
 /** How many of each kind a list holds, in the kinds' order, leaving out the absent ones (web `kindCounts`). */
 internal fun panelArtifactKinds(artifacts: List<Artifact>): List<Pair<String, Int>> {
-    val counts = artifacts.groupingBy { it.kind }.eachCount()
+    val counts = artifacts.groupingBy(::artifactFilterKind).eachCount()
     return (artifactKindOrder + counts.keys.filter { it !in artifactKindOrder }).mapNotNull { kind -> counts[kind]?.let { kind to it } }
 }
 

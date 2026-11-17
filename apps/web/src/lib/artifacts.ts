@@ -3,6 +3,7 @@
  * names, and the image lightbox's zoom and pan maths.
  */
 import type { Artifact, ArtifactKind } from "@kemiri/protocol";
+import { isHtmlArtifact } from "./artifact-preview.ts";
 
 /** The tool a thread or worker saves an artifact with. */
 export const ARTIFACT_SAVE_TOOL = "artifact_save";
@@ -17,7 +18,12 @@ export function artifactBrowserUrl(url: string, pageOrigin: string): string {
 
 export const ARTIFACT_KINDS: readonly ArtifactKind[] = ["video", "image", "audio", "text", "file"];
 
-const KIND_LABELS: Record<ArtifactKind, { one: string; many: string }> = {
+/** Pages are a gallery category, not a new stored/protocol kind. */
+export type ArtifactFilterKind = ArtifactKind | "page";
+const ARTIFACT_FILTER_KINDS: readonly ArtifactFilterKind[] = ["page", ...ARTIFACT_KINDS];
+
+const KIND_LABELS: Record<ArtifactFilterKind, { one: string; many: string }> = {
+	page: { one: "Page", many: "Pages" },
 	video: { one: "Video", many: "Videos" },
 	image: { one: "Image", many: "Images" },
 	audio: { one: "Audio", many: "Audio" },
@@ -25,7 +31,7 @@ const KIND_LABELS: Record<ArtifactKind, { one: string; many: string }> = {
 	file: { one: "File", many: "Files" },
 };
 
-export function kindLabel(kind: ArtifactKind, plural = false): string {
+export function kindLabel(kind: ArtifactFilterKind, plural = false): string {
 	return plural ? KIND_LABELS[kind].many : KIND_LABELS[kind].one;
 }
 
@@ -77,16 +83,21 @@ export function kindFromName(name: string): ArtifactKind {
 	return "file";
 }
 
-/** How many of each kind a list holds, in the kinds' order, leaving out the absent ones. */
-export function kindCounts(artifacts: readonly Pick<Artifact, "kind">[]): { kind: ArtifactKind; count: number }[] {
-	return ARTIFACT_KINDS.map((kind) => ({ kind, count: artifacts.filter((artifact) => artifact.kind === kind).length })).filter(
+/** Match the reader's HTML detection; Page and Text never count the same artifact. */
+export function artifactFilterKind(artifact: Pick<Artifact, "kind" | "name" | "mimeType">): ArtifactFilterKind {
+	return isHtmlArtifact(artifact) ? "page" : artifact.kind;
+}
+
+/** Present categories in filter order: Page first after All, then the ordinary kinds. */
+export function kindCounts(artifacts: readonly Pick<Artifact, "kind" | "name" | "mimeType">[]): { kind: ArtifactFilterKind; count: number }[] {
+	return ARTIFACT_FILTER_KINDS.map((kind) => ({ kind, count: artifacts.filter((artifact) => artifactFilterKind(artifact) === kind).length })).filter(
 		(entry) => entry.count > 0,
 	);
 }
 
 /** The list narrowed to one kind, or whole for `"all"`. */
-export function filterByKind<T extends Pick<Artifact, "kind">>(artifacts: readonly T[], kind: ArtifactKind | "all"): readonly T[] {
-	return kind === "all" ? artifacts : artifacts.filter((artifact) => artifact.kind === kind);
+export function filterByKind<T extends Pick<Artifact, "kind" | "name" | "mimeType">>(artifacts: readonly T[], kind: ArtifactFilterKind | "all"): readonly T[] {
+	return kind === "all" ? artifacts : artifacts.filter((artifact) => artifactFilterKind(artifact) === kind);
 }
 
 /** A list grouped by the board task each is evidence for, keeping its order; those for no task are left out. */

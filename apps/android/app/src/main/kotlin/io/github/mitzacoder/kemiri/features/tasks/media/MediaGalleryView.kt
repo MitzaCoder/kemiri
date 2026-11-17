@@ -163,35 +163,38 @@ internal fun MediaGalleryView(
             val distance = at - index
             val near = loadsFull(distance)
             DisposableEffect(item.id) { onDispose { slideRects.forget(item.id) } }
-            Box(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(colors.surface2).border(1.dp, colors.border, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                val comparingThis = pair != null && item.id in comparing
-                when {
-                    item.kind == "video" -> MediaVideoSlide(
-                        context, item, active = active && !viewerOpen, near = near, onPlayingChange = { playing[item.id] = it },
-                        seeks = remember(item.id) { kotlinx.coroutines.flow.flow<Int> { seeks.collect { if (it.first == item.id) emit(it.second) } } },
-                    )
-                    comparingThis && near -> CompareSlider(context, pair!!.before, pair.after, reducedMotion, onOpen = if (active) ({ openViewer(at) }) else null)
-                    else -> MediaImage(context, item, labels[at], near, active, slideRects, onOpen = { openViewer(at) })
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(artifactTitle(item), style = TaskType.sectionTitle, color = colors.fg, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Box(
+                    Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)).background(colors.surface2).border(1.dp, colors.border, RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val comparingThis = pair != null && item.id in comparing
+                    when {
+                        item.kind == "video" -> MediaVideoSlide(
+                            context, item, active = active && !viewerOpen, near = near, onPlayingChange = { playing[item.id] = it },
+                            seeks = remember(item.id) { kotlinx.coroutines.flow.flow<Int> { seeks.collect { if (it.first == item.id) emit(it.second) } } },
+                        )
+                        comparingThis && near -> CompareSlider(context, pair!!.before, pair.after, reducedMotion, onOpen = if (active) ({ openViewer(at) }) else null)
+                        else -> MediaImage(context, item, labels[at], near, active, slideRects, onOpen = { openViewer(at) })
+                    }
+                    if (item.kind == "image" && pair != null) OverlayPill(
+                        label = if (separate) "Compare pairs" else "Show singly",
+                        active = active, pressed = comparingThis,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+                    ) { toggleCompare(item.id) }
+                    OverlayRound(
+                        MediaIcons.Expand, "Open ${artifactTitle(item)} full screen", active,
+                        Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    ) { openViewer(at) }
                 }
-                if (item.kind == "image" && pair != null) OverlayPill(
-                    label = if (separate) "Compare pairs" else "Show singly",
-                    active = active, pressed = comparingThis,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
-                ) { toggleCompare(item.id) }
-                OverlayRound(
-                    MediaIcons.Expand, "Open ${artifactTitle(item)} full screen", active,
-                    Modifier.align(Alignment.TopEnd).padding(8.dp),
-                ) { openViewer(at) }
             }
         }
 
         if (shown.size > 1) MediaStrip(context, shown, index, pairs.keys, reducedMotion, onSelect = ::goTo)
 
         MediaCaption(
-            artifactId = current?.id, lookup = { id -> shown.firstOrNull { it.id == id } }, task = taskTagNames, project = projectTagNames,
+            showTitle = false, artifactId = current?.id, lookup = { id -> shown.firstOrNull { it.id == id } }, task = taskTagNames, project = projectTagNames,
             canEdit = onUpdateTags != null, busy = busy, problem = problem, reducedMotion = reducedMotion,
             onEdit = ::editTags, onFilter = ::setFilter, onDetails = onDetails, onStartEdit = { projectWanted = true },
             seek = { artifact, seconds -> seeks.tryEmit(artifact.id to seconds) },

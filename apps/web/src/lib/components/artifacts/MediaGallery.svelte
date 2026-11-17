@@ -189,6 +189,8 @@
 			{#if item !== undefined}
 				{@const pair = pairs.get(item.id)}
 				{@const near = loadsFull(at - index)}
+				<div class="flex h-full min-h-0 flex-col gap-2">
+				<h4 class="line-clamp-2 shrink-0 text-sm leading-snug font-semibold break-words" title={artifactTitle(item)}>{artifactTitle(item)}</h4>
 				<div class="stage" data-slide-stage>
 					{#if item.kind === 'video'}
 						<MediaVideoSlide bind:this={videoSlides[at]} artifact={item} {client} {active} {near} />
@@ -229,6 +231,7 @@
 						<ExpandIcon class="size-4" />
 					</button>
 				</div>
+				</div>
 			{/if}
 		{/snippet}
 	</MediaCarousel>
@@ -238,6 +241,7 @@
 	{/if}
 
 	<MediaCaption
+		showTitle={false}
 		artifact={current}
 		task={taskTagNames}
 		project={projectTagNames}
@@ -325,7 +329,8 @@
 		display: grid;
 		place-items: center;
 		width: 100%;
-		height: 100%;
+		flex: 1;
+		min-height: 0;
 		overflow: hidden;
 		border-radius: 1rem;
 		background:

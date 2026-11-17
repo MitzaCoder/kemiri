@@ -23,8 +23,8 @@ import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 /**
- * The body of a task's Files section (web `TaskFiles`): its photos and videos as the media carousel ([MediaGalleryView])
- * and every other file (logs, text, reports) as the simple rows under it, each opening the artifact's own page.
+ * Task Files: page previews first, then the image/video carousel and ordinary file rows. Every page opens the
+ * existing artifact reader. The page group is initially bounded to four cards.
  * [onUpdateTags] is given only when the backend can change tags (`artifact-tags`).
  */
 @Composable
@@ -39,9 +39,19 @@ internal fun TaskFiles(
         ChatArtifactMetadata.keep(context.backend.config.key, artifact)
         context.navigate(Destination.Artifact(context.route, artifact.id))
     }
+    var pagesExpanded by rememberSaveable { mutableStateOf(false) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val pages = split.files.filter { isHtmlArtifact(it.name, it.mimeType) }
+        pages.take(if (pagesExpanded) pages.size else 4).forEach { page ->
+            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${artifactTitle(page)}") { open(page) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(artifactTitle(page), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
+                Text("Page", style = TaskType.meta, color = Jarvis.colors.accent2)
+                ArtifactPageThumb(context, page, onOpen = { open(page) })
+            }
+        }
+        if (pages.size > 4) OutlinedButton(onClick = { pagesExpanded = !pagesExpanded }) { Text(if (pagesExpanded) "Fewer pages" else "Show all ${pages.size} pages") }
         if (split.media.isNotEmpty()) MediaGalleryView(context, split.media, onUpdateTags, onDetails = ::open)
-        if (split.files.isNotEmpty()) FileRows(split.files, onOpen = ::open)
+        if (split.files.isNotEmpty()) FileRows(split.files.filterNot { isHtmlArtifact(it.name, it.mimeType) }, onOpen = ::open)
     }
 }
 

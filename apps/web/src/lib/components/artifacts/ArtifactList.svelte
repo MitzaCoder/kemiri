@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { ArtifactFilter, HarnessClient } from '@kemiri/client';
-	import type { Artifact, ArtifactKind } from '@kemiri/protocol';
+	import type { Artifact } from '@kemiri/protocol';
+	import type { ArtifactFilterKind } from '#lib/artifacts.js';
 	import { artifactTitle, filterByKind, formatBytes, formatMediaDuration, kindCounts, kindLabel, savedByLabel } from '#lib/artifacts.js';
 	import { useArtifactFeed } from '#lib/artifacts.svelte.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import ArtifactDialog from './ArtifactDialog.svelte';
 	import ArtifactThumb from './ArtifactThumb.svelte';
+	import ArtifactPageThumb from './ArtifactPageThumb.svelte';
+	import { isHtmlArtifact, pagesFirst } from '#lib/artifact-preview.js';
 
 	/**
 	 * A project's artifacts with fixed filters, live: as a grid of cards or as rows, with chips to narrow by kind once
@@ -43,9 +46,10 @@
 	const all = $derived(items ?? feed.current?.artifacts ?? []);
 	const loaded = $derived(items !== undefined || feed.current?.loaded === true);
 	const counts = $derived(kindCounts(all));
-	let kind = $state<ArtifactKind | 'all'>('all');
+	let kind = $state<ArtifactFilterKind | 'all'>('all');
 	let expanded = $state(false);
-	const narrowed = $derived(filterByKind(all, kind));
+	// Stable partition: pages first, preserve save order within each group.
+	const narrowed = $derived(pagesFirst(filterByKind(all, kind)));
 	const shown = $derived(collapsedCount === undefined || expanded ? narrowed : narrowed.slice(0, collapsedCount));
 	let openId = $state<string | undefined>(undefined);
 	let dialogOpen = $state(false);
@@ -94,10 +98,15 @@
 			{#each shown as artifact (artifact.id)}
 				<li class="min-w-0">
 					<button type="button" class="card group flex w-full min-w-0 flex-col overflow-hidden rounded-xl text-left" onclick={() => open(artifact)} data-artifact={artifact.id}>
-						<ArtifactThumb {artifact} {client} class="aspect-video w-full" />
+						<span class="line-clamp-2 min-h-12 w-full px-2.5 py-2 text-[0.8125rem] font-medium break-words" title={artifactTitle(artifact)}>{artifactTitle(artifact)}</span>
+						{#if isHtmlArtifact(artifact)}
+							<span class="px-2.5 pb-1 text-xs font-semibold text-(--accent-2)">Page</span>
+							<ArtifactPageThumb {artifact} {client} />
+						{:else}
+							<ArtifactThumb {artifact} {client} class="aspect-video w-full" />
+						{/if}
 						<span class="flex min-w-0 flex-col gap-0.5 px-2.5 py-2">
 							<span class="flex min-w-0 items-center gap-1">
-								<span class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium" title={artifactTitle(artifact)}>{artifactTitle(artifact)}</span>
 								{#if (artifact.versionCount ?? 1) > 1}<span class="shrink-0 text-[0.625rem] text-(--chat-fg-subtle)" data-version-count>{artifact.versionCount} versions</span>{/if}
 							</span>
 							<span class="truncate text-[0.6875rem] text-(--chat-fg-subtle)">
@@ -113,11 +122,16 @@
 		<ul class="flex flex-col gap-1">
 			{#each shown as artifact (artifact.id)}
 				<li class="min-w-0">
-					<button type="button" class="row flex w-full min-w-0 items-center gap-2.5 rounded-xl p-1.5 text-left" onclick={() => open(artifact)} data-artifact={artifact.id}>
-						<ArtifactThumb {artifact} {client} class="h-10 w-14 rounded-lg" duration={false} />
-						<span class="flex min-w-0 flex-1 flex-col">
+					<button type="button" class="row flex w-full min-w-0 flex-col gap-1.5 rounded-xl p-1.5 text-left" onclick={() => open(artifact)} data-artifact={artifact.id}>
+						<span class="w-full text-[0.8125rem] font-medium break-words" title={artifactTitle(artifact)}>{artifactTitle(artifact)}</span>
+						{#if isHtmlArtifact(artifact)}
+							<span class="self-start text-xs font-semibold text-(--accent-2)">Page</span>
+							<ArtifactPageThumb {artifact} {client} />
+						{:else if artifact.kind === 'image' || artifact.kind === 'video'}
+							<ArtifactThumb {artifact} {client} class="h-20 w-36 self-start rounded-lg" />
+						{/if}
+						<span class="flex w-full min-w-0 flex-col">
 							<span class="flex min-w-0 items-center gap-1">
-								<span class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium" title={artifactTitle(artifact)}>{artifactTitle(artifact)}</span>
 								{#if (artifact.versionCount ?? 1) > 1}<span class="shrink-0 text-[0.625rem] text-(--chat-fg-subtle)" data-version-count>{artifact.versionCount} versions</span>{/if}
 							</span>
 							<span class="truncate text-[0.6875rem] text-(--chat-fg-subtle)">{meta(artifact)}</span>

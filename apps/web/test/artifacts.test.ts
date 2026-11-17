@@ -21,6 +21,7 @@ import {
 	formatMediaDuration,
 	isDismissSwipe,
 	kindCounts,
+	kindLabel,
 	kindFromName,
 	isMarkdownArtifact,
 	savedByLabel,
@@ -107,6 +108,24 @@ describe("the kind filter", () => {
 	test("narrows to one kind or keeps all", () => {
 		expect(filterByKind(list, "image").map((entry) => entry.id)).toEqual(["2"]);
 		expect(filterByKind(list, "all")).toBe(list);
+	});
+
+	test("Page is first and exclusive of Text, by extension or MIME, without changing stored kinds", () => {
+		const pages = [
+			artifact({ id: 'page-name', kind: 'text', name: 'report.HTML', mimeType: 'text/plain' }),
+			artifact({ id: 'page-mime', kind: 'file', name: 'report', mimeType: 'application/xhtml+xml' }),
+		];
+		const text = artifact({ id: 'text', kind: 'text', name: 'notes.txt', mimeType: 'text/plain' });
+		const image = artifact({ id: 'image', kind: 'image', name: 'image.png', mimeType: 'image/png' });
+		const mixed = [text, image, ...pages];
+		expect(kindCounts(mixed)).toEqual([{ kind: 'page', count: 2 }, { kind: 'image', count: 1 }, { kind: 'text', count: 1 }]);
+		expect(filterByKind(mixed, 'page')).toEqual(pages);
+		expect(filterByKind(mixed, 'text')).toEqual([text]);
+		expect(filterByKind(mixed, 'file')).toEqual([]);
+		expect(filterByKind(mixed, 'all')).toBe(mixed);
+		expect(kindLabel('page')).toBe('Page');
+		expect(kindLabel('page', true)).toBe('Pages');
+		expect(pages.map(page => page.kind)).toEqual(['text', 'file']);
 	});
 
 	test("groups by task, leaving out the ones for none", () => {

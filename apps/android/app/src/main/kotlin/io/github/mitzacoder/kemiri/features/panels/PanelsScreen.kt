@@ -239,7 +239,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     // A kind whose last artifact went away falls back to all.
     if (kind != "all" && data.value != null && kinds.none { it.first == kind }) kind = "all"
     val shown = remember(data) { PanelData<List<Artifact>>() }
-    shown.value = data.value?.let { list -> if (kind == "all") list else list.filter { it.kind == kind } }
+    shown.value = data.value?.let { list -> io.github.mitzacoder.kemiri.features.chat.filterByKind(list, kind.takeUnless { it == "all" }) }
     shown.error = data.error
     shown.loading = data.loading
     LaunchedEffect(shown) { for (ask in shown.refresh) data.refresh.trySend(ask) }

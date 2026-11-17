@@ -19,6 +19,7 @@
 	 */
 	let {
 		artifact,
+		showTitle = true,
 		task,
 		project,
 		canEdit = false,
@@ -30,6 +31,7 @@
 		onstartedit
 	}: {
 		artifact: Artifact | undefined;
+		showTitle?: boolean;
 		/** Tags used on this task's media, then the project's, for the editor's completion. */
 		task: readonly string[];
 		project: readonly string[];
@@ -93,8 +95,8 @@
 			{@const tags = tagsOf(artifact)}
 			{@const note = artifact.note?.trim() ? (artifact.kind === 'video' ? linkNoteTimes(artifact.note, artifact.durationSeconds ?? undefined) : artifact.note) : undefined}
 			<div class="cell flex min-w-0 flex-col gap-1.5" in:fade={{ duration, delay: 20 }} out:fade={{ duration: duration * 0.6 }}>
-				<div class="flex min-w-0 items-start gap-2">
-					<h4 class="min-w-0 flex-1 text-sm leading-snug font-semibold break-words" data-caption-title>{artifactTitle(artifact)}</h4>
+				<div class="flex min-w-0 items-start justify-end gap-2">
+					{#if showTitle}<h4 class="min-w-0 flex-1 text-sm leading-snug font-semibold break-words" data-caption-title>{artifactTitle(artifact)}</h4>{/if}
 					{#if ondetails}
 						<button type="button" class="icon-button" aria-label="Details of {artifactTitle(artifact)}" title="Details, download, delete" onclick={() => ondetails(artifact)}>
 							<InfoIcon class="size-4" />

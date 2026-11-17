@@ -31,13 +31,16 @@ import io.github.mitzacoder.kemiri.ui.components.*
             } }
             if (data.value == null && !data.loading && data.error == null) item(span = { GridItemSpan(maxLineSpan) }) { WorkbenchEmpty("Waiting for connection", "Saved artifacts will load when the backend reconnects.", Lucide.Paperclip) }
             if (data.value?.isEmpty() == true) item(span = { GridItemSpan(maxLineSpan) }) { WorkbenchEmpty("No matching artifacts", "Saved files and evidence appear here. Try changing the filters.", Lucide.Paperclip) }
-            items(data.value.orEmpty(), key = { it.id }) { artifact ->
+            items(pagesFirst(data.value.orEmpty()), key = { it.id }) { artifact ->
                 OutlinedCard(onClick = {
                     context.navigate(stageArtifactDestination(context.route, artifact))
                 }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    Text(artifactTitle(artifact), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (isHtmlArtifact(artifact.name, artifact.mimeType)) {
+                        Text("Page", Modifier.padding(horizontal = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        ArtifactPageThumb(context, artifact) { context.navigate(stageArtifactDestination(context.route, artifact)) }
+                    } else ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(artifactTitle(artifact), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(listOf(artifact.createdAt.takeIf { it.isNotBlank() }?.let { relativeTime(it, now) }.orEmpty(), artifactDetailSize(artifact.size).orEmpty(), artifactVersionCount(artifact)).filter { it.isNotEmpty() }.joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(savedByLabel(artifact), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)

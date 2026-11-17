@@ -1,14 +1,14 @@
 <script lang="ts">
 	import type { HarnessClient } from '@kemiri/client';
 	import type { Artifact } from '@kemiri/protocol';
+	import { isHtmlArtifact } from '#lib/artifact-preview.js';
 	import { splitMedia } from '#lib/media-gallery.js';
 	import ArtifactDialog from './ArtifactDialog.svelte';
 	import ArtifactList from './ArtifactList.svelte';
 	import MediaGallery from './MediaGallery.svelte';
 
 	/**
-	 * The body of a task's Files section: its photos and videos as the media carousel (`MediaGallery`) and every other file
-	 * (logs, text, reports) as the simple list under it. `onupdatetags` is given only when the backend can change tags.
+	 * The task's Files section: page cards first, then the image/video carousel and ordinary file rows. `onupdatetags` is given only when the backend can change tags.
 	 */
 	let {
 		artifacts,
@@ -29,6 +29,9 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-3" data-task-files>
+	{#if split.files.some(isHtmlArtifact)}
+		<ArtifactList {client} {projectId} items={split.files.filter(isHtmlArtifact)} layout="rows" collapsedCount={4} emptyText="" />
+	{/if}
 	{#if split.media.length > 0}
 		<MediaGallery
 			media={split.media}
@@ -43,7 +46,7 @@
 		/>
 	{/if}
 	{#if split.files.length > 0}
-		<ArtifactList {client} {projectId} items={split.files} layout="rows" collapsedCount={4} emptyText="" />
+		<ArtifactList {client} {projectId} items={split.files.filter((artifact) => !isHtmlArtifact(artifact))} layout="rows" collapsedCount={4} emptyText="" />
 	{/if}
 </div>
 

@@ -51,7 +51,7 @@ internal fun ConversationArtifacts(context: ProjectScreenContext) {
     val counts = artifactKindCounts(artifacts)
     // A kind whose last artifact went away falls back to all.
     val kind = chosenKind?.takeIf { chosen -> counts.any { it.first == chosen } }
-    val narrowed = filterByKind(artifacts, kind)
+    val narrowed = pagesFirst(filterByKind(artifacts, kind))
     val now = remember(artifacts) { System.currentTimeMillis() }
     val colors = Jarvis.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -64,14 +64,14 @@ internal fun ConversationArtifacts(context: ProjectScreenContext) {
             val title = artifactTitle(artifact)
             Surface(onClick = { context.navigate(stageArtifactDestination(route, artifact)) }, shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0f), modifier = Modifier.semantics { contentDescription = "Open $title" }) {
-                Row(Modifier.fillMaxWidth().padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ArtifactThumb(context, artifact, Modifier.size(width = 56.dp, height = 40.dp).clip(RoundedCornerShape(8.dp)), duration = false)
-                    Column(Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(formatMediaDuration(artifact.durationSeconds), artifactDetailSize(artifact.size).orEmpty(), artifactVersionCount(artifact), savedByLabel(artifact)).filter { it.isNotEmpty() }.joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (artifact.createdAt.isNotBlank()) Text(relativeTime(artifact.createdAt, now), style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
+                Column(Modifier.fillMaxWidth().padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    if (isHtmlArtifact(artifact.name, artifact.mimeType)) {
+                        Text("Page", style = MaterialTheme.typography.labelMedium, color = colors.accent2)
+                        ArtifactPageThumb(context, artifact) { context.navigate(stageArtifactDestination(route, artifact)) }
+                    } else if (artifact.kind == "image" || artifact.kind == "video") ArtifactThumb(context, artifact, Modifier.size(width = 144.dp, height = 80.dp))
+                    Text(listOf(formatMediaDuration(artifact.durationSeconds), artifactDetailSize(artifact.size).orEmpty(), artifactVersionCount(artifact), savedByLabel(artifact), relativeTime(artifact.createdAt, now)).filter { it.isNotEmpty() }.joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
                 }
             }
         }
