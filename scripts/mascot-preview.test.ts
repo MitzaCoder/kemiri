@@ -20,12 +20,33 @@ test("preview is self-contained with both surfaces, every size and accessible co
 	expect(html).not.toMatch(/{{[A-Z_]+}}|<(?:img|script|link)[^>]+(?:src|href)=|<image|data:image/);
 	expect(html).toContain('id="pause" aria-pressed="false"');
 	expect(html).toContain("Replay B · Done");
-	for (const state of ["working", "done", "thinking"]) {
+	for (const state of ["working", "done", "thinking", "sleeping", "failed"]) {
 		for (const size of [24, 32, 128]) expect(html.match(new RegExp(`data-state="${state}"[^>]*--size:${size}px`, "g"))?.length).toBe(2);
 		expect(html.match(new RegExp(`data-state="${state}"[^>]*--size:26px`, "g"))?.length).toBe(2);
 	}
 	const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
 	expect(new Set(ids).size).toBe(ids.length);
+});
+
+test('sleep and failure preserve still poses, use finite failure and transform/opacity only', async () => {
+	const css = await read('assets/brand/mascot-motion.css');
+	const html = await read('assets/brand/previews/mascot-animations.html');
+	expect(css).toContain('kemiri-sleep 6s ease-in-out infinite');
+	expect(css).toContain('kemiri-sleep-z 6s ease-in-out infinite');
+	expect(css).toContain('kemiri-shake .5s ease-in-out both');
+	expect(css).toContain('scale(1.02,.98)');
+	expect(css).toContain('opacity: .72');
+	expect(css).toContain('rotate(-9deg) !important');
+	expect(css).toContain('scaleY(-1) !important');
+	expect(css).toContain('rotate(11deg) !important');
+	expect(html).toContain('data-replay-failed');
+	for (const size of [24, 26, 32, 128]) {
+		expect(html).toMatch(new RegExp(`data-state="sleeping"[^>]*data-sleep-z="${size >= 28}"[^>]*--size:${size}px`));
+	}
+	for (const keyframes of css.matchAll(/@keyframes[^}]+(?:\}[^}]+)*?\n\}/g)) {
+		const properties = [...keyframes[0].matchAll(/([a-z-]+):/g)].map(match => match[1]);
+		expect(properties.every(property => property === 'transform' || property === 'opacity')).toBe(true);
+	}
 });
 
 test("motion has calm loop timings, finite done, reduced-motion and small-size treatment", async () => {

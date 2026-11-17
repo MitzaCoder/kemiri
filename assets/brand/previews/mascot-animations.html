@@ -121,13 +121,27 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
 @media(max-width:600px){.motion-card{display:block}.notes{grid-template-columns:1fr;gap:.5rem}.row-caption{max-width:7rem}.mock-grid .swatch{padding:1rem}.assistant-row{gap:12px}.user-message{max-width:100%}}
 @media(prefers-reduced-motion:reduce){.current-orb::before,.working-label{animation:none!important}}
 @media print{header{display:block}.variants{grid-template-columns:1fr}.motion-card{break-inside:avoid;display:grid;grid-template-columns:1fr 1fr}.variant-heading{grid-column:1/-1}.swatch{background:white!important;color:black!important;border-color:#bbb}.surface-label,.sample figcaption,.row-caption,.mock-caption{color:#444!important}.swatch{--sample-bg:white;--sample-fg:black;--sample-muted:#444;--sample-border:#bbb;--sample-user:white}.mock-grid{grid-template-columns:1fr 1fr}.notes{display:block}.current-orb::before,.working-label{animation:none}.working-label{background:none;color:black}.mock-grid .swatch{break-inside:avoid}}
-/* Preview-only motion. All distances and pivots use the SVG master's 1024-unit coordinates. */
+/* Shared mascot motion. All distances and pivots use the SVG master's 1024-unit coordinates. */
 .mascot-motion { --mascot-bob: -12px; --mascot-hop: -42px; --mascot-sway: 4.5deg; overflow: visible; }
 .mascot-motion[data-size="small"] { --mascot-bob: -7px; --mascot-hop: -30px; --mascot-sway: 3deg; }
 .mascot-pose { transform-origin: 512px 850px; }
 .mascot-leaf { transform-origin: 523px 380px; }
 .mascot-eye-left { transform-origin: 422px 592px; }
 .mascot-eye-right { transform-origin: 602px 592px; }
+.mascot-mouth { transform-origin: 512px 645px; }
+.mascot-sleep-z { opacity: 0; }
+.mascot-motion[data-state="sleeping"] { opacity: .72; }
+.mascot-motion[data-state="sleeping"] .mascot-eye { transform: scaleY(.1); }
+.mascot-motion[data-state="sleeping"] .mascot-leaf { transform: rotate(11deg); }
+.mascot-motion[data-state="sleeping"] .mascot-mouth { transform: scale(.55); }
+.mascot-motion[data-state="failed"] .mascot-pose { transform: rotate(-9deg); }
+.mascot-motion[data-state="failed"] .mascot-eye { transform: scaleY(.45); }
+.mascot-motion[data-state="failed"] .mascot-leaf { transform: rotate(17deg); }
+.mascot-motion[data-state="failed"] .mascot-mouth { transform: scaleY(-1); }
+.mascot-motion[data-state="sleeping"] .mascot-pose { animation: kemiri-sleep 6s ease-in-out infinite; }
+.mascot-motion[data-state="sleeping"] .mascot-sleep-z { animation: kemiri-sleep-z 6s ease-in-out infinite; }
+.mascot-motion[data-sleep-z="false"] .mascot-sleep-z { display: none; }
+.mascot-motion[data-state="failed"][data-play] .mascot-pose { animation: kemiri-shake .5s ease-in-out both; }
 .mascot-motion[data-state="working"] .mascot-pose { animation: kemiri-breathe 3s ease-in-out infinite; }
 .mascot-motion[data-state="working"] .mascot-leaf { animation: kemiri-sway 3s ease-in-out infinite; }
 .mascot-motion[data-state="working"] .mascot-eye { animation: kemiri-working-blink 6s ease-in-out infinite; }
@@ -183,9 +197,39 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
   81% { transform: rotate(-3deg); }
   85% { transform: rotate(2deg); }
 }
+/* One shallow belly breath, with one rising z in the second half of each cycle. */
+@keyframes kemiri-sleep {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(1.02,.98); }
+}
+@keyframes kemiri-sleep-z {
+  0%,35% { opacity: 0; transform: translate(0,0) scale(.6); }
+  50% { opacity: .9; }
+  80%,100% { opacity: 0; transform: translate(70px,-150px) scale(1); }
+}
+/* Only the first half-second shakes; the failure pose then remains slumped. */
+@keyframes kemiri-shake {
+  0%,100% { transform: rotate(-9deg); }
+  20% { transform: rotate(-15deg); }
+  40% { transform: rotate(-4deg); }
+  60% { transform: rotate(-12deg); }
+  80% { transform: rotate(-7deg); }
+}
+/* Budgeted loops use a stable, negative per-worker delay; one-shots never skip ahead. */
+.mascot-motion[data-looping="true"]:not([data-state="done"]):not([data-state="failed"]) * { animation-delay: var(--mascot-delay, 0ms); }
+.mascot-motion[data-looping="false"]:not([data-state="done"]):not([data-state="failed"]) * { animation: none !important; }
+.mascot-motion[data-motion-still="true"] * { animation: none !important; }
 [data-motion-paused="true"] .mascot-motion * { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
   .mascot-motion * { animation: none !important; transform: none !important; }
+.mascot-motion[data-state="sleeping"] { opacity: .72; }
+.mascot-motion[data-state="sleeping"] .mascot-eye { transform: scaleY(.1) !important; }
+.mascot-motion[data-state="sleeping"] .mascot-leaf { transform: rotate(11deg) !important; }
+.mascot-motion[data-state="sleeping"] .mascot-mouth { transform: scale(.55) !important; }
+.mascot-motion[data-state="failed"] .mascot-pose { transform: rotate(-9deg) !important; }
+.mascot-motion[data-state="failed"] .mascot-eye { transform: scaleY(.45) !important; }
+.mascot-motion[data-state="failed"] .mascot-leaf { transform: rotate(17deg) !important; }
+.mascot-motion[data-state="failed"] .mascot-mouth { transform: scaleY(-1) !important; }
 }
 @media print {
   .mascot-motion * { animation: none !important; transform: none !important; }
@@ -194,8 +238,8 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
 </style>
 </head>
 <body><main>
-<header><div><p class="kicker">Kemiri · T177 · preview only</p><h1>A little life for Kemiri.</h1><p class="lead">Three SVG motions. Same candlenut. Nothing is wired into chat yet.</p></div><div class="controls no-print"><button type="button" data-replay>Replay B · Done</button><button type="button" id="pause" aria-pressed="false">Pause motion</button><button type="button" id="theme">Switch page theme</button><span class="motion-status" id="motion-status" role="status">Motion follows your system’s accessibility setting.</span></div></header>
-<section class="variants" aria-label="Mascot animation previews"><article class="motion-card" aria-labelledby="variant-A"><div class="variant-heading"><span class="tag">A · 3 s loop</span><h2 id="variant-A">Working</h2><p>A gentle breath, a delayed leaf sway. One blink every other loop.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="working" data-size="small" style="--size:24px" role="img" aria-label="Kemiri working mascot"><defs>
+<header><div><p class="kicker">Kemiri · T177 · preview only</p><h1>A little life for Kemiri.</h1><p class="lead">Five SVG poses. Same candlenut. Sleeping and failed are ready for the graph; chat stays unchanged.</p></div><div class="controls no-print"><button type="button" data-replay>Replay B · Done</button><button type="button" data-replay-failed>Replay E · Failed</button><button type="button" id="pause" aria-pressed="false">Pause motion</button><button type="button" id="theme">Switch page theme</button><span class="motion-status" id="motion-status" role="status">Motion follows your system’s accessibility setting.</span></div></header>
+<section class="variants" aria-label="Mascot animation previews"><article class="motion-card" aria-labelledby="variant-A"><div class="variant-heading"><span class="tag">A · 3 s loop</span><h2 id="variant-A">Working</h2><p>A gentle breath, a delayed leaf sway. One blink every other loop.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-light-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -215,7 +259,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="working" data-size="small" style="--size:32px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-light-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -235,7 +279,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" style="--size:128px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-light-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -255,7 +299,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="working" data-size="small" style="--size:24px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-dark-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -275,7 +319,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="working" data-size="small" style="--size:32px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-dark-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -295,7 +339,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" style="--size:128px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="A-dark-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -316,7 +360,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
 </g></svg><figcaption>128 px</figcaption></figure></div></div></article>
-<article class="motion-card" aria-labelledby="variant-B"><div class="variant-heading"><span class="tag">B · 1.3 s once</span><h2 id="variant-B">Done</h2><p>Squash, a small hop, a leaf flutter. Soft landing, then still.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:24px" role="img" aria-label="Kemiri done mascot"><defs>
+<article class="motion-card" aria-labelledby="variant-B"><div class="variant-heading"><span class="tag">B · 1.3 s once</span><h2 id="variant-B">Done</h2><p>Squash, a small hop, a leaf flutter. Soft landing, then still.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-light-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -336,7 +380,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:32px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-light-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -356,7 +400,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="done" data-play style="--size:128px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="done" data-play data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-light-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -376,7 +420,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:24px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-dark-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -396,7 +440,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:32px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-dark-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -416,7 +460,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="done" data-play style="--size:128px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="done" data-play data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="B-dark-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -437,7 +481,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
 </g></svg><figcaption>128 px</figcaption></figure></div></div></article>
-<article class="motion-card" aria-labelledby="variant-C"><div class="variant-heading"><span class="tag">C · 3.5 s loop</span><h2 id="variant-C">Thinking / waiting</h2><p>Still body. Look left, up, right, centre. A blink and a leaf twitch.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="thinking" data-size="small" style="--size:24px" role="img" aria-label="Kemiri thinking mascot"><defs>
+<article class="motion-card" aria-labelledby="variant-C"><div class="variant-heading"><span class="tag">C · 3.5 s loop</span><h2 id="variant-C">Thinking / waiting</h2><p>Still body. Look left, up, right, centre. A blink and a leaf twitch.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-light-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -457,7 +501,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="thinking" data-size="small" style="--size:32px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-light-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -477,7 +521,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="thinking" style="--size:128px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="thinking" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-light-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -497,7 +541,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="thinking" data-size="small" style="--size:24px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-dark-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -517,7 +561,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="thinking" data-size="small" style="--size:32px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-dark-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -537,7 +581,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="thinking" style="--size:128px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="thinking" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="C-dark-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -557,8 +601,250 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><figcaption>128 px</figcaption></figure></div></div></article></section>
-<section aria-labelledby="chat-heading"><h2 id="chat-heading">At home in a reply.</h2><p class="muted">The current working row uses a 26 px orb, a 16 px desktop gap and shimmering “Working…” text. These mock rows keep that footprint; they are not a proposed new chat card.</p><div class="mock-grid"><article class="swatch swatch-light" aria-label="light mock assistant chat"><p class="surface-label">Light · assistant chat mock · 26 px</p><p class="user-message">Check the last change and tell me what needs attention.</p><div class="assistant-row"><span class="current-orb" aria-hidden="true"></span><span class="working-label">Working…</span><span class="row-caption">Current orb</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="working" data-size="small" style="--size:26px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><figcaption>128 px</figcaption></figure></div></div></article>
+<article class="motion-card" aria-labelledby="variant-D"><div class="variant-heading"><span class="tag">D · 6 s loop</span><h2 id="variant-D">Sleeping</h2><p>Closed eyes, drooped leaf, 72% opacity. A 2% belly breath; one z per cycle, only at 28 px and above.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-light-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-light-24-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-light-24-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-light-24-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-light-24-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-light-24-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-light-24-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-light-24-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-light-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-light-32-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-light-32-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-light-32-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-light-32-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-light-32-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-light-32-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-light-32-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="sleeping" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-light-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-light-128-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-light-128-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-light-128-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-light-128-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-light-128-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-light-128-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-light-128-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-dark-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-dark-24-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-dark-24-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-dark-24-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-dark-24-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-dark-24-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-dark-24-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-dark-24-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-dark-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-dark-32-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-dark-32-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-dark-32-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-dark-32-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-dark-32-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-dark-32-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-dark-32-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="sleeping" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="D-dark-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="D-dark-128-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="D-dark-128-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="D-dark-128-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#D-dark-128-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#D-dark-128-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#D-dark-128-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#D-dark-128-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><figcaption>128 px</figcaption></figure></div></div></article>
+<article class="motion-card" aria-labelledby="variant-E"><div class="variant-heading"><span class="tag">E · 0.5 s once</span><h2 id="variant-E">Failed</h2><p>One short shake, then a 9° slump and downturned mouth. A red ! badge, never a recoloured body.</p></div><div class="swatch swatch-light"><p class="surface-label">Light surface</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-light-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-light-24-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-light-24-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-light-24-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-light-24-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-light-24-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-light-24-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-light-24-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-light-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-light-32-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-light-32-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-light-32-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-light-32-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-light-32-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-light-32-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-light-32-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="failed" data-play data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-light-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-light-128-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-light-128-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-light-128-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-light-128-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-light-128-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-light-128-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-light-128-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>128 px</figcaption></figure></div></div><div class="swatch swatch-dark"><p class="surface-label">Dark · #09090f</p><div class="samples"><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="24" height="24" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="false" style="--size:24px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-dark-24-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-dark-24-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-dark-24-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-dark-24-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-dark-24-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-dark-24-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-dark-24-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-dark-24-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>24 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="32" height="32" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="true" style="--size:32px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-dark-32-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-dark-32-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-dark-32-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-dark-32-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-dark-32-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-dark-32-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-dark-32-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-dark-32-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>32 px</figcaption></figure><figure class="sample"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="failed" data-play data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="E-dark-128-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="E-dark-128-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="E-dark-128-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="E-dark-128-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#E-dark-128-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#E-dark-128-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#E-dark-128-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#E-dark-128-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><figcaption>128 px</figcaption></figure></div></div></article></section>
+<section aria-labelledby="chat-heading"><h2 id="chat-heading">At home in a reply.</h2><p class="muted">The current working row uses a 26 px orb, a 16 px desktop gap and shimmering “Working…” text. These mock rows keep that footprint; they are not a proposed new chat card.</p><div class="mock-grid"><article class="swatch swatch-light" aria-label="light mock assistant chat"><p class="surface-label">Light · assistant chat mock · 26 px</p><p class="user-message">Check the last change and tell me what needs attention.</p><div class="assistant-row"><span class="current-orb" aria-hidden="true"></span><span class="working-label">Working…</span><span class="row-caption">Current orb</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="chat-light-A-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -578,7 +864,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="working-label">Working…</span><span class="row-caption">A · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:26px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><span class="working-label">Working…</span><span class="row-caption">A · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="chat-light-B-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -598,7 +884,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="state-label">Done.</span><span class="row-caption">B · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="thinking" data-size="small" style="--size:26px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><span class="state-label">Done.</span><span class="row-caption">B · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="chat-light-C-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -618,7 +904,47 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="state-label">Thinking…</span><span class="row-caption">C · preview</span></div><p class="mock-caption">Same alignment as the existing working row. On narrower screens the gap becomes 12 px; streaming-reply gutter avatars remain a separate choice.</p></article><article class="swatch swatch-dark" aria-label="dark mock assistant chat"><p class="surface-label">Dark · assistant chat mock · 26 px</p><p class="user-message">Check the last change and tell me what needs attention.</p><div class="assistant-row"><span class="current-orb" aria-hidden="true"></span><span class="working-label">Working…</span><span class="row-caption">Current orb</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="working" data-size="small" style="--size:26px" role="img" aria-label="Kemiri working mascot"><defs>
+</g></svg><span class="state-label">Thinking…</span><span class="row-caption">C · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="chat-light-D-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="chat-light-D-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="chat-light-D-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="chat-light-D-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#chat-light-D-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#chat-light-D-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#chat-light-D-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#chat-light-D-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><span class="state-label">Sleeping.</span><span class="row-caption">D · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="chat-light-E-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="chat-light-E-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="chat-light-E-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="chat-light-E-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#chat-light-E-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#chat-light-E-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#chat-light-E-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#chat-light-E-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><span class="state-label">Failed.</span><span class="row-caption">E · preview</span></div><p class="mock-caption">Same alignment as the existing working row. On narrower screens the gap becomes 12 px; streaming-reply gutter avatars remain a separate choice.</p></article><article class="swatch swatch-dark" aria-label="dark mock assistant chat"><p class="surface-label">Dark · assistant chat mock · 26 px</p><p class="user-message">Check the last change and tell me what needs attention.</p><div class="assistant-row"><span class="current-orb" aria-hidden="true"></span><span class="working-label">Working…</span><span class="row-caption">Current orb</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="working" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri working mascot"><defs>
     <linearGradient id="chat-dark-A-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -638,7 +964,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="working-label">Working…</span><span class="row-caption">A · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="done" data-size="small" data-play style="--size:26px" role="img" aria-label="Kemiri done mascot"><defs>
+</g></svg><span class="working-label">Working…</span><span class="row-caption">A · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="done" data-size="small" data-play data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri done mascot"><defs>
     <linearGradient id="chat-dark-B-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -658,7 +984,7 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="state-label">Done.</span><span class="row-caption">B · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="thinking" data-size="small" style="--size:26px" role="img" aria-label="Kemiri thinking mascot"><defs>
+</g></svg><span class="state-label">Done.</span><span class="row-caption">B · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="thinking" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri thinking mascot"><defs>
     <linearGradient id="chat-dark-C-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
     </linearGradient>
@@ -678,16 +1004,57 @@ main{max-width:86rem;padding:clamp(1rem,3vw,3rem)}header{display:flex;flex-wrap:
     <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
     <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
   </g>
-</g></svg><span class="state-label">Thinking…</span><span class="row-caption">C · preview</span></div><p class="mock-caption">Same alignment as the existing working row. On narrower screens the gap becomes 12 px; streaming-reply gutter avatars remain a separate choice.</p></article></div></section>
-<section class="notes" aria-label="Motion notes"><div><h2>Small on purpose.</h2><p>At 24 and 32 px the bob, hop and sway are reduced. The 26 px mock uses the same small-size treatment. The bottom tip anchors the stretch; the leaf follows a little later.</p></div><div><h2>Quiet when requested.</h2><p>Reduced motion shows the static mascot in every state, including after replay. A and C return seamlessly to their start. B plays once in 1.3 seconds and settles; replay is explicit.</p></div></section>
+</g></svg><span class="state-label">Thinking…</span><span class="row-caption">C · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="sleeping" data-size="small" data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri sleeping mascot"><defs>
+    <linearGradient id="chat-dark-D-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-D-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-D-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-D-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#chat-dark-D-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#chat-dark-D-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#chat-dark-D-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#chat-dark-D-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><text class="mascot-sleep-z" x="700" y="330" fill="#8c89a6" font-size="190" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif">z</text></svg><span class="state-label">Sleeping.</span><span class="row-caption">D · preview</span></div><div class="assistant-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="26" height="26" class="mascot-motion" data-state="failed" data-size="small" data-play data-sleep-z="false" style="--size:26px" role="img" aria-label="Kemiri failed mascot"><defs>
+    <linearGradient id="chat-dark-E-seed" x1="330" y1="427" x2="722" y2="777" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b7bea"/><stop offset=".48" stop-color="#9564e8"/><stop offset="1" stop-color="#f24aeb"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-E-tip" x1="398" y1="759" x2="578" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#713cc5"/><stop offset="1" stop-color="#a641d6"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-E-highlight" x1="340" y1="440" x2="658" y2="747" gradientUnits="userSpaceOnUse">
+      <stop offset=".12" stop-color="#5b7bef"/><stop offset=".5" stop-color="#9472ed"/><stop offset="1" stop-color="#ea6cf3"/>
+    </linearGradient>
+    <linearGradient id="chat-dark-E-leaf" x1="384" y1="212" x2="529" y2="376" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffa447"/><stop offset="1" stop-color="#fba04a"/>
+    </linearGradient>
+  </defs>
+<g class="mascot-pose">
+  <g class="mascot-leaf"><path fill="url(#chat-dark-E-leaf)" d="M492 382C438 383 400 363 383 329C364 292 381 252 397 224C407 206 418 189 427 178C431 173 433 174 435 183C445 222 475 232 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382Z"/><path fill="#f9893f" d="M444 206C461 228 483 237 501 255C527 278 535 303 536 329C549 307 564 286 578 278C585 272 592 277 600 285C607 292 612 299 609 304C607 310 589 315 574 329C555 345 545 362 538 382L509 381C492 349 474 327 457 299C436 266 428 243 444 206Z"/></g>
+  <g class="mascot-body"><path fill="url(#chat-dark-E-tip)" d="M342 746C377 770 423 775 451 797C465 807 473 820 483 834C491 845 501 850 512 850C524 850 534 843 542 831C557 807 576 792 606 780L672 752Z"/><path fill="url(#chat-dark-E-seed)" d="M512 380C626 380 725 455 748 562C760 618 751 674 724 712C690 760 625 782 554 786C483 790 399 782 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/><path fill="url(#chat-dark-E-highlight)" d="M512 380C540 380 569 385 591 394C661 438 705 503 707 574C710 636 683 688 633 721C565 766 456 783 371 762C363 760 355 757 349 754C297 725 271 674 271 610C269 542 299 481 350 437C394 399 453 379 512 380Z"/>
+    <g class="mascot-eyes-gaze"><g class="mascot-eye mascot-eye-left"><path fill="#26245f" d="M453 592C453 609 439 624 422 624C404 624 391 610 391 592C391 575 405 561 422 561C439 561 453 575 453 592Z"/></g><g class="mascot-eye mascot-eye-right"><path fill="#26245f" d="M633 592C633 610 619 624 602 624C584 624 571 610 571 592C571 575 585 561 602 561C619 561 633 575 633 592Z"/></g></g>
+    <path class="mascot-mouth" fill="#26245f" d="M485 626C503 629 520 629 538 626C546 624 551 630 548 639C543 655 530 665 512 665C494 665 481 655 476 640C473 632 477 625 485 626Z"/>
+  </g>
+</g><g><circle cx="780" cy="290" r="110" fill="#e11d48" stroke="white" stroke-width="22"/><text x="780" y="355" text-anchor="middle" fill="white" font-size="185" font-weight="800" font-family="ui-sans-serif,system-ui,sans-serif">!</text></g></svg><span class="state-label">Failed.</span><span class="row-caption">E · preview</span></div><p class="mock-caption">Same alignment as the existing working row. On narrower screens the gap becomes 12 px; streaming-reply gutter avatars remain a separate choice.</p></article></div></section>
+<section class="notes" aria-label="Motion notes"><div><h2>Small on purpose.</h2><p>At 24 and 32 px the bob, hop and sway are reduced. The 26 px mock uses the same small-size treatment. The bottom tip anchors the stretch; the leaf follows a little later.</p></div><div><h2>Quiet when requested.</h2><p>Reduced motion preserves the sleeping and failed poses, including after replay. A, C and D loop. B plays once in 1.3 seconds; E shakes once in 0.5 seconds. Replay is explicit.</p></div></section>
 <footer>Hand-drawn vector from Q196 / T173 · CSS transforms only · No raster, animation libraries, network requests or storage. Static brand master unchanged. Owner review decides where each motion belongs.</footer>
 </main><script>
 const root=document.documentElement;
 const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 const status=document.querySelector('#motion-status');
-function motionStatus(){status.textContent=reduced.matches?'Reduced motion is on · all mascots stay still.':root.dataset.motionPaused==='true'?'Paused · compare the poses, then resume.':'A and C loop · B plays once; use Replay to see it again.';}
+function motionStatus(){status.textContent=reduced.matches?'Reduced motion is on · all mascots stay still.':root.dataset.motionPaused==='true'?'Paused · compare the poses, then resume.':'A, C and D loop · B and E play once; use Replay to see them again.';}
 reduced.addEventListener('change',motionStatus);motionStatus();
 document.querySelectorAll('[data-replay]').forEach(button=>button.addEventListener('click',()=>{const mascots=[...document.querySelectorAll('svg[data-state="done"]')];mascots.forEach(svg=>svg.removeAttribute('data-play'));void document.body.offsetHeight;mascots.forEach(svg=>svg.setAttribute('data-play',''));motionStatus();}));
+document.querySelector('[data-replay-failed]').addEventListener('click',()=>{const mascots=[...document.querySelectorAll('svg[data-state="failed"]')];mascots.forEach(svg=>svg.removeAttribute('data-play'));void document.body.offsetHeight;mascots.forEach(svg=>svg.setAttribute('data-play',''));motionStatus();});
 document.querySelector('#pause').addEventListener('click',event=>{const paused=root.dataset.motionPaused!=='true';root.dataset.motionPaused=String(paused);event.currentTarget.setAttribute('aria-pressed',String(paused));event.currentTarget.textContent=paused?'Resume motion':'Pause motion';motionStatus();});
 document.querySelector('#theme').addEventListener('click',()=>{const dark=root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;root.dataset.theme=dark?'light':'dark';});
 </script></body></html>

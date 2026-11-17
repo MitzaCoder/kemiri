@@ -2,10 +2,22 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { brandChromium } from "./lib/brand-chromium.ts";
+import { graphMascotModule } from "./lib/graph-mascot.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const logo = await readFile(`${root}assets/brand/logo.svg`, "utf8");
 const mono = await readFile(`${root}assets/brand/logo-mark-mono.svg`, "utf8");
+const graphModulePath = 'apps/web/src/lib/generated/graph-mascot.ts';
+const graphModule = graphMascotModule(logo);
+if (process.argv.includes('--check-graph')) {
+	if (await readFile(`${root}${graphModulePath}`, 'utf8') !== graphModule) throw new Error('Graph mascot is stale; run bun scripts/generate-brand.ts --graph-only');
+	if (await readFile(`${root}apps/web/src/lib/components/mascot-motion.css`, 'utf8') !== await readFile(`${root}assets/brand/mascot-motion.css`, 'utf8')) throw new Error('Mascot CSS is stale; run bun scripts/generate-brand.ts --graph-only');
+	console.log('Generated graph mascot and motion CSS are current.');
+	process.exit(0);
+}
+await save(graphModulePath, graphModule);
+await save('apps/web/src/lib/components/mascot-motion.css', await readFile(`${root}assets/brand/mascot-motion.css`, 'utf8'));
+if (process.argv.includes('--graph-only')) process.exit(0);
 const content = (svg: string) => svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
 /** Centre the original 695-unit-tall drawing in a square; retain breathing room. */
 function square(svg: string, height: number, background?: string): string {

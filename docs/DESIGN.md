@@ -258,17 +258,21 @@ byte-identical. `mascot-motion.svg` is a grouped derivative of the same paths:
 pose/body, leaf and stem, independent eyes, and mouth. Its padded square viewport
 leaves room for motion. `mascot-motion.css` defines working (3 s breathing and
 lagged sway, one blink per 6 s), done (one 1.3 s hop/landing), and thinking (3.5 s
-stationary-body gaze/holds/blink/twitch). Small instances reduce travel and sway.
+stationary-body gaze/holds/blink/twitch), sleeping (6 s, 2% belly breath and one
+rising z; hidden below 28 px), and failed (one 0.5 s shake, then a 9° slump).
+Sleeping keeps closed eyes, an 11° drooped leaf and 72% opacity; failed keeps a
+downturned mouth and a red ! badge. These poses remain under reduced motion.
+Small instances reduce travel and sway.
 Reduced motion and print render static poses. No animation library or raster.
 
 `bun scripts/generate-mascot-preview.ts` regenerates the standalone animated SVG
 and self-contained `assets/brand/previews/mascot-animations.html` from the master,
 CSS and local HTML template. Each inline instance gets unique gradient IDs.
-`data-state="working|done|thinking|static"` selects a pose; `data-size="small"`
+`data-state="working|done|thinking|sleeping|failed|static"` selects a pose; `data-size="small"`
 is the 20–32 px treatment. Done uses `data-play`; the preview's replay button
 restarts it explicitly. Pause/theme controls do not use storage or the network.
 
-The preview compares all three at 24, 32 and 128 px on both backgrounds, plus
+The preview compares all five at 24, 32 and 128 px on both backgrounds, plus
 26 px mock working rows beside today's orb. Web's pending-work row has a 26 px
 spinning gradient orb, a 12/16 px phone/desktop gap and shimmering “Working…”.
 Android uses the matching 26 dp orb and text with a 14 dp gap. Reply-turn gutter
@@ -3503,6 +3507,22 @@ per backend/project under web `aiki.task-search.v1:` keys and Android private `a
 no query, index or ranking is sent to the server. Changing search never alters tasks or their normal priority order.
 
 ### Animated task graph (T79)
+
+**Mascot foundations (T256, part A).** `worker-motion.ts` maps running to working,
+failed to failed, done/stopped to done, and idle to waiting for review or a blocking
+open question on its open task; otherwise idle sleeps. Agent-waiting,
+nonblocking and other-task questions do not count. Visibility stays separate.
+`workerMotionBudget` accepts ID/state/in-view candidates, zoom and reduced motion;
+it returns per-ID looping/still flags and stable negative delay milliseconds.
+Only visible working/waiting/sleeping instances loop, at most 12 (stable ID order).
+Below 50% zoom, offscreen or under reduced motion, all motion is disabled.
+`GraphMascot.svelte` renders generated master geometry with state badges; background
+jobs use the same colours at 1.25× size with a dashed ring. The canvas must render
+`GraphMascotDefs` once and use its gradient prefix on every instance. `play` opts
+into finite done/failed motion; it defaults off so historical states do not replay.
+The generated module and CSS are checked by brand tests and
+`bun scripts/generate-brand.ts --check-graph`; `--graph-only` refreshes them without
+raster generation. Part A does not yet replace the canvas creatures or change chat.
 
 Connected work was reverted at the owner’s request (F22 on T103); Android is unchanged.
 

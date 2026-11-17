@@ -1,11 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" style="--size:128px" role="img" aria-label="Kemiri working mascot"><style>
-/* Preview-only motion. All distances and pivots use the SVG master's 1024-unit coordinates. */
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="122 115 780 780" fill="none" width="128" height="128" class="mascot-motion" data-state="working" data-sleep-z="true" style="--size:128px" role="img" aria-label="Kemiri working mascot"><style>
+/* Shared mascot motion. All distances and pivots use the SVG master's 1024-unit coordinates. */
 .mascot-motion { --mascot-bob: -12px; --mascot-hop: -42px; --mascot-sway: 4.5deg; overflow: visible; }
 .mascot-motion[data-size="small"] { --mascot-bob: -7px; --mascot-hop: -30px; --mascot-sway: 3deg; }
 .mascot-pose { transform-origin: 512px 850px; }
 .mascot-leaf { transform-origin: 523px 380px; }
 .mascot-eye-left { transform-origin: 422px 592px; }
 .mascot-eye-right { transform-origin: 602px 592px; }
+.mascot-mouth { transform-origin: 512px 645px; }
+.mascot-sleep-z { opacity: 0; }
+.mascot-motion[data-state="sleeping"] { opacity: .72; }
+.mascot-motion[data-state="sleeping"] .mascot-eye { transform: scaleY(.1); }
+.mascot-motion[data-state="sleeping"] .mascot-leaf { transform: rotate(11deg); }
+.mascot-motion[data-state="sleeping"] .mascot-mouth { transform: scale(.55); }
+.mascot-motion[data-state="failed"] .mascot-pose { transform: rotate(-9deg); }
+.mascot-motion[data-state="failed"] .mascot-eye { transform: scaleY(.45); }
+.mascot-motion[data-state="failed"] .mascot-leaf { transform: rotate(17deg); }
+.mascot-motion[data-state="failed"] .mascot-mouth { transform: scaleY(-1); }
+.mascot-motion[data-state="sleeping"] .mascot-pose { animation: kemiri-sleep 6s ease-in-out infinite; }
+.mascot-motion[data-state="sleeping"] .mascot-sleep-z { animation: kemiri-sleep-z 6s ease-in-out infinite; }
+.mascot-motion[data-sleep-z="false"] .mascot-sleep-z { display: none; }
+.mascot-motion[data-state="failed"][data-play] .mascot-pose { animation: kemiri-shake .5s ease-in-out both; }
 .mascot-motion[data-state="working"] .mascot-pose { animation: kemiri-breathe 3s ease-in-out infinite; }
 .mascot-motion[data-state="working"] .mascot-leaf { animation: kemiri-sway 3s ease-in-out infinite; }
 .mascot-motion[data-state="working"] .mascot-eye { animation: kemiri-working-blink 6s ease-in-out infinite; }
@@ -61,9 +75,39 @@
   81% { transform: rotate(-3deg); }
   85% { transform: rotate(2deg); }
 }
+/* One shallow belly breath, with one rising z in the second half of each cycle. */
+@keyframes kemiri-sleep {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(1.02,.98); }
+}
+@keyframes kemiri-sleep-z {
+  0%,35% { opacity: 0; transform: translate(0,0) scale(.6); }
+  50% { opacity: .9; }
+  80%,100% { opacity: 0; transform: translate(70px,-150px) scale(1); }
+}
+/* Only the first half-second shakes; the failure pose then remains slumped. */
+@keyframes kemiri-shake {
+  0%,100% { transform: rotate(-9deg); }
+  20% { transform: rotate(-15deg); }
+  40% { transform: rotate(-4deg); }
+  60% { transform: rotate(-12deg); }
+  80% { transform: rotate(-7deg); }
+}
+/* Budgeted loops use a stable, negative per-worker delay; one-shots never skip ahead. */
+.mascot-motion[data-looping="true"]:not([data-state="done"]):not([data-state="failed"]) * { animation-delay: var(--mascot-delay, 0ms); }
+.mascot-motion[data-looping="false"]:not([data-state="done"]):not([data-state="failed"]) * { animation: none !important; }
+.mascot-motion[data-motion-still="true"] * { animation: none !important; }
 [data-motion-paused="true"] .mascot-motion * { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
   .mascot-motion * { animation: none !important; transform: none !important; }
+.mascot-motion[data-state="sleeping"] { opacity: .72; }
+.mascot-motion[data-state="sleeping"] .mascot-eye { transform: scaleY(.1) !important; }
+.mascot-motion[data-state="sleeping"] .mascot-leaf { transform: rotate(11deg) !important; }
+.mascot-motion[data-state="sleeping"] .mascot-mouth { transform: scale(.55) !important; }
+.mascot-motion[data-state="failed"] .mascot-pose { transform: rotate(-9deg) !important; }
+.mascot-motion[data-state="failed"] .mascot-eye { transform: scaleY(.45) !important; }
+.mascot-motion[data-state="failed"] .mascot-leaf { transform: rotate(17deg) !important; }
+.mascot-motion[data-state="failed"] .mascot-mouth { transform: scaleY(-1) !important; }
 }
 @media print {
   .mascot-motion * { animation: none !important; transform: none !important; }
