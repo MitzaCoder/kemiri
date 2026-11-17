@@ -2,7 +2,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml', 'scripts/check-site.ts', 'scripts/site.test.ts']
+    paths: ['site/**', '.github/workflows/pages.yml', 'scripts/check-site.ts', 'scripts/site.test.ts', 'packages/protocol/src/projects.ts', 'packages/server/src/task-activity.ts']
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -21,6 +21,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Check static site and bootstrap
         run: bun scripts/check-site.ts && bun test scripts/site.test.ts
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

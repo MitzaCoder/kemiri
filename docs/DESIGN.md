@@ -392,7 +392,11 @@ are limited to the published pilot.6; check-ins are described as a configurable
 15 minutes, and nightly memory maintenance requires a configured model and changed
 memory. SITE.md records the homepage/defaults coupling. Inline SVG icons and shared
 theme tokens add no network loads or scripts. Site checks reject off-site resources;
-privacy shares the stylesheet.
+privacy shares the stylesheet. The Website workflow installs locked workspace
+dependencies before running the site checks, which import protocol and server
+defaults. Changes to `packages/protocol/src/projects.ts` or
+`packages/server/src/task-activity.ts` also trigger the workflow so these public
+promises are checked when their defaults change.
 
 `/releases/` lists releases newest first. From pilot.6, each release has a full
 `/releases/TAG/` page; pilot.1–5 link to GitHub. The homepage header, Current pilot
