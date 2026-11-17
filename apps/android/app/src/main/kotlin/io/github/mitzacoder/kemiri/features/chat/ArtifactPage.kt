@@ -228,7 +228,7 @@ internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequ
             while (true) {
                 delay(300)
                 webView.evaluateJavascript(ARTIFACT_REVIEW_READ) { decoded ->
-                    decodeArtifactSelection(decoded)?.takeIf { it.text.isNotEmpty() }?.let { selectionCallback.value(it) }
+                    decodeArtifactSelection(decoded)?.let { selectionCallback.value(it) }
                 }
             }
         } else webView.evaluateJavascript(ARTIFACT_REVIEW_CANCEL_PICK, null)

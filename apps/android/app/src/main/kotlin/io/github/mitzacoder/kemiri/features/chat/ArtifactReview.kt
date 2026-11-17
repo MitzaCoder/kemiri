@@ -6,7 +6,7 @@ import kotlinx.serialization.json.*
 import java.util.UUID
 
 internal val REVIEW_INTENTS = listOf("Clarify", "Change", "Show differently", "Cut", "Keep")
-internal val REVIEW_BLOCKS = listOf("chart", "table row", "figure", "image", "code", "list item", "paragraph")
+internal val REVIEW_BLOCKS = listOf("chart", "table row", "figure", "image", "code", "list item", "paragraph", "block")
 internal const val REVIEW_SELECTION_TYPE = "kemiri:artifact-selection"
 @Serializable internal data class ArtifactSelection(val text: String, val section: String? = null, val elementId: String? = null, val block: String? = null)
 @Serializable internal data class ReviewComment(val text: String, val section: String? = null, val elementId: String? = null, val block: String? = null, val intent: String? = null, val note: String = "") {

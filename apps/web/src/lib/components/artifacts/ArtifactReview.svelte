@@ -133,7 +133,7 @@
 					<div class="buttons"><button type="submit" class="primary" disabled={sending || (!intent && !note.trim()) || (editing === undefined && comments.length >= 100)}>{editing === undefined ? 'Add comment' : 'Save comment'}</button><button type="button" onclick={() => composing = false}>Cancel</button></div>
 				</form>
 			{/if}
-			{#if !comments.length && !composing}<p class="hint">Select a sentence, or pick a chart, figure or table row. Your comments gather here before you send.</p>{/if}
+			{#if !comments.length && !composing}<p class="hint">Select a sentence, or pick any visible block. Your comments gather here before you send.</p>{/if}
 			<ol>{#each comments as comment, index}<li><strong>{index + 1}. {comment.intent ?? 'Note'}</strong><p class="location">{reviewLocation(comment)}</p><blockquote>{comment.text}</blockquote>{#if comment.note}<p class="comment-note">{comment.note}</p>{/if}<div class="buttons"><button type="button" disabled={sending} onclick={() => void compose(comment, index)}>Edit<span class="sr-only"> comment {index + 1}</span></button><button type="button" disabled={sending} onclick={() => comments = comments.filter((_, at) => at !== index)}>Remove<span class="sr-only"> comment {index + 1}</span></button></div></li>{/each}</ol>
 			<label>About the whole page (optional)<textarea bind:value={overall} disabled={sending} maxlength="4000" rows="2" placeholder="The bigger picture…"></textarea></label>
 		</div>

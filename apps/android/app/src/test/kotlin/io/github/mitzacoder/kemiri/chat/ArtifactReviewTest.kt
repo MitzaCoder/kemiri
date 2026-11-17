@@ -107,6 +107,6 @@ class ArtifactReviewTest {
     }
     @Test fun `page picking has no outbound transport or permission changes`() {
         assertFalse(ARTIFACT_REVIEW_READ.contains("postMessage")); assertFalse(ARTIFACT_REVIEW_READ.contains("location.href"))
-        assertTrue(ARTIFACT_REVIEW_PICK.contains("picking=true")); assertTrue(ARTIFACT_REVIEW_CANCEL_PICK.contains("picking=false"))
+        assertTrue(ARTIFACT_REVIEW_PICK.contains("picking=true")); assertTrue(ARTIFACT_REVIEW_CANCEL_PICK.contains(".stop()"))
     }
 }

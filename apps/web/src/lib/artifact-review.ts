@@ -3,7 +3,7 @@ import { quoteFromSelection } from './chat/quotes.ts';
 
 export const REVIEW_INTENTS = ['Clarify', 'Change', 'Show differently', 'Cut', 'Keep'] as const;
 export type ReviewIntent = typeof REVIEW_INTENTS[number];
-export const REVIEW_BLOCKS = ['chart', 'table row', 'figure', 'image', 'code', 'list item', 'paragraph'] as const;
+export const REVIEW_BLOCKS = ['chart', 'table row', 'figure', 'image', 'code', 'list item', 'paragraph', 'block'] as const;
 export type ReviewBlock = typeof REVIEW_BLOCKS[number];
 export interface ArtifactSelection { text: string; section?: string; elementId?: string; block?: ReviewBlock }
 export interface ReviewComment extends ArtifactSelection { intent?: ReviewIntent; note: string }

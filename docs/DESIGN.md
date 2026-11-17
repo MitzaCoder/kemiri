@@ -29,8 +29,8 @@ navigate straight to the task, never to a reference preview.
 
 The web text viewer (HTML, Markdown, plain text and Source) collects a review
 before sending it. Select a passage, or choose **Pick a block** in an HTML page
-(chart, table row, figure, image, code, list item or paragraph). The app displays
-the quote before it can become a comment. A comment has an optional intent
+(any visible block, including charts, mock-ups, images, code and paragraphs).
+The app displays the quote before it can become a comment. A comment has an optional intent
 (Clarify, Change, Show differently, Cut, Keep) and optional note; either one
 alone completes it. Comments can be edited or removed. At modal widths of
 640 px and above the tray sits beside the document;
@@ -62,6 +62,19 @@ a review or access the host's credentials/DOM. There are no new sandbox grants,
 no shared origin, and no additional outgoing network policy. Two exact parent-only
 strings toggle/cancel block picking; pointer candidates are outlined, and keyboard
 arrows plus Enter can choose a block. Escape cancels picking inside the frame.
+Both web and Android resolve a nested pointer target to its enclosing graphic
+(`role="img"`, SVG, canvas, image, figure or embedded media), then a semantic
+text block, then the nearest visible layout block (including div/flex/grid),
+falling back to an inline element. Hidden/zero-size candidates are skipped and
+keyboard candidates are deduplicated. This replaces the tag-only allowlist that
+missed div-based mock-ups (T240); CSS `user-select:none` does not prevent picking.
+Descriptions prefer aria-label/aria-labelledby, alt, caption, heading and rendered
+text, with a text-only block/tag fallback for empty drawings. Existing block labels
+stay unchanged; generic targets use `block`. No HTML, selectors or DOM objects
+cross the sandbox boundary. Text selection remains independent; an empty Range
+change caused by clicking a block cannot erase its pending description.
+`artifact-review-frame.test.ts` executes both shipped scripts over role=img,
+nested flex/grid divs, unselectable text, SVG, img, canvas and plain text cases.
 Markdown/text/Source selections use the chat's whole-word/quote helpers and the
 nearest preceding rendered heading. Passage highlights are not implemented.
 
@@ -102,8 +115,10 @@ the request ID for unchanged text during the visit; acknowledged sends clear it.
 
 Android HTML reads selection only after Comment through `evaluateJavascript`.
 Pick mode installs a document-local click listener through the same API; a
-300 ms poll reads its bounded text result until selection or cancellation. Kotlin
-requires the exact string-only keys, selection type, block vocabulary and caps
+300 ms poll reads its bounded text result until selection or cancellation. Pick
+mode outlines pointer/keyboard candidates, supports arrows/Enter/Escape, and
+suppresses native page clicks only while picking; cancellation removes its outline.
+Kotlin requires the exact string-only keys, selection type, block vocabulary and caps
 before showing a quote. No JavaScript bridge, navigation-based data channel,
 shared origin or new WebView permissions are introduced. Print, link policy,
 CSP/theme prelude, source/versions and pinch zoom retain their existing paths.

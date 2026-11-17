@@ -189,6 +189,7 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
                     .then(if (fillHeight) Modifier.weight(1f) else Modifier.height(288.dp)).clipToBounds(), blockRequests = blockRequests, hostControls = fillHeight, onPrintReady = { printPage = it }, reviewRead = reviewRead, reviewPicking = picking,
                     onReviewSelection = { selection ->
                         if (selection?.text?.isNotEmpty() == true) { picking = false; reviewHint = null; onReviewSelection?.invoke(selection) }
+                        else if (picking) { picking = false; reviewHint = null }
                         else reviewHint = "Select text on the page, then tap Comment; or pick a block."
                     })
                 rendered -> RichMarkdown(text.ifEmpty { "(Empty file)" }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp))
@@ -214,7 +215,7 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
         }
         if (fillHeight && onReviewSelection != null) Surface(Modifier.align(Alignment.BottomCenter).padding(12.dp), shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
             Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (picking) Text("Tap a chart, row or paragraph", Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                if (picking) Text("Tap any visible block", Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
                 reviewHint?.let { Text(it, Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall) }
                 Row {
                     TextButton(onClick = { if (page) reviewRead++ else pickNative() }) { Text("Comment") }
