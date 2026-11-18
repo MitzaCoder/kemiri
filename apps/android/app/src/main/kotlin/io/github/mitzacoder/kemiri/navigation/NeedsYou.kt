@@ -45,7 +45,7 @@ internal fun NeedsYou(links: List<ProjectAttentionLink>, navigate: (Destination)
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(shape = RoundedCornerShape(9.dp), color = if (review) colors.surface2 else colors.warning.copy(alpha = .10f)) {
                             Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
-                                Text(when (link.action.kind) { AttentionKind.Question -> "?"; AttentionKind.Review -> "✓"; else -> "!" }, color = if (review) colors.fgMuted else colors.warning, fontWeight = FontWeight.SemiBold)
+                                Text(attentionGlyph(link.action.kind), color = if (review) colors.fgMuted else colors.warning, fontWeight = FontWeight.SemiBold)
                             }
                         }
                         Column(Modifier.weight(1f)) {

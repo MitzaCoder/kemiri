@@ -35,6 +35,7 @@ internal object TaskIcons {
     val RotateCcw = LucideIcon("rotate-ccw", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5")
     val Pencil = LucideIcon("pencil", "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4")
     val Send = LucideIcon("send", "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z", "m21.854 2.147-10.94 10.939")
+    val ListChecks = LucideIcon("list-checks", "m3 17 2 2 4-4", "m3 7 2 2 4-4", "M11 6h9", "M11 12h9", "M11 18h9")
     val Eye = LucideIcon("eye", "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0", "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0")
     val Pause = LucideIcon("pause", "M6 3h4v18H6z", "M14 3h4v18h-4z")
     val Lock = LucideIcon("lock", "M5 11h14v10H5Z", "M8 11V7a4 4 0 0 1 8 0v4")

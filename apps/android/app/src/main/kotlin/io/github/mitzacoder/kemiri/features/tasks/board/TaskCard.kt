@@ -3,6 +3,7 @@ package io.github.mitzacoder.kemiri.features.tasks.board
 import io.github.mitzacoder.kemiri.features.tasks.TaskRelationChips
 
 import io.github.mitzacoder.kemiri.features.tasks.TaskIdChip
+import io.github.mitzacoder.kemiri.features.tasks.TaskIcons
 import io.github.mitzacoder.kemiri.features.tasks.taskReferenceHighlight
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -123,6 +124,7 @@ fun TaskCard(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.height(20.dp).width(14.dp), contentAlignment = Alignment.Center) {
                 when {
+                    task.state?.kind == "steps_needed" -> LucideGlyph(TaskIcons.ListChecks, size = 14.dp, tint = colors.taskStatus(tone))
                     task.state != null -> TaskStatusDot(tone, pulse = pulse && task.state.kind == "working" && !ghost)
                     needsYou && warned -> LucideGlyph(BoardGlyphs.TriangleAlert, size = 14.dp, tint = colors.warning, contentDescription = "Warning")
                     needsYou -> LucideGlyph(BoardGlyphs.CircleHelp, size = 14.dp, tint = colors.accent2, contentDescription = "Question")

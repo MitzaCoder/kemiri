@@ -6,11 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,16 +18,15 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -40,7 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.media.ARTIFACT_TAGS_FEATURE
-import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
+import io.github.mitzacoder.kemiri.features.tasks.media.TaskProof
 import io.github.mitzacoder.kemiri.features.chat.ChatFile
 import io.github.mitzacoder.kemiri.features.chat.FileChips
 import io.github.mitzacoder.kemiri.features.chat.INPUT_IMAGE_MIME_TYPES
@@ -62,21 +58,16 @@ import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
-import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * A task as a sheet over the chat it was opened from ([io.github.mitzacoder.kemiri.navigation.Destination.Task]; web
- * `TaskSheet.svelte`): the whole screen on a phone, a wide panel from the side on a tablet. The Dashboard leads with
- * questions, report, feedback and files in one column, with sticky section navigation,
- * followed by folded history and brief. The user closes the task from here (Done, Drop, Reopen)
- * and talks about it in the reply box, which sends to Main chat's conversation with the task's ID, also from a thread's
- * page. HarnessApp shows it; dismissing goes back.
+ * `TaskSheet.svelte`): the whole screen on a phone, a capped reading column in a side sheet on a tablet.
+ * Actions for the reader come first, ahead of results, plans, notes, the record and task facts.
+ * The fixed reply box sends to Main chat with the task ID even when opened from a thread.
  */
 @Composable
 fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null) {
@@ -196,10 +187,16 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
             finally { feedbackBusy = false }
         }
     }
-    val questions = view.questions.filter { it.status == "open" && it.taskId == task.id }
     val decisions = decisionsFor(view.board?.decisions.orEmpty(), task.id)
     val blockers = blockersOf(task, view.tasks).filterNot { it.settled }
+    val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS))
+    val activity = taskActivity(task, connection.supports("task-activity"))
+    val showNow = showTaskNow(task, activity)
+    val showNext = !needsYou.review && task.report.next.isNotBlank()
+    val staleReport = taskReportIsStale(connection.supports("task-freshness"), task.report)
     val owner = taskOwner(task, threads)
+    val replyFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     fun writerName(writer: BoardWriter) = shortWriterLabel(writer, threads)
 
     fun setStatus(target: String, waitingFor: String? = null, waitUntil: String? = null) {
@@ -227,38 +224,30 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val refsMaxHeight = minOf(240.dp, maxHeight * .25f)
     val replyInputMaxHeight = (maxHeight * .20f).coerceIn(40.dp, 160.dp)
     val shortViewport = maxHeight < 400.dp
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.widthIn(max = 672.dp).fillMaxSize().align(Alignment.TopCenter)) {
         previousTaskId?.let { id ->
             val title = view.tasks.firstOrNull { it.id == id }?.title
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 TaskDetailText("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
-        // The header: ID, status, edit and close; the title, its tickets, when it moved; what the user can do with it.
+        // The header keeps state and actions visible while the reading column scrolls.
         Column(Modifier.fillMaxWidth().heightIn(max = headerMaxHeight).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(task.id, style = TaskType.xs.copy(fontFamily = JetBrainsMono), color = colors.fgSubtle)
-                TaskStatusMenu(task.status, connection.supports("task-waiting"), !closing, task) { status ->
-                    confirmDrop = status == "dropped"
-                    waitingForm = status == "waiting"
-                    if (!confirmDrop && !waitingForm) setStatus(status)
+                Box(Modifier.weight(1f)) {
+                    TaskStatusMenu(task, taskDetailState(task.status, needsYou, task.state?.kind), connection.supports("task-waiting"), !closing) { status ->
+                        confirmDrop = status == "dropped"
+                        waitingForm = status == "waiting"
+                        if (!confirmDrop && !waitingForm) setStatus(status)
+                    }
                 }
-                Spacer(Modifier.weight(1f))
                 if (!editing) IconButton(onClick = { editing = true }) { LucideGlyph(TaskIcons.Pencil, size = 18.dp, contentDescription = "Edit ${task.id}") }
-                IconButton(onClick = onDismiss) { LucideGlyph(Lucide.X, size = 18.dp, contentDescription = "Close the task") }
+                IconButton(onClick = onDismiss) { LucideGlyph(Lucide.X, size = 18.dp, contentDescription = if (previousTaskId == null) "Close the task" else "Back to $previousTaskId") }
             }
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TaskDetailText(refLinkedText(task.title), Modifier.semantics { heading() }, style = TextStyles.lg.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
                 if (task.refs.isNotEmpty()) TaskRefs(task.refs, refsMaxHeight)
-                TaskDetailText(
-                    listOfNotNull(
-                        inProgressLine(task),
-                        "Updated ${relativeTime(task.updatedAt, now)}",
-                        owner.label.takeIf { owner.claimed && !owner.main },
-                        "Archived".takeIf { task.archived },
-                    ).plus(taskSheetMeta(task, now)).joinToString(" · "),
-                    style = TaskType.xs, color = colors.fgSubtle,
-                )
                 if (waitingForm) TaskWaitingForm(task.waiting, closing, deviceSettings.workDayStart, { note, until -> setStatus("waiting", note, until) }, { waitingForm = false })
                 else if (confirmDrop) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TaskDetailText("Drop ${task.id}? It will not be done.", style = TaskType.xs, color = colors.fgMuted)
@@ -270,170 +259,80 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         }
         HorizontalDivider(color = colors.border)
 
-        val reducedMotion = rememberReducedMotion()
-        val sections = taskSheetSections(
-            task, questions.size, artifacts.size,
-            linkGroups(task, view.tasks, view.board?.archivedLinks.orEmpty()).sumOf { it.items.size },
-            decisions.size, linksEnabled,
-            if (task.feedback != null) openFeedbackCount(task).toInt()
-            else timeline?.feedback.orEmpty().count { it.state == "open" || it.state == "handling" },
-            timeline?.groups?.takeIf { timelineGroupsEnabled }?.sumOf { it.factCount }?.toInt() ?: timeline?.entries.orEmpty().size,
-            workers.count { it.id in task.workerIds && it.status == "running" },
-        )
-        var sectionSelection by remember(task.id) { mutableStateOf(TaskSectionSelection()) }
-        var navigationJob by remember(task.id) { mutableStateOf<Job?>(null) }
-        LaunchedEffect(bodyState, task.id) {
-            bodyState.interactionSource.interactions.collect { interaction ->
-                if (interaction is DragInteraction.Start) {
-                    navigationJob?.cancel()
-                    sectionSelection = sectionSelection.userScroll()
+        LazyColumn(
+            state = bodyState, modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(if (shortViewport) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            if (editing) item(key = "editor") { TaskEditor(context, task, view.tasks, onBack = { editing = false }, scrolls = false) }
+            else {
+                if (needsYou.show) item(key = "needs-you") {
+                    TaskNeedsYouSection(context, task, needsYou, blockers, threads, closing, onCloseTask = { setStatus("done") }, onFocusReply = {
+                        if (replyFocus.requestFocus()) keyboard?.show()
+                    })
                 }
-            }
-        }
-        val currentSection by remember(sections, bodyState) {
-            derivedStateOf {
-                val layout = bodyState.layoutInfo
-                val lastVisible = layout.visibleItemsInfo.lastOrNull {
-                    it.offset < layout.viewportEndOffset && it.offset + it.size > layout.viewportStartOffset
-                }?.index ?: bodyState.firstVisibleItemIndex
-                val index = taskSectionIndex(bodyState.firstVisibleItemIndex, lastVisible, !bodyState.canScrollForward, sections.size)
-                val spy = sections.getOrNull(index)?.kind
-                if (sections.any { it.kind == sectionSelection.pinned }) sectionSelection.current(spy) else spy
-            }
-        }
-        Column(Modifier.weight(1f).fillMaxWidth()) {
-            // On a short IME/landscape viewport, keep space for the actual sections rather than only their nav.
-            if (!editing && !shortViewport) TaskSectionNav(sections, currentSection, reducedMotion) { kind ->
-                sectionSelection = sectionSelection.select(kind)
-                navigationJob?.cancel()
-                navigationJob = scope.launch {
-                    val index = sections.indexOfFirst { it.kind == kind }
-                    // Header/chips are outside this viewport: item offset zero is already below both.
-                    if (reducedMotion) bodyState.scrollToItem(index) else bodyState.animateScrollToItem(index)
+                item(key = "results") {
+                    TaskReadingSection("What you get") {
+                        if (staleReport) StaleTaskReport(context, task.id)
+                        if (task.report.results.isNotBlank()) ReportMarkdown(task.report.results)
+                        else Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
+                        TaskProof(context, artifacts)
+                    }
                 }
-            }
-            LazyColumn(
-                state = bodyState, modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(if (shortViewport) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                if (editing) item(key = "editor") { TaskEditor(context, task, view.tasks, onBack = { editing = false }, scrolls = false) }
-                else {
-                    items(sections, key = { it.kind.name }) { section ->
-                        when (section.kind) {
-                            TaskSectionKind.Questions -> {
-                                if (questions.isNotEmpty()) TaskSection(TaskSectionKind.Questions, count = "${questions.size} open") {
-                                    questions.forEach { question -> key(question.id) { QuestionCard(context, question, askedBy = questionAskedBy(question, threads)) } }
-                                }
-                            }
-                            TaskSectionKind.Report -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                                    if (task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || blockers.isNotEmpty())) Column(
-                                        Modifier.fillMaxWidth().border(1.dp, colors.danger.copy(alpha = .3f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        task.blockedReason?.takeIf { it.isNotBlank() }?.let { ReportMarkdown(it) }
-                                        if (blockers.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                                            Text("Waits for", style = TaskType.xs, color = colors.fgMuted)
-                                            blockers.forEach { blocker -> TaskChip(blocker.id, onOpen = { context.openTask(blocker.id) }) }
-                                        }
-                                    }
-                                    ReportSectionView(task, now, ::writerName, connection.supports("task-freshness"), connection.supports("task-activity"), context)
-                                }
-                            }
-                            TaskSectionKind.Feedback -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    timelineProblem?.let {
-                                        Text(it, style = TaskType.xs, color = colors.danger)
-                                        TextButton(onClick = { timelineRefresh++ }) { Text("Retry") }
-                                    }
-                                    if (timeline != null) TaskFeedback(timeline!!.feedback, feedbackBusy, ::setFeedback)
-                                    else if (timelineProblem == null) Text("Loading feedback…", style = TaskType.xs, color = colors.fgSubtle)
-                                }
-                            }
-                            TaskSectionKind.Files -> {
-                                if (artifacts.isNotEmpty()) TaskSection(TaskSectionKind.Files, count = artifacts.size.toString()) {
-                                    val tagsEditable = connection.supports(ARTIFACT_TAGS_FEATURE)
-                                    TaskFiles(context, artifacts, onUpdateTags = if (tagsEditable) { artifact, tags ->
-                                        context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
-                                    } else null)
-                                }
-                            }
-                            TaskSectionKind.Related -> {
-                                TaskRelations(task, view.tasks, view.board?.archivedLinks.orEmpty(), context::openTask) {
-                                    board.showWithLinked(task.id)
-                                    context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.Panel(context.route, io.github.mitzacoder.kemiri.navigation.PanelTab.Board))
-                                }
-                            }
-                            TaskSectionKind.Workers -> {
-                                if (task.workerIds.isNotEmpty()) TaskSection(TaskSectionKind.Workers, count = taskWorkerCount(task.workerIds.size, workers.count { it.id in task.workerIds && it.status == "running" })) {
-                                    task.workerIds.forEach { id ->
-                                        val worker = workers.firstOrNull { it.id == id }
-                                        if (worker == null) Text(id, Modifier.padding(horizontal = 12.dp, vertical = 6.dp).semantics { contentDescription = "$id, this worker was forgotten" }, style = TaskType.xs.copy(fontFamily = JetBrainsMono), color = colors.fgSubtle)
-                                        else Row(
-                                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).border(1.dp, colors.border.copy(alpha = .7f), RoundedCornerShape(10.dp))
-                                            .clickable(onClickLabel = "Read ${worker.title.ifEmpty { worker.id }}") { context.navigate(context.route.copy(threadId = worker.threadId, workerId = worker.id)) }
-                                            .heightIn(min = 44.dp).padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            TaskDetailText(worker.title.ifEmpty { worker.id }, Modifier.weight(1f), style = TaskType.sectionTitle.copy(fontWeight = FontWeight.Medium), color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            StatusBadge(worker.status, domain = "worker")
-                                            LucideGlyph(Lucide.ChevronRight, size = 14.dp, tint = colors.fgSubtle)
-                                        }
-                                    }
-                                }
-                            }
-                            TaskSectionKind.Decisions -> {
-                                if (decisions.isNotEmpty()) TaskSection(TaskSectionKind.Decisions, count = decisions.size.toString()) {
-                                    decisions.forEach { DecisionCard(it, now, withTask = false) }
-                                }
-                            }
-                            TaskSectionKind.Timeline -> {
-                                TaskTimeline(timeline?.entries.orEmpty(), deviceSettings.timelineNewestFirst, { scope.launch { context.repository.setTimelineNewestFirst(!deviceSettings.timelineNewestFirst) } }, ::writerName, now,
+                if (showNow || showNext) item(key = "next") {
+                    TaskReadingSection("Next") {
+                        if (showNow) {
+                            TaskHeading("Now")
+                            if (activity != null) TaskActivityView(activity, inlineAge = true) else ReportMarkdown(task.report.now)
+                        }
+                        if (showNext) ReportMarkdown(task.report.next)
+                    }
+                }
+                if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {
+                    TaskReadingSection("Waiting for an agent reply") {
+                        needsYou.questionsForAgent.forEach { question -> key(question.id) {
+                            QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
+                        } }
+                    }
+                }
+                if (linksEnabled && (timeline?.feedback?.isNotEmpty() == true || openFeedbackCount(task) > 0 || timelineProblem != null)) item(key = "notes") {
+                    TaskReadingSection("Your notes") {
+                        timelineProblem?.let {
+                            Text(it, style = TaskType.xs, color = colors.danger)
+                            TextButton(onClick = { timelineRefresh++ }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
+                        }
+                        timeline?.let { TaskFeedback(it.feedback, feedbackBusy, now, { id -> threadName(id, threads) }, ::setFeedback) }
+                        if (timeline == null && timelineProblem == null) Text("Loading notes…", style = TaskType.xs, color = colors.fgMuted)
+                    }
+                }
+                item(key = "record") {
+                    TaskRecord(task, decisions, now, deviceSettings.taskRecordFolds,
+                        onFoldChange = { row, expanded -> scope.launch { context.repository.setTaskRecordFold(row, expanded) } },
+                        activityContent = if (linksEnabled || task.snapshots > 0 || task.workerIds.isNotEmpty()) { {
+                            if (linksEnabled) {
+                                TaskTimeline(timeline?.entries.orEmpty(), deviceSettings.timelineNewestFirst,
+                                    { scope.launch { context.repository.setTimelineNewestFirst(!deviceSettings.timelineNewestFirst) } }, ::writerName, now,
                                     groups = timeline?.groups.takeIf { timelineGroupsEnabled }, onKindsChanged = { timelineKinds = it })
                             }
-                            TaskSectionKind.History -> {
-                                if (task.snapshots > 0) {
-                                    var historyOpen by rememberSaveable { mutableStateOf(false) }
-                                    TaskSection(TaskSectionKind.History, count = task.snapshots.toString(), expanded = historyOpen, onToggle = { historyOpen = !historyOpen }) {
-                                        if (historyOpen) TaskHistory(context, task, ::writerName)
-                                    }
-                                }
-                            }
-                            TaskSectionKind.Brief -> {
-                                if (task.description.isNotBlank() || !task.acceptance.isNullOrBlank()) {
-                                    var briefOpen by rememberSaveable { mutableStateOf(true) }
-                                    TaskSection(TaskSectionKind.Brief, count = "Reference", expanded = briefOpen, onToggle = { briefOpen = !briefOpen }) {
-                                        if (briefOpen) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            if (task.description.isNotBlank()) ReportMarkdown(task.description)
-                                            task.acceptance?.takeIf { it.isNotBlank() }?.let {
-                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                    Text("Done when", style = TaskType.xsSemibold, color = colors.fgMuted)
-                                                    ReportMarkdown(it)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                            if (task.snapshots > 0) TaskReadingSection("History") { TaskHistory(context, task, ::writerName) }
+                            if (task.workerIds.isNotEmpty()) TaskRecordWorkers(context, task.workerIds, workers)
+                        } } else null,
+                    )
+                }
+                item(key = "about") {
+                    TaskAbout(context, task, view.tasks, view.board?.archivedLinks.orEmpty(), owner, activity,
+                        blockersInNeedsYou = if (needsYou.blocked) blockers.mapTo(mutableSetOf()) { it.id } else emptySet(),
+                        artifacts = artifacts, onUpdateTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
+                            context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
+                        } else null, now = now)
                 }
             }
         }
         if (!editing) {
             HorizontalDivider(color = colors.border)
-            ReplyBox(context, task, owner, onDismiss, replyInputMaxHeight)
+            ReplyBox(context, task, owner, onDismiss, replyInputMaxHeight, replyFocus)
         }
     }
     }
-}
-
-@Composable
-private fun ButtonLabel(icon: LucideIcon, text: String) {
-    LucideGlyph(icon, size = 16.dp)
-    Spacer(Modifier.width(6.dp))
-    Text(text)
 }
 
 /**
@@ -442,7 +341,7 @@ private fun ButtonLabel(icon: LucideIcon, text: String) {
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ReplyBox(context: ProjectScreenContext, task: BoardTask, owner: TaskOwner, onDismiss: () -> Unit, inputMaxHeight: androidx.compose.ui.unit.Dp) {
+private fun ReplyBox(context: ProjectScreenContext, task: BoardTask, owner: TaskOwner, onDismiss: () -> Unit, inputMaxHeight: androidx.compose.ui.unit.Dp, focus: FocusRequester) {
     val colors = Jarvis.colors
     // Typed in a text field's own state, so the field can take pasted and keyboard images; kept per task.
     val reply = key(task.id) { rememberTextFieldState() }
@@ -535,7 +434,7 @@ private fun ReplyBox(context: ProjectScreenContext, task: BoardTask, owner: Task
             sendEnabled = !sending && !attaching && (reply.text.isNotBlank() || images.isNotEmpty() || attachments.isNotEmpty()),
             onSend = ::send,
             modifier = Modifier.fillMaxWidth(),
-            fieldModifier = Modifier.heightIn(max = inputMaxHeight).contentReceiver(intake.receiver).semantics { contentDescription = "Message about ${task.id}" },
+            fieldModifier = Modifier.focusRequester(focus).heightIn(max = inputMaxHeight).contentReceiver(intake.receiver).semantics { contentDescription = "Message about ${task.id}" },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
         when {

@@ -166,7 +166,11 @@ class HarnessClient(
                     // OkHttp converts HTTP(S) to WS(S) for WebSocket upgrades. No browser Origin is spoofed.
                     socket = socketHttp.newWebSocket(Request.Builder().url("$origin/ws").build(), listener)
                     transportTimeout("WebSocket upgrade") { opened.await() }
-                    val helloRequest = HelloRequest(protocolVersion = 1, client = HelloRequestClient(name = "harness-android", version = "0.1.0"), auth = accessToken?.let { HelloRequestAuth(accessToken = it) })
+                    val helloRequest = HelloRequest(
+                        protocolVersion = 1,
+                        client = HelloRequestClient(name = "harness-android", version = "0.1.0", features = listOf(HarnessFeature.TASK_STEPS)),
+                        auth = accessToken?.let { HelloRequestAuth(accessToken = it) },
+                    )
                     val hello = exchange(helloRequest.id, wireJson.encodeToJsonElement(HelloRequest.serializer(), helloRequest).jsonObject, HelloResponse.serializer(), allowBeforeReady = true)
                     if (hello.protocolVersion != 1L) throw ClientException("unsupported_protocol", "Unsupported protocol ${hello.protocolVersion}")
                     if (hello.features?.contains("device-auth-v1") == true) deviceAuth?.advertised(hello.backendId, hello.auth?.mode)

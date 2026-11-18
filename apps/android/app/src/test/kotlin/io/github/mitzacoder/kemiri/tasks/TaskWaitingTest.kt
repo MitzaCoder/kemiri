@@ -39,7 +39,6 @@ class TaskWaitingTest {
             val task = waiting().copy(waiting = waiting().waiting!!.copy(note = note))
             val summary = waitingSummary(task)
             assertTrue(summary.startsWith("$note · since"))
-            assertEquals(summary, taskSheetMeta(task).single())
         }
     }
     @Test fun decoderAcceptsUnfamiliarStatusesAndUnknownOptionalFields() {

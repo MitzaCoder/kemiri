@@ -43,6 +43,8 @@ data class DeviceSettings(
     val notifications: NotificationSettings = NotificationSettings(),
     /** "wrap" or "scroll" once the reader chose with a code block's Wrap toggle, null before (web `aiki.code-wrap.v1`). */
     val codeWrap: String? = null,
+    /** One independent open/closed preference per record row, across tasks on this device. */
+    val taskRecordFolds: Map<String, Boolean> = emptyMap(),
 )
 private val Context.deviceData by preferencesDataStore(name = "harness-device")
 class DeviceStore(context: Context) {

@@ -24,10 +24,30 @@ class SidebarAttentionTest {
     }
 
     @Test fun allSignalsAreCountedOnceAndArchivedProjectsAreExcluded() {
-        val all = project("all", empty.copy(questions = 1, warnings = 2, failedWorkers = 3, failedThreads = 1, reviewTasks = 4)).copy(activity = ProjectActivity("failed", 0, null, null))
-        assertEquals(12L, attentionCount(all))
+        val all = project("all", empty.copy(questions = 1, warnings = 2, failedWorkers = 3, failedThreads = 1, stepsTasks = 2, reviewTasks = 4)).copy(activity = ProjectActivity("failed", 0, null, null))
+        assertEquals(14L, attentionCount(all))
         assertEquals(AttentionKind.entries.filter { it != AttentionKind.Task }, projectAttentionActions(all).map { it.kind })
         assertEquals(0L, attentionCount(all.copy(archived = true)))
+    }
+
+    @Test fun summaryLinksToTheFirstStepsTaskBeforeReview() {
+        val project = project("shop", empty.copy(stepsTasks = 1, stepsTaskId = "T4", reviewTasks = 2, reviewTaskId = "T5"))
+        val actions = projectAttentionActions(project)
+        assertEquals(listOf(AttentionKind.Steps, AttentionKind.Review), actions.map { it.kind })
+        assertEquals("1 with your steps", actions.first().label)
+        assertEquals("T4", actions.first().taskId)
+        assertEquals("☷", sidebarStatus(project, projectStatus(project, 0)).glyph)
+    }
+
+    @Test fun loadedBoardKeepsTheStepsRowAndDoesNotCountItTwice() {
+        val steps = io.github.mitzacoder.kemiri.tasks.task("T4", "review").copy(state = BoardTaskState("needs_you", "steps_needed", "now", emptyList()))
+        val review = io.github.mitzacoder.kemiri.tasks.task("T5", "review").copy(state = BoardTaskState("needs_you", "review", "now", emptyList()))
+        val project = project("shop", empty.copy(stepsTasks = 1, stepsTaskId = "T4", reviewTasks = 1, reviewTaskId = "T5"))
+        val board = Board(tasks = listOf(steps, review), questions = emptyList(), decisions = emptyList(), updatedAt = null)
+        val actions = projectAttentionActions(project, board)
+        assertEquals(2L, attentionCount(project, board))
+        assertEquals(AttentionAction(AttentionKind.Steps, 1, "1 with your steps", "T4"), actions.single { it.kind == AttentionKind.Steps })
+        assertEquals(1L, actions.single { it.kind == AttentionKind.Task }.count)
     }
 
     @Test fun oldServersUseActivityButInventNoTaskTotals() {

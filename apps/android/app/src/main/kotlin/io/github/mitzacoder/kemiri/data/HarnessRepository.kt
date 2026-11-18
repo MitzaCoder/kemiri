@@ -146,6 +146,9 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun setTheme(palette: ThemePalette, mode: ThemeMode) = update { it.copy(palette = palette, mode = mode) }
     suspend fun setCodeWrap(stored: String) = update { it.copy(codeWrap = stored) }
     suspend fun setTimelineNewestFirst(newestFirst: Boolean) = update { it.copy(timelineNewestFirst = newestFirst) }
+    internal suspend fun setTaskRecordFold(row: io.github.mitzacoder.kemiri.features.tasks.TaskRecordRow, expanded: Boolean) = update {
+        it.copy(taskRecordFolds = io.github.mitzacoder.kemiri.features.tasks.saveTaskRecordFold(row, expanded, it.taskRecordFolds))
+    }
     suspend fun setTasksView(stored: String) = update { it.copy(tasksView = stored) }
     suspend fun setProjectTasksView(backend: String, project: String, stored: String) = update {
         it.copy(projectTasksView = it.projectTasksView + (backend to (it.projectTasksView[backend].orEmpty() + (project to stored))))

@@ -62,13 +62,6 @@ fun rowTimeWords(row: TaskRow, now: Long = System.currentTimeMillis()): String {
     return "Updated ${relativeTime(task.updatedAt, now)}"
 }
 
-/** "1h 20m in progress" for the sheet; null for a task that has spent no time in progress. */
-fun inProgressLine(task: BoardTask): String? {
-    val minutes = task.inProgressMinutes ?: return null
-    if (minutes <= 0 && task.status != "in_progress") return null
-    return "${formatMinutes(minutes.toDouble())} in progress"
-}
-
 // --- the report ----------------------------------------------------------------------------------------------------
 
 fun BoardTaskReport.section(section: ReportSection): String = when (section) {
@@ -82,8 +75,6 @@ fun BoardTaskSnapshotReport.section(section: ReportSection): String = when (sect
     ReportSection.Results -> results
     ReportSection.Next -> next
 }
-
-fun hasReport(report: BoardTaskReport): Boolean = ReportSection.entries.any { report.section(it).isNotBlank() }
 
 // --- owners, blockers, decisions -------------------------------------------------------------------------------
 

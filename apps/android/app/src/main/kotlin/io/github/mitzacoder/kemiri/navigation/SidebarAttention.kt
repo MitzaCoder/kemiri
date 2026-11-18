@@ -9,18 +9,30 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Same grouping/order as web sidebar-attention.ts. Older backends use activity only. */
-enum class AttentionKind { Question, Warning, Coordinator, Worker, Thread, Review, Task }
+enum class AttentionKind { Question, Warning, Coordinator, Worker, Thread, Steps, Review, Task }
 data class AttentionAction(val kind: AttentionKind, val count: Long, val label: String, val taskId: String? = null, val threadId: String? = null)
 data class BackendAttentionProjects(val key: String, val name: String, val projects: List<ProjectSummary>, val boards: Map<String, Board> = emptyMap())
 data class ProjectAttentionLink(val backendKey: String, val backendName: String, val projectId: String, val projectName: String, val action: AttentionAction)
 
+private fun stepsAction(count: Long, taskId: String?) =
+    AttentionAction(AttentionKind.Steps, count, "$count with your steps", taskId)
+
+internal fun attentionGlyph(kind: AttentionKind): String = when (kind) {
+    AttentionKind.Question -> "?"
+    AttentionKind.Steps -> "☷"
+    AttentionKind.Review -> "✓"
+    else -> "!"
+}
+
 fun projectAttentionActions(project: ProjectSummary, board: Board? = null): List<AttentionAction> = buildList {
     if (project.archived != true && board?.tasks?.any { it.state != null } == true) {
         val tasks = board.tasks.filter { !it.archived && it.state?.group == "needs_you" }
-        if (tasks.isNotEmpty()) add(AttentionAction(AttentionKind.Task, tasks.size.toLong(), "${tasks.size} need you", tasks.first().id))
+        val (steps, otherTasks) = tasks.partition { it.state?.kind == "steps_needed" }
+        if (otherTasks.isNotEmpty()) add(AttentionAction(AttentionKind.Task, otherTasks.size.toLong(), "${otherTasks.size} need you", otherTasks.first().id))
         val loose = looseWaiting(board)
         if (loose.isNotEmpty()) add(AttentionAction(AttentionKind.Question, loose.size.toLong(), "${loose.size} question${if (loose.size == 1) "" else "s"}"))
         if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, "Main chat failed"))
+        if (steps.isNotEmpty()) add(stepsAction(steps.size.toLong(), steps.first().id))
         return@buildList
     }
     if (project.archived == true) return@buildList
@@ -34,6 +46,8 @@ fun projectAttentionActions(project: ProjectSummary, board: Board? = null): List
     if (workers > 0) add(AttentionAction(AttentionKind.Worker, workers, if (workers == 1L) "Worker failed" else "$workers workers failed", summary?.failedWorkerTaskId))
     val threads = summary?.failedThreads ?: 0
     if (threads > 0) add(AttentionAction(AttentionKind.Thread, threads, if (threads == 1L) "Background job failed" else "$threads background jobs failed", threadId = summary?.failedThreadId))
+    val steps = summary?.stepsTasks ?: 0
+    if (steps > 0) add(stepsAction(steps, summary?.stepsTaskId))
     val reviews = summary?.reviewTasks ?: 0
     if (reviews > 0) add(AttentionAction(AttentionKind.Review, reviews, "$reviews to review", summary?.reviewTaskId))
 }
@@ -48,7 +62,7 @@ fun sidebarStatus(project: ProjectSummary, row: ProjectStatus, board: Board? = n
     val action = projectAttentionActions(project, board).firstOrNull()
     val running = project.attention?.runningWorkers ?: project.activity?.runningWorkers ?: 0
     val working = project.activity?.coordinator == "working" || running > 0
-    if (action != null) return SidebarStatus(action.label, when (action.kind) { AttentionKind.Question -> "?"; AttentionKind.Review -> "✓"; else -> "!" }, action.kind != AttentionKind.Review, working)
+    if (action != null) return SidebarStatus(action.label, attentionGlyph(action.kind), action.kind != AttentionKind.Review, working)
     if (working) return SidebarStatus(if (running > 0) "Working · $running worker${if (running == 1L) "" else "s"}" else "Working", "◌", working = true)
     val returning = project.attention?.nextReturnAt?.let { try { Instant.parse(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())) } catch (_: java.time.DateTimeException) { null } }
     if (returning != null) return SidebarStatus("Returns $returning", "◷")

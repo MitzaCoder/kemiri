@@ -142,13 +142,6 @@ class TaskSheetRulesTest {
         assertEquals("1h", rowTime(closed, now))
         assertEquals("Dropped 1 h ago", rowTimeWords(closed, now))
     }
-
-    @Test fun showsTimeInProgressOnlyForATaskThatSpentSome() {
-        assertNull(inProgressLine(task("T1")))
-        assertNull(inProgressLine(task("T1", inProgressMinutes = 0)))
-        assertEquals("0m in progress", inProgressLine(task("T1", status = "in_progress", inProgressMinutes = 0)))
-        assertEquals("45m in progress", inProgressLine(task("T1", status = "done", inProgressMinutes = 45)))
-    }
 }
 
 private fun thread(id: String, title: String) = ThreadSummary(

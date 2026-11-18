@@ -11,7 +11,7 @@ internal fun taskPartProgress(task: BoardTask): TaskPartProgress? {
     fun tone(kind: String) = when (kind) {
         "done" -> PartTone.Done
         "working" -> PartTone.Working
-        "failed", "answer_needed", "review" -> PartTone.NeedsYou
+        "failed", "answer_needed", "steps_needed", "review" -> PartTone.NeedsYou
         else -> PartTone.Other
     }
     val counts = PartTone.entries.map { PartSegment(it, states.count { state -> tone(state) == it }) }

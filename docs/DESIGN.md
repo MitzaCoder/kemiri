@@ -1347,8 +1347,8 @@ row opens the first matching task when known; otherwise it opens the project. Wa
 server returns them to review. Below are calm project rows with one glyph, one status line and an unread dot.
 Backend connection labels appear only when disconnected; backend groups, Add and archives remain.
 The 56px rail carries per-project action counts; the phone drawer uses the same attention panel.
-Web and Android share ordering and count rules for existing rows, including activity-only fallback for older
-backends. Web also shows the Your steps row.
+Both clients show the Your steps row and fall back to activity for older backends. When Android already has a
+live derived board, it lists those steps separately from its combined count of the other tasks that need attention.
 
 ## Topology
 
@@ -5344,7 +5344,7 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   and a quarter of the available height); the header also scrolls if it reaches its height cap. Web follows the
   visual viewport above mobile keyboards and caps the draft field to 20% of that height. Android budgets from
   inset/IME-reduced constraints (header at most 35%, reserving 220dp outside it on short windows; draft field at
-  most 20%/160dp). Below 400dp available height, Android's section chips temporarily yield space to its body.
+  most 20%/160dp).
 - **Reply.** `TaskReply` stays in a fixed sheet footer outside the scrolling body. The footer respects the bottom
   safe area and stays above the keyboard. It reuses the coordinator `Composer` without model/worker/task pickers.
   Attachments, paste/drop, autosizing and keyboard rules are unchanged. The hint reads `To the coordinator · this task`.
@@ -5354,39 +5354,30 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 
 Web code: `TaskSheet.svelte`, `TaskRecordFold.svelte`, `TaskReply.svelte`, `TaskFeedback.svelte`,
 `TaskRelations.svelte`, `TaskProof.svelte`, `lib/task-sheet.css` and `lib/task-details.ts`. The state, fold
-and acceptance rules are tested in `task-details.test.ts`. The protocol, server and Android layout are unchanged.
+and acceptance rules are tested in `task-details.test.ts`. The protocol and server are unchanged.
 
-**Android Dashboard (D28, 2026-11-09).** `features/tasks/TaskSection.kt` provides the corresponding bordered theme surface,
-accent-tinted header band, 18dp section icon, 16sp bold heading and small count chip. It explicitly supplies the theme's
-foreground as the surface content colour, so nested Markdown retains its previous light/dark contrast. The heading is
-never weighted: a free-form metadata slot is constrained to the remaining width, with the report's existing two-line
-ellipsis treatment (T31). Foldable sections retain heading/button semantics and an announced open/folded state.
+**Android (T290).** The sheet follows the same reading order and uses the same current task fields. The
+status menu uses the page's state in words. Needs you uses the same primary tint as web and the shared question
+controls without separate card backgrounds. Android advertises `task-steps`; on supporting backends, open tasks
+show non-empty Your steps as numbered Markdown before any review check. The list, board and graph give manual
+steps a checklist glyph and the review tone. Review uses the existing close flow or focuses the fixed reply.
+Next omits the review check, and a working task shows its Now text only once. A current report has no freshness
+lines; a stale one offers the existing update action. There is no section navigation, scroll-spy or heading badge.
 
-- **T62 removes `TaskSummary.kt`.** `TaskSheetMeta.kt` keeps Android's compact context: waiting and subtask
-  progress in wrapping header metadata, open question/feedback and running-worker counts on section chips. It adds no reads.
-- **T43 removes the 840dp two-column layout.** Every window uses the same Questions, Report, Brief, Timeline, Feedback, Files,
-  Related, Workers, Decisions, History order. The side sheet still starts at 600dp, has a maximum
-  1184dp width and a 48dp outside gutter.
-- A horizontal sticky chip row stays above the scrolling body, below the unchanged header. A keyed LazyColumn
-  holds one item per present section, starting at index zero (T62). Tapping a chip pins its key immediately and calls
-  `animateScrollToItem` (or `scrollToItem` with the existing Android reduced-motion preference); item offset zero
-  already clears the header/chips outside the viewport, and the list clamps short end sections to its scroll limit.
-  The pin survives animation completion; only a body `DragInteraction.Start` releases it for the ensuing drag/fling.
-  Otherwise the spy uses `firstVisibleItemIndex`, or the last visible item when the list cannot scroll forward. Repeated
-  taps cancel the previous navigation job. The chip row scrolls the current chip fully into view without releasing
-  the body pin. FilterChip supplies focus, activation and selected semantics.
-- Files fills the single column. Its media pager keeps its 84% peeking slides, 288dp minimum stage height and 60%
-  window-height ceiling. Pager state, thumbnail/filter/caption/viewer/video behaviour are unchanged.
-- T29's link navigation, Show with linked, feedback state actions, retry, timeline filters and empty Feedback/Timeline
-  placeholders are retained. Report/question/decision/worker actions and their state owners are unchanged. Report
-  uses Next, Now, Results; Next retains its accent inset. Brief starts expanded; Brief and History can fold independently.
-- **The T32 reply box keeps its text/image state, paste intake and sending rules.** T113 adds task-local layout
-  constraints above the keyboard, without changing the shared `features/chat/MessageComposer.kt` or adding web-style
-  task draft sync. See Compact refs and keyboard space above.
+- The side sheet still starts at 600dp, has a maximum width of 1184dp and a 48dp outside gutter. The reading
+  column is capped at 672dp and keeps About below the record at all widths. Headings retain accessibility
+  semantics; fold buttons have 48dp targets and announce their expanded or collapsed state.
+- Results shows up to three photos or videos, which open the existing artifact reader. About retains the full
+  Files gallery, tag controls and Show with linked. Related tasks show by title with small IDs; blockers already
+  in Needs you do not repeat. The green “this task” chip is unchanged.
+- Your notes folds addressed and dismissed entries and shows each stored reply under its note. The request
+  starts open; Decided and Activity start closed. The three choices are saved independently on the device.
+  Activity keeps timeline filtering and sort, snapshot history and worker links.
+- The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
+  sync. See Compact refs and keyboard space above.
 
-Android code: `TaskSheet.kt`, `TaskSection.kt`, `TaskSheetMeta.kt`, `TaskRelationsSection.kt`, `TaskFeedback.kt`,
-`TaskTimeline.kt`, `TaskSectionNav.kt` and `media/MediaCarousel.kt`. JVM tests cover compact context in
-`tasks/TaskSheetMetaTest.kt` and section presence/order/counts in `tasks/TaskSectionNavTest.kt`.
+Android code: `TaskSheet.kt`, `TaskDetails.kt`, `TaskNeedsYouSection.kt`, `TaskRecord.kt`, `TaskFeedback.kt`,
+`TaskAbout.kt` and `media/TaskProof.kt`. `tasks/TaskDetailsTest.kt` mirrors the web's state, fold and acceptance tests.
 
 ### Themes
 

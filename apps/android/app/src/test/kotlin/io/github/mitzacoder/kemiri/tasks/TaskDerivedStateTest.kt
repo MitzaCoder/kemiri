@@ -19,16 +19,30 @@ class TaskDerivedStateTest {
             derived("T3", "needs_you", "failed"), derived("T4", "in_progress", "paused"),
             derived("T5", "in_progress", "working"), derived("T6", "waiting", "blocked_by_task"),
             derived("T7", "todo", "todo"), derived("T8", "closed", "done"),
+            derived("T9", "needs_you", "steps_needed"),
         )
         val sections = taskSections(tasks, emptyList())
         assertEquals(listOf("Needs you", "In progress", "Waiting", "To do", "Recently closed"), sections.map { it.label })
-        assertEquals(listOf("T3", "T2", "T1"), sections.first().rows.map { it.task.id })
+        assertEquals(listOf("T3", "T2", "T9", "T1"), sections.first().rows.map { it.task.id })
         assertEquals(listOf("T5", "T4"), sections[1].rows.map { it.task.id })
         val columns = kanbanColumns(tasks, emptyList())
         assertEquals(listOf("Needs you", "In progress", "Waiting", "To do", "Closed"), columns.map { it.label })
-        assertEquals(listOf("T3", "T2", "T1"), columns.first().cards.map { it.task.id })
-        assertEquals(3, needsYouCount(tasks, emptyList()))
-        assertEquals(listOf("T3", "T2", "T1"), kanbanColumns(tasks, emptyList(), onlyNeedsYou = true).flatMap { it.cards }.map { it.task.id })
+        assertEquals(listOf("T3", "T2", "T9", "T1"), columns.first().cards.map { it.task.id })
+        assertEquals(4, needsYouCount(tasks, emptyList()))
+        assertEquals(listOf("T3", "T2", "T9", "T1"), kanbanColumns(tasks, emptyList(), onlyNeedsYou = true).flatMap { it.cards }.map { it.task.id })
+    }
+
+    @Test fun stepsHaveTheReviewToneAndTheirOwnGraphSemanticsAndStayVisible() {
+        val task = derived("T1", "needs_you", "steps_needed").copy(status = "review")
+        assertEquals(TaskStatusTone.Review, taskStateTone(task))
+        assertEquals(GraphStatus("steps_needed", "Your steps", "☷"), graphTaskLabel(task))
+        val graph = io.github.mitzacoder.kemiri.features.tasks.graph.bubble.buildTaskGraph(listOf(task), emptyList(), emptyList(), emptyList())
+        val node = graph.nodes.single()
+        assertEquals("steps_needed", node.status)
+        assertTrue(node.attention)
+        assertTrue(io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphFoldGroups(graph).isEmpty())
+        val review = BoardTaskActivity("review", "Ready to check", task.createdAt, emptyList())
+        assertEquals("Your steps", taskRowActivity(task.copy(activity = review), true)?.text)
     }
 
     @Test fun waitsAndNeedsYouUseSinceNotPriorityWhileTodoKeepsPriority() {
@@ -102,7 +116,7 @@ class TaskDerivedStateTest {
     }
 
     @Test fun compactRowsAlwaysSayTheDerivedStateOnce() {
-        val labels = mapOf("failed" to "Failed", "answer_needed" to "Answer needed", "review" to "Ready for review",
+        val labels = mapOf("failed" to "Failed", "answer_needed" to "Answer needed", "steps_needed" to "Your steps", "review" to "Ready for review",
             "working" to "Working", "paused" to "Paused", "blocked_by_task" to "Blocked by T7",
             "waiting_outside" to "Waiting", "todo" to "To do", "done" to "Done", "dropped" to "Dropped")
         for ((kind, label) in labels) {

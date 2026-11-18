@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter
 data class GraphStatus(val key: String, val label: String, val mark: String)
 val graphStatuses = listOf(
     GraphStatus("todo", "Planned", "○"), GraphStatus("in_progress", "Working", "▶"),
+    GraphStatus("steps_needed", "Your steps", "☷"),
     GraphStatus("review", "Review", "◇"), GraphStatus("blocked", "Blocked", "⊣"),
     GraphStatus("paused", "Paused", "Ⅱ"), GraphStatus("failed", "Failed", "!"), GraphStatus("answer_needed", "Answer needed", "?"),
     GraphStatus("waiting", "Waiting", "◷"), GraphStatus("done", "Done", "✓"), GraphStatus("dropped", "Dropped", "−"),

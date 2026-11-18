@@ -9,6 +9,7 @@ import io.github.mitzacoder.kemiri.protocol.*
  */
 object HarnessFeature {
     const val STORAGE = "storage"
+    const val TASK_STEPS = "task-steps"
     const val TASK_REPORTS = "task-reports"
     const val TASK_LINKS = "task-links"
     const val TASK_TIMELINE_GROUPS = "task-timeline-groups"

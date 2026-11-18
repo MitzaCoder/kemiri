@@ -48,6 +48,7 @@ fun QuestionCard(
     readOnly: Boolean = false,
     preview: Boolean = false,
     optionsOnly: Boolean = false,
+    plain: Boolean = false,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -100,10 +101,10 @@ fun QuestionCard(
     }
     val onAskBack: ((String) -> Unit)? = if (canClarify) ::askBack else null
     Column(
-        modifier.fillMaxWidth()
+        modifier.fillMaxWidth().then(if (plain) Modifier else Modifier
             .background(tone.copy(alpha = if (warning) .10f else .08f), RoundedCornerShape(16.dp))
             .border(1.dp, tone.copy(alpha = if (warning) .50f else .40f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp))
             .semantics(mergeDescendants = false) { contentDescription = "${if (warning) "Warning" else "Question"} ${question.id}" },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -149,14 +150,15 @@ fun QuestionCard(
             problem?.let { Text(it, color = colors.danger, style = TaskType.xs) }
         }
         if (!optionsOnly && questionCanAnswer(question, readOnly)) QuestionAnswerForm(
-            question, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack,
+            question, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack, warningActionLabel = if (plain) "Got it" else "Acknowledge",
         )
     }
     if (readingExpanded) QuestionReadingDialog(
         question, taskLabel, onDismiss = { readingExpanded = false },
         canAnswer = questionCanAnswerExpanded(question, readOnly),
         answerFooter = { maxChoicesHeight ->
-            QuestionAnswerForm(question, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight, onAskBack = onAskBack)
+            QuestionAnswerForm(question, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight, onAskBack = onAskBack,
+                warningActionLabel = if (plain) "Got it" else "Acknowledge")
         },
     )
 }

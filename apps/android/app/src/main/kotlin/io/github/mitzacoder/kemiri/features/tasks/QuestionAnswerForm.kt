@@ -42,6 +42,7 @@ internal fun QuestionAnswerForm(
     maxChoicesHeight: Dp = 112.dp,
     choiceMinHeight: Dp = 48.dp,
     onAskBack: ((String) -> Unit)? = null,
+    warningActionLabel: String = "Acknowledge",
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
@@ -80,7 +81,7 @@ internal fun QuestionAnswerForm(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 shape = RoundedCornerShape(10.dp),
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val askPrimary = onAskBack != null && askBackIsPrimary(text)
                 if (onAskBack != null) {
                     val label = if (question.noReplyYet == true) "Ask again" else "Ask back"
@@ -90,8 +91,8 @@ internal fun QuestionAnswerForm(
                     else OutlinedButton(onClick = { onAskBack(askText) }, enabled = !busy && askText.isNotBlank(), modifier = askModifier) { Text(label) }
                 }
                 if (warning) {
-                    if (askPrimary) OutlinedButton(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Acknowledge") }
-                    else Button(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Acknowledge") }
+                    if (askPrimary) OutlinedButton(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(warningActionLabel) }
+                    else Button(onClick = { onSend(text.trim().ifEmpty { "Acknowledged" }) }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(warningActionLabel) }
                 } else {
                     val sendModifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Send the answer to ${question.id}" }
                     if (askPrimary) OutlinedButton(onClick = { onSend(text) }, enabled = !busy && text.isNotBlank(), modifier = sendModifier) { Text("Send answer") }

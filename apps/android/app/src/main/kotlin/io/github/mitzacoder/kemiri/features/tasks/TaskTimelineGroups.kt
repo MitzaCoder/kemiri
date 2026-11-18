@@ -34,9 +34,9 @@ internal fun TimelineGroup(group: BoardTimelineGroup, expanded: Boolean, onToggl
             LucideGlyph(when {
                 timelineGroupTone(group) == "danger" -> TaskIcons.TriangleAlert
                 timelineGroupTone(group) == "warning" -> TaskIcons.CircleHelp
-                group.kind == "decisions" -> TaskSectionKind.Decisions.icon
+                group.kind == "decisions" -> TimelineIcons.Decision
                 group.kind == "delivery" -> LucideIcon("flag", "M4 22V3", "M4 3c4-4 12 4 16 0v12c-4 4-12-4-16 0")
-                else -> TaskSectionKind.Report.icon
+                else -> TimelineIcons.Status
             }, size = 18.dp, tint = tone)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("$range · $kind", style = TaskType.meta, color = colors.fgSubtle)

@@ -19,6 +19,7 @@ fun derivedTaskSection(task: BoardTask, waiting: Int = 0): TaskSectionId = when 
 fun taskStateLabel(task: BoardTask, title: (String) -> String? = { null }): String = when (task.state?.kind) {
     "failed" -> "Failed"
     "answer_needed" -> "Answer needed"
+    "steps_needed" -> "Your steps"
     "review" -> "Ready for review"
     "working" -> "Working"
     "clarifying" -> "Clarifying"
@@ -39,7 +40,7 @@ fun taskRowStateLabel(task: BoardTask, title: (String) -> String? = { null }): S
 
 fun taskStateTone(task: BoardTask): TaskStatusTone = when (task.state?.kind) {
     "failed" -> TaskStatusTone.Blocked
-    "answer_needed", "review" -> TaskStatusTone.Review
+    "answer_needed", "steps_needed", "review" -> TaskStatusTone.Review
     "working", "clarifying" -> TaskStatusTone.Working
     "paused" -> TaskStatusTone.Paused
     "blocked_by_task", "waiting_outside" -> TaskStatusTone.Waiting
@@ -51,5 +52,5 @@ fun needsTaskOwner(task: BoardTask, waiting: Int): Boolean =
 
 /** Oldest first within a kind; stable priority and natural ID ties. */
 val derivedTaskOrder: Comparator<BoardTask> = compareBy<BoardTask> {
-    when (it.state?.kind) { "failed", "working" -> 0; "answer_needed", "paused" -> 1; "review" -> 2; else -> 0 }
+    when (it.state?.kind) { "failed", "working" -> 0; "answer_needed", "paused" -> 1; "steps_needed" -> 2; "review" -> 3; else -> 0 }
 }.thenBy { isoMillis(it.state?.since) }.thenBy { it.order }.thenComparing({ it.id }, taskIdOrder)

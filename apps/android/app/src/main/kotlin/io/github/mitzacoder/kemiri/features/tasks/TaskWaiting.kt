@@ -18,7 +18,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskWaiting
-import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import java.time.Instant
@@ -43,22 +42,17 @@ internal fun waitingSummary(task: BoardTask, now: Long = System.currentTimeMilli
 }.orEmpty()
 
 @Composable
-internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: Boolean, task: BoardTask? = null, onPick: (String) -> Unit) {
+internal fun TaskStatusMenu(task: BoardTask, label: String, supportsWaiting: Boolean, enabled: Boolean, onPick: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val label = task?.let { taskStateLabel(it) } ?: taskStatusWords(status)
-    if (!enabled) {
-        if (task?.state != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { TaskStatusDot(taskStateTone(task)); Text(label, style = TaskType.xs) }
-        else TaskStatusBadge(status)
-        return
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "Status menu chevron")
     Box {
         OutlinedButton(
+            enabled = enabled,
             onClick = { expanded = !expanded },
             interactionSource = interactionSource,
-            modifier = Modifier.semantics {
+            modifier = Modifier.heightIn(min = 48.dp).semantics {
                 contentDescription = "Change task status: ${label}"
                 stateDescription = if (expanded) "Expanded" else "Collapsed"
             },
@@ -71,8 +65,8 @@ internal fun TaskStatusMenu(status: String, supportsWaiting: Boolean, enabled: B
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TaskStatusDot(task?.let(::taskStateTone) ?: taskStatusTone(status))
-                Text(label, style = TaskType.xs)
+                TaskStatusDot(taskStateTone(task))
+                Text(label, Modifier.weight(1f, fill = false), style = TaskType.xs)
                 LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 16.dp, tint = Jarvis.colors.fgMuted)
             }
         }

@@ -40,6 +40,8 @@ internal fun taskRowActivity(task: BoardTask, enabled: Boolean, title: (String) 
     val state = task.state ?: return activity
     if (activity != null && taskUsesPartsSentence(task)) return activity
     state.sentence?.let { return it }
+    // Stored review activity can describe a separate check, not the manual steps.
+    if (state.kind == "steps_needed") return BoardTaskActivity("review", taskStateLabel(task), state.since, state.refs, ageFormat = "none")
     val conveysState = when (state.kind) {
         "failed" -> activity?.kind == "failure"
         "answer_needed" -> activity?.kind == "question"

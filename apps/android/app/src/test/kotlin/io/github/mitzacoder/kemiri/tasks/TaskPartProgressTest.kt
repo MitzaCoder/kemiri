@@ -7,10 +7,10 @@ import org.junit.Test
 
 class TaskPartProgressTest {
     @Test fun partsHaveStableToneOrderAndOmitDroppedAndZeroCounts() {
-        val parent = task("T1").copy(subtaskStates = listOf("todo", "review", "working", "done", "failed", "dropped"))
+        val parent = task("T1").copy(subtaskStates = listOf("todo", "review", "working", "done", "failed", "steps_needed", "dropped"))
         val progress = taskPartProgress(parent)!!
-        assertEquals("1 of 5 parts done · 1 working · 2 needs you", progress.text)
-        assertEquals(listOf(PartTone.Done, PartTone.Working, PartTone.NeedsYou, PartTone.NeedsYou, PartTone.Other), progress.segments.map { it.tone })
+        assertEquals("1 of 6 parts done · 1 working · 3 needs you", progress.text)
+        assertEquals(listOf(PartTone.Done, PartTone.Working, PartTone.NeedsYou, PartTone.NeedsYou, PartTone.NeedsYou, PartTone.Other), progress.segments.map { it.tone })
         assertEquals("0 of 1 parts done", taskPartProgress(parent.copy(subtaskStates = listOf("todo")))!!.text)
         assertNull(taskPartProgress(parent.copy(subtaskStates = emptyList())))
         assertNull(taskPartProgress(task("T1")))

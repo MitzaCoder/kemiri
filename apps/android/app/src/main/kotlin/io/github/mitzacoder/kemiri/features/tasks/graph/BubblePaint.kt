@@ -23,6 +23,7 @@ internal class BubblePaint {
             val icon = when (node.status) {
                 "failed", "blocked" -> TaskIcons.TriangleAlert
                 "answer_needed", "clarifying" -> TaskIcons.CircleHelp
+                "steps_needed" -> TaskIcons.ListChecks
                 "review" -> TaskIcons.Eye
                 "paused" -> TaskIcons.Pause
                 "blocked_by_task" -> TaskIcons.Lock

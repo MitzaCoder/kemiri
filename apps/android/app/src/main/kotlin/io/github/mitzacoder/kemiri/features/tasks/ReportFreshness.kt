@@ -10,7 +10,8 @@ internal const val REPORT_STALE_CONFIRMATION_MS = 4_000L
 internal fun reportStaleRequest(projectId: String, taskId: String) =
     io.github.mitzacoder.kemiri.protocol.BoardReportStaleRequest(projectId = projectId, taskId = taskId)
 
-internal fun reportFreshnessVisible(enabled: Boolean, report: BoardTaskReport): Boolean = enabled && report.freshness != null
+internal fun taskReportIsStale(enabled: Boolean, report: BoardTaskReport): Boolean =
+    enabled && report.freshness?.let { it.results.stale || it.next.stale } == true
 
 internal fun emptyFinishedResults(status: String, results: String): Boolean =
     results.isBlank() && status in listOf("review", "done")

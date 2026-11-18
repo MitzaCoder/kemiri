@@ -29,10 +29,14 @@ class ReportFreshnessTest {
         assertEquals(4000L, REPORT_STALE_CONFIRMATION_MS)
     }
 
-    @Test fun featureAndMetadataAreBothRequired() {
-        assertTrue(reportFreshnessVisible(true, report))
-        assertFalse(reportFreshnessVisible(false, report))
-        assertFalse(reportFreshnessVisible(true, report.copy(freshness = null)))
+    @Test fun oneStaleSectionIsEnoughButCurrentAndLegacyReportsStayQuiet() {
+        assertTrue(taskReportIsStale(true, report))
+        assertFalse(taskReportIsStale(false, report))
+        assertFalse(taskReportIsStale(true, report.copy(freshness = null)))
+        val current = section.copy(stale = false)
+        assertTrue(taskReportIsStale(true, report.copy(freshness = BoardTaskReportFreshness(current, section))))
+        assertTrue(taskReportIsStale(true, report.copy(freshness = BoardTaskReportFreshness(section, current))))
+        assertFalse(taskReportIsStale(true, report.copy(freshness = BoardTaskReportFreshness(current, current))))
     }
     @Test fun agesTickAndApproximateDatesAreHonest() {
         assertEquals("written 2 h ago · 6 events since", reportSectionAge(section, now))
