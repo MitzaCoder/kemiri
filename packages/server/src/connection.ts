@@ -849,7 +849,8 @@ export class ClientConnection {
 						request.projectId,
 						request.taskId,
 						request.kinds,
-      request.grouped === true && this.#features.includes("task-timeline-groups"),
+						request.grouped === true && this.#features.includes("task-timeline-groups"),
+						request.delivery === true && this.#features.includes("task-delivery"),
 					);
 					this.#respond({ type: "board.task.timeline", id: request.id, taskId: request.taskId, ...timeline });
 					return;

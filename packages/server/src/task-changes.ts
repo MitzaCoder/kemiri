@@ -218,6 +218,30 @@ export class TaskChangeObserver {
 		await this.#deliver(ledger);
 	}); }
 
+	/** Present attribution, not the union of historical milestone rows. Read only the configured repository/ref. */
+	async delivery(taskId: string): Promise<{ commits: string[]; integration?: { ref: string; landed: number } } | undefined> {
+		const ledger = await this.#ledger();
+		if (!Object.keys(ledger.repositories).length) return undefined;
+		const repo = await gitRepository(this.#options.path);
+		const state = repo ? ledger.repositories[repo] : undefined;
+		if (!repo || !state) return undefined;
+		const commits = [...new Set(state.changes.filter(change => change.taskId === taskId).flatMap(change => change.commits))];
+		if (!commits.length) return undefined;
+		const ref = await this.#ref(repo);
+		const tip = ref && await this.#resolve(repo, ref);
+		if (!ref || !tip) return { commits };
+
+		// Check reachability at one tip, including already-landed manual attributions and ref rewrites.
+		// A declared revert is distinct from an ancestry removal; report ancestry under Merged.
+		let landed = 0;
+		for (let offset = 0; offset < commits.length; offset += 8) {
+			const reachability = await Promise.all(commits.slice(offset, offset + 8).map(hash => this.#git(repo,
+				["merge-base", "--is-ancestor", hash, tip]).then(() => true, () => false)));
+			landed += reachability.filter(Boolean).length;
+		}
+		return { commits, integration: { ref, landed } };
+	}
+
 	/** Verified deployment range, using the same ledger corrections and portable trailers as integration. */
 	deploymentTasks(repository: string, previous: string | undefined, intended: string): Promise<string[]> { return this.#serialize(async () => {
 		const repo = await gitRepository(this.#options.path);

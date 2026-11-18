@@ -142,8 +142,8 @@ export class ProjectBoard {
 	}
 
 	/** A task's timeline, oldest first, and its feedback entries, open ones first. */
-	timeline(taskId: string, grouped = false): ReturnType<HarnessClient['readTaskTimeline']> {
-		return this.#client.readTaskTimeline(this.projectId, taskId, grouped ? { grouped: true } : {});
+	timeline(taskId: string, grouped = false, delivery = false): ReturnType<HarnessClient['readTaskTimeline']> {
+		return this.#client.readTaskTimeline(this.projectId, taskId, { ...(grouped ? { grouped: true } : {}), ...(delivery ? { delivery: true } : {}) });
 	}
 
 	/** Dismiss, reopen or otherwise set a feedback entry; the entry as stored. Throws what the server refused with. */

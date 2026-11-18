@@ -105,7 +105,7 @@ export type BoardState = {
 	lastReportSweep?: number;
 	deployFeedConfigured?: boolean;
 	deploySequences?: Record<string, number>;
-	latestTaskDeploy?: Record<string, { scope: string; order: number; attemptId: string }>;
+	latestTaskDeploy?: Record<string, { scope: string; order: number; attemptId: string; outcome?: "live" | "pending" | "failed" }>;
 	reportAudit?: ReportAuditRecord;
 	tasks: BoardTask[];
 	questions: BoardQuestion[];
@@ -330,14 +330,14 @@ export function applyTaskDeploy(state: BoardState, history: TaskHistoryState, ta
  })].join("\n");
  const entry = history.events?.find(entry => entry.ref === ref);
  const priorEntry = entry ? { ...entry } : undefined;
+ const ready = fact.expectedTargets.filter(name => fact.targets[name]?.state === "ok").length;
+ const failed = fact.expectedTargets.some(name => ["failed", "rolled_back"].includes(fact.targets[name]!.state));
+ const outcome = failed ? "failed" : ready === fact.expectedTargets.length ? "ok" : "running";
  const unchanged = entry?.detail === detail && entry?.label === summary.text;
  if (entry && !unchanged) { entry.label = summary.text; entry.detail = detail; bumpTimeline(history, task); }
  else if (!entry) addTimelineEvent(history, task, { kind: "milestone", at: fact.observedAt, label: summary.text, detail, ref, by: HARNESS_WRITER });
  if (!unchanged || !history.timelineEntries?.some(entry => entry.id === timelineId(task.id, ref))) {
   if (priorEntry && !history.timelineEntries?.some(entry => entry.id === timelineId(task.id, ref))) upsertTimelineFact(history, task, { ...priorEntry, id: timelineId(task.id, ref), endAt: priorEntry.at, group: "delivery", source: "deploy", outcome: /failed|rolled.back/i.test(priorEntry.label) ? "failed" : /live on/i.test(priorEntry.label) ? "ok" : "running" });
-  const ready = fact.expectedTargets.filter(name => fact.targets[name]?.state === "ok").length;
-  const failed = fact.expectedTargets.some(name => ["failed", "rolled_back"].includes(fact.targets[name]!.state));
-  const outcome = failed ? "failed" : ready === fact.expectedTargets.length ? "ok" : "running";
   upsertTimelineFact(history, task, { id: timelineId(task.id, ref), at: entry?.at ?? fact.observedAt, endAt: fact.observedAt, kind: "milestone", group: "delivery", source: "deploy", outcome,
    label: outcome === "ok" ? `live on ${ready}/${fact.expectedTargets.length} targets` : summary.text, detail, ref, by: HARNESS_WRITER });
  }
@@ -345,7 +345,7 @@ export function applyTaskDeploy(state: BoardState, history: TaskHistoryState, ta
  const latest = state.latestTaskDeploy[task.id];
  // A late catch-up updates its own history only; it cannot revive an older attempt in Now.
  if (latest?.scope === fact.scope && latest.order > fact.order) return;
- state.latestTaskDeploy[task.id] = { scope: fact.scope, order: fact.order, attemptId: fact.attemptId };
+ state.latestTaskDeploy[task.id] = { scope: fact.scope, order: fact.order, attemptId: fact.attemptId, outcome: outcome === "ok" ? "live" : outcome === "running" ? "pending" : "failed" };
  const tracking = activityTracking(state, task.id);
  const old = tracking.deploy;
  const unresolved = new Set(tracking.deployFailure?.targets ?? []);
@@ -2371,6 +2371,26 @@ export class BoardService {
 	/** Refuse a task the board does not have, archived ones included, with `unknown_task`. */
 	async requireTask(taskId: string): Promise<void> {
 		if (!(await this.state()).tasks.some((task) => task.id === taskId)) throw unknownTask(taskId);
+	}
+
+	/** Read the latest admitted attempt, not the last timeline row to receive an update. */
+	async taskDeployment(taskId: string): Promise<"live" | "pending" | "failed" | "unknown" | undefined> {
+		const state = await this.state();
+		if (!state.deployFeedConfigured) return undefined;
+		const latest = state.latestTaskDeploy?.[taskId];
+		if (!latest) return undefined;
+		const tracking = state.taskActivity?.[taskId];
+		if (tracking?.deployUnknownSince) return "unknown";
+		if (tracking?.deployFailure) return "failed";
+		if (latest.outcome) return latest.outcome;
+		// Older board documents have the attempt identity but no durable outcome.
+		const history = await this.#options.harness.snapshot(TaskHistoryDoc, this.coordinator.id, taskId, BACKGROUND_CONTEXT) as TaskHistoryState | undefined;
+		const ref = `deploy:${latest.scope}:${latest.attemptId}`;
+		const outcome = history?.timelineEntries?.find(entry => entry.source === "deploy" && entry.ref === ref)?.outcome;
+		if (outcome === "ok") return "live";
+		if (outcome === "failed" || outcome === "rolled_back") return "failed";
+		if (outcome === "running") return "pending";
+		return "unknown";
 	}
 
 	/** A task's snapshots, oldest first. */

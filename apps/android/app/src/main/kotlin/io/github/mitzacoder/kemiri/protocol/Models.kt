@@ -2887,7 +2887,8 @@ data class BoardTaskTimelineRequest(
     val `projectId`: String,
     val `taskId`: String,
     val `kinds`: List<String>? = null,
-    val `grouped`: Boolean? = null
+    val `grouped`: Boolean? = null,
+    val `delivery`: Boolean? = null
 )
 
 @Serializable
@@ -2926,7 +2927,21 @@ data class BoardTaskTimelineResponse(
     val `entries`: List<BoardTimelineEntry>,
     val `groups`: List<BoardTimelineGroup>? = null,
     val `timelineRevision`: Long? = null,
-    val `feedback`: List<BoardFeedback>
+    val `feedback`: List<BoardFeedback>,
+    val `delivery`: BoardTaskTimelineResponseDelivery? = null
+)
+
+@Serializable
+data class BoardTaskTimelineResponseDelivery(
+    val `commits`: List<String>,
+    val `integration`: BoardTaskTimelineResponseDeliveryIntegration? = null,
+    val `deployment`: String? = null
+)
+
+@Serializable
+data class BoardTaskTimelineResponseDeliveryIntegration(
+    val `ref`: String,
+    val `landed`: Long
 )
 
 @Serializable

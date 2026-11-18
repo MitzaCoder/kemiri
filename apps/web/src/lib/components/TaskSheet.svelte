@@ -2,7 +2,10 @@
 	import { tick, untrack } from 'svelte';
 	import { drillIntoTask } from "#lib/task-navigation.js";
 	import { timelineGroupsSupported } from '#lib/timeline-groups.js';
-	import TaskActivityLine from './TaskActivityLine.svelte';
+	import TaskActivity from './TaskActivity.svelte';
+	import TaskDelivery from './TaskDelivery.svelte';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import { taskDecided } from '#lib/task-record.js';
 	import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity.js';
 	import { provideOpenTaskId } from '#lib/task-detail-context.js';
 	import TaskDetailText from './TaskDetailText.svelte';
@@ -31,23 +34,18 @@
 	import TaskFiles from '#lib/components/artifacts/TaskFiles.svelte';
 	import TaskStatusMenu from '#lib/components/TaskStatusMenu.svelte';
 	import TaskWaitingForm from '#lib/components/TaskWaitingForm.svelte';
-	import WorkerStatusBadge from '#lib/components/chat/WorkerStatusBadge.svelte';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import BoardTaskEditor from '#lib/components/BoardTaskEditor.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import { feedbackFromHash } from '#lib/chat/keep-on-task.js';
 	import TaskFeedback from '#lib/components/TaskFeedback.svelte';
-	import TaskHistory from '#lib/components/TaskHistory.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
-	import ArrowDownWideNarrowIcon from '@lucide/svelte/icons/arrow-down-wide-narrow';
-	import ArrowUpWideNarrowIcon from '@lucide/svelte/icons/arrow-up-wide-narrow';
-	import { timelineOrder } from '#lib/timeline-order.svelte.js';
-	import TaskTimeline from '#lib/components/TaskTimeline.svelte';
+
 	import TaskRefs from '#lib/components/TaskRefs.svelte';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { splitRefMentions } from '#lib/refs.js';
 	import { useArtifactFeed } from '#lib/artifacts.svelte.js';
-	import { blockersOf, decisionsFor, draftFromTask, draftToInput } from '#lib/board.js';
+	import { blockersOf, draftFromTask, draftToInput } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
@@ -58,6 +56,7 @@
 		Artifact,
 		BoardFeedback,
 		BoardTask,
+		BoardTaskTimelineResponse,
 		BoardTaskStatus,
 		BoardTimelineEntry,
 		BoardTimelineGroup,
@@ -153,6 +152,7 @@
 	// The timeline and the feedback come from one read, repeated when anything the board carries about the task moves.
 	let timelineEntries = $state<BoardTimelineEntry[] | undefined>(undefined);
 	let timelineGroups = $state<BoardTimelineGroup[] | undefined>(undefined);
+	let delivery = $state<BoardTaskTimelineResponse['delivery']>();
 	let timelineError = $state<string | undefined>(undefined);
 	let feedbackEntries = $state<BoardFeedback[]>([]);
 	let feedbackBusy = $state(false);
@@ -166,13 +166,15 @@
 		problem = undefined;
 		timelineEntries = undefined;
 		timelineGroups = undefined;
+		delivery = undefined;
 		timelineError = undefined;
 		feedbackEntries = [];
 		feedbackProblem = undefined;
 	});
 
 	const tasks = $derived(board?.tasks ?? []);
-	const decisions = $derived(board?.board === undefined || task === undefined ? [] : decisionsFor(board.board.decisions, task.id));
+	const questions = $derived((board?.board?.questions ?? []).filter(question => question.taskId === task?.id));
+	const decided = $derived(task ? taskDecided(task.id, board?.board?.decisions ?? [], questions) : []);
 	const blockers = $derived(task === undefined ? [] : blockersOf(task, tasks).filter((blocker) => !blocker.settled));
 	const needsYou = $derived(task === undefined ? undefined : taskNeedsYou(task, board?.board?.questions ?? [], blockers.length > 0, backend.supports('task-steps')));
 	const taskFieldsEnabled = $derived(backend.connection.features?.includes('task-fields') === true);
@@ -183,7 +185,12 @@
 		task === undefined ? [] : task.workerIds.map((id) => ({ id, worker: workers.find((entry) => entry.id === id) }))
 	);
 	const activity = $derived(task === undefined ? undefined : automaticTaskActivity(task, taskActivitySupported(backend.connection.features)));
-	const showNow = $derived(task?.status === 'in_progress' && (activity ? ['working', 'deploy', 'idle', 'unknown'].includes(activity.kind) : Boolean(task.report.now.trim())));
+	const now = $derived(task?.status !== 'in_progress' ? undefined : (activity
+		? ['working', 'deploy', 'idle', 'unknown'].includes(activity.kind) && !activity.refs.some(ref => questions.some(question => question.id === ref && question.status === 'open')) &&
+			!(delivery && (activity.kind === 'deploy' || activity.refs.some(ref => ref.startsWith('deploy:'))))
+			? { text: activity.text, at: activity.since, activity } : undefined
+		: task.report.now.trim() ? { text: task.report.now, at: task.report.updatedAt ?? task.updatedAt } : undefined));
+	const supportsDelivery = $derived(backend.supports('task-delivery'));
 	const supportsLinks = $derived(backend.supports('task-links'));
 	const staleReport = $derived(Boolean(task && reportFreshnessEnabled(backend.supports('task-freshness'), task) &&
 		(task.report.freshness?.results.stale || task.report.freshness?.next.stale)));
@@ -192,8 +199,8 @@
 	// A stable primitive prevents activity/report-only board pushes from re-reading grouped history.
 	const timelineReadKey = $derived.by(() => {
 		if (!task || !board || !supportsLinks || (supportsTimelineGroups && (requestedId === null || backend.connection.status !== 'ready'))) return undefined;
-		const revision = supportsTimelineGroups ? task.timelineRevision ?? 0 : [task.timelineRevision, task.snapshots, task.feedback, task.status, task.report.revision, task.revision, needsYou?.ownerQuestions.length, needsYou?.questionsForAgent.length, decisions.length];
-		return JSON.stringify([backend.id, projectId, task.id, supportsTimelineGroups, revision]);
+		const revision = supportsTimelineGroups ? task.timelineRevision ?? 0 : [task.timelineRevision, task.snapshots, task.feedback, task.status, task.report.revision, task.revision, needsYou?.ownerQuestions.length, needsYou?.questionsForAgent.length, decided.length];
+		return JSON.stringify([backend.id, projectId, task.id, supportsTimelineGroups, revision, supportsDelivery, supportsDelivery ? activity?.kind : undefined]);
 	});
 	$effect(() => {
 		if (timelineReadKey === undefined) return;
@@ -201,12 +208,13 @@
 		const id = untrack(() => task)!.id;
 		const grouped = untrack(() => supportsTimelineGroups);
 		let cancelled = false;
-		currentBoard.timeline(id, grouped)
+		currentBoard.timeline(id, grouped, untrack(() => supportsDelivery))
 			.then((read) => {
 				if (cancelled) return;
 				timelineEntries = read.entries;
 				timelineGroups = grouped ? read.groups : undefined;
 				feedbackEntries = read.feedback;
+				delivery = read.delivery;
 				timelineError = undefined;
 			})
 			.catch((cause: unknown) => {
@@ -439,15 +447,10 @@
 										</section>
 									{/if}
 
-									{#if showNow || (!needsYou?.review && task.report.next.trim())}
+									{#if !needsYou?.review && task.report.next.trim()}
 										<section class="task-reading-section" aria-label="Next">
 											<h2 class="task-detail-heading">Next</h2>
-											{#if showNow}
-												<div class="flex flex-wrap items-baseline gap-x-2"><span class="text-sm font-medium text-(--chat-fg-muted)">Now</span>
-													{#if activity}<TaskActivityLine {activity} />{:else}<Markdown source={task.report.now} class="task-detail-markdown" />{/if}
-												</div>
-											{/if}
-											{#if !needsYou?.review && task.report.next.trim()}<Markdown source={task.report.next} class="task-detail-markdown" />{/if}
+											<Markdown source={task.report.next} class="task-detail-markdown" />
 										</section>
 									{/if}
 									{#if needsYou?.questionsForAgent.length}
@@ -490,35 +493,36 @@
 												</ul>
 											</TaskRecordFold>
 										{/if}
-										{#if decisions.length > 0}
-											<TaskRecordFold row="decided" title="Decided">
-												<ul class="flex flex-col gap-3">
-													{#each decisions as decision (decision.id)}
-														<li><p class="text-xs text-(--chat-fg-muted)" title={exactTime(decision.at)}>{decision.id} · {ago(decision.at)}</p>
-															<Markdown source={decision.text} class="task-detail-markdown" />
-															{#if decision.why}<div class="text-(--chat-fg-muted)"><Markdown source={decision.why} class="task-detail-markdown" /></div>{/if}
+										{#if decided.length}
+											<TaskRecordFold row="decided" title="Decided" count={decided.length}>
+												<ul role="list" class="divide-y divide-(--chat-border)">
+													{#each decided as row (row.id)}
+														<li>
+															<details>
+																<summary class="task-fold gap-2 pr-2 text-sm font-medium">
+																	<ChevronRightIcon class="size-4 shrink-0" aria-hidden="true" />
+																	<span class="min-w-0 break-words"><TaskDetailText text={row.decision?.text ?? (row.question?.answer || 'Question answered')} focusable={false} /></span>
+																</summary>
+																<div class="flex flex-col gap-2 pb-3 pl-6 text-sm text-(--chat-fg-muted)">
+																	{#if row.question}
+																		<div><p class="text-xs font-semibold">Question</p><Markdown source={row.question.text} /></div>
+																		{#if row.decision && row.question.answer}<div><p class="text-xs font-semibold">Answer</p><Markdown source={row.question.answer} /></div>{/if}
+																		<p class="text-xs">{writerName({ author: 'user', threadId: null, workerId: null })} {#if row.question.answeredAt}· <time datetime={row.question.answeredAt}>{exactTime(row.question.answeredAt)}</time>{/if}</p>
+																	{:else}<p class="text-xs">{threadName(row.decision?.threadId ?? 'main', threads)} · <time datetime={row.at}>{exactTime(row.at)}</time></p>{/if}
+																	{#if row.why}<Markdown source={row.why} />{/if}
+																</div>
+															</details>
 														</li>
 													{/each}
 												</ul>
 											</TaskRecordFold>
 										{/if}
-										{#if supportsLinks || task.snapshots > 0}
+										{#if supportsLinks || task.snapshots || taskWorkers.length || now}
 											<TaskRecordFold row="activity" title="Activity">
-												{#if supportsLinks}
-													<div class="flex items-center justify-between" data-timeline>
-														<h4 class="task-detail-heading">Timeline</h4>
-														<button type="button" class="inline-flex size-11 items-center justify-center rounded-lg hover:bg-(--chat-surface-2)" aria-label={timelineOrder.order === 'newest' ? 'Newest first; show oldest first' : 'Oldest first; show newest first'} title={timelineOrder.order === 'newest' ? 'Newest first' : 'Oldest first'} onclick={() => timelineOrder.toggle()} data-timeline-order>
-															{#if timelineOrder.order === 'newest'}<ArrowDownWideNarrowIcon class="size-4" />{:else}<ArrowUpWideNarrowIcon class="size-4" />{/if}
-														</button>
-													</div>
-													<TaskTimeline entries={timelineEntries} groups={timelineGroups} error={timelineError} {writerName}
-														workerHref={(id) => { const worker = workers.find(entry => entry.id === id); return worker ? workerHref(worker) : undefined; }}
-														taskHref={(id) => withTask(page.url, id)} />
-												{/if}
-												{#if task.snapshots > 0 && board}
-													<h4 class="task-detail-heading">History</h4>
-													<TaskHistory {board} {task} {writerName} />
-												{/if}
+												<TaskActivity {board} {task} {writerName} loading={supportsLinks && timelineEntries === undefined} error={timelineError}
+													sources={{ entries: timelineEntries, groups: timelineGroups, questions, decisions: decided, feedback: feedbackEntries, workers: taskWorkers, now, deliveryShown: !!delivery }}
+													workerHref={(id) => { const worker = workers.find(entry => entry.id === id); return worker ? workerHref(worker) : undefined; }}
+													taskHref={(id) => withTask(page.url, id)} />
 											</TaskRecordFold>
 										{/if}
 									</section>
@@ -526,10 +530,8 @@
 
 								<aside class="task-about" aria-label="About this task">
 									<h2 class="task-detail-heading">About this task</h2>
+									{#if delivery}<TaskDelivery {delivery} />{/if}
 									<dl class="task-facts">
-										{#if activity?.kind === 'delivery' || (activity?.kind === 'deploy' && task.status !== 'in_progress')}
-											<div><dt>Delivery</dt><dd><TaskActivityLine {activity} /></dd></div>
-										{/if}
 										{#if owner}<div><dt>Owner thread</dt><dd>{#if owner.threadId}<a class="task-fact-link underline" href={threadHref(backend.id, projectId, owner.threadId)}>{owner.label}</a>{:else}{owner.label}{/if}</dd></div>{/if}
 										{#if task.status === 'waiting' && task.waiting}<div><dt>Waiting details</dt><dd><TaskDetailText text={waitingSummary(task)} /></dd></div>{/if}
 										{#if task.archived}<div><dt>Status</dt><dd>Archived</dd></div>{/if}
@@ -542,17 +544,6 @@
 											<summary class="task-fold task-detail-heading">Files ({artifacts.length})</summary>
 											<TaskFiles {artifacts} client={backend.client} {projectId} onupdatetags={backend.supports('artifact-tags') ? updateArtifactTags : undefined} />
 										</details>
-									{/if}
-									{#if taskWorkers.length > 0}
-										<div><h3 class="task-detail-heading">Workers</h3>
-											<ul>{#each taskWorkers as entry (entry.id)}
-												<li>{#if entry.worker}
-													<a class="task-fact-link" href={workerHref(entry.worker)} data-worker={entry.id}>
-														<TaskDetailText text={entry.worker.title || entry.id} focusable={false} /> <WorkerStatusBadge status={entry.worker.status} />
-													</a>
-												{:else}<span class="text-(--chat-fg-muted)" title="This worker was forgotten">{entry.id}</span>{/if}</li>
-											{/each}</ul>
-										</div>
 									{/if}
 									<dl class="task-facts">
 										<div><dt>Created</dt><dd><time datetime={task.createdAt} title={exactTime(task.createdAt)}>{ago(task.createdAt)}</time></dd></div>

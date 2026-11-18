@@ -536,6 +536,7 @@ export const BoardTaskTimelineRequestSchema = Type.Object({
 	taskId: Type.String({ minLength: 1 }),
 	kinds: Type.Optional(Type.Array(BoardTimelineKindSchema)),
  grouped: Type.Optional(Type.Boolean({ description: "Request groups with task-timeline-groups; legacy entries remain unchanged." })),
+	delivery: Type.Optional(Type.Boolean({ description: "Request the change ledger and deploy outcome with task-delivery." })),
 });
 export type BoardTaskTimelineRequest = Static<typeof BoardTaskTimelineRequestSchema>;
 
@@ -617,6 +618,13 @@ export const BoardTaskHistoryResponseSchema = Type.Object({
 });
 export type BoardTaskHistoryResponse = Static<typeof BoardTaskHistoryResponseSchema>;
 
+/** Delivery only exists when the ledger attributes at least one commit to the task. */
+const TaskDeliverySchema = Type.Object({
+	commits: Type.Array(Type.String(), { minItems: 1 }),
+	integration: Type.Optional(Type.Object({ ref: Type.String(), landed: Type.Integer({ minimum: 0 }) })),
+	deployment: Type.Optional(Type.Union([Type.Literal("live"), Type.Literal("pending"), Type.Literal("failed"), Type.Literal("unknown")])),
+});
+
 export const BoardTaskTimelineResponseSchema = Type.Object({
 	type: Type.Literal("board.task.timeline"),
 	id: RequestIdSchema,
@@ -625,6 +633,7 @@ export const BoardTaskTimelineResponseSchema = Type.Object({
  groups: Type.Optional(Type.Array(BoardTimelineGroupSchema)),
  timelineRevision: Type.Optional(Type.Integer({ minimum: 0 })),
 	feedback: Type.Array(BoardFeedbackSchema, { description: "Open and handling ones first (oldest first), then the rest, newest first." }),
+	delivery: Type.Optional(TaskDeliverySchema),
 });
 export type BoardTaskTimelineResponse = Static<typeof BoardTaskTimelineResponseSchema>;
 

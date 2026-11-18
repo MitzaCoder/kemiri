@@ -2720,9 +2720,10 @@ Each attributed ref move stores one structured fact: ID, repo/ref, previous/tip,
 unreachable commits, declared reversions and timestamp. An outbox retries after crashes. The observer's
 optional `onChangesLanded(fact: ChangesLanded): Promise<void> | void` defaults to no-op; consumers deduplicate
 `fact.id` (at-least-once). Runtime projects these facts into one existing `milestone` timeline row per task
-per advance, with hashes/subjects in detail, including archived/closed tasks without reopening. No new
-wire timeline fields: stage 3 can fold the durable structured facts into Delivery. In the same board
-transaction, each attributed task receives one `noteTaskFact` commit fact marking Results and Next stale,
+per advance, with hashes/subjects in detail, including archived/closed tasks without reopening. The
+milestones don't include unlanded attributions and aren't the current ledger. The optional
+`task-delivery` read described below leaves those milestone fields intact. In the same board transaction,
+each attributed task receives one `noteTaskFact` commit fact marking Results and Next stale,
 with counts and ref in the reason (landed, removed or reverted). The existing timeline `fact.id` guard
 also deduplicates freshness and nudge admission: retries neither increment eventSeq nor re-nudge, even
 after outbox admission. Unattributed changes do nothing. No push notifications, publication or deploy
@@ -2785,8 +2786,9 @@ or target success cursors.
 One board transaction fans each snapshot to every attributed task, including done/dropped/archived,
 without reopening. A persistent per-feed sequence guard deduplicates outbox replay independently of
 timeline retention. One existing milestone per task/attempt evolves in place, retaining its initial
-time, attempted commit, per-target state/serving commit and messages. Structured snapshots remain
-in the cursor/feed for the later Delivery grouping. Unattributed attempts produce no task rows/facts.
+time, attempted commit, per-target state/serving commit and messages. The board also saves the latest
+admitted attempt's outcome independently of timeline retention. For older attempts it reads the grouped
+fact by attempt identity. Unattributed attempts produce no task rows/facts.
 No new pushes are sent: existing global `Notifier.deployProblem` behavior is unchanged.
 
 Now precedence uses unresolved deploy failure first (retained through retries until those targets
@@ -5378,7 +5380,28 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 
 Web code: `TaskSheet.svelte`, `TaskRecordFold.svelte`, `TaskReply.svelte`, `TaskFeedback.svelte`,
 `TaskRelations.svelte`, `TaskProof.svelte`, `lib/task-sheet.css` and `lib/task-details.ts`. The state, fold
-and acceptance rules are tested in `task-details.test.ts`. The protocol and server are unchanged.
+and acceptance rules are tested in `task-details.test.ts`.
+
+**Web record (T298).** Decided pairs one decision and one answered question on the same task when the
+reason or decision explicitly cites the answer by question ID. It does not infer links from similar words,
+a bare question mention, or nearby timestamps. The decision is the summary; its disclosure preserves
+what was asked, the answer and its date. Independent decisions and answers remain visible.
+
+Activity reads the existing grouped timeline when offered, otherwise the flat timeline. It combines run
+episodes, snapshot entries and Now in one local-day list, with the existing order preference and Show more.
+A snapshot's row opens its diff or saved report. Worker rows retain links when the worker is still known.
+Questions and decisions shown in the page's other folds and notes already shown under Your notes do not
+repeat in Activity. An older backend can still show its delivery milestones in Activity.
+
+Delivery in About this task uses `board.task.timeline` with optional request `delivery: true` (feature
+`task-delivery`). The optional response `delivery` is absent without ledger-attributed commits. It contains
+`{ commits: string[], integration?: { ref: string, landed: number }, deployment?:
+"live" | "pending" | "failed" | "unknown" }`. Built counts distinct current ledger commits. Merged reads
+reachability from one tip of the configured integration ref; it does not imply publication or distinguish a
+semantic revert from other commits that remain reachable. Live reflects the latest attributed deployment
+attempt, not a guarantee that subsequent commits are serving. A disabled feed, missing integration ref,
+and incomplete or unavailable deployment observations never imply success. Only the folded Changes
+list displays the projected commit IDs. Android decodes the optional fields but does not request them.
 
 **Android (T290, T297).** The sheet follows the same reading order and uses the same task fields. On
 `task-fields` backends, the goal sits under the title, the summary leads What you get, and Not done follows it.

@@ -1059,18 +1059,20 @@ export class HarnessClient {
 	async readTaskTimeline(
 		projectId: string,
 		taskId: string,
-		options: { kinds?: BoardTimelineKind[]; grouped?: boolean } = {},
-	): Promise<Pick<BoardTaskTimelineResponse, 'entries' | 'feedback' | 'groups' | 'timelineRevision'>> {
+		options: { kinds?: BoardTimelineKind[]; grouped?: boolean; delivery?: boolean } = {},
+	): Promise<Pick<BoardTaskTimelineResponse, 'entries' | 'feedback' | 'groups' | 'timelineRevision' | 'delivery'>> {
 		const response = await this.#call<BoardTaskTimelineResponse>({
 			type: "board.task.timeline",
 			projectId,
 			taskId,
 			...(options.kinds === undefined ? {} : { kinds: options.kinds }),
 			...(options.grouped === undefined ? {} : { grouped: options.grouped }),
+			...(options.delivery === undefined ? {} : { delivery: options.delivery }),
 		});
 		return { entries: response.entries, feedback: response.feedback,
 			...(response.groups === undefined ? {} : { groups: response.groups }),
-			...(response.timelineRevision === undefined ? {} : { timelineRevision: response.timelineRevision }) };
+			...(response.timelineRevision === undefined ? {} : { timelineRevision: response.timelineRevision }),
+			...(response.delivery === undefined ? {} : { delivery: response.delivery }) };
 	}
 
 	/** Set a feedback entry's state: the user dismisses or reopens it. Answers the entry as stored. Needs `task-links`. */

@@ -123,6 +123,7 @@ export type ProjectRuntime = {
 	readonly schedules: SchedulesService;
 	/** The coordinator's board document and `board` tool; workers remove the extension. */
 	readonly board: BoardService;
+	readonly taskChanges: TaskChangeObserver;
 	/** The coordinator's memory tools and prompt section; workers remove the extension. */
 	readonly memory: MemoryService;
 	/** The coordinator's compaction summary and the `history` tool; workers remove both extensions. */
@@ -743,9 +744,19 @@ export class ProjectManager {
 	}
 
 	/** A board task's timeline and feedback; `unknown_task` when the board has no such task. */
-	async boardTaskTimeline(projectId: string, taskId: string, kinds?: readonly BoardTimelineKind[], grouped = false) {
+	async boardTaskTimeline(projectId: string, taskId: string, kinds?: readonly BoardTimelineKind[], grouped = false, includeDelivery = false) {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.timeline(taskId, kinds, grouped);
+		const timeline = await runtime.board.timeline(taskId, kinds, grouped);
+		if (!includeDelivery) return timeline;
+		try {
+			const changes = await runtime.taskChanges.delivery(taskId);
+			if (!changes) return timeline;
+			const deployment = await runtime.board.taskDeployment(taskId);
+			return { ...timeline, delivery: { ...changes, ...(deployment === undefined ? {} : { deployment }) } };
+		} catch (error) {
+			this.#log(`project ${projectId}: task delivery read failed: ${errorMessage(error)}`);
+			return timeline;
+		}
 	}
 
 	async keepOnTask(projectId: string, input: { taskId: string; conversationId: number; entryId: number }): Promise<string> {
@@ -1688,6 +1699,7 @@ export class ProjectManager {
 			schedules,
 			memory,
 			board,
+			taskChanges,
 			compaction,
 			extraction,
 			history,
