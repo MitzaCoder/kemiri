@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Proposed task page (prototype, synthetic data)</title>
+<style>
+@layer artifact-defaults {
+:root {
+	color-scheme: light;
+
+	--tone-radius: 0.875rem;
+
+	--tone-bg: #fbfaff;
+	--tone-surface: #f3f1fb;
+	--tone-surface-2: #eae7f6;
+	--tone-border: #e3dff0;
+	--tone-border-strong: #d2cce6;
+
+	--tone-fg: #1a1830;
+	--tone-fg-muted: #5d5a78;
+	--tone-fg-subtle: #8c89a6;
+
+	--tone-primary: #6366f1;
+	--tone-primary-fg: #ffffff;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #6366f1;
+	--tone-accent-3: #d946ef;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #eef2ff, #fae8ff);
+	--tone-user-border: #ddd6fe;
+
+	--tone-danger: #e11d48;
+	--tone-success: #059669;
+	--tone-warning: #d97706;
+	--tone-ring: #8b5cf6;
+
+	--tone-shadow: 0 10px 40px -12px rgb(76 29 149 / 0.25), 0 2px 8px -2px rgb(76 29 149 / 0.08);
+--font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;--text-task:.9375rem;--text-task-sm:.8125rem;--spacing:.25rem;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+	color-scheme: dark;
+
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #818cf8;
+	--tone-accent-3: #e879f9;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #1e1b4b, #3b0f4a);
+	--tone-user-border: #3f3470;
+
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+
+	--tone-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.7), 0 2px 8px -2px rgb(0 0 0 / 0.4);
+}}
+:root[data-theme="dark"]{
+	color-scheme: dark;
+
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #818cf8;
+	--tone-accent-3: #e879f9;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #1e1b4b, #3b0f4a);
+	--tone-user-border: #3f3470;
+
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+
+	--tone-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.7), 0 2px 8px -2px rgb(0 0 0 / 0.4);
+}
+}
+
+html,body{height:100%}
+body{margin:0;background:var(--tone-surface-2);color:var(--tone-fg);font:16px/1.55 var(--font-sans);display:flex;flex-direction:column;height:100dvh}
+.protobar{flex:none;padding:.5rem .75rem;border-bottom:1px solid var(--tone-border);background:var(--tone-bg);display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.protobar strong{font-size:.8125rem;color:var(--tone-fg-muted);font-weight:600}
+.stage{flex:1;min-height:0;display:flex;justify-content:flex-end}
+.stage>.ks{width:min(64rem,100%);height:100%;box-shadow:var(--tone-shadow)}
+@media(min-width:48rem){.stage{padding-left:3rem}.stage>.ks{border-radius:1rem 0 0 1rem;overflow:hidden}}
+@media print{body{height:auto;display:block}.protobar{display:none}.stage>.ks{height:auto}.ks-body{overflow:visible}}
+
+.statebar{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;font:14px/1.3 var(--font-sans)}
+.statebar-label{color:var(--tone-fg-muted);margin-right:.25rem}
+.statebar button{font:inherit;font-weight:600;padding:.4rem .8rem;min-height:2.5rem;border-radius:99px;border:1px solid var(--tone-border-strong);background:var(--tone-surface);color:var(--tone-fg);cursor:pointer}
+.statebar button[aria-pressed="true"]{background:var(--tone-primary);border-color:var(--tone-primary);color:var(--tone-primary-fg)}
+.statebar button:focus-visible{outline:3px solid var(--tone-ring);outline-offset:2px}
+
+
+.ks{container-type:inline-size;display:flex;flex-direction:column;min-height:0;background:var(--tone-bg);color:var(--tone-fg);font:16px/1.55 var(--font-sans);text-align:left}
+.ks *{box-sizing:border-box}
+.ks [hidden]{display:none!important}
+.ks p,.ks ul,.ks ol,.ks h3,.ks h4,.ks dl,.ks dd,.ks figure,.ks blockquote{margin:0;padding:0;max-width:none}
+.ks ul,.ks ol{list-style:none}
+.ks svg{display:block;width:1rem;height:1rem;border-radius:0}
+.ks a{color:inherit}
+.ks-contents{display:contents}
+.ks-quiet{color:var(--tone-fg-muted);font-size:.8125rem}
+.ks-grow{flex:1}
+
+.ks-head{padding:.9rem 1.25rem 1rem;border-bottom:1px solid var(--tone-border);flex:none}
+.ks-top{display:flex;align-items:center;gap:.5rem;min-height:2.25rem}
+@container (max-width:24rem){.ks-top{gap:.3rem}.ks-iconbtn{width:2rem}}
+.ks-pill{white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .7rem .2rem .55rem;border-radius:99px;font-size:.8125rem;font-weight:650;border:1px solid var(--tone-border-strong);background:var(--tone-surface)}
+.ks-pill i{width:.5rem;height:.5rem;border-radius:50%;background:var(--tone-fg-muted)}
+.ks-pill-you{border-color:color-mix(in srgb,var(--tone-warning) 55%,var(--tone-border));background:color-mix(in srgb,var(--tone-warning) 12%,var(--tone-bg))}
+.ks-pill-you i{background:var(--tone-warning)}
+.ks-pill-work i{background:var(--tone-primary)}
+.ks-pill-done i{background:var(--tone-success)}
+.ks-since{color:var(--tone-fg-muted);font-size:.8125rem;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ks-id{font:500 .75rem var(--font-mono);color:var(--tone-fg-muted)}
+.ks-iconbtn{display:inline-grid;place-items:center;width:2.25rem;height:2.25rem;padding:0;border:0;border-radius:.6rem;background:none;color:var(--tone-fg-muted);cursor:pointer}
+.ks-iconbtn:hover{background:var(--tone-surface-2)}
+.ks-title{font-size:1.375rem;line-height:1.25;font-weight:680;letter-spacing:-.015em;margin-top:.35rem!important}
+.ks-goal{margin-top:.3rem!important;color:var(--tone-fg-muted);max-width:60ch!important}
+
+.ks-body{flex:1;min-height:0;overflow-y:auto;padding:1.25rem;display:grid;gap:2rem;grid-template-columns:minmax(0,1fr);align-content:start}
+.ks-main{display:flex;flex-direction:column;gap:1.75rem;min-width:0;max-width:39rem;width:100%}
+@container (min-width:58rem){
+	.ks-body{grid-template-columns:minmax(0,39rem) 15rem;justify-content:center;column-gap:3rem;padding:1.75rem 2rem}
+	.ks-rail{position:sticky;top:0;align-self:start}
+	.ks-head{padding-inline:2rem}
+}
+@container (max-width:57.99rem){
+	.ks-rail{order:2;border-top:1px solid var(--tone-border);padding-top:1.25rem}
+	.ks-rail dl{display:grid;grid-template-columns:1fr 1fr;gap:1rem 1.25rem}
+	.ks-main{margin-inline:auto}
+	.ks-rail{max-width:39rem;width:100%;margin-inline:auto}
+}
+
+.ks-sec h4,.ks-rail dt{font-size:.8125rem;font-weight:650;color:var(--tone-fg-muted);margin-bottom:.4rem}
+.ks-summary{font-size:1.0625rem;line-height:1.5;font-weight:560;margin-bottom:.6rem!important}
+.ks-list{display:flex;flex-direction:column;gap:.4rem}
+.ks-list li{display:grid;grid-template-columns:1.25rem 1fr;gap:.5rem;align-items:start}
+.ks-list-small{font-size:.9375rem}
+.ks-mark{display:inline-grid;place-items:center;width:1.25rem;height:1.55em;flex:none}
+.ks-ok{color:var(--tone-success)}
+.ks-todo{color:var(--tone-fg-muted)}
+.ks-warn{color:var(--tone-warning)}
+.ks-task{display:inline-flex;flex-direction:column;gap:0;margin-top:.3rem;padding:.35rem .65rem;border:1px solid var(--tone-border);border-radius:.6rem;text-decoration:none;font-size:.875rem;line-height:1.35;background:var(--tone-surface);max-width:100%}
+.ks-task:hover{border-color:var(--tone-border-strong)}
+.ks-task small{color:var(--tone-fg-muted);font-size:.75rem}
+.ks-list .ks-task{display:flex;width:fit-content}
+.ks-link{color:var(--tone-primary)!important;font-size:.9375rem;text-underline-offset:3px}
+
+.ks-proof{display:flex;gap:.6rem;align-items:flex-start;margin-top:.9rem;flex-wrap:wrap}
+.ks-thumb{width:6.5rem}
+.ks-thumb svg{width:100%;height:auto;border-radius:.5rem;border:1px solid var(--tone-border)}
+.ks-thumb figcaption{font-size:.6875rem;color:var(--tone-fg-muted);padding-top:.2rem;line-height:1.3}
+.ks-more{align-self:center;font-size:.8125rem;color:var(--tone-primary)!important;padding:.4rem .2rem;text-underline-offset:3px}
+
+.ks-you{border:1.5px solid color-mix(in srgb,var(--tone-warning) 50%,var(--tone-border));background:color-mix(in srgb,var(--tone-warning) 7%,var(--tone-bg));border-radius:1rem;padding:1rem 1.1rem 1.1rem;display:flex;flex-direction:column;gap:.75rem}
+.ks-kicker{font-size:.75rem;font-weight:700;letter-spacing:.02em;color:color-mix(in srgb,var(--tone-warning) 70%,var(--tone-fg))}
+.ks-q{display:flex;flex-direction:column;gap:.7rem}
+.ks-q-title{font-size:1.1875rem;line-height:1.3;font-weight:680;letter-spacing:-.01em}
+.ks-q-context{font-size:.9375rem}
+.ks-opts{display:flex;flex-direction:column;gap:.45rem}
+.ks-opt{display:grid;grid-template-columns:1.25rem 1fr;gap:.65rem;align-items:start;text-align:left;font:inherit;color:inherit;padding:.65rem .8rem;border:1px solid var(--tone-border-strong);border-radius:.8rem;background:var(--tone-bg);cursor:pointer;min-height:2.75rem}
+.ks-opt:hover{border-color:var(--tone-primary)}
+.ks-opt[aria-checked="true"]{border-color:var(--tone-primary);box-shadow:0 0 0 1px var(--tone-primary);background:color-mix(in srgb,var(--tone-primary) 7%,var(--tone-bg))}
+.ks-radio{width:1.1rem;height:1.1rem;border-radius:50%;border:1.5px solid var(--tone-border-strong);margin-top:.2rem;background:var(--tone-bg)}
+.ks-opt[aria-checked="true"] .ks-radio{border:.35rem solid var(--tone-primary)}
+.ks-opt-text{line-height:1.4}
+.ks-opt-text>span{color:var(--tone-fg-muted);font-size:.9375rem}
+.ks-rec{font-style:normal;font-size:.6875rem;font-weight:650;padding:.1rem .45rem;border-radius:99px;background:color-mix(in srgb,var(--tone-primary) 14%,var(--tone-bg));color:var(--tone-primary);margin-left:.25rem;white-space:nowrap}
+.ks-q-why{font-size:.875rem;color:var(--tone-fg-muted)}
+.ks-q-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.ks-input{flex:1 1 12rem;min-width:0;font:inherit;font-size:.9375rem;padding:.5rem .75rem;border-radius:.7rem;border:1px solid var(--tone-border-strong);background:var(--tone-bg);color:var(--tone-fg);min-height:2.75rem}
+.ks-btn{font:inherit;font-size:.9375rem;font-weight:600;padding:.5rem .95rem;border-radius:.7rem;border:1px solid var(--tone-border-strong);background:var(--tone-bg);color:var(--tone-fg);cursor:pointer;min-height:2.75rem}
+.ks-btn-primary{background:var(--tone-primary);border-color:var(--tone-primary);color:var(--tone-primary-fg)}
+.ks-btn-primary:disabled{opacity:.45;cursor:default}
+.ks-btn-quiet{border-color:transparent;background:none;color:var(--tone-fg-muted)}
+.ks-btn-small{min-height:2.25rem;padding:.3rem .8rem;font-size:.875rem}
+.ks-q-done{display:flex;gap:.5rem;align-items:flex-start}
+.ks-headsup{display:grid;grid-template-columns:1.25rem 1fr;gap:.55rem;padding-top:.75rem;border-top:1px solid color-mix(in srgb,var(--tone-warning) 30%,var(--tone-border));font-size:.9375rem}
+.ks-headsup-actions{display:flex;gap:.4rem;margin-top:.5rem}
+.ks-steps{counter-reset:step;display:flex;flex-direction:column;gap:.15rem}
+.ks-steps li{counter-increment:step}
+.ks-steps label{display:grid;grid-template-columns:1.5rem 1.25rem 1fr;gap:.4rem;align-items:start;padding:.35rem .25rem;border-radius:.5rem;cursor:pointer}
+.ks-steps label::before{content:counter(step) ".";color:var(--tone-fg-muted);font-variant-numeric:tabular-nums}
+.ks-steps input{width:1.1rem;height:1.1rem;margin:.25rem 0 0;accent-color:var(--tone-primary)}
+.ks-steps label:has(input:checked) span{color:var(--tone-fg-muted);text-decoration:line-through}
+
+.ks-now{display:grid;grid-template-columns:1.25rem 1fr;gap:.5rem;align-items:start;padding:.75rem 1rem;border:1px solid var(--tone-border);border-radius:.9rem;background:var(--tone-surface)}
+.ks-pulse{width:.6rem;height:.6rem;margin:.5rem auto 0;border-radius:50%;background:var(--tone-primary);animation:ks-pulse 1.6s ease-in-out infinite}
+@keyframes ks-pulse{50%{opacity:.35}}
+
+.ks-notes{display:flex;flex-direction:column;gap:.9rem}
+.ks-note{display:flex;flex-direction:column;gap:.35rem}
+.ks .ks-note-you{padding:.5rem .8rem .55rem;border-radius:.9rem;border:1px solid var(--tone-user-border,var(--tone-border));background:var(--tone-user-bubble,var(--tone-surface));width:fit-content;max-width:100%}
+.ks-note-reply{display:grid;grid-template-columns:1.25rem 1fr;gap:.45rem;padding-left:.4rem;font-size:1rem}
+.ks-note-reply .ks-mark{color:var(--tone-fg-muted)}
+.ks-note-state{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--tone-fg-muted);padding-left:.4rem}
+.ks-note-state i{width:.45rem;height:.45rem;border-radius:50%;background:var(--tone-warning)}
+.ks-fold>summary{cursor:pointer;font-size:.875rem;color:var(--tone-fg-muted);padding:.3rem 0;min-height:2.25rem}
+.ks-fold[open]>summary{margin-bottom:.5rem}
+
+.ks-group{border:1px solid var(--tone-border);border-radius:.9rem;background:var(--tone-surface);overflow:hidden}
+.ks-group>details+details{border-top:1px solid var(--tone-border)}
+.ks-group summary{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.65rem .9rem;cursor:pointer;font-size:.9375rem;font-weight:600;list-style:none;min-height:2.75rem}
+.ks-group summary::-webkit-details-marker{display:none}
+.ks-group summary small{font-weight:400;font-size:.8125rem;color:var(--tone-fg-muted);text-align:right}
+.ks-group summary::after{content:"›";color:var(--tone-fg-muted);font-size:1.1rem;margin-left:-.5rem;transition:transform .15s}
+.ks-group details[open]>summary::after{transform:rotate(90deg)}
+.ks-group summary small{margin-left:auto}
+.ks-group details>:not(summary){margin:0 .9rem .8rem!important}
+.ks-chips{display:flex;flex-wrap:wrap;gap:.35rem}
+.ks-chip{font-size:.8125rem;padding:.15rem .55rem;border-radius:99px;border:1px solid var(--tone-border-strong);background:var(--tone-bg)}
+.ks-chip-ok::before{content:"✓ ";color:var(--tone-success);font-weight:700}
+.ks-rows{display:flex;flex-direction:column;gap:.45rem;font-size:.9375rem}
+.ks-rows li{display:grid;grid-template-columns:5.25rem 1fr;gap:.6rem;align-items:baseline}
+.ks-rows.ks-decided li{grid-template-columns:1fr}
+.ks-rows code{font:500 .8125rem var(--font-mono);color:var(--tone-fg-muted)}
+.ks-rows time{font-size:.8125rem;color:var(--tone-fg-muted)}
+.ks-rows a{color:var(--tone-primary)}
+.ks blockquote{border-left:3px solid var(--tone-border-strong);padding-left:.75rem;font-size:.9375rem}
+.ks-label{font-size:.8125rem;font-weight:650;color:var(--tone-fg-muted);margin-top:.7rem!important;margin-bottom:.3rem!important}
+
+.ks-rail dl{display:flex;flex-direction:column;gap:1.1rem}
+.ks-rail dd{font-size:.9375rem}
+.ks-rail .ks-task{margin-top:0;display:flex}
+.ks-delivery{display:flex;gap:0;font-size:.8125rem;margin-bottom:.25rem!important}
+.ks-delivery li{flex:1;padding-top:.75rem;position:relative;color:var(--tone-fg-muted)}
+.ks-delivery li::before{content:"";position:absolute;top:.2rem;left:0;right:0;height:3px;border-radius:2px;background:var(--tone-border-strong)}
+.ks-delivery li+li::before{left:3px}
+.ks-delivery li.is-done{color:var(--tone-fg);font-weight:600}
+.ks-delivery li.is-done::before{background:var(--tone-success)}
+
+.ks-reply{flex:none;border-top:1px solid var(--tone-border);padding:.7rem 1.25rem .85rem}
+.ks-reply-in{max-width:39rem;margin:auto}
+@container (min-width:58rem){.ks-reply{padding-inline:2rem}.ks-reply-in{max-width:57rem}}
+.ks-composer{display:flex;align-items:center;justify-content:space-between;gap:.75rem;max-width:39rem;padding:.55rem .55rem .55rem 1rem;border:1px solid var(--tone-border-strong);border-radius:1.1rem;background:var(--tone-surface);color:var(--tone-fg-muted)}
+.ks-send{display:inline-grid;place-items:center;width:2.25rem;height:2.25rem;border-radius:50%;border:0;background:var(--tone-surface-2);color:var(--tone-fg-muted)}
+.ks :focus-visible{outline:3px solid var(--tone-ring);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.ks-pulse{animation:none}}
+
+</style></head>
+<body>
+<div class="protobar"><strong>Prototype · synthetic data · nothing here is saved</strong><div class="statebar" role="group" aria-label="Task state shown">
+	<span class="statebar-label">Task state</span>
+	<button type="button" data-set-state="ask" aria-pressed="true">A question waits</button>
+	<button type="button" data-set-state="check" aria-pressed="false">Ready to check</button>
+	<button type="button" data-set-state="working" aria-pressed="false">Working</button>
+	<button type="button" data-set-state="done" aria-pressed="false">Done</button>
+</div></div>
+<div class="stage">
+<div class="ks" data-state="ask">
+	<header class="ks-head">
+		<div class="ks-top">
+			<span class="ks-pill ks-pill-you" data-on="ask"><i></i>Needs your answer</span>
+			<span class="ks-pill ks-pill-you" data-on="check" hidden><i></i>Ready for you to check</span>
+			<span class="ks-pill ks-pill-work" data-on="working" hidden><i></i>Working</span>
+			<span class="ks-pill ks-pill-done" data-on="done" hidden><i></i>Done</span>
+			<span class="ks-since" data-on="ask">14 min</span>
+			<span class="ks-since" data-on="check" hidden>since 10:42</span>
+			<span class="ks-since" data-on="done" hidden>closed 2 days ago</span>
+			<span class="ks-grow"></span>
+			<span class="ks-id">T3</span>
+			<button type="button" class="ks-iconbtn" aria-label="Edit the task"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l.6-2.8L10.9 3a1.2 1.2 0 011.7 0l.4.4a1.2 1.2 0 010 1.7L5.8 12.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+			<button type="button" class="ks-iconbtn" aria-label="Close the task page"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+		</div>
+		<h3 class="ks-title">Let customers reserve a book online</h3>
+		<p class="ks-goal">Customers reserve a book on the site or in the app, and pick it up in the shop within 3 days.</p>
+	</header>
+
+	<div class="ks-body">
+		<div class="ks-main">
+
+			<section class="ks-you" data-on="ask" aria-label="Needs you">
+				<p class="ks-kicker">Needs you · 1 question, 1 heads-up</p>
+				<div class="ks-q" data-question>
+					<h4 class="ks-q-title">Put the site part live today, or wait for the app?</h4>
+					<p class="ks-q-context">Reservations are built and tested on the site and in the Android app. The app part needs a store review first, about two days.</p>
+					<div class="ks-opts" role="radiogroup" aria-label="Answers">
+						<button type="button" class="ks-opt" role="radio" aria-checked="false" data-label="Site today, app later">
+							<span class="ks-radio"></span>
+							<span class="ks-opt-text"><b>Site today, app later</b> <em class="ks-rec">Recommended</em><br><span>Site visitors can reserve from today. The app keeps the old book page until its release.</span></span>
+						</button>
+						<button type="button" class="ks-opt" role="radio" aria-checked="false" data-label="Both on the same day">
+							<span class="ks-radio"></span>
+							<span class="ks-opt-text"><b>Both on the same day</b><br><span>Nothing changes for about two days, until the store approves the app.</span></span>
+						</button>
+						<button type="button" class="ks-opt" role="radio" aria-checked="false" data-label="Site today, rush the app">
+							<span class="ks-radio"></span>
+							<span class="ks-opt-text"><b>Site today, rush the app</b><br><span>Like the first, plus an app release sent today only for this.</span></span>
+						</button>
+					</div>
+					<p class="ks-q-why">Why the first: the site change is ready, and nothing breaks in the app while it waits.</p>
+					<div class="ks-q-actions">
+						<input class="ks-input" type="text" placeholder="Or answer in your own words" aria-label="Answer in your own words">
+						<button type="button" class="ks-btn ks-btn-primary" data-answer disabled>Answer</button>
+						<button type="button" class="ks-btn ks-btn-quiet">Ask back</button>
+					</div>
+				</div>
+				<div class="ks-q-done" data-answered hidden>
+					<span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+					<span>You chose <b data-chosen>Site today, app later</b>. The coordinator takes it from here.</span>
+				</div>
+				<div class="ks-headsup">
+					<span class="ks-mark ks-warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l6.2 11H1.8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+					<div>
+						<p><b>Heads-up.</b> A reservation can last up to 2½ hours longer than 3 days. The nightly clean-up runs at 5 or 6 in the morning, shop time.</p>
+						<div class="ks-headsup-actions"><button type="button" class="ks-btn ks-btn-small">Got it</button><button type="button" class="ks-btn ks-btn-small ks-btn-quiet">Reply</button></div>
+					</div>
+				</div>
+			</section>
+
+			<section class="ks-you" data-on="check" aria-label="Needs you" hidden>
+				<p class="ks-kicker">Needs you · a check</p>
+				<h4 class="ks-q-title">Check it on the live site</h4>
+				<ol class="ks-steps">
+					<li><label><input type="checkbox"><span>Open the shop site in a private window.</span></label></li>
+					<li><label><input type="checkbox"><span>Open a book that is in stock and press <b>Reserve</b>.</span></label></li>
+					<li><label><input type="checkbox"><span>Fill in a name and your own email address.</span></label></li>
+					<li><label><input type="checkbox"><span>Look in the shop inbox. The reservation email arrives within a minute.</span></label></li>
+				</ol>
+				<div class="ks-q-actions">
+					<button type="button" class="ks-btn ks-btn-primary">It works: close the task</button>
+					<button type="button" class="ks-btn">Something is off…</button>
+				</div>
+			</section>
+
+			<section class="ks-now" data-on="working" hidden aria-label="Now">
+				<span class="ks-pulse"></span>
+				<p><b>reserve-android</b> is building the book screen in the Android app. <span class="ks-quiet" style="white-space:nowrap">12 min</span></p>
+			</section>
+
+			<section class="ks-sec">
+				<h4 data-on="ask check done">What you get</h4>
+				<h4 data-on="working" hidden>What you get so far</h4>
+				<p class="ks-summary" data-on="ask">Reservations work on the site and in the Android app. They are tested, and not live yet.</p>
+				<p class="ks-summary" data-on="check" hidden>Reservations are live on the site. The app gets them with its next release.</p>
+				<p class="ks-summary" data-on="working" hidden>The Reserve button and the form work on the site. The Android app is in progress.</p>
+				<p class="ks-summary" data-on="done" hidden>Customers can reserve books on the site and in the app.</p>
+				<ul class="ks-list">
+					<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Every book page has a <b>Reserve</b> button.</span></li>
+					<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>A reservation takes a name and an email, and holds one copy for 3 days.</span></li>
+					<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>The shop gets an email for each reservation.</span></li>
+					<li data-on="ask check done"><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Reservations that nobody collects are released every night.</span></li>
+					<li data-on="ask check done"><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Pressing Reserve twice makes one reservation, not two.</span></li>
+					<li data-on="working" hidden><span class="ks-mark ks-todo"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.75"/></svg></span><span>The same in the Android app: in progress.</span></li>
+					<li data-on="working" hidden><span class="ks-mark ks-todo"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.75"/></svg></span><span>Releasing reservations that nobody collects: not started.</span></li>
+				</ul>
+				<div class="ks-proof" data-on="ask check done">
+					<figure class="ks-thumb"><svg viewBox="0 0 96 64" role="img" aria-label="Site · after"><rect width="96" height="64" fill="#eef0ff"/><rect x="26" y="9" width="44" height="46" rx="4" fill="#ffffff"/><rect x="32" y="16" width="26" height="4" rx="2" fill="#cfd3f3"/><rect x="32" y="24" width="32" height="3" rx="1.5" fill="#cfd3f3"/><rect x="32" y="30" width="20" height="3" rx="1.5" fill="#cfd3f3"/><rect x="32" y="40" width="32" height="9" rx="3" fill="#6366f1"/></svg><figcaption>Site · after</figcaption></figure>
+					<figure class="ks-thumb"><svg viewBox="0 0 96 64" role="img" aria-label="Site · before"><rect width="96" height="64" fill="#eef0ff"/><rect x="26" y="9" width="44" height="46" rx="4" fill="#ffffff"/><rect x="32" y="16" width="26" height="4" rx="2" fill="#cfd3f3"/><rect x="32" y="24" width="32" height="3" rx="1.5" fill="#cfd3f3"/><rect x="32" y="30" width="20" height="3" rx="1.5" fill="#cfd3f3"/></svg><figcaption>Site · before</figcaption></figure>
+					<figure class="ks-thumb"><svg viewBox="0 0 96 64" role="img" aria-label="Phone · dark · after"><rect width="96" height="64" fill="#1d1b2b"/><rect x="26" y="9" width="44" height="46" rx="4" fill="#2b2940"/><rect x="32" y="16" width="26" height="4" rx="2" fill="#4a4768"/><rect x="32" y="24" width="32" height="3" rx="1.5" fill="#4a4768"/><rect x="32" y="30" width="20" height="3" rx="1.5" fill="#4a4768"/><rect x="32" y="40" width="32" height="9" rx="3" fill="#6366f1"/></svg><figcaption>Phone · dark · after</figcaption></figure>
+					<a class="ks-more" href="#">All 6 files</a>
+				</div>
+			</section>
+
+			<section class="ks-sec" data-on="ask check done">
+				<h4>Not done</h4>
+				<ul class="ks-list">
+					<li><span class="ks-mark ks-todo"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.75"/></svg></span><span>The confirmation email is in English only. It needs the Romanian text from you.</span></li>
+					<li><span class="ks-mark ks-todo"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.75"/></svg></span><span>Sold-out books show a greyed <b>Notify me</b> button that does nothing yet. <a class="ks-task" href="#" title="T4"><span>Tell a customer when a sold-out book is back</span><small>To do · T4</small></a></span></li>
+				</ul>
+			</section>
+
+			<section class="ks-sec" data-on="ask check working">
+				<h4>Next</h4>
+				<p data-on="ask">After your answer, the site change goes live in about ten minutes. The app change goes out with the next app release.</p>
+				<p data-on="check" hidden>The app change goes out with the next app release. Nothing else is planned here.</p>
+				<p data-on="working" hidden>Then the nightly release of old reservations. You get a question before anything goes live.</p>
+			</section>
+
+			<section class="ks-sec">
+				<h4>Your notes</h4>
+				<div class="ks-notes">
+					<div class="ks-note" data-on="ask check working">
+						<p class="ks-note-you"><span class="ks-quiet">You · 30 min ago</span><br>Can the email also show the opening hours?</p>
+						<p class="ks-note-state"><i></i>Not answered yet</p>
+					</div>
+					<div class="ks-note">
+						<p class="ks-note-you"><span class="ks-quiet">You · 3 h ago</span><br>What happens if someone reserves and never comes to pick it up?</p>
+						<p class="ks-note-reply"><span class="ks-mark ks-quiet"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v5a2 2 0 002 2h8M10 7l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>The copy goes back on sale after 3 days, at the nightly clean-up. The customer is not told. Say so if they should get an email.</span></p>
+					</div>
+					<details class="ks-fold">
+						<summary>1 earlier note, settled</summary>
+						<div class="ks-note">
+							<p class="ks-note-you"><span class="ks-quiet">You · 7 h ago</span><br>I pressed Reserve twice by mistake and got two reservations for the same book.</p>
+							<p class="ks-note-reply"><span class="ks-mark ks-quiet"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v5a2 2 0 002 2h8M10 7l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Fixed. The button locks while the reservation is sent, so a second press does nothing.</span></p>
+						</div>
+					</details>
+				</div>
+			</section>
+
+			<section class="ks-sec ks-record">
+				<h4>The record</h4>
+				<div class="ks-group">
+					<details>
+						<summary><span>Checks</span><small>7 passed</small></summary>
+						<div class="ks-chips">
+							<span class="ks-chip ks-chip-ok">Server tests · 1,284</span><span class="ks-chip ks-chip-ok">Type check</span><span class="ks-chip ks-chip-ok">Web tests · 412</span><span class="ks-chip ks-chip-ok">Web build</span><span class="ks-chip ks-chip-ok">Android tests · 233</span><span class="ks-chip ks-chip-ok">Android build</span><span class="ks-chip ks-chip-ok">Public check</span>
+						</div>
+						<p class="ks-quiet">One flaky test (CatalogSyncTest) passed on a second run.</p>
+					</details>
+					<details>
+						<summary><span>Changes</span><small data-on="ask">2 commits · not merged</small><small data-on="working" hidden>1 commit so far</small><small data-on="check done" hidden>2 commits · deployed</small></summary>
+						<ul class="ks-rows">
+							<li><code>4c1e9a2f</code><span>feat: reserve a book online</span></li>
+							<li><code>7be0d113</code><span>fix: one reservation per press</span></li>
+						</ul>
+					</details>
+					<details>
+						<summary><span>Decided</span><small data-on="ask working">1</small><small data-on="check done" hidden>2</small></summary>
+						<ul class="ks-rows ks-decided">
+							<li data-on="check done" hidden><span><b>Site today, app later.</b><br><span class="ks-quiet">You · today 10:31 · asked: “Put the site part live today, or wait for the app?”</span></span></li>
+							<li><span><b>A reservation holds one copy for 3 days. No payment online.</b><br><span class="ks-quiet">You · yesterday · asked: “How long should a reservation hold a copy?”</span></span></li>
+						</ul>
+					</details>
+					<details>
+						<summary><span>The request</span><small>as asked · done when</small></summary>
+						<blockquote>Customers keep phoning to ask whether a book is in stock and to have it put aside. Can we let them reserve online and pick it up in the shop?</blockquote>
+						<p class="ks-label">Done when</p>
+						<ul class="ks-list ks-list-small">
+							<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>A visitor who is not signed in can reserve a book that is in stock, on the site and in the app.</span></li>
+							<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>The stock count drops by one.</span></li>
+							<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>The shop gets an email.</span></li>
+							<li ><span class="ks-mark ks-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>A reservation not collected in 3 days frees the copy.</span></li>
+						</ul>
+						<p class="ks-label">Notes for agents</p>
+						<p class="ks-quiet">Web: apps/web/src/routes/book/[id], ReserveForm. Android: features/catalog/BookScreen.kt. Mail: packages/server/src/mail.ts.</p>
+					</details>
+					<details>
+						<summary><span>Activity</span><small>2 workers · 5 h 12 min · 12 events</small></summary>
+						<ul class="ks-rows ks-activity">
+							<li><time>10:28</time><span>Ready for review. Deploy question asked.</span></li>
+							<li><time>09:42</time><span>reserve-android finished: Android book screen and form.</span></li>
+							<li><time>05:40</time><span>reserve-form finished: double reservation fixed.</span></li>
+							<li><time>Yesterday</time><span>You decided: hold a copy for 3 days.</span></li>
+							<li><time>Yesterday</time><span>Work started. <a href="#">8 more</a></span></li>
+						</ul>
+					</details>
+				</div>
+			</section>
+		</div>
+
+		<aside class="ks-rail" aria-label="About this task">
+			<dl>
+				<div><dt>Delivery</dt>
+					<dd>
+						<ol class="ks-delivery" data-on="ask"><li class="is-done">Built</li><li>Merged</li><li>Live</li></ol>
+						<ol class="ks-delivery" data-on="working" hidden><li>Built</li><li>Merged</li><li>Live</li></ol>
+						<ol class="ks-delivery" data-on="check done" hidden><li class="is-done">Built</li><li class="is-done">Merged</li><li class="is-done">Live</li></ol>
+						<span class="ks-quiet" data-on="check done" hidden>Site only. The app waits for its release.</span>
+					</dd>
+				</div>
+				<div><dt>Part of</dt><dd><a class="ks-task" href="#" title="T1"><span>Open the online shop</span><small>1 of 3 parts done · T1</small></a></dd></div>
+				<div><dt>See also</dt><dd><a class="ks-task" href="#" title="T5"><span>Sync stock with the till every 5 minutes</span><small>Working · T5</small></a></dd></div>
+				<div><dt>Links</dt><dd><a class="ks-link" href="#">Pull request #41</a></dd></div>
+				<div><dt>Files</dt><dd><a class="ks-link" href="#">6 screenshots and recordings</a></dd></div>
+			</dl>
+		</aside>
+	</div>
+
+	<footer class="ks-reply">
+		<div class="ks-reply-in"><div class="ks-composer"><span>Say something about this task…</span><button type="button" class="ks-send" aria-label="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>
+	</footer>
+</div></div>
+<script>
+(function(){
+	function setState(state){
+		document.querySelectorAll('.ks').forEach(function(ks){
+			ks.dataset.state=state;
+			ks.querySelectorAll('[data-on]').forEach(function(el){el.hidden=el.dataset.on.split(' ').indexOf(state)<0;});
+			ks.querySelectorAll('[data-question]').forEach(function(el){el.hidden=false;});
+			ks.querySelectorAll('[data-answered]').forEach(function(el){el.hidden=true;});
+		});
+		document.querySelectorAll('[data-set-state]').forEach(function(tab){tab.setAttribute('aria-pressed',String(tab.dataset.setState===state));});
+	}
+	document.addEventListener('click',function(event){
+		var target=event.target instanceof Element?event.target:null; if(!target)return;
+		var tab=target.closest('[data-set-state]'); if(tab){setState(tab.dataset.setState);return;}
+		var link=target.closest('.ks a[href="#"]'); if(link){event.preventDefault();}
+		var option=target.closest('.ks-opt');
+		if(option){
+			var question=option.closest('[data-question]');
+			question.querySelectorAll('.ks-opt').forEach(function(other){other.setAttribute('aria-checked',String(other===option));});
+			question.querySelector('[data-answer]').disabled=false;return;
+		}
+		var answer=target.closest('[data-answer]');
+		if(answer){
+			var card=answer.closest('.ks-you'), picked=card.querySelector('.ks-opt[aria-checked="true"]');
+			card.querySelector('[data-chosen]').textContent=picked?picked.dataset.label:'your own answer';
+			card.querySelector('[data-question]').hidden=true;card.querySelector('[data-answered]').hidden=false;
+		}
+	});
+	document.addEventListener('input',function(event){
+		var input=event.target; if(!(input instanceof HTMLInputElement)||!input.classList.contains('ks-input'))return;
+		var button=input.closest('[data-question]').querySelector('[data-answer]');
+		button.disabled=input.value.trim()===''&&!input.closest('[data-question]').querySelector('.ks-opt[aria-checked="true"]');
+	});
+})();
+</script>
+</body></html>
