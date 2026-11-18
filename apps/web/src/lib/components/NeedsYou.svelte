@@ -2,6 +2,7 @@
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import CircleX from '@lucide/svelte/icons/circle-x';
+	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import type { ProjectAttentionLink } from '#lib/sidebar-attention.js';
@@ -12,7 +13,7 @@
 {#snippet action(link: ProjectAttentionLink)}
 	<a href={link.href} onclick={onnavigate} class:review={link.kind === 'review'} title="{link.backendName} · {link.projectName} — {link.label}">
 		<span class="action-icon" aria-hidden="true">
-			{#if link.kind === 'question'}<CircleHelp size={15} />{:else if link.kind === 'warning'}<TriangleAlert size={15} />{:else if link.kind === 'review'}<CheckCheck size={15} />{:else}<CircleX size={15} />{/if}
+			{#if link.kind === 'question'}<CircleHelp size={15} />{:else if link.kind === 'warning'}<TriangleAlert size={15} />{:else if link.kind === 'steps'}<ListChecks size={15} />{:else if link.kind === 'review'}<CheckCheck size={15} />{:else}<CircleX size={15} />{/if}
 		</span>
 		<span class="action-label"><strong>{link.label}</strong><small>{link.projectName}<span class="sr-only"> · {link.backendName}</span></small></span>
 		<ArrowUpRight size={13} class="jump" aria-hidden="true" />

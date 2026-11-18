@@ -3,10 +3,10 @@ import type { ProjectSummary } from "@kemiri/protocol";
 import { projectHref, threadHref } from "./backends.js";
 import type { ProjectRow } from "./projects.js";
 
-export type AttentionKind = "question" | "warning" | "coordinator" | "worker" | "thread" | "review";
+export type AttentionKind = "question" | "warning" | "coordinator" | "worker" | "thread" | "steps" | "review";
 export type AttentionAction = { kind: AttentionKind; count: number; label: string; taskId?: string | null; threadId?: string | null };
 export type ProjectAttentionLink = AttentionAction & { key: string; href: string; projectName: string; backendName: string };
-const priority: Record<AttentionKind, number> = { question: 0, warning: 1, coordinator: 2, worker: 3, thread: 4, review: 5 };
+const priority: Record<AttentionKind, number> = { question: 0, warning: 1, coordinator: 2, worker: 3, thread: 4, steps: 5, review: 6 };
 
 export function projectAttentionActions(project: ProjectSummary): AttentionAction[] {
 	if (project.archived) return [];
@@ -18,6 +18,8 @@ export function projectAttentionActions(project: ProjectSummary): AttentionActio
 	if (project.state === "failed" || project.activity?.coordinator === "failed") actions.push({ kind: "coordinator", count: 1, label: project.state === "failed" ? "Project failed" : "Coordinator failed" });
 	if ((summary?.failedWorkers ?? 0) > 0) actions.push({ kind: "worker", count: summary!.failedWorkers, label: summary!.failedWorkers === 1 ? "Worker failed" : `${summary!.failedWorkers} workers failed`, taskId: summary?.failedWorkerTaskId });
 	if ((summary?.failedThreads ?? 0) > 0) actions.push({ kind: "thread", count: summary!.failedThreads, label: summary!.failedThreads === 1 ? "Background job failed" : `${summary!.failedThreads} background jobs failed`, threadId: summary?.failedThreadId });
+	const steps = summary?.stepsTasks ?? 0;
+	if (steps > 0) actions.push({ kind: "steps", count: steps, label: `${steps} with your steps`, taskId: summary?.stepsTaskId });
 	if ((summary?.reviewTasks ?? 0) > 0) actions.push({ kind: "review", count: summary!.reviewTasks, label: `${summary!.reviewTasks} to review`, taskId: summary?.reviewTaskId });
 	return actions;
 }
@@ -36,7 +38,7 @@ export function needsYouLinks(backends: readonly { id: string; name: string; pro
 export function sidebarStatus(project: ProjectSummary, row: ProjectRow): { label: string; glyph: string; urgent: boolean; working: boolean } {
 	const action = projectAttentionActions(project)[0];
 	const working = project.activity?.coordinator === "working" || (project.attention?.runningWorkers ?? project.activity?.runningWorkers ?? 0) > 0;
-	if (action) return { label: action.label, glyph: action.kind === "question" ? "?" : action.kind === "review" ? "✓" : "!", urgent: action.kind !== "review", working };
+	if (action) return { label: action.label, glyph: action.kind === "question" ? "?" : action.kind === "review" ? "✓" : action.kind === "steps" ? "☷" : "!", urgent: action.kind !== "review", working };
 	const running = project.attention?.runningWorkers ?? project.activity?.runningWorkers ?? 0;
 	if (working) return { label: running > 0 ? `Working · ${running} worker${running === 1 ? "" : "s"}` : "Working", glyph: "◌", urgent: false, working };
 	const returning = project.attention?.nextReturnAt;

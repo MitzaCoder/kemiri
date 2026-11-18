@@ -1330,22 +1330,25 @@ This works with ten-minute session-bound URLs without sending device tokens into
 ## Projects sidebar: Needs you
 
 Feature `sidebar-attention` adds optional `ProjectSummary.attention`: separate open question/warning counts,
-review and waiting counts with the next return instant, failed workers/threads and all running workers.
-The existing activity supplies coordinator state and unread replies. Summaries are computed by the existing
-server board/worker/thread watches, persisted beside activity and pushed through `project.state`; clients never
-watch every project's board. Missing summaries retain the older activity-only behaviour. On upgrade, missing files
-are built once from durable documents before accepting connections, without opening Harnesses or starting agents.
+Your steps, review and waiting counts with the next return instant, failed workers/threads and all running workers.
+The steps count and first task ID are optional for compatibility. The board's derived kind decides between steps
+and review: review with outstanding steps counts once, under Your steps. The existing activity supplies coordinator
+state and unread replies. Summaries are computed by the existing server board/worker/thread watches, persisted
+beside activity and pushed through `project.state`; clients never watch every project's board. Missing summaries
+retain the older activity-only behaviour. On upgrade, missing or pre-steps summaries are built once from durable
+documents before accepting connections, without opening Harnesses or starting agents.
 A closed project's next waiting deadline has a small server timer: only when due does it open that project and let
 the board's existing return-to-review transaction run. Archived projects never arm this timer.
 
-The sidebar gathers questions, warnings, failures and quieter reviews across backends in a warm **Needs you**
+The sidebar gathers questions, warnings, failures, Your steps and reviews across backends in a warm **Needs you**
 panel, with a count of outstanding actions (not just rows). It shows three rows, with a keyboard-accessible
-more disclosure. Empty means no panel. Questions/failures lead; reviews follow. Links open the project,
-its first question's task where known, or the board for reviews. Waiting tasks are not urgent until the
+more disclosure. Empty means no panel. Questions and failures lead, then steps, then reviews. A steps or review
+row opens the first matching task when known; otherwise it opens the project. Waiting tasks are not urgent until the
 server returns them to review. Below are calm project rows with one glyph, one status line and an unread dot.
 Backend connection labels appear only when disconnected; backend groups, Add and archives remain.
 The 56px rail carries per-project action counts; the phone drawer uses the same attention panel.
-Web and Android share ordering and count rules, including activity-only fallback for older backends.
+Web and Android share ordering and count rules for existing rows, including activity-only fallback for older
+backends. Web also shows the Your steps row.
 
 ## Topology
 

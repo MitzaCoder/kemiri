@@ -169,6 +169,8 @@ export const ProjectAttentionSchema = Type.Object({
 	reviewTaskId: Type.Union([Type.String(), Type.Null()]),
 	failedWorkerTaskId: Type.Union([Type.String(), Type.Null()]),
 	failedThreadId: Type.Union([Type.String(), Type.Null()]),
+	stepsTasks: Type.Optional(Type.Integer({ minimum: 0 })),
+	stepsTaskId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 export type ProjectAttention = Static<typeof ProjectAttentionSchema>;
 

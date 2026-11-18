@@ -1010,7 +1010,9 @@ data class ProjectAttention(
     val `warningTaskId`: String?,
     val `reviewTaskId`: String?,
     val `failedWorkerTaskId`: String?,
-    val `failedThreadId`: String?
+    val `failedThreadId`: String?,
+    val `stepsTasks`: Long? = null,
+    val `stepsTaskId`: String? = null
 )
 
 @Serializable

@@ -3,13 +3,13 @@ import { stateKind } from "./state-identity.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { BoardState } from "./board.ts";
+import { boardView, type BoardState } from "./board.ts";
 import type { WorkersState } from "./workers.ts";
 import type { ThreadsState } from "./threads.ts";
 import { boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
 import type { ProjectAttention } from "@kemiri/protocol";
 
-export async function readStoredAttention(file: string): Promise<ProjectAttention> {
+export async function readStoredAttention(file: string, now = Date.now()): Promise<ProjectAttention> {
 	if (!(await Bun.file(file).exists())) return { ...EMPTY_ATTENTION };
 	const storage = await openNodeSqliteStorage(file);
 	try {
@@ -28,7 +28,7 @@ export async function readStoredAttention(file: string): Promise<ProjectAttentio
 		}
 		return {
 			...EMPTY_ATTENTION,
-			...(board === undefined ? {} : boardAttention(board)),
+			...(board === undefined ? {} : boardAttention(boardView(board, now, false))),
 			...workerAttention(workers),
 			...threadAttention(threads.map((thread) => ({ ...thread, main: false }))),
 			runningWorkers: 0, // Never trust an in-flight status left by a dead process.

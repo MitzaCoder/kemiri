@@ -37,6 +37,18 @@ test("old servers use their question count and coordinator state, but invent no 
 	expect(projectAttentionActions(fresh)).toEqual([]);
 });
 
+test("steps count in the badge and link to the first steps task before review", () => {
+	const shop = project("shop", { questions: 1, warnings: 1, stepsTasks: 1, stepsTaskId: "T7", reviewTasks: 1, reviewTaskId: "T3" });
+	const backend = { id: "b", name: "Remote", projects: [shop] };
+	const links = needsYouLinks([backend]);
+	expect(attentionCount(shop)).toBe(4);
+	expect(links.map(link => link.kind)).toEqual(["question", "warning", "steps", "review"]);
+	expect(links[2]).toMatchObject({ count: 1, label: "1 with your steps", href: "/b/b/projects/shop?task=T7" });
+	shop.attention!.stepsTasks = 2;
+	delete shop.attention!.stepsTaskId;
+	expect(needsYouLinks([backend])[2]).toMatchObject({ count: 2, label: "2 with your steps", href: "/b/b/projects/shop" });
+});
+
 test("waiting is calm until the server returns it to review; counts all threads' workers", () => {
 	const waiting = project("wait", { waitingTasks: 2, nextReturnAt: "2026-11-16T09:00:00Z" });
 	expect(attentionCount(waiting)).toBe(0);

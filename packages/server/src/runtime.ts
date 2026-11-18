@@ -454,8 +454,8 @@ export class ProjectManager {
 	async prepareAttention(): Promise<void> {
 		for (const project of await this.store.list()) {
 			try {
-				if (await this.#attentionStore.read(project.id) === undefined) {
-					this.#attentionStore.update(project.id, await readStoredAttention(this.store.sessionPath(project.id)));
+				if ((await this.#attentionStore.read(project.id))?.stepsTasks === undefined) {
+					this.#attentionStore.update(project.id, await readStoredAttention(this.store.sessionPath(project.id), this.#clock()));
 				}
 				await this.#summaryOf(project);
 			} catch (error) {

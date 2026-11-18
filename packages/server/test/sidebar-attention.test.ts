@@ -7,7 +7,7 @@ import { boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION, Proj
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { BoardDoc, askQuestion, settleQuestion } from "../src/board.ts";
+import { BoardDoc, askQuestion, boardView, emptyBoardState, saveTask, settleQuestion, writeReport } from "../src/board.ts";
 import { readStoredAttention } from "../src/sidebar-attention-migration.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -26,7 +26,29 @@ test("questions and warnings are separate; only review and dated waits count", (
 			{ status: "done", waiting: { until: "2026-11-10T08:00:00Z" } },
 		],
 	} as Board);
-	expect(summary).toEqual({ questions: 1, warnings: 1, reviewTasks: 1, waitingTasks: 3, nextReturnAt: "2026-11-16T08:00:00Z", questionTaskId: "T1", warningTaskId: "T2", reviewTaskId: "T1" });
+	expect(summary).toEqual({ questions: 1, warnings: 1, reviewTasks: 1, waitingTasks: 3, nextReturnAt: "2026-11-16T08:00:00Z", questionTaskId: "T1", warningTaskId: "T2", reviewTaskId: "T1", stepsTasks: 0, stepsTaskId: null });
+});
+
+test("steps count once instead of review, using the board’s attention precedence and order", () => {
+	const state = { ...emptyBoardState(), taskStateEnabled: true };
+	const now = "2026-11-16T08:00:00.000Z";
+	const add = (status: "todo" | "review" | "done", steps: string) => {
+		const { after: task } = saveTask(state, {
+			author: "user", now, task: { title: "Print the sign", status, description: "", acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [] },
+		});
+		writeReport(state, { taskId: task.id, now, by: { author: "coordinator", threadId: "main", workerId: null }, sections: { steps } });
+		return task.id;
+	};
+	const first = add("review", "1. Print the sign.");
+	add("todo", "1. Put the sign at the till.");
+	const review = add("review", "");
+	add("done", "1. Old steps should not count.");
+	const questionTask = add("review", "1. Wait for the answer first.");
+	state.questions.push({ id: "Q1", kind: "question", status: "open", taskId: questionTask, askedAt: now, answeredAt: null, answer: null, revision: 1, text: "Which sign?", options: [] });
+	const board = boardView(state, Date.parse(now), false);
+	const attention = boardAttention(board);
+	expect(attention).toMatchObject({ stepsTasks: 2, stepsTaskId: first, reviewTasks: 1, reviewTaskId: review, questions: 1 });
+	expect(attention.stepsTasks! + attention.reviewTasks + attention.questions).toBe(board.tasks.filter(task => task.state?.group === "needs_you").length);
 });
 
 test("all threads' running/failed workers, but no dependency blockage is called a failure", () => {
@@ -139,6 +161,28 @@ test("one-time upgrade reads closed durable boards without opening a Harness", a
     if (list.type !== "projects.list") throw Error(JSON.stringify(list));
     expect(list.projects[0]?.state).toBe("closed");
     expect(list.projects[0]?.attention?.reviewTasks).toBe(1);
+});
+
+test("backfills steps in a saved pre-steps project summary without opening the project", async () => {
+	const { test, client, id } = await setup();
+	const saved = await client.request({ type: "board.task.save", projectId: id, task: { title: "Print the sign", description: "", acceptance: null, status: "review", blockedBy: [], blockedReason: null, writeScopes: [] } });
+	if (saved.type !== "board.task.save") throw Error(JSON.stringify(saved));
+	const { runtime } = await test.server.manager.open(id);
+	await runtime.harness.commit(async tx => {
+		const board = await tx.doc(BoardDoc, runtime.conversation.id);
+		writeReport(board, { taskId: saved.task.id, now: new Date().toISOString(), by: { author: "coordinator", threadId: "main", workerId: null }, sections: { steps: "1. Print the sign." } });
+	}, BACKGROUND_CONTEXT);
+	await waitAttention(client, id, summary => summary.stepsTasks === 1 && summary.reviewTasks === 0);
+	await test.server.stop();
+	const { stepsTasks, stepsTaskId, ...old } = EMPTY_ATTENTION;
+	await Bun.write(join(test.dataDir, "projects", id, "attention.json"), JSON.stringify({ ...old, reviewTasks: 1, reviewTaskId: saved.task.id }));
+	await test.restart();
+	const next = await TestClient.open(test.server);
+	cleanups.push(async () => next.close());
+	await next.hello();
+	const list = await next.request({ type: "projects.list" });
+	if (list.type !== "projects.list") throw Error(JSON.stringify(list));
+	expect(list.projects[0]).toMatchObject({ state: "closed", attention: { stepsTasks: 1, stepsTaskId: saved.task.id, reviewTasks: 0, reviewTaskId: null } });
 });
 
 test("waiting date passes while server is off: compact deadline wakes just that project into review", async () => {
