@@ -14,6 +14,7 @@ import com.google.android.gms.tasks.Task
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.ActionCodeSettings
@@ -21,6 +22,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.GoogleAuthProvider
 import io.github.mitzacoder.kemiri.BuildConfig
+import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
@@ -99,11 +101,12 @@ class FirebaseRelayAccount(
         if (emailResendAt() > android.os.SystemClock.elapsedRealtime()) {
             throw RelaySignInException(RelaySignInProblem.EmailUnavailable)
         }
+        val hostingHost = BuildConfig.RELAY_EMAIL_LINK_DOMAIN
         val settings = ActionCodeSettings.newBuilder()
-            .setUrl("https://${BuildConfig.RELAY_EMAIL_LINK_DOMAIN}/__/auth/links")
+            .setUrl("https://$hostingHost/__/auth/links")
             .setHandleCodeInApp(true)
             .setAndroidPackageName(appContext.packageName, false, null)
-            .setLinkDomain(BuildConfig.RELAY_EMAIL_LINK_DOMAIN)
+            .apply { if (isCustomRelayHostingHost(hostingHost)) setLinkDomain(hostingHost) }
             .build()
         auth.sendSignInLinkToEmail(address.trim(), settings).relayAwait()
         preferences.edit().putString("pending-email", address.trim())
@@ -165,25 +168,33 @@ class FirebaseRelayAccount(
     catch (_: NoCredentialException) { throw RelaySignInException(RelaySignInProblem.NoGoogleAccount) }
     catch (_: GetCredentialProviderConfigurationException) { throw RelaySignInException(RelaySignInProblem.NoGoogleServices) }
     catch (_: GetCredentialException) { throw RelaySignInException(RelaySignInProblem.Misconfigured) }
-    catch (_: FirebaseTooManyRequestsException) { throw RelaySignInException(RelaySignInProblem.EmailUnavailable) }
-    catch (error: FirebaseAuthException) {
-        RelayAuthPlatform.reportFailure(error)
-        throw RelaySignInException(when (error.errorCode) {
-            "ERROR_EXPIRED_ACTION_CODE", "ERROR_INVALID_ACTION_CODE" -> RelaySignInProblem.LinkExpired
-            "ERROR_USER_DISABLED" -> RelaySignInProblem.AccountDisabled
-            "ERROR_USER_NOT_FOUND" -> RelaySignInProblem.AccountDeleted
-            "ERROR_USER_TOKEN_EXPIRED", "ERROR_INVALID_USER_TOKEN" -> RelaySignInProblem.SignInRequired
-            "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL", "ERROR_CREDENTIAL_ALREADY_IN_USE", "ERROR_USER_MISMATCH" -> RelaySignInProblem.ProviderConflict
-            "ERROR_REQUIRES_RECENT_LOGIN" -> RelaySignInProblem.RecentSignInRequired
-            "ERROR_TOO_MANY_REQUESTS", "ERROR_QUOTA_EXCEEDED" -> RelaySignInProblem.EmailUnavailable
-            "ERROR_INVALID_API_KEY", "ERROR_OPERATION_NOT_ALLOWED", "ERROR_INVALID_CREDENTIAL" -> RelaySignInProblem.Misconfigured
-            else -> RelaySignInProblem.Network
-        })
-    }
     catch (error: Exception) {
         RelayAuthPlatform.reportFailure(error)
-        throw RelaySignInException(RelaySignInProblem.Network)
+        throw RelaySignInException(relayFirebaseSignInProblem(error))
     }
+}
+
+/** Firebase rejects default Hosting hosts as an explicit linkDomain. */
+internal fun isCustomRelayHostingHost(host: String): Boolean =
+    host.isNotBlank() && !host.endsWith(".web.app", ignoreCase = true) &&
+        !host.endsWith(".firebaseapp.com", ignoreCase = true)
+
+internal fun relayFirebaseSignInProblem(error: Exception): RelaySignInProblem = when (error) {
+    is FirebaseNetworkException, is IOException -> RelaySignInProblem.Network
+    is FirebaseTooManyRequestsException -> RelaySignInProblem.EmailUnavailable
+    is FirebaseAuthException -> when (error.errorCode) {
+        "ERROR_EXPIRED_ACTION_CODE", "ERROR_INVALID_ACTION_CODE" -> RelaySignInProblem.LinkExpired
+        "ERROR_USER_DISABLED" -> RelaySignInProblem.AccountDisabled
+        "ERROR_USER_NOT_FOUND" -> RelaySignInProblem.AccountDeleted
+        "ERROR_USER_TOKEN_EXPIRED", "ERROR_INVALID_USER_TOKEN" -> RelaySignInProblem.SignInRequired
+        "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL", "ERROR_CREDENTIAL_ALREADY_IN_USE", "ERROR_USER_MISMATCH" -> RelaySignInProblem.ProviderConflict
+        "ERROR_REQUIRES_RECENT_LOGIN" -> RelaySignInProblem.RecentSignInRequired
+        "ERROR_TOO_MANY_REQUESTS", "ERROR_QUOTA_EXCEEDED" -> RelaySignInProblem.EmailUnavailable
+        // Auth 25.0.0 exposes ERROR_INVALID_HOSTING_LINK_DOMAIN; unrecognized server
+        // errors (such as UNAUTHORIZED_CONTINUE_URI) can surface as INTERNAL_ERROR.
+        else -> RelaySignInProblem.Misconfigured
+    }
+    else -> RelaySignInProblem.Misconfigured
 }
 
 private fun createRelayFirebaseAuth(context: Context): FirebaseAuth {

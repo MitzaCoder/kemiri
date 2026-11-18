@@ -28,6 +28,11 @@ move the Kemiri `main` bookmark as part of a relay deployment.
   a namespace for function IDs. The config's `aiki-push-relay` codebase and narrow deploy selectors avoid pruning other apps.
 - Auth is **project-wide**, not database-scoped. Profile minimization updates the Auth user's top-level display name/photo;
   disabling/revoking/deleting a relay user also affects that identity in other apps in the project. Agree to that impact.
+- For Android email-link sign-in, set `harness.relayEmailLinkDomain` to the Hosting host only. With default Hosting,
+  use `<project>.firebaseapp.com` so the continue URL is `https://<project>.firebaseapp.com/__/auth/links`. The app
+  omits `linkDomain` because Firebase rejects both `.web.app` and `.firebaseapp.com` hosts as explicit values.
+  For custom Hosting, set the configured custom host (for example, `links.example.com`); the app passes it as
+  `linkDomain`. Serve `/.well-known/assetlinks.json` on the same host used in the Android manifest.
 
 ## 2. Prerequisites and identities
 

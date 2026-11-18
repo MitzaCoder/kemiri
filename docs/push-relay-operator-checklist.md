@@ -162,9 +162,13 @@ its commands are for you after agreement, never for the agent. Do not adapt the 
 - [ ] **Configure default Hosting email links and verified App Links.** Use the default sender/domain already chosen.
   Verify sender name/templates, quota and real mail delivery. Host `/.well-known/assetlinks.json` binding the private
   package value to release SHA-256. The APK needs the chosen HTTPS host, `autoVerify` and `/__/auth/links`, current
-  Auth SDK, `handleCodeInApp=true` and Hosting `linkDomain`; no Dynamic Links or Play-install fallback.
-  Set `harness.relayEmailLinkDomain` (`HARNESS_RELAY_EMAIL_LINK_DOMAIN`) to the Hosting host only. The manifest and
-  cold/warm link, email re-entry and strict-host paste recovery UI are built and emulator-tested. Required live result: Android
+  Auth SDK and `handleCodeInApp=true`; no Dynamic Links or Play-install fallback.
+  Set `harness.relayEmailLinkDomain` (`HARNESS_RELAY_EMAIL_LINK_DOMAIN`) to a host only. For default Hosting, use
+  `<project>.firebaseapp.com` (not `<project>.web.app`): the app uses `https://<project>.firebaseapp.com/__/auth/links`
+  as the continue URL and omits `linkDomain`. Firebase rejects both default host suffixes as explicit `linkDomain` values.
+  For custom Hosting, use the configured custom host (for example, `links.example.com`); the app passes it as
+  `linkDomain`. The manifest and cold/warm link, email re-entry and strict-host paste recovery UI are built and
+  emulator-tested. Required live result: Android
   verifies the association and mail/browser links return to the installed release APK. Test cold/warm/cross-device
   return, email re-entry, expired/used links and strict-host paste recovery. Keep all link values privately; never log codes.
 - [ ] **Set App Check to monitoring, not new enforcement.** Review existing enforcement before any change.

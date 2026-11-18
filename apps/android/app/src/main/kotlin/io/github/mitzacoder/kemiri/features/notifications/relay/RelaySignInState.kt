@@ -10,7 +10,7 @@ enum class RelaySignInProblem(val message: String) {
     Cancelled("Sign-in cancelled. Notifications through the relay are still off."),
     NoGoogleAccount("No Google account is available. Add one on this phone or continue with email."),
     NoGoogleServices("Google services are unavailable. Try email sign-in. Phone notifications still need Google services."),
-    Misconfigured("Google sign-in is not set up for this build. Try email or contact the operator."),
+    Misconfigured("Relay sign-in may not be set up correctly. Contact the operator."),
     LinkInvalid("This is not a sign-in link for this app. Copy the whole link from your email."),
     LinkExpired("This link expired or was already used. Request a new link."),
     EmailUnavailable("Email sign-in is temporarily unavailable. Try again later or continue with Google."),

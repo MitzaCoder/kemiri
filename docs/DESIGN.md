@@ -5633,8 +5633,11 @@ When no relay endpoint is configured, notification settings render exactly the e
 with no relay row or unavailable notice. Configured builds put the default-off relay row below This device; it
 explains the account requirement and has a Learn more disclosure. Opt-in explains email/profile
 storage, encrypted content, visible metadata, limits/operator control and deletion before Google or email sign-in.
-Email links use the configured Hosting host and exact `/__/auth/links` path; paste recovery rejects other hosts,
-credentials, fragments and non-HTTPS links. The email is remembered locally, never placed in a continuation URL.
+Email links use the configured Hosting host and exact `/__/auth/links` path. For default Hosting, the app uses
+`<project>.firebaseapp.com` in the continue URL and omits `linkDomain`: Firebase rejects `.web.app` and
+`.firebaseapp.com` hosts as explicit `linkDomain` values. A custom Hosting host is passed as `linkDomain`.
+Paste recovery rejects other hosts, credentials, fragments and non-HTTPS links. The email is remembered locally,
+never placed in a continuation URL.
 
 Private build values supply the Web OAuth client ID, Hosting link domain and privacy contact. Empty values disable
 relay sign-in with a plain reason, without affecting the rest of the app. Debug-only source sets own Auth emulator
