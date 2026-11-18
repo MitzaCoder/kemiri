@@ -27,7 +27,7 @@ sealed interface Destination {
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Panel") data class Panel(val chat: Chat, val tab: PanelTab = PanelTab.Info) : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Artifact") data class Artifact(val chat: Chat, val artifactId: String) : Destination
     /** A task's sheet over the chat it was opened from (the web's `?task=` on main's or a thread's page); back closes it. */
-    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null, val feedbackId: String? = null) : Destination
     /**
      * A backend's terminals (web `/b/<backend>/terminal`): [projectId] and [workerId] pick where a new terminal opens (the
      * project's folder, a worker's workspace); [session] attaches one by name. Not a chat: it has its own header.
@@ -97,6 +97,7 @@ data class ProjectScreenContext(
     val board: ProjectBoard get() = backend.board(route.projectId)
     /** Opens a task's sheet over this chat. */
     fun openTask(taskId: String) = navigate(Destination.Task(route, taskId, fromTaskId = taskOrigin))
+    fun openTaskNote(taskId: String, feedbackId: String) = navigate(Destination.Task(route, taskId, fromTaskId = taskOrigin, feedbackId = feedbackId))
 
     val target get() = ConversationTarget(route.projectId, route.threadId, route.workerId)
 }

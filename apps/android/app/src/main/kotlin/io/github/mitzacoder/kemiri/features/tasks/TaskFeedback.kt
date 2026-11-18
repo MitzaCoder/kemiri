@@ -1,12 +1,20 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.chat.markdownText
@@ -14,21 +22,39 @@ import io.github.mitzacoder.kemiri.protocol.BoardFeedback
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
-internal fun TaskFeedback(entries: List<BoardFeedback>, busy: Boolean, now: Long, threadName: (String) -> String, onSetState: (BoardFeedback, String) -> Unit) {
+internal fun TaskFeedback(
+    entries: List<BoardFeedback>, busy: Boolean, now: Long, threadName: (String) -> String,
+    onSetState: (BoardFeedback, String) -> Unit, linkedFeedbackId: String?, revealLinkedNote: Boolean, onRevealed: () -> Unit,
+) {
     val colors = Jarvis.colors
     Column {
         sortedFeedback(entries).forEach { entry -> key(entry.id) {
-            val settled = entry.state == "addressed" || entry.state == "dismissed"
-            if (settled) {
-                var expanded by rememberSaveable { mutableStateOf(false) }
-                TaskFold(expanded, { expanded = !expanded }, heading = {
-                    TaskDetailText(markdownText(entry.text).ifBlank { "Note with attachment" }, Modifier.weight(1f), style = TaskType.sectionTitle,
-                        color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(feedbackStateWords(entry.state), style = TaskType.meta, color = colors.fgMuted)
-                }) { TaskNote(entry, settled = true, busy, now, threadName, onSetState) }
-            } else {
-                HorizontalDivider(color = colors.border)
-                Box(Modifier.padding(top = 8.dp)) { TaskNote(entry, settled = false, busy, now, threadName, onSetState) }
+            val linked = entry.id == linkedFeedbackId
+            val requester = remember { BringIntoViewRequester() }
+            var measured by remember { mutableStateOf(false) }
+            LaunchedEffect(linked, revealLinkedNote, measured) {
+                if (linked && revealLinkedNote && measured) {
+                    // Reveal the start even when the note itself is taller than the viewport.
+                    requester.bringIntoView(Rect(0f, 0f, 1f, 1f))
+                    onRevealed()
+                }
+            }
+            Column(if (linked) Modifier.fillMaxWidth().bringIntoViewRequester(requester).onSizeChanged { measured = it.height > 0 }
+                .background(colors.accent2.copy(alpha = .07f), RoundedCornerShape(8.dp))
+                .semantics { stateDescription = "Linked note" }
+                .padding(horizontal = 8.dp) else Modifier.fillMaxWidth()) {
+                val settled = entry.state == "addressed" || entry.state == "dismissed"
+                if (settled) {
+                    var expanded by rememberSaveable(linked) { mutableStateOf(linked) }
+                    TaskFold(expanded, { expanded = !expanded }, heading = {
+                        TaskDetailText(markdownText(entry.text).ifBlank { "Note with attachment" }, Modifier.weight(1f), style = TaskType.sectionTitle,
+                            color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(feedbackStateWords(entry.state), style = TaskType.meta, color = colors.fgMuted)
+                    }) { TaskNote(entry, settled = true, busy, now, threadName, onSetState) }
+                } else {
+                    HorizontalDivider(color = colors.border)
+                    Box(Modifier.padding(top = 8.dp)) { TaskNote(entry, settled = false, busy, now, threadName, onSetState) }
+                }
             }
         } }
     }

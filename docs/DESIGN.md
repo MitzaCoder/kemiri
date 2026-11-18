@@ -3992,10 +3992,11 @@ its own list, and a timeline; the description stays the original ask and the rep
   task: put the detail of this reply on the task.` and quotes the reply as Markdown (quote capped at ~4,000 characters,
   with a truncation note). The coordinator files the detail, marks the feedback addressed and replies in one line;
   the harness never writes reply text into the report or feedback note.
-  Web coordinator transcripts show task cards below committed replies that name known tasks, using the same
-  prose mentions as inline previews. Three cards show initially; a disclosure holds the rest. On a supported
-  backend, an open task’s card can keep the reply. Its receipt links to the exact entry in Your notes, opening
-  it even when addressed. Worker transcripts, user messages and streamed text do not get these cards.
+  Coordinator transcripts show task cards below each committed reply that names known tasks. Three cards show
+  initially; a disclosure holds the rest. Android limits cards to open tasks and leaves inline task previews
+  unchanged. On a supported backend, Keep on task uses the stored reply's conversation and entry IDs. The
+  receipt opens the exact entry in Your notes, even when addressed. Worker transcripts, user messages and
+  uncommitted streaming text do not get cards.
 - **The timeline** (`board.task.timeline`, optional `kinds`): in time order, the task's feedback entries and each state
   change, status moves, workers started and reported or failed, questions asked and answered, decisions, report
   milestones and link changes (from both ends). Built when asked from what the board holds (questions, decisions),

@@ -70,7 +70,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * The fixed reply box sends to Main chat with the task ID even when opened from a thread.
  */
 @Composable
-fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null) {
+fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null, linkedFeedbackId: String? = null) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         val dark = Jarvis.colors.dark
@@ -97,15 +97,15 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
                     color = Jarvis.colors.bg,
                     shadowElevation = 12.dp,
                     border = androidx.compose.foundation.BorderStroke(1.dp, Jarvis.colors.border),
-                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
-            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
+                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState, linkedFeedbackId = linkedFeedbackId) } }
+            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState, linkedFeedbackId = linkedFeedbackId) } }
         }
         }
     }
 }
 
 @Composable
-private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: androidx.compose.foundation.lazy.LazyListState) {
+private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: androidx.compose.foundation.lazy.LazyListState, linkedFeedbackId: String?) {
     val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
     val colors = Jarvis.colors
     val board = context.board
@@ -193,6 +193,19 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val activity = taskActivity(task, connection.supports("task-activity"))
     val showNow = showTaskNow(task, activity)
     val showNext = !needsYou.review && task.report.next.isNotBlank()
+    val showPlan = showNow || showNext
+    val showAgentQuestions = needsYou.questionsForAgent.isNotEmpty()
+    val linkedFeedbackFound = linkedFeedbackId != null && timeline?.feedback.orEmpty().any { it.id == linkedFeedbackId }
+    var jumpedToNotes by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
+    var revealedNote by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
+    LaunchedEffect(linkedFeedbackFound, linksEnabled, editing) {
+        if (linkedFeedbackFound && linksEnabled && !editing && !jumpedToNotes) {
+            // Results is always present; the other three sections before notes are conditional.
+            bodyState.scrollToItem(1 + listOf(needsYou.show, showPlan, showAgentQuestions).count { it })
+            jumpedToNotes = true
+        }
+    }
+
     val staleReport = taskReportIsStale(connection.supports("task-freshness"), task.report)
     val owner = taskOwner(task, threads)
     val replyFocus = remember { FocusRequester() }
@@ -278,7 +291,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                         TaskProof(context, artifacts)
                     }
                 }
-                if (showNow || showNext) item(key = "next") {
+                if (showPlan) item(key = "next") {
                     TaskReadingSection("Next") {
                         if (showNow) {
                             TaskHeading("Now")
@@ -287,7 +300,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                         if (showNext) ReportMarkdown(task.report.next)
                     }
                 }
-                if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {
+                if (showAgentQuestions) item(key = "agent-questions") {
                     TaskReadingSection("Waiting for an agent reply") {
                         needsYou.questionsForAgent.forEach { question -> key(question.id) {
                             QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
@@ -300,7 +313,11 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                             Text(it, style = TaskType.xs, color = colors.danger)
                             TextButton(onClick = { timelineRefresh++ }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
                         }
-                        timeline?.let { TaskFeedback(it.feedback, feedbackBusy, now, { id -> threadName(id, threads) }, ::setFeedback) }
+                        timeline?.let {
+                            TaskFeedback(it.feedback, feedbackBusy, now, { id -> threadName(id, threads) }, ::setFeedback,
+                                linkedFeedbackId = linkedFeedbackId, revealLinkedNote = jumpedToNotes && !revealedNote,
+                                onRevealed = { revealedNote = true })
+                        }
                         if (timeline == null && timelineProblem == null) Text("Loading notes…", style = TaskType.xs, color = colors.fgMuted)
                     }
                 }
