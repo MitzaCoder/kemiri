@@ -47,7 +47,9 @@ test('job band owns the question, main link and shared stop flow; composer pin s
  expect(chat).toContain('{#if isThread}<p');
  expect(chat).toContain("The main chat does not see what you write here, only the job's report.");
  expect(band).toContain('It is waiting for your answer');
- expect(band).toContain('compact strip onanswer=');
+ expect(band).toContain('compact strip');
+ expect(band).toContain('taskFieldsEnabled={board?.taskFieldsEnabled}');
+ expect(band).toContain('onanswer={(question, answer) => board!.answer(question.id, question.revision, answer)}');
  expect(band).toContain('board!.answer(question.id, question.revision, answer)');
  expect(band).toContain('+{waiting.length - 1} more');
  expect(band).toContain('href={mainHref}');

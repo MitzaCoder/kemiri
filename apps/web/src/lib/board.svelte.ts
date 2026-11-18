@@ -54,6 +54,7 @@ export class ProjectBoard {
 	freshnessEnabled = $state(false);
 	stateEnabled = $state(false);
 	clarifyEnabled = $state(false);
+	taskFieldsEnabled = $state(false);
 	partsEnabled = $state(false);
 	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
 
@@ -92,6 +93,7 @@ export class ProjectBoard {
 			this.freshnessEnabled = state.features?.includes('task-freshness') ?? false;
 			this.stateEnabled = taskStateSupported(state.features);
 			this.clarifyEnabled = questionClarifySupported(state.features);
+			this.taskFieldsEnabled = state.features?.includes("task-fields") ?? false;
 			this.partsEnabled = state.features?.includes("task-part-states") ?? false;
 			void this.load();
 		};

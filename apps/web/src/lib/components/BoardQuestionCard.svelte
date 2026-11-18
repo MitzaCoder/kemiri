@@ -16,10 +16,11 @@
 	import type { AnswerOutcome, ClarifyOutcome } from '#lib/board.svelte.js';
 	import { askAgainText, canClarifyQuestion, highlightAskBack } from '#lib/question-clarify.js';
 	import { shortWriterLabel } from '#lib/tasks.js';
+	import { questionAnswers } from '#lib/task-details.js';
 	import type { BoardQuestion } from '@kemiri/protocol';
 
 	/**
-	 * One question the coordinator asked: its text, the options it suggests as chips, and a free-text answer. Used in the
+	 * One question the coordinator asked: its text, suggested answers, and a free-text answer. Used in the
 	 * Tasks tab, the task sheet and pinned above the composer. An answer is sent on the revision the question was read
 	 * at; when the question moved on meanwhile the card says so and keeps what was typed. A warning looks different and
 	 * has no options: the user acknowledges it, with a note if they like.
@@ -34,7 +35,8 @@
 		compact = false,
 		plain = false,
 		strip = false,
-		optionsOnly = false
+		optionsOnly = false,
+		taskFieldsEnabled = false
 	}: {
 		question: BoardQuestion;
 		/** "T4 · Fix parser recovery" when the question is about a task. */
@@ -52,6 +54,7 @@
 		strip?: boolean;
 		/** Graph preview: suggested answers only; replies and other actions stay in the full task. */
 		optionsOnly?: boolean;
+		taskFieldsEnabled?: boolean;
 	} = $props();
 
 	const warning = $derived(question.kind === 'warning');
@@ -119,9 +122,29 @@
 </script>
 
 {#snippet answerForm(expanded: boolean)}
-	{#if !warning && question.options.length > 0}
+	{@const answers = questionAnswers(question, taskFieldsEnabled && !optionsOnly && (!strip || expanded))}
+	{#if answers.kind === 'choices'}
+		<ul role="list" aria-label="Suggested answers" class="flex flex-col gap-1.5 {expanded ? 'question-answer-choices' : ''}">
+			{#each answers.choices as choice}
+				<li>
+					<button
+						type="button"
+						disabled={busy}
+						class="flex min-h-11 w-full flex-col justify-center gap-0.5 rounded-lg border px-3 py-2 text-left text-sm leading-snug [overflow-wrap:anywhere] transition-colors hover:border-(--accent-2) hover:bg-(--chat-surface-2) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--chat-ring) disabled:opacity-50 {choice.recommended ? 'border-(--accent-2) bg-(--accent-2)/10' : 'border-(--chat-border-strong) bg-(--chat-surface)'}"
+						onclick={() => send(choice.label)}
+					>
+						<span class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+							<span class="font-semibold">{markdownText(choice.label)}</span>
+							{#if choice.recommended}<span class="rounded-full border border-(--accent-2)/50 px-1.5 py-px text-[0.6875rem] font-semibold">Recommended</span>{/if}
+						</span>
+						{#if choice.effect?.trim()}<span class="text-xs text-(--chat-fg-muted)">{markdownText(choice.effect)}</span>{/if}
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{:else if answers.options.length > 0}
 		<div class="flex flex-wrap gap-1.5 {expanded ? 'question-answer-options' : ''}" role="group" aria-label="Suggested answers">
-			{#each question.options as option (option)}
+			{#each answers.options as option (option)}
 				<button
 					type="button"
 					disabled={busy}
@@ -141,7 +164,7 @@
 			bind:value={text}
 			rows={expanded || compact ? 1 : 2}
 			disabled={busy}
-			placeholder={warning ? 'Add a note (optional)' : question.options.length > 0 ? 'Or answer in your own words' : 'Your answer'}
+			placeholder={warning ? 'Add a note (optional)' : (answers.kind === 'choices' || answers.options.length > 0) ? 'Or answer in your own words' : 'Your answer'}
 			aria-label={warning ? `Note for ${question.id}` : `Answer to ${question.id}`}
 			oninput={() => { draftRevision ??= question.revision; }}
 			class="min-h-9 max-h-32 min-w-0 flex-1 {canClarify ? 'basis-full' : ''} resize-none rounded-lg border-(--chat-border) bg-(--chat-surface)/50 px-2.5 py-1.5 {expanded ? 'question-answer-input text-base md:text-base' : 'text-xs md:text-xs'}"
@@ -322,6 +345,12 @@
 
 	.question-answer-options {
 		max-height: min(7rem, calc(var(--question-viewport-height, 100dvh) * 0.18));
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+
+	.question-answer-choices {
+		max-height: min(16rem, calc(var(--question-viewport-height, 100dvh) * 0.32));
 		overflow-y: auto;
 		overscroll-behavior: contain;
 	}

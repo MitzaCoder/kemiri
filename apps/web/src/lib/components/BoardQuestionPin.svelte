@@ -103,6 +103,7 @@
 					taskHref={pin.current.taskId !== null && taskHref !== undefined ? taskHref(pin.current.taskId) : undefined}
 					compact
 					onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
+					taskFieldsEnabled={board?.taskFieldsEnabled}
 					onanswer={(entry, text) => board.answer(entry.id, entry.revision, text)}
 				/>
 			{/key}

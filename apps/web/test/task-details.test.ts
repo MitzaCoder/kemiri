@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { BoardQuestion, BoardTaskStatus } from '@kemiri/protocol';
-import { acceptanceMarkdown, readTaskRecordFold, saveTaskRecordFold, taskDetailState, taskNeedsYou } from '../src/lib/task-details.js';
+import type { BoardQuestion, BoardReportCheck, BoardTask, BoardTaskStatus } from '@kemiri/protocol';
+import { acceptanceMarkdown, failedCheckLine, questionAnswers, readTaskRecordFold, saveTaskRecordFold, taskDetailFields, taskDetailState, taskNeedsYou } from '../src/lib/task-details.js';
 
 const task = (status: BoardTaskStatus, blockedReason: string | null = null) => ({ id: 'T1', status, blockedReason });
 const question: BoardQuestion = {
@@ -54,16 +54,66 @@ describe('Needs you', () => {
 	});
 });
 
+describe('structured task fields', () => {
+	const report: BoardTask['report'] = { now: '', results: '- Legacy result', next: '**Legacy plan**', revision: 0, updatedAt: null, updatedBy: null };
+	const hidden = { goal: undefined, summary: undefined, notDoneMarkdown: undefined, checks: [] };
+	const passed: BoardReportCheck = { name: 'Tests', result: 'passed', count: 0, at: question.askedAt };
+	const failed: BoardReportCheck = { name: 'Typecheck', result: 'failed', at: question.askedAt };
+
+	test('only exposes structured fields when supported and populated, leaving legacy prose alone', () => {
+		const task = { goal: ' Reserve books. ', report: { ...report, summary: ' The form is ready. ', notDone: ' No reminders yet. \r\n\r\n* **Staff edits** are not ready.\n1. No email.', checks: [passed, failed] } };
+		expect(taskDetailFields(task, false)).toEqual(hidden);
+		expect(taskDetailFields({ report }, true)).toEqual(hidden);
+		expect(taskDetailFields({ goal: null, report: { ...report, summary: '  ', notDone: '\n - \n', checks: [] } }, true)).toEqual(hidden);
+		expect(taskDetailFields(task, true)).toEqual({
+			goal: 'Reserve books.', summary: 'The form is ready.',
+			notDoneMarkdown: '- No reminders yet.\n- **Staff edits** are not ready.\n- No email.', checks: [passed, failed]
+		});
+		expect(taskDetailFields({ goal: ' ', report: { ...report, notDone: 'Just one item.' } }, true))
+			.toEqual({ ...hidden, notDoneMarkdown: '- Just one item.' });
+		expect(task.report).toMatchObject({ results: '- Legacy result', next: '**Legacy plan**' });
+	});
+
+	test('names failed checks without listing passing checks', () => {
+		expect(failedCheckLine([])).toBeUndefined();
+		expect(failedCheckLine([passed])).toBeUndefined();
+		expect(failedCheckLine([passed, failed])).toBe('One check failed: Typecheck');
+		expect(failedCheckLine([failed, passed, { ...failed, name: 'Build' }])).toBe('2 checks failed: Typecheck, Build');
+	});
+
+	test('uses structured choices or falls back to the original options, and warnings have neither', () => {
+		const choices = [{ label: 'Now', effect: 'Books go on sale today.', recommended: true }, { label: 'Later' }];
+		const options = ['Now', 'Later'];
+		const legacy = { ...question, options };
+		const withChoices = { ...legacy, choices };
+		expect(questionAnswers(withChoices, true)).toEqual({ kind: 'choices', choices });
+		for (const answers of [questionAnswers(withChoices, false), questionAnswers(legacy, true), questionAnswers({ ...legacy, choices: [] }, true)]) {
+			expect(answers).toEqual({ kind: 'options', options });
+		}
+		expect(questionAnswers({ ...withChoices, kind: 'warning' }, true)).toEqual({ kind: 'options', options: [] });
+	});
+});
+
 describe('record folds', () => {
-	test('the request starts open; each row remembers its own choice', () => {
+	test('the request is the first record row and the only one open without a saved choice', async () => {
+		const sheet = await Bun.file(new URL('../src/lib/components/TaskSheet.svelte', import.meta.url)).text();
+		const record = sheet.slice(sheet.indexOf('<section aria-label="The record">'), sheet.indexOf('<aside class="task-about"'));
+		expect(Array.from(record.matchAll(/<TaskRecordFold row="(\w+)"/g), match => match[1])).toEqual(['request', 'checks', 'decided', 'activity']);
+		const emptyStorage = { getItem: () => null, setItem: () => {} };
+		expect(readTaskRecordFold('request', emptyStorage)).toBe(true);
+		expect(readTaskRecordFold('checks', emptyStorage)).toBe(false);
+		expect(readTaskRecordFold('decided', emptyStorage)).toBe(false);
+		expect(readTaskRecordFold('activity', emptyStorage)).toBe(false);
+	});
+
+	test('each row remembers its own choice', () => {
 		const saved = new Map<string, string>();
 		const storage = { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => { saved.set(key, value); } };
-		expect(readTaskRecordFold('request', storage)).toBe(true);
-		expect(readTaskRecordFold('decided', storage)).toBe(false);
-		expect(readTaskRecordFold('activity', storage)).toBe(false);
 		saveTaskRecordFold('request', false, storage);
 		saveTaskRecordFold('activity', true, storage);
+		saveTaskRecordFold('checks', true, storage);
 		expect(readTaskRecordFold('request', storage)).toBe(false);
+		expect(readTaskRecordFold('checks', storage)).toBe(true);
 		expect(readTaskRecordFold('activity', storage)).toBe(true);
 		expect(readTaskRecordFold('decided', storage)).toBe(false);
 	});

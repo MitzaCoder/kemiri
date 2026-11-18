@@ -13,11 +13,12 @@
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import XIcon from '@lucide/svelte/icons/x';
+	import CheckIcon from '@lucide/svelte/icons/check';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import '#lib/task-sheet.css';
 	import { openFeedbackCount } from '#lib/task-relations.js';
-	import { acceptanceMarkdown, taskDetailState, taskNeedsYou } from '#lib/task-details.js';
+	import { acceptanceMarkdown, failedCheckLine, taskDetailFields, taskDetailState, taskNeedsYou } from '#lib/task-details.js';
 	import { threadHref } from '#lib/backends.js';
 	import { splitMedia } from '#lib/media-gallery.js';
 	import TaskRecordFold from './TaskRecordFold.svelte';
@@ -174,6 +175,9 @@
 	const decisions = $derived(board?.board === undefined || task === undefined ? [] : decisionsFor(board.board.decisions, task.id));
 	const blockers = $derived(task === undefined ? [] : blockersOf(task, tasks).filter((blocker) => !blocker.settled));
 	const needsYou = $derived(task === undefined ? undefined : taskNeedsYou(task, board?.board?.questions ?? [], blockers.length > 0, backend.supports('task-steps')));
+	const taskFieldsEnabled = $derived(backend.connection.features?.includes('task-fields') === true);
+	const fields = $derived(task ? taskDetailFields(task, taskFieldsEnabled) : undefined);
+	const failedChecks = $derived(fields && failedCheckLine(fields.checks));
 	const owner = $derived(task === undefined ? undefined : taskOwner(task, threads));
 	const taskWorkers = $derived(
 		task === undefined ? [] : task.workerIds.map((id) => ({ id, worker: workers.find((entry) => entry.id === id) }))
@@ -352,6 +356,7 @@
 								class="underline decoration-(--chat-border-strong) underline-offset-2 hover:decoration-current">{piece.text}</a
 							>{:else}<TaskText text={piece.text} />{/if}{/each}</Dialog.Title
 				>
+				{#if fields?.goal}<p class="max-w-[60ch] text-base [overflow-wrap:anywhere] text-(--chat-fg-muted)">{fields.goal}</p>{/if}
 				{#key task.id}
 					{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} />{/if}
 				{/key}
@@ -377,7 +382,7 @@
 							<div class="task-details-layout">
 								<div class="task-reading">
 									{#snippet questionCard(question: NonNullable<typeof needsYou>['ownerQuestions'][number])}
-										<BoardQuestionCard {question} plain askedBy={questionAskedBy(question, threads)}
+										<BoardQuestionCard {question} {taskFieldsEnabled} plain askedBy={questionAskedBy(question, threads)}
 											onclarify={board?.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined}
 											onanswer={(entry, text) => board!.answer(entry.id, entry.revision, text)} />
 									{/snippet}
@@ -417,13 +422,22 @@
 
 									<section class="task-reading-section" aria-label="What you get">
 										<h2 class="task-detail-heading">What you get</h2>
+										{#if fields?.summary}<p class="text-[1.0625rem] font-medium">{fields.summary}</p>{/if}
 										{#if staleReport}
 											<div class="task-stale-report flex min-h-11 flex-wrap items-center gap-x-1 text-(--chat-fg-muted)"><span>Report may be out of date.</span><ReportStaleAction {backend} {projectId} taskId={task.id} /></div>
 										{/if}
 										{#if task.report.results.trim()}<Markdown source={task.report.results} class="task-detail-markdown" />
-										{:else}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
+										{:else if !fields?.summary && !failedChecks}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
+										{#if failedChecks}<p class="text-(--chat-danger)">{failedChecks}</p>{/if}
 										{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
 									</section>
+
+									{#if fields?.notDoneMarkdown}
+										<section class="task-reading-section" aria-label="Not done">
+											<h2 class="task-detail-heading">Not done</h2>
+											<Markdown source={fields.notDoneMarkdown} class="task-detail-markdown" />
+										</section>
+									{/if}
 
 									{#if showNow || (!needsYou?.review && task.report.next.trim())}
 										<section class="task-reading-section" aria-label="Next">
@@ -460,6 +474,22 @@
 												<div><h4 class="mb-1 font-semibold">Done when</h4><Markdown source={acceptanceMarkdown(task.acceptance)} class="task-detail-markdown" /></div>
 											{/if}
 										</TaskRecordFold>
+										{#if fields?.checks.length}
+											<TaskRecordFold row="checks" title="Checks">
+												<ul role="list" class="flex flex-col gap-1.5">
+													{#each fields.checks as check}
+														<li class="flex items-baseline gap-2">
+															{#if check.result === 'passed'}
+																<CheckIcon class="size-4 shrink-0 self-start mt-1 text-(--chat-success)" aria-hidden="true" />
+															{:else}
+																<XIcon class="size-4 shrink-0 self-start mt-1 text-(--chat-danger)" aria-hidden="true" />
+															{/if}
+															<span><span class="sr-only">{check.result}: </span>{check.name}{#if check.count !== undefined} <span class="text-(--chat-fg-muted)">· {check.count.toLocaleString()}</span>{/if}{#if check.note?.trim()} <span class="text-sm text-(--chat-fg-muted)">— {check.note}</span>{/if}</span>
+														</li>
+													{/each}
+												</ul>
+											</TaskRecordFold>
+										{/if}
 										{#if decisions.length > 0}
 											<TaskRecordFold row="decided" title="Decided">
 												<ul class="flex flex-col gap-3">

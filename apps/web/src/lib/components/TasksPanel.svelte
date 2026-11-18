@@ -341,6 +341,7 @@
 								taskHref={question.taskId === null ? undefined : taskHref(question.taskId)}
 								askedBy={questionAskedBy(question, threads)}
 								onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
+								taskFieldsEnabled={board?.taskFieldsEnabled}
 								onanswer={(entry, text) => board.answer(entry.id, entry.revision, text)}
 							/>
 						{/each}

@@ -374,6 +374,7 @@
 								taskLabel={taskLabelOf(question.taskId)}
 								askedBy={questionAskedBy(question, threads)}
 								onclarify={board?.clarifyEnabled ? (entry, text) => board.clarify(entry.id, entry.revision, text) : undefined}
+								taskFieldsEnabled={board?.taskFieldsEnabled}
 								onanswer={answer}
 							/>
 						{/each}

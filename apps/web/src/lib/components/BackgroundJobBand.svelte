@@ -38,7 +38,7 @@
 				{#if waiting.length > 1}<button type="button" class="ml-auto min-h-11 px-2 text-(--accent-2)" onclick={nextQuestion} aria-label="Show another waiting question">+{waiting.length - 1} more</button>{/if}
 			</div>
 			{#key pin.current.id}
-				<BoardQuestionCard question={pin.current} compact strip onanswer={(question, answer) => board!.answer(question.id, question.revision, answer)}
+				<BoardQuestionCard question={pin.current} compact strip taskFieldsEnabled={board?.taskFieldsEnabled} onanswer={(question, answer) => board!.answer(question.id, question.revision, answer)}
 					onclarify={board.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined} />
 			{/key}
 		</div>

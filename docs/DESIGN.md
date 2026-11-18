@@ -5326,10 +5326,11 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   parent relation. Repeated drill-downs retain the trail. The control and browser/system Back pop the same entry;
   Forward can revisit the child. Fresh openings from lists, chat references and external links have no task Back.
 - **Frame and header.** The sheet still opens at the right, up to 74rem wide, and fills a phone. State in words is
-  the status menu label; the title, edit pencil and refs stay in the header. The title and refs wrap. There is no
-  section navigation. The reading column is at most 42rem; at 58rem of sheet width, About this task sits alongside
-  it. On narrower sheets About follows the record. Headings are small, body prose uses one size, and only Needs
-  you has a tinted section background. All colours come from the app's theme tokens.
+  the status menu label; the title, edit pencil and refs stay in the header. A non-empty goal appears under the
+  title as quiet prose on `task-fields` backends. The title and refs wrap. There is no section navigation. The
+  reading column is at most 42rem; at 58rem of sheet width, About this task sits alongside it. On narrower sheets
+  About follows the record. Headings are small, body prose uses one size, and only Needs you has a tinted section
+  background. All colours come from the app's theme tokens.
 - **Needs you.** Open questions and warnings that wait for the reader keep the shared `BoardQuestionCard`
   controls (choices, free text, Ask back, or Got it for a warning). Questions waiting on an agent stay readable
   outside the tint. Review uses today's Next Markdown as its check steps; “It works: close the task” uses the
@@ -5338,17 +5339,24 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   numbered Markdown for open tasks, before the review check. When steps take priority, the header says “Your steps
   to do” and the task appears in Needs you with a checklist icon, including in the graph and part progress. Web opts
   in through `hello.client.features`; Android keeps the server's review fallback until it opts in separately.
-- **What you get and Next.** Results stays Markdown, with at most three clickable image/video proof thumbnails
-  from the task artifact feed. Next shows the agents' plan unless it is already in the review check. A working
-  task's automatic Now appears once here; delivery activity can appear in About instead. Current reports have no
-  freshness lines; a stale report gets one line with the existing request-update action.
+- **Question choices (T296).** When `hello.features` includes `task-fields`, shared question cards in the task
+  sheet, Needs you lists and chat show choices as buttons with the label, optional effect and recommendation.
+  Clicking sends only the label. One-line previews stay label-only, and questions without choices keep their chips.
+- **What you get, Not done and Next.** Results stays Markdown, with at most three clickable image/video proof
+  thumbnails from the task artifact feed. On `task-fields` backends, a non-empty summary leads What you get and
+  failed checks are named there. A non-empty Not done list follows What you get. Old Markdown still renders as
+  before. Next shows the agents' plan unless it is already in the review check. A working task's automatic Now
+  appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
+  stale report gets one line with the existing request-update action.
 - **Your notes.** Feedback stays in the scrollable body, with the stored answer under each entry as Markdown.
   Addressed and dismissed entries start folded and can be reopened; active entries can be dismissed.
-- **The record.** The request is first and open by default (D104); “Done when” renders flat semicolon- or newline-separated
-  criteria as a list and retains existing Markdown lists. Decided and Activity are closed by default. Each row's
-  open choice is stored independently in this browser. Activity contains timeline events (including worker events)
-  and snapshot history. The timeline keeps its kind filters, bounded event viewport, keyboard scrolling, local
-  day separators and sort control. The web reading-direction choice remains in `aiki.timeline-order.v1`.
+- **The record.** The request comes first and starts open (D104). “Done when” renders flat semicolon- or
+  newline-separated criteria as a list and retains existing Markdown lists. Checks follows when available on
+  `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. Checks, Decided,
+  and Activity start closed. Each row's open choice is stored independently in this browser. Activity contains timeline
+  events (including worker events) and snapshot history. The timeline keeps its kind filters, bounded event viewport,
+  keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
+  `aiki.timeline-order.v1`.
 - **About this task.** Shows available delivery and status facts, owner thread, titled task links with small IDs,
   parts progress, full files (including the existing media viewer and tag controls), workers and task times.
   Header refs retain their existing status and link controls without a second refs list. Unresolved blockers shown

@@ -1,4 +1,4 @@
-import type { BoardQuestion, BoardTask } from '@kemiri/protocol';
+import type { BoardQuestion, BoardReportCheck, BoardTask } from '@kemiri/protocol';
 import { isSettled, isWarning, waitingOn } from './tasks.js';
 
 export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason'> & { report?: Pick<BoardTask['report'], 'steps'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
@@ -25,7 +25,37 @@ export function taskDetailState(status: BoardTask['status'], needsYou: ReturnTyp
 	}[status];
 }
 
-const recordFoldDefaults = { request: true, decided: false, activity: false } as const;
+export function taskDetailFields(task: Pick<BoardTask, 'goal' | 'report'>, taskFieldsEnabled: boolean) {
+	return {
+		goal: taskFieldsEnabled ? task.goal?.trim() || undefined : undefined,
+		summary: taskFieldsEnabled ? task.report.summary?.trim() || undefined : undefined,
+		notDoneMarkdown: taskFieldsEnabled ? notDoneMarkdown(task.report.notDone) : undefined,
+		checks: taskFieldsEnabled ? task.report.checks ?? [] : []
+	};
+}
+
+/** Not done is one item per line, with or without Markdown list markers. */
+function notDoneMarkdown(notDone: string | undefined): string | undefined {
+	return notDone?.split(/\r?\n/)
+		.map(line => line.trim().replace(/^(?:[-+*]|\d+[.)])(?:\s+|$)/, ''))
+		.filter(Boolean)
+		.map(item => `- ${item}`).join('\n') || undefined;
+}
+
+export function failedCheckLine(checks: readonly BoardReportCheck[]): string | undefined {
+	const failed = checks.filter(check => check.result === 'failed').map(check => check.name);
+	if (failed.length === 0) return undefined;
+	return failed.length === 1 ? `One check failed: ${failed[0]}` : `${failed.length} checks failed: ${failed.join(', ')}`;
+}
+
+export function questionAnswers(question: Pick<BoardQuestion, 'kind' | 'choices' | 'options'>, taskFieldsEnabled: boolean) {
+	if (taskFieldsEnabled && question.kind !== 'warning' && question.choices?.length) {
+		return { kind: 'choices', choices: question.choices } as const;
+	}
+	return { kind: 'options', options: question.kind === 'warning' ? [] : question.options } as const;
+}
+
+const recordFoldDefaults = { checks: false, request: true, decided: false, activity: false } as const;
 export type TaskRecordRow = keyof typeof recordFoldDefaults;
 
 type FoldStorage = Pick<Storage, 'getItem' | 'setItem'>;

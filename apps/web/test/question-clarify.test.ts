@@ -73,6 +73,18 @@ test('actual question card renders waiting, revision history, folded exchanges a
 		expect(html({ ...question, kind: 'warning' })).toContain('Ask back');
 		expect(html({ ...question, kind: 'warning' })).toContain('Acknowledge');
 
+		const choices = [{ label: 'Paper', effect: 'Costs less to ship.', recommended: true }, { label: 'Tins' }];
+		const choiceCard = (taskFieldsEnabled: boolean, preview: { strip?: boolean; optionsOnly?: boolean } = {}) =>
+			render(Card, { props: { ...props, question: { ...question, choices }, taskFieldsEnabled, ...preview } }).body as string;
+		const fullCard = choiceCard(true).replace(/<!--.*?-->/gs, '');
+		expect(fullCard).toContain('<ul role="list" aria-label="Suggested answers"');
+		expect(fullCard).toMatch(/<button[^>]*><span[^>]*><span[^>]*>Paper<\/span>.*?Recommended.*?Costs less to ship\.<\/span><\/button>/s);
+		for (const fallback of [choiceCard(false), choiceCard(true, { strip: true }), choiceCard(true, { optionsOnly: true })]) {
+			expect(fallback).toContain('role="group" aria-label="Suggested answers"');
+			expect(fallback).not.toContain('Costs less to ship.');
+			expect(fallback).not.toContain('Recommended');
+		}
+
 		const { ProjectBoard } = await vite.ssrLoadModule('/src/lib/board.svelte.ts');
 		let response: unknown = { type: 'board.question.clarify', question: waiting };
 		const calls: unknown[] = [];
