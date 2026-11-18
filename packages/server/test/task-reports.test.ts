@@ -6,12 +6,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { JsonObject } from "@earendil-works/pi-durable";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { BoardTask, BoardTaskSnapshot, ModelRef } from "@kemiri/protocol";
+import { LEGACY_HARNESS_FEATURES, type BoardTask, type BoardReportCheck, type BoardQuestionChoice, type BoardTaskSnapshot, type ModelRef } from "@kemiri/protocol";
 import {
 	type BoardState,
 	HARNESS_WRITER,
 	type TaskHistoryState,
 	addSnapshot,
+	askQuestion,
 	boardView,
 	claimTaskForThread,
 	coordinatorWriter,
@@ -55,6 +56,34 @@ describe("task reports", () => {
 		delete (old.tasks[0] as Partial<BoardTask>).snapshots;
 		expect(boardView(old, Date.parse(NOW), false).tasks[0]).toMatchObject({ report: { now: "", revision: 0, updatedBy: null }, snapshots: 0 });
 		expect(normalizeBoard(old).tasks[0]).toMatchObject({ report: { results: "", next: "", revision: 0 }, snapshots: 0 });
+	});
+
+	it("keeps old tasks, reports and question options without filling in the new fields", () => {
+		const state = boardWith("Old task");
+		writeReport(state, { taskId: "T1", sections: { results: "Old results", next: "Old next" }, by: coordinatorWriter("main"), now: NOW });
+		askQuestion(state, { taskId: "T1", text: "Ship it?", options: ["Ship", "Wait"], now: NOW });
+		const before = boardView(state, Date.parse(NOW), true);
+		const reloaded = boardView(normalizeBoard(JSON.parse(JSON.stringify(state)) as BoardState), Date.parse(NOW), true);
+		expect(reloaded).toEqual(before);
+		expect(reloaded.tasks[0]).not.toHaveProperty("goal");
+		for (const name of ["summary", "notDone", "checks"]) expect(reloaded.tasks[0]?.report).not.toHaveProperty(name);
+		expect(reloaded.questions[0]).toMatchObject({ options: ["Ship", "Wait"] });
+		expect(reloaded.questions[0]).not.toHaveProperty("choices");
+	});
+
+	it("does not change Results or Next freshness when rewriting other report fields", () => {
+		const state = boardWith("Ship it");
+		const by = coordinatorWriter("main");
+		const before = writeReport(state, { taskId: "T1", sections: { results: "Prepared the release.", next: "Send the release." }, by, now: NOW });
+		const after = writeReport(state, {
+			taskId: "T1", sections: { summary: "The release is ready.", notDone: "- Nothing has shipped.", checks: [{ name: "Build", result: "passed" }] },
+			by, now: "2026-11-05T13:00:00.000Z", coveredEventSeq: 0, waitsOn: ["Q1"],
+		});
+		expect(after.report.revision).toBe(before.report.revision + 1);
+		expect(after.report.updatedAt).not.toBe(before.report.updatedAt);
+		expect(after.report.freshness).toBeDefined();
+		expect(after.report.freshness).toEqual(before.report.freshness);
+		expect(after.eventSeq).toBe(before.eventSeq);
 	});
 
 	it("replaces only the sections a write names and bumps only the report's revision", () => {
@@ -277,6 +306,84 @@ describe("reports through the tools", () => {
 		expect(history.snapshots.find(snapshot => snapshot.label === "Steps ready")?.report.steps).toBe(steps);
 	}, 30_000);
 
+	it("writes the optional task fields with board tools and keeps them in history", async () => {
+		const { test, client, projectId } = await start();
+		const current = await TestClient.open(test.server);
+		clients.push(current);
+		const hello = await current.request({ type: "hello", protocolVersion: 1, client: { name: "test", features: ["task-fields"] } });
+		if (hello.type !== "hello") throw errorOf(hello);
+		expect(hello.features).toContain("task-fields");
+		expect(LEGACY_HARNESS_FEATURES).not.toContain("task-fields");
+
+		const goal = "Send the release to the pilot group.";
+		const summary = "The release is ready from a1b2c3d.";
+		const notDone = "- The pilot still needs b2c3d4e.";
+		const checks: BoardReportCheck[] = [{ name: "Tests", result: "passed", count: 3, at: NOW }, { name: "Build", result: "failed", note: "Missing icon", at: NOW }];
+		const choices: BoardQuestionChoice[] = [{ label: "Send it", effect: "The pilot gets c3d4e5f tonight.", recommended: true }, { label: "Wait" }];
+		const toolResults: string[] = [];
+		const calls = new Map<string, JsonObject>();
+		test.faux.setResponses(Array.from({ length: 80 }, () => (request: TranscriptContext) => {
+			const { role, text, toolName } = lastOf(request);
+			if (toolName === "board") toolResults.push(text);
+			const args = role === "user" ? calls.get(text) : undefined;
+			return args ? call("board", args) : fauxAssistantMessage("Noted.");
+		}));
+		const runBoard = async (args: JsonObject) => {
+			const index = toolResults.length;
+			const content = `Board action ${index}.`;
+			calls.set(content, args);
+			const reply = await client.request({ type: "conversation.submit", projectId, content, requestId: `task-fields-${index}` });
+			if (reply.type !== "conversation.submit") throw errorOf(reply);
+			await until(() => toolResults.length > index);
+			return toolResults[index]!;
+		};
+		const readBoard = async () => {
+			const reply = await client.request({ type: "board.get", projectId });
+			if (reply.type !== "board.get") throw errorOf(reply);
+			return reply.board;
+		};
+
+		const id = "T1";
+		expect(await runBoard({ action: "add_task", title: "Prepare the release", goal })).toContain("Added T1");
+		expect((await readBoard()).tasks[0]?.goal).toBe(goal);
+		const revisedGoal = "Send the release to a smaller pilot group.";
+		expect(await runBoard({ action: "update_task", id, expectedRevision: 1, goal: revisedGoal })).toContain("Updated T1");
+		const refused = await runBoard({ action: "ask", taskId: id, text: "Send it?", choices: [{ label: "Yes", recommended: true }, { label: "No", recommended: true }] });
+		expect(refused).toContain("At most one choice can be recommended.");
+		expect((await readBoard()).questions).toEqual([]);
+		const asked = await runBoard({ action: "ask", taskId: id, text: "Send it?", choices, options: ["Ignored"] });
+		expect(asked).toContain("Choice 1 effect");
+		expect((await readBoard()).questions[0]).toMatchObject({ id: "Q1", choices, options: ["Send it", "Wait"] });
+		const answer = await client.request({ type: "board.question.answer", projectId, questionId: "Q1", expectedRevision: 1, answer: "Send it" });
+		expect(answer).toMatchObject({ type: "board.question.answer", question: { status: "answered", answer: "Send it" } });
+		expect(await runBoard({ action: "ask", taskId: id, text: "Send a note too?", options: ["Yes", "No"] })).toContain("Asked Q2");
+		const legacy = (await readBoard()).questions.find(q => q.id === "Q2");
+		expect(legacy).toMatchObject({ options: ["Yes", "No"] });
+		expect(legacy).not.toHaveProperty("choices");
+
+		const wrote = await runBoard({ action: "write_report", id, summary, notDone, checks, milestone: "Release ready" });
+		expect(wrote).toContain("Summary,");
+		expect(wrote).toContain("Not done,");
+		await runBoard({ action: "write_report", id, results: "- Prepared the release.", next: "Send the release." });
+		expect((await readBoard()).tasks[0]).toMatchObject({ goal: revisedGoal, report: { summary, notDone, checks } });
+		const shown = await runBoard({ action: "show_task", id });
+		for (const text of [`goal: ${revisedGoal}`, `summary: ${summary}\nresults:`, `Not done:\n${notDone}`, "Tests: passed (3)", "Build: failed", "Send it (recommended) — The pilot gets c3d4e5f tonight."]) {
+			expect(shown).toContain(text);
+		}
+
+		await runBoard({ action: "write_report", id, checks: [checks[1]!] });
+		expect((await readBoard()).tasks[0]?.report.checks).toEqual([checks[1]!]);
+		await runBoard({ action: "write_report", id, summary: "", notDone: "", checks: [] });
+		await runBoard({ action: "update_task", id, expectedRevision: 2, goal: null });
+		const cleared = (await readBoard()).tasks[0]!;
+		expect(cleared.goal).toBeNull();
+		for (const name of ["summary", "notDone", "checks"]) expect(cleared.report).not.toHaveProperty(name);
+		expect(cleared.report).toMatchObject({ results: "- Prepared the release.", next: "Send the release." });
+		const history = await client.request({ type: "board.task.history", projectId, taskId: id });
+		if (history.type !== "board.task.history") throw errorOf(history);
+		expect(history.snapshots[0]).toMatchObject({ label: "Release ready", goal: revisedGoal, report: { summary, notDone, checks }, questionChoices: [{ questionId: "Q1", choices }] });
+	}, 30_000);
+
 	it("lets a task's worker and the coordinator write its report, saves milestones, and lists the history", async () => {
 		const { test, client, projectId } = await start();
 		let workerTurns = 0;
@@ -286,7 +393,8 @@ describe("reports through the tools", () => {
 			const { role, text, toolName } = lastOf(request);
 			if (system.includes('You are the worker "')) {
 				workerTurns += 1;
-				if (text === BRIEF) return call("task_progress", { now: "Reading the README.", addResult: "README read", milestone: "README read" });
+				if (text === BRIEF) return call("task_progress", { now: "Reading the README.", addResult: "README read", checks: [{ name: "Tests", result: "failed" }, { name: "Build", result: "passed", at: NOW }], milestone: "README read" });
+				if (toolName === "task_progress" && text.includes('milestone "README read"')) return call("task_progress", { checks: [{ name: "Tests", result: "passed", count: 4 }] });
 				if (role === "toolResult") results.push(text);
 				return fauxAssistantMessage("## Report\nOutcome: done");
 			}
@@ -319,7 +427,7 @@ describe("reports through the tools", () => {
 		await view.waitForView((value) => value.entries.some((entry) => entryText(entry) === "[task T1, feedback F1] Read the README."));
 		await until(async () => {
 			const board = await client.request({ type: "board.get", projectId });
-			return board.type === "board.get" && board.board.tasks.some((task) => task.id === "T1" && task.report.revision === 1);
+			return board.type === "board.get" && board.board.tasks.some((task) => task.id === "T1" && task.report.revision === 2);
 		});
 
 		const board = await client.request({ type: "board.get", projectId });
@@ -328,7 +436,8 @@ describe("reports through the tools", () => {
 		expect(task.report).toMatchObject({
 			now: task.activity?.text,
 			results: "- README read",
-			revision: 1,
+			checks: [{ name: "Tests", result: "passed", count: 4, at: expect.any(String) }, { name: "Build", result: "passed", at: NOW }],
+			revision: 2,
 			updatedBy: { author: "worker", threadId: "main", workerId: "reader" },
 		});
 		// The worker's spawn moved the task (one snapshot), its milestone saved another.
@@ -337,8 +446,8 @@ describe("reports through the tools", () => {
 		expect(await toolsOf(client, projectId)).not.toContain("task_progress");
 
 		await client.request({ type: "conversation.submit", projectId, requestId: "r2", content: "Wrap up." });
-		await until(() => results.some((text) => text.includes("Report (r2")));
-		const shown = results.find((text) => text.includes("Report (r2")) as string;
+		await until(() => results.some((text) => text.includes("Report (r3")));
+		const shown = results.find((text) => text.includes("Report (r3")) as string;
 		expect(shown).toContain("next: Check the summary.");
 		expect(shown).toContain("Workers: reader");
 		expect(shown).toContain("#3");
@@ -347,12 +456,14 @@ describe("reports through the tools", () => {
 		if (history.type !== "board.task.history") throw errorOf(history);
 		expect(history.snapshots.map((snapshot: BoardTaskSnapshot) => snapshot.label)).toEqual(["todo → in_progress", "README read", "Ready"]);
 		expect(history.snapshots[2]?.report.next).toBe("Check the summary.");
+		expect(history.snapshots[1]?.report.checks?.[0]).toMatchObject({ name: "Tests", result: "failed" });
+		expect(history.snapshots[2]?.report.checks).toEqual(task.report.checks);
 		const missing = await client.request({ type: "board.task.history", projectId, taskId: "T9" });
 		expect(missing).toMatchObject({ type: "error", error: { code: "unknown_task" } });
 
 		// A worker without a task gets no task_progress.
 		await client.request({ type: "conversation.submit", projectId, requestId: "r3", content: "Taskless." });
-		await until(() => workerTurns >= 3);
+		await until(() => workerTurns >= 4);
 		expect(await toolsOf(client, projectId, "free")).not.toContain("task_progress");
 	}, 30_000);
 });

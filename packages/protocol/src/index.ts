@@ -479,6 +479,8 @@ import {
 	BoardAuthorSchema,
 	type BoardTask,
 	BoardTaskSchema,
+	type BoardQuestionChoice,
+	BoardQuestionChoiceSchema,
 	type BoardQuestionExchange,
 	BoardQuestionExchangeSchema,
 	type BoardQuestionClarifyRequest,
@@ -525,6 +527,8 @@ import {
  BoardTaskActivitySchema,
  type BoardActivityActor,
  BoardActivityActorSchema,
+	type BoardReportCheck,
+	BoardReportCheckSchema,
  type BoardTaskReport,
 	BoardTaskReportSchema,
 	type BoardTaskWaiting,
@@ -1286,6 +1290,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardTaskStatus: BoardTaskStatusSchema,
 	BoardAuthor: BoardAuthorSchema,
 	BoardTask: BoardTaskSchema,
+	BoardQuestionChoice: BoardQuestionChoiceSchema,
 	BoardQuestionExchange: BoardQuestionExchangeSchema,
 	BoardQuestionClarifyRequest: BoardQuestionClarifyRequestSchema,
 	BoardQuestionClarifyResponse: BoardQuestionClarifyResponseSchema,
@@ -1309,6 +1314,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardTaskState: BoardTaskStateSchema,
 	BoardTaskActivity: BoardTaskActivitySchema,
  BoardActivityActor: BoardActivityActorSchema,
+	BoardReportCheck: BoardReportCheckSchema,
  BoardTaskReport: BoardTaskReportSchema,
 	BoardTaskSnapshot: BoardTaskSnapshotSchema,
 	BoardTaskWaiting: BoardTaskWaitingSchema,
@@ -1590,6 +1596,7 @@ export type {
 	BoardTaskStatus,
 	BoardAuthor,
 	BoardTask,
+	BoardQuestionChoice,
 	BoardQuestionExchange,
 	BoardQuestionClarifyRequest,
 	BoardQuestionClarifyResponse,
@@ -1613,6 +1620,7 @@ export type {
  BoardTaskState,
  BoardTaskActivity,
  BoardActivityActor,
+	BoardReportCheck,
 	BoardTaskReport,
 	BoardTaskSnapshot,
 	BoardTaskWaiting,
@@ -1745,7 +1753,7 @@ export {
 	NOTIFICATION_FAILURE_KINDS,
 	NOTIFICATION_HOLD_MS,
 } from "./notifications.ts";
-export { BOARD_PREFIX, TASK_REFERENCE_PREFIX } from "./board.ts";
+export { BOARD_PREFIX, TASK_REFERENCE_PREFIX, BoardQuestionChoiceSchema, BoardReportCheckSchema, BoardTaskGoalSchema } from "./board.ts";
 export {
 	ARTIFACT_MAX_TAG_LENGTH,
 	ARTIFACT_MAX_TAGS,

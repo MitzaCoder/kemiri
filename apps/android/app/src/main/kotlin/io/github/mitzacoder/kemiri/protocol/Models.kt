@@ -2451,7 +2451,15 @@ data class BoardTask(
     val `createdAt`: String,
     val `updatedAt`: String,
     val `settledAt`: String?,
-    val `archived`: Boolean
+    val `archived`: Boolean,
+    val `goal`: String? = null
+)
+
+@Serializable
+data class BoardQuestionChoice(
+    val `label`: String,
+    val `effect`: String? = null,
+    val `recommended`: Boolean? = null
 )
 
 @Serializable
@@ -2467,7 +2475,8 @@ data class BoardQuestionExchange(
 data class BoardQuestionExchangePreviousWording(
     val `revision`: Long,
     val `text`: String,
-    val `options`: List<String>
+    val `options`: List<String>,
+    val `choices`: List<BoardQuestionChoice>? = null
 )
 
 @Serializable
@@ -2512,7 +2521,8 @@ data class BoardQuestion(
     val `status`: String,
     val `answer`: String?,
     val `askedAt`: String,
-    val `answeredAt`: String?
+    val `answeredAt`: String?,
+    val `choices`: List<BoardQuestionChoice>? = null
 )
 
 @Serializable
@@ -2548,7 +2558,8 @@ data class BoardTaskInput(
     val `writeScopes`: List<String>,
     val `parent`: String? = null,
     val `foundWhile`: String? = null,
-    val `related`: List<String>? = null
+    val `related`: List<String>? = null,
+    val `goal`: String? = null
 )
 
 @Serializable
@@ -2693,6 +2704,15 @@ data class BoardActivityActor(
 )
 
 @Serializable
+data class BoardReportCheck(
+    val `name`: String,
+    val `result`: String,
+    val `count`: Long? = null,
+    val `note`: String? = null,
+    val `at`: String
+)
+
+@Serializable
 data class BoardTaskReport(
     val `freshness`: BoardTaskReportFreshness? = null,
     val `now`: String,
@@ -2702,7 +2722,10 @@ data class BoardTaskReport(
     val `updatedAt`: String?,
     val `updatedBy`: BoardWriter?,
     val `steps`: String? = null,
-    val `stepsWrittenAt`: String? = null
+    val `stepsWrittenAt`: String? = null,
+    val `summary`: String? = null,
+    val `notDone`: String? = null,
+    val `checks`: List<BoardReportCheck>? = null
 )
 
 @Serializable
@@ -2720,7 +2743,9 @@ data class BoardTaskSnapshot(
     val `title`: String,
     val `status`: String,
     val `waiting`: BoardTaskWaiting? = null,
-    val `report`: BoardTaskSnapshotReport
+    val `report`: BoardTaskSnapshotReport,
+    val `goal`: String? = null,
+    val `questionChoices`: List<BoardTaskSnapshotQuestionChoicesItem>? = null
 )
 
 @Serializable
@@ -2728,7 +2753,16 @@ data class BoardTaskSnapshotReport(
     val `now`: String,
     val `results`: String,
     val `next`: String,
-    val `steps`: String? = null
+    val `steps`: String? = null,
+    val `summary`: String? = null,
+    val `notDone`: String? = null,
+    val `checks`: List<BoardReportCheck>? = null
+)
+
+@Serializable
+data class BoardTaskSnapshotQuestionChoicesItem(
+    val `questionId`: String,
+    val `choices`: List<BoardQuestionChoice>
 )
 
 @Serializable

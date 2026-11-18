@@ -2609,22 +2609,31 @@ is where they talk.
 - **Every subject is a task.** The coordinator creates a board task for each subject the user brings up, before
   replying, and says which task it filed the message under. No exceptions for now; we will see if it is too much.
 - **A report per task, rewritten in place.** The Markdown sections are `now` (automatic), `results`, `next` and
-  `steps`. A write replaces the sections it names. Start with what changed for the user and say what is not done.
-  Write one fact per line, about 20 words, in whole sentences with verbs and small words, without semicolons.
-  Use names instead of IDs and say each thing once. Leave hashes, change IDs, test counts, paths and worker names to
-  the record: tie commits to the task with `Kemiri-Task` trailers and files with `artifact_save` and `taskId`. Name
-  what was checked in words; structured checks come later.
+  `steps`, with optional `summary` and `notDone`. A write replaces the sections it names. Write one fact per
+  line, about 20 words, in whole sentences with verbs and small words, without semicolons. Use names instead of
+  IDs and say each thing once. Leave hashes, change IDs, test counts, paths and worker names to the record: tie
+  commits to the task with `Kemiri-Task` trailers and files with `artifact_save` and `taskId`.
+- **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
+  and null clears it. `write_report` sets `summary` (one or two sentences above Results), `notDone` (Markdown,
+  one item per line) and `checks` (name, passed or failed, optional count and note, and a timestamp that defaults
+  to write time). Empty strings clear the prose; `[]` clears the checks. `task_progress` merges checks by name
+  instead of replacing the list. Like Your steps, these report fields have no freshness tracking and Results
+  and Next rewrites leave them alone. `show_task` and snapshots include the new fields; the server advertises
+  them with `task-fields` in `hello.features`. Old tasks need no migration.
 - **Your steps (T278 / D102).** Optional `report.steps` is a full numbered Markdown list of manual actions. Each step
   starts with a verb and gives exact values and copyable commands. `write_report` replaces it whole; an empty string
   clears it once the steps are done. Results and Next rewrites leave it alone. `show_task` puts it above Results and
   Next; snapshots save the text. The live report carries `stepsWrittenAt` for the current text. Steps have no staleness
   tracking and writing them alone does not invalidate Results or Next. Clients gate the section on server
   `hello.features` containing `task-steps`.
-- **Who writes.** Workers update `now` (and may add to `results`) of the task they were spawned for, through their
-  own tool. The coordinator owns status, `results`, `next`, `steps`, questions and decisions. Background threads report on
-  the task they were started for. Report writes have their own revision and never conflict with the user's edits.
+- **Who writes.** Workers use `task_progress` on the task they were spawned for. They can set a Now phase, add
+  Results and record checks. The coordinator owns status, report rewrites, questions and decisions. Background
+  threads report on the task they were started for. Report writes have their own revision and never conflict
+  with the user's edits.
 - **Questions and warnings are separate items**, board questions linked to the task (`kind: "warning"` for warnings),
-  so a rewrite cannot drop them. They stay until the user answers or acknowledges them.
+  so a rewrite cannot drop them. They stay until answered or acknowledged. An `ask` with `choices` stores a label,
+  optional effect and optional recommendation per choice, with at most one recommended. `options` mirrors the
+  labels for older clients and the answer is still the label. An `ask` with only `options` works as before.
 - **History.** A report write may name a milestone; that and every status change save a snapshot. The task page
   steps through snapshots and shows what changed between two.
 - **Only the user closes.** The agents move a task to `review` when it is ready for the user (a `task_review`
@@ -2640,7 +2649,8 @@ is where they talk.
   link to their task. Main and background coordinators put anything the user will need again on the task first.
   Steps the user must do by hand go in Your steps. Agents' next actions stay separate in Next, in one or two
   sentences. Choices go in `ask`: open with the question a choice can answer, then give at most three short lines
-  needed to choose. Each option label says what happens if picked; mark the recommended one and say why on a line.
+  needed to choose. Put the answer in each choice's label and what happens in its effect. Mark at most one
+  choice as recommended and say why in the question context.
   Findings go in Results in full, once. Detail longer than a screen goes in a file saved with `artifact_save` and
   the task's `taskId`. Answers to task messages go in the feedback note itself: short status answers stay there,
   longer answers also update the report. The rules limit each line, not the number of lines: steps and answers
@@ -3969,8 +3979,9 @@ its own list, and a timeline; the description stays the original ask and the rep
     the answer itself or what changed. Each change is kept with who made it (`changes`).
   - The `board` tool saves feedback notes and `write_report` Your steps, Results and Next even if they point to the chat for
     detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
-    Style warnings also follow a successful save: for Your steps, Results, Next, ask text and options, descriptions,
-    acceptance and feedback notes, the tool flags lines over 30 words and likely revision IDs in prose. It also flags
+    Style warnings also follow a successful save: for Summary, Results, Not done, Your steps, Next, ask text,
+    options and choice effects, descriptions, acceptance and feedback notes, the tool flags lines over 30 words
+    and likely revision IDs in prose. It also flags
     questions that do not open with a question or list choices in the question text. Code blocks are skipped; inline
     code and URLs are not scanned for IDs. `task_progress.addResult` uses the same prose checks. The style warnings
     quote the affected lines, at most three per reply, and do not change or reject the text.

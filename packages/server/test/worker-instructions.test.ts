@@ -41,7 +41,9 @@ describe("workerInstructions", () => {
 			expect(text).toContain("Keep Next for what agents will do, in one or two sentences; never mix the two.");
 			expect(text).toContain("A choice → `ask`. The first sentence is the question, and a choice can answer it.");
 			expect(text).toContain("at most three short lines after the question; don't retell the task.");
-			expect(text).toContain('Say what happens if picked in each option label ("Ship now: goes live tonight"). Mark the recommended option in its label and say why in a line.');
+			expect(text).toContain("Use `choices` with a short `label` and an `effect` saying what happens if picked. Set `recommended` on at most one choice and say why in a line.");
+			expect(text).toContain("Start with `summary` in one or two sentences, then Results. Put what is missing or left out in `notDone`, one item per line.");
+			expect(text).not.toContain("Ship now: goes live tonight");
 			expect(text).toContain("A finding → Results, in full, once.");
 			expect(text).toContain("Detail longer than a screen → a file on the task (`artifact_save` with `taskId`).");
 			expect(text).toContain("the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.");
@@ -65,9 +67,10 @@ describe("workerInstructions", () => {
 			expect(text).toContain("Say it once: don't repeat the status, a question, the files or a decision.");
 			expect(text).toContain("no commit hashes, change IDs, test counts, file paths or worker names in sentences.");
 			expect(text).toContain("Link commits with the `Kemiri-Task: T…` trailer and save files with `artifact_save` and `taskId`.");
-			expect(text).toContain("Name what was checked in words, without counts or hashes.");
+			expect(text).toContain("Record checks in the `checks` field (name, result, count if known), not in prose.");
 			expect(text).not.toContain("evidence (commit, artifact, test run)");
 		}
+		expect(worker).toContain("`checks` updates checks by name");
 		expect(worker).toContain("Give the coordinator any questions, warnings, complete steps or full answers in your final report");
 		expect(worker).toBe(workerInstructions(options));
 	});

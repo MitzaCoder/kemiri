@@ -92,12 +92,28 @@ export type BoardReportSection = Static<typeof BoardReportSectionSchema>;
 
 const BoardReportStepsSchema = Type.Optional(Type.String({ description: "task-steps: Your steps, a numbered Markdown list of manual actions with exact values and copyable commands. Absent when cleared." }));
 
+export const BoardReportCheckSchema = Type.Object({
+	name: Type.String({ minLength: 1 }),
+	result: Type.Union([Type.Literal("passed"), Type.Literal("failed")]),
+	count: Type.Optional(Type.Integer({ minimum: 0 })),
+	note: Type.Optional(Type.String()),
+	at: Type.String({ description: "ISO timestamp of the check." }),
+});
+export type BoardReportCheck = Static<typeof BoardReportCheckSchema>;
+
+const BoardReportOutcomeSchema = {
+	summary: Type.Optional(Type.String({ description: "One or two sentences about what came out of the task, above Results." })),
+	notDone: Type.Optional(Type.String({ description: "Markdown, one item per line, about what is missing or left out." })),
+	checks: Type.Optional(Type.Array(BoardReportCheckSchema)),
+};
+export const BoardTaskGoalSchema = Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "One sentence saying what the task is for. Null clears it." }));
+
 export const BoardTaskReportSchema = Type.Object({
 	freshness: Type.Optional(Type.Object({ results: BoardReportSectionSchema, next: BoardReportSectionSchema }, { description: "task-freshness capability: section metadata, independent of Now and the shared report timestamp." })),
 
 	now: Type.String({ description: "Canonical automatic activity text on task-activity backends; legacy mirror without ages." }),
 	results: Type.String({
-		description: "What the task produced so far, as short bullets with evidence (commit, artifact, test run).",
+		description: "What changed, one whole sentence per item.",
 	}),
 	next: Type.String({ description: "What comes next, and who does it." }),
 	revision: Type.Integer({
@@ -108,6 +124,7 @@ export const BoardTaskReportSchema = Type.Object({
 	updatedBy: Type.Union([BoardWriterSchema, Type.Null()]),
 	steps: BoardReportStepsSchema,
 	stepsWrittenAt: Type.Optional(Type.String({ description: "ISO date when the current Your steps text was last rewritten. Absent when cleared." })),
+	...BoardReportOutcomeSchema,
 });
 export type BoardTaskReport = Static<typeof BoardTaskReportSchema>;
 
@@ -271,14 +288,23 @@ export const BoardTaskSchema = Type.Object({
 	updatedAt: Type.String(),
 	settledAt: Type.Union([Type.String(), Type.Null()], { description: "When it became done or dropped." }),
 	archived: Type.Boolean(),
+	goal: BoardTaskGoalSchema,
 });
 export type BoardTask = Static<typeof BoardTaskSchema>;
+
+export const BoardQuestionChoiceSchema = Type.Object({
+	label: Type.String({ minLength: 1, description: "The suggested answer sent when picked." }),
+	effect: Type.Optional(Type.String({ description: "What happens if this choice is picked." })),
+	recommended: Type.Optional(Type.Boolean()),
+});
+export type BoardQuestionChoice = Static<typeof BoardQuestionChoiceSchema>;
+const BoardQuestionChoicesSchema = Type.Optional(Type.Array(BoardQuestionChoiceSchema, { description: "Structured choices; options mirrors the labels. At most one is recommended." }));
 
 export const BoardQuestionExchangeSchema = Type.Object({
  author: BoardWriterSchema,
  text: Type.String({ minLength: 1 }),
  at: Type.String(),
- previousWording: Type.Optional(Type.Object({ revision: Revision, text: Type.String(), options: Type.Array(Type.String()) })),
+ previousWording: Type.Optional(Type.Object({ revision: Revision, text: Type.String(), options: Type.Array(Type.String()), choices: BoardQuestionChoicesSchema })),
  previousAnswer: Type.Optional(Type.Object({ text: Type.String(), at: Type.String() })),
 });
 export type BoardQuestionExchange = Static<typeof BoardQuestionExchangeSchema>;
@@ -307,6 +333,7 @@ export const BoardQuestionSchema = Type.Object({
 	answer: Type.Union([Type.String(), Type.Null()]),
 	askedAt: Type.String(),
 	answeredAt: Type.Union([Type.String(), Type.Null()]),
+	choices: BoardQuestionChoicesSchema,
 });
 export type BoardQuestion = Static<typeof BoardQuestionSchema>;
 
@@ -319,7 +346,9 @@ export const BoardTaskSnapshotSchema = Type.Object({
 	title: Type.String(),
 	status: BoardTaskStatusSchema,
 	waiting: Type.Optional(BoardTaskWaitingSchema),
-	report: Type.Object({ now: Type.String(), results: Type.String(), next: Type.String(), steps: BoardReportStepsSchema }),
+	report: Type.Object({ now: Type.String(), results: Type.String(), next: Type.String(), steps: BoardReportStepsSchema, ...BoardReportOutcomeSchema }),
+	goal: BoardTaskGoalSchema,
+	questionChoices: Type.Optional(Type.Array(Type.Object({ questionId: Type.String(), choices: Type.Array(BoardQuestionChoiceSchema) }))),
 });
 export type BoardTaskSnapshot = Static<typeof BoardTaskSnapshotSchema>;
 
@@ -368,6 +397,7 @@ export const BoardTaskInputSchema = Type.Object({
 	parent: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "Sets the parent (null clears it); left out, it stays as it is." })),
 	foundWhile: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "Sets the origin (null clears it); left out, it stays as it is." })),
 	related: Type.Optional(Type.Array(Type.String(), { description: "Replaces the related tasks; left out, they stay as they are." })),
+	goal: BoardTaskGoalSchema,
 });
 export type BoardTaskInput = Static<typeof BoardTaskInputSchema>;
 

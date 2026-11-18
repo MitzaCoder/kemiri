@@ -69,6 +69,7 @@ import {
 	BoardDoc,
 	type BoardState,
 	HARNESS_WRITER,
+	ReportCheckInputSchema,
 	addTimelineEvent,
 	boardView,
 	describeTaskInFull,
@@ -644,16 +645,16 @@ const CODEMODE_GUIDANCE = `A codemode script calls your tools as \`await tools.<
 
 /** How to write task prose, for every coordinator and task worker; byte-stable. */
 const WRITING_RULE = `Write task text for a person. Start with what is different for the user, not what you did. Put one fact per line: one sentence of about 20 words at most, no semicolons. Use plain words and whole sentences with their verbs and small words; short is good, shorthand is not. The limit is on a line, not the number of lines. Say what is not done as plainly as what is. Use names, not IDs ("the deploy question", not "Q2"). Say it once: don't repeat the status, a question, the files or a decision.
-Leave the record to the page: no commit hashes, change IDs, test counts, file paths or worker names in sentences. Link commits with the \`Kemiri-Task: T…\` trailer and save files with \`artifact_save\` and \`taskId\`. Name what was checked in words, without counts or hashes.`;
+Leave the record to the page: no commit hashes, change IDs, test counts, file paths or worker names in sentences. Link commits with the \`Kemiri-Task: T…\` trailer and save files with \`artifact_save\` and \`taskId\`. Record checks in the \`checks\` field (name, result, count if known), not in prose.`;
 
 /** How main and background coordinators write reports and move tasks; byte-stable. */
-const REPORT_RULES = `Each task has a report the user reads instead of the chat. Now is written automatically. Holding a task alone is not activity. Keep \`results\` and \`next\` current with the \`board\` action \`write_report\`. Replace the sections you name, never append. Keep Results and Next short and plain, but never shorten steps or answers. Nothing made up. Pass a \`milestone\` (a few words) only when something meaningful happened.
+const REPORT_RULES = `Each task has a report the user reads instead of the chat. Now is written automatically. Holding a task alone is not activity. Keep \`results\` and \`next\` current with the \`board\` action \`write_report\`. Replace the sections you name, never append. Start with \`summary\` in one or two sentences, then Results. Put what is missing or left out in \`notDone\`, one item per line. Keep Results and Next short and plain, but never shorten steps or answers. Nothing made up. Pass a \`milestone\` (a few words) only when something meaningful happened.
 
 ${WRITING_RULE}
 
 Would the user need this again? Put it on the task first:
 - Steps the user must do by hand → \`steps\` (Your steps) in \`write_report\`: a full numbered list with exact values and copyable commands. Start each step with a verb. The list stays when Next is rewritten; clear it with an empty string once the steps are done. Keep Next for what agents will do, in one or two sentences; never mix the two.
-- A choice → \`ask\`. The first sentence is the question, and a choice can answer it. Give only what is needed to choose, in at most three short lines after the question; don't retell the task. Say what happens if picked in each option label ("Ship now: goes live tonight"). Mark the recommended option in its label and say why in a line. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
+- A choice → \`ask\`. The first sentence is the question, and a choice can answer it. Give only what is needed to choose, in at most three short lines after the question; don't retell the task. Use \`choices\` with a short \`label\` and an \`effect\` saying what happens if picked. Set \`recommended\` on at most one choice and say why in a line. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
 - A finding → Results, in full, once.
 - Detail longer than a screen → a file on the task (\`artifact_save\` with \`taskId\`).
 - An answer to a task message → the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.
@@ -790,7 +791,7 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYou were started for the board task ${options.taskId}. The user reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; pass a \`milestone\` (a few words) only when something meaningful just happened. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
+			: `\n\nYou were started for the board task ${options.taskId}. The user reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -2527,22 +2528,23 @@ export function createWorkerWorkspaceExtension(service: {
 	});
 }
 
-/** `task_progress`: optional run phase and Results; Now is automatic. */
+/** `task_progress`: optional run phase, Results and checks; Now is automatic. */
 function createWorkerTaskExtension(service: WorkerService): Extension {
 	const progressTool = defineTool({
 		name: "task_progress",
 		description:
 			"Keep the report of the board task you were started for current; the user reads it instead of your conversation. " +
 			"Now is written automatically. Optional `now` is a few-word phase, only when it really changes; `addResult` adds one finished thing to Results, " +
-			"`milestone` saves a snapshot of the task. Questions and warnings go in your final report, not here. " +
+			"`checks` updates checks by name; `milestone` saves a snapshot of the task. Questions and warnings go in your final report, not here. " +
 			"With no report fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
 		parameters: Type.Object({
 			now: Type.Optional(
 				Type.String({ description: "Optional few-word phase, only when it really changes. Expires with this run. Now is automatic; empty clears the phase." }),
 			),
 			addResult: Type.Optional(
-				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Name what was checked, without counts or revision IDs. Link commits with a Kemiri-Task trailer and save files with taskId." }),
+				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId." }),
 			),
+			checks: Type.Optional(Type.Array(ReportCheckInputSchema, { description: "Checks that ran, with name, result and count if known. Merges by name; other checks stay as they are." })),
 			coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Optional: the eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 			milestone: Type.Optional(
 				Type.String({ minLength: 1, description: 'A few words naming something meaningful that just happened, e.g. "Tests pass". Saves a snapshot.' }),
@@ -2556,7 +2558,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 					isError: true,
 				});
 			}
-			if (args.now === undefined && args.addResult === undefined) {
+			if (args.now === undefined && args.addResult === undefined && !args.checks?.length) {
 				const stored = await service.harness.snapshot(BoardDoc, service.mainId as ConversationId, context);
 				if (stored === undefined) return toolText("The task no longer exists.", { isError: true });
 				const state = normalizeBoard(JSON.parse(JSON.stringify(stored)) as BoardState);
@@ -2574,6 +2576,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 							{
 								taskId,
 								sections: { now: args.now },
+								mergeChecks: args.checks,
 								addResult: args.addResult,
 								coveredEventSeq: args.coveredEventSeq,
 								by: workerWriter(place.threadId, place.record.id),

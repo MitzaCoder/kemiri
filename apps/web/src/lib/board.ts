@@ -222,8 +222,8 @@ function inputOfTask(task: BoardTask): BoardTaskInput {
 	return draftToInput(draftFromTask(task));
 }
 
-/** The fields the editor shows. The links (`parent`, `foundWhile`, `related`) are not in it: a save that leaves them out keeps them. */
-const FIELD_LABELS: Record<Exclude<keyof BoardTaskInput, "parent" | "foundWhile" | "related" | "waitingFor" | "waitUntil">, string> = {
+/** The fields the editor shows. Omitted fields such as goal and links are preserved on save. */
+const FIELD_LABELS: Record<Exclude<keyof BoardTaskInput, "parent" | "foundWhile" | "related" | "waitingFor" | "waitUntil" | "goal">, string> = {
 	title: "Title",
 	description: "Description",
 	acceptance: "Acceptance",

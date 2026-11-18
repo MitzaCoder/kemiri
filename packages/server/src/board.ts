@@ -44,7 +44,12 @@ import {
 	type BoardFeedbackCounts,
 	type BoardFeedbackState,
 	type BoardLinkKind,
+	BoardQuestionChoiceSchema,
+	BoardReportCheckSchema,
+	BoardTaskGoalSchema,
 	type BoardQuestion,
+	type BoardQuestionChoice,
+	type BoardReportCheck,
 	type BoardTask,
 	type BoardTaskBrief,
 	type BoardTaskInput,
@@ -256,7 +261,7 @@ export function openTaskHistory(tx: Tx, mainId: ConversationId, taskId: string):
 export function addSnapshot(
 	history: TaskHistoryState,
 	task: BoardTask,
-	input: { label: string; by: BoardWriter; at: string; key?: string | undefined },
+	input: { label: string; by: BoardWriter; at: string; key?: string | undefined; questions?: readonly BoardQuestion[] },
 ): boolean {
 	if (input.key !== undefined) {
 		if (history.keys.includes(input.key)) return false;
@@ -264,6 +269,9 @@ export function addSnapshot(
 		if (history.keys.length > KEPT_SNAPSHOT_KEYS) history.keys.splice(0, history.keys.length - KEPT_SNAPSHOT_KEYS);
 	}
 	const last = history.snapshots[history.snapshots.length - 1];
+	const questionChoices = (input.questions ?? []).flatMap(question =>
+		question.taskId === task.id && question.choices !== undefined ? [{ questionId: question.id, choices: plain(question.choices) }] : [],
+	);
 	history.snapshots.push({
 		seq: (last?.seq ?? 0) + 1,
 		at: input.at,
@@ -275,7 +283,12 @@ export function addSnapshot(
 		report: {
 			now: task.report.now, results: task.report.results, next: task.report.next,
 			...(task.report.steps ? { steps: task.report.steps } : {}),
+			...(task.report.summary === undefined ? {} : { summary: task.report.summary }),
+			...(task.report.notDone === undefined ? {} : { notDone: task.report.notDone }),
+			...(task.report.checks === undefined ? {} : { checks: plain(task.report.checks) }),
 		},
+		...(task.goal === undefined ? {} : { goal: task.goal }),
+		...(questionChoices.length === 0 ? {} : { questionChoices }),
 	});
 	if (history.snapshots.length > KEPT_SNAPSHOTS) history.snapshots.splice(0, history.snapshots.length - KEPT_SNAPSHOTS);
 	task.snapshots = history.snapshots.length;
@@ -381,6 +394,7 @@ export async function snapshotStatusChanges(
 		const history = await openTaskHistory(tx, mainId, task.id);
 		addSnapshot(history, task, {
 			label: `${was ?? "new"} → ${task.status}`,
+			questions: state.questions,
 			by: task.updatedBy === "harness" ? HARNESS_WRITER : input.by,
 			at: input.at,
 			key: input.key === undefined ? undefined : `${input.key}:${task.id}:status`,
@@ -388,10 +402,21 @@ export async function snapshotStatusChanges(
 	}
 }
 
+export const ReportCheckInputSchema = Type.Object({
+	...BoardReportCheckSchema.properties,
+	at: Type.Optional(Type.String({ description: "ISO timestamp; defaults to the time of the write." })),
+});
+type ReportCheckInput = Static<typeof ReportCheckInputSchema>;
+
 export type ReportWrite = {
 	taskId: string;
-	/** Replace these sections whole; an empty string clears one. */
-	sections: { now?: string | undefined; results?: string | undefined; next?: string | undefined; steps?: string | undefined };
+	/** Replace these sections whole; empty text or an empty list clears one. */
+	sections: {
+		now?: string | undefined; results?: string | undefined; next?: string | undefined; steps?: string | undefined;
+		summary?: string | undefined; notDone?: string | undefined; checks?: ReportCheckInput[] | undefined;
+	};
+	/** Workers replace only the checks they name. */
+	mergeChecks?: ReportCheckInput[] | undefined;
 	/** A line added to the end of `results`, as a bullet. */
 	addResult?: string | undefined;
 	by: BoardWriter;
@@ -407,13 +432,15 @@ export type ReportWrite = {
 export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
-	const { now, results, next, steps } = input.sections;
-	if (now === undefined && results === undefined && next === undefined && steps === undefined && input.addResult === undefined) {
-		throw new ServerError("bad_request", "A report write names at least one of now, results, next and steps");
+	const { now, results, next, steps, summary, notDone, checks } = input.sections;
+	const { mergeChecks } = input;
+	if (Object.values(input.sections).every(value => value === undefined) && input.addResult === undefined && !mergeChecks?.length) {
+		throw new ServerError("bad_request", "A report write names at least one of now, results, next, steps, summary, notDone and checks");
 	}
 	const report = (task.report ??= emptyReport());
 	initializeTaskFreshness(state, task);
-	const previous = { results: report.results, next: report.next, steps: report.steps };
+	const previous = { results: report.results, next: report.next, steps: report.steps, summary: report.summary, notDone: report.notDone };
+	let checksChanged = false;
 	if (now !== undefined) {
   if (!state.taskActivityEnabled) report.now = now.trim();
   else {
@@ -434,6 +461,24 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 			report.stepsWrittenAt = input.now;
 		}
 	}
+	for (const [name, text] of [["summary", summary], ["notDone", notDone]] as const) {
+		if (text === undefined) continue;
+		const markdown = text.trim();
+		if (markdown) report[name] = markdown;
+		else delete report[name];
+	}
+	if (checks !== undefined || mergeChecks?.length) {
+		const checkWithTimestamp = ({ name, result, count, note, at }: ReportCheckInput): BoardReportCheck => ({
+			name, result, ...(count === undefined ? {} : { count }), ...(note === undefined ? {} : { note }), at: at ?? input.now,
+		});
+		const writtenChecks = (checks ?? mergeChecks ?? []).map(checkWithTimestamp);
+		const nextChecks = checks !== undefined ? writtenChecks : [...new Map(
+			[...plain(report.checks ?? []), ...writtenChecks].map(check => [check.name, check] as const),
+		).values()];
+		checksChanged = JSON.stringify(report.checks ?? []) !== JSON.stringify(nextChecks);
+		if (!nextChecks.length) delete report.checks;
+		else if (checksChanged) report.checks = nextChecks;
+	}
 	if (input.addResult !== undefined) {
 		const line = input.addResult.trim();
 		const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
@@ -444,7 +489,7 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
-	if (state.taskActivityEnabled && previous.results === report.results && previous.next === report.next && previous.steps === report.steps) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
+	if (state.taskActivityEnabled && (Object.keys(previous) as (keyof typeof previous)[]).every(name => previous[name] === report[name]) && !checksChanged) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
  report.revision += 1;
 	report.updatedAt = input.now;
 	report.updatedBy = { ...input.by };
@@ -511,6 +556,7 @@ export async function snapshotMilestone(
 	if (task === undefined) throw unknownTask(input.taskId);
 	addSnapshot(await openTaskHistory(tx, mainId, task.id), task, {
 		label: input.label.trim(),
+		questions: state.questions,
 		by: input.by,
 		at: input.at,
 		key: input.key === undefined ? undefined : `${input.key}:${task.id}:milestone`,
@@ -1297,6 +1343,7 @@ export function saveTask(
 			title: fields.title,
 			description: fields.description,
 			acceptance: fields.acceptance,
+			...(fields.goal === undefined ? {} : { goal: fields.goal?.trim() ?? null }),
 			refs: cleanRefs(fields.refs ?? []),
 			status: fields.status,
 			...(waiting === undefined ? {} : { waiting }),
@@ -1345,6 +1392,7 @@ export function saveTask(
 	existing.title = fields.title;
 	existing.description = fields.description;
 	existing.acceptance = fields.acceptance;
+	if (fields.goal !== undefined) existing.goal = fields.goal?.trim() ?? null;
 	// Left out (an older app, the Android app) keeps them.
 	existing.refs = fields.refs === undefined ? (existing.refs ?? []) : cleanRefs(fields.refs);
 	existing.blockedBy = blockedBy;
@@ -1392,11 +1440,15 @@ export function reorderTasks(state: BoardState, taskIds: readonly string[], now:
 
 export function askQuestion(
 	state: BoardState,
-	input: { text: string; options: readonly string[]; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined },
+	input: { text: string; options: readonly string[]; choices?: readonly BoardQuestionChoice[] | undefined; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined },
 ): BoardQuestion {
 	if (input.taskId !== null && !state.tasks.some((task) => task.id === input.taskId)) throw unknownTask(input.taskId);
-	state.counters.question += 1;
 	const warning = input.kind === "warning";
+	const choices = warning ? undefined : input.choices;
+	if (choices && choices.filter(choice => choice.recommended === true).length > 1) {
+		throw new ServerError("bad_request", "At most one choice can be recommended.");
+	}
+	state.counters.question += 1;
 	const question: BoardQuestion = {
 		id: `Q${state.counters.question}`,
 		revision: 1,
@@ -1404,7 +1456,8 @@ export function askQuestion(
   ...(input.blocksWork === undefined ? {} : { blocksWork: input.blocksWork }),
   ...(input.activitySourceId === undefined ? {} : { activitySourceId: input.activitySourceId }),
 		text: input.text,
-		options: warning ? [] : [...input.options],
+		options: warning ? [] : choices?.map(choice => choice.label) ?? [...input.options],
+		...(choices === undefined ? {} : { choices: plain([...choices]) }),
 		taskId: input.taskId,
 		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
 		status: "open",
@@ -1491,15 +1544,19 @@ export function replyQuestion(state: BoardState, input: { questionId: string; ex
  if (!input.text.trim() || (input.revisedText !== undefined && !input.revisedText.trim())) throw new ServerError("bad_request", "A reply and revised question must not be blank.");
  if (input.reopen ? question.status !== "answered" || question.reopened : question.status !== "open" || !question.exchanges?.length) throw new ServerError("board_conflict", "Reply to an open clarification, or reopen an answered question once.");
  const previousAnswer = input.reopen && question.answer !== null ? { text: question.answer, at: question.answeredAt! } : undefined;
- const revised = (input.revisedText !== undefined && input.revisedText !== question.text) || (input.revisedOptions !== undefined && JSON.stringify(input.revisedOptions) !== JSON.stringify(question.options));
+ const optionsChanged = input.revisedOptions !== undefined && JSON.stringify(input.revisedOptions) !== JSON.stringify(question.options);
+ const revised = (input.revisedText !== undefined && input.revisedText !== question.text) || optionsChanged;
  if (question.kind === "warning" && input.revisedOptions?.length) throw new ServerError("bad_request", "Warnings have no options.");
  question.exchanges ??= [];
  question.exchanges.push({ author: input.by, text: input.text, at: input.now,
-  ...(revised ? { previousWording: { revision: question.revision, text: question.text, options: [...question.options] } } : {}),
+  ...(revised ? { previousWording: { revision: question.revision, text: question.text, options: [...question.options], ...(question.choices === undefined ? {} : { choices: plain(question.choices) }) } } : {}),
   ...(previousAnswer ? { previousAnswer } : {}),
  });
  if (input.revisedText !== undefined) question.text = input.revisedText;
- if (input.revisedOptions !== undefined) question.options = [...input.revisedOptions];
+ if (optionsChanged) {
+  question.options = [...input.revisedOptions!];
+  delete question.choices; // Old clients/tools can revise labels; effects may no longer apply.
+ }
  if (input.reopen) { question.reopened = true; question.status = "open"; question.answer = null; question.answeredAt = null; }
  question.waitingOn = "user";
  delete question.noReplyYet;
@@ -1899,19 +1956,18 @@ export function taskTime(task: Pick<BoardTask, "inProgressMinutes">): string | u
 	return task.inProgressMinutes === undefined ? undefined : `${task.inProgressMinutes}m in progress`;
 }
 
+function describeChoices(choices: readonly BoardQuestionChoice[]): string {
+	return choices.map(({ label, effect, recommended }) => `${label}${recommended ? " (recommended)" : ""}${effect ? ` — ${effect}` : ""}`).join(" / ");
+}
+
 export function describeQuestion(question: BoardQuestion): string {
 	const asker = question.threadId === undefined || question.threadId === "main" ? "" : ` from ${question.threadId}`;
 	const label = question.kind === "warning" ? " warning" : "";
 	const head = `${question.id} r${question.revision}${label} [${question.status}]${question.taskId === null ? "" : ` (${question.taskId})`}${asker} ${question.text}`;
-	const tail =
-		question.status === "open"
-			? question.options.length > 0
-				? ` options: ${question.options.join(" / ")}`
-				: ""
-			: question.answer === null
-				? ""
-				: ` -> ${clip(question.answer, 300)}`;
-	const exchange = (question.exchanges ?? []).map(e => `\n  ${e.author.author} ${e.at}: ${e.text}${e.previousWording ? ` (earlier wording r${e.previousWording.revision}: ${e.previousWording.text}; options: ${e.previousWording.options.join(" / ")})` : ""}${e.previousAnswer ? ` (earlier answer: ${e.previousAnswer.text})` : ""}`).join("");
+	const options = question.choices?.length ? ` choices: ${describeChoices(question.choices)}`
+		: question.status === "open" && question.options.length ? ` options: ${question.options.join(" / ")}` : "";
+	const tail = options + (question.answer === null ? "" : ` -> ${clip(question.answer, 300)}`);
+	const exchange = (question.exchanges ?? []).map(e => `\n  ${e.author.author} ${e.at}: ${e.text}${e.previousWording ? ` (earlier wording r${e.previousWording.revision}: ${e.previousWording.text}; options: ${e.previousWording.choices ? describeChoices(e.previousWording.choices) : e.previousWording.options.join(" / ")})` : ""}${e.previousAnswer ? ` (earlier answer: ${e.previousAnswer.text})` : ""}`).join("");
  return head + tail + (question.waitingOn === "agent" ? " [waiting for agent]" : question.noReplyYet ? " [No reply yet]" : "") + exchange;
 }
 
@@ -1952,6 +2008,7 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	const lines = [describeTask(task).split("\n")[0] as string];
 	const links = describeLinks(task, board);
 	if (links.length > 0) lines.push(`Links:\n${links.join("\n")}`);
+	if (task.goal?.trim()) lines.push(`goal: ${task.goal}`);
 	if (task.description.trim() !== "") lines.push(`description: ${task.description.trim()}`);
 	if (task.acceptance !== null) lines.push(`done when: ${task.acceptance.trim()}`);
 	const report = task.report;
@@ -1960,8 +2017,13 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	if (report.freshness !== undefined) for (const name of ["results", "next"] as const) lines.push(`${name} freshness: ${JSON.stringify(report.freshness[name])}`);
 	lines.push(`now: ${report.now === "" ? "(empty)" : report.now}`);
 	if (report.steps?.trim()) lines.push(`Your steps:\n${report.steps}`);
+	if (report.summary) lines.push(`summary: ${report.summary}`);
 	lines.push(`results: ${report.results === "" ? "(empty)" : report.results}`);
+	if (report.notDone) lines.push(`Not done:\n${report.notDone}`);
 	lines.push(`next: ${report.next === "" ? "(empty)" : report.next}`);
+	if (report.checks?.length) lines.push(`Checks:\n${report.checks.map(check =>
+		`- ${check.name}: ${check.result}${check.count === undefined ? "" : ` (${check.count})`} at ${check.at}${check.note ? ` — ${check.note}` : ""}`,
+	).join("\n")}`);
 	if (extras !== undefined) {
 		const feedback = sortFeedback(extras.feedback);
 		lines.push(
@@ -2524,7 +2586,7 @@ export class BoardService {
 		await snapshotStatusChanges(tx, this.#mainId, state, before, { by, at: now, key });
 		for (const task of state.tasks) {
 			if (task.status !== "waiting" || before.get(task.id) !== "waiting" || waitingBefore.get(task.id) === JSON.stringify(task.waiting)) continue;
-			addSnapshot(await openTaskHistory(tx, this.#mainId, task.id), task, { label: "Waiting updated", by, at: now, key: key === undefined ? undefined : `${key}:${task.id}:waiting` });
+			addSnapshot(await openTaskHistory(tx, this.#mainId, task.id), task, { label: "Waiting updated", questions: state.questions, by, at: now, key: key === undefined ? undefined : `${key}:${task.id}:waiting` });
 		}
 		await logLinkChanges(tx, this.#mainId, state, linksBefore, { by, at: now });
   await this.#syncThreadTimeline(tx, state, threadRunsBefore);
@@ -3211,7 +3273,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    const tasks = state.tasks.filter(task => ids.has(task.id));
    const fields: string[] = [];
    for (const task of tasks) {
-    fields.push(task.description, task.report.steps ?? "", task.report.results, task.report.next);
+    fields.push(task.description, task.goal ?? "", task.report.steps ?? "", task.report.summary ?? "", task.report.results, task.report.notDone ?? "", task.report.next);
     for (const decision of state.decisions) if (decision.taskId === task.id) fields.push(decision.text, decision.why ?? "");
     if (writes[task.id]?.feedbackIds?.length) {
      const history = await openTaskHistory(tx, this.#mainId, task.id);
@@ -3220,7 +3282,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    }
    const unscopedQuestions = writes.unscoped?.questionIds ?? [];
    for (const question of state.questions) if (question.status !== "withdrawn" && (question.taskId === null ? unscopedQuestions.includes(question.id) : ids.has(question.taskId))) {
-    fields.push(question.text, ...question.options, question.answer ?? "", ...(question.exchanges ?? []).map(exchange => exchange.text));
+    fields.push(question.text, ...question.options, ...(question.choices ?? []).map(choice => choice.effect ?? ""), question.answer ?? "", ...(question.exchanges ?? []).map(exchange => exchange.text));
    }
    const writtenChars = tasks.reduce((sum, task) => sum + (writes[task.id]?.chars ?? 0), writes.unscoped?.chars ?? 0);
    const missing = detectMissingChatDetail(run.reply, fields, writtenChars);
@@ -3413,7 +3475,7 @@ const BoardToolParameters = Type.Object({
 		],
 		{
 			description:
-				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of results, next or steps; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
+				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of summary, results, notDone, next, steps or checks; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
 		},
 	),
 	waitingFor: Type.Optional(Type.String({ maxLength: 2000, description: "Required when setting waiting: the external review, release or reply the user named." })),
@@ -3430,6 +3492,7 @@ const BoardToolParameters = Type.Object({
 		}),
 	),
 	description: Type.Optional(Type.String({ description: "add_task, update_task: start with what will be different for the user. Write one whole sentence per fact, about 20 words per line, with no semicolons. Use names, not IDs or file paths." })),
+	goal: BoardTaskGoalSchema,
 	acceptance: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "Done when…: one checkable outcome per line, in whole sentences, without repeating the description. Null clears it." })),
 	refs: Type.Optional(
 		Type.Array(Type.String(), {
@@ -3459,11 +3522,15 @@ const BoardToolParameters = Type.Object({
 			description: 'ask: "question" (default) waits for the user\'s answer. "warning" is something they must not miss; it stays open until they acknowledge it, and has no options.',
 		}),
 	),
-	options: Type.Optional(Type.Array(Type.String(), { description: 'ask: each label says what happens if picked, e.g. "Ship now: goes live tonight". Mark the recommended one and give the reason on a line in text.' })),
+	options: Type.Optional(Type.Array(Type.String(), { description: "ask: plain answer labels for compatibility; prefer choices." })),
+	choices: Type.Optional(Type.Array(BoardQuestionChoiceSchema, { description: "ask: give each choice a short label and an effect. Mark at most one recommended and say why in the question context. Replaces options when supplied." })),
 	coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "write_report: optional eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
-	results: Type.Optional(Type.String({ description: "write_report: what changed for the user and what is not done, rewritten whole. Use one plain, whole sentence per fact. Name what was checked, without counts, hashes or paths. Link commits with a Kemiri-Task trailer and save files with taskId instead of repeating the record." })),
+	summary: Type.Optional(Type.String({ description: "write_report: start with what came out in one or two whole sentences. Shown above Results; empty clears it." })),
+	results: Type.Optional(Type.String({ description: "write_report: what changed, rewritten whole. Use one plain, whole sentence per fact. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId instead of repeating the record." })),
+	notDone: Type.Optional(Type.String({ description: "write_report: Markdown, one item per line about what is missing or left out. Empty clears it." })),
+	checks: Type.Optional(Type.Array(ReportCheckInputSchema, { description: "write_report: checks that ran, with name, result and count if known. Replaces the whole list; [] clears it." })),
 	next: Type.Optional(Type.String({ description: "write_report: agents' next actions in one or two whole sentences. Use names, not IDs. Rewrite the whole section; keep manual actions in steps instead." })),
 	steps: Type.Optional(Type.String({ description: "write_report Your steps: a full numbered Markdown list for actions the user must do by hand. Start each step with a verb. Give exact values and copyable commands. Rewrite the whole list; Next rewrites leave it alone. Clear with an empty string when done." })),
 	milestone: Type.Optional(
@@ -3559,12 +3626,13 @@ function createBoardExtension(service: BoardService): Extension {
 					case "add_task": {
 						if (input.status === "done" || input.status === "dropped") return toolText(onlyUserCloses(input.status), { isError: true });
 						const change = await service.commitFor(
-							countEntityWrite((result: TaskChange) => result.after.id, [input.description]),
+							countEntityWrite((result: TaskChange) => result.after.id, [input.description, input.goal]),
 							(state, now) =>
 								saveTask(state, {
 									task: {
 										title: need(input.title, input.action, "title"),
 										description: input.description ?? "",
+										...(input.goal === undefined ? {} : { goal: input.goal }),
 										acceptance: input.acceptance ?? null,
 										refs: input.refs ?? [],
 										...(input.waitingFor === undefined ? {} : { waitingFor: input.waitingFor }),
@@ -3596,7 +3664,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const id = need(input.id, input.action, "id");
 						const expectedRevision = need(input.expectedRevision, input.action, "expectedRevision");
 						const { change, unblocked } = await service.commitFor(
-							countTaskWrite(id, [input.description]),
+							countTaskWrite(id, [input.description, input.goal]),
 							(state, now) => {
 								const current = state.tasks.find((candidate) => candidate.id === id);
 								if (current === undefined) throw unknownTask(id);
@@ -3606,6 +3674,7 @@ function createBoardExtension(service: BoardService): Extension {
 									task: {
 										title: input.title ?? current.title,
 										description: input.description ?? current.description,
+										...(input.goal === undefined ? {} : { goal: input.goal }),
 										acceptance: input.acceptance === undefined ? current.acceptance : input.acceptance,
 										refs: input.refs ?? current.refs ?? [],
 										...(input.waitingFor === undefined ? {} : { waitingFor: input.waitingFor }),
@@ -3635,11 +3704,12 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "ask": {
 						const question = await service.commitFor(
-							countEntityWrite((question: BoardQuestion) => question.taskId, [input.text, ...(input.options ?? [])], question => ({ questionId: question.id })),
+							countEntityWrite((question: BoardQuestion) => question.taskId, [input.text, ...(input.choices?.flatMap(({ label, effect }) => [label, effect]) ?? input.options ?? [])], question => ({ questionId: question.id })),
 							(state, now) =>
 								askQuestion(state, {
 									text: need(input.text, input.action, "text"),
 									options: input.options ?? [],
+									choices: input.choices,
 									taskId: input.taskId ?? null,
 									now,
 									threadId,
@@ -3655,6 +3725,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const warnings = taskTextWarnings(
 							{ name: question.kind === "warning" ? "Warning" : "Question", text: question.text, question: question.kind !== "warning" },
 							...question.options.map((text, index) => ({ name: `Option ${index + 1}`, text })),
+							...(question.choices ?? []).map(({ effect }, index) => ({ name: `Choice ${index + 1} effect`, text: effect })),
 						);
 						if (question.kind === "warning") {
 							return toolText(`Warned the user (${question.id}). It stays open until they acknowledge it; that arrives as a [board] message.${warnings}`, {
@@ -3708,10 +3779,10 @@ function createBoardExtension(service: BoardService): Extension {
 					case "write_report": {
 						const id = need(input.id, input.action, "id");
 						const task = await service.writeReport(
-							countTaskWrite(id, [input.results, input.next, input.steps]),
+							countTaskWrite(id, [input.summary, input.results, input.notDone, input.next, input.steps]),
 							{
 								taskId: id,
-								sections: { now: input.now, results: input.results, next: input.next, steps: input.steps },
+								sections: { now: input.now, results: input.results, next: input.next, steps: input.steps, summary: input.summary, notDone: input.notDone, checks: input.checks },
 								by: writer,
 								milestone: input.milestone,
 							coveredEventSeq: input.coveredEventSeq,
@@ -3720,9 +3791,11 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						const chatWarning = pointsAtChat(input.results) || pointsAtChat(input.next) || pointsAtChat(input.steps) ? CHAT_POINTER_WARNING : "";
+						const chatWarning = [input.summary, input.results, input.notDone, input.next, input.steps].some(pointsAtChat) ? CHAT_POINTER_WARNING : "";
 						const styleWarnings = taskTextWarnings(
+							{ name: "Summary", text: input.summary },
 							{ name: "Results", text: input.results },
+							{ name: "Not done", text: input.notDone },
 							{ name: "Next", text: input.next },
 							{ name: "Your steps", text: input.steps },
 						);
