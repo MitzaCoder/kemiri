@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskDetailText from './TaskDetailText.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
@@ -38,7 +39,7 @@
 								<span class="task-ref max-w-[9rem] truncate">{label}</span>
 								{#if status}<span class="inline-flex items-center gap-1.5 font-medium {refStatusToneClass(status)}"><span class="task-status-dot" aria-hidden="true"></span>{refStatusWords(status)}</span>{:else}<span class="text-(--chat-fg-subtle)">Status unknown</span>{/if}
 								{#if href}<ExternalLinkIcon class="ml-auto size-3 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />{/if}
-								{#if status?.title}<span class="basis-full break-words text-(--chat-fg-subtle)">{status.title}</span>{/if}
+								{#if status?.title}<span class="basis-full break-words text-(--chat-fg-subtle)"><TaskDetailText text={status.title} /></span>{/if}
 							</svelte:element>
 						</li>
 					{/each}

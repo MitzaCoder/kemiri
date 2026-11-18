@@ -77,6 +77,6 @@ private fun QuestionEarlierWording(questionId: String, previous: BoardQuestionEx
     }
     if (wording) {
         BoardMarkdown(previous.text)
-        previous.options.forEach { Text("• $it", style = TaskType.xs, color = Jarvis.colors.fgMuted) }
+        previous.options.forEach { TaskDetailText("• $it", style = TaskType.xs, color = Jarvis.colors.fgMuted) }
     }
 }

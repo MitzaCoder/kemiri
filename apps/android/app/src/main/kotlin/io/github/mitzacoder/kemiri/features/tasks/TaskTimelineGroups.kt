@@ -40,7 +40,7 @@ internal fun TimelineGroup(group: BoardTimelineGroup, expanded: Boolean, onToggl
             }, size = 18.dp, tint = tone)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("$range · $kind", style = TaskType.meta, color = colors.fgSubtle)
-                Text(group.label, style = TaskType.xsSemibold, color = tone)
+                TaskDetailText(group.label, style = TaskType.xsSemibold, color = tone)
                 Text(count, style = TaskType.meta, color = colors.fgSubtle)
             }
             Text(if (expanded) "⌄" else "›", style = TaskType.xs, color = colors.fgMuted)

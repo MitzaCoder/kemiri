@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.em
+import io.github.mitzacoder.kemiri.features.tasks.taskDetailReferences
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
 import org.commonmark.node.*
@@ -171,14 +172,15 @@ internal const val CODE_TAG = "md-code"
     textAlign: TextAlign? = null,
     softWrap: Boolean = true,
 ) {
-    val codes = remember(text) { text.getStringAnnotations(CODE_TAG, 0, text.length) }
+    val (rendered, chips) = taskDetailReferences(text, if (fontSize == TextUnit.Unspecified) LocalTextStyle.current.fontSize else fontSize)
+    val codes = remember(rendered) { rendered.getStringAnnotations(CODE_TAG, 0, rendered.length) }
     if(codes.isEmpty()) {
-        Text(text, modifier, fontSize = fontSize, fontWeight = fontWeight, lineHeight = lineHeight, textAlign = textAlign, softWrap = softWrap)
+        Text(rendered, modifier, fontSize = fontSize, fontWeight = fontWeight, lineHeight = lineHeight, textAlign = textAlign, softWrap = softWrap, inlineContent = chips)
         return
     }
     val colors = Jarvis.colors
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    Text(text, modifier.drawBehind {
+    Text(rendered, modifier.drawBehind {
         val result = layout ?: return@drawBehind
         val codeSize = result.layoutInput.style.fontSize.toPx() * 0.85f
         val radius = CornerRadius(codeSize * 0.4f)
@@ -187,7 +189,7 @@ internal const val CODE_TAG = "md-code"
             drawRoundRect(colors.surface, box.topLeft, box.size, radius)
             drawRoundRect(colors.border, box.topLeft, box.size, radius, style = stroke)
         } }
-    }, fontSize = fontSize, fontWeight = fontWeight, lineHeight = lineHeight, textAlign = textAlign, softWrap = softWrap, onTextLayout = { layout = it })
+    }, fontSize = fontSize, fontWeight = fontWeight, lineHeight = lineHeight, textAlign = textAlign, softWrap = softWrap, inlineContent = chips, onTextLayout = { layout = it })
 }
 
 /**

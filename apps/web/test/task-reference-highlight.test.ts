@@ -4,6 +4,16 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { renderChromiumDocument } from './support/chromium';
 
+import { isTaskSelfReference } from '../src/lib/task-reference-highlight';
+
+test('only a valid mention of the open task is a self-reference', () => {
+	expect(isTaskSelfReference('T63', 'T63')).toBe(true);
+	expect(isTaskSelfReference('T1298', 'T1298')).toBe(true);
+	expect(isTaskSelfReference('T63', 'T630')).toBe(false);
+	expect(isTaskSelfReference('T63')).toBe(false);
+	expect(isTaskSelfReference('63', '63')).toBe(false);
+});
+
 test('references tint only matching visible rows/cards, clear on leave, and never scroll', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'kemiri-task-highlight-'));
 	try {

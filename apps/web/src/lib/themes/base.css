@@ -491,3 +491,30 @@
 @media (prefers-reduced-motion: reduce) {
 	:root .task-row[data-task].task-reference-highlight, :root .task-card[data-task].task-reference-highlight { animation: none; }
 }
+
+/* A prose reference to the open task, not a link or a status. */
+.task-self-reference {
+	position: relative;
+	display: inline-block;
+	padding-inline: 0.4em;
+	border-radius: 6px;
+	color: color-mix(in srgb, var(--chat-fg) 72%, var(--chat-success));
+	background: color-mix(in srgb, var(--chat-success) 17%, transparent);
+	font: 600 0.875em/1.35 var(--font-mono);
+	white-space: nowrap;
+}
+.task-self-reference:is(:hover, :focus-visible)::after,
+:is(a, button):focus-visible .task-self-reference::after {
+	content: attr(data-task-id) / '';
+	position: absolute;
+	z-index: 2;
+	bottom: calc(100% + 4px);
+	left: 0;
+	padding: 0.15rem 0.4rem;
+	border: 1px solid var(--chat-border);
+	border-radius: 6px;
+	background: var(--chat-surface);
+	color: var(--chat-fg);
+	font-size: 0.75rem;
+	pointer-events: none;
+}

@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.chat.*
+import io.github.mitzacoder.kemiri.features.tasks.TaskDetailText
 import io.github.mitzacoder.kemiri.features.tasks.TaskType
 import io.github.mitzacoder.kemiri.features.tasks.relativeTime
 import io.github.mitzacoder.kemiri.navigation.Destination
@@ -44,7 +45,7 @@ internal fun TaskFiles(
         val pages = split.files.filter { isHtmlArtifact(it.name, it.mimeType) }
         pages.take(if (pagesExpanded) pages.size else 4).forEach { page ->
             Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${artifactTitle(page)}") { open(page) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(artifactTitle(page), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
+                TaskDetailText(artifactTitle(page), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
                 Text("Page", style = TaskType.meta, color = Jarvis.colors.accent2)
                 ArtifactPageThumb(context, page, onOpen = { open(page) })
             }
@@ -75,7 +76,7 @@ private fun FileRows(files: List<Artifact>, onOpen: (Artifact) -> Unit) {
             ) {
                 LucideGlyph(artifactKindIcon(file.kind), size = 18.dp, tint = artifactKindColor(file.kind))
                 Column(Modifier.weight(1f)) {
-                    Text(artifactTitle(file), style = TaskType.sectionTitle, color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TaskDetailText(artifactTitle(file), style = TaskType.sectionTitle, color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         listOf(artifactKindLabel(file.kind), artifactDetailSize(file.size).orEmpty(), artifactVersionCount(file), file.createdAt.takeIf { it.isNotBlank() }?.let { relativeTime(it, now) }.orEmpty())
                             .filter { it.isNotEmpty() }.joinToString(" · "),

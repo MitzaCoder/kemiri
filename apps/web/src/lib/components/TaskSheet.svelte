@@ -5,6 +5,8 @@
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
+	import { provideOpenTaskId } from '#lib/task-detail-context.js';
+	import TaskDetailText from './TaskDetailText.svelte';
 	import TaskText from './chat/TaskText.svelte';
 	import ReportSectionFreshness from './ReportSectionFreshness.svelte';
 	import ReportStaleAction from './ReportStaleAction.svelte';
@@ -282,6 +284,7 @@
 		} else if (outcome.kind === 'conflict') problem = `${task.id} changed while you were looking. Check it and try again.`;
 		else if (outcome.kind === 'failed') problem = outcome.message;
 	}
+	provideOpenTaskId(() => taskId ?? undefined);
 </script>
 
 <Dialog.Root
@@ -327,8 +330,8 @@
 				class="task-header flex max-h-[35%] shrink-0 flex-col overflow-y-auto overscroll-contain gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3"
 			>
 				{#if previousTask}
-					<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id} · ${previousTask.title}`} onclick={() => history.back()}>
-						<span class="truncate">← {previousTask.id} · {previousTask.title}</span>
+					<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id}`} onclick={() => history.back()}>
+						<span class="truncate">← {previousTask.id} · <TaskDetailText text={previousTask.title} focusable={false} /></span>
 					</Button>
 				{/if}
 				<div class="flex items-center gap-2">
@@ -367,7 +370,7 @@
 					<span title={exactTime(task.updatedAt)}>Updated {ago(task.updatedAt)}</span>
 					{#if owner?.claimed && !owner.main}
 						<span aria-hidden="true">·</span>
-						<span class="inline-flex items-center gap-1"><LayersIcon class="size-3" aria-hidden="true" />{owner.label}</span>
+						<span class="inline-flex items-center gap-1"><LayersIcon class="size-3" aria-hidden="true" /><TaskDetailText text={owner.label} /></span>
 					{/if}
 					{#each taskSheetMeta(task) as context (context)}
 						<span aria-hidden="true">·</span><span class="min-w-0 break-words" data-task-context>{context}</span>
@@ -380,10 +383,10 @@
 				{#if waitingForm}
 					<TaskWaitingForm waiting={task.waiting} busy={closing} onsave={(note, until)=>setStatus('waiting',note,until)} oncancel={()=>waitingForm=false}/>
 				{:else if confirmDrop}
-					<div class="flex flex-wrap items-center gap-2"><span class="text-xs">Drop {task.id}? It will not be done.</span><Button variant="destructive" size="sm" disabled={closing} onclick={()=>setStatus('dropped')}>Drop it</Button><Button variant="ghost" size="sm" onclick={()=>confirmDrop=false}>Keep</Button></div>
+					<div class="flex flex-wrap items-center gap-2"><span class="text-xs"><TaskDetailText text={`Drop ${task.id}? It will not be done.`} /></span><Button variant="destructive" size="sm" disabled={closing} onclick={()=>setStatus('dropped')}>Drop it</Button><Button variant="ghost" size="sm" onclick={()=>confirmDrop=false}>Keep</Button></div>
 				{/if}
 				{#if problem}
-					<p class="text-xs text-(--chat-danger)" role="alert">{problem}</p>
+					<p class="text-xs text-(--chat-danger)" role="alert"><TaskDetailText text={problem} /></p>
 				{/if}
 			</header>
 
@@ -443,7 +446,7 @@
 															class="rounded-md border border-(--chat-border) px-1.5 py-0.5 hover:bg-(--chat-surface-2)"
 															title={blocker.title}
 														>
-															<span class="font-mono">{blocker.id}</span>{blocker.title ? ` · ${blocker.title}` : ''}
+															<span class="font-mono">{blocker.id}</span>{#if blocker.title} · <TaskDetailText text={blocker.title} focusable={false} />{/if}
 														</a>
 													{/each}
 												</p>
@@ -543,7 +546,7 @@
 																class="flex min-w-0 items-center gap-2 rounded-lg border border-(--chat-border)/70 px-3 py-1.5 text-[0.8125rem] hover:bg-(--chat-surface-2)/70"
 																data-worker={entry.worker.id}
 															>
-																<span class="min-w-0 flex-1 truncate font-medium">{entry.worker.title || entry.worker.id}</span>
+																<span class="min-w-0 flex-1 truncate font-medium"><TaskDetailText text={entry.worker.title || entry.worker.id} focusable={false} /></span>
 																<WorkerStatusBadge status={entry.worker.status} class="shrink-0" />
 																<ChevronRightIcon class="size-3.5 shrink-0 text-(--chat-fg-subtle)" />
 															</a>

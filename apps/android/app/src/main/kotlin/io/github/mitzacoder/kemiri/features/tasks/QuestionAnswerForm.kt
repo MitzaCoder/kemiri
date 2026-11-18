@@ -60,7 +60,7 @@ internal fun QuestionAnswerForm(
                             modifier = Modifier.heightIn(min = choiceMinHeight),
                         ) {
                             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
-                                Text(markdownText(option), style = TaskType.xsMedium, color = colors.fg)
+                                TaskDetailText(markdownText(option), style = TaskType.xsMedium, color = colors.fg)
                             }
                         }
                     }

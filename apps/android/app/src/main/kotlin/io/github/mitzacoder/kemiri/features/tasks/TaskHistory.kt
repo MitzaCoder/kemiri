@@ -133,7 +133,7 @@ private fun Changes(changes: TaskChanges) {
     val colors = Jarvis.colors
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         changes.title?.let { title ->
-            Text(buildAnnotatedString {
+            TaskDetailText(buildAnnotatedString {
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.fg)) { append("Title ") }
                 withStyle(SpanStyle(color = colors.fgSubtle, textDecoration = TextDecoration.LineThrough)) { append(refLinkedText(title.from)) }
                 append(" → "); append(refLinkedText(title.to))
@@ -169,7 +169,7 @@ private fun Changes(changes: TaskChanges) {
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     Text(if (added) "+" else "−", Modifier.width(12.dp), style = TaskType.xs, color = if (added) colors.fg else colors.fgMuted, textAlign = TextAlign.Center)
-                                    Text(line.text, Modifier.weight(1f), style = TaskType.xs.copy(lineHeight = TextStyles.sm.lineHeight), color = if (added) colors.fg else colors.fgMuted)
+                                    TaskDetailText(line.text, Modifier.weight(1f), style = TaskType.xs.copy(lineHeight = TextStyles.sm.lineHeight), color = if (added) colors.fg else colors.fgMuted)
                                 }
                             }
                         }
@@ -188,7 +188,7 @@ private fun AsItWas(snapshot: BoardTaskSnapshot) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-            Text(refLinkedText(snapshot.title), style = TaskType.rowTitle.copy(fontSize = TaskType.sectionTitle.fontSize), color = colors.fg)
+            TaskDetailText(refLinkedText(snapshot.title), style = TaskType.rowTitle.copy(fontSize = TaskType.sectionTitle.fontSize), color = colors.fg)
             TaskStatusBadge(snapshot.status)
         }
         ReportSection.entries.forEach { section ->

@@ -12,8 +12,10 @@
 		ref,
 		links,
 		status,
+		selfReference = false,
+		focusable = true,
 		class: className = ''
-	}: { ref: string; links: ProjectLinks | undefined; status: RefStatus | undefined; class?: string } = $props();
+	}: { ref: string; links?: ProjectLinks; status?: RefStatus; selfReference?: boolean; focusable?: boolean; class?: string } = $props();
 
 	// The backend's address is the canonical one (a bare #12 resolves to /issues/12, which GitHub forwards).
 	const href = $derived(status?.url ?? refHref(ref, links));
@@ -26,7 +28,10 @@
 	{#if status !== undefined}<span class="task-status-dot ref-chip-dot" aria-hidden="true"></span>{/if}<span class="truncate">{label}</span>
 {/snippet}
 
-{#if href !== undefined}
+{#if selfReference}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex (focus reveals the same ID as hover) -->
+	<span class="task-self-reference" role="img" aria-label="this task, {ref}" data-task-id={ref} tabindex={focusable ? 0 : undefined}>this task</span>
+{:else if href !== undefined}
 	<a
 		{href}
 		target="_blank"

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskDetailText from './TaskDetailText.svelte';
 	import TaskSection from '#lib/components/TaskSection.svelte';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
 	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
@@ -86,7 +87,7 @@
 							>
 								<span class="shrink-0 font-mono text-xs text-(--chat-fg-subtle)">{item.id}</span>
 								<span class="min-w-0 flex-1 truncate font-medium" class:line-through={item.status === 'dropped'}
-									>{item.title === '' ? 'Not on the board' : item.title}</span
+									><TaskDetailText text={item.title || 'Not on the board'} focusable={false} /></span
 								>
 								{#if item.archived}<span class="shrink-0 text-[0.6875rem] text-(--chat-fg-subtle)">archived</span>{/if}
 								{#if item.status !== 'unknown'}<TaskStatusBadge status={item.status} class="shrink-0" />{/if}

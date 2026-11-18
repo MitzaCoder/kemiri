@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import io.github.mitzacoder.kemiri.data.ThemePalette
+import io.github.mitzacoder.kemiri.features.tasks.isTaskSelfReference
 import io.github.mitzacoder.kemiri.features.tasks.taskIdForeground
 import io.github.mitzacoder.kemiri.features.tasks.taskIdentityAccent
 import io.github.mitzacoder.kemiri.features.tasks.taskReferenceMatches
@@ -14,6 +15,14 @@ import kotlin.math.max
 import kotlin.math.min
 
 class TaskIdentityTest {
+    @Test fun onlyAValidMentionOfTheOpenTaskIsASelfReference() {
+        assertTrue(isTaskSelfReference("T63", "T63"))
+        assertTrue(isTaskSelfReference("T1298", "T1298"))
+        assertFalse(isTaskSelfReference("T63", "T630"))
+        assertFalse(isTaskSelfReference("T63", null))
+        assertFalse(isTaskSelfReference("63", "63"))
+    }
+
     @Test fun onlyThePreviewedTaskMatchesAndDismissalClearsIt() {
         assertTrue(taskReferenceMatches("T12", "T12"))
         assertFalse(taskReferenceMatches("T13", "T12"))

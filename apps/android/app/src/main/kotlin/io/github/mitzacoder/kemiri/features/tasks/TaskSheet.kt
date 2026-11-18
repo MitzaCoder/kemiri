@@ -94,7 +94,7 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
         // Text selected in the sheet can be quoted into the chat under it (not a worker's transcript); the sheet closes so
         // the message can be written.
         val quote: ((String) -> Unit)? = if (context.route.workerId == null) { text -> ComposerQuotes.send(context.route, text); onDismiss() } else null
-        CompositionLocalProvider(LocalQuoteHandler provides quote) {
+        CompositionLocalProvider(LocalQuoteHandler provides quote, LocalOpenTaskId provides taskId) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             // From a tablet's width the sheet is a panel from the end with the chat dimmed beside it; a tap there closes it.
             val wide = maxWidth >= 600.dp
@@ -231,7 +231,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         previousTaskId?.let { id ->
             val title = view.tasks.firstOrNull { it.id == id }?.title
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                TaskDetailText("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
         // The header: ID, status, edit and close; the title, its tickets, when it moved; what the user can do with it.
@@ -248,9 +248,9 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                 IconButton(onClick = onDismiss) { LucideGlyph(Lucide.X, size = 18.dp, contentDescription = "Close the task") }
             }
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(refLinkedText(task.title), Modifier.semantics { heading() }, style = TextStyles.lg.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
+                TaskDetailText(refLinkedText(task.title), Modifier.semantics { heading() }, style = TextStyles.lg.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
                 if (task.refs.isNotEmpty()) TaskRefs(task.refs, refsMaxHeight)
-                Text(
+                TaskDetailText(
                     listOfNotNull(
                         inProgressLine(task),
                         "Updated ${relativeTime(task.updatedAt, now)}",
@@ -261,11 +261,11 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                 )
                 if (waitingForm) TaskWaitingForm(task.waiting, closing, deviceSettings.workDayStart, { note, until -> setStatus("waiting", note, until) }, { waitingForm = false })
                 else if (confirmDrop) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Drop ${task.id}? It will not be done.", style = TaskType.xs, color = colors.fgMuted)
+                    TaskDetailText("Drop ${task.id}? It will not be done.", style = TaskType.xs, color = colors.fgMuted)
                     Button(onClick = { setStatus("dropped") }, enabled = !closing, colors = ButtonDefaults.buttonColors(containerColor = colors.danger, contentColor = colors.bg)) { Text("Drop it") }
                     TextButton(onClick = { confirmDrop = false }) { Text("Keep") }
                 }
-                problem?.let { Text(it, style = TaskType.xs, color = colors.danger) }
+                problem?.let { TaskDetailText(it, style = TaskType.xs, color = colors.danger) }
             }
         }
         HorizontalDivider(color = colors.border)
@@ -376,7 +376,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
-                                            Text(worker.title.ifEmpty { worker.id }, Modifier.weight(1f), style = TaskType.sectionTitle.copy(fontWeight = FontWeight.Medium), color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            TaskDetailText(worker.title.ifEmpty { worker.id }, Modifier.weight(1f), style = TaskType.sectionTitle.copy(fontWeight = FontWeight.Medium), color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             StatusBadge(worker.status, domain = "worker")
                                             LucideGlyph(Lucide.ChevronRight, size = 14.dp, tint = colors.fgSubtle)
                                         }

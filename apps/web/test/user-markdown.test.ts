@@ -27,8 +27,12 @@ beforeAll(async () => {
 		// Build the fence separately to keep this test's template literal readable.
 		samples.fence = [String.fromCharCode(96).repeat(3) + 'ts\\nconst x = 1;\\n' + String.fromCharCode(96).repeat(3), true];
 		const results = {};
-		for (const [name, [source, user]] of Object.entries(samples)) {
-			const blocks = toBlocks(source, false, user);
+		const detailSource = '**T12**, T13, \`T12\`, [here](?task=T12), [T12](https://example.com) and T123.';
+		samples.detail = [detailSource, true, 'T12'];
+		samples.otherDetail = [detailSource, true, 'T13'];
+		samples.chat = [detailSource, true];
+		for (const [name, [source, user, openTaskId]] of Object.entries(samples)) {
+			const blocks = toBlocks(source, false, user, name === 'chat' || openTaskId ? id => ['T12', 'T13'].includes(id) ? id : undefined : undefined, openTaskId);
 			const el = document.createElement('div');
 			el.innerHTML = blocks.filter(b => b.kind === 'html').map(b => b.html).join('');
 			results[name] = {html:el.innerHTML,text:el.textContent,breaks:el.querySelectorAll('br').length,code:blocks.find(b => b.kind === 'code')?.code};
@@ -66,6 +70,17 @@ describe('user Markdown through the shared renderer', () => {
 	test('never interprets user HTML, or permits executable links', () => {
 		expect(rendered.html!.html).not.toMatch(/<(img|script)|onerror="|href="javascript:/);
 		expect(rendered.literal!.text).toContain('<b>world</b>');
+	});
+	test('self-reference chips are scoped to the open task and do not leak through the cache', () => {
+		const detail = rendered.detail!;
+		expect(detail.html.match(/aria-label="this task, T12"[^>]*tabindex="0">this task/g)).toHaveLength(3);
+		expect(detail.html).not.toContain('href="?task=T12"');
+		expect(detail.html).toContain('href="?task=T13"');
+		expect(detail.html).toContain('href="https://example.com"');
+		expect(detail.text).toContain('T123');
+		expect(rendered.otherDetail!.html).toContain('aria-label="this task, T13"');
+		expect(rendered.otherDetail!.html).toContain('href="?task=T12"');
+		expect(rendered.chat!.html).not.toContain('this task');
 	});
 	test('keeps task chips and project reference links out of code', () => {
 		expect(rendered.tasks!.html).toContain('href="?task=T12"');

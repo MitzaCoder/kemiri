@@ -8,13 +8,13 @@ import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.features.tasks.TaskDetailText
 import io.github.mitzacoder.kemiri.ui.components.GlassComposerSurface
 import io.github.mitzacoder.kemiri.ui.components.JarvisIconButton
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -56,7 +56,7 @@ internal fun MessageComposer(
             cursorBrush = SolidColor(Jarvis.colors.accent2),
             decorator = TextFieldDecorator { field ->
                 Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
-                    if (textState.text.isEmpty()) Text(hint, style = MaterialTheme.typography.bodyLarge, color = Jarvis.colors.fgSubtle,
+                    if (textState.text.isEmpty()) TaskDetailText(hint, style = MaterialTheme.typography.bodyLarge, color = Jarvis.colors.fgSubtle,
                         maxLines = hintMaxLines, overflow = if (hintMaxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis)
                     field()
                 }

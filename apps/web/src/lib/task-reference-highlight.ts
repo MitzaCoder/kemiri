@@ -1,6 +1,11 @@
 import { refCardAnchor } from './ref-card-anchor.js';
 import { taskIdFromHref } from './task-chat.js';
 
+/** A task mention is a self-reference only inside that task's details. */
+export function isTaskSelfReference(taskId: string, openTaskId?: string): boolean {
+	return taskId === openTaskId && /^T\d+$/.test(taskId);
+}
+
 /** Only paint targets already visible, including clipping by a panel's scrollport. Never scroll. */
 export function taskTargetVisible(element: HTMLElement): boolean {
 	if (!element.getClientRects().length) return false;

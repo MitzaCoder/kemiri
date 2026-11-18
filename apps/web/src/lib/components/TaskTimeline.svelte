@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { taskIdsIn } from '#lib/task-chat.js';
+	import { useOpenTaskId } from '#lib/task-detail-context.js';
+	import { isTaskSelfReference } from '#lib/task-reference-highlight.js';
+	import TaskDetailText from './TaskDetailText.svelte';
 	import Markdown from './markdown/Markdown.svelte';
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
@@ -95,6 +99,7 @@
 				return LinkIcon;
 		}
 	}
+	const openTaskId = useOpenTaskId();
 </script>
 
 {#snippet timelineEntry(entry: BoardTimelineEntry, fact?: BoardTimelineFact)}
@@ -113,11 +118,11 @@
 							{#if status}
 								<p class="timeline-status" aria-label={entry.label}><span>{status[0]}</span><span aria-hidden="true">→</span><span>{status[1]}</span></p>
 							{:else}
-								<div class="timeline-summary" title={entry.label}>
+								<div class="timeline-summary" title={taskIdsIn(entry.label).some(id => isTaskSelfReference(id, openTaskId())) ? undefined : entry.label}>
 									{#if entry.kind === 'link' && entry.ref !== undefined}
-										<a href={taskHref(entry.ref)}>{entry.label}</a>
+										<a href={taskHref(entry.ref)}><TaskDetailText text={entry.label} focusable={false} /></a>
 									{:else if entry.kind === 'worker' && entry.ref !== undefined && workerHref?.(entry.ref) !== undefined}
-										<a href={workerHref(entry.ref)}>{entry.label}</a>
+										<a href={workerHref(entry.ref)}><TaskDetailText text={entry.label} focusable={false} /></a>
 									{:else}<Markdown source={entry.label} />{/if}
 								</div>
 							{/if}
@@ -180,7 +185,7 @@
 								<span class="timeline-icon"><GroupIcon class="size-3.5" aria-hidden="true" /></span>
 								<span class="min-w-0 flex-1">
 									<span class="group-meta"><span title={exactTime(group.range.start) + ' – ' + exactTime(group.range.end)}>{timelineGroupRange(group)}</span><span>{timelineGroupNames[group.kind]}</span><span>{group.factCount} {group.factCount === 1 ? 'fact' : 'facts'}</span></span>
-									<span class="group-label">{group.label}</span>
+									<span class="group-label"><TaskDetailText text={group.label} focusable={false} /></span>
 								</span>
 								<ChevronRightIcon class="size-4 shrink-0 {expanded ? 'rotate-90' : ''}" aria-hidden="true" />
 							</button>

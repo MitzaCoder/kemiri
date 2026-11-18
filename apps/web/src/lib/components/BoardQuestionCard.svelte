@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskDetailText from './TaskDetailText.svelte';
 	import { fitQuestionDialogToViewport } from '#lib/question-dialog-viewport.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
 	import Markdown from './markdown/Markdown.svelte';
@@ -125,7 +126,7 @@
 					class="max-w-full rounded-full border border-(--chat-border) bg-(--chat-surface) px-2.5 py-1 text-left text-xs font-medium break-words text-(--chat-fg) transition-colors hover:border-(--accent-2) hover:bg-(--chat-surface-2) disabled:opacity-50"
 					onclick={() => send(option)}
 				>
-					{markdownText(option)}
+					<TaskDetailText text={markdownText(option)} focusable={false} />
 				</button>
 			{/each}
 		</div>
@@ -197,7 +198,7 @@
 						<div>
 							<p>Revision {exchange.previousWording.revision}</p>
 							<CardMarkdown source={exchange.previousWording.text} />
-							{#if exchange.previousWording.options.length}<ul class="list-inside list-disc">{#each exchange.previousWording.options as option}<li>{markdownText(option)}</li>{/each}</ul>{/if}
+							{#if exchange.previousWording.options.length}<ul class="list-inside list-disc">{#each exchange.previousWording.options as option}<li><TaskDetailText text={markdownText(option)} focusable={false} /></li>{/each}</ul>{/if}
 						</div>
 					{/if}
 					{#if exchange.previousAnswer}

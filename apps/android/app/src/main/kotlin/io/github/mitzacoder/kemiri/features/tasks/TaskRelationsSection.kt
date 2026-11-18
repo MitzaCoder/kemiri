@@ -32,7 +32,7 @@ internal fun TaskRelations(task: BoardTask, tasks: List<BoardTask>, archived: Li
                         .heightIn(min = 44.dp).padding(horizontal = 6.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(target.id, style = TaskType.metaMono, color = Jarvis.colors.fgSubtle)
-                        Text(target.title, Modifier.weight(1f), style = TaskType.xs, color = Jarvis.colors.fg)
+                        TaskDetailText(target.title, Modifier.weight(1f), style = TaskType.xs, color = Jarvis.colors.fg)
                         if (target.archived) Text("Archived", style = TaskType.meta, color = Jarvis.colors.fgSubtle)
                         else target.status?.let { TaskStatusBadge(it) }
                     }

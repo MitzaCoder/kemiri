@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useOpenTaskId } from '#lib/task-detail-context.js';
 	import { toBlocks } from '#lib/markdown/parse.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { linkRefMentions } from '#lib/refs.js';
@@ -19,11 +20,12 @@
 
 	const refLinks = useRefLinks();
 	const taskLinks = useTaskLinks();
+	const openTaskId = useOpenTaskId();
 	const linked = $derived.by(() => {
 		const links = refLinks()?.links;
 		return links === undefined ? source : linkRefMentions(source, links, { streaming });
 	});
-	const blocks = $derived(toBlocks(linked, streaming, userMessage, taskLinks()?.title));
+	const blocks = $derived(toBlocks(linked, streaming, userMessage, taskLinks()?.title, openTaskId()));
 </script>
 
 <div class="md {className}" class:streaming class:md-user={userMessage} use:overlayScrollWithin={'.md-table'}>

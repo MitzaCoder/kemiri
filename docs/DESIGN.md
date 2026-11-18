@@ -26,6 +26,13 @@ current project's preview ID while its reference preview is open, clears it on
 dismissal, and respects the system animation setting. Task-list/card taps still
 navigate straight to the task, never to a reference preview.
 
+Inside a task's details (T273 / D101), mentions of the open task render as a
+**this task** chip, using a green tint distinct from the ordinary ID accent.
+On web, hover or keyboard focus reveals the ID; the accessible label includes
+it (for example, “this task, T63”). On Android, long-press reveals the ID. The
+sheet header still identifies the task, and other references, chat, board rows
+and stored text are unchanged.
+
 ## Artifact review passes (T216 / D88)
 
 The web text viewer (HTML, Markdown, plain text and Source) collects a review

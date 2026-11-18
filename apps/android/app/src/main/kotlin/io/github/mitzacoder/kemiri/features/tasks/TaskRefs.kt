@@ -1,6 +1,15 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.*
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import io.github.mitzacoder.kemiri.features.chat.CODE_TAG
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -51,3 +60,59 @@ internal fun TaskRefs(refs: List<String>, maxHeight: Dp) {
         }
     }
 }
+
+internal data class TaskDetailReferences(val text: AnnotatedString, val chips: Map<String, InlineTextContent> = emptyMap())
+
+/** Keep existing text and links intact except for self-references. Code snippets and external links stay literal. */
+@Composable
+internal fun taskDetailReferences(text: AnnotatedString, fontSize: TextUnit): TaskDetailReferences {
+    val openTaskId = LocalOpenTaskId.current ?: return TaskDetailReferences(text)
+    return remember(text, openTaskId, fontSize) {
+        val pieces = splitTaskMentions(text.text) { isTaskSelfReference(it, openTaskId) }
+        val replaced = buildAnnotatedString {
+            var offset = 0
+            for (piece in pieces) {
+                val shown = when (piece) {
+                    is TextPiece.Plain -> piece.text
+                    is TextPiece.Task -> piece.taskId
+                }
+                val end = offset + shown.length
+                if (piece is TextPiece.Task &&
+                    text.getLinkAnnotations(offset, end).all { (it.item as? LinkAnnotation.Clickable)?.tag == "task:$openTaskId" } &&
+                    text.getStringAnnotations(CODE_TAG, offset, end).all { it.start == offset && it.end == end }
+                ) appendInlineContent(openTaskId, "this task")
+                else append(text, offset, end)
+                offset = end
+            }
+        }
+        if (replaced == text) TaskDetailReferences(text)
+        else TaskDetailReferences(replaced, mapOf(openTaskId to InlineTextContent(
+            Placeholder(4.4.em, 1.22.em, PlaceholderVerticalAlign.TextCenter),
+        ) { TaskSelfReferenceChip(openTaskId, if (fontSize.isSp) fontSize * .85f else 12.sp) }))
+    }
+}
+
+/** Plain or already styled detail text. Other IDs retain the caller's original display. */
+@Composable
+internal fun TaskDetailText(
+    text: AnnotatedString,
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    color: Color = Color.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    val references = taskDetailReferences(text, style.fontSize)
+    Text(references.text, modifier, color = color, style = style, maxLines = maxLines,
+        overflow = overflow, inlineContent = references.chips)
+}
+
+@Composable
+internal fun TaskDetailText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    color: Color = Color.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) = TaskDetailText(AnnotatedString(text), modifier, style, color, maxLines, overflow)

@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import io.github.mitzacoder.kemiri.features.tasks.TaskDetailText
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
@@ -271,7 +272,7 @@ fun RefLines(refs: List<String>, modifier: Modifier = Modifier) {
                         Text(refStatusWords(status), style = textStyle(0.75f, 1f / 0.75f, weight = 500), color = colors.fgMuted, maxLines = 1)
                     }
                     status.title?.takeIf { it.isNotEmpty() }?.let {
-                        Text(it, Modifier.weight(1f), style = textStyle(0.75f, 1f / 0.75f), color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TaskDetailText(it, Modifier.weight(1f), style = textStyle(0.75f, 1f / 0.75f), color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     } ?: Spacer(Modifier.weight(1f))
                 } else Spacer(Modifier.weight(1f))
                 if (target != null) LucideGlyph(Lucide.ExternalLink, size = 12.dp, tint = colors.fgSubtle.copy(alpha = .7f))

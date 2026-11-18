@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskDetailText from './TaskDetailText.svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -171,7 +172,7 @@
 											data-diff={line.kind}
 										>
 											<span class="w-3 shrink-0 text-center select-none" aria-hidden="true">{line.kind === 'added' ? '+' : '−'}</span>
-											<span class="min-w-0 flex-1 whitespace-pre-wrap">{line.text}</span>
+											<span class="min-w-0 flex-1 whitespace-pre-wrap"><TaskDetailText text={line.text} /></span>
 											<span class="sr-only">{line.kind === 'added' ? 'added' : 'removed'}</span>
 										</li>
 									{/if}

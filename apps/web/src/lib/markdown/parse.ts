@@ -10,9 +10,23 @@
 import DOMPurify from "dompurify";
 import { Marked, Renderer, type Token, type Tokens } from "marked";
 import remend from "remend";
+import { isTaskSelfReference } from '../task-reference-highlight.js';
 import { linkTaskMentions } from "../task-chat.ts";
 
+type SelfReferenceToken = { selfReferenceId?: string };
+
+function selfReferenceMarkup(taskId: string): string {
+	// Self-reference IDs have already been validated as T + digits by isTaskSelfReference.
+	return `<span class="task-self-reference" role="img" aria-label="this task, ${taskId}" data-task-id="${taskId}" tabindex="0">this task</span>`;
+}
+
 const renderer = {
+	link(this: Renderer, token: Tokens.Link & SelfReferenceToken) {
+		return token.selfReferenceId === undefined ? Renderer.prototype.link.call(this, token) : selfReferenceMarkup(token.selfReferenceId);
+	},
+	codespan(this: Renderer, token: Tokens.Codespan & SelfReferenceToken) {
+		return token.selfReferenceId === undefined ? Renderer.prototype.codespan.call(this, token) : selfReferenceMarkup(token.selfReferenceId);
+	},
 	// Wide tables scroll horizontally instead of stretching the chat column.
 	table(this: Renderer, token: Tokens.Table) {
 		return `<div class="md-table">${Renderer.prototype.table.call(this, token)}</div>`;
@@ -116,18 +130,26 @@ function renderToken(token: Token, userMessage: boolean, taskMentions = false): 
 }
 
 /** Link only parsed text, never code, destinations, HTML, images or existing link labels. */
-function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefined, streamingTail?: string): void {
+function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefined, streamingTail?: string, openTaskId?: string): void {
 	for (const token of tokens) {
-		if (["link", "image", "code", "codespan", "html", "escape"].includes(token.type)) continue;
+		if (token.type === "link" || token.type === "codespan") {
+			const id = token.type === "link" ? /^\?task=(T\d+)$/.exec(token.href)?.[1] : token.text;
+			if (id !== undefined && isTaskSelfReference(id, openTaskId)) (token as SelfReferenceToken).selfReferenceId = id;
+			continue;
+		}
+		if (["image", "code", "html", "escape"].includes(token.type)) continue;
 		if (token.type === "table") {
-			for (const cell of [...token.header, ...token.rows.flat()]) linkTaskTokens(cell.tokens, title, streamingTail);
+			for (const cell of [...token.header, ...token.rows.flat()]) linkTaskTokens(cell.tokens, title, streamingTail, openTaskId);
 		} else if (token.type === "list") {
-			for (const item of token.items) linkTaskTokens(item.tokens, title, streamingTail);
+			for (const item of token.items) linkTaskTokens(item.tokens, title, streamingTail, openTaskId);
 		} else if ("tokens" in token && token.tokens !== undefined) {
-			linkTaskTokens(token.tokens, title, streamingTail);
+			linkTaskTokens(token.tokens, title, streamingTail, openTaskId);
 		} else if (token.type === "text") {
 			const linked = linkTaskMentions(token.text, { title, streaming: streamingTail !== undefined && streamingTail.endsWith(token.raw) });
-			if (linked !== token.text) token.tokens = marked.Lexer.lexInline(linked);
+			if (linked !== token.text) {
+				token.tokens = marked.Lexer.lexInline(linked);
+				linkTaskTokens(token.tokens, title, streamingTail, openTaskId);
+			}
 		}
 	}
 }
@@ -140,10 +162,11 @@ function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefin
  * block's HTML only changes when its own source does, so earlier blocks are not
  * re-rendered as text streams in.
  */
-export function toBlocks(source: string, streaming: boolean, userMessage = false, taskTitle?: (id: string) => string | undefined): Block[] {
+export function toBlocks(source: string, streaming: boolean, userMessage = false, taskTitle?: (id: string) => string | undefined, openTaskId?: string): Block[] {
 	const text = streaming ? completeStreamingTable(remend(source, { linkMode: "text-only" })) : source;
 	const tokens = (userMessage ? userMarkdown : marked).lexer(text);
-	if (taskTitle !== undefined) linkTaskTokens(tokens, taskTitle, streaming ? source : undefined);
+	const taskMentions = taskTitle !== undefined || openTaskId !== undefined;
+	if (taskMentions) linkTaskTokens(tokens, id => isTaskSelfReference(id, openTaskId) ? '' : taskTitle?.(id), streaming ? source : undefined, openTaskId);
 	const blocks: Block[] = [];
 
 	for (const token of tokens) {
@@ -158,7 +181,7 @@ export function toBlocks(source: string, streaming: boolean, userMessage = false
 				closed: !streaming || isClosedFence(token as Tokens.Code),
 			});
 		} else {
-			blocks.push({ kind: "html", key, html: renderToken(token, userMessage, taskTitle !== undefined) });
+			blocks.push({ kind: "html", key, html: renderToken(token, userMessage, taskMentions) });
 		}
 	}
 	return blocks;

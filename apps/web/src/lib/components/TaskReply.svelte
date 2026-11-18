@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskDetailText from './TaskDetailText.svelte';
 	import { untrack } from 'svelte';
 	import Composer from '#lib/components/chat/Composer.svelte';
 	import { inputContent, type HeldImage } from '#lib/chat/images.js';
@@ -41,16 +42,16 @@
 		draftKey={draftKey(backend.id, projectId, draftId)}
 		draftChannel={draftChannel(backend, projectId, draftId)}
 		disabled={!backend.ready}
-		placeholder="Say something about {taskId}…"
+		placeholder="Say something about this task…"
 		onModelChange={() => {}}
 		onThinkingChange={() => {}}
 		onstop={() => {}}
 		uploadFile={backend.supports('chat-files-v1') ? uploadFile : undefined}
 		onsend={send}
 	/>
-	<p class="mt-1.5 truncate px-2 text-xs text-(--chat-fg-subtle)" title="Replies go to the coordinator about {taskId}.">
-		To the coordinator · {taskId}
+	<p class="mt-1.5 truncate px-2 text-xs text-(--chat-fg-subtle)">
+		To the coordinator · <TaskDetailText text={taskId} />
 	</p>
 	<span class="sr-only" role="status" data-reply-sent={sent ? '' : undefined}>{sent ? 'Sent. The reply appears in chat.' : ''}</span>
-	{#if problem}<p class="mt-1.5 text-xs break-words text-(--chat-danger)" role="alert">{problem}</p>{/if}
+	{#if problem}<p class="mt-1.5 text-xs break-words text-(--chat-danger)" role="alert"><TaskDetailText text={problem} /></p>{/if}
 </div>
