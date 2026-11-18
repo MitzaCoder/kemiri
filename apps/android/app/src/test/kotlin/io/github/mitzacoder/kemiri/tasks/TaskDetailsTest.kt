@@ -4,6 +4,7 @@ import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 import io.github.mitzacoder.kemiri.protocol.BoardQuestionChoice
 import io.github.mitzacoder.kemiri.protocol.BoardReportCheck
+import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -114,6 +115,15 @@ class TaskDetailsTest {
         assertEquals(QuestionAnswers.Options(options), questionAnswers(legacy, true))
         assertEquals(QuestionAnswers.Options(options), questionAnswers(structured.copy(choices = emptyList()), true))
         assertEquals(QuestionAnswers.Options(emptyList()), questionAnswers(structured.copy(kind = "warning"), true))
+    }
+
+    @Test fun filesShowsTheFullTaskFeedWithoutADisclosureAfterResults() {
+        val tasks = File("src/main/kotlin/io/github/mitzacoder/kemiri/features/tasks")
+        val sheet = tasks.resolve("TaskSheet.kt").readText()
+        val sectionsAfterResults = sheet.substringAfter("item(key = \"results\")").substringBefore("item(key = \"record\")")
+        assertTrue(Regex("""TaskReadingSection\("Files"\) \{\s*TaskFiles\(context, artifacts, onUpdateTags""").containsMatchIn(sectionsAfterResults))
+        assertTrue(sheet.contains("ArtifactsListRequest(projectId = project, taskId = taskId)"))
+        assertFalse(tasks.resolve("TaskAbout.kt").readText().contains("TaskFiles("))
     }
 
     @Test fun requestStartsOpenAndRowsRememberTheirChoicesIndependently() {

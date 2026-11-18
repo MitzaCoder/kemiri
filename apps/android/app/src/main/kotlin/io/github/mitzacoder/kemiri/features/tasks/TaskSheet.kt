@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.media.ARTIFACT_TAGS_FEATURE
+import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskProof
 import io.github.mitzacoder.kemiri.features.chat.ChatFile
 import io.github.mitzacoder.kemiri.features.chat.FileChips
@@ -146,8 +147,8 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val workers = if (connection.supports("workers")) panelData(context, "sheet-workers", { it is WorkersStateEvent && it.projectId == project }) {
         context.backend.client.request(WorkersListRequest(projectId = project)).workers
     }.value.orEmpty() else emptyList()
-    val artifacts = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project }) {
-        context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId, limit = 200)).artifacts
+    val artifacts = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project && it.artifact.taskId == taskId }) {
+        context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId)).artifacts
     }.value.orEmpty() else emptyList()
     val now = rememberTaskMinuteNow()
 
@@ -210,7 +211,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     LaunchedEffect(linkedFeedbackFound, linksEnabled, editing) {
         if (linkedFeedbackFound && linksEnabled && !editing && !jumpedToNotes) {
             // Results is always present; count only the optional sections shown above Your notes.
-            bodyState.scrollToItem(1 + listOf(needsYou.show, fields.notDoneMarkdown != null, showPlan, showAgentQuestions).count { it })
+            bodyState.scrollToItem(1 + listOf(needsYou.show, artifacts.isNotEmpty(), fields.notDoneMarkdown != null, showPlan, showAgentQuestions).count { it })
             jumpedToNotes = true
         }
     }
@@ -303,6 +304,13 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                         TaskProof(context, artifacts)
                     }
                 }
+                if (artifacts.isNotEmpty()) item(key = "files") {
+                    TaskReadingSection("Files") {
+                        TaskFiles(context, artifacts, onUpdateTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
+                            context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
+                        } else null)
+                    }
+                }
                 fields.notDoneMarkdown?.let { notDone ->
                     item(key = "not-done") { TaskReadingSection("Not done") { ReportMarkdown(notDone) } }
                 }
@@ -362,9 +370,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                     TaskAbout(context, task, view.tasks, view.board?.archivedLinks.orEmpty(), owner,
                         legacyDelivery = activity.takeUnless { deliveryEnabled }, delivery = delivery,
                         blockersInNeedsYou = if (needsYou.blocked) blockers.mapTo(mutableSetOf()) { it.id } else emptySet(),
-                        artifacts = artifacts, onUpdateTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
-                            context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
-                        } else null, now = now)
+                        now = now)
                 }
             }
         }

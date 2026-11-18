@@ -5352,6 +5352,11 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   stale report gets one line with the existing request-update action.
 - **Your notes.** Feedback stays in the scrollable body, with the stored answer under each entry as Markdown.
   Addressed and dismissed entries start folded and can be reopened; active entries can be dismissed.
+- **Files.** On web and Android, tasks with artifacts have a section directly after What you get, outside
+  the record folds and the About column. The existing Files view shows HTML page cards, the media gallery
+  (including before/after comparison and tag editing), and rows for Markdown, text and other files.
+  All open the existing viewers. The task feed requests all files linked to that task, without a date or
+  type filter. The default project feed and explicit list limits still cap their results.
 - **The record.** The request comes first and starts open (D104). “Done when” renders flat semicolon- or
   newline-separated criteria as a list and retains existing Markdown lists. Checks follows when available on
   `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. Checks, Decided,

@@ -420,6 +420,27 @@ describe("the store", () => {
 		expect(await store.list("other")).toEqual([]);
 	});
 
+	it("keeps the oldest HTML file in an uncapped task list without uncapping the project feed", async () => {
+		const root = await mkdtemp(join(tmpdir(), "artifact-store-"));
+		cleanups.push(() => rm(root, { recursive: true, force: true }));
+		const store = new ArtifactStore({ dataDir: root });
+		const base = { projectId: "p", title: null, note: null, threadId: "main", workerId: null, taskId: "T1" };
+		const page = join(root, "old.html");
+		await writeFile(page, "<!doctype html><h1>Old report</h1>");
+		const oldest = await store.save({ ...base, sourcePath: page });
+		for (let i = 0; i < 200; i++) {
+			const sourcePath = join(root, `note-${i}.md`);
+			await writeFile(sourcePath, `# Note ${i}`);
+			await store.save({ ...base, sourcePath });
+		}
+		await store.save({ ...base, taskId: "T2", sourcePath: page });
+		const files = await store.list("p", { taskId: "T1" });
+		expect(files).toHaveLength(201);
+		expect(files.at(-1)).toMatchObject({ id: oldest.id, mimeType: "text/html" });
+		expect(await store.list("p")).toHaveLength(100);
+		expect(await store.list("p", { taskId: "T1", limit: 1 })).toEqual(files.slice(0, 1));
+	});
+
 	it("detects types from the extension and the first bytes", () => {
 		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 		expect(detectMimeType("shot.jpg", png)).toBe("image/png");

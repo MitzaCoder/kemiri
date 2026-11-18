@@ -33,7 +33,7 @@ function messageOf(error: unknown): string {
 export class ArtifactFeed {
 	readonly projectId: string;
 	readonly filter: ArtifactFilter;
-	readonly limit: number;
+	readonly limit: number | undefined;
 	artifacts = $state<readonly Artifact[]>([]);
 	loaded = $state(false);
 	error = $state<string | undefined>(undefined);
@@ -45,7 +45,7 @@ export class ArtifactFeed {
 	#sequence = 0;
 	#stopped = false;
 
-	constructor(client: HarnessClient, projectId: string, filter: ArtifactFilter, limit = ARTIFACT_LIST_LIMIT) {
+	constructor(client: HarnessClient, projectId: string, filter: ArtifactFilter, limit = defaultArtifactFeedLimit(filter)) {
 		this.#client = client;
 		this.projectId = projectId;
 		this.filter = filter;
@@ -242,7 +242,12 @@ class Registry<T extends { stop(): void }> {
 const feeds = new Registry<ArtifactFeed>();
 const sources = new Registry<ArtifactSource>();
 
-export function feedKey(projectId: string, filter: ArtifactFilter, limit: number): string {
+/** The full list is the default only for task-scoped feeds. */
+function defaultArtifactFeedLimit(filter: ArtifactFilter): number | undefined {
+	return filter.taskId === undefined ? ARTIFACT_LIST_LIMIT : undefined;
+}
+
+export function feedKey(projectId: string, filter: ArtifactFilter, limit: number | undefined): string {
 	return JSON.stringify([projectId, filter.threadId ?? null, filter.workerId ?? null, filter.taskId ?? null, limit, filter.artifactId ?? null]);
 }
 
@@ -263,7 +268,7 @@ export function useArtifactFeed(params: () => FeedParams | undefined): { readonl
 			...(wanted.filter?.workerId === undefined ? {} : { workerId: wanted.filter.workerId }),
 			...(wanted.filter?.taskId === undefined ? {} : { taskId: wanted.filter.taskId }),
 		};
-		const limit = wanted.limit ?? ARTIFACT_LIST_LIMIT;
+		const limit = wanted.limit ?? defaultArtifactFeedLimit(filter);
 		const lease = feeds.acquire(wanted.client, feedKey(wanted.projectId, filter, limit), () => new ArtifactFeed(wanted.client, wanted.projectId, filter, limit));
 		feed = lease.value;
 		return lease.release;

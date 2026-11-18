@@ -371,10 +371,10 @@ export class ArtifactStore {
 		return saved;
 	}
 
-	/** Newest first, narrowed by every filter given. */
+	/** Newest first, narrowed by every filter given. Only task-scoped lists are uncapped by default. */
 	async list(projectId: string, filter: ArtifactListFilter = {}): Promise<Artifact[]> {
 		const index = await this.#read(projectId);
-		const limit = filter.limit ?? DEFAULT_ARTIFACT_LIST_LIMIT;
+		const limit = filter.limit ?? (filter.taskId === undefined ? DEFAULT_ARTIFACT_LIST_LIMIT : undefined);
 		return index.artifacts
 			.filter(
 				(artifact) =>

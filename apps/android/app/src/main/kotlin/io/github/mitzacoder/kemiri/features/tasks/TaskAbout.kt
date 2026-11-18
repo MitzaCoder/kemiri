@@ -4,11 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.navigation.PanelTab
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -18,8 +16,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 @Composable
 internal fun TaskAbout(
     context: ProjectScreenContext, task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTaskBrief>, owner: TaskOwner,
-    legacyDelivery: BoardTaskActivity?, delivery: BoardTaskTimelineResponseDelivery?, blockersInNeedsYou: Set<String>, artifacts: List<Artifact>,
-    onUpdateTags: (suspend (Artifact, List<String>) -> Artifact?)?, now: Long,
+    legacyDelivery: BoardTaskActivity?, delivery: BoardTaskTimelineResponseDelivery?, blockersInNeedsYou: Set<String>, now: Long,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider(color = Jarvis.colors.border)
@@ -38,10 +35,6 @@ internal fun TaskAbout(
         TaskRelations(task, tasks, archived, blockersInNeedsYou, context::openTask) {
             context.board.showWithLinked(task.id)
             context.navigate(Destination.Panel(context.route, PanelTab.Board))
-        }
-        if (artifacts.isNotEmpty()) {
-            var filesOpen by rememberSaveable { mutableStateOf(false) }
-            TaskFold("Files", filesOpen, { filesOpen = !filesOpen }) { TaskFiles(context, artifacts, onUpdateTags) }
         }
         TaskFact("Created", relativeTime(task.createdAt, now))
         TaskFact("Updated", relativeTime(task.updatedAt, now))

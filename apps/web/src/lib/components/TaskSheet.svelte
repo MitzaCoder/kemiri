@@ -246,7 +246,7 @@
 
 	const artifactFeed = useArtifactFeed(() =>
 		taskId !== undefined && backend.supports('artifacts')
-			? { client: backend.client, projectId, filter: { taskId }, limit: 100 }
+			? { client: backend.client, projectId, filter: { taskId } }
 			: undefined
 	);
 	const artifacts = $derived(artifactFeed.current?.artifacts ?? []);
@@ -440,6 +440,13 @@
 										{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
 									</section>
 
+									{#if artifacts.length > 0}
+										<section class="task-reading-section" aria-label="Files">
+											<h2 class="task-detail-heading">Files ({artifacts.length})</h2>
+											<TaskFiles {artifacts} client={backend.client} {projectId} onupdatetags={backend.supports('artifact-tags') ? updateArtifactTags : undefined} />
+										</section>
+									{/if}
+
 									{#if fields?.notDoneMarkdown}
 										<section class="task-reading-section" aria-label="Not done">
 											<h2 class="task-detail-heading">Not done</h2>
@@ -539,12 +546,6 @@
 									<TaskRelations {task} {tasks} archivedLinks={board?.archivedLinks} hrefOf={(id) => withTask(page.url, id)}
 										blockersInNeedsYou={needsYou?.blocked ? blockers.map(blocker => blocker.id) : []}
 										onshowlinked={onshowlinked === undefined ? undefined : showLinked} />
-									{#if artifacts.length > 0}
-										<details>
-											<summary class="task-fold task-detail-heading">Files ({artifacts.length})</summary>
-											<TaskFiles {artifacts} client={backend.client} {projectId} onupdatetags={backend.supports('artifact-tags') ? updateArtifactTags : undefined} />
-										</details>
-									{/if}
 									<dl class="task-facts">
 										<div><dt>Created</dt><dd><time datetime={task.createdAt} title={exactTime(task.createdAt)}>{ago(task.createdAt)}</time></dd></div>
 										<div><dt>Updated</dt><dd><time datetime={task.updatedAt} title={exactTime(task.updatedAt)}>{ago(task.updatedAt)}</time></dd></div>

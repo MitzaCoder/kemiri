@@ -94,6 +94,14 @@ describe('structured task fields', () => {
 	});
 });
 
+test('Files shows the full task feed without a disclosure after What you get', async () => {
+	const sheet = await Bun.file(new URL('../src/lib/components/TaskSheet.svelte', import.meta.url)).text();
+	const sections = sheet.slice(sheet.indexOf('aria-label="What you get"'), sheet.indexOf('aria-label="The record"'));
+	expect(sections).toMatch(/<section[^>]+aria-label="Files">\s*<h2[^>]*>Files[^<]*<\/h2>\s*<TaskFiles \{artifacts\}[^>]+onupdatetags=/);
+	expect(sheet).toContain('filter: { taskId } }');
+	expect(sheet.slice(sheet.indexOf('<aside class="task-about"'))).not.toContain('<TaskFiles');
+});
+
 describe('record folds', () => {
 	test('the request is the first record row and the only one open without a saved choice', async () => {
 		const sheet = await Bun.file(new URL('../src/lib/components/TaskSheet.svelte', import.meta.url)).text();

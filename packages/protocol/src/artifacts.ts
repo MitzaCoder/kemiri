@@ -58,7 +58,7 @@ export const ArtifactsListRequestSchema = Type.Object({
 	threadId: Type.Optional(Type.String({ minLength: 1 })),
 	workerId: Type.Optional(Type.String({ minLength: 1 })),
 	taskId: Type.Optional(Type.String({ minLength: 1 })),
-	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default 100." })),
+	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default 100, or all matches when scoped to a task." })),
 });
 export type ArtifactsListRequest = Static<typeof ArtifactsListRequestSchema>;
 
