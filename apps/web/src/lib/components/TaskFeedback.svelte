@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+	import { taskFeedbackAnchor } from '#lib/chat/keep-on-task.js';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -6,8 +8,9 @@
 	import { feedbackStateWords, sortedFeedback } from '#lib/task-relations.js';
 	import { markdownText, type BoardFeedback } from '@kemiri/protocol';
 
-	let { entries, openCount, busy, problem, onset, threadName }: {
+	let { entries, openCount, busy, problem, onset, threadName, linkedId }: {
 		entries: readonly BoardFeedback[];
+		linkedId?: string;
 		openCount: number;
 		busy: boolean;
 		problem?: string;
@@ -15,6 +18,19 @@
 		threadName: (threadId: string) => string;
 	} = $props();
 	const sorted = $derived(sortedFeedback(entries));
+
+	function focusLinkedNote(node: HTMLElement, linked: boolean) {
+		function update(selected: boolean): void {
+			if (!selected) return;
+			void tick().then(() => {
+				if (!node.isConnected || !node.hasAttribute('data-linked-note')) return;
+				node.focus({ preventScroll: true });
+				node.scrollIntoView({ block: 'nearest' });
+			});
+		}
+		update(linked);
+		return { update };
+	}
 </script>
 
 {#snippet note(entry: BoardFeedback, settled: boolean)}
@@ -43,9 +59,10 @@
 {#if sorted.length > 0}
 	<ul data-feedback>
 		{#each sorted as entry (entry.id)}
-			<li class="border-t border-(--chat-border) pt-1" data-feedback-entry={entry.id} data-state={entry.state}>
+			<li class="border-t border-(--chat-border) pt-1" id={taskFeedbackAnchor(entry.id)} tabindex="-1" use:focusLinkedNote={linkedId === entry.id}
+				data-linked-note={linkedId === entry.id ? true : undefined} data-feedback-entry={entry.id} data-state={entry.state}>
 				{#if entry.state === 'addressed' || entry.state === 'dismissed'}
-					<details>
+					<details open={linkedId === entry.id}>
 						<summary class="task-fold">
 							<ChevronRightIcon class="size-4 shrink-0" aria-hidden="true" />
 							<span class="min-w-0 flex-1 truncate">{markdownText(entry.text) || 'Note with attachment'}</span>

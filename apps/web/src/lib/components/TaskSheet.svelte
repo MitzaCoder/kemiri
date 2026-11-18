@@ -34,6 +34,7 @@
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import BoardTaskEditor from '#lib/components/BoardTaskEditor.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
+	import { feedbackFromHash } from '#lib/chat/keep-on-task.js';
 	import TaskFeedback from '#lib/components/TaskFeedback.svelte';
 	import TaskHistory from '#lib/components/TaskHistory.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
@@ -103,6 +104,7 @@
 	}
 
 	const requestedId = $derived(taskFromUrl(page.url));
+	const linkedFeedback = $derived(requestedId === null ? undefined : feedbackFromHash(page.url.hash));
 	const previousTask = $derived(page.state.taskTrail?.at(-1));
 	function openLinkedTask(event: MouseEvent): void {
 		if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -444,7 +446,7 @@
 									{#if supportsLinks && (feedbackEntries.length || openFeedbackCount(task) || feedbackProblem || timelineError)}
 										<section class="task-reading-section" aria-label="Your notes">
 											<h2 class="task-detail-heading">Your notes</h2>
-											<TaskFeedback entries={feedbackEntries} openCount={openFeedbackCount(task)} busy={feedbackBusy}
+											<TaskFeedback linkedId={linkedFeedback} entries={feedbackEntries} openCount={openFeedbackCount(task)} busy={feedbackBusy}
 												problem={feedbackProblem ?? timelineError} onset={setFeedback} threadName={(id) => threadName(id, threads)} />
 										</section>
 									{/if}
