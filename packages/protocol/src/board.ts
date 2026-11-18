@@ -90,6 +90,8 @@ export const BoardReportSectionSchema = Type.Object({
 });
 export type BoardReportSection = Static<typeof BoardReportSectionSchema>;
 
+const BoardReportStepsSchema = Type.Optional(Type.String({ description: "task-steps: Your steps, a numbered Markdown list of manual actions with exact values and copyable commands. Absent when cleared." }));
+
 export const BoardTaskReportSchema = Type.Object({
 	freshness: Type.Optional(Type.Object({ results: BoardReportSectionSchema, next: BoardReportSectionSchema }, { description: "task-freshness capability: section metadata, independent of Now and the shared report timestamp." })),
 
@@ -104,6 +106,8 @@ export const BoardTaskReportSchema = Type.Object({
 	}),
 	updatedAt: Type.Union([Type.String(), Type.Null()]),
 	updatedBy: Type.Union([BoardWriterSchema, Type.Null()]),
+	steps: BoardReportStepsSchema,
+	stepsWrittenAt: Type.Optional(Type.String({ description: "ISO date when the current Your steps text was last rewritten. Absent when cleared." })),
 });
 export type BoardTaskReport = Static<typeof BoardTaskReportSchema>;
 
@@ -200,7 +204,7 @@ export type BoardTaskActivity = Static<typeof BoardTaskActivitySchema>;
 /** task-state: derived at emission, never persisted on the task. */
 export const BoardTaskStateSchema = Type.Object({
  group: Type.Union([Type.Literal("needs_you"), Type.Literal("in_progress"), Type.Literal("waiting"), Type.Literal("todo"), Type.Literal("closed")]),
- kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("clarifying"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
+ kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("steps_needed"), Type.Literal("clarifying"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
  since: Type.String(),
  refs: Type.Array(Type.String()),
  sentence: Type.Optional(BoardTaskActivitySchema),
@@ -315,7 +319,7 @@ export const BoardTaskSnapshotSchema = Type.Object({
 	title: Type.String(),
 	status: BoardTaskStatusSchema,
 	waiting: Type.Optional(BoardTaskWaitingSchema),
-	report: Type.Object({ now: Type.String(), results: Type.String(), next: Type.String() }),
+	report: Type.Object({ now: Type.String(), results: Type.String(), next: Type.String(), steps: BoardReportStepsSchema }),
 });
 export type BoardTaskSnapshot = Static<typeof BoardTaskSnapshotSchema>;
 

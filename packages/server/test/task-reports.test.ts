@@ -209,6 +209,73 @@ async function toolsOf(client: TestClient, projectId: string, workerId?: string)
 }
 
 describe("reports through the tools", () => {
+	it("keeps manual steps on the task and in history, and negotiates the new state kind", async () => {
+		const { test, client: legacy, projectId } = await start();
+		const current = await TestClient.open(test.server);
+		clients.push(current);
+		const hello = await current.request({ type: "hello", protocolVersion: 1, client: { name: "test", features: ["task-steps"] } });
+		if (hello.type !== "hello") throw errorOf(hello);
+		expect(hello.features).toContain("task-steps");
+
+		const taskInput = { title: "Update a setting", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] };
+		const parent = await legacy.request({ type: "board.task.save", projectId, task: taskInput });
+		if (parent.type !== "board.task.save") throw errorOf(parent);
+		const saved = await legacy.request({ type: "board.task.save", projectId, task: { ...taskInput, parent: parent.task.id } });
+		if (saved.type !== "board.task.save") throw errorOf(saved);
+		const id = saved.task.id;
+		const steps = "1. Open Settings.\n2. Set the timeout to `30`.\n3. Verify the setting:\n\n   ```sh\n   example-cli config get timeout\n   ```";
+		const pointer = "See chat for the commands.";
+		const toolResults: string[] = [];
+		test.faux.setResponses(Array.from({ length: 30 }, () => (request: TranscriptContext) => {
+			const { role, text } = lastOf(request);
+			if (role === "toolResult") toolResults.push(text);
+			if (text === "File the steps.") return call("board", { action: "write_report", id, steps: pointer });
+			if (text.startsWith(`Rewrote the report of ${id} (report r1`)) return call("board", { action: "write_report", id, steps, milestone: "Steps ready" });
+			if (text.startsWith(`Rewrote the report of ${id} (report r2`)) return call("board", { action: "write_report", id, next: "Verify the change.", results: "- Test config prepared" });
+			if (text.startsWith(`Rewrote the report of ${id} (report r3`)) return call("board", { action: "show_task", id });
+			if (text === "Clear the steps.") return call("board", { action: "write_report", id, steps: "" });
+			return fauxAssistantMessage("Noted.");
+		}));
+		const readBoard = async (client: TestClient) => {
+			const reply = await client.request({ type: "board.get", projectId });
+			if (reply.type !== "board.get") throw errorOf(reply);
+			return reply.board;
+		};
+		const submit = async (content: string, requestId: string) => {
+			const reply = await legacy.request({ type: "conversation.submit", projectId, content, requestId });
+			if (reply.type !== "conversation.submit") throw errorOf(reply);
+		};
+		await submit("File the steps.", "write-steps");
+		await until(() => toolResults.some(text => text.includes("Your steps:")));
+		expect(toolResults[0]).toContain("This points at the chat.");
+		expect(toolResults[1]).not.toContain("This points at the chat.");
+		expect(toolResults.at(-1)).toContain(`Your steps:\n${steps}\nresults: - Test config prepared\nnext: Verify the change.`);
+
+		await current.waitFor(message => message.type === "board.state" && message.board.tasks.some(task => task.id === id && task.state?.kind === "steps_needed"));
+		await legacy.waitFor(message => message.type === "board.state" && message.board.tasks.some(task => task.id === id && task.state?.kind === "review"));
+		const board = await readBoard(current);
+		const part = board.tasks.find(task => task.id === id)!;
+		expect(part.report.steps).toBe(steps);
+		expect(part.state).toMatchObject({ group: "needs_you", kind: "steps_needed", since: part.report.stepsWrittenAt, sentence: { text: "Your steps", ageFormat: "none" } });
+		expect(board.tasks.find(task => task.id === parent.task.id)).toMatchObject({ subtaskStates: ["steps_needed"], activity: { text: "0 of 1 parts done · 1 needs you" } });
+		const legacyBoard = await readBoard(legacy);
+		expect(legacyBoard.tasks.find(task => task.id === id)).toMatchObject({ state: { group: "needs_you", kind: "review" } });
+		expect(legacyBoard.tasks.find(task => task.id === parent.task.id)?.subtaskStates).toEqual(["review"]);
+		const stale = await legacy.request({ type: "board.report.stale", projectId, taskId: id, sections: ["next"], reason: "Confirm the latest value" });
+		expect(stale).toMatchObject({ type: "board.report.stale", task: { id, state: { kind: "review" } } });
+		const updated = await legacy.request({ type: "board.task.save", projectId, taskId: id, expectedRevision: part.revision, task: { ...taskInput, parent: parent.task.id } });
+		expect(updated).toMatchObject({ type: "board.task.save", task: { id, state: { kind: "review" } } });
+
+		await submit("Clear the steps.", "clear-steps");
+		await until(async () => (await readBoard(current)).tasks.some(task => task.id === id && task.state?.kind === "todo"));
+		const cleared = (await readBoard(current)).tasks.find(task => task.id === id)!;
+		expect(cleared.report.steps).toBeUndefined();
+		expect(cleared.report.next).toBe("Verify the change.");
+		const history = await current.request({ type: "board.task.history", projectId, taskId: id });
+		if (history.type !== "board.task.history") throw errorOf(history);
+		expect(history.snapshots.find(snapshot => snapshot.label === "Steps ready")?.report.steps).toBe(steps);
+	}, 30_000);
+
 	it("lets a task's worker and the coordinator write its report, saves milestones, and lists the history", async () => {
 		const { test, client, projectId } = await start();
 		let workerTurns = 0;

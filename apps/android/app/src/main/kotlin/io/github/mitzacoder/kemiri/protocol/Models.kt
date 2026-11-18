@@ -785,7 +785,8 @@ data class HelloRequestAuth(
 @Serializable
 data class HelloRequestClient(
     val `name`: String,
-    val `version`: String? = null
+    val `version`: String? = null,
+    val `features`: List<String>? = null
 )
 
 @Serializable
@@ -2697,7 +2698,9 @@ data class BoardTaskReport(
     val `next`: String,
     val `revision`: Long,
     val `updatedAt`: String?,
-    val `updatedBy`: BoardWriter?
+    val `updatedBy`: BoardWriter?,
+    val `steps`: String? = null,
+    val `stepsWrittenAt`: String? = null
 )
 
 @Serializable
@@ -2722,7 +2725,8 @@ data class BoardTaskSnapshot(
 data class BoardTaskSnapshotReport(
     val `now`: String,
     val `results`: String,
-    val `next`: String
+    val `next`: String,
+    val `steps`: String? = null
 )
 
 @Serializable

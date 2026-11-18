@@ -193,7 +193,7 @@
 		>
 			<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
 				{#if row.task.state && row.task.state.kind !== 'working'}
-					{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
+					{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: CircleHelpIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
 					<StateIcon class="size-3.5 text-(--task-status)" />
 				{:else if needsYou && (warned || row.task.state?.kind === 'failed')}
 					<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />

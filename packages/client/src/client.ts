@@ -184,6 +184,8 @@ export type HarnessClientOptions = {
 	webSocketFactory?: WebSocketFactory;
 	clientName?: string;
 	clientVersion?: string;
+	/** Wire features the caller can read; opt in only once it handles the new shapes. */
+	clientFeatures?: readonly string[];
 	/** Protocol version to announce. Default: this client's compiled-in version. */
 	protocolVersion?: number;
 	requestTimeoutMs?: number;
@@ -301,6 +303,7 @@ export class HarnessClient {
 	readonly #webSocketFactory: WebSocketFactory;
 	readonly #clientName: string;
 	readonly #clientVersion: string | undefined;
+	readonly #clientFeatures: readonly string[] | undefined;
 	readonly #protocolVersion: number;
 	readonly #requestTimeoutMs: number;
 	readonly #reconnect: boolean;
@@ -346,6 +349,7 @@ export class HarnessClient {
 		this.#webSocketFactory = options.webSocketFactory ?? defaultWebSocketFactory;
 		this.#clientName = options.clientName ?? "aiki-client";
 		this.#clientVersion = options.clientVersion;
+		this.#clientFeatures = options.clientFeatures;
 		this.#protocolVersion = options.protocolVersion ?? PROTOCOL_VERSION;
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? 20_000;
 		this.#reconnect = options.reconnect !== false;
@@ -1650,6 +1654,7 @@ export class HarnessClient {
 					client: {
 						name: this.#clientName,
 						...(this.#clientVersion === undefined ? {} : { version: this.#clientVersion }),
+						...(this.#clientFeatures === undefined ? {} : { features: [...this.#clientFeatures] }),
 					},
 				},
 				this.#requestTimeoutMs,

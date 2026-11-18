@@ -218,7 +218,11 @@ export const HelloRequestSchema = Type.Object({
 	id: RequestIdSchema,
 	protocolVersion: Type.Integer(),
 	auth: Type.Optional(Type.Object({ accessToken: Type.String() })),
-	client: Type.Optional(Type.Object({ name: Type.String(), version: Type.Optional(Type.String()) })),
+	client: Type.Optional(Type.Object({
+		name: Type.String(),
+		version: Type.Optional(Type.String()),
+		features: Type.Optional(Type.Array(Type.String(), { description: "Wire features the client can read. Omit for legacy behavior." })),
+	})),
 });
 export type HelloRequest = Static<typeof HelloRequestSchema>;
 
@@ -386,12 +390,13 @@ export const HARNESS_FEATURES = [
  "project-skills",
  "user-settings",
  "thread-state",
+	"task-steps",
 ] as const;
 export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
-/** Missing hello.features is never evidence of device-auth support. */
+/** The original capabilities assumed when a legacy server omits hello.features. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1",);
+	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps",);
 
 export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("projects"),
@@ -455,6 +460,7 @@ export const HarnessFeatureSchema = Type.Union([
  Type.Literal("project-skills"),
  Type.Literal("user-settings"),
  Type.Literal("thread-state"),
+	Type.Literal("task-steps"),
 ]);
 export type HarnessFeatureValue = Static<typeof HarnessFeatureSchema>;
 

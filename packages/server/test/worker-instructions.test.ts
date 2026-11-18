@@ -36,7 +36,7 @@ describe("workerInstructions", () => {
 	it("routes reusable detail onto the task first for both coordinators", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("Would the user need this again? Put it on the task first:");
-			expect(text).toContain("Next: a full numbered list with exact values and copyable commands. Keep it there until the user has done the steps.");
+			expect(text).toContain("Manual steps outside the harness → `steps` (Your steps) in `write_report`: a full numbered list with exact values and copyable commands. It stays when Next is rewritten. Clear it with an empty string once the steps are done.");
 			expect(text).toContain("A choice → `ask`; explain the options in the question.");
 			expect(text).toContain("A finding → Results, in full, once.");
 			expect(text).toContain("Detail longer than a screen → a file on the task (`artifact_save` with `taskId`).");

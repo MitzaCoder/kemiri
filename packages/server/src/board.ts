@@ -261,7 +261,10 @@ export function addSnapshot(
 		title: task.title,
 		status: task.status,
 		...(task.waiting === undefined ? {} : { waiting: plain(task.waiting) }),
-		report: { now: task.report.now, results: task.report.results, next: task.report.next },
+		report: {
+			now: task.report.now, results: task.report.results, next: task.report.next,
+			...(task.report.steps ? { steps: task.report.steps } : {}),
+		},
 	});
 	if (history.snapshots.length > KEPT_SNAPSHOTS) history.snapshots.splice(0, history.snapshots.length - KEPT_SNAPSHOTS);
 	task.snapshots = history.snapshots.length;
@@ -377,7 +380,7 @@ export async function snapshotStatusChanges(
 export type ReportWrite = {
 	taskId: string;
 	/** Replace these sections whole; an empty string clears one. */
-	sections: { now?: string | undefined; results?: string | undefined; next?: string | undefined };
+	sections: { now?: string | undefined; results?: string | undefined; next?: string | undefined; steps?: string | undefined };
 	/** A line added to the end of `results`, as a bullet. */
 	addResult?: string | undefined;
 	by: BoardWriter;
@@ -393,13 +396,13 @@ export type ReportWrite = {
 export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
-	const { now, results, next } = input.sections;
-	if (now === undefined && results === undefined && next === undefined && input.addResult === undefined) {
-		throw new ServerError("bad_request", "A report write names at least one of now, results and next");
+	const { now, results, next, steps } = input.sections;
+	if (now === undefined && results === undefined && next === undefined && steps === undefined && input.addResult === undefined) {
+		throw new ServerError("bad_request", "A report write names at least one of now, results, next and steps");
 	}
 	const report = (task.report ??= emptyReport());
 	initializeTaskFreshness(state, task);
-	const previous = { results: report.results, next: report.next };
+	const previous = { results: report.results, next: report.next, steps: report.steps };
 	if (now !== undefined) {
   if (!state.taskActivityEnabled) report.now = now.trim();
   else {
@@ -410,6 +413,16 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
  }
 	if (results !== undefined) report.results = results.trim();
 	if (next !== undefined) report.next = next.trim();
+	if (steps !== undefined) {
+		const markdown = steps.trim();
+		if (!markdown) {
+			delete report.steps;
+			delete report.stepsWrittenAt;
+		} else if (markdown !== report.steps) {
+			report.steps = markdown;
+			report.stepsWrittenAt = input.now;
+		}
+	}
 	if (input.addResult !== undefined) {
 		const line = input.addResult.trim();
 		const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
@@ -420,7 +433,7 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
-	if (state.taskActivityEnabled && previous.results === report.results && previous.next === report.next) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
+	if (state.taskActivityEnabled && previous.results === report.results && previous.next === report.next && previous.steps === report.steps) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
  report.revision += 1;
 	report.updatedAt = input.now;
 	report.updatedBy = { ...input.by };
@@ -991,7 +1004,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
    if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
     const done = subtaskStates.filter(kind => kind === "done").length;
     const working = subtaskStates.filter(kind => kind === "working").length;
-    const needsYou = subtaskStates.filter(kind => ["failed", "answer_needed", "review"].includes(kind)).length;
+    const needsYou = subtaskStates.filter(kind => ["failed", "answer_needed", "steps_needed", "review"].includes(kind)).length;
     activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${subtaskStates.length} parts done${working ? ` · ${working} working` : ""}${needsYou ? ` · ${needsYou} needs you` : ""}`, since: derived.since, refs: derived.refs };
     shown = { ...derived, sentence: { ...activity, ageFormat: "none" } };
    }
@@ -1924,6 +1937,7 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	if (task.eventSeq !== undefined) lines.push(`eventSeq: ${task.eventSeq} (pass as coveredEventSeq after reading this task; only rewritten sections cover it)`);
 	if (report.freshness !== undefined) for (const name of ["results", "next"] as const) lines.push(`${name} freshness: ${JSON.stringify(report.freshness[name])}`);
 	lines.push(`now: ${report.now === "" ? "(empty)" : report.now}`);
+	if (report.steps?.trim()) lines.push(`Your steps:\n${report.steps}`);
 	lines.push(`results: ${report.results === "" ? "(empty)" : report.results}`);
 	lines.push(`next: ${report.next === "" ? "(empty)" : report.next}`);
 	if (extras !== undefined) {
@@ -3229,7 +3243,7 @@ const BoardToolParameters = Type.Object({
 		],
 		{
 			description:
-				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and results or next; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
+				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of results, next or steps; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
 		},
 	),
 	waitingFor: Type.Optional(Type.String({ maxLength: 2000, description: "Required when setting waiting: the external review, release or reply the user named." })),
@@ -3280,7 +3294,8 @@ const BoardToolParameters = Type.Object({
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
 	results: Type.Optional(Type.String({ description: "write_report: what came out of the task, with evidence (commit, artifact, test run), rewritten whole." })),
-	next: Type.Optional(Type.String({ description: "write_report: what comes next and who does it, rewritten whole. Keep the user's steps and commands complete until done." })),
+	next: Type.Optional(Type.String({ description: "write_report: what comes next and who does it, rewritten whole." })),
+	steps: Type.Optional(Type.String({ description: "write_report Your steps: steps to do by hand outside the harness, as a numbered Markdown list with exact values and copyable commands. Rewritten whole; an empty string clears it when done." })),
 	milestone: Type.Optional(
 		Type.String({ minLength: 1, description: 'write_report: a few words naming something meaningful that just happened, e.g. "First version merged". Saves a snapshot of the task.' }),
 	),
@@ -3508,7 +3523,7 @@ function createBoardExtension(service: BoardService): Extension {
 							(change) => api.commit(change, context),
 							{
 								taskId: id,
-								sections: { now: input.now, results: input.results, next: input.next },
+								sections: { now: input.now, results: input.results, next: input.next, steps: input.steps },
 								by: writer,
 								milestone: input.milestone,
 							coveredEventSeq: input.coveredEventSeq,
@@ -3517,7 +3532,7 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						const warning = pointsAtChat(input.results) || pointsAtChat(input.next) ? CHAT_POINTER_WARNING : "";
+						const warning = pointsAtChat(input.results) || pointsAtChat(input.next) || pointsAtChat(input.steps) ? CHAT_POINTER_WARNING : "";
 						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${warning}`, {
 							details: { taskId: task.id },
 						});

@@ -32,6 +32,7 @@ import {
 	type WorkerDefaults,
 	type WorkerSummary,
 	type Board,
+	type BoardTask,
 	type ThreadSummary,
 	CLIENT_MESSAGE_TYPES,
 	ClientMessageSchema,
@@ -136,6 +137,31 @@ function endMessage(end: WatchEnd): string | undefined {
 	return undefined;
 }
 
+// Old web clients index their glyphs by kind without a fallback. Keep the Needs you
+// group and use a known kind both for the task itself and for part progress.
+function withLegacyTaskKinds(task: BoardTask): BoardTask {
+	let { state, subtaskStates } = task;
+	if (state?.kind === "steps_needed") state = {
+		...state, kind: "review",
+		...(state.sentence ? { sentence: { ...state.sentence, text: "Manual action needed" } } : {}),
+	};
+	if (subtaskStates?.includes("steps_needed")) subtaskStates = subtaskStates.map(kind => kind === "steps_needed" ? "review" : kind);
+	return state === task.state && subtaskStates === task.subtaskStates ? task : { ...task, state, subtaskStates };
+}
+
+function withLegacyTaskState(message: ServerMessage): ServerMessage {
+	switch (message.type) {
+		case "board.get":
+		case "board.state":
+			return { ...message, board: { ...message.board, tasks: message.board.tasks.map(withLegacyTaskKinds) } };
+		case "board.report.stale":
+		case "board.task.save":
+			return { ...message, task: withLegacyTaskKinds(message.task) };
+		default:
+			return message;
+	}
+}
+
 export class ClientConnection {
 	readonly #userSettings: UserSettingsStore | undefined;
 	notifyUserSettings(settings: UserSettings): void {
@@ -164,6 +190,7 @@ export class ClientConnection {
 	readonly #terminals = new Map<number, TerminalAttachment>();
 	#terminalSequence = 0;
 	#ready = false;
+	#clientSupportsTaskSteps = false;
 	readonly #mcpOwner = crypto.randomUUID();
 	#closed = false;
 	#watchSequence = 0;
@@ -1314,6 +1341,7 @@ export class ClientConnection {
 			this.#io.close(1002, "unsupported protocol version");
 			return;
 		}
+		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#ready = true;
 		this.#respond({
 			type: "hello",
@@ -1549,7 +1577,7 @@ export class ClientConnection {
 		}
 		if (this.#closed) return;
 		try {
-			this.#io.send(message);
+			this.#io.send(this.#clientSupportsTaskSteps ? message : withLegacyTaskState(message));
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);
 			this.#io.close(1011, "send failed");

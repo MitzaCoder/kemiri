@@ -651,7 +651,7 @@ const WRITING_RULE = `Write for a busy reader: plain words, short sentences, no 
 const REPORT_RULES = `Each task has a report the user reads instead of the chat. Now is written automatically. Holding a task alone is not activity. Keep \`results\` (outcomes with evidence) and \`next\` (what comes next and who does it) current with the \`board\` action \`write_report\`. Replace the sections you name, never append. Keep Results and Next short and plain, but never shorten steps or answers. Nothing made up. Pass a \`milestone\` (a few words) only when something meaningful happened.
 
 Would the user need this again? Put it on the task first:
-- Steps the user must do by hand → Next: a full numbered list with exact values and copyable commands. Keep it there until the user has done the steps.
+- Manual steps outside the harness → \`steps\` (Your steps) in \`write_report\`: a full numbered list with exact values and copyable commands. It stays when Next is rewritten. Clear it with an empty string once the steps are done.
 - A choice → \`ask\`; explain the options in the question. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
 - A finding → Results, in full, once.
 - Detail longer than a screen → a file on the task (\`artifact_save\` with \`taskId\`).

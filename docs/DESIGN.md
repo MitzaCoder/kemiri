@@ -2609,8 +2609,13 @@ is where they talk.
   commit, artifact, test run) and `next`. A write replaces the sections it names; agents rewrite and shorten rather
   than append. Plain English, terse, nothing made up. No length limits in code: the prompts carry the rule, and we
   watch how the models do.
+- **Your steps (T278 / D102).** Optional `report.steps` is a full numbered Markdown list of manual actions, with
+  exact values and copyable commands. `write_report` replaces it whole; an empty string clears it. Results and
+  Next rewrites leave it alone. `show_task` puts it above Results and Next; snapshots save the text. The live
+  report carries `stepsWrittenAt` for the current text. Steps have no staleness tracking and writing them alone
+  does not invalidate Results or Next. Clients gate the section on server `hello.features` containing `task-steps`.
 - **Who writes.** Workers update `now` (and may add to `results`) of the task they were spawned for, through their
-  own tool. The coordinator owns status, `results`, `next`, questions and decisions. Background threads report on
+  own tool. The coordinator owns status, `results`, `next`, `steps`, questions and decisions. Background threads report on
   the task they were started for. Report writes have their own revision and never conflict with the user's edits.
 - **Questions and warnings are separate items**, board questions linked to the task (`kind: "warning"` for warnings),
   so a rewrite cannot drop them. They stay until the user answers or acknowledges them.
@@ -2934,8 +2939,14 @@ First match wins, using the same blocking-question, run and deployment facts as 
    without any open task blocker → needs_you/failed. Bare blocked with open blockers uses rule 5.
 3. Open blocking question waiting on the owner → needs_you/answer_needed. Questions default blocking, warnings
    nonblocking; `blocksWork` overrides either. Refs are question IDs.
+3a. Non-empty Your steps → needs_you/steps_needed, after Failed and Answer needed, before
+   Review and any working or waiting kind. Clearing the steps restores normal derivation;
+   closing the task takes precedence without removing the text. The sentence is “Your steps”.
+   The wire uses `steps_needed` only if both server `hello.features` and request `hello.client.features`
+   include `task-steps`. Otherwise the state and part-kind array use `review` instead, retaining Needs you
+   without sending an unknown kind to older clients. Additive report fields are safe to ignore.
 3b. Open question/warning waiting on the agent → in_progress/clarifying, refs question IDs.
-   This follows Answer needed and precedes Working, even for nonblocking warnings.
+   This follows Answer needed and Your steps and precedes Working, even for nonblocking warnings.
 4. Running task-focused worker/thread/coordinator or deployment → in_progress/working.
 5. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
 6. Stored review → needs_you/review.
@@ -3007,7 +3018,7 @@ excluding dropped (including archived done parts), next to the existing `subtask
 It is derived, never persisted as a new task fact. The done/total count and array cover the
 same parts. Old clients ignore it; new clients without the capability or field keep the ring.
 A parent's activity/state sentence is “N of M parts done”, appending nonzero “· K working”
-and “· K needs you” counts (failed/answer_needed/review). Its own Needs you or Waiting
+and “· K needs you” counts (failed/answer_needed/steps_needed/review). Its own Needs you or Waiting
 sentence takes precedence; closed parents retain Done/Dropped. List metadata renders the
 summary once inside the fold disclosure instead of repeating it as an activity line.
 Ages share the existing local minute clock, with no additional reads. Board moves offer To do,
@@ -3932,7 +3943,7 @@ its own list, and a timeline; the description stays the original ask and the rep
   refer to the entry; older readers take the task ID up to the comma.
   - State: `open` → `handling` → `addressed`, or `dismissed` ("not needed"). An addressed entry needs a note with
     the answer itself or what addressed it (a commit or result). Each change is kept with who made it (`changes`).
-  - The `board` tool saves feedback notes and `write_report` Results and Next even if they point to the chat for
+  - The `board` tool saves feedback notes and `write_report` Your steps, Results and Next even if they point to the chat for
     detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`
     to put it back); the user dismisses and reopens in the app (`board.feedback.set`), and the coordinator that holds the

@@ -3,7 +3,7 @@ import type { BoardTask, BoardTaskInput } from "@kemiri/protocol";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, saveTask, unblockedBy, type BoardState } from "../src/board.ts";
+import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, saveTask, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
 import { activityTracking, endActivitySource, taskState, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
@@ -48,6 +48,35 @@ it("blocking questions override deploy, live sources and blockers; warnings use 
  expect(derive(s).kind).toBe("working");
  askQuestion(s, { taskId: "T1", text: "Explicit", kind: "warning", blocksWork: true, options: [], now: at(3) });
  expect(derive(s)).toMatchObject({ kind: "answer_needed", since: at(3), refs: ["Q2"] });
+});
+
+it("ranks open steps below failure and answers but above review, work and waiting", () => {
+ const s = emptyBoardState(); add(s, { status: "review" });
+ const write = (steps: string, ms: number) => writeReport(s, { taskId: "T1", sections: { steps }, by: HARNESS_WRITER, now: at(ms) });
+ expect(LEGACY_HARNESS_FEATURES).not.toContain("task-steps");
+ expect(derive(s).kind).toBe("review");
+ const before = writeReport(s, { taskId: "T1", sections: { next: "Verify", results: "Prepared" }, by: HARNESS_WRITER, now: at(1) });
+ const written = write("1. Apply the setting.", 2);
+ expect(written.report.freshness).toEqual(before.report.freshness);
+ expect(written.eventSeq).toBe(before.eventSeq);
+ expect(derive(s)).toMatchObject({ group: "needs_you", kind: "steps_needed", since: at(2) });
+ writeReport(s, { taskId: "T1", sections: { next: "Check the new value" }, by: HARNESS_WRITER, now: at(3) });
+ expect(derive(s).since).toBe(at(2));
+ for (const status of ["in_progress", "waiting"] as const) {
+  s.tasks[0]!.status = status;
+  expect(derive(s).kind).toBe("steps_needed");
+ }
+ source(s);
+ expect(derive(s).kind).toBe("steps_needed");
+ askQuestion(s, { taskId: "T1", text: "Choose a value", options: [], now: at(4) });
+ expect(derive(s).kind).toBe("answer_needed");
+ source(s, "failed", "failed-run");
+ expect(derive(s).kind).toBe("failed");
+ for (const status of ["done", "dropped"] as const) {
+  update(s, "T1", { status }, "user");
+  expect(derive(s)).toMatchObject({ group: "closed", kind: status });
+  expect(s.tasks[0]!.report.steps).toBe("1. Apply the setting.");
+ }
 });
 
 it.each(["worker", "thread", "coordinator", "deploy"] as const)("live %s overrides blocker and review", kind => {

@@ -13,6 +13,7 @@ export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks
 	switch (task.state?.kind) {
 		case 'failed': return 'Failed';
 		case 'answer_needed': return 'Answer needed';
+		case 'steps_needed': return 'Your steps';
 		case 'review': return 'Ready for review';
 		case 'working': return 'Working';
 		case 'clarifying': return 'Clarifying';
@@ -34,14 +35,14 @@ export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks
 export function taskStateStatus(task: Pick<BoardTask, 'state' | 'status'>): BoardTask['status'] {
 	switch (task.state?.kind) {
 		case 'failed': return 'blocked';
-		case 'answer_needed': return 'review';
+		case 'answer_needed': case 'steps_needed': return 'review';
 		case 'working': case 'clarifying': return 'in_progress';
 		case 'paused': case 'blocked_by_task': case 'waiting_outside': return 'waiting';
 		default: return task.state?.kind ?? task.status;
 	}
 }
 
-const KIND_ORDER: Record<string, number> = { failed: 0, answer_needed: 1, review: 2, working: 0, clarifying: 0, paused: 1 };
+const KIND_ORDER: Record<string, number> = { failed: 0, answer_needed: 1, steps_needed: 2, review: 3, working: 0, clarifying: 0, paused: 1 };
 /** Derived groups share the same sorting on the list and board. */
 export function compareTaskStates(left: BoardTask, right: BoardTask): number {
 	if (!left.state || !right.state) return left.order - right.order;

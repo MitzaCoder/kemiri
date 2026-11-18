@@ -112,6 +112,7 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  if (task.status === "blocked" && (task.blockedReason?.trim() || !blockers.length)) return make("needs_you", "failed");
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("needs_you", "answer_needed", blocking[0].askedAt, blocking.map(q => q.id));
+ if (task.report?.steps?.trim()) return make("needs_you", "steps_needed", task.report.stepsWrittenAt ?? since);
  const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
  if (clarifying[0]) return make("in_progress", "clarifying", clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
  const live = Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
@@ -145,6 +146,7 @@ function taskStateSentence(kind: BoardTaskState["kind"], task: BoardTask, questi
    const blocking = blockingTaskQuestions(task, questions);
    return make("question", `Answer needed: ${short(blocking[0]?.text ?? "Answer the question")}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}`, "none");
   }
+  case "steps_needed": return make("review", "Your steps", "none");
   case "clarifying": return { ...activity, ageFormat: "duration" };
   case "review": return make("review", "Ready for review");
   case "working": {
