@@ -1,6 +1,4 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
-	import { replyTasksByPart, type ReplyTaskMentions } from '#lib/chat/keep-on-task.js';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
 	import CoinsIcon from '@lucide/svelte/icons/coins';
@@ -38,8 +36,7 @@
 		ended,
 		model,
 		usage,
-		cacheMisses = [],
-		replyTasks
+		cacheMisses = []
 	}: {
 		parts: readonly TurnPart[];
 		streaming?: boolean;
@@ -65,12 +62,10 @@
 		usage?: TurnUsage;
 		/** Requests of this turn that re-billed much of the cached prompt; each gets a line under the reply. */
 		cacheMisses?: readonly CacheMiss[];
-		replyTasks?: Snippet<[ReplyTaskMentions]>;
 	} = $props();
 
 	const text = $derived(turnText(parts));
 	const lastKey = $derived(parts.at(-1)?.key);
-	const tasksByPart = $derived(replyTasks ? replyTasksByPart(parts) : undefined);
 	const rows = $derived(groupTurnParts(parts));
 	const elapsed = $derived(timestamp !== undefined && ended !== undefined ? ended - timestamp : undefined);
 	/** The reply's time always shows; its duration, model, tokens and cost wait for a hover, a focus or a tap on the time. */
@@ -117,9 +112,7 @@
 						{threadCards}
 					/>
 				{:else if row.part.type === 'text'}
-					{@const mentions = tasksByPart?.get(row.part.key)}
 					<Markdown source={row.part.text} streaming={streaming && row.part.key === lastKey} class="my-2" />
-					{#if mentions}{@render replyTasks?.(mentions)}{/if}
 				{:else if row.part.type === 'tool'}
 					<CallCard
 						part={row.part}

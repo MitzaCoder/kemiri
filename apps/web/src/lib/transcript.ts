@@ -122,12 +122,10 @@ export type ToolPart = {
 	viaScript?: { code: string };
 };
 
-export type CommittedReply = { conversationId: number; entryId: number };
-
 /** A piece of a turn, in the order the model produced it. */
 export type TurnPart =
 	| { type: "thinking"; key: string; text: string; streaming?: boolean }
-	| { type: "text"; key: string; text: string; reply?: CommittedReply }
+	| { type: "text"; key: string; text: string }
 	| ToolPart
 	| { type: "error"; key: string; message: string }
 	| { type: "stopped"; key: string };
@@ -777,7 +775,7 @@ export function buildTranscript(
 						} else if (block.type === "text") {
 							const text = (block as TextBlock).text;
 							if (text.trim().length > 0) {
-								builder.parts.push({ type: "text", key: part(), text, reply: { conversationId: entry.conversationId, entryId: entry.id } });
+								ensureTurn().parts.push({ type: "text", key: part(), text });
 							}
 						} else if (block.type === "toolCall") {
 							pushTool(block as ToolCallBlock);

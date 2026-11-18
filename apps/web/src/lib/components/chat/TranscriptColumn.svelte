@@ -11,7 +11,6 @@
 	import type { MemoryScope } from '@kemiri/protocol';
 	import AgentMascot from '#lib/components/AgentMascot.svelte';
 	import { CHAT_COLUMN_CLASS } from '#lib/chat/layout.js';
-	import type { ReplyTaskMentions } from '#lib/chat/keep-on-task.js';
 	import type { TranscriptItem } from '#lib/transcript.js';
 	import AssistantTurn from './AssistantTurn.svelte';
 	import CompactionMarker from './CompactionMarker.svelte';
@@ -56,8 +55,7 @@
 		empty,
 		onquote,
 		onwaiting,
-		waitingTarget = 'coordinator',
-		replyTasks
+		waitingTarget = 'coordinator'
 	}: {
 		items: readonly TranscriptItem[];
 		/** The directory tool cards shorten paths against. */
@@ -97,8 +95,6 @@
 		onwaiting?: (key: string, action: 'edit' | 'cancel' | 'retry') => void;
 		/** Who a waiting message is for, in its status line. */
 		waitingTarget?: 'coordinator' | 'thread';
-		/** Supplied only by a project coordinator’s chat, never a worker transcript. */
-		replyTasks?: Snippet<[ReplyTaskMentions]>;
 	} = $props();
 
 	const lastTurn = $derived(items.filter(item => item.kind === 'turn').at(-1));
@@ -274,7 +270,6 @@
 						{:else if item.kind === 'turn'}
 							<AssistantTurn
 								parts={item.parts}
-								{replyTasks}
 								streaming={item.streaming === true}
 								motion={agentTurnWorking(item, running) ? (waitingForUser ? 'waiting' : 'working') : completed && item.key === lastTurn?.key ? 'done' : 'idle'}
 								{cwd}

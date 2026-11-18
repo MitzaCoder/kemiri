@@ -1,7 +1,7 @@
 import { buildTimelineGroups, recordTimelineRun, timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { deploySummary, type TaskDeployFact } from "./task-deploys.ts";
 import { activityTracking, taskActivity, endActivitySource, setActivityPhase, type TaskActivityTracking, DELIVERY_ACTIVITY_MS, taskState, taskQuietSince, TASK_PAUSED_MS, openTaskBlockers, pauseEpisode } from "./task-activity.ts";
-import { contentText, type Models } from "@earendil-works/pi-ai";
+import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
 import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
@@ -31,7 +31,7 @@ import { OWNER_CHAT_ENTRY } from "./wire.ts";
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
-import type { Conversation, ConversationId, EntryId, Extension, Harness, JsonObject, ToolRegistration, Tx } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationId, Extension, Harness, JsonObject, ToolRegistration, Tx } from "@earendil-works/pi-durable";
 import { LiveDoc, type LiveState, GenerationTask, hook, defineDoc, defineDocFamily, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import {
 	BOARD_PREFIX,
@@ -202,8 +202,6 @@ export type TaskHistoryState = {
 	feedback?: BoardFeedback[];
 	/** Request IDs of messages already recorded as feedback, with the entry each made, so a re-sent message adds none. */
 	feedbackKeys?: { key: string; id: string }[];
-	/** Keep on task receipts, keyed by the source conversation and entry IDs, even after feedback ages out. */
-	keptReplyFeedbackIds?: Record<string, string>;
 	/** Bumped on every change of the above, snapshots included; the task carries it as `timelineRevision`. */
 	revision?: number;
 };
@@ -568,15 +566,6 @@ export async function snapshotMilestone(
 
 /** The longest user message a feedback entry keeps whole. */
 const FEEDBACK_TEXT_CHARS = 8_000;
-const KEEP_ON_TASK_QUOTE_CHARS = 4_000;
-
-function keepOnTaskFeedbackText(reply: string): string {
-	// Bound the formatted quote too: Markdown prefixes can outweigh the original text.
-	const quote = reply.slice(0, KEEP_ON_TASK_QUOTE_CHARS).replace(/\r\n?/g, "\n").replace(/^/gm, "> ");
-	const truncated = reply.length > KEEP_ON_TASK_QUOTE_CHARS || quote.length > KEEP_ON_TASK_QUOTE_CHARS;
-	const excerpt = quote.slice(0, KEEP_ON_TASK_QUOTE_CHARS).replace(/[\uD800-\uDBFF]$/, "").trimEnd();
-	return `Keep on task: put the detail of this reply on the task.\n\n${excerpt}${truncated ? "\n\n(Reply truncated.)" : ""}`;
-}
 /** What the user may do with an entry from the app; the coordinator may not dismiss. */
 export const COORDINATOR_FEEDBACK_STATES: readonly BoardFeedbackState[] = ["open", "handling", "addressed"];
 
@@ -591,20 +580,22 @@ function unknownFeedback(taskId: string, feedbackId: string): ServerError {
 }
 
 /**
- * Record feedback on a task, `open`. When supplied, `key` is the message's request ID: a re-sent message finds
- * its entry instead of adding another. Returns the entry and counts it on the task.
+ * Record a user message about a task as a feedback entry, `open`. `key` is the message's request ID: a re-sent message finds
+ * its entry instead of adding another. Returns the entry. Counts it on the task.
  */
 export function recordFeedback(
 	state: BoardState,
 	history: TaskHistoryState,
-	input: { taskId: string; text: string; images: number; threadId: string; key?: string; now: string },
+	input: { taskId: string; text: string; images: number; threadId: string; key: string; now: string },
 ): BoardFeedback {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
 	history.feedback ??= [];
-	// Read the list back from the history: inside a commit it is the document's own, which tracks the pushes.
+	history.feedbackKeys ??= [];
+	// Read the lists back from the history: inside a commit they are the document's own, which tracks the pushes.
 	const entries = history.feedback;
-	const known = input.key === undefined ? undefined : history.feedbackKeys?.find((entry) => entry.key === input.key);
+	const keys = history.feedbackKeys;
+	const known = keys.find((entry) => entry.key === input.key);
 	const existing = known === undefined ? undefined : entries.find((entry) => entry.id === known.id);
 	if (existing !== undefined) return plain(existing);
 	state.counters.feedback = (state.counters.feedback ?? 0) + 1;
@@ -621,12 +612,8 @@ export function recordFeedback(
 		changes: [],
 	};
 	entries.push(entry);
-	if (input.key !== undefined) {
-		history.feedbackKeys ??= [];
-		const keys = history.feedbackKeys;
-		keys.push({ key: input.key, id: entry.id });
-		if (keys.length > KEPT_FEEDBACK_KEYS) keys.splice(0, keys.length - KEPT_FEEDBACK_KEYS);
-	}
+	keys.push({ key: input.key, id: entry.id });
+	if (keys.length > KEPT_FEEDBACK_KEYS) keys.splice(0, keys.length - KEPT_FEEDBACK_KEYS);
 	if (entries.length > KEPT_FEEDBACK) {
 		const closed = entries.findIndex((candidate) => candidate.state === "addressed" || candidate.state === "dismissed");
 		entries.splice(closed < 0 ? 0 : closed, 1);
@@ -2429,55 +2416,6 @@ export class BoardService {
 				now,
 			});
 		}, BACKGROUND_CONTEXT);
-	}
-
-	/** Record the request and admit the input together, so a retry can never send it twice or lose it. */
-	async keepOnTask(input: { taskId: string; conversationId: number; entryId: number }): Promise<string> {
-		const { taskId, conversationId, entryId } = input;
-		if (!this.isCoordinator(conversationId)) {
-			throw new ServerError("bad_request", "The reply must be from this project's coordinator", { conversationId });
-		}
-		const replyKey = `${conversationId}:${entryId}`;
-		const sourceThread = this.threadIdOf(conversationId);
-		let target = "main";
-		let coordinator = this.coordinator;
-		for (;;) {
-			const result = await this.#options.harness.commit(async (tx) => {
-				const state = await openBoard(tx, this.#mainId);
-				const task = state.tasks.find((candidate) => candidate.id === taskId);
-				if (task === undefined) throw unknownTask(taskId);
-				if (task.status === "done" || task.status === "dropped" || task.archived) {
-					throw new ServerError("bad_request", `Task ${taskId} is closed`, { taskId });
-				}
-				const entry = await tx.entry(entryId as EntryId);
-				const reply = entry?.conversationId === conversationId && entry.kind === "pi.assistant"
-					? (entry.model ?? []).flatMap(message => message.role === "assistant" ? [contentText(message.content)] : []).join("\n").trim()
-					: "";
-				if (!reply) throw new ServerError("bad_request", "No assistant reply with text at this conversation and entry", { conversationId, entryId });
-				if (!reply.match(/\bT[1-9]\d*\b/g)?.includes(taskId)) {
-					throw new ServerError("bad_request", `The reply does not name ${taskId}`, { taskId, conversationId, entryId });
-				}
-				const history = await openTaskHistory(tx, this.#mainId, taskId);
-				const existingId = history.keptReplyFeedbackIds?.[replyKey];
-				if (existingId !== undefined) return { feedbackId: existingId, admitted: false } as const;
-				const owner = task.ownerThreadId ?? "main";
-				const ownerThread = this.knowsThread(owner) ? owner : "main";
-				// Conversation handles are loaded outside commits. Recheck ownership on the next commit.
-				if (ownerThread !== target) return { ownerThread } as const;
-				const text = keepOnTaskFeedbackText(reply);
-				const feedback = recordFeedback(state, history, { taskId, text, images: 0, threadId: sourceThread, now: this.#iso() });
-				history.keptReplyFeedbackIds ??= {};
-				history.keptReplyFeedbackIds[replyKey] = feedback.id;
-				await coordinator.submit(tx, { type: "input", content: withTaskReference(text, taskId, feedback.id), whenBusy: "followUp" });
-				return { feedbackId: feedback.id, admitted: true } as const;
-			}, BACKGROUND_CONTEXT);
-			if (result.ownerThread === undefined) {
-				if (result.admitted) await this.#woke(target);
-				return result.feedbackId;
-			}
-			target = result.ownerThread;
-			coordinator = await this.#conversationOf(target);
-		}
 	}
 
 	/**

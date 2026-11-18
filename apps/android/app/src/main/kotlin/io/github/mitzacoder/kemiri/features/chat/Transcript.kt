@@ -12,7 +12,7 @@ internal fun contentText(content: JsonElement?): String = when(content) {
     is JsonArray -> content.objects().filter { it.s("type") == "text" }.joinToString("\n") { it.s("text") }
     else -> ""
 }
-data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null, val committedReply: CommittedReply? = null)
+data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null)
 /**
  * What a turn (everything the coordinator did between two user messages) took, for the footer under its last row: its
  * start and end, the model, the tokens and cost summed over its requests, the requests that re-billed much of the
@@ -122,19 +122,10 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
         if(e.kind != "pi.assistant") cache.observeEntry(e.kind,e.model)
         if(e.kind in setOf("pi.user","pi.reset","pi.compaction")) flush()
         when(e.kind) {
-            "pi.assistant" -> {
-                val start = parts.size
-                messages.forEachIndexed { i,m ->
-                    absorb(m)
-                    cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
-                    assistant(m,"entry-${e.id}-$i")
-                }
-                if (e.conversationId > 0 && e.id > 0) {
-                    val textIndices = (start until parts.size).filter { parts[it].kind == "text" && parts[it].text.isNotBlank() }
-                    textIndices.lastOrNull()?.let { last ->
-                        parts[last] = parts[last].copy(committedReply = CommittedReply(e.conversationId, e.id, textIndices.map { parts[it].text }))
-                    }
-                }
+            "pi.assistant" -> messages.forEachIndexed { i,m ->
+                absorb(m)
+                cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
+                assistant(m,"entry-${e.id}-$i")
             }
             "pi.user" -> messages.forEachIndexed { i,m ->
                 val text = contentText(m["content"])

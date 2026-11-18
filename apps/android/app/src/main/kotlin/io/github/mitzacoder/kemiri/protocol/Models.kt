@@ -2903,23 +2903,6 @@ data class BoardFeedbackSetRequest(
 )
 
 @Serializable
-data class BoardKeepOnTaskRequest(
-    @kotlinx.serialization.EncodeDefault val `type`: String = "board.keepOnTask",
-    val `id`: String = java.util.UUID.randomUUID().toString(),
-    val `projectId`: String,
-    val `taskId`: String,
-    val `conversationId`: Long,
-    val `entryId`: Long
-)
-
-@Serializable
-data class BoardKeepOnTaskResponse(
-    @kotlinx.serialization.EncodeDefault val `type`: String = "board.keepOnTask",
-    val `id`: String,
-    val `feedbackId`: String
-)
-
-@Serializable
 data class BoardTaskTimelineResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.task.timeline",
     val `id`: String,

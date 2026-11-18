@@ -178,28 +178,6 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val lineRows = remember(rows) { rows.map(::isTaskLineRow) }
     val taskLinks = LocalTaskLinks.current
     val boardView by context.board.view.collectAsStateWithLifecycle()
-    val keepStatuses = remember(context.target) { mutableStateMapOf<ReplyTaskKey, ReplyKeepStatus>() }
-    val supportsTaskReports = connection.supports(HarnessFeature.TASK_REPORTS)
-    val keepSupported = connection.supports(HarnessFeature.KEEP_ON_TASK)
-    val stepsSupported = connection.supports(HarnessFeature.TASK_STEPS)
-    val replyTasks = remember(boardView.board) { boardView.board?.tasks.orEmpty().associateBy { it.id } }
-    val replyTaskContent: (@Composable (ChatPart) -> Unit)? = if (context.route.workerId == null && supportsTaskReports) { { part ->
-        committedCoordinatorReply(part, context.route.workerId, supportsTaskReports)?.let { reply ->
-            ReplyTaskCards(reply, context, replyTasks, boardView.questions, stepsSupported, keepSupported, keepStatuses) { task ->
-                val key = ReplyTaskKey(reply, task.id)
-                if (keepStatuses[key] == ReplyKeepStatus.Keeping || keepStatuses[key] is ReplyKeepStatus.Kept ||
-                    !canKeepOnTask(context.backend.client.supports(HarnessFeature.KEEP_ON_TASK), task)) return@ReplyTaskCards
-                keepStatuses[key] = ReplyKeepStatus.Keeping
-                scope.launch {
-                    keepStatuses[key] = when (val result = keepReplyOnTask(context.route.projectId, task.id, reply) { context.backend.client.request(it) }) {
-                        is KeepReplyResult.Kept -> ReplyKeepStatus.Kept(result.feedbackId)
-                        is KeepReplyResult.Failed -> ReplyKeepStatus.Failed(result.message)
-                    }
-                }
-            }
-        }
-    } } else null
-
     val onMain = context.route.workerId == null && sameThread(context.route.threadId,null)
     /** What the `#` picker offers; null hides it (a thread's chat, no board, a server without task reports). */
     val taskChoicesSource = if(onMain && taskLinks != null) remember(boardView.tasks) { taskOptions(boardView.tasks) } else null
@@ -310,7 +288,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if (isBackgroundJobPage(context.route)) activeThread?.let {
             BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get))
         }
-        val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles,replyTaskContent)
+        val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
         Box(Modifier.weight(1f).fillMaxWidth()) {

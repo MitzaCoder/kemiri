@@ -249,7 +249,7 @@ fun HarnessApp(
                 val previousTask = (stack.getOrNull(stack.lastIndex - 1) as? Destination.Task)?.takeIf { it.chat == current.chat && it.taskId == current.fromTaskId }
                 screenState.SaveableStateProvider("task-sheet:" + current.screenStateKey() + ":" + current.taskId) {
                     // Dialog recreates its registry on return; keep the reading position outside it.
-                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId, linkedFeedbackId = current.feedbackId)
+                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId)
                 }
             }
             if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)

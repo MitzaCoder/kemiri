@@ -45,7 +45,6 @@ data class TranscriptScope(
     val workerTitlesBefore: Map<String,String> = emptyMap(),
     /** Schedule titles by ID, for a worker a schedule started. */
     val scheduleTitles: Map<String,String> = emptyMap(),
-    val replyTasks: (@Composable (ChatPart) -> Unit)? = null,
 )
 
 @Composable private fun ToolDestination(part: ChatPart, context: ProjectScreenContext) {
@@ -174,7 +173,6 @@ private const val ORB_MIN_WIDTH_DP = 640
             first.kind == "user" -> UserMessage(first, scope.context)
             else -> TaskMentions(streaming,source = first.text) { RichMarkdown(first.text,Modifier.fillMaxWidth()) }
         }
-        scope.replyTasks?.invoke(first)
         row.turn?.let { TurnFooter(row.key,it) }
     }
 }

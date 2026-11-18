@@ -44,8 +44,6 @@
 	import { draftKey } from '#lib/drafts.js';
 	import { draftChannel } from '#lib/draft-channel.js';
 	import EmptyState from '#lib/components/chat/EmptyState.svelte';
-	import ReplyTaskCards from './chat/ReplyTaskCards.svelte';
-	import type { ReplyTaskMentions } from '#lib/chat/keep-on-task.js';
 	import TranscriptColumn from '#lib/components/chat/TranscriptColumn.svelte';
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { taskOptions } from '#lib/task-chat.js';
@@ -951,10 +949,6 @@
 				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={projectHref(backend.id, projectId)} scheduleName={thread.scheduleId ? scheduleTitle(thread.scheduleId) : undefined} />
 			{/if}
 
-				{#snippet coordinatorReplyTasks(mentions: ReplyTaskMentions)}
-					<ReplyTaskCards {mentions} {backend} {projectId} {board} hrefOf={taskLink} />
-				{/snippet}
-
 				{#key session}
 				<TranscriptColumn
 					bind:this={transcript}
@@ -981,7 +975,6 @@
 					empty={empty ? emptyState : undefined}
 					onquote={backend.supports('conversation') ? quote : undefined}
 					onwaiting={onWaiting}
-					replyTasks={supportsTasks ? coordinatorReplyTasks : undefined}
 					waitingTarget={isThread ? 'thread' : 'coordinator'}
 				/>
 				{/key}

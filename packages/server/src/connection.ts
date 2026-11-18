@@ -855,12 +855,6 @@ export class ClientConnection {
 					this.#respond({ type: "board.task.timeline", id: request.id, taskId: request.taskId, ...timeline });
 					return;
 				}
-				case "board.keepOnTask": {
-					if (!this.#features.includes("keep-on-task")) return this.#unknownRequest(request);
-					const feedbackId = await this.#manager.keepOnTask(request.projectId, request);
-					this.#respond({ type: "board.keepOnTask", id: request.id, feedbackId });
-					return;
-				}
 				case "board.feedback.set": {
 					if (!this.#features.includes("task-links")) return this.#unknownRequest(request);
 					const feedback = await this.#manager.setBoardFeedback(request.projectId, {

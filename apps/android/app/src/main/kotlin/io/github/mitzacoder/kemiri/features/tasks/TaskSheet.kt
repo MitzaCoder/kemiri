@@ -71,7 +71,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * The fixed reply box sends to Main chat with the task ID even when opened from a thread.
  */
 @Composable
-fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null, linkedFeedbackId: String? = null) {
+fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: androidx.compose.foundation.lazy.LazyListState, previousTaskId: String? = null) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         val dark = Jarvis.colors.dark
@@ -98,15 +98,15 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
                     color = Jarvis.colors.bg,
                     shadowElevation = 12.dp,
                     border = androidx.compose.foundation.BorderStroke(1.dp, Jarvis.colors.border),
-                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState, linkedFeedbackId = linkedFeedbackId) } }
-            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState, linkedFeedbackId = linkedFeedbackId) } }
+                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
+            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
         }
         }
     }
 }
 
 @Composable
-private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: androidx.compose.foundation.lazy.LazyListState, linkedFeedbackId: String?) {
+private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: androidx.compose.foundation.lazy.LazyListState) {
     val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
     val colors = Jarvis.colors
     val board = context.board
@@ -205,16 +205,6 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
     val failedChecks = failedCheckLine(fields.checks)
     val showAgentQuestions = needsYou.questionsForAgent.isNotEmpty()
-    val linkedFeedbackFound = linkedFeedbackId != null && timeline?.feedback.orEmpty().any { it.id == linkedFeedbackId }
-    var jumpedToNotes by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
-    var revealedNote by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
-    LaunchedEffect(linkedFeedbackFound, linksEnabled, editing) {
-        if (linkedFeedbackFound && linksEnabled && !editing && !jumpedToNotes) {
-            // Results is always present; count only the optional sections shown above Your notes.
-            bodyState.scrollToItem(1 + listOf(needsYou.show, artifacts.isNotEmpty(), fields.notDoneMarkdown != null, showPlan, showAgentQuestions).count { it })
-            jumpedToNotes = true
-        }
-    }
 
     val staleReport = taskReportIsStale(connection.supports("task-freshness"), task.report)
     val owner = taskOwner(task, threads)
@@ -337,9 +327,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                             TextButton(onClick = { timelineRefresh++ }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
                         }
                         timeline?.let {
-                            TaskFeedback(it.feedback, feedbackBusy, now, { id -> threadName(id, threads) }, ::setFeedback,
-                                linkedFeedbackId = linkedFeedbackId, revealLinkedNote = jumpedToNotes && !revealedNote,
-                                onRevealed = { revealedNote = true })
+                            TaskFeedback(it.feedback, feedbackBusy, now, { id -> threadName(id, threads) }, ::setFeedback)
                         }
                         if (timeline == null && timelineProblem == null) Text("Loading notes…", style = TaskType.xs, color = colors.fgMuted)
                     }

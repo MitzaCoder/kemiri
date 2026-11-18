@@ -11,7 +11,7 @@ import DOMPurify from "dompurify";
 import { Marked, Renderer, type Token, type Tokens } from "marked";
 import remend from "remend";
 import { isTaskSelfReference } from '../task-reference-highlight.js';
-import { linkTaskMentions, taskIdsIn } from "../task-chat.ts";
+import { linkTaskMentions } from "../task-chat.ts";
 
 type SelfReferenceToken = { selfReferenceId?: string };
 
@@ -130,26 +130,25 @@ function renderToken(token: Token, userMessage: boolean, taskMentions = false): 
 }
 
 /** Link only parsed text, never code, destinations, HTML, images or existing link labels. */
-function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefined, streamingTail?: string, openTaskId?: string, onExplicitTaskLink?: (id: string) => void): void {
+function linkTaskTokens(tokens: Token[], title: (id: string) => string | undefined, streamingTail?: string, openTaskId?: string): void {
 	for (const token of tokens) {
 		if (token.type === "link" || token.type === "codespan") {
 			const id = token.type === "link" ? /^\?task=(T\d+)$/.exec(token.href)?.[1] : token.text;
-			if (id !== undefined && token.type === "link" && taskIdsIn(token.text).includes(id)) onExplicitTaskLink?.(id);
 			if (id !== undefined && isTaskSelfReference(id, openTaskId)) (token as SelfReferenceToken).selfReferenceId = id;
 			continue;
 		}
 		if (["image", "code", "html", "escape"].includes(token.type)) continue;
 		if (token.type === "table") {
-			for (const cell of [...token.header, ...token.rows.flat()]) linkTaskTokens(cell.tokens, title, streamingTail, openTaskId, onExplicitTaskLink);
+			for (const cell of [...token.header, ...token.rows.flat()]) linkTaskTokens(cell.tokens, title, streamingTail, openTaskId);
 		} else if (token.type === "list") {
-			for (const item of token.items) linkTaskTokens(item.tokens, title, streamingTail, openTaskId, onExplicitTaskLink);
+			for (const item of token.items) linkTaskTokens(item.tokens, title, streamingTail, openTaskId);
 		} else if ("tokens" in token && token.tokens !== undefined) {
-			linkTaskTokens(token.tokens, title, streamingTail, openTaskId, onExplicitTaskLink);
+			linkTaskTokens(token.tokens, title, streamingTail, openTaskId);
 		} else if (token.type === "text") {
 			const linked = linkTaskMentions(token.text, { title, streaming: streamingTail !== undefined && streamingTail.endsWith(token.raw) });
 			if (linked !== token.text) {
 				token.tokens = marked.Lexer.lexInline(linked);
-				linkTaskTokens(token.tokens, title, streamingTail, openTaskId, onExplicitTaskLink);
+				linkTaskTokens(token.tokens, title, streamingTail, openTaskId);
 			}
 		}
 	}
@@ -191,13 +190,4 @@ export function toBlocks(source: string, streaming: boolean, userMessage = false
 /** Render inline-only markdown (titles, short labels). */
 export function renderInline(source: string): string {
 	return purify(marked.parseInline(source) as string);
-}
-
-/** Match the same prose as inline task links, plus explicit local links that name their task. */
-export function replyTaskIds(source: string): string[] {
-	if (!/T\d/.test(source)) return [];
-	const ids = new Set<string>();
-	const record = (id: string) => { ids.add(id); };
-	linkTaskTokens(marked.lexer(source), id => { record(id); return undefined; }, undefined, undefined, record);
-	return [...ids];
 }

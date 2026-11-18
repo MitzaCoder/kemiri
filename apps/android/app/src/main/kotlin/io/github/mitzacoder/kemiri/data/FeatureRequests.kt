@@ -9,7 +9,6 @@ import io.github.mitzacoder.kemiri.protocol.*
  */
 object HarnessFeature {
     const val STORAGE = "storage"
-    const val KEEP_ON_TASK = "keep-on-task"
     const val TASK_DELIVERY = "task-delivery"
     const val TASK_FIELDS = "task-fields"
     const val TASK_STEPS = "task-steps"
