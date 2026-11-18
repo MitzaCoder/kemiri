@@ -3,13 +3,15 @@ package io.github.mitzacoder.kemiri.features.tasks
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.features.status.exactTime
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -19,7 +21,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import java.text.NumberFormat
 
 @Composable
-internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks: List<BoardReportCheck>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, activityContent: (@Composable ColumnScope.() -> Unit)?) {
+internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks: List<BoardReportCheck>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, decided: List<DecidedRow>?, threadLabel: (String?) -> String, activityContent: (@Composable ColumnScope.() -> Unit)?) {
     Column {
         TaskHeading("The record", Modifier.padding(bottom = 8.dp))
         val requestOpen = readTaskRecordFold(TaskRecordRow.Request, savedFolds)
@@ -36,10 +38,12 @@ internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks:
                 checks.forEach { TaskCheck(it) }
             }
         }
-        if (decisions.isNotEmpty()) {
+        if (decided?.isNotEmpty() ?: decisions.isNotEmpty()) {
             val decidedOpen = readTaskRecordFold(TaskRecordRow.Decided, savedFolds)
             TaskFold(TaskRecordRow.Decided.title, decidedOpen, { onFoldChange(TaskRecordRow.Decided, !decidedOpen) }) {
-                decisions.forEach { decision ->
+                if (decided != null) {
+                    Column { decided.forEach { row -> key(row.id) { DecidedDisclosure(row, threadLabel) } } }
+                } else decisions.forEach { decision ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("${decision.id} · ${relativeTime(decision.at, now)}", style = TaskType.meta, color = Jarvis.colors.fgMuted)
                         ReportMarkdown(decision.text)
@@ -51,6 +55,28 @@ internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks:
         if (activityContent != null) {
             val activityOpen = readTaskRecordFold(TaskRecordRow.Activity, savedFolds)
             TaskFold(TaskRecordRow.Activity.title, activityOpen, { onFoldChange(TaskRecordRow.Activity, !activityOpen) }, content = activityContent)
+        }
+    }
+}
+
+@Composable
+private fun DecidedDisclosure(row: DecidedRow, threadLabel: (String?) -> String) {
+    val colors = Jarvis.colors
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val label = row.decision?.text ?: row.question?.answer?.takeIf { it.isNotBlank() } ?: "Question answered"
+    TaskFold(expanded, { expanded = !expanded }, heading = {
+        TaskDetailText(label, Modifier.weight(1f), style = TaskType.sectionTitle, color = colors.fg)
+    }) {
+        Column(Modifier.padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (row.question != null) {
+                TaskReadingSection("Question") { ReportMarkdown(row.question.text) }
+                row.question.answer?.takeIf { row.decision != null && it.isNotBlank() }?.let { answer ->
+                    TaskReadingSection("Answer") { ReportMarkdown(answer) }
+                }
+                val attribution = listOfNotNull(shortWriterLabel(BoardWriter("user", null, null)), row.question.answeredAt?.let(::exactTime))
+                Text(attribution.joinToString(" · "), style = TaskType.xs, color = colors.fgMuted)
+            } else Text("${threadLabel(row.decision?.threadId)} · ${exactTime(row.at)}", style = TaskType.xs, color = colors.fgMuted)
+            row.why?.takeIf { it.isNotBlank() }?.let { ReportMarkdown(it) }
         }
     }
 }

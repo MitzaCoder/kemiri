@@ -5401,7 +5401,7 @@ reachability from one tip of the configured integration ref; it does not imply p
 semantic revert from other commits that remain reachable. Live reflects the latest attributed deployment
 attempt, not a guarantee that subsequent commits are serving. A disabled feed, missing integration ref,
 and incomplete or unavailable deployment observations never imply success. Only the folded Changes
-list displays the projected commit IDs. Android decodes the optional fields but does not request them.
+list displays the projected commit IDs.
 
 **Android (T290, T297).** The sheet follows the same reading order and uses the same task fields. On
 `task-fields` backends, the goal sits under the title, the summary leads What you get, and Not done follows it.
@@ -5426,6 +5426,12 @@ lines; a stale one offers the existing update action. There is no section naviga
   Activity keeps timeline filtering and sort, snapshot history and worker links.
 - The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
   sync. See Compact refs and keyboard space above.
+
+**Android record (T299).** With `task-delivery`, Android requests the delivery projection and uses the same
+explicit-citation and day-grouping rules as web. Decided expands to show the question, answer and attribution.
+Activity combines Now, timeline events, worker runs and expandable snapshots. Built, Merged and Live appear
+in About only for attributed commits; commit IDs are folded under Changes. Older backends keep the previous
+record, Now and delivery presentation.
 
 Android code: `TaskSheet.kt`, `TaskDetails.kt`, `TaskNeedsYouSection.kt`, `TaskRecord.kt`, `TaskFeedback.kt`,
 `TaskAbout.kt` and `media/TaskProof.kt`. `tasks/TaskDetailsTest.kt` mirrors the web's state, fold and acceptance tests.

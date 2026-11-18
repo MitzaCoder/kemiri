@@ -159,17 +159,21 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val scope = rememberCoroutineScope()
     val linksEnabled = connection.supports(HarnessFeature.TASK_LINKS)
     val timelineGroupsEnabled = connection.supports(HarnessFeature.TASK_TIMELINE_GROUPS)
+    val deliveryEnabled = connection.supports(HarnessFeature.TASK_DELIVERY)
+    val activity = taskActivity(task, connection.supports("task-activity"))
     var timelineKinds by rememberSaveable(taskId) { mutableStateOf<List<String>?>(null) }
     var timeline by remember(taskId) { mutableStateOf<BoardTaskTimelineResponse?>(null) }
     var timelineProblem by remember(taskId) { mutableStateOf<String?>(null) }
     var feedbackBusy by remember(taskId) { mutableStateOf(false) }
     var timelineRefresh by remember(taskId) { mutableIntStateOf(0) }
-    LaunchedEffect(linksEnabled, timelineGroupsEnabled, timelineKinds, connection.status, task.timelineRevision, task.feedback, task.status, task.report.revision, timelineRefresh) {
+    LaunchedEffect(linksEnabled, timelineGroupsEnabled, timelineKinds, connection.status, task.timelineRevision, task.feedback,
+        task.status, task.report.revision, timelineRefresh, deliveryEnabled, activity?.kind.takeIf { deliveryEnabled }) {
         if (!linksEnabled) return@LaunchedEffect
         try {
-            val response = context.backend.client.readTaskTimeline(project, taskId, timelineKinds, grouped = timelineGroupsEnabled)
-            // Empty wire kinds means no server filter; all chips off means no matching groups in the UI.
-            timeline = if (timelineGroupsEnabled && timelineKinds?.isEmpty() == true && response.groups != null) response.copy(groups = emptyList()) else response
+            val kinds = timelineKinds.takeUnless { deliveryEnabled }
+            val response = context.backend.client.readTaskTimeline(project, taskId, kinds, grouped = timelineGroupsEnabled, delivery = deliveryEnabled)
+            // Empty legacy wire kinds means no server filter; all chips off means no matching groups in the UI.
+            timeline = if (timelineGroupsEnabled && kinds?.isEmpty() == true && response.groups != null) response.copy(groups = emptyList()) else response
             timelineProblem = null
         } catch (cause: CancellationException) { throw cause }
         catch (cause: Exception) { timelineProblem = cause.message ?: "Could not read timeline" }
@@ -190,8 +194,11 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val decisions = decisionsFor(view.board?.decisions.orEmpty(), task.id)
     val blockers = blockersOf(task, view.tasks).filterNot { it.settled }
     val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS))
-    val activity = taskActivity(task, connection.supports("task-activity"))
-    val showNow = showTaskNow(task, activity)
+    val delivery = timeline?.delivery?.takeIf { deliveryEnabled && it.commits.isNotEmpty() }
+    val taskQuestions = view.questions.filter { it.taskId == task.id }
+    val decided = if (deliveryEnabled) taskDecided(task.id, decisions, taskQuestions) else null
+    val recordNow = if (deliveryEnabled) taskRecordNow(task, activity, taskQuestions, delivery != null) else null
+    val showNow = !deliveryEnabled && showTaskNow(task, activity)
     val showNext = !needsYou.review && task.report.next.isNotBlank()
     val showPlan = showNow || showNext
     val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
@@ -332,19 +339,28 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                 item(key = "record") {
                     TaskRecord(task, decisions, fields.checks, now, deviceSettings.taskRecordFolds,
                         onFoldChange = { row, expanded -> scope.launch { context.repository.setTaskRecordFold(row, expanded) } },
-                        activityContent = if (linksEnabled || task.snapshots > 0 || task.workerIds.isNotEmpty()) { {
-                            if (linksEnabled) {
-                                TaskTimeline(timeline?.entries.orEmpty(), deviceSettings.timelineNewestFirst,
-                                    { scope.launch { context.repository.setTimelineNewestFirst(!deviceSettings.timelineNewestFirst) } }, ::writerName, now,
+                        decided = decided, threadLabel = { threadName(it, threads) },
+                        activityContent = if (linksEnabled || task.snapshots > 0 || task.workerIds.isNotEmpty() || recordNow != null) { {
+                            val toggleOrder: () -> Unit = { scope.launch { context.repository.setTimelineNewestFirst(!deviceSettings.timelineNewestFirst) } }
+                            if (deliveryEnabled) {
+                                val workersById = workers.associateBy { it.id }
+                                val sources = ActivitySources(entries = timeline?.entries.orEmpty(), groups = timeline?.groups.takeIf { timelineGroupsEnabled },
+                                    questions = taskQuestions, decisions = decided.orEmpty(), feedback = timeline?.feedback.orEmpty(),
+                                    workers = task.workerIds.associateWith { workersById[it] }, now = recordNow, deliveryShown = delivery != null)
+                                TaskRecordActivity(context, task, sources, workersById, linksEnabled && timeline == null && timelineProblem == null,
+                                    timelineProblem, deviceSettings.timelineNewestFirst, toggleOrder, now, ::writerName)
+                            } else {
+                                if (linksEnabled) TaskTimeline(timeline?.entries.orEmpty(), deviceSettings.timelineNewestFirst, toggleOrder, ::writerName, now,
                                     groups = timeline?.groups.takeIf { timelineGroupsEnabled }, onKindsChanged = { timelineKinds = it })
+                                if (task.snapshots > 0) TaskReadingSection("History") { TaskHistory(context, task, ::writerName) }
+                                if (task.workerIds.isNotEmpty()) TaskRecordWorkers(context, task.workerIds, workers)
                             }
-                            if (task.snapshots > 0) TaskReadingSection("History") { TaskHistory(context, task, ::writerName) }
-                            if (task.workerIds.isNotEmpty()) TaskRecordWorkers(context, task.workerIds, workers)
                         } } else null,
                     )
                 }
                 item(key = "about") {
-                    TaskAbout(context, task, view.tasks, view.board?.archivedLinks.orEmpty(), owner, activity,
+                    TaskAbout(context, task, view.tasks, view.board?.archivedLinks.orEmpty(), owner,
+                        legacyDelivery = activity.takeUnless { deliveryEnabled }, delivery = delivery,
                         blockersInNeedsYou = if (needsYou.blocked) blockers.mapTo(mutableSetOf()) { it.id } else emptySet(),
                         artifacts = artifacts, onUpdateTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
                             context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact

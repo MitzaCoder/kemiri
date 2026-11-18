@@ -47,8 +47,6 @@ internal fun TaskHistory(context: ProjectScreenContext, task: BoardTask, writerN
     var snapshots by remember(task.id) { mutableStateOf<List<BoardTaskSnapshot>?>(null) }
     var error by remember(task.id) { mutableStateOf<String?>(null) }
     var selectedSeq by rememberSaveable(task.id) { mutableStateOf<Long?>(null) }
-    var againstNow by rememberSaveable(task.id) { mutableStateOf(false) }
-    var asItWas by rememberSaveable(task.id) { mutableStateOf(false) }
     LaunchedEffect(task.id, task.snapshots) {
         try {
             snapshots = context.board.history(task.id)
@@ -83,47 +81,57 @@ internal fun TaskHistory(context: ProjectScreenContext, task: BoardTask, writerN
                         LucideGlyph(Lucide.ChevronRight, size = 18.dp, contentDescription = "Later snapshot")
                     }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                    // What to show: a small two-way switch, like the web's.
-                    Row(Modifier.border(1.dp, colors.border, RoundedCornerShape(10.dp)).padding(2.dp).selectableGroup()) {
-                        listOf(false to "What changed", true to "As it was").forEach { (value, name) ->
-                            val selected = asItWas == value
-                            Text(
-                                name,
-                                Modifier.clip(RoundedCornerShape(8.dp)).background(if (selected) colors.surface2 else colors.surface2.copy(alpha = 0f))
-                                    .selectable(selected, role = Role.Tab) { asItWas = value }
-                                    .heightIn(min = 36.dp).wrapContentHeight().padding(horizontal = 10.dp),
-                                style = if (selected) TaskType.xsMedium else TaskType.xs,
-                                color = if (selected) colors.fg else colors.fgSubtle,
-                            )
-                        }
-                    }
-                    if (!asItWas) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Compared with", style = TaskType.xs, color = colors.fgSubtle)
-                        var menu by remember { mutableStateOf(false) }
-                        Box {
-                            OutlinedButton(onClick = { menu = true }, contentPadding = PaddingValues(horizontal = 10.dp), modifier = Modifier.heightIn(min = 36.dp)) {
-                                Text(if (againstNow) "the task now" else if (before == null) "nothing before it" else "the snapshot before", style = TaskType.xs)
-                                Spacer(Modifier.width(4.dp))
-                                LucideGlyph(Lucide.ChevronDown, size = 14.dp)
-                            }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem(text = { Text(if (before == null) "nothing before it" else "the snapshot before") }, onClick = { againstNow = false; menu = false })
-                                DropdownMenuItem(text = { Text("the task now") }, onClick = { againstNow = true; menu = false })
-                            }
-                        }
-                    }
-                }
-                if (asItWas) AsItWas(snapshot)
-                else {
-                    val changes = if (againstNow) taskChanges(snapshot.state(), task.state()) else taskChanges(before?.state(), snapshot.state())
-                    if (!changes.any) Text(
-                        if (againstNow) "The task says the same as it did then." else "Nothing differs from the snapshot before.",
-                        style = TaskType.xs, color = colors.fgSubtle,
+                TaskSnapshotDetail(task, snapshot, before)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TaskSnapshotDetail(task: BoardTask, snapshot: BoardTaskSnapshot, before: BoardTaskSnapshot?) {
+    val colors = Jarvis.colors
+    var againstNow by rememberSaveable(snapshot.seq) { mutableStateOf(false) }
+    var asItWas by rememberSaveable(snapshot.seq) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            // What to show: a small two-way switch, like the web's.
+            Row(Modifier.border(1.dp, colors.border, RoundedCornerShape(10.dp)).padding(2.dp).selectableGroup()) {
+                listOf(false to "What changed", true to "As it was").forEach { (value, name) ->
+                    val selected = asItWas == value
+                    Text(
+                        name,
+                        Modifier.clip(RoundedCornerShape(8.dp)).background(if (selected) colors.surface2 else colors.surface2.copy(alpha = 0f))
+                            .selectable(selected, role = Role.Tab) { asItWas = value }
+                            .heightIn(min = 36.dp).wrapContentHeight().padding(horizontal = 10.dp),
+                        style = if (selected) TaskType.xsMedium else TaskType.xs,
+                        color = if (selected) colors.fg else colors.fgSubtle,
                     )
-                    else Changes(changes)
                 }
             }
+            if (!asItWas) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Compared with", style = TaskType.xs, color = colors.fgSubtle)
+                var menu by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { menu = true }, contentPadding = PaddingValues(horizontal = 10.dp), modifier = Modifier.heightIn(min = 36.dp)) {
+                        Text(if (againstNow) "the task now" else if (before == null) "nothing before it" else "the snapshot before", style = TaskType.xs)
+                        Spacer(Modifier.width(4.dp))
+                        LucideGlyph(Lucide.ChevronDown, size = 14.dp)
+                    }
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem(text = { Text(if (before == null) "nothing before it" else "the snapshot before") }, onClick = { againstNow = false; menu = false })
+                        DropdownMenuItem(text = { Text("the task now") }, onClick = { againstNow = true; menu = false })
+                    }
+                }
+            }
+        }
+        if (asItWas) AsItWas(snapshot)
+        else {
+            val changes = if (againstNow) taskChanges(snapshot.state(), task.state()) else taskChanges(before?.state(), snapshot.state())
+            if (!changes.any) Text(
+                if (againstNow) "The task says the same as it did then." else "Nothing differs from the snapshot before.",
+                style = TaskType.xs, color = colors.fgSubtle,
+            )
+            else Changes(changes)
         }
     }
 }

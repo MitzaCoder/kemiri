@@ -18,14 +18,15 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 @Composable
 internal fun TaskAbout(
     context: ProjectScreenContext, task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTaskBrief>, owner: TaskOwner,
-    activity: BoardTaskActivity?, blockersInNeedsYou: Set<String>, artifacts: List<Artifact>,
+    legacyDelivery: BoardTaskActivity?, delivery: BoardTaskTimelineResponseDelivery?, blockersInNeedsYou: Set<String>, artifacts: List<Artifact>,
     onUpdateTags: (suspend (Artifact, List<String>) -> Artifact?)?, now: Long,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider(color = Jarvis.colors.border)
         TaskHeading("About this task")
-        if (activity?.kind == "delivery" || (activity?.kind == "deploy" && task.status != "in_progress")) {
-            TaskReadingSection("Delivery") { TaskActivityView(activity, inlineAge = true) }
+        if (delivery != null) TaskDelivery(delivery)
+        else if (legacyDelivery?.kind == "delivery" || (legacyDelivery?.kind == "deploy" && task.status != "in_progress")) {
+            TaskReadingSection("Delivery") { TaskActivityView(legacyDelivery, inlineAge = true) }
         }
         if (owner.threadId != null) Column {
             TaskHeading("Owner thread")

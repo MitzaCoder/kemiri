@@ -10,6 +10,7 @@ import io.github.mitzacoder.kemiri.protocol.*
 object HarnessFeature {
     const val STORAGE = "storage"
     const val KEEP_ON_TASK = "keep-on-task"
+    const val TASK_DELIVERY = "task-delivery"
     const val TASK_FIELDS = "task-fields"
     const val TASK_STEPS = "task-steps"
     const val TASK_REPORTS = "task-reports"
@@ -77,10 +78,15 @@ suspend fun HarnessClient.readTaskHistory(projectId: String, taskId: String): Li
 }
 
 /** Task feedback and timeline share one read. Needs task-links. */
-suspend fun HarnessClient.readTaskTimeline(projectId: String, taskId: String, kinds: List<String>? = null, grouped: Boolean = false): BoardTaskTimelineResponse {
+internal fun taskTimelineRequest(projectId: String, taskId: String, kinds: List<String>?, grouped: Boolean, delivery: Boolean) =
+    BoardTaskTimelineRequest(projectId = projectId, taskId = taskId, kinds = kinds,
+        grouped = true.takeIf { grouped }, delivery = true.takeIf { delivery })
+
+suspend fun HarnessClient.readTaskTimeline(projectId: String, taskId: String, kinds: List<String>? = null, grouped: Boolean = false, delivery: Boolean = false): BoardTaskTimelineResponse {
     requireFeature(HarnessFeature.TASK_LINKS)
-    return request(BoardTaskTimelineRequest(projectId = projectId, taskId = taskId, kinds = kinds,
-        grouped = true.takeIf { grouped && supports(HarnessFeature.TASK_TIMELINE_GROUPS) }))
+    return request(taskTimelineRequest(projectId, taskId, kinds,
+        grouped = grouped && supports(HarnessFeature.TASK_TIMELINE_GROUPS),
+        delivery = delivery && supports(HarnessFeature.TASK_DELIVERY)))
 }
 suspend fun HarnessClient.setFeedbackState(projectId: String, taskId: String, feedbackId: String, state: String): BoardFeedback {
     requireFeature(HarnessFeature.TASK_LINKS)
