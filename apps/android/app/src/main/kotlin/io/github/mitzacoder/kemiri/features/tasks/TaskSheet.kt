@@ -194,14 +194,16 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val showNow = showTaskNow(task, activity)
     val showNext = !needsYou.review && task.report.next.isNotBlank()
     val showPlan = showNow || showNext
+    val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
+    val failedChecks = failedCheckLine(fields.checks)
     val showAgentQuestions = needsYou.questionsForAgent.isNotEmpty()
     val linkedFeedbackFound = linkedFeedbackId != null && timeline?.feedback.orEmpty().any { it.id == linkedFeedbackId }
     var jumpedToNotes by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
     var revealedNote by rememberSaveable(linkedFeedbackId) { mutableStateOf(false) }
     LaunchedEffect(linkedFeedbackFound, linksEnabled, editing) {
         if (linkedFeedbackFound && linksEnabled && !editing && !jumpedToNotes) {
-            // Results is always present; the other three sections before notes are conditional.
-            bodyState.scrollToItem(1 + listOf(needsYou.show, showPlan, showAgentQuestions).count { it })
+            // Results is always present; count only the optional sections shown above Your notes.
+            bodyState.scrollToItem(1 + listOf(needsYou.show, fields.notDoneMarkdown != null, showPlan, showAgentQuestions).count { it })
             jumpedToNotes = true
         }
     }
@@ -260,6 +262,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
             }
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TaskDetailText(refLinkedText(task.title), Modifier.semantics { heading() }, style = TextStyles.lg.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
+                fields.goal?.let { Text(it, style = TextStyles.task, color = colors.fgMuted) }
                 if (task.refs.isNotEmpty()) TaskRefs(task.refs, refsMaxHeight)
                 if (waitingForm) TaskWaitingForm(task.waiting, closing, deviceSettings.workDayStart, { note, until -> setStatus("waiting", note, until) }, { waitingForm = false })
                 else if (confirmDrop) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -285,11 +288,16 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                 }
                 item(key = "results") {
                     TaskReadingSection("What you get") {
+                        fields.summary?.let { Text(it, style = TextStyles.task.copy(fontWeight = FontWeight.Medium), color = colors.fg) }
                         if (staleReport) StaleTaskReport(context, task.id)
                         if (task.report.results.isNotBlank()) ReportMarkdown(task.report.results)
-                        else Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
+                        else if (fields.summary == null && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
+                        failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                         TaskProof(context, artifacts)
                     }
+                }
+                fields.notDoneMarkdown?.let { notDone ->
+                    item(key = "not-done") { TaskReadingSection("Not done") { ReportMarkdown(notDone) } }
                 }
                 if (showPlan) item(key = "next") {
                     TaskReadingSection("Next") {
@@ -322,7 +330,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                     }
                 }
                 item(key = "record") {
-                    TaskRecord(task, decisions, now, deviceSettings.taskRecordFolds,
+                    TaskRecord(task, decisions, fields.checks, now, deviceSettings.taskRecordFolds,
                         onFoldChange = { row, expanded -> scope.launch { context.repository.setTaskRecordFold(row, expanded) } },
                         activityContent = if (linksEnabled || task.snapshots > 0 || task.workerIds.isNotEmpty()) { {
                             if (linksEnabled) {

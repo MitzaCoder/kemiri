@@ -5380,8 +5380,12 @@ Web code: `TaskSheet.svelte`, `TaskRecordFold.svelte`, `TaskReply.svelte`, `Task
 `TaskRelations.svelte`, `TaskProof.svelte`, `lib/task-sheet.css` and `lib/task-details.ts`. The state, fold
 and acceptance rules are tested in `task-details.test.ts`. The protocol and server are unchanged.
 
-**Android (T290).** The sheet follows the same reading order and uses the same current task fields. The
-status menu uses the page's state in words. Needs you uses the same primary tint as web and the shared question
+**Android (T290, T297).** The sheet follows the same reading order and uses the same task fields. On
+`task-fields` backends, the goal sits under the title, the summary leads What you get, and Not done follows it.
+Failed check names appear in What you get; the Checks row shows all checks and remembers its fold choice.
+Shared question cards show the effect and recommendation (also announced to screen readers), while sending
+only the chosen label. Missing fields or capability retain the existing Markdown and answer chips.
+The status menu uses the page's state in words. Needs you uses the same primary tint as web and the shared question
 controls without separate card backgrounds. Android advertises `task-steps`; on supporting backends, open tasks
 show non-empty Your steps as numbered Markdown before any review check. The list, board and graph give manual
 steps a checklist glyph and the review tone. Review uses the existing close flow or focuses the fixed reply.

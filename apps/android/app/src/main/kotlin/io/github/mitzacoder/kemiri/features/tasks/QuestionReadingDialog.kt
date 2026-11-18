@@ -35,13 +35,15 @@ internal fun QuestionReadingDialog(
     taskLabel: String?,
     onDismiss: () -> Unit,
     canAnswer: Boolean = false,
+    hasStructuredChoices: Boolean = false,
     answerFooter: @Composable (Dp) -> Unit = {},
 ) {
     val colors = Jarvis.colors
     val title = "${if (isWarning(question)) "Warning" else "Question"} ${question.id}"
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp), contentAlignment = Alignment.Center) {
-            val maxChoicesHeight = minOf(112.dp, maxHeight * .18f)
+            val maxChoicesHeight = if (hasStructuredChoices) minOf(256.dp, maxHeight * .32f)
+                else minOf(112.dp, maxHeight * .18f)
             Surface(
                 Modifier.widthIn(max = 896.dp).fillMaxWidth().heightIn(max = maxHeight)
                     .semantics { paneTitle = title },

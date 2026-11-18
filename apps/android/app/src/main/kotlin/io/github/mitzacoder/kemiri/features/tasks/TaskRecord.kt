@@ -7,14 +7,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.StatusBadge
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import java.text.NumberFormat
 
 @Composable
-internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, activityContent: (@Composable ColumnScope.() -> Unit)?) {
+internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks: List<BoardReportCheck>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, activityContent: (@Composable ColumnScope.() -> Unit)?) {
     Column {
         TaskHeading("The record", Modifier.padding(bottom = 8.dp))
         val requestOpen = readTaskRecordFold(TaskRecordRow.Request, savedFolds)
@@ -23,6 +28,12 @@ internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, now: Lo
             else if (task.acceptance.isNullOrBlank()) Text("No request written.", style = TaskType.xs, color = Jarvis.colors.fgMuted)
             task.acceptance?.takeIf { it.isNotBlank() }?.let { acceptance ->
                 TaskReadingSection("Done when") { ReportMarkdown(acceptanceMarkdown(acceptance)) }
+            }
+        }
+        if (checks.isNotEmpty()) {
+            val checksOpen = readTaskRecordFold(TaskRecordRow.Checks, savedFolds)
+            TaskFold(TaskRecordRow.Checks.title, checksOpen, { onFoldChange(TaskRecordRow.Checks, !checksOpen) }) {
+                checks.forEach { TaskCheck(it) }
             }
         }
         if (decisions.isNotEmpty()) {
@@ -40,6 +51,25 @@ internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, now: Lo
         if (activityContent != null) {
             val activityOpen = readTaskRecordFold(TaskRecordRow.Activity, savedFolds)
             TaskFold(TaskRecordRow.Activity.title, activityOpen, { onFoldChange(TaskRecordRow.Activity, !activityOpen) }, content = activityContent)
+        }
+    }
+}
+
+@Composable
+private fun TaskCheck(check: BoardReportCheck) {
+    val colors = Jarvis.colors
+    val passed = check.result == "passed"
+    val result = if (passed) "Passed" else "Failed"
+    Row(
+        Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = result },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LucideGlyph(if (passed) Lucide.Check else Lucide.X, Modifier.padding(top = 2.dp), size = 16.dp,
+            tint = if (passed) colors.success else colors.danger)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            val count = check.count?.let { " · ${NumberFormat.getIntegerInstance().format(it)}" }.orEmpty()
+            Text(check.name + count, style = TaskType.sectionTitle, color = colors.fg)
+            check.note?.trim()?.takeIf { it.isNotEmpty() }?.let { Text(it, style = TaskType.xs, color = colors.fgMuted) }
         }
     }
 }

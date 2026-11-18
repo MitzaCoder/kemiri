@@ -18,6 +18,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.data.AnswerOutcome
 import io.github.mitzacoder.kemiri.data.ClarifyOutcome
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
@@ -28,8 +29,8 @@ import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
 import kotlinx.coroutines.launch
 
 /**
- * One question the coordinator asked (web `BoardQuestionCard.svelte`): its text, the options it suggests as chips that
- * answer at once, and a free-text answer. Used in the Tasks list, the task sheet and pinned above the composer. An answer
+ * One question the coordinator asked (web `BoardQuestionCard.svelte`): its text, suggested answers that
+ * send at once, and a free-text answer. Used in the Tasks list, the task sheet and pinned above the composer. An answer
  * goes on the revision the board holds now; when the question moved on meanwhile the card says so and keeps what was
  * typed. A warning looks apart and has no options: the user acknowledges it, with a note if they like.
  *
@@ -55,6 +56,7 @@ fun QuestionCard(
     val waitingForAgent = question.status == "open" && question.waitingOn == "agent"
     val tone = if (waitingForAgent) colors.fgSubtle else if (warning) colors.warning else colors.accent2
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val answers = questionAnswers(question, connection.supports(HarnessFeature.TASK_FIELDS))
     val canClarify = questionCanClarify(question, connection.supports("question-clarify"), readOnly)
     val key = "${context.backend.config.key}/${context.route.projectId}/${question.id}"
     var text by rememberSaveable(key) { mutableStateOf("") }
@@ -141,23 +143,27 @@ fun QuestionCard(
         }
         if (!optionsOnly) QuestionExchanges(question)
         if (optionsOnly && questionCanAnswer(question, readOnly) && !warning) {
-            question.options.forEach { option ->
-                OutlinedButton(onClick = { send(option) }, enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Answer ${question.id}: $option" }) {
-                    Text(io.github.mitzacoder.kemiri.features.chat.markdownText(option), style = TaskType.xsMedium)
+            when (answers) {
+                is QuestionAnswers.Choices -> QuestionChoiceButtons(answers.choices, busy, ::send)
+                is QuestionAnswers.Options -> answers.options.forEach { option ->
+                    OutlinedButton(onClick = { send(option) }, enabled = !busy,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Answer ${question.id}: $option" }) {
+                        Text(io.github.mitzacoder.kemiri.features.chat.markdownText(option), style = TaskType.xsMedium)
+                    }
                 }
             }
             problem?.let { Text(it, color = colors.danger, style = TaskType.xs) }
         }
         if (!optionsOnly && questionCanAnswer(question, readOnly)) QuestionAnswerForm(
-            question, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack, warningActionLabel = if (plain) "Got it" else "Acknowledge",
+            question, answers, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack, warningActionLabel = if (plain) "Got it" else "Acknowledge",
         )
     }
     if (readingExpanded) QuestionReadingDialog(
         question, taskLabel, onDismiss = { readingExpanded = false },
         canAnswer = questionCanAnswerExpanded(question, readOnly),
+        hasStructuredChoices = answers is QuestionAnswers.Choices,
         answerFooter = { maxChoicesHeight ->
-            QuestionAnswerForm(question, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight, onAskBack = onAskBack,
+            QuestionAnswerForm(question, answers, text, { text = it }, busy, problem, ::send, expanded = true, maxChoicesHeight = maxChoicesHeight, onAskBack = onAskBack,
                 warningActionLabel = if (plain) "Got it" else "Acknowledge")
         },
     )

@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
+import io.github.mitzacoder.kemiri.protocol.BoardQuestionChoice
+import io.github.mitzacoder.kemiri.protocol.BoardReportCheck
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 
@@ -35,8 +37,55 @@ internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: Strin
 internal fun showTaskNow(task: BoardTask, activity: BoardTaskActivity?): Boolean = task.status == "in_progress" &&
     if (activity == null) task.report.now.isNotBlank() else activity.kind in setOf("working", "deploy", "idle", "unknown")
 
+internal data class TaskDetailFields(
+    val goal: String? = null,
+    val summary: String? = null,
+    val notDoneMarkdown: String? = null,
+    val checks: List<BoardReportCheck> = emptyList(),
+)
+
+internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): TaskDetailFields {
+    if (!taskFieldsEnabled) return TaskDetailFields()
+    return TaskDetailFields(
+        goal = task.goal?.trim()?.takeIf { it.isNotEmpty() },
+        summary = task.report.summary?.trim()?.takeIf { it.isNotEmpty() },
+        notDoneMarkdown = notDoneMarkdown(task.report.notDone),
+        checks = task.report.checks.orEmpty(),
+    )
+}
+
+private val listMarker = Regex("""^(?:[-+*]|\d+[.)])(?:\s+|$)""")
+
+/** Not done is one item per line, with or without Markdown list markers. */
+private fun notDoneMarkdown(notDone: String?): String? = notDone?.lineSequence()
+    ?.map { it.trim().replaceFirst(listMarker, "") }
+    ?.filter { it.isNotEmpty() }
+    ?.joinToString("\n") { "- $it" }
+    ?.takeIf { it.isNotEmpty() }
+
+internal fun failedCheckLine(checks: List<BoardReportCheck>): String? {
+    val failed = checks.filter { it.result == "failed" }.map { it.name }
+    return when (failed.size) {
+        0 -> null
+        1 -> "One check failed: ${failed.single()}"
+        else -> "${failed.size} checks failed: ${failed.joinToString(", ")}"
+    }
+}
+
+internal sealed interface QuestionAnswers {
+    data class Choices(val choices: List<BoardQuestionChoice>) : QuestionAnswers
+    data class Options(val options: List<String>) : QuestionAnswers
+}
+
+internal fun questionAnswers(question: BoardQuestion, taskFieldsEnabled: Boolean): QuestionAnswers {
+    if (isWarning(question)) return QuestionAnswers.Options(emptyList())
+    if (taskFieldsEnabled) question.choices?.takeIf { it.isNotEmpty() }?.let { return QuestionAnswers.Choices(it) }
+    return QuestionAnswers.Options(question.options)
+}
+
 internal enum class TaskRecordRow(val storageKey: String, val title: String, val openByDefault: Boolean = false) {
     Request("request", "The request", true),
+    Checks("checks", "Checks"),
     Decided("decided", "Decided"),
     Activity("activity", "Activity"),
 }

@@ -2,6 +2,8 @@ package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
+import io.github.mitzacoder.kemiri.protocol.BoardQuestionChoice
+import io.github.mitzacoder.kemiri.protocol.BoardReportCheck
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -74,13 +76,56 @@ class TaskDetailsTest {
         assertFalse(showTaskNow(working, null))
     }
 
+    @Test fun structuredDetailsRequireTheFeatureAndPopulatedFieldsWithoutChangingMarkdown() {
+        val task = task("T1")
+        val legacy = task.report.copy(results = "- Legacy result", next = "**Legacy plan**")
+        val passed = BoardReportCheck("Tests", "passed", count = 0, at = task.createdAt)
+        val failed = BoardReportCheck("Typecheck", "failed", at = task.createdAt)
+        val populated = task.copy(goal = " Reserve books. ", report = legacy.copy(summary = " The form is ready. ",
+            notDone = " No reminders yet. \r\n\r\n* **Staff edits** are not ready.\n1. No email.", checks = listOf(passed, failed)))
+        assertEquals(TaskDetailFields(), taskDetailFields(populated, false))
+        assertEquals(TaskDetailFields(), taskDetailFields(task.copy(report = legacy), true))
+        assertEquals(TaskDetailFields(), taskDetailFields(task.copy(goal = null, report = legacy.copy(summary = " ", notDone = "\n - \n", checks = emptyList())), true))
+        assertEquals(TaskDetailFields("Reserve books.", "The form is ready.", "- No reminders yet.\n- **Staff edits** are not ready.\n- No email.", listOf(passed, failed)),
+            taskDetailFields(populated, true))
+        assertEquals(TaskDetailFields(notDoneMarkdown = "- Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
+        assertEquals(legacy.results, populated.report.results)
+        assertEquals(legacy.next, populated.report.next)
+    }
+
+    @Test fun failureLineNamesOnlyFailedChecks() {
+        val passed = BoardReportCheck("Tests", "passed", count = 0, at = question.askedAt)
+        val failed = BoardReportCheck("Typecheck", "failed", at = question.askedAt)
+        assertNull(failedCheckLine(emptyList()))
+        assertNull(failedCheckLine(listOf(passed)))
+        assertEquals("One check failed: Typecheck", failedCheckLine(listOf(passed, failed)))
+        assertEquals("2 checks failed: Typecheck, Build", failedCheckLine(listOf(failed, passed, failed.copy(name = "Build"))))
+    }
+
+    @Test fun questionChoicesPreserveTheAnswerLabelAndFallBackToOptions() {
+        val options = listOf("**Now**", "Later")
+        val choices = listOf(BoardQuestionChoice("**Now**", "Books go on sale today.", recommended = true), BoardQuestionChoice("Later"))
+        val legacy = question.copy(options = options)
+        val structured = legacy.copy(choices = choices)
+        val answers = questionAnswers(structured, true) as QuestionAnswers.Choices
+        assertEquals(choices, answers.choices)
+        assertEquals("**Now**", answers.choices.first().label)
+        assertEquals(QuestionAnswers.Options(options), questionAnswers(structured, false))
+        assertEquals(QuestionAnswers.Options(options), questionAnswers(legacy, true))
+        assertEquals(QuestionAnswers.Options(options), questionAnswers(structured.copy(choices = emptyList()), true))
+        assertEquals(QuestionAnswers.Options(emptyList()), questionAnswers(structured.copy(kind = "warning"), true))
+    }
+
     @Test fun requestStartsOpenAndRowsRememberTheirChoicesIndependently() {
         val empty = emptyMap<String, Boolean>()
-        assertEquals(listOf(TaskRecordRow.Request, TaskRecordRow.Decided, TaskRecordRow.Activity), TaskRecordRow.entries)
+        assertEquals(listOf(TaskRecordRow.Request, TaskRecordRow.Checks, TaskRecordRow.Decided, TaskRecordRow.Activity), TaskRecordRow.entries)
         assertTrue(readTaskRecordFold(TaskRecordRow.Request, empty))
         assertFalse(readTaskRecordFold(TaskRecordRow.Decided, empty))
         assertFalse(readTaskRecordFold(TaskRecordRow.Activity, empty))
-        val saved = saveTaskRecordFold(TaskRecordRow.Activity, true, saveTaskRecordFold(TaskRecordRow.Request, false, empty))
+        assertFalse(readTaskRecordFold(TaskRecordRow.Checks, empty))
+        val basicFolds = saveTaskRecordFold(TaskRecordRow.Activity, true, saveTaskRecordFold(TaskRecordRow.Request, false, empty))
+        val saved = saveTaskRecordFold(TaskRecordRow.Checks, true, basicFolds)
+        assertTrue(readTaskRecordFold(TaskRecordRow.Checks, saved))
         assertFalse(readTaskRecordFold(TaskRecordRow.Request, saved))
         assertFalse(readTaskRecordFold(TaskRecordRow.Decided, saved))
         assertTrue(readTaskRecordFold(TaskRecordRow.Activity, saved))
