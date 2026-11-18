@@ -8,6 +8,7 @@
  * Prompt-cache rule: the tool adds no system prompt section. Its description is static, and its answers are ordinary
  * tool results, so a search never re-renders the prompt the way a section would.
  */
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
 import { contentText } from "@earendil-works/pi-ai";
@@ -145,7 +146,7 @@ function hitsOf(entries: readonly EntryRecord[], terms: readonly string[]): Hist
 	for (const entry of entries) {
 		const text = searchableText(entry);
 		if (!terms.every((term) => text.includes(term))) continue;
-		hits.push({ id: entry.id, kind: entry.kind, role: entryRole(entry), snippet: snippetAround(text, terms) });
+		hits.push({ id: entry.id, kind: entry.kind === OWNER_CHAT_ENTRY ? "pi.user" : entry.kind, role: entryRole(entry), snippet: snippetAround(text, terms) });
 	}
 	return hits;
 }

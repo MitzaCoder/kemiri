@@ -45,6 +45,8 @@ export type Project = {
 	uiProof: UiProof;
 	blockArtifactRequests?: boolean;
 	reportAudit?: ReportAuditSettings;
+	/** Server-only switch for the follow-up when reusable chat detail has not been filed. */
+	chatDetailNudges?: boolean;
 	/** Where ticket keys and PR numbers point, as the user set it; null: filled in automatically (`project-links.ts`). */
 	links: ProjectLinks | null;
 	/** auto (absent): main/master; null: disabled; otherwise a full Git ref. */
@@ -70,6 +72,7 @@ export type ProjectChange = {
 	uiProof?: UiProof | null;
 	blockArtifactRequests?: boolean | null;
 	reportAudit?: ReportAuditSettings | null;
+	chatDetailNudges?: boolean | null;
 	/** `null` goes back to filling them in automatically. */
 	links?: ProjectLinks | null;
 	integrationRef?: string | null;
@@ -111,6 +114,7 @@ function defaultProject(id: string, name: string, path: string): Project {
 		uiProof: DEFAULT_UI_PROOF,
 		blockArtifactRequests: false,
 		reportAudit: { ...DEFAULT_REPORT_AUDIT },
+		chatDetailNudges: true,
 		links: null,
 	};
 }
@@ -150,6 +154,7 @@ function parseProject(value: unknown, id: string): Project | undefined {
 		uiProof: parseUiProof(record.uiProof),
 		blockArtifactRequests: record.blockArtifactRequests === true,
 		reportAudit: parseReportAudit(record.reportAudit),
+		chatDetailNudges: record.chatDetailNudges !== false,
 		links: cleanLinks(record.links),
 		deployFeed: typeof record.deployFeed === "string" ? record.deployFeed : null,
 		integrationRef: typeof record.integrationRef === "string" || record.integrationRef === null ? record.integrationRef : "auto",
@@ -330,6 +335,7 @@ export class ProjectStore {
 				throw new ServerError("bad_request", "Integration ref must be auto, null, or a full Git ref");
 			}
 			if (typeof change.deployFeed === "string" && (!change.deployFeed.startsWith("/") || change.deployFeed.length > 4096 || change.deployFeed.includes("\0"))) throw new ServerError("bad_request", "Deploy feed must be an absolute local file path or null");
+			if (change.chatDetailNudges != null && typeof change.chatDetailNudges !== "boolean") throw new ServerError("bad_request", "Chat detail nudges must be a boolean or null");
 			const next: Project = {
 				...project,
 				name: change.name ?? project.name,
@@ -355,6 +361,7 @@ export class ProjectStore {
 						? project.longPromptCache
 						: (change.longPromptCache ?? DEFAULT_LONG_PROMPT_CACHE),
 				reportAudit: change.reportAudit === undefined ? parseReportAudit(project.reportAudit) : parseReportAudit(change.reportAudit),
+				chatDetailNudges: change.chatDetailNudges === undefined ? project.chatDetailNudges !== false : change.chatDetailNudges !== false,
 				uiProof: change.uiProof === undefined ? project.uiProof : (change.uiProof ?? DEFAULT_UI_PROOF),
 				blockArtifactRequests: change.blockArtifactRequests === undefined ? (project.blockArtifactRequests ?? false) : (change.blockArtifactRequests ?? false),
 				links: change.links === undefined ? project.links : cleanLinks(change.links),

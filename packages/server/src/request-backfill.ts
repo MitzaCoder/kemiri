@@ -1,3 +1,4 @@
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 import { stateKind } from "./state-identity.ts";
 /**
  * Reads a project's transcripts back into request log rows: once per project, for the requests made before the log
@@ -220,6 +221,7 @@ export async function backfillRows(storage: Storage, options: BackfillOptions): 
 				case "pi.system":
 					requests.instructionsChanged();
 					break;
+				case OWNER_CHAT_ENTRY:
 				case "pi.user":
 					for (const message of entry.model ?? []) userTexts.push(messageText((message as { content?: unknown }).content));
 					break;

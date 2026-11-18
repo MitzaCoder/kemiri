@@ -63,7 +63,7 @@ import { PushRelayError } from "@kemiri/protocol";
 import type { ProjectManager } from "./runtime.ts";
 import { QueuedInputs, describeContent, queueClock } from "./queued-inputs.ts";
 import { WatchWindow, resolveWindowBounds } from "./window.ts";
-import { wireEntry } from "./wire.ts";
+import { OWNER_CHAT_ENTRY, wireEntry } from "./wire.ts";
 import type { TerminalAttachment, TerminalHost } from "./terminals.ts";
 
 import type { ReleaseUpdates } from "./release-updates.ts";
@@ -1034,6 +1034,7 @@ export class ClientConnection {
 					const submission = await conversation.submit(
 						{
 							type: "input",
+							entry: { kind: OWNER_CHAT_ENTRY },
 							content:
 								request.taskId === undefined
 									? content

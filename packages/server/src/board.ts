@@ -4,9 +4,12 @@ import { activityTracking, taskActivity, endActivitySource, setActivityPhase, ty
 import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
-import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
+import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
 import { pointsAtChat } from "./task-chat-pointer.ts";
+import { countChatDetailTurn, detectMissingChatDetail, missingChatDetailLabel, type ChatDetailCounts } from "./task-chat-detail.ts";
+import { splitTaskReference } from "./queued-inputs.ts";
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 /**
  * The board: the coordinator's tasks, questions for the user and decisions, kept as a durable document on the
  * coordinator conversation (`aiki.board`) so it never has to be recalled from a summary. The contract is
@@ -75,6 +78,9 @@ const SUMMARY_DECISIONS = 10;
 /** How much of an open task's report `now` the compaction view shows: a line, not the report. */
 const SUMMARY_NOW_CHARS = 200;
 
+type ChatDetailWrite = { chars: number; feedbackIds?: string[]; questionIds?: string[] };
+type ChatDetailRun = { conversationId: ConversationId; first: number; last: number; ownerInputs: string[] | undefined; reply: string };
+
 export type BoardState = {
 	taskFreshnessEnabled?: boolean;
  taskActivityEnabled?: boolean;
@@ -87,6 +93,8 @@ export type BoardState = {
 	reportTracking?: Record<string, TaskReportTracking>;
 	reportOutbox?: ReportOutbox[];
 	reportInFlight?: Record<string, number>;
+	chatDetailCounts?: ChatDetailCounts;
+	chatDetailWrites?: Record<string, { first: number; tasks: Record<string, ChatDetailWrite> }>;
 	reportChatCandidates?: Record<string, { text: string; key: string }[]>;
 	lastReportSweep?: number;
 	deployFeedConfigured?: boolean;
@@ -2473,6 +2481,20 @@ export class BoardService {
 		by: BoardWriter,
 		key: string,
   focusTaskId?: string | undefined,
+	): Promise<T>;
+	async commitFor<T>(
+		commit: (change: (tx: Tx) => Promise<NoInfer<T>>) => Promise<NoInfer<T>>,
+		change: (state: BoardState, now: string) => T,
+		by: BoardWriter,
+		key: string,
+  focusTaskId?: string | undefined,
+	): Promise<T>;
+	async commitFor<T>(
+		commit: (change: (tx: Tx) => Promise<NoInfer<T>>) => Promise<NoInfer<T>>,
+		change: (state: BoardState, now: string) => T,
+		by: BoardWriter,
+		key: string,
+  focusTaskId?: string | undefined,
 	): Promise<T> {
   const conversation = focusTaskId && by.author === "coordinator" ? await this.#conversationOf(by.threadId) : undefined;
   const threadTitle = await this.#options.threadTitle?.(by.threadId ?? "main");
@@ -3094,13 +3116,91 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   });
  }
 
- /** Called once at run end; no chat text or report rewrite is added to the timeline. */
- async noteChat(content: string, written: ReadonlySet<string>, key: string, threadId = "main", userTasks: ReadonlyMap<string, number> = new Map()): Promise<void> {
+ /** Meter successful board writes in the write's own transaction, also for nested tool calls. */
+ async recordChatDetailWrite(tx: Tx, conversationId: ConversationId, taskId: string, texts: readonly (string | null | undefined)[], ids?: { feedbackId?: string; questionId?: string }): Promise<void> {
   if (this.#options.taskFreshness === false) return;
-  await this.#commit(HARNESS_WRITER, (state) => {
+  const chars = texts.reduce((sum, text) => sum + (text?.trim().replace(/\s+/g, " ").length ?? 0), 0);
+  if (!chars && !ids?.feedbackId && !ids?.questionId) return;
+  const first = (await tx.doc(LiveDoc, conversationId)).run?.first;
+  if (first === undefined) return;
+  const state = await openBoard(tx, this.#mainId);
+  state.chatDetailWrites ??= {};
+  const runs = state.chatDetailWrites;
+  if (runs[conversationId]?.first !== first) runs[conversationId] = { first, tasks: {} };
+  const writes = runs[conversationId]!.tasks;
+  writes[taskId] ??= { chars: 0 };
+  const write = writes[taskId]!;
+  write.chars += chars;
+  if (ids?.feedbackId && !write.feedbackIds?.includes(ids.feedbackId)) write.feedbackIds = [...(write.feedbackIds ?? []), ids.feedbackId];
+  if (ids?.questionId && !write.questionIds?.includes(ids.questionId)) write.questionIds = [...(write.questionIds ?? []), ids.questionId];
+ }
+
+ async #checkChatDetail(tx: Tx, state: BoardState, run: ChatDetailRun, writes: Record<string, ChatDetailWrite>, key: string, threadId: string): Promise<boolean> {
+  const candidate = detectMissingChatDetail(run.reply, []);
+  let flagged = false;
+  if (candidate) {
+   const valid = new Set(state.tasks.map(task => task.id));
+   const scoped = run.ownerInputs!.map(text => splitTaskReference(text.trimStart())).filter(scope => scope.taskId && valid.has(scope.taskId));
+   const ids = new Set(scoped.length ? scoped.map(scope => scope.taskId!) :
+    [...run.ownerInputs!, run.reply].flatMap(text => chatDetailTaskMentions(text, valid)));
+   const ownTask = threadId === "main" ? undefined : state.taskFocus?.[threadId];
+   if (!ids.size && ownTask && valid.has(ownTask)) ids.add(ownTask);
+   const tasks = state.tasks.filter(task => ids.has(task.id));
+   const fields: string[] = [];
+   for (const task of tasks) {
+    fields.push(task.description, task.report.steps ?? "", task.report.results, task.report.next);
+    for (const decision of state.decisions) if (decision.taskId === task.id) fields.push(decision.text, decision.why ?? "");
+    if (writes[task.id]?.feedbackIds?.length) {
+     const history = await openTaskHistory(tx, this.#mainId, task.id);
+     for (const feedback of history.feedback ?? []) if (feedback.note && writes[task.id]!.feedbackIds!.includes(feedback.id)) fields.push(feedback.note);
+    }
+   }
+   const unscopedQuestions = writes.unscoped?.questionIds ?? [];
+   for (const question of state.questions) if (question.status !== "withdrawn" && (question.taskId === null ? unscopedQuestions.includes(question.id) : ids.has(question.taskId))) {
+    fields.push(question.text, ...question.options, question.answer ?? "", ...(question.exchanges ?? []).map(exchange => exchange.text));
+   }
+   const writtenChars = tasks.reduce((sum, task) => sum + (writes[task.id]?.chars ?? 0), writes.unscoped?.chars ?? 0);
+   const missing = detectMissingChatDetail(run.reply, fields, writtenChars);
+   flagged = missing !== undefined;
+   if (missing && this.#options.project().chatDetailNudges !== false && !this.#options.project().archived) {
+    const label = missingChatDetailLabel(missing);
+    const active = tasks.filter(task => task.status !== "done" && task.status !== "dropped");
+    for (const task of active) noteTaskFact(state, task.id, {
+     actor: "harness", kind: "chat", nudge: false, reason: `only in chat: ${label}`,
+     sections: missing.prose && !missing.steps && !missing.code && !missing.command ? ["results"] : ["next"], at: this.#iso(),
+    });
+    if (!tasks.length || active.length) {
+     const subject = active.map(task => task.id).join(", ");
+     const feedbackIds = scoped.filter(scope => active.some(task => task.id === scope.taskId)).map(scope => scope.feedbackId).filter(Boolean);
+     const where = "Put manual steps and commands in Your steps; findings in Results; answers to task feedback in its feedback note";
+     state.reportOutbox ??= [];
+     state.reportOutbox.push({
+      key: `reports:detail:${key}`, owner: threadId, admissions: [], chatDetail: true,
+      content: `[reports] ${subject ? `${subject}${feedbackIds.length ? ` (${feedbackIds.join(", ")})` : ""}: only in chat: ${label}.` : `Only in chat: ${label}. File this on a task.`} ${where}. Use the detail from the reply ending at entry ${run.last}; do not just repeat it in chat.`,
+     });
+    }
+   }
+  }
+  state.chatDetailCounts ??= {};
+  countChatDetailTurn(state.chatDetailCounts, this.#options.now(), flagged);
+  return candidate !== undefined;
+ }
+
+ /** Called once at run end; no chat text or report rewrite is added to the timeline. */
+ async noteChat(content: string, written: ReadonlySet<string>, key: string, threadId = "main", userTasks: ReadonlyMap<string, number> = new Map(), run?: ChatDetailRun): Promise<void> {
+  if (this.#options.taskFreshness === false) return;
+  const counts = await this.#options.harness.commit(async tx => {
+   const state = await openBoard(tx, this.#mainId);
    if (!claimHarnessKey(state, key)) return;
    const sources = [{ text: content, key }, ...(state.reportChatCandidates?.[threadId] ?? [])];
    if (state.reportChatCandidates !== undefined) delete state.reportChatCandidates[threadId];
+   if (run) {
+    const recorded = state.chatDetailWrites?.[run.conversationId];
+    const writes = recorded?.first === run.first ? recorded.tasks : {};
+    if (recorded && recorded.first <= run.first) delete state.chatDetailWrites![run.conversationId];
+    if (run.ownerInputs === undefined) return;
+    if (await this.#checkChatDetail(tx, state, run, writes, key, threadId)) return plain(state.chatDetailCounts);
+   }
    const valid = new Set(state.tasks.map((task) => task.id));
    const mentioned = new Set<string>();
    for (const source of sources) for (const id of substantiveTaskMentions(source.text, valid)) {
@@ -3118,7 +3218,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     const tracking = state.reportTracking?.[id];
     if (tracking !== undefined) tracking.chatEvidence = [...(tracking.chatEvidence ?? []), { snippet: source.text.replace(/\s+/g, " ").slice(0, 240), source: source.key }].slice(-2);
    }
-  });
+   return run?.ownerInputs && plain(state.chatDetailCounts);
+  }, BACKGROUND_CONTEXT);
+  if (counts) this.#options.log(`project ${this.#options.project().id}: chat detail counts (UTC): ${JSON.stringify(counts)}`);
  }
 
  #armReports(state: Readonly<BoardState>): void {
@@ -3131,7 +3233,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    return tracking.pending === undefined || state.reportInFlight?.[owner] !== undefined ? [] : [reportDueAt(tracking.pending, timings?.trailingMs, timings?.maxBurstMs)];
   });
   due.push((state.lastReportSweep ?? this.#options.now()) + (timings?.sweepMs ?? REPORT_SWEEP_MS));
-  const delay = (state.reportOutbox?.length ?? 0) > 0 ? 10 : Math.max(10, Math.min(...due) - this.#options.now());
+  const delay = state.reportOutbox?.some(batch => state.reportInFlight?.[batch.owner] === undefined) ? 10 : Math.max(10, Math.min(...due) - this.#options.now());
   this.#reportTimer = setTimeout(() => {
    this.#reportTimer = undefined;
    void this.checkReports().catch((error) => this.#options.log(`board: report nudge failed: ${errorMessage(error)}`));
@@ -3159,6 +3261,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   }
   for (const task of state.tasks) this.#reportOwners.set(task.id, live.has(task.ownerThreadId ?? "main") ? task.ownerThreadId ?? "main" : "main");
   await this.#commit(HARNESS_WRITER, (state) => {
+   if ((this.#options.project().chatDetailNudges === false || this.#options.project().archived) && state.reportOutbox) state.reportOutbox = state.reportOutbox.filter(batch => !batch.chatDetail);
    sweepReportAge(state, this.#options.now(), timings?.ageMs, timings?.sweepMs);
    prepareReportNudges(state, this.#options.now(), (task) => {
     const owner = task.ownerThreadId ?? "main";
@@ -3166,7 +3269,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    }, timings);
   });
   void this.audit?.check("hourly").catch(error => this.#options.log(`report audit failed: ${errorMessage(error)}`));
-  for (const batch of (await this.state()).reportOutbox ?? []) {
+  const admitted = await this.state();
+  const busyOwners = new Set(Object.keys(admitted.reportInFlight ?? {}));
+  for (const batch of admitted.reportOutbox ?? []) {
+   if (busyOwners.has(batch.owner)) continue;
+   busyOwners.add(batch.owner);
    const conversation = await this.#conversationOf(batch.owner);
    const submission = await conversation.submit({ type: "input", content: batch.content, whenBusy: "followUp", requestId: batch.key }, BACKGROUND_CONTEXT);
    await this.#woke(batch.owner);
@@ -3369,6 +3476,17 @@ function createBoardExtension(service: BoardService): Extension {
 			const writer = coordinatorWriter(threadId);
 			// Names this call in snapshot keys; call IDs are only unique within a conversation.
 			const callKey = `call:${api.conversationId}:${api.callId}`;
+			// Meter the real commit, not the transcript result, so direct and nested tools use the same path.
+			const countEntityWrite = <R,>(getTaskId: (result: R) => string | null, texts: readonly (string | null | undefined)[], getIds?: (result: R) => { feedbackId?: string; questionId?: string }) =>
+				async (change: (tx: Tx) => Promise<R>): Promise<R> => api.commit(async tx => {
+					const result = await change(tx);
+					const taskId = getTaskId(result);
+					const ids = getIds?.(result);
+					if (taskId || ids?.questionId) await service.recordChatDetailWrite(tx, api.conversationId, taskId ?? "unscoped", texts, ids);
+					return result;
+				}, context);
+			const countTaskWrite = (taskId: string, texts: readonly (string | null | undefined)[], ids?: { feedbackId: string }) =>
+				<R,>(change: (tx: Tx) => Promise<R>) => countEntityWrite<R>(() => taskId, texts, () => ids ?? {})(change);
 			try {
 				switch (input.action) {
 					case "list": {
@@ -3377,7 +3495,7 @@ function createBoardExtension(service: BoardService): Extension {
 					case "add_task": {
 						if (input.status === "done" || input.status === "dropped") return toolText(onlyUserCloses(input.status), { isError: true });
 						const change = await service.commitFor(
-							(change) => api.commit(change, context),
+							countEntityWrite((result: TaskChange) => result.after.id, [input.description]),
 							(state, now) =>
 								saveTask(state, {
 									task: {
@@ -3413,7 +3531,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const id = need(input.id, input.action, "id");
 						const expectedRevision = need(input.expectedRevision, input.action, "expectedRevision");
 						const { change, unblocked } = await service.commitFor(
-							(change) => api.commit(change, context),
+							countTaskWrite(id, [input.description]),
 							(state, now) => {
 								const current = state.tasks.find((candidate) => candidate.id === id);
 								if (current === undefined) throw unknownTask(id);
@@ -3451,7 +3569,7 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "ask": {
 						const question = await service.commitFor(
-							(change) => api.commit(change, context),
+							countEntityWrite((question: BoardQuestion) => question.taskId, [input.text, ...(input.options ?? [])], question => ({ questionId: question.id })),
 							(state, now) =>
 								askQuestion(state, {
 									text: need(input.text, input.action, "text"),
@@ -3480,7 +3598,7 @@ function createBoardExtension(service: BoardService): Extension {
                     case "reply_question":
                     case "reopen_question": {
                         const id = need(input.id, input.action, "id");
-                        const question = await service.commitFor(change => api.commit(change, context), (state, now) => replyQuestion(state, {
+                        const question = await service.commitFor(countEntityWrite((question: BoardQuestion) => question.taskId, [input.text, input.revisedText, ...(input.revisedOptions ?? [])]), (state, now) => replyQuestion(state, {
                             questionId: id, expectedRevision: need(input.expectedRevision, input.action, "expectedRevision"),
                             text: need(input.text, input.action, "text"), revisedText: input.revisedText, revisedOptions: input.revisedOptions,
                             reopen: input.action === "reopen_question", by: writer, now,
@@ -3491,7 +3609,7 @@ function createBoardExtension(service: BoardService): Extension {
 					case "resolve_question": {
 						const id = need(input.id, input.action, "id");
 						const question = await service.commitFor(
-							(change) => api.commit(change, context),
+							countEntityWrite((question: BoardQuestion) => question.taskId, [input.answer]),
 							(state, now) =>
 								settleQuestion(state, { questionId: id, expectedRevision: input.expectedRevision, answer: input.answer ?? null, now, actor: input.answer == null ? "coordinator" : "user" }),
 							writer,
@@ -3502,7 +3620,7 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "decide": {
 						const decision = await service.commitFor(
-							(change) => api.commit(change, context),
+							countEntityWrite((decision: BoardDecision) => decision.taskId, [input.text, input.why]),
 							(state, now) =>
 								addDecision(state, {
 									text: need(input.text, input.action, "text"),
@@ -3520,7 +3638,7 @@ function createBoardExtension(service: BoardService): Extension {
 					case "write_report": {
 						const id = need(input.id, input.action, "id");
 						const task = await service.writeReport(
-							(change) => api.commit(change, context),
+							countTaskWrite(id, [input.results, input.next, input.steps]),
 							{
 								taskId: id,
 								sections: { now: input.now, results: input.results, next: input.next, steps: input.steps },
@@ -3573,7 +3691,7 @@ function createBoardExtension(service: BoardService): Extension {
 							return toolText("Only the user dismisses feedback. Set it to handling, addressed or open.", { isError: true });
 						}
 						const entry = await service.setFeedbackFor(
-							(commit) => api.commit(commit, context),
+							countTaskWrite(id, [input.note], input.note?.trim() ? { feedbackId } : undefined),
 							{ taskId: id, feedbackId, state: feedbackState, note: input.note ?? null },
 							writer,
 						);
@@ -3629,11 +3747,17 @@ function createBoardExtension(service: BoardService): Extension {
    const validIds = new Set((await service.state()).tasks.map(task => task.id));
    let cursor;
    const texts: string[] = [];
+   const replies: string[] = [];
+   let ownerInputs: string[] | undefined;
    do {
     const page = await api.entries({ minEntryId: run.first, maxEntryId: run.last }, 200, cursor, context);
     for (const entry of page.items) for (const message of entry.model ?? []) {
-     if (entry.kind === "pi.user" && message.role === "user") {
+     if ((entry.kind === "pi.user" || entry.kind === OWNER_CHAT_ENTRY) && message.role === "user") {
       const text = typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+      if (entry.kind === OWNER_CHAT_ENTRY && !isReportHarnessInput(text.trimStart())) {
+       if (entry.id === run.first) ownerInputs = [];
+       ownerInputs?.push(text);
+      }
       for (const match of text.matchAll(/\[board\] (?:The user asked back on|Clarification reminder for) (Q[1-9]\d*) \(r(\d+)\)/g)) clarifications.set(match[1]!, Number(match[2]));
       for (const id of reportChatUserTasks(text, validIds)) userTasks.set(id, Math.max(userTasks.get(id) ?? 0, message.timestamp));
      }
@@ -3645,7 +3769,7 @@ function createBoardExtension(service: BoardService): Extension {
      }
      if (message.role !== "assistant") continue;
      for (const block of message.content) {
-      if (block.type === "text") texts.push(block.text);
+      if (block.type === "text") { texts.push(block.text); replies.push(block.text); }
       if (block.type === "toolCall" && block.name === "thread_send" && typeof block.arguments.message === "string") texts.push(block.arguments.message);
      }
     }
@@ -3653,7 +3777,7 @@ function createBoardExtension(service: BoardService): Extension {
    } while (cursor !== undefined);
    await service.endTaskFocus(api.conversationId, String(run.first));
    await service.endClarifications(service.threadIdOf(api.conversationId), clarifications, `clarification-run:${api.conversationId}:${run.first}:${run.last}`);
-   await service.noteChat(texts.join("\n"), written, `report-chat:${api.conversationId}:${run.first}:${run.last}`, service.threadIdOf(api.conversationId), userTasks);
+   await service.noteChat(texts.join("\n"), written, `report-chat:${api.conversationId}:${run.first}:${run.last}`, service.threadIdOf(api.conversationId), userTasks, { conversationId: api.conversationId, first: run.first, last: run.last, ownerInputs, reply: replies.join("\n") });
    return undefined;
   },
  })] });

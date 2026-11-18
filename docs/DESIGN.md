@@ -3280,22 +3280,39 @@ and suppressed nudges. Causes preserve the first important reasons and latest ca
 No individual tool/progress/poll is a fact. Legacy dates are approximate from the shared report timestamp,
 coverage unknown: normalization itself neither creates a fact nor queues a nudge.
 
-At turn end the “discussed in chat” fallback only considers tasks explicitly named in user inputs
-(valid typed IDs, even a short `T12?`, or a `[task T12, feedback F3]` scope). Harness-only turns answering
-`[check-in]`, `[board]`, `[reports]`, worker/thread reports or `[from …]` messages never qualify: their
-structured lifecycle rules already cover task facts. An outgoing coordinator reply or delivered thread
-message must also mention that same task outside quotes/code/links/transport prefixes/templates, with
-at least 40 other characters. Incidental reply IDs and unscoped user messages without task IDs do not
-qualify. Done/dropped tasks never count. Successful report or feedback-state board tool results,
-including nested tool results, exclude that task for the whole run. Otherwise only Results/Next sections
-not written after the relevant user input's transcript timestamp become stale and may nudge (latest
-user timestamp per task when several inputs are placed in one run). This covers a queued user message
-already reflected in a preceding turn's report. At most one harness-detected chat fact per task per turn;
-this is a coverage warning, not an inference that the reply contains new facts. Outgoing thread messages
-are durably held until the sender's run ends so a later write in that turn can cover them; harness-only
-turns consume and discard these candidates too. Two bounded snippet/source references are retained
-internally; no chat is added to the timeline. T135 narrows the earlier reply-only heuristic to avoid
-no-op rewrites and cross-task `[reports]` ping-pong. The age backstop runs at most hourly per project
+At turn end the **only-in-chat check** (T279 / D102) runs only when a client chat input started the
+coordinator run. The durable input kind records that provenance and still appears as `pi.user` to
+clients. Harness-started runs, including `[reports]`, `[check-in]`, and unlabelled background briefs,
+are not checked or counted, even if a user message steers them later.
+
+The check looks for missing items from numbered lists of at least three, fenced code blocks or
+command-like inline code, and at least 800 normalized characters of prose when successful board
+text writes amount to less than a third of that. It compares against the task description, Your steps,
+Results, Next, open or answered questions, decisions, and feedback notes written in the run. Steps and
+prose use 80% normalized word overlap; numeric values must also match. Code compares case-sensitively,
+with whitespace normalized. Repeating filed content is fine. A feedback-state write alone does not
+exempt the reply, and a substantial `ask` in the same run counts. Task files are not opened or scanned.
+
+Task-scoped inputs take priority, then task IDs in the input or reply, then the background thread's own
+task. For multi-task replies the check compares against their combined text rather than guessing which
+paragraph belongs to which task. A catch marks open subjects stale (`only in chat: …`) and admits one
+`[reports]` follow-up to the originating conversation via the durable report outbox. If no task is
+named or implied by thread scope, the same outbox asks the coordinator to file the detail on a task.
+The harness never copies the reply. There is no automatic follow-up for a closed-only subject. Normal
+report coverage rules still apply to stale sections. Claims and submission IDs deduplicate replay.
+`chatDetailNudges: false` in the project's `project.json` disables this follow-up and its stale mark
+(default on; server-only, read on project reload). The board document keeps 30 UTC calendar days of
+`chatDetailCounts` (flagged and clean runs, numbers only, regardless of that setting). The server logs
+those totals as `chat detail counts (UTC)` after each counted run.
+
+For replies that are not candidates for the detail check, the older “discussed in chat” coverage
+fallback (T135) still applies. Both client input and outgoing prose must explicitly name the same
+open task; the reply must contain at least 40 other characters outside quotes, code, links and transport
+prefixes. Successful report or feedback-state tool results exempt that task from this older fallback
+only. Otherwise only Results/Next sections not already written after the relevant input timestamp
+become stale. Outgoing thread messages are held until the sender's run ends; harness-only turns
+consume and discard those candidates. This older path keeps up to two bounded snippet/source references
+internally. Neither check adds chat text to the timeline. The age backstop runs at most hourly per project
 (last sweep persisted), only for in_progress/review/waiting and only when meaningful activity is newer than a section at least two hours
 old. Coordinator-authored facts and starts/resumes do not refresh that activity clock, so the backstop
 cannot turn them into delayed self-nudges. Quiet old reports never wake anyone; the sweep is a coverage

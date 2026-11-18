@@ -15,6 +15,8 @@ export type TaskFact = {
 	actor?: TaskFactActor;
 	/** Report writer identity lets milestones distinguish ongoing task work from unbound writes. */
 	writer?: BoardWriter;
+	/** The caller already admits a dedicated follow-up; do not also queue normal freshness work. */
+	nudge?: false;
 	kind: "question_asked" | "question_clarification" | "question_settled" | "blocker_resolved" | "worker_start" | "worker_resume" | "worker_report" | "worker_fail" | "worker_stop" | "thread_handoff" | "thread_finish" | "status" | "feedback" | "feedback_addressed" | "decision" | "milestone" | "commit" | "integration" | "publication" | "deploy" | "check_outcome" | "chat" | "stale";
 	reason: string;
 	at: string;
@@ -35,7 +37,7 @@ export type TaskReportTracking = {
 	pending?: PendingReport;
 };
 export type ReportAdmission = { taskId: string; burst: number; sections: Partial<Record<ReportSection, number>> };
-export type ReportOutbox = { key: string; owner: string; content: string; admissions: ReportAdmission[] };
+export type ReportOutbox = { key: string; owner: string; content: string; admissions: ReportAdmission[]; chatDetail?: true };
 
 /** Legacy coverage is unknown, not zero; upgrading is not a fact and never queues a nudge. */
 export function initializeTaskFreshness(state: BoardState, task: BoardTask): void {
@@ -104,7 +106,7 @@ export function noteTaskFact(state: BoardState, taskId: string, fact: TaskFact):
 	const tracking = state.reportTracking![taskId]!;
 	task.eventSeq = (task.eventSeq ?? 0) + 1;
 	// The age backstop must not turn self-caused activity into a delayed nudge either.
-	if (task.status !== "done" && task.status !== "dropped" && fact.actor !== "coordinator" && fact.kind !== "worker_start" && fact.kind !== "worker_resume" && fact.sections?.length !== 0) tracking.activityAt = fact.at;
+	if (task.status !== "done" && task.status !== "dropped" && fact.actor !== "coordinator" && fact.kind !== "worker_start" && fact.kind !== "worker_resume" && fact.sections?.length !== 0 && fact.nudge !== false) tracking.activityAt = fact.at;
 	for (const name of REPORT_SECTIONS) {
 		const section = task.report.freshness![name];
 		section.eventsSince = (section.eventsSince ?? 0) + 1;
@@ -121,7 +123,7 @@ function invalidateReportSections(state: BoardState, task: BoardTask, fact: Task
 		section.stale = true;
 		const reasons = [...new Set([...section.reasons, reason])];
 		section.reasons = reasons.length <= 3 ? reasons : [...reasons.slice(0, 2), reason];
-		if (tracking.suppressed[name] === section.version) continue;
+		if (fact.nudge === false || tracking.suppressed[name] === section.version) continue;
 		tracking.pending ??= { burst: task.eventSeq ?? 0, first: Date.parse(fact.at), last: Date.parse(fact.at), sections: {} };
 		tracking.pending.last = Date.parse(fact.at);
 		tracking.pending.sections[name] = section.version;
@@ -227,7 +229,7 @@ export function prepareReportNudges(state: BoardState, now: number, ownerOf: (ta
   const owner = ownerOf(task);
   const batch = grouped.get(owner) ?? { lines: [], admissions: [] };
   const names = sections.map((name) => name === "next" ? "Next" : "Results").join("/");
-  const reasons = [...new Set(sections.flatMap((name) => task.report.freshness![name].reasons))].join(", ").slice(0, 72);
+  const reasons = [...new Set(sections.flatMap((name) => task.report.freshness![name].reasons.filter(reason => !reason.startsWith("only in chat:"))))].join(", ").slice(0, 72);
   const line = `${task.id} ${names} stale: ${reasons}`;
   if (estimateTextTokens(`[reports] ${[...batch.lines, line].join("; ")}${suffix}`) > (options.maxTokens ?? 100) && batch.lines.length > 0) continue;
   batch.lines.push(line);
@@ -265,9 +267,18 @@ export function acknowledgeReportNudge(state: BoardState, key: string, submissio
 /** Only explicit user subjects qualify; harness messages already have structured freshness rules. */
 export function reportChatUserTasks(content: string, validIds: ReadonlySet<string>): string[] {
  const text = content.trimStart();
- if ([BOARD_PREFIX, CHECK_IN_PREFIX, THREAD_FINISHED_PREFIX, THREAD_MESSAGE_PREFIX, WORKER_REPORT_PREFIX, "[reports]"].some(prefix => text.startsWith(prefix))) return [];
+ if (isReportHarnessInput(text)) return [];
  const scoped = /^\[task (T[1-9]\d*)(?:, feedback F[1-9]\d*)?\]/.exec(text)?.[1];
  return [...new Set([...(scoped && validIds.has(scoped) ? [scoped] : []), ...taskMentions(text, validIds, 0)])];
+}
+
+export function isReportHarnessInput(text: string): boolean {
+ return [BOARD_PREFIX, CHECK_IN_PREFIX, THREAD_FINISHED_PREFIX, THREAD_MESSAGE_PREFIX, WORKER_REPORT_PREFIX, "[reports]"].some(prefix => text.startsWith(prefix));
+}
+
+/** Explicit task IDs for detail routing, including a bare ID or a Markdown task link. */
+export function chatDetailTaskMentions(text: string, validIds: ReadonlySet<string>): string[] {
+ return taskMentions(text.replace(/\[(T[1-9]\d*)\]\([^)]*\)/g, "$1"), validIds, 0, false);
 }
 
 /** Conservative mention fallback: no quote/code/transport/template mining, no bare IDs or links. */
@@ -275,13 +286,13 @@ export function substantiveTaskMentions(content: string, validIds: ReadonlySet<s
  return taskMentions(content, validIds, 40);
 }
 
-function taskMentions(content: string, validIds: ReadonlySet<string>, minimumProse: number): string[] {
- const prose = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "").replace(/`[^`]*`/g, "")
+function taskMentions(content: string, validIds: ReadonlySet<string>, minimumProse: number, ignoreFiledMentions = true): string[] {
+ let prose = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "").replace(/`[^`]*`/g, "")
   .replace(/^\s*>.*$/gm, "").replace(/\[[^\]]*\]\([^)]*\)/g, "")
   .replace(/https?:\/\/\S+/g, "").replace(/^\s*\[(?:from |thread |worker |board|reports|task )[^\]]*\]/gm, "")
-  // Match each sentence once: an unanchored sentence-prefix wildcard retries quadratically on long user inputs.
-  .replace(/[^.!?\n]+[.!?]?/g, sentence => /(?:filed under|tracked (?:in|under)|recorded (?:in|under))\s+(?:task\s+)?T\d+/i.test(sentence) ? "" : sentence)
   .replace(/"[^"\n]*"|“[^”\n]*”/g, "");
+ // Match each sentence once: an unanchored sentence-prefix wildcard retries quadratically on long inputs.
+ if (ignoreFiledMentions) prose = prose.replace(/[^.!?\n]+[.!?]?/g, sentence => /(?:filed under|tracked (?:in|under)|recorded (?:in|under))\s+(?:task\s+)?T\d+/i.test(sentence) ? "" : sentence);
  const ids = [...new Set(prose.match(/\bT[1-9]\d*\b/g) ?? [])].filter((id) => validIds.has(id));
  const other = prose.replace(/\b(?:task\s+)?T\d+\b/gi, "").replace(/\s+/g, " ").trim();
  return other.length >= minimumProse ? ids : [];

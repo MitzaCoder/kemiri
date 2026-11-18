@@ -15,6 +15,7 @@
  * `ContextUsageReader` reports the same policy back through `ConversationContext.usage`, so the app shows the thresholds
  * that are actually in effect rather than a copy that could drift.
  */
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
 import { contentText } from "@earendil-works/pi-ai";
@@ -216,7 +217,7 @@ export function userMessagesOf(
 ): { messages: string[]; omitted: number } {
 	const texts: string[] = [];
 	for (const entry of entries) {
-		if (entry.kind !== "pi.user") continue;
+		if (entry.kind !== "pi.user" && entry.kind !== OWNER_CHAT_ENTRY) continue;
 		const message = entry.model?.[0];
 		if (message === undefined || message.role !== "user") continue;
 		const text = contentText(message.content).trim();

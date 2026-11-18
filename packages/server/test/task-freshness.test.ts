@@ -9,6 +9,8 @@ import { acknowledgeReportNudge, markReportStale, noteTaskFact, prepareReportNud
 import { createSetup, errorOf, TestClient } from "./support.ts";
 import { activityTracking } from "../src/task-activity.ts";
 
+import { OWNER_CHAT_ENTRY } from "../src/wire.ts";
+
 const START = Date.parse("2026-11-12T12:00:00.000Z");
 const at = (ms = 0) => new Date(START + ms).toISOString();
 const by = coordinatorWriter("main");
@@ -504,7 +506,7 @@ it("outgoing coordinator prose stales and nudges once per turn; a same-turn repo
   fauxAssistantMessage([fauxToolCall("board", { action: "write_report", id: "T1", results: "- Synthetic verification passed", next: "Owner: review the assets", coveredEventSeq: 1 })], { stopReason: "toolUse" }),
   fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication."),
  ]);
- const first = await runtime.conversation.submit({ type: "input", content: "Discuss the evidence for T1.", requestId: "mention-first" }, BACKGROUND_CONTEXT);
+ const first = await runtime.conversation.submit({ type: "input", content: "Discuss the evidence for T1.", entry: { kind: OWNER_CHAT_ENTRY }, requestId: "mention-first" }, BACKGROUND_CONTEXT);
  await first.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  const mentioned = await runtime.board.state();
  for (const section of ["results", "next"] as const) expect(meta(mentioned)[section]).toMatchObject({ stale: true, reasons: ["discussed in chat"], eventsSince: 1 });
@@ -513,7 +515,7 @@ it("outgoing coordinator prose stales and nudges once per turn; a same-turn repo
  prepareReportNudges(mentioned, START + 60_000, owner);
  expect(mentioned.reportOutbox).toHaveLength(1);
  expect(mentioned.reportOutbox![0]!.admissions).toHaveLength(1);
- const second = await runtime.conversation.submit({ type: "input", content: "Read and rewrite the report for T1.", requestId: "mention-rewrite" }, BACKGROUND_CONTEXT);
+ const second = await runtime.conversation.submit({ type: "input", content: "Read and rewrite the report for T1.", entry: { kind: OWNER_CHAT_ENTRY }, requestId: "mention-rewrite" }, BACKGROUND_CONTEXT);
  await second.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  expect((await runtime.board.state()).tasks[0]!.report.freshness!.next).toMatchObject({ stale: false, coveredEventSeq: 1 });
  const rewritten = await runtime.board.state();
@@ -614,7 +616,7 @@ it.each(["What changed on T1?", "[task T1, feedback F1] What changed?"])("only t
  const { setup, runtime } = await integration();
  await runtime.board.saveTask({ task: { title: "Unrelated synthetic task", description: "", acceptance: null, status: "in_progress", blockedBy: [], blockedReason: null, writeScopes: [] } }, "coordinator");
  setup.faux.setResponses([fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review. T2 also has synthetic assets ready for a separate review.")]);
- const turn = await runtime.conversation.submit({ type: "input", content: input, requestId: "user-subject" }, BACKGROUND_CONTEXT);
+ const turn = await runtime.conversation.submit({ type: "input", content: input, entry: { kind: OWNER_CHAT_ENTRY }, requestId: "user-subject" }, BACKGROUND_CONTEXT);
  await turn.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  const state = await runtime.board.state();
  expect(state.tasks[0]!.eventSeq).toBe(1);
@@ -634,7 +636,7 @@ it.each([false, true])("feedback handled in the same turn suppresses mentions (w
   ...(withReport ? [fauxAssistantMessage([fauxToolCall("board", { action: "write_report", id: "T1", results: "Synthetic checks passed", next: "Review the evidence" })], { stopReason: "toolUse" })] : []),
   fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication."),
  ]);
- const turn = await runtime.conversation.submit({ type: "input", content: `[task T1, feedback ${feedback.id}] What changed?`, requestId: "feedback-answer" }, BACKGROUND_CONTEXT);
+ const turn = await runtime.conversation.submit({ type: "input", content: `[task T1, feedback ${feedback.id}] What changed?`, entry: { kind: OWNER_CHAT_ENTRY }, requestId: "feedback-answer" }, BACKGROUND_CONTEXT);
  await turn.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  const state = await runtime.board.state();
  expect(state.tasks[0]!.eventSeq).toBe(before! + 1); // only the structured feedback-addressed fact
@@ -648,7 +650,7 @@ it("failed feedback writes do not exempt a user discussion", async () => {
   fauxAssistantMessage([fauxToolCall("board", { action: "feedback", id: "T1", feedbackId: "F99", state: "addressed" })], { stopReason: "toolUse" }),
   fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication."),
  ]);
- const turn = await runtime.conversation.submit({ type: "input", content: "What changed on T1?", requestId: "failed-feedback" }, BACKGROUND_CONTEXT);
+ const turn = await runtime.conversation.submit({ type: "input", content: "What changed on T1?", entry: { kind: OWNER_CHAT_ENTRY }, requestId: "failed-feedback" }, BACKGROUND_CONTEXT);
  await turn.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  expect(meta(await runtime.board.state()).results.reasons).toEqual(["discussed in chat"]);
 }, 15_000);
@@ -659,7 +661,7 @@ it.each(["done", "dropped"] as const)("mentions of %s tasks never count even in 
  await runtime.board.saveTask({ taskId: row.id, expectedRevision: row.revision, task: { ...row, status } }, "coordinator");
  const before = (await runtime.board.state()).tasks[0]!.eventSeq;
  setup.faux.setResponses([fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication.")]);
- const turn = await runtime.conversation.submit({ type: "input", content: "What changed on T1?", requestId: "closed-mention" }, BACKGROUND_CONTEXT);
+ const turn = await runtime.conversation.submit({ type: "input", content: "What changed on T1?", entry: { kind: OWNER_CHAT_ENTRY }, requestId: "closed-mention" }, BACKGROUND_CONTEXT);
  await turn.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
  const state = await runtime.board.state();
  expect(state.tasks[0]!.eventSeq).toBe(before);
@@ -678,3 +680,129 @@ it.each([true, false])("a preceding-turn rewrite after the user message covers o
  expect(meta(state).next.stale).toBe(!both);
  expect(state.tasks[0]!.eventSeq).toBe(both ? 0 : 1);
 }, 15_000);
+
+const fiveSteps = `1. Open the workspace settings panel.
+2. Pick the synthetic profile from the sidebar.
+3. Set the update interval to 35 minutes.
+4. Save the profile using the green button.
+5. Reload the dashboard and confirm the interval.`;
+const longDetail = "The amber fixture holds the selected theme until the dashboard reloads. The violet fixture clears its selection immediately. A third fixture remembers the filter independently across tabs, while the summary records the last timestamp and the workspace label. Compare these behaviours before choosing a default profile. ".repeat(3).trim();
+const utcDay = at().slice(0, 10);
+const toolReply = (args: Parameters<typeof fauxToolCall>[1]) => fauxAssistantMessage([fauxToolCall("board", args)], { stopReason: "toolUse" });
+
+async function submitOwnerChat(test: Awaited<ReturnType<typeof integration>>, content: string, requestId: string, taskId?: string) {
+ const reply = await test.client.request({ type: "conversation.submit", projectId: test.projectId, content, requestId, ...(taskId && { taskId }) });
+ if (reply.type !== "conversation.submit") throw errorOf(reply);
+ await test.runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+}
+
+async function detailNudges(runtime: Awaited<ReturnType<typeof integration>>["runtime"]) {
+ await runtime.board.checkReports();
+ await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+ const entries = await runtime.conversation.entries({}, 100, undefined, BACKGROUND_CONTEXT);
+ return entries.items.flatMap(entry => entry.model ?? []).flatMap(message =>
+  message.role === "user" && typeof message.content === "string" && message.content.startsWith("[reports]") ? [message.content] : []);
+}
+
+it("a short Next and addressed feedback do not hide five missing steps; one scoped follow-up, with no loop", async () => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ await runtime.board.saveTask({ task: { ...task().tasks[0]!, title: "Synthetic companion" } }, "coordinator");
+ setup.faux.setResponses([
+  toolReply({ action: "write_report", id: "T1", next: "Apply the settings." }),
+  toolReply({ action: "feedback", id: "T1", feedbackId: "F1", state: "addressed", note: "Start by opening the panel." }),
+  fauxAssistantMessage(`T2 is unrelated.\n\n${fiveSteps}`),
+  fauxAssistantMessage(`T1 still needs:\n\n${fiveSteps}`),
+ ]);
+ await submitOwnerChat(test, "How do I configure the profile?", "steps-missing", "T1");
+ const nudges = await detailNudges(runtime);
+ expect(nudges).toHaveLength(1);
+ expect(nudges[0]).toContain("T1 (F1): only in chat: 5 steps");
+ expect(nudges[0]).toContain("Your steps");
+ expect(nudges[0]).not.toContain("T2");
+ const state = await runtime.board.state();
+ expect(meta(state).next.reasons).toContain("only in chat: 5 steps");
+ expect(state.tasks[0]!.report.steps).toBeUndefined();
+ expect(state.tasks[1]!.report.freshness!.next.stale).toBe(false);
+ expect(state.chatDetailCounts).toEqual({ [utcDay]: { flagged: 1, clean: 0 } });
+ expect(await detailNudges(runtime)).toEqual(nudges);
+}, 15_000);
+
+it.each(["steps", "next"] as const)("repeating five steps already in %s is clean, even without a same-turn write", async field => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ await runtime.board.writeReport(change => runtime.harness.commit(change, BACKGROUND_CONTEXT), { taskId: "T1", sections: { [field]: fiveSteps }, by }, "pre-filed-steps");
+ setup.faux.setResponses([fauxAssistantMessage(`T1 configuration:\n\n${fiveSteps}`)]);
+ await submitOwnerChat(test, "Repeat the instructions for T1.", "steps-on-task");
+ expect(await detailNudges(runtime)).toEqual([]);
+ const state = await runtime.board.state();
+ expect(meta(state).next.stale).toBe(false);
+ expect(state.chatDetailCounts?.[utcDay]).toEqual({ flagged: 0, clean: 1 });
+}, 15_000);
+
+it("a reply-only task reference routes a missing inline command; a long linked ask counts as filed", async () => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ setup.faux.setResponses([fauxAssistantMessage("For T1, run `example-cli inspect --profile amber`."), fauxAssistantMessage("Noted.")]);
+ await submitOwnerChat(test, "How do I check it?", "command-missing");
+ const nudges = await detailNudges(runtime);
+ expect(nudges).toHaveLength(1);
+ expect(nudges[0]).toContain("T1: only in chat: a command");
+ setup.faux.setResponses([toolReply({ action: "ask", taskId: "T1", text: `${longDetail} Which profile should be the default?` }), fauxAssistantMessage(longDetail)]);
+ await submitOwnerChat(test, "Help me choose for T1.", "similar-ask");
+ expect(await detailNudges(runtime)).toEqual(nudges);
+ expect((await runtime.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 1 });
+}, 15_000);
+
+it("an unscoped catch uses the same outbox with no stale task; an unlabelled harness start is not counted", async () => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ setup.faux.setResponses([fauxAssistantMessage(fiveSteps), fauxAssistantMessage(fiveSteps), fauxAssistantMessage(fiveSteps)]);
+ const harnessTurn = await runtime.conversation.submit({ type: "input", content: "A synthetic background brief (no prefix)." }, BACKGROUND_CONTEXT);
+ await harnessTurn.wait(BACKGROUND_CONTEXT);
+ await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+ expect((await runtime.board.state()).chatDetailCounts).toBeUndefined();
+ await submitOwnerChat(test, "Describe the procedure.", "unscoped");
+ const nudges = await detailNudges(runtime);
+ expect(nudges).toHaveLength(1);
+ expect(nudges[0]).toContain("5 steps. File this on a task.");
+ const state = await runtime.board.state();
+ expect(meta(state).next.stale).toBe(false);
+ expect(state.chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
+}, 15_000);
+
+it("chat detail nudge off counts catches without a nudge and persists across restart", async () => {
+ const test = await integration();
+ const { setup, runtime, projectId } = test;
+ await setup.server.manager.configure(projectId, { chatDetailNudges: false });
+ setup.faux.setResponses([fauxAssistantMessage(`T1:\n\n${fiveSteps}`), fauxAssistantMessage("Noted.")]);
+ await submitOwnerChat(test, "Explain the procedure for T1.", "disabled");
+ expect(await detailNudges(runtime)).toEqual([]);
+ expect((await runtime.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
+ await setup.restart();
+ const reopened = (await setup.server.manager.open(projectId)).runtime;
+ expect(reopened.project.chatDetailNudges).toBe(false);
+ expect((await reopened.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
+ expect(await detailNudges(reopened)).toEqual([]);
+}, 15_000);
+
+it("restart retries a submitted but unacknowledged only-in-chat outbox entry without duplicating the nudge", async () => {
+ const test = await integration();
+ const { setup, runtime, projectId } = test;
+ // Hold the recipient as busy while capturing a real end-of-turn admission.
+ await runtime.harness.commit(async tx => { (await tx.doc(BoardDoc, runtime.conversation.id)).reportInFlight = { main: -1 }; }, BACKGROUND_CONTEXT);
+ setup.faux.setResponses([fauxAssistantMessage(`T1:\n\n${fiveSteps}`), fauxAssistantMessage("Noted.")]);
+ await submitOwnerChat(test, "Explain T1.", "before-crash");
+ const batch = (await runtime.board.state()).reportOutbox?.[0];
+ expect(batch?.chatDetail).toBe(true);
+ const delivered = await runtime.conversation.submit({ type: "input", content: batch!.content, whenBusy: "followUp", requestId: batch!.key }, BACKGROUND_CONTEXT);
+ await delivered.wait(BACKGROUND_CONTEXT);
+ await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+ await setup.restart();
+ const reopened = (await setup.server.manager.open(projectId)).runtime;
+ await reopened.harness.commit(async tx => { delete (await tx.doc(BoardDoc, reopened.conversation.id)).reportInFlight; }, BACKGROUND_CONTEXT);
+ const nudges = await detailNudges(reopened);
+ expect(nudges).toEqual([batch!.content]);
+ expect((await reopened.board.state()).reportOutbox).toEqual([]);
+ expect((await reopened.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
+}, 20_000);
