@@ -106,8 +106,8 @@ const CANONICAL_MODE = process.platform === "darwin" ? 0x100 : 0x2;
 /** Input held for a client that is not ready yet: at most this much, for at most this long. */
 const HELD_INPUT_LIMIT = 256 * 1024;
 const HELD_INPUT_MAX_MS = 15_000;
-/** Zellij clears the screen on its first render; its startup terminal queries do not. May span PTY chunks. */
-const FIRST_SCREEN_CLEAR = "\x1b[2J";
+/** Zellij's tab renderer hides the cursor before drawing, including on reattach where it can skip the screen clear. */
+const ZELLIJ_RENDER_CURSOR_HIDE = "\x1b[?25l";
 
 const DEFAULT_PENDING_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_FLUSH_MS = 8;
@@ -620,8 +620,7 @@ export class TerminalAttachment {
 		const check = (): void => {
 			const terminal = this.#process.terminal;
 			if (terminal === undefined || this.#finished || this.#detached) return this.#stopRawPoll();
-			// Raw mode alone is not enough: the client switches early, but only reads keys once the server has drawn
-			// the session, which is its first full-screen write.
+			// Raw mode alone is not enough: the client switches early, before the server's first render.
 			const ready = (terminal.localFlags & CANONICAL_MODE) === 0 && this.#rendered;
 			if (ready || Date.now() - started > HELD_INPUT_MAX_MS) {
 				const held = this.#heldInput ?? [];
@@ -685,8 +684,8 @@ export class TerminalAttachment {
 		if (this.#detached || this.#finished) return;
 		if (!this.#rendered) {
 			const output = this.#renderTail + new TextDecoder().decode(data);
-			this.#rendered = output.includes(FIRST_SCREEN_CLEAR);
-			this.#renderTail = output.slice(-(FIRST_SCREEN_CLEAR.length - 1));
+			this.#rendered = output.includes(ZELLIJ_RENDER_CURSOR_HIDE);
+			this.#renderTail = output.slice(-(ZELLIJ_RENDER_CURSOR_HIDE.length - 1));
 			if (this.#rendered) this.#firstRender.resolve();
 		}
 		this.#lastDataAt = Date.now();

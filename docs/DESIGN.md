@@ -4495,8 +4495,11 @@ here and nothing depends on xterm.js.
   and in the Security note below rather than assumed.
 - **Every terminal is a zellij session.** The PTY runs `zellij attach --create <session>`. Closing the page, losing
   the connection, a server restart or a deploy only *detaches* the client; the zellij server and everything running in
-  it carry on, and reopening reattaches with the screen intact (zellij redraws it). zellij is preferred to tmux (the
-  user's choice); it is also what the user already runs by hand, so the same sessions can be attached from a shell.
+  it carry on, and reopening reattaches with the screen intact (zellij redraws it, including output still on screen
+  from while the client was away). The shared server holds early input until the attach PTY is raw and Zellij starts
+  drawing (the render starts by hiding the cursor). A live reattach may draw without clearing the screen, so it does
+  not wait for a clear before forwarding those keys. zellij is preferred to tmux (the user's choice); it is also what
+  the user already runs by hand, so the same sessions can be attached from a shell.
   Without zellij the backend says so (see "Availability") instead of failing obscurely; a plain-shell mode
   (`multiplexer: "none"`, not selectable from the app) exists for tests and has no reattach.
 - **Surviving a deploy.** The backend's systemd unit has `KillMode=mixed`, so a restart SIGKILLs everything left in

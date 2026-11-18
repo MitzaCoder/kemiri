@@ -416,13 +416,21 @@ describe.skipIf(ZELLIJ === null)("terminals on zellij sessions", () => {
 			["my-project-2", true, false],
 		]);
 
-		// Detach: the session stays, and a fresh attach redraws what was on screen.
+		// Produce output with the client detached. The live session retains it for the next attach.
+		first.type("(touch .job-started; while [ ! -f .release-output ]; do sleep 0.05; done; printf '\\noutput-%s\\n' while-detached; touch .output-done) &\r");
+		await until(() => existsSync(join(setup.projectDir, ".job-started")), "the background job to start");
 		await client.request({ type: "terminal.close", terminalId: first.terminalId });
 		const afterDetach = (await client.request({ type: "terminal.list" })) as { sessions: { name: string; attached: boolean }[] };
 		expect(afterDetach.sessions.find((entry) => entry.name === "my-project-1")).toMatchObject({ attached: false });
+		await Bun.write(join(setup.projectDir, ".release-output"), "");
+		await until(() => existsSync(join(setup.projectDir, ".output-done")), "the detached shell's output");
+
 		const again = await open(client, { session: "my-project-1" });
 		expect(again.response).toMatchObject({ session: "my-project-1", created: false });
-		await again.waitForText("zj-5", 30_000);
+		// Type before waiting for output; this must not wait out the 15 s startup input fallback.
+		again.type("printf 'reattached-%s\\n' $((6*7))\r");
+		await again.waitForText("reattached-42", 5_000);
+		await again.waitForText("output-while-detached");
 
 		// Ending a session closes whoever is attached and removes it from the list.
 		const kill = await client.request({ type: "terminal.kill", session: "my-project-2" });
@@ -481,10 +489,10 @@ describe.skipIf(ZELLIJ === null)("terminals on zellij sessions", () => {
 });
 
 describe("TerminalHost", () => {
-	test("readiness waits for a screen clear across chunks, not a byte threshold", async () => {
+	test("readiness waits for the render's cursor-hide sequence across chunks, without a screen clear", async () => {
 		let output = "";
 		const host = new TerminalHost({ multiplexer: "none", command: ["bash", "-c",
-			"stty -echo; printf '%2100s'; read -r first; printf '\\033[2'; read -r second; printf J; read -r last",
+			"stty -echo; printf '\\033[?1049h\\033[?12l%2100s'; read -r first; printf '\\033[?2'; read -r second; printf 5l; read -r last",
 		] });
 		try {
 			const terminal = await host.open({ cols: 20, rows: 5 }, {
@@ -497,7 +505,7 @@ describe("TerminalHost", () => {
 			await until(() => output.length >= 2100, "startup output");
 			expect(ready).toBe(false);
 			terminal.write("first\n");
-			await until(() => output.endsWith("\x1b[2"), "partial screen clear");
+			await until(() => output.endsWith("\x1b[?2"), "partial cursor-hide sequence");
 			expect(ready).toBe(false);
 			terminal.write("second\n");
 			await rendered;
