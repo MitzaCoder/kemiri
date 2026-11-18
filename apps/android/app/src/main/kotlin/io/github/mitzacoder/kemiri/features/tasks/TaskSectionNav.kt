@@ -27,6 +27,7 @@ internal fun taskSheetSections(
 ): List<TaskSectionLink> = buildList {
     if (questions > 0) add(TaskSectionLink(TaskSectionKind.Questions, "$questions open"))
     add(TaskSectionLink(TaskSectionKind.Report, if (hasReport(task.report)) "Current update" else null))
+    if (task.description.isNotBlank() || !task.acceptance.isNullOrBlank()) add(TaskSectionLink(TaskSectionKind.Brief, "Reference"))
     // Android keeps its existing empty timeline and feedback placeholders.
     if (linksEnabled) add(TaskSectionLink(TaskSectionKind.Timeline, timeline.toString()))
     if (linksEnabled) add(TaskSectionLink(TaskSectionKind.Feedback, "$feedback open"))
@@ -35,7 +36,6 @@ internal fun taskSheetSections(
     if (task.workerIds.isNotEmpty()) add(TaskSectionLink(TaskSectionKind.Workers, taskWorkerCount(task.workerIds.size, runningWorkers)))
     if (decisions > 0) add(TaskSectionLink(TaskSectionKind.Decisions, decisions.toString()))
     if (task.snapshots > 0) add(TaskSectionLink(TaskSectionKind.History, task.snapshots.toString()))
-    if (task.description.isNotBlank() || !task.acceptance.isNullOrBlank()) add(TaskSectionLink(TaskSectionKind.Brief, "Reference"))
 }
 
 /** Explicit navigation stays selected after its animation; only a user's body drag releases it. */

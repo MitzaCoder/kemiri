@@ -153,7 +153,7 @@
 	let waitingForm = $state(false);
 	let problem = $state<string | undefined>(undefined);
 	let closing = $state(false);
-	let briefOpen = $state(false);
+	let briefOpen = $state(true);
 	let historyOpen = $state(false);
 	let timelineOpen = $state(false);
 
@@ -171,7 +171,6 @@
 		confirmDrop = false;
 		waitingForm = false;
 		problem = undefined;
-		briefOpen = false;
 		historyOpen = false;
 		timelineOpen = false;
 		timelineEntries = undefined;
@@ -179,6 +178,11 @@
 		timelineError = undefined;
 		feedbackEntries = [];
 		feedbackProblem = undefined;
+	});
+
+	// A fresh opening starts expanded, even when reopening the same task.
+	$effect(() => {
+		if (requestedId !== null) briefOpen = true;
 	});
 
 	const tasks = $derived(board?.tasks ?? []);
@@ -653,6 +657,7 @@
 								{@render questionsSection()}
 								{@render blockedSection()}
 								{@render reportSection()}
+								{@render briefSection()}
 								{@render timelineSection()}
 								{@render feedbackSection()}
 								{@render filesSection()}
@@ -660,7 +665,6 @@
 								{@render workersSection()}
 								{@render decisionsSection()}
 								{@render historySection()}
-								{@render briefSection()}
 							{/if}
 						</div>
 						</div>

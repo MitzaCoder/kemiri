@@ -5271,9 +5271,10 @@ follows the same visual hierarchy in D28, using its existing Jarvis theme and sh
   input scrolls internally without discarding text; expanding refs or changing keyboard size never recreates it.
   Below 400dp available Android height, section chips temporarily yield their space to the scrollable body and its
   padding is reduced; normal-height windows retain the existing section navigation.
-- **One column at every width (T43).** Questions comes immediately after the header/navigation, then Report, Timeline, Feedback and Files.
-  Related, Workers, Decisions, History and Brief follow. Existing visibility rules remain; empty reference
-  sections do not leave blank cards. History, Timeline and Brief retain their existing folding behaviour.
+- **One column at every width (T43).** Questions comes immediately after the header/navigation, then Report, Brief,
+  Timeline, Feedback and Files. Related, Workers, Decisions and History follow. Empty reference sections do not leave
+  blank cards. Brief starts expanded each time the task opens and can still be folded (T275); History and Timeline
+  retain their existing folding behaviour.
 - **Section navigation (T43).** At 54rem of sheet width (a container query, not window width), a slim sticky rail sits
   left of the single card column. Below that width it becomes a horizontally scrolling chip row, sticky below the
   header from the start of the body. It lists the rendered sections only, with shared icons, labels and count
@@ -5329,8 +5330,8 @@ ellipsis treatment (T31). Foldable sections retain heading/button semantics and 
 
 - **T62 removes `TaskSummary.kt`.** `TaskSheetMeta.kt` keeps the same compact context as web: waiting and subtask
   progress in wrapping header metadata, open question/feedback and running-worker counts on section chips. It adds no reads.
-- **T43 removes the 840dp two-column layout.** Every window uses the same Questions, Report, Timeline, Feedback, Files,
-  Related, Workers, Decisions, History, Brief order. The side sheet still starts at 600dp, has a maximum
+- **T43 removes the 840dp two-column layout.** Every window uses the same Questions, Report, Brief, Timeline, Feedback, Files,
+  Related, Workers, Decisions, History order. The side sheet still starts at 600dp, has a maximum
   1184dp width and a 48dp outside gutter.
 - A horizontal sticky chip row stays above the scrolling body, below the unchanged header. A keyed LazyColumn
   holds one item per present section, starting at index zero (T62). Tapping a chip pins its key immediately and calls
@@ -5344,7 +5345,7 @@ ellipsis treatment (T31). Foldable sections retain heading/button semantics and 
   window-height ceiling. Pager state, thumbnail/filter/caption/viewer/video behaviour are unchanged.
 - T29's link navigation, Show with linked, feedback state actions, retry, timeline filters and empty Feedback/Timeline
   placeholders are retained. Report/question/decision/worker actions and their state owners are unchanged. Report
-  uses Next, Now, Results; Next retains its accent inset. Folded History and Brief remain independently foldable.
+  uses Next, Now, Results; Next retains its accent inset. Brief starts expanded; Brief and History can fold independently.
 - **The T32 reply box keeps its text/image state, paste intake and sending rules.** T113 adds task-local layout
   constraints above the keyboard, without changing the shared `features/chat/MessageComposer.kt` or adding web-style
   task draft sync. See Compact refs and keyboard space above.

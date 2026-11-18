@@ -402,7 +402,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                             }
                             TaskSectionKind.Brief -> {
                                 if (task.description.isNotBlank() || !task.acceptance.isNullOrBlank()) {
-                                    var briefOpen by rememberSaveable { mutableStateOf(false) }
+                                    var briefOpen by rememberSaveable { mutableStateOf(true) }
                                     TaskSection(TaskSectionKind.Brief, count = "Reference", expanded = briefOpen, onToggle = { briefOpen = !briefOpen }) {
                                         if (briefOpen) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             if (task.description.isNotBlank()) ReportMarkdown(task.description)
