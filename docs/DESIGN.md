@@ -3970,6 +3970,16 @@ its own list, and a timeline; the description stays the original ask and the rep
   - The task carries `feedback` counts (open, handling, addressed, dismissed); the entries live beside the task's
     snapshots (the per-task history document), so the board document does not grow with every message. The badge and
     the compact `list` count open plus handling.
+- **Keep on task (T280 / D102).** With `hello.features` containing `keep-on-task`, `board.keepOnTask` takes
+  `id` (the wire request ID), `projectId`, `taskId`, `conversationId` and `entryId` (the committed chat entry's
+  `conversationId` and `id`). The server checks that the reply has assistant text in a coordinator conversation of
+  that project, names the task, and that the task is open. It answers `{ type: "board.keepOnTask", id, feedbackId }`.
+  Identical task/reply pairs return the same feedback ID regardless of the wire request ID. The receipt, feedback
+  entry, and follow-up admission share a commit. The entry records the source thread; the input goes to the task's
+  coordinator (main if unclaimed), even when different from the source. It starts `[task T12, feedback F3] Keep on
+  task: put the detail of this reply on the task.` and quotes the reply as Markdown (quote capped at ~4,000 characters,
+  with a truncation note). The coordinator files the detail, marks the feedback addressed and replies in one line;
+  the harness never writes reply text into the report or feedback note.
 - **The timeline** (`board.task.timeline`, optional `kinds`): in time order, the task's feedback entries and each state
   change, status moves, workers started and reported or failed, questions asked and answered, decisions, report
   milestones and link changes (from both ends). Built when asked from what the board holds (questions, decisions),

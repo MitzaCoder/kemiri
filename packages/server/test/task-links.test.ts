@@ -34,7 +34,7 @@ import {
 	withTaskReference,
 } from "../src/board.ts";
 import { splitTaskReference } from "../src/queued-inputs.ts";
-import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
+import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
 const T0 = "2026-11-09T10:00:00.000Z";
 const at = (minutes: number): string => new Date(Date.parse(T0) + minutes * 60_000).toISOString();
@@ -400,17 +400,18 @@ async function until(check: () => boolean | Promise<boolean>, timeoutMs = 15_000
 	throw new Error("timed out waiting for a condition");
 }
 
-async function start(): Promise<{ test: TestSetup; client: TestClient; projectId: string }> {
-	const test = await createSetup({ boardEditDebounceMs: 60 });
+async function start(features?: readonly string[]) {
+	const test = await createSetup({ boardEditDebounceMs: 60, ...(features === undefined ? {} : { features }) });
 	cleanups.push(test.cleanup);
 	const client = await TestClient.open(test.server);
 	clients.push(client);
-	await client.hello();
+	const hello = await client.hello();
+	if (hello.type !== "hello") throw errorOf(hello);
 	const added = await client.request({ type: "projects.add", path: test.projectDir });
 	if (added.type !== "projects.add") throw errorOf(added);
 	const configured = await client.request({ type: "projects.configure", projectId: added.project.id, coordinatorModel: FAUX, workerModels: [FAUX] });
 	if (configured.type !== "projects.configure") throw errorOf(configured);
-	return { test, client, projectId: added.project.id };
+	return { test, client, projectId: added.project.id, hello };
 }
 
 async function saveTaskVia(client: TestClient, projectId: string, title: string, extra: Partial<BoardTaskInput> = {}): Promise<BoardTask> {
@@ -667,6 +668,143 @@ describe("a user's message about a task", () => {
 	});
 });
 
+
+describe("Keep on task", () => {
+	it("delivers one quoted reply as feedback, and lets the coordinator file and address it", async () => {
+		const { test, client, projectId, hello } = await start();
+		expect(hello.features).toContain("keep-on-task");
+		await saveTaskVia(client, projectId, "Prepare the package");
+		await saveTaskVia(client, projectId, "Already complete", { status: "done" });
+		await saveTaskVia(client, projectId, "Other task");
+		const reply = "T1 needs these steps:\n\n1. Open the package.\n2. Check the label.";
+		const quoted = "Keep on task: put the detail of this reply on the task.\n\n> T1 needs these steps:\n> \n> 1. Open the package.\n> 2. Check the label.";
+		const feedbackInput = `[task T1, feedback F1] ${quoted}`;
+		const steps = "1. Open the package.\n2. Check the label.";
+		const note = "Check that the label matches the dispatch note.";
+		const factory = (request: TranscriptContext) => {
+			const { role, text } = lastOf(request);
+			if (text === "What are the steps?") return fauxAssistantMessage(reply);
+			if (text === feedbackInput) return call("board", { action: "feedback", id: "T1", feedbackId: "F1", state: "handling" });
+			if (role === "toolResult" && text === "F1 on T1 is handling.") return call("board", { action: "write_report", id: "T1", steps });
+			if (role === "toolResult" && text.startsWith("Rewrote the report of T1")) return call("board", { action: "feedback", id: "T1", feedbackId: "F1", state: "addressed", note });
+			if (role === "toolResult" && text === "F1 on T1 is addressed.") return fauxAssistantMessage("T1 now has the steps.");
+			return fauxAssistantMessage("Noted.");
+		};
+		test.faux.setResponses(Array.from({ length: 50 }, () => factory));
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: "ask", content: "What are the steps?" });
+		const transcript = await view.waitForView(value => value.entries.some(entry => entryText(entry) === reply));
+		const assistant = transcript.entries.find(entry => entryText(entry) === reply)!;
+		const user = transcript.entries.find(entry => entryText(entry) === "What are the steps?")!;
+		const keep = { type: "board.keepOnTask", projectId, taskId: "T1", conversationId: assistant.conversationId, entryId: assistant.id } as const;
+		for (const [invalid, code] of [
+			[{ entryId: user.id }, "bad_request"],
+			[{ entryId: 999_999 }, "bad_request"],
+			[{ conversationId: 999_999 }, "bad_request"],
+			[{ taskId: "T99" }, "unknown_task"],
+			[{ taskId: "T2" }, "bad_request"],
+			[{ taskId: "T3" }, "bad_request"],
+		] as const) {
+			expect(await client.request({ ...keep, ...invalid })).toMatchObject({ type: "error", error: { code } });
+		}
+		expect((await timelineOf(client, projectId, "T1")).feedback).toEqual([]);
+		expect((await boardOfProject(client, projectId)).tasks.find(task => task.id === "T1")?.report.steps).toBeUndefined();
+		const responses = await Promise.all([client.request(keep), client.request(keep)]);
+		for (const response of responses) expect(response).toMatchObject({ type: "board.keepOnTask", feedbackId: "F1" });
+		await view.waitForView(value => value.entries.some(entry => entryText(entry) === "T1 now has the steps."));
+		expect((await boardOfProject(client, projectId)).tasks.find(task => task.id === "T1")?.report.steps).toBe(steps);
+		const { feedback } = await timelineOf(client, projectId, "T1");
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({ id: "F1", text: quoted, threadId: "main", state: "addressed", note });
+		expect(feedback[0]?.changes.map(change => change.state)).toEqual(["handling", "addressed"]);
+
+		client.close();
+		await test.restart();
+		const restarted = await TestClient.open(test.server);
+		clients.push(restarted);
+		await restarted.hello();
+		expect(await restarted.request(keep)).toMatchObject({ type: "board.keepOnTask", feedbackId: "F1" });
+		expect((await timelineOf(restarted, projectId, "T1")).feedback).toEqual(feedback);
+		const page = await restarted.request({ type: "conversation.page", projectId, limit: 80 });
+		if (page.type !== "conversation.page") throw errorOf(page);
+		expect(page.entries.filter(entry => entryText(entry) === feedbackInput)).toHaveLength(1);
+	}, 60_000);
+
+	it("reads a background reply but delivers it to the task's holder, not the source chat", async () => {
+		const { test, client, projectId } = await start();
+		const reply = `T1 findings:\n${"x\n".repeat(2_500)}End of reply.`;
+		const heard: { background: boolean; text: string }[] = [];
+		const factory = (request: TranscriptContext) => {
+			const background = systemOf(request).includes('You are the background thread "');
+			const { text } = lastOf(request);
+			if (text === "Start an investigation.") return call("thread_start", { title: "Investigation", brief: "Inspect the package.", taskId: "T2" });
+			if (background && text === "Inspect the package.") return fauxAssistantMessage(reply);
+			if (text.includes("Keep on task:")) {
+				heard.push({ background, text });
+				return fauxAssistantMessage("T1 is noted.");
+			}
+			return fauxAssistantMessage("Noted.");
+		};
+		test.faux.setResponses(Array.from({ length: 40 }, () => factory));
+		await saveTaskVia(client, projectId, "Check the package");
+		await saveTaskVia(client, projectId, "Investigate packaging");
+		await client.request({ type: "conversation.submit", projectId, requestId: "start", content: "Start an investigation." });
+		await until(async () => {
+			const list = await client.request({ type: "threads.list", projectId });
+			return list.type === "threads.list" && list.threads.some(thread => thread.id === "investigation");
+		});
+		const threadView = new ViewClient(client);
+		await threadView.start(projectId, { threadId: "investigation" });
+		const transcript = await threadView.waitForView(value => value.entries.some(entry => entry.kind === "pi.assistant" && entryText(entry) === reply));
+		const source = transcript.entries.find(entry => entryText(entry) === reply)!;
+		const keep = { type: "board.keepOnTask", projectId, taskId: "T1", conversationId: source.conversationId, entryId: source.id } as const;
+		expect(await client.request(keep)).toMatchObject({ type: "board.keepOnTask", feedbackId: "F1" });
+		await until(() => heard.length === 1);
+		const { feedback } = await timelineOf(client, projectId, "T1");
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({ threadId: "investigation", state: "open", note: null });
+		const text = feedback[0]!.text;
+		expect(text).toContain("\n\n> T1 findings:\n> x");
+		expect(text).toEndWith("(Reply truncated.)");
+		expect(text.length).toBeLessThan(4_100);
+		expect(heard).toEqual([{ background: false, text: `[task T1, feedback F1] ${text}` }]);
+	}, 60_000);
+
+	it("routes a main reply to the background thread that holds its task", async () => {
+		const { test, client, projectId } = await start();
+		const reply = "T1 results: the package passed inspection.";
+		const heard: boolean[] = [];
+		const factory = (request: TranscriptContext) => {
+			const background = systemOf(request).includes('You are the background thread "');
+			const { text } = lastOf(request);
+			if (text === "Start work on the package.") return call("thread_start", { title: "Inspection", brief: "Inspect the package.", taskId: "T1" });
+			if (!background && text === "Summarize.") return fauxAssistantMessage(reply);
+			if (text.startsWith("[task T1, feedback F1] Keep on task:")) heard.push(background);
+			return fauxAssistantMessage("Noted.");
+		};
+		test.faux.setResponses(Array.from({ length: 40 }, () => factory));
+		await saveTaskVia(client, projectId, "Check the package");
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: "start", content: "Start work on the package." });
+		await until(async () => (await boardOfProject(client, projectId)).tasks[0]?.ownerThreadId === "inspection");
+		await client.request({ type: "conversation.submit", projectId, requestId: "summarize", content: "Summarize." });
+		const transcript = await view.waitForView(value => value.entries.some(entry => entryText(entry) === reply));
+		const source = transcript.entries.find(entry => entryText(entry) === reply)!;
+		expect(await client.request({ type: "board.keepOnTask", projectId, taskId: "T1", conversationId: source.conversationId, entryId: source.id })).toMatchObject({ type: "board.keepOnTask", feedbackId: "F1" });
+		await until(() => heard.length === 1);
+		expect(heard).toEqual([true]);
+	}, 60_000);
+
+	it("does not advertise or accept the request when the feature is off", async () => {
+		const { client, projectId, hello } = await start([]);
+		expect(hello.features).not.toContain("keep-on-task");
+		expect(await client.request({ type: "board.keepOnTask", projectId, taskId: "T1", conversationId: 1, entryId: 1 })).toMatchObject({
+			type: "error", error: { code: "unknown_request" },
+		});
+	});
+});
 
 describe("duplicate origin tool replies", () => {
 	it("explains ignored foundWhile on add, update and link, and parent added later", async () => {

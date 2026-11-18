@@ -748,6 +748,14 @@ export class ProjectManager {
 		return runtime.board.timeline(taskId, kinds, grouped);
 	}
 
+	async keepOnTask(projectId: string, input: { taskId: string; conversationId: number; entryId: number }): Promise<string> {
+		const { project, runtime } = await this.open(projectId);
+		if (project.coordinator.model === null) {
+			throw new ServerError("no_coordinator_model", "This project has no coordinator model. Set one with projects.configure.", { projectId });
+		}
+		return runtime.board.keepOnTask(input);
+	}
+
 	/** The user sets a feedback entry's state (dismisses or reopens it). */
 	async setBoardFeedback(
 		projectId: string,

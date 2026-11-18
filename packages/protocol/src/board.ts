@@ -25,7 +25,7 @@
  * happened to a task in time order. See DESIGN.md, "Task links and feedback".
  */
 import { type Static, Type } from "typebox";
-import { ProjectIdSchema, RequestIdSchema } from "./common.ts";
+import { EntryIdSchema, ProjectIdSchema, RequestIdSchema } from "./common.ts";
 
 /** How the harness marks the board changes it posts to the coordinator: `[board]` followed by what changed. */
 export const BOARD_PREFIX = "[board]";
@@ -521,6 +521,17 @@ export const BoardFeedbackSetRequestSchema = Type.Object({
 });
 export type BoardFeedbackSetRequest = Static<typeof BoardFeedbackSetRequestSchema>;
 
+/** Feature keep-on-task. Ask the task's coordinator to file a committed chat reply. */
+export const BoardKeepOnTaskRequestSchema = Type.Object({
+	type: Type.Literal("board.keepOnTask"),
+	id: RequestIdSchema,
+	projectId: ProjectIdSchema,
+	taskId: Type.String({ minLength: 1 }),
+	conversationId: Type.Integer({ minimum: 1, description: "The reply entry's conversationId (main or a background coordinator)." }),
+	entryId: EntryIdSchema,
+});
+export type BoardKeepOnTaskRequest = Static<typeof BoardKeepOnTaskRequestSchema>;
+
 /** Feature task-freshness. Marks prose stale, queues one rewrite nudge, never changes status. */
 export const BoardReportStaleRequestSchema = Type.Object({
 	type: Type.Literal("board.report.stale"),
@@ -593,6 +604,14 @@ export const BoardFeedbackSetResponseSchema = Type.Object({
 	feedback: BoardFeedbackSchema,
 });
 export type BoardFeedbackSetResponse = Static<typeof BoardFeedbackSetResponseSchema>;
+
+/** The feedback ID is the same on a repeat for this task and reply. */
+export const BoardKeepOnTaskResponseSchema = Type.Object({
+	type: Type.Literal("board.keepOnTask"),
+	id: RequestIdSchema,
+	feedbackId: Type.String({ minLength: 1 }),
+});
+export type BoardKeepOnTaskResponse = Static<typeof BoardKeepOnTaskResponseSchema>;
 
 // --- server events -----------------------------------------------------------------------------------------------
 

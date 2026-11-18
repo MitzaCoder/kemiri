@@ -340,6 +340,10 @@ suspend fun HarnessClient.request(value: BoardFeedbackSetRequest, explicitNulls:
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardFeedbackSetRequest.serializer(), value).jsonObject, explicitNulls), BoardFeedbackSetResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: BoardKeepOnTaskRequest, explicitNulls: Set<String> = emptySet()): BoardKeepOnTaskResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardKeepOnTaskRequest.serializer(), value).jsonObject, explicitNulls), BoardKeepOnTaskResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: NotificationsConfigRequest, explicitNulls: Set<String> = emptySet()): NotificationsConfigResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(NotificationsConfigRequest.serializer(), value).jsonObject, explicitNulls), NotificationsConfigResponse.serializer()
 )
