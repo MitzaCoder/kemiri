@@ -25,11 +25,25 @@ describe("workerInstructions", () => {
 	it("tells both coordinators how to handle version-pinned artifact reviews", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain('Comments on "…" with an (artifact <id>~<n>, <file>) line');
-			expect(text).toContain("Clarify: answer in chat");
+			expect(text).toContain("Clarify: answer it; if it came as task feedback, put the answer in the feedback note.");
 			expect(text).toContain("Change / Show differently / Cut: artifact_read that version");
 			expect(text).toContain("artifact_save with the same file name and taskId");
 			expect(text).toContain("Keep: leave that part unchanged");
-			expect(text).toContain('mark it handling when you act and addressed when done, naming the new version or "answered in chat"');
+			expect(text).toContain("mark it handling when you act and addressed when done, naming the new version if you made one.");
+		}
+	});
+
+	it("routes reusable detail onto the task first for both coordinators", () => {
+		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
+			expect(text).toContain("Would the user need this again? Put it on the task first:");
+			expect(text).toContain("Next: a full numbered list with exact values and copyable commands. Keep it there until the user has done the steps.");
+			expect(text).toContain("A choice → `ask`; explain the options in the question.");
+			expect(text).toContain("A finding → Results, in full, once.");
+			expect(text).toContain("Detail longer than a screen → a file on the task (`artifact_save` with `taskId`).");
+			expect(text).toContain("the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.");
+			expect(text).toContain("Keep Results and Next short and plain, but never shorten steps or answers.");
+			expect(text).toContain("A chat reply is a line or two naming the task; it may repeat what is on the task.");
+			expect(text).not.toMatch(/answered in chat/i);
 		}
 	});
 
@@ -55,12 +69,12 @@ describe("workerInstructions", () => {
 
 	it("explains stale report messages after introducing reports, for both coordinators", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
-			const report = text.indexOf("Each task has a short report");
+			const report = text.indexOf("Each task has a report");
 			const stale = text.indexOf('A message starting with "[reports]" names task reports that went out of date.');
 			expect(report).toBeGreaterThanOrEqual(0);
 			expect(stale).toBeGreaterThan(report);
 			expect(stale).toBeLessThan(text.indexOf("Only the user closes a task."));
-			expect(text).toContain("rewrite only the stale Results or Next, with evidence");
+			expect(text).toContain("rewrite only the stale Results or Next, with evidence. Put any detail given in the chat on the task.");
 			expect(text).toContain("pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked");
 		}
 	});

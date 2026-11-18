@@ -6,6 +6,7 @@ import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
 import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
+import { pointsAtChat } from "./task-chat-pointer.ts";
 /**
  * The board: the coordinator's tasks, questions for the user and decisions, kept as a durable document on the
  * coordinator conversation (`aiki.board`) so it never has to be recalled from a summary. The contract is
@@ -572,7 +573,7 @@ export function setFeedbackState(
 	if (entry === undefined) throw unknownFeedback(input.taskId, input.feedbackId);
 	const note = input.note === null || input.note.trim() === "" ? null : input.note.trim();
 	if (input.state === "addressed" && note === null) {
-		throw new ServerError("bad_request", `Marking ${entry.id} addressed needs a note: what addressed it (a commit, a result, "answered in chat")`);
+		throw new ServerError("bad_request", `Marking ${entry.id} addressed needs a note with the answer or what addressed it (a commit or result).`);
 	}
 	const before = entry.state;
 	// Leaving a state without saying why must not keep the old reason: a note belongs to the change that wrote it.
@@ -3278,8 +3279,8 @@ const BoardToolParameters = Type.Object({
 	coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "write_report: optional eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
-	results: Type.Optional(Type.String({ description: "write_report: what came out of the task, as short bullets with evidence (commit, artifact, test run), rewritten whole." })),
-	next: Type.Optional(Type.String({ description: "write_report: what comes next and who does it, rewritten whole." })),
+	results: Type.Optional(Type.String({ description: "write_report: what came out of the task, with evidence (commit, artifact, test run), rewritten whole." })),
+	next: Type.Optional(Type.String({ description: "write_report: what comes next and who does it, rewritten whole. Keep the user's steps and commands complete until done." })),
 	milestone: Type.Optional(
 		Type.String({ minLength: 1, description: 'write_report: a few words naming something meaningful that just happened, e.g. "First version merged". Saves a snapshot of the task.' }),
 	),
@@ -3316,10 +3317,12 @@ const BoardToolParameters = Type.Object({
 			description: "feedback: handling when you act on it; addressed when done, with a note that says what addressed it. open puts it back. Only the user dismisses an entry.",
 		}),
 	),
-	note: Type.Optional(Type.String({ description: 'feedback: what is being done, or for addressed what addressed it: a commit, a result, "answered in chat".' })),
+	note: Type.Optional(Type.String({ description: "feedback: what is being done, or for addressed the full answer or what addressed it (a commit or result)." })),
 });
 
 type BoardToolArguments = Static<typeof BoardToolParameters>;
+
+const CHAT_POINTER_WARNING = "\nThis points at the chat. The user reads the task: write the answer or detail here.";
 
 function onlyUserCloses(status: "done" | "dropped"): string {
 	return `Only the user closes a task: you cannot set it ${status}. Move it to review (status review) instead, and write in its report's next what the user should check. The user marks it ${status} when they agree.`;
@@ -3514,7 +3517,8 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).`, {
+						const warning = pointsAtChat(input.results) || pointsAtChat(input.next) ? CHAT_POINTER_WARNING : "";
+						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${warning}`, {
 							details: { taskId: task.id },
 						});
 					}
@@ -3558,7 +3562,8 @@ function createBoardExtension(service: BoardService): Extension {
 							{ taskId: id, feedbackId, state: feedbackState, note: input.note ?? null },
 							writer,
 						);
-						return toolText(`${entry.id} on ${id} is ${entry.state}.`, { details: { taskId: id, feedbackId: entry.id } });
+						const warning = pointsAtChat(input.note) ? CHAT_POINTER_WARNING : "";
+						return toolText(`${entry.id} on ${id} is ${entry.state}.${warning}`, { details: { taskId: id, feedbackId: entry.id } });
 					}
 					case "claim":
 					case "release":

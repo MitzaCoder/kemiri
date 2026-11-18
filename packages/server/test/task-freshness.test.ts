@@ -324,6 +324,7 @@ it("30 s trailing debounce has a 2 min cap, batches tasks by owner, and leaves o
 	expect(state.reportOutbox).toHaveLength(0);
 	prepareReportNudges(state, START + 120_000, owner);
 	expect(state.reportOutbox).toHaveLength(1);
+	expect(state.reportOutbox![0]!.content).toContain("Put any detail given in the chat on the task.");
 	const multi = emptyBoardState();
 	for (let i = 1; i <= 8; i++) { task(multi); write(multi, { next: "Continue" }, 0, `T${i}`); fact(multi, "worker_report", 0, `T${i}`); }
 	prepareReportNudges(multi, START + 30_000, (row) => row.id === "T8" ? "other" : "main", { maxTokens: 65 });
@@ -563,7 +564,7 @@ it.each(["main", "synthetic-thread"])("%s coordinator milestones count without i
 it.each([
  "[check-in] Both workers progressing (T1).",
  "[board] T1 closed.",
- "[reports] T1 Next stale: worker reported. Read tasks; rewrite stale sections with evidence.",
+ "[reports] T1 Next stale: worker reported. Read tasks; rewrite stale sections with evidence. Put any detail given in the chat on the task.",
  "[worker fern reported] T1 verification complete.",
  "[thread fern finished] T1 verification complete.",
  "[from fern] T1 verification complete.",
@@ -629,7 +630,7 @@ it.each([false, true])("feedback handled in the same turn suppresses mentions (w
  const feedback = await runtime.board.recordFeedback({ taskId: "T1", text: "What changed?", images: 0, threadId: "main", requestId: "feedback-subject" });
  const before = (await runtime.board.state()).tasks[0]!.eventSeq;
  setup.faux.setResponses([
-  fauxAssistantMessage([fauxToolCall("board", { action: "feedback", id: "T1", feedbackId: feedback.id, state: "addressed", note: "Answered in chat" })], { stopReason: "toolUse" }),
+  fauxAssistantMessage([fauxToolCall("board", { action: "feedback", id: "T1", feedbackId: feedback.id, state: "addressed", note: "The synthetic verification checks passed." })], { stopReason: "toolUse" }),
   ...(withReport ? [fauxAssistantMessage([fauxToolCall("board", { action: "write_report", id: "T1", results: "Synthetic checks passed", next: "Review the evidence" })], { stopReason: "toolUse" })] : []),
   fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication."),
  ]);

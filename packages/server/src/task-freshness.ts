@@ -217,7 +217,7 @@ export function prepareReportNudges(state: BoardState, now: number, ownerOf: (ta
  for (const task of state.tasks) if (task.status === "done" || task.status === "dropped") initializeTaskFreshness(state, task);
  const admitted = new Set(state.reportOutbox.flatMap((batch) => batch.admissions.map((item) => `${item.taskId}:${item.burst}`)));
  const grouped = new Map<string, { lines: string[]; admissions: ReportAdmission[] }>();
- const suffix = ". Read tasks; rewrite stale sections with evidence.";
+ const suffix = ". Read tasks; rewrite stale sections with evidence. Put any detail given in the chat on the task.";
  for (const task of state.tasks) {
   const tracking = state.reportTracking?.[task.id];
   const pending = tracking?.pending;

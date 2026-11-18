@@ -111,7 +111,7 @@ export const BoardFeedbackStateSchema = Type.Union(
 	[Type.Literal("open"), Type.Literal("handling"), Type.Literal("addressed"), Type.Literal("dismissed")],
 	{
 		description:
-			"open: the user said it, nobody acted yet. handling: a coordinator is acting on it. addressed: done; the note says what addressed it (a commit, a result, answered in chat). dismissed: the user says it is not needed.",
+			"open: the user said it, nobody acted yet. handling: a coordinator is acting on it. addressed: done; the note holds the answer or says what addressed it (a commit or result). dismissed: the user says it is not needed.",
 	},
 );
 export type BoardFeedbackState = Static<typeof BoardFeedbackStateSchema>;

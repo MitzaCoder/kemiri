@@ -2626,7 +2626,13 @@ is where they talk.
   blockquotes before the typed text, so the coordinator reads exactly what was quoted, and the chat shows them as a
   small quote at the top of the user's bubble.
 - **The chat stays short.** Worker reports, check-ins, thread results and board changes show as one line each with a
-  link to their task. The coordinator's replies are a line or two that name the task; the detail goes in the report.
+  link to their task. Main and background coordinators put anything the user will need again on the task first.
+  Steps the user must do by hand go in Next as a full numbered list with exact values and copyable commands, kept
+  until done. Choices go in `ask` with the options explained; findings go in Results in full, once. Detail longer
+  than a screen goes in a file saved with `artifact_save` and the task's `taskId`. Answers to task messages go in
+  the feedback note itself: short status answers stay there, longer answers also update the report. Results and
+  Next stay short where possible, but steps and answers are complete. The chat reply names the task in a line or
+  two and may repeat what is on it.
 - **Across tasks.** With `task-state`, list groups are Needs you (Failed, Answer needed, Ready for review),
   In progress (Working, Paused), Waiting (task blockers or an outside wait), To do and Recently closed (folded).
   Kind then oldest `since` sorts attention/work; Waiting is oldest first, To do priority, Closed newest first.
@@ -3286,8 +3292,9 @@ Stale marks are synchronous. Automatic nudge defaults are 30 s trailing and a 2 
 first trigger; explicit owner requests are due immediately but use the same durable follow-up queue;
 BoardService `reportTimings` injects trailing/max/age/sweep/token limits in tests. Pending task sections and
 versions merge into a durable burst. Due tasks batch by owning running/idle coordinator, otherwise main,
-in one `[reports]` line of approximately 100 tokens. Overflow stays pending; a durable in-flight receipt
-prevents another batch to that coordinator until the previous input settles. The frozen outbox stores the
+in one `[reports]` line of approximately 100 tokens. The nudge asks for stale sections to be rewritten with
+evidence and for any detail given in the chat to be put on the task. Overflow stays pending; a durable in-flight
+receipt prevents another batch to that coordinator until the previous input settles. The frozen outbox stores the
 exact content, target and admission key (task + both section versions + burst), before submit. Delivery
 reuses the board's durable `whenBusy: "followUp"` path: idle coordinators wake, busy turns are never steered
 or interrupted. Replay after admission reuses the same request ID, then acknowledges the outbox; startup
@@ -3882,10 +3889,11 @@ reference fetching are added.
 ### Task links and feedback
 
 Artifact reviews (T215 / D88) are plain Markdown: `Comments on "…"` followed by an
-`(artifact <id>~<n>, <file>)` line. Main and background coordinators answer Clarify in chat; Change,
-Show differently and Cut read that snapshot with `artifact_read`, edit the copy and re-save with the same name/scope.
-Keep preserves that part in a rewrite. Task feedback is marked handling, then addressed naming the new version
-(or "answered in chat"). No new wire format is needed.
+`(artifact <id>~<n>, <file>)` line. Main and background coordinators answer Clarify and put the answer in the
+feedback note when it came as task feedback. Change, Show differently and Cut read that snapshot with
+`artifact_read`, edit the copy and re-save with the same name/scope. Keep preserves that part in a rewrite.
+Task feedback is marked handling, then addressed, naming the new version if one was made. No new wire format
+is needed.
 
 Decided with the user on 2026-11-09 (decisions D23 to D25). Contract in `packages/protocol/src/board.ts`, feature
 `task-links`; code in `packages/server/src/board.ts` (links, feedback, timeline), `workers.ts` (events and prompt),
@@ -3920,9 +3928,10 @@ its own list, and a timeline; the description stays the original ask and the rep
   the task: `F3`, an ID unique on the board (a counter, never reused). A message re-sent with the same request ID finds its
   entry. Past messages are not backfilled. The message the coordinator reads starts `[task T12, feedback F3] `, so it can
   refer to the entry; older readers take the task ID up to the comma.
-  - State: `open` → `handling` → `addressed`, or `dismissed` ("not needed"). An addressed entry carries a short note
-    of what addressed it: a commit, a result, "answered in chat" (the tool refuses `addressed` without one). Each change
-    is kept with who made it (`changes`).
+  - State: `open` → `handling` → `addressed`, or `dismissed` ("not needed"). An addressed entry needs a note with
+    the answer itself or what addressed it (a commit or result). Each change is kept with who made it (`changes`).
+  - The `board` tool saves feedback notes and `write_report` Results and Next even if they point to the chat for
+    detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`
     to put it back); the user dismisses and reopens in the app (`board.feedback.set`), and the coordinator that holds the
     task hears of it as a `[board]` follow-up. Workers do not touch feedback: they keep the task's `now` through

@@ -432,6 +432,44 @@ async function timelineOf(client: TestClient, projectId: string, taskId: string,
 }
 
 describe("a user's message about a task", () => {
+	it("saves chat pointers in feedback and report text with a warning, but allows ordinary chat mentions without one", async () => {
+		const { test, client, projectId } = await start();
+		await saveTaskVia(client, projectId, "Fix the chat composer");
+		const note = "Explained in the chat.";
+		const report = { results: "Details in chat above.", next: "See chat for the commands." };
+		const steps: JsonObject[] = [
+			{ action: "feedback", id: "T1", feedbackId: "F1", state: "addressed", note },
+			{ action: "write_report", id: "T1", results: "The chat composer now scrolls." },
+			{ action: "write_report", id: "T1", results: report.results },
+			{ action: "write_report", id: "T1", next: report.next },
+		];
+		const results: string[] = [];
+		const factory = (request: TranscriptContext) => {
+			const { role, text } = lastOf(request);
+			if (role === "toolResult") results.push(text);
+			if (role === "toolResult" || text.startsWith("[task T1,")) {
+				const step = steps.shift();
+				if (step !== undefined) return call("board", step);
+			}
+			return fauxAssistantMessage("Filed.");
+		};
+		test.faux.setResponses(Array.from({ length: 10 }, () => factory));
+		const sent = await client.request({ type: "conversation.submit", projectId, requestId: "chat-pointer", content: "What changed?", taskId: "T1" });
+		if (sent.type !== "conversation.submit") throw errorOf(sent);
+		await until(() => results.length === 4);
+
+		const warning = "This points at the chat. The user reads the task: write the answer or detail here.";
+		expect(results[0]).toBe(`F1 on T1 is addressed.\n${warning}`);
+		expect(results[1]).toStartWith("Rewrote the report of T1");
+		expect(results[1]).not.toContain(warning);
+		for (const result of results.slice(2)) {
+			expect(result).toStartWith("Rewrote the report of T1");
+			expect(result).toEndWith(warning);
+		}
+		expect((await boardOfProject(client, projectId)).tasks[0]?.report).toMatchObject(report);
+		expect((await timelineOf(client, projectId, "T1")).feedback[0]).toMatchObject({ state: "addressed", note });
+	});
+
 	it("becomes a feedback entry the coordinator reads by ID and settles with the board tool, and survives a restart", async () => {
 		const { test, client, projectId } = await start();
 		await saveTaskVia(client, projectId, "Ship the sheet");
@@ -442,7 +480,7 @@ describe("a user's message about a task", () => {
 			{ action: "feedback", id: "T1", feedbackId: "F1", state: "handling", note: "Reading it" },
 			{ action: "feedback", id: "T1", feedbackId: "F1", state: "addressed" },
 			{ action: "feedback", id: "T1", feedbackId: "F1", state: "dismissed", note: "no" },
-			{ action: "feedback", id: "T1", feedbackId: "F1", state: "addressed", note: "Answered in chat" },
+			{ action: "feedback", id: "T1", feedbackId: "F1", state: "addressed", note: "Fixed dark mode in the sheet header." },
 			{ action: "add_task", title: "Loop", parent: "T3" },
 			{ action: "update_task", id: "T3", expectedRevision: 1, parent: "T4" },
 			{ action: "link", id: "T3", link: "related", to: "T2" },
@@ -503,7 +541,7 @@ describe("a user's message about a task", () => {
 		expect(shown).toContain("has subtasks: T3 [todo] Polish");
 		expect(shown).toContain("led to: T2 [todo] Dark mode bug");
 		expect(shown).toContain("F1 [addressed]");
-		expect(shown).toContain("-> Answered in chat");
+		expect(shown).toContain("-> Fixed dark mode in the sheet header.");
 		expect(shown).toContain("Timeline (latest");
 
 		// What the app reads.
@@ -514,7 +552,7 @@ describe("a user's message about a task", () => {
 		expect(t1.ledTo).toEqual(["T2"]);
 		const timeline = await timelineOf(client, projectId, "T1");
 		expect(timeline.feedback).toHaveLength(1);
-		expect(timeline.feedback[0]).toMatchObject({ id: "F1", state: "addressed", note: "Answered in chat", threadId: "main" });
+		expect(timeline.feedback[0]).toMatchObject({ id: "F1", state: "addressed", note: "Fixed dark mode in the sheet header.", threadId: "main" });
 		expect(timeline.entries.map((entry) => entry.label).sort()).toEqual(
 			["Feedback F1", "F1 → handling", "F1 → addressed", "Has subtask T3", "Led to T2", "Related to T2"].sort(),
 		);
