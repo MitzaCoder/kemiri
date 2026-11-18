@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kemiri without the chat</title>
+<style>
+@layer artifact-defaults {
+:root {
+	color-scheme: light;
+
+	--tone-radius: 0.875rem;
+
+	--tone-bg: #fbfaff;
+	--tone-surface: #f3f1fb;
+	--tone-surface-2: #eae7f6;
+	--tone-border: #e3dff0;
+	--tone-border-strong: #d2cce6;
+
+	--tone-fg: #1a1830;
+	--tone-fg-muted: #5d5a78;
+	--tone-fg-subtle: #8c89a6;
+
+	--tone-primary: #6366f1;
+	--tone-primary-fg: #ffffff;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #6366f1;
+	--tone-accent-3: #d946ef;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #eef2ff, #fae8ff);
+	--tone-user-border: #ddd6fe;
+
+	--tone-danger: #e11d48;
+	--tone-success: #059669;
+	--tone-warning: #d97706;
+	--tone-ring: #8b5cf6;
+
+	--tone-shadow: 0 10px 40px -12px rgb(76 29 149 / 0.25), 0 2px 8px -2px rgb(76 29 149 / 0.08);
+--font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;--text-task:.9375rem;--text-task-sm:.8125rem;--spacing:.25rem;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+	color-scheme: dark;
+
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #818cf8;
+	--tone-accent-3: #e879f9;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #1e1b4b, #3b0f4a);
+	--tone-user-border: #3f3470;
+
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+
+	--tone-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.7), 0 2px 8px -2px rgb(0 0 0 / 0.4);
+}}
+:root[data-theme="dark"]{
+	color-scheme: dark;
+
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+
+	--tone-accent-1: #22d3ee;
+	--tone-accent-2: #818cf8;
+	--tone-accent-3: #e879f9;
+	--tone-accent-4: #fb923c;
+
+	--tone-user-bubble: linear-gradient(135deg, #1e1b4b, #3b0f4a);
+	--tone-user-border: #3f3470;
+
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+
+	--tone-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.7), 0 2px 8px -2px rgb(0 0 0 / 0.4);
+}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:4rem}
+body{margin:0;background:var(--tone-bg);color:var(--tone-fg);font:16px/1.6 var(--font-sans);-webkit-text-size-adjust:100%}
+main{max-width:70rem;margin:auto;padding:clamp(1rem,4vw,3rem);padding-bottom:5rem}
+h1{font-size:clamp(2.2rem,6vw,4rem);line-height:1.05;letter-spacing:-.045em;font-weight:650;margin:.75rem 0 1rem;max-width:16ch}
+h2{font-size:clamp(1.5rem,3.4vw,2.1rem);letter-spacing:-.03em;line-height:1.2;margin:0 0 .5rem}
+h3{font-size:1.1rem;letter-spacing:-.01em;margin:0 0 .4rem}
+h4{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);margin:1rem 0 .35rem;font-weight:650}
+p{max-width:68ch;margin:.5rem 0}
+ul,ol{padding-left:1.2rem;margin:.4rem 0}
+li{margin:.2rem 0;max-width:68ch}
+a{color:var(--tone-primary);text-underline-offset:3px}
+section{margin-top:clamp(3rem,7vw,5.5rem)}
+.kicker{font:600 .75rem/1.5 var(--font-mono);text-transform:uppercase;letter-spacing:.12em;color:var(--tone-fg-muted)}
+.lead{font-size:clamp(1.05rem,2.2vw,1.3rem);color:var(--tone-fg-muted);max-width:52ch}
+.muted{color:var(--tone-fg-muted)}
+.small{font-size:.875rem}
+:focus-visible{outline:3px solid var(--tone-ring);outline-offset:2px}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{border:1px solid var(--tone-border-strong);border-radius:.6rem;background:var(--tone-surface);color:var(--tone-fg);padding:.45rem .8rem;font-size:.875rem;font-weight:550;line-height:1.3;text-align:left}
+.btn:hover{background:var(--tone-surface-2)}
+.btn.primary{background:var(--tone-primary);color:var(--tone-primary-fg);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.5;cursor:default}
+.btn.on{border-color:var(--tone-primary);box-shadow:inset 0 0 0 1px var(--tone-primary)}
+.btns{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
+.pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;line-height:1.3;padding:.15rem .55rem;border:1px solid var(--tone-border-strong);border-radius:99px;color:var(--tone-fg-muted);background:var(--tone-bg);white-space:nowrap}
+.pill.ok{color:var(--tone-success);border-color:color-mix(in srgb,var(--tone-success) 45%,transparent)}
+.pill.warn{color:var(--tone-warning);border-color:color-mix(in srgb,var(--tone-warning) 50%,transparent)}
+.pill.bad{color:var(--tone-danger);border-color:color-mix(in srgb,var(--tone-danger) 50%,transparent)}
+.pill.pri{color:var(--tone-primary);border-color:color-mix(in srgb,var(--tone-primary) 50%,transparent)}
+.card{padding:1.25rem;border:1px solid var(--tone-border);border-radius:var(--tone-radius);background:var(--tone-surface)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:1rem}
+.grid.wide{grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr))}
+.grid.three{grid-template-columns:repeat(auto-fit,minmax(min(100%,17.5rem),1fr))}
+
+/* top navigation */
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--tone-bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--tone-border)}
+.nav div{max-width:70rem;margin:auto;padding:.5rem clamp(1rem,4vw,3rem);display:flex;gap:.25rem;overflow-x:auto;scrollbar-width:none}
+.nav a{font-size:.8125rem;white-space:nowrap;text-decoration:none;color:var(--tone-fg-muted);padding:.3rem .65rem;border-radius:99px}
+.nav a:hover{background:var(--tone-surface-2);color:var(--tone-fg)}
+
+/* hero */
+.answer{border-left:3px solid var(--tone-primary);margin-top:1.75rem;max-width:46rem}
+.answer p{margin:.25rem 0}
+.loop{display:grid;grid-template-columns:repeat(5,1fr);gap:.5rem;margin-top:1.5rem;counter-reset:s}
+.loop div{position:relative;padding:.9rem .9rem 1rem;border:1px solid var(--tone-border);border-radius:var(--tone-radius);background:var(--tone-surface);font-size:.875rem;color:var(--tone-fg-muted);line-height:1.45}
+.loop div::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:1.5rem;height:1.5rem;border-radius:99px;background:var(--tone-primary);color:var(--tone-primary-fg);font-size:.75rem;font-weight:700;margin-bottom:.5rem}
+.loop b{display:block;color:var(--tone-fg);font-size:1rem}
+.loop .back{border-style:dashed}
+@media(max-width:48rem){.loop{grid-template-columns:1fr 1fr}}
+.asks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr));gap:.5rem;margin-top:.75rem}
+.asks div{padding:.7rem .8rem;border-radius:.75rem;border:1px solid var(--tone-border);font-size:.875rem;line-height:1.4;color:var(--tone-fg-muted)}
+.asks b{display:flex;align-items:center;gap:.4rem;color:var(--tone-fg);font-size:.9375rem;margin-bottom:.15rem}
+
+/* glyph */
+.g{flex:none;display:inline-grid;place-items:center;width:1.35rem;height:1.35rem;border-radius:99px;font-size:.75rem;font-weight:700;line-height:1;border:1.5px solid currentColor}
+.g.decide,.g.do,.g.read,.g.review{color:var(--tone-warning)}
+.g.failed{color:var(--tone-danger)}
+.g.working{color:var(--tone-primary)}
+.g.working::after{content:"";width:.45rem;height:.45rem;border-radius:99px;background:currentColor}
+.g.done{color:var(--tone-success)}
+.g.todo{color:var(--tone-fg-muted)}
+@media(prefers-reduced-motion:no-preference){.g.working::after{animation:beat 1.6s ease-in-out infinite}@keyframes beat{50%{transform:scale(.55);opacity:.5}}}
+
+/* prototype shell */
+.proto{display:grid;grid-template-columns:minmax(0,25rem) minmax(0,1fr);gap:clamp(1rem,3vw,2.5rem);align-items:start;margin-top:1.5rem}
+.proto.flip{grid-template-columns:minmax(0,1fr) minmax(0,25rem)}
+@media(max-width:52rem){.proto,.proto.flip{grid-template-columns:1fr}.proto .side{order:-1}}
+.side h3{margin-top:0}
+.side .says{display:grid;gap:.4rem;margin:.5rem 0 1rem}
+.side .says .btn{font-weight:450}
+.side .says .btn b{display:block;font-size:.6875rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);font-weight:650}
+.time{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.explain{margin-top:1rem;padding:.9rem 1rem;border-radius:var(--tone-radius);border:1px dashed var(--tone-border-strong);font-size:.9375rem;min-height:5.5rem}
+.explain b{display:block;font-size:.6875rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-primary);margin-bottom:.2rem}
+
+/* the app frame */
+.app{width:100%;max-width:25rem;height:41rem;max-height:86vh;margin-inline:auto;border:1px solid var(--tone-border-strong);border-radius:1.6rem;background:var(--tone-bg);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--tone-shadow);font-size:var(--text-task);line-height:1.45}
+.app-head{display:flex;align-items:center;gap:.5rem;padding:.7rem .9rem;border-bottom:1px solid var(--tone-border);min-height:3rem}
+.app-head .ttl{font-weight:650;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-head .back{border:0;background:none;padding:.2rem .4rem;margin-left:-.4rem;border-radius:.5rem;color:var(--tone-primary);font-weight:600}
+.app-body{flex:1;overflow-y:auto;padding:.75rem;overscroll-behavior:contain}
+.grp{margin-bottom:.9rem}
+.grp-h{display:flex;justify-content:space-between;align-items:baseline;font-size:.75rem;font-weight:650;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);padding:0 .35rem .3rem}
+.rows{border:1px solid var(--tone-border);border-radius:.9rem;overflow:hidden;background:var(--tone-surface)}
+.grp.needs .rows{background:color-mix(in srgb,var(--tone-warning) 11%,var(--tone-bg));border-color:color-mix(in srgb,var(--tone-warning) 35%,var(--tone-border))}
+.row{display:flex;gap:.6rem;width:100%;text-align:left;border:0;background:none;padding:.65rem .75rem;border-top:1px solid var(--tone-border);align-items:flex-start}
+.row:first-child{border-top:0}
+.row:hover{background:color-mix(in srgb,var(--tone-fg) 5%,transparent)}
+.row .t{font-weight:600;line-height:1.3;display:block}
+.row .s{font-size:var(--text-task-sm);color:var(--tone-fg-muted);display:block;margin-top:.1rem}
+.row .g{margin-top:.1rem}
+.row.new{box-shadow:inset 3px 0 0 var(--tone-primary)}
+.empty{padding:1.2rem .75rem;text-align:center;color:var(--tone-fg-muted);font-size:var(--text-task-sm)}
+.typebox{border-top:1px solid var(--tone-border);background:var(--tone-surface);padding:.55rem .7rem .7rem}
+.receipt{font-size:var(--text-task-sm);padding:.5rem .6rem;margin-bottom:.5rem;border-radius:.7rem;background:var(--tone-bg);border:1px solid var(--tone-border-strong)}
+.receipt q{color:var(--tone-fg-muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.receipt .to{font-weight:600;display:block;margin:.15rem 0}
+.receipt .btn{padding:.2rem .5rem;font-size:.75rem}
+.target{display:flex;align-items:center;gap:.35rem;font-size:.75rem;color:var(--tone-fg-muted);margin-bottom:.35rem;min-width:0}
+.target b{color:var(--tone-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb{display:flex;gap:.4rem;align-items:flex-end}
+.tb textarea{flex:1;min-width:0;resize:none;font:inherit;color:inherit;background:var(--tone-bg);border:1px solid var(--tone-border-strong);border-radius:.8rem;padding:.5rem .7rem;height:2.5rem;line-height:1.4}
+.tb textarea::placeholder{color:var(--tone-fg-muted)}
+.tb .send{flex:none;width:2.5rem;height:2.5rem;border-radius:.8rem;border:0;background:var(--tone-primary);color:var(--tone-primary-fg);font-weight:700;font-size:1.1rem}
+
+/* a task's face */
+.face .state{display:flex;gap:.45rem;align-items:center;font-size:var(--text-task-sm);font-weight:600;color:var(--tone-fg-muted)}
+.face h3{font-size:1.2rem;line-height:1.25;margin:.3rem 0 .15rem;letter-spacing:-.015em}
+.face .goal{color:var(--tone-fg-muted);margin:0 0 .6rem;font-size:var(--text-task-sm)}
+.needs-b{margin:.7rem 0;padding:.75rem .8rem;border-radius:.9rem;background:color-mix(in srgb,var(--tone-warning) 12%,var(--tone-bg));border:1px solid color-mix(in srgb,var(--tone-warning) 38%,var(--tone-border))}
+.needs-b .nh{font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-warning);margin-bottom:.25rem}
+.needs-b p{margin:.2rem 0}
+.needs-b .q{font-weight:650;font-size:1.02rem;line-height:1.3}
+.choice{display:block;width:100%;margin-top:.45rem}
+.choice span{display:block;font-weight:400;color:var(--tone-fg-muted);font-size:var(--text-task-sm)}
+.choice em{font-style:normal;font-size:.6875rem;font-weight:700;color:var(--tone-primary);text-transform:uppercase;letter-spacing:.06em;margin-left:.35rem}
+.out{border:1px solid var(--tone-border);border-radius:.9rem;background:var(--tone-surface);padding:.8rem .85rem;margin:.6rem 0}
+.out p{margin:.3rem 0}
+.big{font-size:2rem;font-weight:650;letter-spacing:-.04em;line-height:1.1;font-variant-numeric:tabular-nums}
+.ticks{list-style:none;padding:0}
+.ticks li{padding-left:1.4rem;position:relative}
+.ticks li::before{content:"✓";position:absolute;left:0;color:var(--tone-success);font-weight:700}
+.ticks li.no::before{content:"✕";color:var(--tone-danger)}
+.facts{display:flex;flex-wrap:wrap;gap:.35rem;margin:.5rem 0}
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0}
+.ba figure{margin:0}
+.ba figcaption{font-size:.75rem;color:var(--tone-fg-muted);padding-top:.2rem}
+.shot{border:1px solid var(--tone-border-strong);border-radius:.6rem;background:var(--tone-bg);padding:.55rem .6rem;font-size:.75rem;line-height:1.5}
+.shot i{font-style:normal;display:flex;justify-content:space-between;color:var(--tone-fg-muted)}
+.shot b{display:flex;justify-content:space-between;border-top:1px solid var(--tone-border);margin-top:.25rem;padding-top:.25rem}
+.shot .wrong{color:var(--tone-danger)}
+.shot .right{color:var(--tone-success)}
+.bars{display:grid;gap:.3rem;margin:.6rem 0 .2rem;font-size:.75rem;color:var(--tone-fg-muted)}
+.bars div{display:grid;grid-template-columns:5.2rem 1fr 2.6rem;gap:.5rem;align-items:center}
+.bars i{display:block;height:.6rem;border-radius:3px;background:var(--tone-primary)}
+.bars i.hot{background:var(--tone-warning)}
+.bars span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.now{display:flex;gap:.5rem;align-items:center;padding:.6rem .75rem;border-radius:.8rem;border:1px dashed var(--tone-border-strong);color:var(--tone-fg-muted);font-size:var(--text-task-sm);margin:.6rem 0}
+details.rec{border-top:1px solid var(--tone-border);margin-top:.8rem;padding-top:.5rem;font-size:var(--text-task-sm)}
+details.rec summary{cursor:pointer;font-weight:600;color:var(--tone-fg-muted);padding:.2rem 0}
+details.rec li{color:var(--tone-fg-muted)}
+.note{display:flex;gap:.5rem;justify-content:space-between;align-items:flex-start;padding:.4rem 0;border-top:1px solid var(--tone-border);font-size:var(--text-task-sm)}
+.note q{flex:1}
+.mail{background:var(--tone-bg);border:1px solid var(--tone-border-strong);border-radius:.7rem;padding:.9rem;margin:.5rem 0}
+.mail .hl{font-size:1.15rem;font-weight:700;line-height:1.25;letter-spacing:-.02em}
+.mail p{font-size:var(--text-task-sm);color:var(--tone-fg-muted)}
+.mail .cta{display:inline-block;margin-top:.4rem;padding:.35rem .8rem;border-radius:99px;background:var(--tone-fg);color:var(--tone-bg);font-size:.75rem;font-weight:650}
+.chg{background:color-mix(in srgb,var(--tone-success) 18%,transparent);border-radius:.3rem;box-shadow:0 0 0 3px color-mix(in srgb,var(--tone-success) 18%,transparent)}
+del{color:var(--tone-danger);text-decoration-thickness:1.5px}
+.deck-n{font-size:.75rem;color:var(--tone-fg-muted);font-weight:600}
+.dots{display:flex;gap:.25rem}
+.dots i{width:.45rem;height:.45rem;border-radius:99px;background:var(--tone-border-strong)}
+.dots i.on{background:var(--tone-warning)}
+
+/* directions */
+.tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:1.25rem 0 0}
+.tabs .btn{border-radius:99px;padding:.45rem .95rem}
+.tabs .btn[aria-selected="true"]{background:var(--tone-fg);color:var(--tone-bg);border-color:transparent}
+.dir{margin-top:1.25rem}
+.dir[hidden]{display:none}
+.dir .claim{font-size:1.15rem;max-width:56ch;margin:.25rem 0 .75rem}
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+@media(max-width:36rem){.pc{grid-template-columns:1fr}}
+.pc h4{margin-top:0}
+.pc ul{padding-left:1.1rem;font-size:.9375rem}
+
+/* living page */
+.doc-bar{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-bottom:.6rem}
+.doc-bar .btn{padding:.2rem .6rem;font-size:.75rem;border-radius:99px}
+.blk{position:relative;display:block;width:100%;text-align:left;border:1.5px solid transparent;border-radius:.6rem;background:none;padding:.4rem .5rem;margin:.1rem 0;font:inherit;color:inherit}
+.blk:hover{border-color:var(--tone-border-strong)}
+.blk.sel{border-color:var(--tone-primary);background:color-mix(in srgb,var(--tone-primary) 8%,transparent)}
+.blk.gone{opacity:.55}
+.blk .pin{position:absolute;right:-.35rem;top:-.5rem;display:grid;place-items:center;min-width:1.3rem;height:1.3rem;padding:0 .3rem;border-radius:99px;background:var(--tone-warning);color:#1a1830;font-size:.6875rem;font-weight:700}
+.blk .pin.ok{background:var(--tone-success);color:#fff}
+.why{display:block;font-size:.75rem;color:var(--tone-primary);margin-top:.3rem;font-weight:500}
+.offer{border:1.5px dashed var(--tone-border-strong);border-radius:.6rem;padding:.5rem .6rem;font-weight:650;font-size:var(--text-task-sm)}
+.sugg{display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem}
+.sugg .btn{padding:.2rem .55rem;font-size:.75rem;border-radius:99px}
+
+/* promise */
+.dial{display:grid;grid-template-columns:repeat(3,1fr);gap:.3rem}
+.dial .btn{text-align:center;padding:.4rem .3rem;font-size:.75rem}
+.assume{display:flex;gap:.5rem;justify-content:space-between;align-items:center;padding:.4rem 0;border-top:1px solid var(--tone-border);font-size:var(--text-task-sm)}
+.assume:first-of-type{border-top:0}
+.assume .btn{flex:none;padding:.15rem .5rem;font-size:.75rem}
+.assume.changed span:first-child{font-weight:650}
+.ev{display:flex;flex-wrap:wrap;gap:.3rem;margin:.15rem 0 .5rem 1.4rem}
+
+/* session */
+.turn{max-width:88%;padding:.5rem .7rem;border-radius:.9rem;margin:.35rem 0;font-size:var(--text-task-sm)}
+.turn.you{margin-left:auto;background:var(--tone-user-bubble);border:1px solid var(--tone-user-border)}
+.turn.ai{background:var(--tone-surface);border:1px solid var(--tone-border)}
+.sess-h{font-size:.75rem;color:var(--tone-fg-muted);text-align:center;margin:.5rem 0}
+
+/* outputs gallery */
+.kinds{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0}
+.kinds .btn{border-radius:99px}
+.kind-view{display:grid;grid-template-columns:minmax(0,24rem) minmax(0,1fr);gap:clamp(1rem,3vw,2rem);align-items:start}
+@media(max-width:52rem){.kind-view{grid-template-columns:1fr}}
+.kind-card{border:1px solid var(--tone-border-strong);border-radius:1.1rem;background:var(--tone-bg);padding:.9rem;box-shadow:var(--tone-shadow);font-size:var(--text-task);line-height:1.45}
+.kind-card h3{font-size:1.05rem;margin:.3rem 0}
+dl.same{margin:0;display:grid;gap:.6rem}
+dl.same div{padding:.7rem .9rem;border:1px solid var(--tone-border);border-radius:.8rem;background:var(--tone-surface)}
+dl.same dt{font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted)}
+dl.same dd{margin:.1rem 0 0}
+.cmp{width:100%;border-collapse:collapse;font-size:var(--text-task-sm)}
+.cmp td,.cmp th{text-align:left;padding:.3rem .4rem;border-bottom:1px solid var(--tone-border)}
+.cmp th{color:var(--tone-fg-muted);font-weight:600}
+.steps-l{padding-left:1.2rem;font-size:var(--text-task-sm)}
+.spark{display:flex;align-items:flex-end;gap:3px;height:3rem;margin:.5rem 0}
+.spark i{flex:1;background:var(--tone-primary);border-radius:2px 2px 0 0;opacity:.75}
+.spark i.hot{background:var(--tone-danger);opacity:1}
+
+/* tables */
+.tbl{overflow-x:auto;margin-top:1rem}
+table.t{width:100%;border-collapse:collapse;font-size:.9375rem;min-width:34rem}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:.7rem .6rem;border-bottom:1px solid var(--tone-border)}
+table.t th{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);font-weight:650}
+table.t td:first-child{font-weight:600;width:30%}
+
+/* record layers */
+.layers{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:1rem;margin-top:1.25rem}
+@media(max-width:46rem){.layers{grid-template-columns:1fr}}
+.layer-tabs{display:grid;gap:.4rem;align-content:start}
+.layer-tabs .btn span{display:block;font-weight:400;color:var(--tone-fg-muted);font-size:.8125rem}
+.layer-view{min-height:14rem}
+.layer-view ul{list-style:none;padding:0;margin:0}
+.layer-view li{padding:.45rem 0;border-top:1px solid var(--tone-border);font-size:.9375rem;max-width:none}
+.layer-view li:first-child{border-top:0}
+.layer-view li small{color:var(--tone-fg-muted);font-family:var(--font-mono);font-size:.75rem;margin-right:.5rem}
+.layer-view pre{font:.75rem/1.55 var(--font-mono);white-space:pre-wrap;color:var(--tone-fg-muted);margin:0}
+.askwhy{margin-top:.75rem;padding:.7rem .8rem;border-radius:.8rem;background:var(--tone-bg);border:1px solid var(--tone-border-strong);font-size:.9375rem}
+
+/* breaks */
+.brk h3{display:flex;gap:.5rem;align-items:baseline}
+.brk .sev{font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.brk p{font-size:.9375rem;margin:.35rem 0}
+.brk p b{color:var(--tone-fg-muted);font-size:.6875rem;text-transform:uppercase;letter-spacing:.08em;display:block}
+
+/* architecture */
+.arch{display:flex;flex-direction:column;gap:.35rem;margin:.75rem 0;font-size:.8125rem}
+.arch div{border:1px solid var(--tone-border-strong);border-radius:.6rem;padding:.4rem .6rem;background:var(--tone-bg);text-align:center}
+.arch .hid{border-style:dashed;color:var(--tone-fg-muted)}
+.arch .rowx{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem;border:0;padding:0;background:none}
+.arch .arr{border:0;background:none;padding:0;color:var(--tone-fg-muted);line-height:1}
+
+.vote{font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.vote.take{color:var(--tone-success)}.vote.try{color:var(--tone-warning)}.vote.later{color:var(--tone-fg-muted)}
+.choice-card h3{display:flex;gap:.6rem;align-items:baseline}
+.choice-card h3 span{flex:none;display:grid;place-items:center;width:1.6rem;height:1.6rem;border-radius:99px;background:var(--tone-primary);color:var(--tone-primary-fg);font-size:.8125rem}
+.choice-card ul{font-size:.9375rem}
+.rec-mark{color:var(--tone-primary);font-weight:650}
+footer{margin-top:4rem;border-top:1px solid var(--tone-border);padding-top:1rem;font-size:.8125rem;color:var(--tone-fg-muted)}
+
+@media print{
+	body{background:#fff;color:#000}
+	.nav,.time,.side .says,.tabs,.kinds{display:none}
+	.dir[hidden]{display:block}
+	.app{height:auto;max-height:none;box-shadow:none}
+	.app-body{overflow:visible}
+	details.rec>*{display:block}
+	section{break-inside:avoid-page}
+}
+
+/* diffusion */
+.meter{display:inline-flex;gap:3px}
+.meter i{width:1rem;height:.4rem;border-radius:2px;background:var(--tone-border-strong)}
+.meter i.on{background:var(--tone-warning)}
+.meter.ok i.on{background:var(--tone-success)}
+.meter.stop i.on{background:var(--tone-fg-muted)}
+.drive{font-size:.75rem;color:var(--tone-fg-muted);margin:.45rem 0 .6rem}
+.drive b{color:var(--tone-fg)}
+.lines{list-style:none;padding:0;margin:.5rem 0}
+.lines li{display:flex;gap:.45rem;padding:.3rem .4rem;border-radius:.4rem;max-width:none;margin:0}
+.lines li>span:first-child{flex:none;width:1rem;text-align:center;font-size:.6875rem;line-height:2}
+.l-g{color:var(--tone-fg-muted);font-style:italic}
+.l-g small{font-style:normal;font-size:.625rem;text-transform:uppercase;letter-spacing:.08em;border:1px dashed var(--tone-border-strong);border-radius:99px;padding:0 .35rem;white-space:nowrap}
+.l-c>span:first-child{color:var(--tone-success)}
+.l-x{color:var(--tone-fg-muted);font-size:var(--text-task-sm)}
+.l-x>span:last-child{text-decoration:line-through}
+.l-x>span:first-child{color:var(--tone-danger)}
+.is-new{box-shadow:inset 2px 0 0 var(--tone-primary)}
+.guess{font-style:italic;color:var(--tone-fg-muted)}
+.mail .para{display:block;font-size:var(--text-task-sm);color:var(--tone-fg-muted)}
+.ticks .ev{margin:.15rem 0 .5rem}
+@media(prefers-reduced-motion:no-preference){
+	.is-new{animation:settle 1.5s ease-out}
+	.meter:not(.ok):not(.stop) i.cur{animation:pulse 1.2s ease-in-out infinite}
+	@keyframes settle{from{background:color-mix(in srgb,var(--tone-primary) 30%,transparent);filter:blur(3px);opacity:.3}to{background:transparent;filter:none;opacity:1}}
+	@keyframes pulse{50%{opacity:.35}}
+}
+</style>
+</head>
+<body>
+<nav class="nav" aria-label="Sections"><div>
+<a href="#idea">The idea</a><a href="#loop">The loop</a><a href="#directions">Five directions</a><a href="#outputs">Any output</a><a href="#transcript">No transcript</a><a href="#breaks">Where it breaks</a><a href="#underneath">Underneath</a><a href="#recommendation">Recommendation</a><a href="#choices">Your choices</a>
+</div></nav>
+<main>
+
+<header id="idea">
+<div class="kicker">Next big version · an exploration · nothing here is built</div>
+<h1>Kemiri without the chat</h1>
+<p class="lead">A type box and a list of tasks. You say what you want. Work happens in the background. Whatever needs you rises to the top.</p>
+
+<div class="card answer">
+<h3>The short answer to “do we need the transcript at all?”</h3>
+<p>Not as the place you read. Tasks already do that better.</p>
+<p>Not as the place you talk. The type box does that.</p>
+<p>Yes as a hidden log, for the rare day you must see what an agent really did.</p>
+<p>Yes as a short talk inside one task, when you want to think out loud. It folds into what was settled.</p>
+</div>
+
+<div class="loop" aria-label="The loop">
+<div><b>You say</b>A request, a question or feedback. One type box.</div>
+<div><b>It lands</b>A receipt shows where it went: a new task, two tasks, or a task you already have.</div>
+<div><b>It fills in</b>A first guess shows within a second. Then it keeps settling as work is done.</div>
+<div><b>It rises</b>When it needs you, it moves to the top with one clear ask.</div>
+<div class="back"><b>You respond</b>One tap, or more words in the same type box. Then the loop runs again.</div>
+</div>
+
+<h4 style="margin-top:1.5rem">Everything that rises asks for one of five things</h4>
+<div class="asks">
+<div><b><span class="g read">A</span>Read</b>An answer is ready. Reading it closes it.</div>
+<div><b><span class="g decide">?</span>Decide</b>A question, with what each choice does.</div>
+<div><b><span class="g review">◉</span>Check</b>An output is ready, with its evidence.</div>
+<div><b><span class="g do">≡</span>Do</b>Steps that only you can do.</div>
+<div><b><span class="g failed">!</span>Rescue</b>Something failed and needs a call.</div>
+</div>
+<p class="small muted" style="margin-top:1rem">All data on this page is made up: a small stationery shop, used only as an example. The design is for any project.</p>
+</header>
+
+<section id="loop">
+<div class="kicker">The base that every direction shares</div>
+<h2>The loop, as one screen</h2>
+<p>This is the whole app: a list sorted by what needs you, and a type box. Open a task to see its output. There is no chat anywhere.</p>
+<div class="proto">
+<div class="app" id="loop-app" aria-label="Prototype: the loop"></div>
+<div class="side">
+<h3>Try it</h3>
+<p class="small muted">Each button sends that text through the type box. You can also type your own. Then let time pass, and open what rises.</p>
+<div class="says" id="loop-says">
+<button class="btn" data-say="p1"><b>A simple question</b>How many orders came from the newsletter last month?</button>
+<button class="btn" data-say="p2"><b>Two outcomes in one message</b>Fix the wrong shipping price for Norway, and find out why the nightly build got slow.</button>
+<button class="btn" data-say="p3"><b>Feedback, without picking a task</b>The newsletter headline is too long. Make it friendlier.</button>
+</div>
+<div class="time"><button class="btn primary" id="loop-time">Let time pass ▸</button><button class="btn ghost" id="loop-reset">Start over</button></div>
+<div class="explain" id="loop-explain" aria-live="polite"></div>
+</div>
+</div>
+</section>
+
+<section id="directions">
+<div class="kicker">Five bold directions</div>
+<h2>Five ways to push it further</h2>
+<p>Each one takes a different part of the idea to its end. They can be combined. Each has a prototype you can click.</p>
+<div class="tabs" role="tablist" aria-label="Directions">
+<button class="btn" role="tab" aria-selected="true" data-dir="diffusion">1 · Diffusion</button>
+<button class="btn" role="tab" aria-selected="false" data-dir="page">2 · Living page</button>
+<button class="btn" role="tab" aria-selected="false" data-dir="promise">3 · Promise first</button>
+<button class="btn" role="tab" aria-selected="false" data-dir="deck">4 · Clear the top</button>
+<button class="btn" role="tab" aria-selected="false" data-dir="talk">5 · Talk, then fold</button>
+</div>
+
+<div class="dir" id="dir-diffusion" role="tabpanel">
+<h3>1 · Diffusion: content that settles</h3>
+<p class="claim">A task has content within a second, as fast as a chat starts to answer. Then it is refined, pass after pass, until it is short, checked and final.</p>
+<div class="proto">
+<div class="app" id="diff-app" aria-label="Prototype: diffusion"></div>
+<div class="side">
+<h3>Step through one task</h3>
+<p class="small muted">You asked: “Why did orders drop last week?” Watch the same task at five moments.</p>
+<div class="time"><button class="btn" id="diff-prev">◂ Back</button><button class="btn primary" id="diff-next">Next pass ▸</button><button class="btn" id="diff-play">▶ Play</button></div>
+<div class="says" style="margin-top:.75rem">
+<button class="btn" id="diff-fb"><b>Feedback while it settles</b>Count shop orders only, not wholesale.</button>
+<button class="btn" id="diff-stop"><b>Stop spending</b>Good enough, stop here.</button>
+</div>
+<div class="explain" id="diff-explain" aria-live="polite"></div>
+</div>
+</div>
+<div class="grid wide" style="margin-top:1.25rem">
+<div class="card"><h3>How the first draft appears</h3>
+<ul><li>A fast, cheap model writes it from your words, the board and the project memory.</li><li>It uses no tools, so it takes about a second.</li><li>It says what it understood, gives a first guess, and lists what it will check.</li><li>For a change to code, the first pass is only the understanding and the plan. It never guesses a result.</li></ul></div>
+<div class="card"><h3>What drives a pass</h3>
+<ul><li><b>New evidence.</b> A file was read, a check ran, a worker reported.</li><li><b>A stronger model.</b> It rewrites what the fast one drafted.</li><li><b>A second look.</b> Another agent checks each claim.</li><li><b>Quiet time.</b> When nothing new comes, one pass cuts it to its shortest form.</li><li><b>You.</b> Feedback, or opening the task, moves that part to the front.</li><li>No cause, no pass. Every pass names its cause.</li></ul></div>
+<div class="card"><h3>Settling or final</h3>
+<ul><li>Every line is marked: a guess, or checked.</li><li>The task shows a meter and the words “settling” or “settled”.</li><li>Unsettled content never sits under Needs you. Settling is what makes it rise.</li><li>Lines that changed since you last looked are marked.</li><li>A checked line that turns out wrong rises as a correction. It never changes silently.</li></ul></div>
+<div class="card"><h3>Feedback in the middle</h3>
+<ul><li>Your note becomes a pin that every later pass obeys.</li><li>The work is steered, not restarted. Checked lines the note does not touch stay.</li><li>“Good enough” stops the passes and the spending. Guesses stay marked as guesses.</li><li>“Keep this” locks a line against later rewrites.</li></ul></div>
+<div class="card"><h3>Costs</h3>
+<ul><li>The first pass is cheap: a small model and a small prompt.</li><li>The cost is in rewrites by strong models. A pass must patch the lines it touches, not rewrite the page.</li><li>A task gets a pass budget. Passes stop early when one changes almost nothing.</li><li>Nothing here is measured. A first build must count tokens for each pass.</li></ul></div>
+<div class="card"><h3>Risks</h3>
+<ul><li><b>You act on a wrong guess.</b> The marks help, but a fast wrong answer still pulls.</li><li><b>Text moves while you read.</b> Changes should land between reads, with marks.</li><li><b>The model believes its own guess.</b> Later passes must get the evidence first, and the guess labelled as unchecked.</li><li><b>Polishing forever.</b> The budget and the “changed almost nothing” rule end it.</li><li><b>Code cannot diffuse.</b> The page about a change settles. The change itself is still built step by step.</li></ul></div>
+</div>
+<p class="small muted" style="margin-top:1rem">Today's Kemiri already has the parts: a report rewritten in place, checks as data, a freshness mark when a report is stale. Diffusion adds the instant first pass, the mark on each line, and the rule that settling makes a task rise.</p>
+</div>
+
+<div class="dir" id="dir-page" role="tabpanel" hidden>
+<h3>2 · Living page: the reply is a change</h3>
+<p class="claim">The agent never answers feedback with a message. It answers with a new version, and your note shows where it was worked in.</p>
+<div class="proto">
+<div class="app" id="page-app" aria-label="Prototype: living page"></div>
+<div class="side">
+<h3>Try it</h3>
+<ol class="small"><li>Tap a part of the email, such as the headline.</li><li>Pick a note, or type one. Tap nothing to note on the whole page.</li><li>Let time pass. Draft 3 arrives with the change marked.</li><li>Switch drafts, or show what changed.</li></ol>
+<div class="time"><button class="btn primary" id="page-time">Let time pass ▸</button><button class="btn ghost" id="page-reset">Start over</button></div>
+<div class="explain" id="page-explain" aria-live="polite"></div>
+<div class="pc">
+<div><h4>Why it could win</h4><ul><li>Feedback points at a thing, so it cannot be misread.</li><li>Every note ends in a visible change, or it stays open.</li><li>The history is versions, not scroll.</li></ul></div>
+<div><h4>Where it breaks</h4><ul><li>Outputs with nothing to point at, such as “make it faster”.</li><li>A note that needs an answer, not a change.</li><li>Each kind of output needs its own way to point.</li></ul></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dir" id="dir-promise" role="tabpanel" hidden>
+<h3>3 · Promise first: assumptions, not questions</h3>
+<p class="claim">Before work starts, the task shows what you will get, how you will know it is done, and what the agent assumes. Review is checking the result against that promise.</p>
+<div class="proto">
+<div class="app" id="promise-app" aria-label="Prototype: promise first"></div>
+<div class="side">
+<h3>Try it</h3>
+<ol class="small"><li>Read the promise. Change an assumption if it is wrong.</li><li>Set how free the agent is.</li><li>Start, then let time pass.</li><li>Check each line against its evidence. Change an assumption after the fact to see what is redone.</li></ol>
+<div class="time"><button class="btn primary" id="promise-time">Let time pass ▸</button><button class="btn ghost" id="promise-reset">Start over</button></div>
+<div class="explain" id="promise-explain" aria-live="polite"></div>
+<div class="pc">
+<div><h4>Why it could win</h4><ul><li>Work does not stop for a question. It runs on a stated assumption.</li><li>A wrong direction shows in seconds, before it costs anything.</li><li>Trust is a setting you can see, for each task.</li></ul></div>
+<div><h4>Where it breaks</h4><ul><li>A wrong assumption nobody read costs a redo.</li><li>Small requests do not deserve a contract.</li><li>Some things must be asked: money, deleting, going live.</li></ul></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dir" id="dir-deck" role="tabpanel" hidden>
+<h3>4 · Clear the top: one thing at a time</h3>
+<p class="claim">The list is the map. The app is the top card. You answer, check or read one thing, and the next one slides in. When nothing is left, you are done.</p>
+<div class="proto">
+<div class="app" id="deck-app" aria-label="Prototype: clear the top"></div>
+<div class="side">
+<h3>Try it</h3>
+<p class="small muted">Five different outputs wait. Act on each with a tap, type a note, or put it off. Then let time pass to see what comes back.</p>
+<div class="time"><button class="btn primary" id="deck-time">Let time pass ▸</button><button class="btn ghost" id="deck-reset">Start over</button></div>
+<div class="explain" id="deck-explain" aria-live="polite"></div>
+<div class="pc">
+<div><h4>Why it could win</h4><ul><li>It fits a phone and a spare five minutes.</li><li>You never choose what to look at.</li><li>“Nothing needs you” is a real end.</li></ul></div>
+<div><h4>Where it breaks</h4><ul><li>The order must be right, or you lose trust in it.</li><li>Big reviews do not fit a card.</li><li>You see less of the whole.</li></ul></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dir" id="dir-talk" role="tabpanel" hidden>
+<h3>5 · Talk, then fold: a chat that does not stay</h3>
+<p class="claim">Some work is thinking out loud. A task can open a short talk. When you end it, only what was settled stays on the task.</p>
+<div class="proto">
+<div class="app" id="talk-app" aria-label="Prototype: talk, then fold"></div>
+<div class="side">
+<h3>Try it</h3>
+<ol class="small"><li>Open the talk.</li><li>Send the offered lines, one at a time.</li><li>End the talk at any point and see what stays.</li></ol>
+<div class="time"><button class="btn ghost" id="talk-reset">Start over</button></div>
+<div class="explain" id="talk-explain" aria-live="polite"></div>
+<div class="pc">
+<div><h4>Why it could win</h4><ul><li>It admits that fast back and forth is real work.</li><li>The talk has one subject and an end.</li><li>Nobody has to read it again. The task holds the result.</li></ul></div>
+<div><h4>Where it breaks</h4><ul><li>It is a chat. If every task grows one, nothing changed.</li><li>The fold can drop something that mattered.</li><li>A talk across two tasks has no home.</li></ul></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="outputs">
+<div class="kicker">Rich content</div>
+<h2>Any output, the same five moves</h2>
+<p>Outputs differ wildly. The process can stay the same if every kind of output answers the same five questions. Pick a kind.</p>
+<div class="kinds" id="kinds" role="tablist" aria-label="Kinds of output"></div>
+<div class="kind-view">
+<div class="kind-card" id="kind-card"></div>
+<dl class="same" id="kind-facts"></dl>
+</div>
+<p class="small muted" style="margin-top:1rem">A new kind of output is then a small contract, not a new screen. The frame around it never changes: state, what needs you, the output, the record.</p>
+</section>
+
+<section id="transcript">
+<div class="kicker">Reasoning and history</div>
+<h2>What the transcript gave you, and where it goes</h2>
+<div class="tbl"><table class="t">
+<thead><tr><th>The chat gives you today</th><th>Without it</th></tr></thead>
+<tbody>
+<tr><td>A reply within a second</td><td>The first guess on the task, at once. This is the diffusion direction.</td></tr>
+<tr><td>A sign that work is alive</td><td>The Now line and the settling meter on the task and its row.</td></tr>
+<tr><td>How it got there</td><td>“Why” lines on the task: what was decided, and what was assumed.</td></tr>
+<tr><td>Proof that it ran the tests</td><td>Checks and files recorded by the harness, not told by the agent.</td></tr>
+<tr><td>Catching a wrong turn early</td><td>Assumptions shown before work. Drafts visible while they settle.</td></tr>
+<tr><td>“As I said before”</td><td>Your notes stay on the task. Project memory holds what spans tasks.</td></tr>
+<tr><td>Stopping or steering</td><td>The type box inside the task steers it. A Stop sits on the Now line.</td></tr>
+<tr><td>Quick back and forth</td><td>A talk inside one task, folded into what was settled.</td></tr>
+<tr><td>Scrolling back through a day</td><td>“While you were away”: one generated page of what changed.</td></tr>
+<tr><td>Debugging the agent itself</td><td>The full log, kept behind the record. You can search it or ask it.</td></tr>
+</tbody></table></div>
+
+<h3 style="margin-top:2rem">The record has three depths</h3>
+<p>Most days you read none of them. They are on every task, folded.</p>
+<div class="layers">
+<div class="layer-tabs" id="layer-tabs">
+<button class="btn on" data-layer="why">Why<span>Decisions and assumptions, written for you.</span></button>
+<button class="btn" data-layer="what">What happened<span>Made by the harness from what really ran.</span></button>
+<button class="btn" data-layer="log">The full log<span>Every step, as stored. This is the old transcript.</span></button>
+</div>
+<div class="card layer-view" id="layer-view"></div>
+</div>
+</section>
+
+<section id="breaks">
+<div class="kicker">The challenge</div>
+<h2>Where it breaks</h2>
+<p>Each of these is a real loss. Each has a cover. The last line says what the cover does not fix.</p>
+<div class="grid wide brk" style="margin-top:1rem">
+<div class="card"><h3>Thinking together <span class="sev pill bad">High</span></h3><p><b>Breaks</b>Brainstorming is ten fast turns. A task per turn is far too heavy.</p><p><b>Cover</b>A talk inside one task, which folds when it ends.</p><p><b>Still open</b>If most of your use is talk, this app is slower than a chat.</p></div>
+<div class="card"><h3>A wrong landing <span class="sev pill bad">High</span></h3><p><b>Breaks</b>A message is filed on the wrong task, or split badly. In a chat you would see the misreading at once.</p><p><b>Cover</b>The receipt above the type box, with one tap to undo. Inside a task there is no routing at all.</p><p><b>Still open</b>A wrong landing you did not look at.</p></div>
+<div class="card"><h3>Finding out late <span class="sev pill bad">High</span></h3><p><b>Breaks</b>Without the stream of steps, a wrong direction shows only at review.</p><p><b>Cover</b>The first guess and the assumptions show within seconds. Drafts can be read while they settle.</p><p><b>Still open</b>You have to look. Nothing makes you.</p></div>
+<div class="card"><h3>A page is easier to believe <span class="sev pill bad">High</span></h3><p><b>Breaks</b>A clean page can claim what did not happen. A messy transcript at least shows the mess.</p><p><b>Cover</b>Evidence from the harness, a second agent, and a mark on every line: guess or checked.</p><p><b>Still open</b>A well-written wrong page convinces more than a transcript did.</p></div>
+<div class="card"><h3>Everything rises at once <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>Ten agents finish, and ten reviews wait. Review is the real limit, not typing.</p><p><b>Cover</b>Sort by what unblocks most. Let low-risk work finish without you, in one “done without you” row.</p><p><b>Still open</b>No layout makes checking faster than doing.</p></div>
+<div class="card"><h3>A list full of small things <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>Twenty quick questions a day make twenty tasks.</p><p><b>Cover</b>A read answer closes itself. Closed answers fold away after a day.</p><p><b>Still open</b>Search has to be good, or old answers are lost.</p></div>
+<div class="card"><h3>Content that moves <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>With diffusion, text changes after you read it.</p><p><b>Cover</b>Marks for what changed. Corrections to checked lines rise on their own.</p><p><b>Still open</b>It asks more attention than text that is simply final.</p></div>
+<div class="card"><h3>Agents write for a chat <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>Models answer in conversation by default. Earlier research here found steps and answers left only in the chat.</p><p><b>Cover</b>One agent per task: its reply is the task's content, so nothing can leak elsewhere.</p><p><b>Still open</b>Writing short, final text is harder for a model than chatting.</p></div>
+<div class="card"><h3>The thread across tasks <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>“Do it like the other one” needs something that knows both.</p><p><b>Cover</b>The router links related tasks. Project memory keeps what holds for all of them.</p><p><b>Still open</b>Memory is thinner than a conversation that saw everything.</p></div>
+<div class="card"><h3>Cost <span class="sev pill warn">Medium</span></h3><p><b>Breaks</b>First guesses, extra passes, second agents and one agent per task all cost tokens.</p><p><b>Cover</b>Cheap models for early passes, patches, budgets, and “good enough”.</p><p><b>Still open</b>Not measured. It must be, before any of this is the default.</p></div>
+</div>
+</section>
+
+<section id="underneath">
+<div class="kicker">What changes underneath</div>
+<h2>Three ways to build it</h2>
+<p>Removing the chat from the screen does not have to remove the conversation from the agent. These differ in how far they go.</p>
+<div class="grid three" style="margin-top:1rem">
+<div class="card"><h3>A · Hide the chat</h3>
+<div class="arch"><div>Type box</div><div class="arr">↓</div><div class="hid">Coordinator conversation, unseen</div><div class="arr">↓</div><div class="rowx"><div>Task</div><div>Task</div><div>Task</div></div></div>
+<p>Today's coordinator stays. Its replies are not shown. It must put everything on a task.</p>
+<p class="small"><b>For:</b> days of work, and it can be tried on the live app.<br><b>Against:</b> content can still land where nobody reads. The long conversation still needs compacting.</p></div>
+<div class="card"><h3>B · A router and one agent per task</h3>
+<div class="arch"><div>Type box</div><div class="arr">↓</div><div>Router: a small fast model</div><div class="arr">↓</div><div class="rowx"><div>Task + agent</div><div>Task + agent</div><div>Task + agent</div></div></div>
+<p>A fast model files each message and writes the first guess. Each task has its own agent, started from the task page.</p>
+<p class="small"><b>For:</b> a reply lands on its task by construction. No long main conversation. The first guess comes for free.<br><b>Against:</b> the router can be wrong. Nothing sees all tasks at once except the board and memory.</p></div>
+<div class="card"><h3>C · The page is the memory</h3>
+<div class="arch"><div>Type box</div><div class="arr">↓</div><div>Router</div><div class="arr">↓</div><div class="rowx"><div>Task page</div><div>Task page</div><div>Task page</div></div><div class="arr">↑ every run starts here ↓</div><div class="hid">Agents keep nothing between runs</div></div>
+<p>An agent run starts from the task page, the project memory and the files. Nothing else. You and the agent read the same thing.</p>
+<p class="small"><b>For:</b> any task survives a restart. Page quality becomes testable: can a fresh agent go on from it?<br><b>Against:</b> the page must hold everything that matters. Re-reading costs tokens each run.</p></div>
+</div>
+</section>
+
+<section id="recommendation">
+<div class="kicker">Recommendation</div>
+<h2>Build the loop, let content diffuse, answer with changes</h2>
+<div class="card answer" style="max-width:none">
+<p><b>The loop</b> is the product: the type box, the receipt, five asks, and a list sorted by what needs you.</p>
+<p><b>Diffusion</b> is how every task fills in. It replaces the one thing a chat does best: answering at once.</p>
+<p><b>The living page</b> is how every output is improved. A note ends in a version, never in a message.</p>
+<p><b>The promise</b> is not a gate. It is simply what the first diffusion pass writes.</p>
+<p><b>Talk</b> stays as a mode inside a task. <b>Clear the top</b> can become the phone's home screen later.</p>
+</div>
+<h3 style="margin-top:1.75rem">The pieces, and what I would do with each</h3>
+<div class="tbl"><table class="t">
+<thead><tr><th>Piece</th><th>What it is</th><th>Vote</th></tr></thead>
+<tbody>
+<tr><td>The receipt</td><td>Every message shows where it landed, with one tap to undo.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>Five asks</td><td>Read, decide, check, do, rescue. Nothing else rises.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>Seen is done</td><td>A read answer closes itself.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>First guess at once</td><td>A fast model fills the task within a second.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>Guess or checked</td><td>A mark on every line, and “settling” or “settled” on the task.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>Reply is a change</td><td>Notes pin to a part of the output and end in a version.</td><td><span class="vote take">Take</span></td></tr>
+<tr><td>Evidence from the harness</td><td>Checks and files are recorded, not told.</td><td><span class="vote take">Take</span> (partly built)</td></tr>
+<tr><td>Assumptions, not questions</td><td>Work runs on stated assumptions you can change.</td><td><span class="vote try">Try</span></td></tr>
+<tr><td>How free am I</td><td>Ask first, show after, or just do it, for each task.</td><td><span class="vote try">Try</span></td></tr>
+<tr><td>Talk, then fold</td><td>A short talk inside a task that keeps only what was settled.</td><td><span class="vote try">Try</span></td></tr>
+<tr><td>Ask the record</td><td>“Why?” on any line, answered from the stored log.</td><td><span class="vote try">Try</span></td></tr>
+<tr><td>Clear the top</td><td>One card at a time, as the phone's home.</td><td><span class="vote later">Later</span></td></tr>
+<tr><td>While you were away</td><td>One generated page that replaces scrolling back.</td><td><span class="vote later">Later</span></td></tr>
+<tr><td>The page is the memory</td><td>Agents start every run from the task page alone.</td><td><span class="vote later">Later</span>, as a test first</td></tr>
+</tbody></table></div>
+<h3 style="margin-top:1.75rem">A path, in five steps</h3>
+<ol>
+<li><b>A week with the chat off.</b> On today's app, a switch hides the transcript. Each time you open it anyway, one tap says why. That list is the real gap.</li>
+<li><b>The loop.</b> On the next-big branch, web only, on today's board. The hidden coordinator still runs underneath.</li>
+<li><b>Diffusion for questions and findings.</b> A fast first pass, marks on each line, and the rule that settling makes a task rise. Count the tokens of each pass.</li>
+<li><b>The living page.</b> Notes pinned to parts of an output. The review comments on HTML pages that exist today are the start.</li>
+<li><b>One agent per task.</b> Then test whether a fresh agent can go on from a task page alone.</li>
+</ol>
+</section>
+
+<section id="choices">
+<div class="kicker">Your call</div>
+<h2>Your choices</h2>
+<p>The recommended answer is marked in each.</p>
+<div class="grid wide" style="margin-top:1rem">
+<div class="card choice-card"><h3><span>1</span>What goes into the first real build?</h3><ul><li class="rec-mark">The loop, diffusion and the living page.</li><li>The loop only, the rest later.</li><li>All five directions.</li></ul></div>
+<div class="card choice-card"><h3><span>2</span>What may the first guess say?</h3><ul><li class="rec-mark">A guessed answer for questions and findings. Only the understanding and the plan for changes.</li><li>Always a guessed answer.</li><li>Never an answer, only what was understood.</li></ul></div>
+<div class="card choice-card"><h3><span>3</span>How does unsettled content show?</h3><ul><li class="rec-mark">A mark on each line, and a meter on the task.</li><li>Only “settling” on the whole task.</li><li>Hidden until settled. This gives up the instant reply.</li></ul></div>
+<div class="card choice-card"><h3><span>4</span>What happens to the transcript?</h3><ul><li class="rec-mark">Kept as a log behind each task's record.</li><li>One tap away, as today.</li><li>Not shown anywhere.</li></ul></div>
+<div class="card choice-card"><h3><span>5</span>How do you think out loud?</h3><ul><li class="rec-mark">A talk inside a task that folds.</li><li>A chat tab stays, beside the list.</li><li>No talk. Notes and versions only.</li></ul></div>
+<div class="card choice-card"><h3><span>6</span>How is it built underneath?</h3><ul><li class="rec-mark">Hide the coordinator first. Move to one agent per task once the loop works.</li><li>One agent per task from the start.</li><li>The page is the memory, from the start.</li></ul></div>
+<div class="card choice-card"><h3><span>7</span>A week with the chat off, on the live app?</h3><ul><li class="rec-mark">Yes, before building on next-big. It is cheap and tells what is missing.</li><li>No, go straight to the next-big build.</li></ul></div>
+<div class="card choice-card"><h3><span>8</span>One list, or one per project?</h3><ul><li class="rec-mark">One per project first. One list for all projects once the loop works.</li><li>One list for all projects from the start.</li></ul></div>
+</div>
+</section>
+
+<footer>Kemiri · next big version · exploration for task T303 · synthetic data only · a single file with no network use</footer>
+</main>
+<script>
+(() => {
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+/* ───────── the loop engine (also drives "Clear the top") ───────── */
+const GL = { decide: '?', do: '≡', read: 'A', review: '◉', failed: '!' };
+const ASK = { decide: 'Needs your answer', do: 'Your steps', read: 'Answer ready', review: 'Ready for you to check', failed: 'Failed' };
+const ORDER = ['failed', 'decide', 'do', 'read', 'review'];
+const BACK = { answer: 'read', decision: 'decide', finding: 'decide', steps: 'do' };
+const glyph = t => `<span class="g ${t.group === 'needs' ? t.ask : t.group}" aria-hidden="true">${t.group === 'needs' ? GL[t.ask] : t.group === 'done' ? '✓' : ''}</span>`;
+const T = o => Object.assign({ notes: [], why: [], queue: [], ver: 1, fresh: false, goal: '' }, o);
+const to = (group, ask, line) => t => { t.group = group; t.ask = ask; t.line = line; };
+
+const mk = {
+	coupon: () => T({ id: 'coupon', kind: 'change', title: 'Coupon total is wrong at checkout', goal: 'A 10% coupon takes 10% off the whole basket.', group: 'needs', ask: 'review', line: 'Ready for you to check',
+		d: { gets: ['A 10% coupon now takes 10% off the whole basket.', 'The total is rounded once, at the end.'],
+			before: [['Basket', '49.90'], ['Coupon', '−4.90'], ['Total', '45.00']], after: [['Basket', '49.90'], ['Coupon', '−4.99'], ['Total', '44.91']],
+			pills: [['ok', '✓ Checkout tests · 42 passed'], ['', '2 files changed'], ['warn', 'Not live yet']],
+			notDone: 'Gift cards still use the old rounding. A follow-up task holds it.',
+			check: ['Open the test shop.', 'Add a notebook and use the code SPRING.', 'See that the total is 44.91.'], accept: 'It works: make it live' },
+		why: ['Decided: round once at the end, as the invoice already does.', 'Assumed: coupons never stack. Say so if they should.', 'The 42 tests were run and recorded by the harness.', 'A second agent read the change and had no remarks.'] }),
+	pay: () => T({ id: 'pay', kind: 'decision', title: 'Payment provider for the EU launch', goal: 'Pick who handles card payments in the EU.', group: 'needs', ask: 'decide', line: 'Needs your answer · 2 tasks wait on it',
+		d: { q: 'Which payment provider should the EU shop use?', ctx: ['Both work with the shop today.', 'They differ in fees and in how fast the money arrives.'],
+			choices: [{ l: 'Northpay', e: '1.4% per order. Money arrives in 2 days. Ready today.', rec: true }, { l: 'Kestrel', e: '1.1% per order. Money arrives in 7 days. Needs a signed form.' }] },
+		why: ['Compared the fees on last month\'s 400 orders.', 'Recommended Northpay: the fee gap is small, and the money arrives 5 days sooner.'] }),
+	news: () => T({ id: 'news', kind: 'page', title: 'Spring newsletter', goal: 'An email that tells subscribers about the spring collection.', group: 'working', line: 'Writing draft 2',
+		d: { hl: ['Our spring collection of notebooks, pens and desk accessories is finally here', 'Spring is here. So are the new notebooks.'], body: 'Twelve new notebooks, three pens and a desk tray. All made from recycled paper and metal.', offer: '10% off until 30 April with the code SPRING', accept: 'Approve: send it on Friday' },
+		queue: [t => { t.ver = 2; to('needs', 'review', 'Draft 2 is ready')(t); }],
+		why: ['Decided: lead with the notebooks, the best sellers of last spring.', 'Assumed: it is sent on Friday morning, like the last three.'] }),
+	photos: () => T({ id: 'photos', kind: 'steps', title: 'Product photos look blurry on phones', goal: 'Sharp product photos on every screen.', group: 'working', line: 'Comparing photo sizes',
+		d: { found: '12 product photos were uploaded at a quarter of the size a phone needs.', steps: ['Find the original photos of the 12 products.', 'Put them in the shop\'s “originals” folder.', 'Press “I did this”.'] },
+		queue: [to('needs', 'do', 'Your steps · only you have the original photos')],
+		why: ['Checked all 86 photos. Only these 12 are too small.', 'The originals are not in the project, so only you can supply them.'] }),
+	refund: () => T({ id: 'refund', kind: 'answer', title: 'Refund rule for opened items', group: 'done', line: 'Answered · you read it',
+		d: { big: '14 days, unopened only', sub: 'Opened notebooks and pens get shop credit, not money back.', how: ['Read from the shop\'s terms page, section 6.'] } }),
+	orders: () => T({ id: 'orders', kind: 'answer', title: 'Orders from the newsletter last month', group: 'working', line: 'First guess: about 200 · still checking', draft: true, fresh: true,
+		d: { guess: 'About 200 orders. That is the usual share of orders that come from the newsletter.', now: 'Counting the orders that came through the newsletter link',
+			big: '214 orders', sub: 'That is 18% of all orders last month. The week of the spring email brought half of them.',
+			bars: [['Week 1', 31], ['Week 2', 107], ['Week 3', 52], ['Week 4', 24]], how: ['Counted orders that arrived through the newsletter link.', 'Left out 6 test orders.', 'Source: last month\'s orders export.'] },
+		queue: [t => { t.draft = false; to('needs', 'read', 'Answer ready · 214 orders')(t); }] }),
+	norway: () => T({ id: 'norway', kind: 'change', title: 'Shipping price for Norway is wrong', goal: 'Orders to Norway are charged the right shipping price.', group: 'working', line: 'Understood · reproducing the wrong price', fresh: true,
+		d: { gets: ['Orders to Norway are charged 12.00 for shipping, as the price list says.', 'Customs paperwork is added to the order email.'],
+			before: [['Basket', '30.00'], ['Shipping', '6.00'], ['Total', '36.00']], after: [['Basket', '30.00'], ['Shipping', '12.00'], ['Total', '42.00']],
+			pills: [['ok', '✓ Shipping tests · 17 passed'], ['', '1 file changed'], ['warn', 'Not live yet']],
+			notDone: 'Three orders from last week were undercharged. I did not touch them.',
+			check: ['Open the test shop.', 'Put any item in the basket and choose Norway.', 'See that shipping is 12.00.'], accept: 'It works: make it live' },
+		queue: [to('working', null, 'Fixing and testing'), to('needs', 'review', 'Ready for you to check')],
+		why: ['Found: Norway was in the EU price group by mistake.', 'Assumed: the price list in the shop settings is right.'] }),
+	build: () => T({ id: 'build', kind: 'finding', title: 'Nightly build got slow', goal: 'Find out why the build takes 40 minutes.', group: 'working', line: 'First guess: the photo step · timing each step', fresh: true,
+		d: { headline: 'The photo step went from 4 to 31 minutes.', sub: 'It resizes every photo again each night. The number of photos tripled this spring.',
+			bars: [['Install', 3], ['Tests', 5], ['Photos', 31, 1], ['Publish', 1]], unit: ' min',
+			q: 'Shall I keep the resized photos between builds?', ctx: ['Only new or changed photos would be resized.'],
+			choices: [{ l: 'Yes, keep them', e: 'The build drops to about 9 minutes. It uses 2 GB of disk.', rec: true }, { l: 'No, leave it', e: 'Nothing changes. The build stays at 40 minutes.' }] },
+		queue: [to('needs', 'decide', 'Needs your answer · the cause is found')],
+		why: ['Timed each step over the last 30 builds.', 'Ruled out: the tests. They take 5 minutes, as before.'] }),
+	generic: (text, isQuestion) => T({ id: 'g' + Math.random().toString(36).slice(2, 7), kind: 'generic', title: text.length > 52 ? text.slice(0, 50).trim() + '…' : text, goal: '', group: 'working', line: isQuestion ? 'First guess is in · still checking' : 'Understood · starting', fresh: true,
+		d: { said: text, isQuestion, accept: isQuestion ? null : 'It works: close it' },
+		queue: [to('needs', isQuestion ? 'read' : 'review', isQuestion ? 'Answer ready' : 'Ready for you to check')],
+		why: ['This task came from your own words. Its content is a stand-in.'] }),
+};
+
+const SEEDS = {
+	loop: () => [mk.coupon(), mk.pay(), mk.news(), mk.photos(), mk.refund()],
+	deck: () => {
+		const o = mk.orders(); o.queue.shift()(o); o.fresh = false;
+		const p = mk.photos(); p.queue.shift()(p);
+		const n = mk.news(); n.queue.shift()(n);
+		const b = mk.build(); b.fresh = false; const s = mk.norway(); s.fresh = false; s.queue.shift();
+		return [mk.pay(), p, o, mk.coupon(), n, b, s, mk.refund()];
+	},
+};
+
+const SAYS = {
+	p1: 'How many orders came from the newsletter last month?',
+	p2: 'Fix the wrong shipping price for Norway, and find out why the nightly build got slow.',
+	p3: 'The newsletter headline is too long. Make it friendlier.',
+};
+const WHY = {
+	start: ['Where you start', 'The list is sorted by what needs you. The type box is the only way in. Nothing here is a chat.'],
+	startDeck: ['Where you start', 'Five things need you. You see one at a time, the most blocking first.'],
+	answer: ['A question became a task', 'It has a first guess at once, marked as a guess. It will rise when the answer is checked. Open it now to see the guess.'],
+	split: ['One message, two tasks', 'The message held two outcomes, so it became two tasks. The receipt above the type box says so. One tap makes it one task again.'],
+	merged: ['Your call wins', 'It is one task now. The router only proposes where a message lands.'],
+	routed: ['Feedback found its task', 'You did not pick a task. Your words matched the newsletter. The receipt shows where they went, and one tap undoes it.'],
+	unrouted: ['Undone', 'The note left the newsletter. Your words are a new task now.'],
+	fresh: ['A new task', 'Your words became a task. It shows what was understood at once, then works in the background.'],
+	note: ['Feedback inside a task', 'Words typed inside a task go to that task. The reply will be a new version, not a message.'],
+	nothing: ['Time passed', 'Nothing was working, so nothing changed. Say something first.'],
+	read: ['An answer', 'A simple answer. It closes itself when you go back: reading it was the review.'],
+	draft: ['A first guess', 'This is the guess a fast model wrote in a second. Nothing is checked yet, and the page says so.'],
+	decide: ['A question', 'One question, with what each choice does. Answer with a tap, or with the type box.'],
+	review: ['An output to check', 'The output, its evidence and the steps to check it are on one page. No transcript is needed to judge it.'],
+	do: ['Steps for you', 'Steps that only you can do. The task waits under Needs you until you say they are done.'],
+	working: ['Work in progress', 'You can look at any time. The type box steers it. Nothing here needs you yet.'],
+	done: ['Closed', 'A closed task keeps its output and its record. Typing here would open it again.'],
+	accepted: ['You closed it', 'Only you close a task that changes something.'],
+	decided: ['Your answer started work', 'The task left Needs you and works again. Nothing else on the list moved.'],
+	did: ['Your steps are done', 'The task went back to work with what you gave it.'],
+	seen: ['Seen is done', 'It closed because you read it. A simple answer should not need a button.'],
+	kept: ['Kept open', 'It stays under Needs you until you close it yourself.'],
+	later: ['Put off', 'The card went to the end of the line. It still needs you.'],
+	off: ['Say what is off', 'Type it. Your note goes on this task and comes back as a new version.'],
+	empty: ['Nothing needs you', 'This is the end state the app aims for. Work still runs in the background.'],
+};
+
+function makeApp(root, mode) {
+	const el = { says: $(`#${mode}-says`), time: $(`#${mode}-time`), reset: $(`#${mode}-reset`), why: $(`#${mode}-explain`) };
+	let S;
+	const explain = k => { const [h, p] = WHY[k]; el.why.innerHTML = `<b>${h}</b>${p}`; };
+	const needs = () => S.tasks.filter(t => t.group === 'needs').sort((a, b) => ORDER.indexOf(a.ask) - ORDER.indexOf(b.ask) || (a.later || 0) - (b.later || 0));
+	const find = id => S.tasks.find(t => t.id === id);
+	const cur = () => mode === 'deck' ? needs()[0] : S.open;
+
+	function reset() { S = { tasks: SEEDS[mode](), open: null, receipt: null, tick: 0 }; explain(mode === 'deck' ? 'startDeck' : 'start'); render(); }
+
+	/* outputs, by kind */
+	const bars = (rows, unit = '') => { const max = Math.max(...rows.map(r => r[1])); return `<div class="bars">${rows.map(r => `<div><span>${r[0]}</span><i class="${r[2] ? 'hot' : ''}" style="width:${Math.max(4, r[1] / max * 100)}%"></i><span>${r[1]}${unit}</span></div>`).join('')}</div>`; };
+	const shot = rows => `<div class="shot">${rows.slice(0, -1).map(r => `<i><span>${r[0]}</span><span>${r[1]}</span></i>`).join('')}<b><span>${rows.at(-1)[0]}</span><span>${rows.at(-1)[1]}</span></b></div>`;
+	const OUT = {
+		answer: t => t.draft
+			? `<div class="out"><span class="pill warn">◌ First guess · nothing checked yet</span><p class="guess">${t.d.guess}</p></div>`
+			: `<div class="out"><div class="big">${t.d.big}</div><p>${t.d.sub}</p>${t.d.bars ? bars(t.d.bars) : ''}<span class="pill ok">● Checked</span></div>`,
+		change: t => `<h4>What you get</h4><ul class="ticks">${t.d.gets.map(g => `<li>${g}</li>`).join('')}</ul>${t.d.before ? `<div class="ba"><figure>${shot(t.d.before)}<figcaption>Before</figcaption></figure><figure>${shot(t.d.after)}<figcaption>After</figcaption></figure></div>` : ''}<div class="facts">${t.d.pills.map(p => `<span class="pill ${p[0]}">${p[1]}</span>`).join('')}</div>${t.d.notDone ? `<h4>Not done</h4><p>${t.d.notDone}</p>` : ''}`,
+		page: t => { const worked = t.notes.some(n => n.done); return `<div class="doc-bar"><span class="pill pri">Draft ${t.ver}</span>${worked ? '<span class="pill ok">Changes are marked</span>' : ''}</div><div class="mail"><div class="hl">${worked ? `<span class="chg">${t.d.hl[1]}</span>` : t.d.hl[0]}</div><p>${t.d.body}</p><div class="offer">${t.d.offer}</div><span class="cta">Shop the collection</span></div>`; },
+		decision: t => t.d.picked ? `<div class="out"><span class="pill ok">Decided by you</span><p><b>${t.d.picked}</b></p></div>` : '',
+		finding: t => `<div class="out"><p><b>${t.d.headline}</b></p><p>${t.d.sub}</p>${bars(t.d.bars, t.d.unit)}${t.d.picked ? `<p><span class="pill ok">Decided by you</span> ${t.d.picked}</p>` : ''}</div>`,
+		steps: t => `<div class="out"><p><b>Found:</b> ${t.d.found}</p></div>`,
+		generic: t => `<div class="out"><p class="muted">You said:</p><p>“${esc(t.d.said)}”</p>${t.group === 'working' ? '' : `<p class="muted">The real app would show the ${t.d.isQuestion ? 'answer' : 'output'} here: text, a page, a change or a chart.</p>`}</div>`,
+	};
+	const question = d => `<p class="q">${d.q}</p>${d.ctx.map(c => `<p>${c}</p>`).join('')}${d.choices.map((c, i) => `<button class="btn choice" data-act="pick" data-i="${i}">${c.l}${c.rec ? '<em>Recommended</em>' : ''}<span>${c.e}</span></button>`).join('')}<p class="small muted">Or type another answer below.</p>`;
+	const review = d => `<ol>${(d.check || ['Look at the output above.']).map(s => `<li>${s}</li>`).join('')}</ol><div class="btns"><button class="btn primary" data-act="accept">${d.accept || 'It works: close it'}</button><button class="btn" data-act="off">Something is off…</button></div>`;
+	const NEED = {
+		read: () => ['Read it', mode === 'deck' ? '<p>Reading it is the review. Type below to ask more.</p><div class="btns"><button class="btn primary" data-act="accept">Got it</button></div>' : '<p>This closes when you go back. Type below to ask more.</p><div class="btns"><button class="btn" data-act="keep">Keep it open</button></div>'],
+		decide: t => ['Needs your answer', question(t.d)],
+		review: t => ['Check it', review(t.d)],
+		do: t => ['Your steps', `<ol>${t.d.steps.map(s => `<li>${s}</li>`).join('')}</ol><div class="btns"><button class="btn primary" data-act="did">I did this</button><button class="btn" data-act="off">I cannot…</button></div>`],
+	};
+
+	function face(t) {
+		const st = t.group === 'needs' ? ASK[t.ask] : t.group === 'working' ? 'Working' : 'Done';
+		let h = `<div class="face"><div class="state">${glyph(t)}<span>${st}</span>${t.ver > 1 ? `<span class="pill">Version ${t.ver}</span>` : ''}</div><h3>${esc(t.title)}</h3>${t.goal ? `<p class="goal">${t.goal}</p>` : ''}`;
+		const need = t.group === 'needs' ? (([a, b]) => `<div class="needs-b"><div class="nh">${a}</div>${b}</div>`)(NEED[t.ask](t)) : '';
+		if (t.ask !== 'read') h += need;
+		if (t.group === 'working') h += `<div class="now"><span class="g working"></span><span>${t.draft && t.d.now ? t.d.now : t.line}</span></div>`;
+		h += OUT[t.kind](t);
+		if (t.ask === 'read') h += need;
+		if (t.notes.length) h += `<h4>Your notes</h4>${t.notes.map(n => `<div class="note"><q>${esc(n.text)}</q><span class="pill ${n.done ? 'ok' : 'warn'}">${n.done ? `Worked in · version ${n.ver}` : 'Queued'}</span></div>`).join('')}`;
+		const rec = [...t.why, ...(t.d.how || [])];
+		if (rec.length) h += `<details class="rec"><summary>Why, and what happened</summary><ul>${rec.map(w => `<li>${w}</li>`).join('')}</ul></details>`;
+		return h + '</div>';
+	}
+
+	function typebox(t) {
+		const r = S.receipt;
+		const rc = r ? `<div class="receipt"><q>${esc(r.said)}</q><span class="to">${r.to}</span>${r.undo ? `<button type="button" class="btn" data-act="undo">${r.undo}</button>` : ''}</div>` : '';
+		return `<div class="typebox">${rc}<div class="target">${t ? `On: <b>${esc(t.title)}</b>` : 'A new request, or feedback. It finds its task.'}</div><div class="tb"><textarea aria-label="Type box" placeholder="${t ? 'Say what to change, or ask about this' : 'Ask for anything'}"></textarea><button type="button" class="send" aria-label="Send">↑</button></div></div>`;
+	}
+
+	function render() {
+		const t = cur();
+		let head, body;
+		if (mode === 'deck') {
+			const n = needs(), w = S.tasks.filter(x => x.group === 'working').length;
+			head = `<span class="ttl">Needs you</span><span class="deck-n">${n.length ? `${n.length} left` : 'all clear'}</span><span class="dots">${n.slice(0, 8).map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</span>`;
+			body = t ? face(t) + (n.length > 1 ? '<div class="btns"><button class="btn ghost" data-act="later">Later ▸</button></div>' : '')
+				: `<div class="empty"><div class="big" style="margin:2rem 0 .5rem">✓</div><p><b>Nothing needs you.</b></p><p>${w ? `${plural(w, 'task')} still ${w === 1 ? 'works' : 'work'} in the background.` : 'Nothing is working either. Say what you want next.'}</p></div>`;
+		} else if (t) {
+			head = `<button class="back" data-act="back">‹ Tasks</button><span class="ttl"></span>`;
+			body = face(t);
+		} else {
+			const g = { needs: needs(), working: S.tasks.filter(x => x.group === 'working'), done: S.tasks.filter(x => x.group === 'done') };
+			const row = x => `<button class="row ${x.fresh ? 'new' : ''}" data-open="${x.id}">${glyph(x)}<span><span class="t">${esc(x.title)}</span><span class="s">${x.line}</span></span></button>`;
+			const grp = (k, name) => g[k].length ? `<div class="grp ${k}"><div class="grp-h"><span>${name}</span><span>${g[k].length}</span></div><div class="rows">${g[k].map(row).join('')}</div></div>` : '';
+			head = `<span class="ttl">Paper Crane shop</span><span class="deck-n">${g.needs.length} need you</span>`;
+			body = (grp('needs', 'Needs you') || '<div class="grp"><div class="rows"><div class="empty">Nothing needs you.</div></div></div>') + grp('working', 'Working') + grp('done', 'Done lately');
+		}
+		root.innerHTML = `<div class="app-head">${head}</div><div class="app-body">${body}</div>${typebox(t)}`;
+	}
+
+	function note(t, text) {
+		t.notes.push({ text, done: false });
+		Object.assign(t, { group: 'working', ask: null, line: 'Working your note in', fresh: true, seen: false });
+		t.queue = [x => { x.ver++; x.draft = false; x.notes.forEach(n => { if (!n.done) { n.done = true; n.ver = x.ver; } }); to('needs', BACK[x.kind] || (x.d.isQuestion ? 'read' : 'review'), `Updated · ${plural(x.notes.length, 'note')} worked in`)(x); }];
+	}
+	function send(text, preset) {
+		text = text.trim(); if (!text) return;
+		S.tasks.forEach(t => t.fresh = false);
+		const t = cur(), news = find('news');
+		const add = (...ts) => S.tasks.unshift(...ts);
+		if (t) { note(t, text); S.receipt = { said: text, to: `Added to “${t.title}”.` }; explain('note'); }
+		else if (preset === 'p1' && !find('orders')) { add(mk.orders()); S.receipt = { said: text, to: 'Filed as a new task. A first guess is in.' }; explain('answer'); }
+		else if ((preset === 'p3' || (!preset && /headline|newsletter/i.test(text) && !/\?\s*$/.test(text))) && news && news.group !== 'done') {
+			const snap = JSON.stringify({ ...news, queue: undefined }), q = news.queue;
+			note(news, text);
+			S.receipt = { said: text, to: 'Filed as feedback on “Spring newsletter”.', undo: 'Make it a new task', fn: () => { Object.assign(news, JSON.parse(snap), { queue: q }); add(mk.generic(text, false)); S.receipt = { said: text, to: 'Now a new task.' }; explain('unrouted'); } };
+			explain('routed');
+		} else if (preset === 'p2' && !find('norway')) {
+			add(mk.norway(), mk.build());
+			S.receipt = { said: text, to: 'Filed as 2 new tasks.', undo: 'Make it one task', fn: () => { S.tasks = S.tasks.filter(x => x.id !== 'norway' && x.id !== 'build'); const g = mk.generic('Norway shipping price and the slow build', false); add(g); S.receipt = { said: text, to: 'Now one task.' }; explain('merged'); } };
+			explain('split');
+		} else { const q = /\?\s*$/.test(text); add(mk.generic(text, q)); S.receipt = { said: text, to: q ? 'Filed as a new task. A first guess is in.' : 'Filed as a new task.' }; explain(q ? 'answer' : 'fresh'); }
+		render();
+	}
+	function pass() {
+		S.tasks.forEach(t => t.fresh = false); S.receipt = null;
+		const moving = S.tasks.filter(t => t.group === 'working' && t.queue.length);
+		if (!moving.length) { explain('nothing'); return render(); }
+		const before = needs().length;
+		moving.forEach(t => { t.queue.shift()(t); if (t.group === 'needs') t.fresh = true; });
+		const rose = needs().length - before;
+		el.why.innerHTML = `<b>Time passed</b>Background work moved on. ${rose > 0 ? `${plural(rose, 'task')} rose to Needs you.` : 'Nothing new needs you yet.'}`;
+		render();
+	}
+	const close = (t, line) => { to('done', null, line)(t); S.tasks = [...S.tasks.filter(x => x !== t), t].sort((a, b) => (a.group === 'done') - (b.group === 'done')); };
+	const ACT = {
+		back() { const t = S.open; S.open = null; S.receipt = null; if (t && t.group === 'needs' && t.ask === 'read' && !t.keep) { close(t, 'Answered · you read it'); S.receipt = { said: t.title, to: 'Closed, because you read it.', undo: 'Keep it open', fn: () => { to('needs', 'read', 'Answer ready · kept open')(t); t.keep = true; S.receipt = null; explain('kept'); } }; explain('seen'); } else explain(mode === 'deck' ? 'startDeck' : 'start'); },
+		keep(t) { t.keep = true; t.line = 'Answer ready · kept open'; if (mode === 'deck') ACT.later(t); else explain('kept'); },
+		pick(t, b) {
+			const c = t.d.choices[+b.dataset.i]; t.d.picked = c.l;
+			if (t.id === 'build' && +b.dataset.i === 1) { close(t, 'Done · left as it is'); explain('accepted'); }
+			else {
+				to('working', null, t.id === 'pay' ? `Setting up ${c.l} in test mode` : 'Keeping resized photos between builds')(t);
+				t.queue = [x => { x.kind = 'change'; Object.assign(x.d, x.id === 'pay'
+					? { gets: [`${c.l} takes card payments in the test shop.`, 'A test order of 1.00 went through and was refunded.'], pills: [['ok', '✓ Payment tests · 9 passed'], ['warn', 'Test mode only']], check: ['Open the test shop.', 'Pay for any item with the test card.'], accept: 'It works: use it for the EU launch' }
+					: { gets: ['The nightly build takes 9 minutes.', 'Only new or changed photos are resized.'], pills: [['ok', '✓ Last night\'s build · 9 min'], ['', '1 file changed']], accept: 'Good: close it' });
+				to('needs', 'review', 'Ready for you to check')(x); }];
+				explain('decided');
+			}
+			if (mode !== 'deck') S.open = null;
+		},
+		accept(t) { close(t, 'Done · closed by you'); S.open = null; explain('accepted'); },
+		did(t) { to('working', null, 'Resizing 12 photos')(t); t.queue = [x => { x.kind = 'change'; Object.assign(x.d, { gets: ['All 86 product photos are sharp on a phone.'], pills: [['ok', '✓ 86 of 86 photos large enough'], ['warn', 'Not live yet']], check: ['Open the test shop on your phone.', 'Look at the green notebook.'], accept: 'It works: make it live' }); to('needs', 'review', 'Ready for you to check')(x); }]; S.open = null; explain('did'); },
+		off() { explain('off'); render(); $('textarea', root).focus(); return true; },
+		later(t) { t.later = ++S.tick; explain('later'); },
+		undo() { S.receipt.fn(); },
+	};
+
+	root.addEventListener('click', e => {
+		const o = e.target.closest('[data-open]'), a = e.target.closest('[data-act]');
+		if (e.target.closest('.send')) return send($('textarea', root).value);
+		if (o) { S.open = find(o.dataset.open); S.receipt = null; S.tasks.forEach(t => t.fresh = false); const t = S.open; explain(t.group === 'needs' ? t.ask : t.draft ? 'draft' : t.group); render(); }
+		else if (a) { if (ACT[a.dataset.act](cur(), a)) return; if (mode === 'deck' && !needs().length) explain('empty'); render(); }
+	});
+	root.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && e.target.matches('textarea')) { e.preventDefault(); send(e.target.value); } });
+	if (el.says) el.says.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) { if (S.open) { S.open = null; } send(SAYS[b.dataset.say], b.dataset.say); } });
+	el.time.addEventListener('click', pass);
+	el.reset.addEventListener('click', reset);
+	reset();
+}
+makeApp($('#loop-app'), 'loop');
+makeApp($('#deck-app'), 'deck');
+
+/* ───────── direction tabs ───────── */
+$$('[data-dir]').forEach(b => b.addEventListener('click', () => {
+	$$('[data-dir]').forEach(x => x.setAttribute('aria-selected', x === b));
+	$$('.dir').forEach(d => d.hidden = d.id !== 'dir-' + b.dataset.dir);
+}));
+
+/* ───────── 1 · diffusion ───────── */
+(() => {
+	const root = $('#diff-app'), why = $('#diff-explain');
+	let i = 0, fb = false, stopped = false, timer = null;
+	// line kinds: g = guess, c = checked, x = ruled out
+	const P = [
+		{ at: '1 second', by: 'A fast model, from your words alone', cost: 'Costs almost nothing', row: 'First guess · settling',
+			lines: () => [['g', 'I understood: you want the cause of last week\'s drop, and what to do about it.'], ['g', 'First guess: a fault at checkout, a late newsletter, or a seasonal dip.'], ['g', 'I will check the orders by day, the checkout errors and the newsletter.']] },
+		{ at: '20 seconds', by: 'New evidence: the orders of each day', cost: 'One file read', row: 'The drop is found · settling', chart: 1,
+			lines: () => [['c', `Orders fell ${fb ? 38 : 31}% from Tuesday to Thursday, then came back.`], ['g', 'Possible cause: a fault at checkout that began on Tuesday. Reading the error log.'], ['g', 'Possible cause: the newsletter went out late. Checking.'], ['x', 'Ruled out: a seasonal dip. The same week last year was normal.']] },
+		{ at: '2 minutes', by: 'A stronger model, with the error log and the change history', cost: 'The first costly pass', row: 'The cause is found · settling', chart: 1,
+			lines: () => [['c', 'Cause: the card form failed on phones from Tuesday 14:00 to Thursday 09:00.'], ['c', 'It began with Tuesday\'s update of the payment form.'], ['c', `Orders fell ${fb ? 38 : 31}% from Tuesday to Thursday, then came back.`], ['g', `About ${fb ? 120 : 140} orders were lost. This is an estimate.`], ['x', 'Ruled out: the newsletter. It went out on time.'], ['x', 'Ruled out: a seasonal dip. The same week last year was normal.']] },
+		{ at: '6 minutes', by: 'A second agent checked each claim', cost: 'A second costly pass', row: 'Checked · one pass left', chart: 2,
+			lines: () => [['c', 'Cause: the card form failed on phones from Tuesday 14:00 to Thursday 09:00.'], ['c', 'It began with Tuesday\'s update of the payment form.'], ['c', 'Shown again on a phone: the pay button did nothing.'], ['c', `Between ${fb ? '105 and 125' : '125 and 145'} orders were lost, about ${fb ? '3,300' : '3,900'} in sales.`], ['c', 'The form was put back on Thursday. It works now.'], ['g', 'A payment check on a phone would have caught it.'], ['x', 'Two other causes were ruled out.']] },
+		{ at: '7 minutes', by: 'A quiet minute: cut to its shortest form', cost: 'A cheap pass', row: 'Needs your answer · settled', chart: 2, final: true,
+			head: () => `A broken payment form on phones cost about ${fb ? 115 : 135} orders.`,
+			lines: () => [['c', 'It failed from Tuesday 14:00 to Thursday 09:00, and works again.'], ['c', 'It began with Tuesday\'s update of the payment form.']] },
+	];
+	const days = () => fb ? [44, 27, 25, 30, 46, 52, 41] : [58, 40, 37, 43, 60, 66, 55];
+	const chart = hot => { const d = days(), m = Math.max(...d); return `<div class="spark" role="img" aria-label="Orders for each day of the week">${d.map((v, k) => `<i class="${hot === 2 && k > 0 && k < 4 ? 'hot' : ''}" style="height:${v / m * 100}%"></i>`).join('')}</div><div class="small muted" style="display:flex;justify-content:space-between"><span>Mon</span><span>Sun</span></div>`; };
+	const words = p => [...(p.head ? [p.head()] : []), ...p.lines().map(l => l[1])].join(' ').split(/\s+/).length;
+	const say = (h, p) => why.innerHTML = `<b>${h}</b>${p}`;
+
+	function render() {
+		const p = P[i], prev = i ? P[i - 1].lines().map(l => l[1]) : [], lines = p.lines();
+		const g = lines.filter(l => l[0] === 'g').length;
+		const settled = p.final, label = stopped ? `Stopped by you · ${plural(g, 'line')} still a guess` : settled ? 'Settled' : `Settling · pass ${i + 1} of about 5`;
+		const meter = `<div class="meter ${settled ? 'ok' : ''} ${stopped ? 'stop' : ''}">${P.map((_, k) => `<i class="${k <= i ? 'on' : ''} ${k === i ? 'cur' : ''}"></i>`).join('')}</div>`;
+		const mark = { g: '◌', c: '●', x: '✕' };
+		const ln = lines.map(l => `<li class="l-${l[0]} ${i && !prev.includes(l[1]) ? 'is-new' : ''}"><span aria-hidden="true">${mark[l[0]]}</span><span>${l[1]}${l[0] === 'g' ? ' <small>guess</small>' : ''}</span></li>`).join('');
+		const pin = fb && i ? `<div class="note" style="border:0"><q>Count shop orders only, not wholesale.</q><span class="pill ok">Pinned · every pass obeys it</span></div>` : '';
+		const need = settled && !stopped ? `<div class="needs-b"><div class="nh">Needs your answer</div><p class="q">Shall I add a payment check on a phone, so this cannot go live again?</p><button class="btn choice" disabled>Yes, add it<em>Recommended</em><span>Every change to checkout is tried on a phone first.</span></button><button class="btn choice" disabled>No<span>Nothing changes.</span></button></div>` : '';
+		const rowOn = settled && !stopped;
+		root.innerHTML = `<div class="app-head"><span class="ttl">How it looks on the list</span></div>
+<div class="app-body">
+<div class="grp ${rowOn ? 'needs' : ''}"><div class="grp-h"><span>${rowOn ? 'Needs you' : 'Working'}</span></div><div class="rows"><div class="row"><span class="g ${rowOn ? 'decide' : stopped ? 'todo' : 'working'}">${rowOn ? '?' : ''}</span><span><span class="t">Why orders dropped last week</span><span class="s">${stopped ? 'Stopped by you · good enough' : p.row}</span></span></div></div></div>
+<div class="grp-h" style="margin-top:1rem"><span>The task, after ${p.at}</span></div>
+<div class="face settle"><div class="state">${meter}<span>${label}</span></div>
+<p class="drive"><b>${p.by}</b> · ${p.cost} · ${words(p)} words</p>
+${p.head ? `<div class="big" style="font-size:1.35rem;margin:.5rem 0">${p.head()}</div>` : ''}
+${p.chart ? chart(p.chart) : ''}
+${pin}<ul class="lines">${ln}</ul>${need}
+${settled ? '<details class="rec"><summary>Everything behind this</summary><ul><li>Two other causes were ruled out.</li><li>Five checks, recorded by the harness.</li><li>Five passes. Each is kept as a version.</li></ul></details>' : ''}
+</div></div>`;
+		$('#diff-prev').disabled = !i; $('#diff-next').disabled = i === P.length - 1 || stopped;
+		$('#diff-fb').disabled = fb || !i || settled; $('#diff-stop').disabled = !i || settled || i === 0;
+		$('#diff-stop').innerHTML = stopped ? '<b>Spend again</b>Keep refining.' : '<b>Stop spending</b>Good enough, stop here.';
+	}
+	const TXT = [
+		['Pass 1 · a second after you sent it', 'A fast model wrote this from your words alone. Every line is a guess, and says so. It already tells you whether you were understood.'],
+		['Pass 2 · evidence arrives', 'One file was read. One line is now checked, one guess is ruled out. The chart appears as soon as there are numbers.'],
+		['Pass 3 · a stronger model', 'It rewrote the page with the logs in hand. The cause is checked. The size of the loss is still a guess, and is marked.'],
+		['Pass 4 · a second look', 'Another agent checked each claim. The estimate became a range. The page is at its longest here.'],
+		['Pass 5 · cut to its final form', 'Nothing new came in, so one pass made it short. It is settled, so now it rises to Needs you, with one question.'],
+	];
+	const go = n => { i = Math.max(0, Math.min(P.length - 1, n)); say(...TXT[i]); render(); if (i === P.length - 1) halt(); };
+	const halt = () => { clearInterval(timer); timer = null; $('#diff-play').textContent = '▶ Play'; };
+	$('#diff-next').addEventListener('click', () => { halt(); go(i + 1); });
+	$('#diff-prev').addEventListener('click', () => { halt(); stopped = false; go(i - 1); });
+	$('#diff-play').addEventListener('click', () => { if (timer) return halt(); stopped = false; go(i === P.length - 1 ? 0 : i + 1); if (i < P.length - 1) { $('#diff-play').textContent = '❚❚ Pause'; timer = setInterval(() => go(i + 1), 2600); } });
+	$('#diff-fb').addEventListener('click', () => { halt(); fb = true; render(); say('Your note steered it, it did not restart it', 'The note is pinned, and every later pass obeys it. Numbers that depend on it were counted again. Checked lines that it does not touch stayed as they were.'); });
+	$('#diff-stop').addEventListener('click', () => { halt(); stopped = !stopped; render(); say(stopped ? 'Good enough' : 'Refining again', stopped ? 'No more passes run, and no more tokens are spent. The guesses stay marked as guesses. The task leaves the working group without asking you anything.' : 'The passes go on from where they stopped.'); });
+	go(0);
+})();
+
+/* ───────── 2 · living page ───────── */
+(() => {
+	const root = $('#page-app'), why = $('#page-explain');
+	const B = [
+		{ id: 'hl', label: 'the headline', cls: 'hl', v1: 'New for spring', v: 'Our spring collection of notebooks, pens and desk accessories is finally here', alt: 'Spring is here. So are the new notebooks.' },
+		{ id: 'intro', label: 'the first paragraph', v1: 'New products are in the shop.', v: 'Twelve new notebooks, three pens and a desk tray have arrived in the shop. Everything is made from recycled paper and metal.', alt: 'Twelve notebooks, three pens and a desk tray. All recycled paper and metal.' },
+		{ id: 'offer', label: 'the offer', cls: 'offer', v: '10% off until 30 April with the code SPRING', alt: '10% off everything until 30 April. Code: SPRING', why: 'Why this is here: last spring the 10% offer brought the most orders.' },
+		{ id: 'cta', label: 'the button', cls: 'cta', v1: 'Shop', v: 'Shop the collection', alt: 'See what is new' },
+	];
+	let S;
+	const say = (h, p) => why.innerHTML = `<b>${h}</b>${p}`;
+	const reset = () => { S = { ver: 2, view: 2, sel: undefined, notes: [], diff: false, approved: false }; say('Draft 2 is ready', 'The output is the page. Point at a part of it to say what should change.'); render(); };
+	const noted = (id, upto) => S.notes.filter(n => n.ver && n.ver <= upto && (n.block === id || n.block === null));
+	function render() {
+		const queued = S.notes.filter(n => !n.ver).length, last = S.view === S.ver;
+		const state = S.approved ? ['done', '✓', 'Done · approved by you'] : queued ? ['working', '', `Working · ${plural(queued, 'note')} queued`] : ['review', '◉', `Ready for you to check · draft ${S.ver}`];
+		const blocks = B.map(b => {
+			if (S.view === 1) return b.v1 ? `<div class="blk"><span class="${b.cls || 'para'}" style="display:${b.cls === 'cta' ? 'inline-block' : 'block'}">${b.v1}</span></div>` : '';
+			const ns = noted(b.id, S.view), cut = ns.some(n => /\b(cut|remove|drop)\b/i.test(n.text)), chg = ns.length > 0;
+			const pins = S.notes.map((n, k) => n.block === b.id && (last || n.ver <= S.view) ? `<span class="pin ${n.ver ? 'ok' : ''}">${k + 1}</span>` : '').join('');
+			let txt = chg ? (cut ? (S.diff ? `<del>${b.v}</del>` : '') : (S.diff ? `<del>${b.v}</del> ` : '') + `<span class="chg">${b.alt}</span>`) : b.v;
+			if (cut && !S.diff) return `<div class="blk gone small muted">${b.label[0].toUpperCase() + b.label.slice(1)} was cut.${pins}</div>`;
+			const inner = `<span class="${b.cls || 'para'}" style="display:${b.cls === 'cta' ? 'inline-block' : 'block'}">${txt}</span>`;
+			return `<button class="blk ${S.sel === b.id ? 'sel' : ''}" data-blk="${b.id}" ${last && !S.approved ? '' : 'disabled'}>${inner}${b.why && !chg ? `<span class="why">${b.why}</span>` : ''}${pins}</button>`;
+		}).join('');
+		const notes = S.notes.length ? `<h4>Your notes</h4>${S.notes.map((n, k) => `<div class="note"><q><b>${k + 1}</b> · On ${n.block ? B.find(b => b.id === n.block).label : 'the whole page'}: ${esc(n.text)}</q><span class="pill ${n.ver ? 'ok' : 'warn'}">${n.ver ? `Worked in · draft ${n.ver}` : 'Queued'}</span></div>`).join('')}` : '';
+		const vers = Array.from({ length: S.ver }, (_, k) => `<button class="btn ${S.view === k + 1 ? 'on' : ''}" data-view="${k + 1}">Draft ${k + 1}</button>`).join('');
+		const target = S.sel ? B.find(b => b.id === S.sel).label : 'the whole page';
+		root.innerHTML = `<div class="app-head"><span class="ttl">Spring newsletter</span></div>
+<div class="app-body"><div class="face"><div class="state"><span class="g ${state[0]}">${state[1]}</span><span>${state[2]}</span></div>
+<div class="doc-bar" style="margin-top:.6rem">${vers}${S.ver > 2 && S.view > 2 ? `<button class="btn ${S.diff ? 'on' : ''}" data-diff>Show what changed</button>` : ''}</div>
+<div class="mail">${blocks}</div>
+${!last ? '<p class="small muted">An older draft. Notes go on the newest one.</p>' : ''}
+${last && !queued && !S.approved ? `<div class="needs-b"><div class="nh">Check it</div><p>Tap a part to note on it, or approve the draft.</p><div class="btns"><button class="btn primary" data-approve>Approve draft ${S.ver}</button></div></div>` : ''}
+${notes}</div></div>
+<div class="typebox">${last && !S.approved ? `<div class="sugg"><button type="button" class="btn" data-sugg="Shorter and friendlier">Shorter and friendlier</button><button type="button" class="btn" data-sugg="Cut this">Cut this</button></div>` : ''}<div class="target">On: <b>${target}</b></div><div class="tb"><textarea aria-label="Type box" placeholder="Say what to change"></textarea><button type="button" class="send" aria-label="Send">↑</button></div></div>`;
+	}
+	const add = text => { text = text.trim(); if (!text || S.approved) return; S.view = S.ver; S.notes.push({ block: S.sel === undefined ? null : S.sel, text }); S.sel = undefined; say('A note, pinned to a part', 'The note is queued on this task. No message comes back. The next draft is the answer.'); render(); };
+	root.addEventListener('click', e => {
+		const b = e.target.closest('[data-blk]'), v = e.target.closest('[data-view]'), s = e.target.closest('[data-sugg]');
+		if (e.target.closest('.send')) return add($('textarea', root).value);
+		if (b) { S.sel = S.sel === b.dataset.blk ? undefined : b.dataset.blk; say('You pointed at a part', 'The type box now speaks about that part only. The agent cannot misread what you mean.'); render(); }
+		else if (v) { S.view = +v.dataset.view; say('History is versions', 'Each draft is kept. There is no scroll of messages to search.'); render(); }
+		else if (s) add(s.dataset.sugg);
+		else if (e.target.closest('[data-diff]')) { S.diff = !S.diff; say('What changed', 'Old text is struck out, new text is marked. You review the change, not the whole page again.'); render(); }
+		else if (e.target.closest('[data-approve]')) { S.approved = true; say('Approved', 'The task is done. The drafts and the notes stay as its record.'); render(); }
+	});
+	root.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && e.target.matches('textarea')) { e.preventDefault(); add(e.target.value); } });
+	$('#page-time').addEventListener('click', () => {
+		const q = S.notes.filter(n => !n.ver);
+		if (!q.length) return say('Time passed', 'No note is queued, so nothing changed. Tap a part and say something first.');
+		S.ver++; S.view = S.ver; q.forEach(n => n.ver = S.ver);
+		say('The reply is a change', `Draft ${S.ver} is here. Each note shows where it was worked in. The changed parts are marked.`); render();
+	});
+	$('#page-reset').addEventListener('click', reset);
+	reset();
+})();
+
+/* ───────── 3 · promise first ───────── */
+(() => {
+	const root = $('#promise-app'), why = $('#promise-explain');
+	const DIAL = [['Ask me first', 'I stop and ask you about each assumption before I build.'], ['Show me when done', 'I build on the assumptions and show you the result.'], ['Just do it', 'I make it live and tell you after. You can undo it for a day.']];
+	let S;
+	const say = (h, p) => why.innerHTML = `<b>${h}</b>${p}`;
+	const reset = () => { S = { step: 0, dial: 1, redo: -1, as: [['Gift wrap costs 3.00 for the whole order', 'Gift wrap costs 3.00 for each item'], ['There is no gift message for now', 'The buyer can add a short gift message'], ['It is offered for every product', 'It is not offered for large items']].map(o => ({ o, on: 0 })) }; say('The promise', 'This appeared a second after the request. It says what you will get and what is assumed. Nothing has been built yet.'); render(); };
+	function render() {
+		const as = (btn) => S.as.map((a, k) => `<div class="assume ${a.on ? 'changed' : ''}"><span>${a.o[a.on]}${a.on ? ' <span class="pill pri">changed by you</span>' : ''}${S.redo === k && S.step === 2 ? ' <span class="pill ok">redone</span>' : ''}</span><button class="btn" data-as="${k}">${btn}</button></div>`).join('');
+		const st = [['todo', '', 'A promise · not started'], ['working', '', S.redo >= 0 ? 'Working · redoing only what depends on your change' : 'Working · building on the assumptions'], S.dial === 2 ? ['done', '✓', 'Done · live · you can undo it for a day'] : ['review', '◉', 'Ready for you to check'], ['done', '✓', 'Done · closed by you']][S.step];
+		let b = '';
+		if (S.step === 0) b = `<h4>You will get</h4><p>A gift wrap tick box at checkout that adds 3.00 to the total.</p>
+<h4>Done when</h4><ol><li>A buyer can tick gift wrap and see the new total.</li><li>The order email says the order is wrapped.</li><li>The packing list marks wrapped orders.</li></ol>
+<h4>I am assuming</h4>${as('Change')}
+<h4>How free am I</h4><div class="dial">${DIAL.map((d, k) => `<button class="btn ${S.dial === k ? 'on' : ''}" data-dial="${k}">${d[0]}</button>`).join('')}</div><p class="small muted">${DIAL[S.dial][1]}</p>
+<p class="small muted">About 40 minutes. It touches checkout and the order email.</p>`;
+		else if (S.step === 1) b = `<div class="now"><span class="g working"></span><span>${S.redo >= 0 ? 'Redoing: ' + S.as[S.redo].o[S.as[S.redo].on] : 'Adding the tick box to checkout'}</span></div><h4>Built on</h4>${S.as.map(a => `<div class="assume"><span>${a.o[a.on]}</span></div>`).join('')}`;
+		else b = `<h4>The promise, line by line</h4><ul class="ticks">
+<li>A buyer can tick gift wrap and see the new total.<div class="ev facts"><span class="pill ok">✓ Checkout tests · 6 passed</span><span class="pill">Before and after pictures</span></div></li>
+<li>The order email says the order is wrapped.<div class="ev facts"><span class="pill ok">✓ Email test · 1 passed</span><span class="pill">The test email</span></div></li>
+<li class="no">The packing list does not mark wrapped orders.<div class="ev facts"><span class="pill bad">Not done</span><span class="pill">A follow-up task holds it</span></div></li></ul>
+<p class="small muted">The packing list comes from the warehouse tool, which I cannot change.</p>
+<h4>Built on these assumptions</h4>${as(S.step === 2 ? 'Change' : '—')}
+<h4>A second agent checked it</h4><p class="small">One remark: the total was slow to update on a slow connection. It is fixed.</p>
+`;
+		const foot = S.step === 0 ? `<div class="typebox"><div class="target">Small tasks would start on their own after a few seconds.</div><div class="btns" style="margin:0"><button class="btn primary" data-start>${S.dial === 0 ? 'Confirm the 3 assumptions and start' : 'Start'}</button></div></div>`
+			: S.step === 2 ? `<div class="typebox"><div class="target">${S.dial === 2 ? 'It is live. You can undo it for a day.' : 'Two of three lines hold. One is not done, and says why.'}</div><div class="btns" style="margin:0">${S.dial === 2 ? '<button class="btn primary" data-accept>Fine</button><button class="btn" disabled>Undo it</button>' : '<button class="btn primary" data-accept>Accept: make it live</button>'}</div></div>` : '';
+		root.innerHTML = `<div class="app-head"><span class="ttl">Gift wrapping at checkout</span></div><div class="app-body"><div class="face"><div class="state"><span class="g ${st[0]}">${st[1]}</span><span>${st[2]}</span></div><p class="goal" style="margin-top:.5rem">You said: “Add gift wrapping as an option at checkout.”</p>${b}</div></div>${foot}`;
+		$$('[data-as]', root).forEach(x => x.disabled = S.step === 3);
+	}
+	root.addEventListener('click', e => {
+		const a = e.target.closest('[data-as]'), d = e.target.closest('[data-dial]');
+		if (a) { const k = +a.dataset.as; S.as[k].on ^= 1; if (S.step === 2) { S.step = 1; S.redo = k; say('A late correction', 'You changed an assumption after the work. Only what depends on it is redone. The rest of the evidence stays.'); } else say('An assumption, corrected', 'One tap, before anything was built. As a question in a chat, this would have stopped the work until you answered.'); render(); }
+		else if (d) { S.dial = +d.dataset.dial; say('How free the agent is', DIAL[S.dial][1] + ' This is trust as a setting you can see.'); render(); }
+		else if (e.target.closest('[data-start]')) { S.step = 1; say('Work started', 'The task is in the background now. It did not wait for answers: it runs on what it assumed.'); render(); }
+		else if (e.target.closest('[data-accept]')) { S.step = 3; say('Accepted', 'You judged the result against the promise, line by line. You did not read how it was made.'); render(); }
+	});
+	$('#promise-time').addEventListener('click', () => { if (S.step !== 1) return say('Time passed', S.step === 0 ? 'Nothing was started. Press Start first.' : 'Nothing is working.'); S.step = 2; say('Review against the promise', 'Each line of the promise has its evidence. One line is not done, and says so as plainly as the others.'); render(); });
+	$('#promise-reset').addEventListener('click', reset);
+	reset();
+})();
+
+/* ───────── 5 · talk, then fold ───────── */
+(() => {
+	const root = $('#talk-app'), why = $('#talk-explain');
+	const TURNS = [
+		['Crane Club sounds childish. Something calmer?', 'Calmer ones: Paper Trail, The Margin, Second Page. Paper Trail also fits the idea of collecting stamps.', 'You lean towards Paper Trail.'],
+		['Paper Trail. What do we call the points?', 'Stamps fits the name. One stamp for each order, ten stamps for a free notebook.', 'Points are called stamps. Ten stamps give a free notebook.'],
+		['Good. I am not sure about the logo yet.', 'Then the logo stays open. I will draft the sign-up page with the name and the stamps.', 'The logo is still open.'],
+	];
+	let S;
+	const say = (h, p) => why.innerHTML = `<b>${h}</b>${p}`;
+	const reset = () => { S = { on: false, n: 0, folded: false }; say('A task that needs thinking', 'Three ideas are ready. A choice would do, but you may want to talk it through first.'); render(); };
+	function render() {
+		let body, foot = '';
+		if (S.on) {
+			body = `<div class="sess-h">A talk about this task · it folds when you end it</div>${TURNS.slice(0, S.n).map(t => `<div class="turn you">${t[0]}</div><div class="turn ai">${t[1]}</div>`).join('')}`;
+			foot = `<div class="typebox">${S.n < TURNS.length ? `<div class="sugg"><button class="btn" data-turn>Say: “${TURNS[S.n][0]}”</button></div>` : ''}<div class="btns" style="margin:0"><button class="btn ${S.n ? 'primary' : ''}" data-end ${S.n ? '' : 'disabled'}>End the talk</button></div></div>`;
+		} else if (S.folded) {
+			const F = [null, [['Crane Club is out. It sounds childish.'], ['The name. You lean towards Paper Trail.'], 'finding calmer names'], [['The name is Paper Trail.', TURNS[1][2]], ['Nothing was left open.'], 'drafting the sign-up page'], [['The name is Paper Trail.', TURNS[1][2]], ['The logo.'], 'drafting the sign-up page']][S.n];
+			body = `<div class="face"><div class="state"><span class="g working"></span><span>Working · ${F[2]}</span></div><h3>Name for the loyalty programme</h3>
+<div class="out"><h4 style="margin-top:0">Settled in your talk</h4><ul class="ticks">${F[0].map(x => `<li>${x}</li>`).join('')}</ul>
+<h4>Still open</h4><ul>${F[1].map(x => `<li>${x}</li>`).join('')}</ul></div>
+<details class="rec"><summary>The talk itself · ${S.n * 2} turns</summary><ul>${TURNS.slice(0, S.n).map(t => `<li>You: ${t[0]}</li><li>Agent: ${t[1]}</li>`).join('')}</ul></details></div>`;
+		} else {
+			body = `<div class="face"><div class="state"><span class="g decide">?</span><span>Needs your answer</span></div><h3>Name for the loyalty programme</h3><p class="goal">A name for the shop's new loyalty programme.</p>
+<div class="needs-b"><div class="nh">Needs your answer</div><p class="q">Which name do you like?</p><button class="btn choice" disabled>Crane Club<span>Playful. It uses the shop's name.</span></button><button class="btn choice" disabled>Paper Trail<span>Calm. It hints at collecting.</span></button><button class="btn choice" disabled>Fold &amp; Keep<span>Describes the product.</span></button><div class="btns"><button class="btn primary" data-talk>Talk it through</button></div></div></div>`;
+		}
+		root.innerHTML = `<div class="app-head"><span class="ttl">${S.on ? 'Talking: the loyalty name' : 'Paper Crane shop'}</span></div><div class="app-body">${body}</div>${foot}`;
+		const sc = $('.app-body', root); sc.scrollTop = sc.scrollHeight * (S.on ? 1 : 0);
+	}
+	root.addEventListener('click', e => {
+		if (e.target.closest('[data-talk]')) { S.on = true; say('A talk, inside one task', 'This is a chat. It has one subject and it will end. It is not the home of the app.'); }
+		else if (e.target.closest('[data-turn]')) { S.n++; say('Fast back and forth', 'Short turns, answered at once. Nothing rises and nothing is filed while you talk.'); }
+		else if (e.target.closest('[data-end]')) { S.on = false; S.folded = true; say('Folded', 'Only what was settled, and what is still open, stays on the task. The turns are kept in the record, folded. The work goes on.'); }
+		else return;
+		render();
+	});
+	$('#talk-reset').addEventListener('click', reset);
+	reset();
+})();
+
+/* ───────── any output ───────── */
+(() => {
+	const K = [
+		{ n: 'Answer', st: ['read', 'A', 'Answer ready'], t: 'Orders from the newsletter last month', c: '<div class="big">214 orders</div><p class="small">18% of all orders. Half came in the week of the spring email.</p>', row: 'The answer itself, in a few words.', check: 'Reading it. It closes when you have seen it.', point: 'A sentence or a number.', diff: 'The numbers or lines that changed.', accept: 'Nothing to press.' },
+		{ n: 'Decision', st: ['decide', '?', 'Needs your answer'], t: 'Payment provider for the EU launch', c: '<p class="q" style="font-weight:650">Which provider should the EU shop use?</p><button class="btn choice" disabled>Northpay<em>Recommended</em><span>1.4% per order. Money in 2 days.</span></button><button class="btn choice" disabled>Kestrel<span>1.1% per order. Money in 7 days.</span></button>', row: 'The question, and how many tasks wait on it.', check: 'Choosing. Each choice says what it does.', point: 'A choice: “why not this one?”', diff: 'New or changed choices.', accept: 'A tap on a choice, or your own words.' },
+		{ n: 'Page', st: ['review', '◉', 'Ready for you to check'], t: 'Spring newsletter', c: '<div class="mail"><div class="hl">Spring is here. So are the new notebooks.</div><p>Twelve notebooks, three pens and a desk tray.</p><span class="cta">See what is new</span></div>', row: 'A small picture of the page.', check: 'Reading the page as its reader would.', point: 'Any block: a headline, a picture, a button.', diff: 'Old text struck out, new text marked.', accept: 'Approve this version.' },
+		{ n: 'Change', st: ['review', '◉', 'Ready for you to check'], t: 'Coupon total is wrong at checkout', c: '<ul class="ticks small"><li>A 10% coupon takes 10% off the whole basket.</li></ul><div class="facts"><span class="pill ok">✓ 42 tests passed</span><span class="pill">2 files changed</span><span class="pill warn">Not live yet</span></div>', row: 'What is different for a user, in one line.', check: 'Trying it, with numbered steps.', point: 'A line of “what you get”, or a line of code.', diff: 'What it does now that it did not before.', accept: 'It works: make it live.' },
+		{ n: 'Comparison', st: ['decide', '?', 'Needs your answer'], t: 'Paper for the new notebooks', c: '<table class="cmp"><tr><th></th><th>Price</th><th>Feel</th><th>Recycled</th></tr><tr><td>Mill A</td><td>0.42</td><td>Smooth</td><td>100%</td></tr><tr><td>Mill B</td><td>0.38</td><td>Rough</td><td>80%</td></tr><tr><td>Mill C</td><td>0.51</td><td>Smooth</td><td>100%</td></tr></table>', row: 'The leading option and why.', check: 'Reading across the rows.', point: 'A cell, a row or a column.', diff: 'Cells that changed, and rows added.', accept: 'Pick a row.' },
+		{ n: 'Proof', st: ['review', '◉', 'Ready for you to check'], t: 'Product photos on phones', c: '<div class="ba"><figure><div class="shot" style="filter:blur(1.2px)">▦ Green notebook<br>A5 · 120 pages</div><figcaption>Before</figcaption></figure><figure><div class="shot">▦ Green notebook<br>A5 · 120 pages</div><figcaption>After</figcaption></figure></div>', row: 'A before and after pair.', check: 'Looking. Pictures and short videos.', point: 'A spot on a picture, or a moment in a video.', diff: 'The newest pair beside the last one.', accept: 'It looks right.' },
+		{ n: 'Numbers', st: ['read', 'A', 'Answer ready'], t: 'Orders by day, last week', c: '<div class="spark"><i style="height:88%"></i><i class="hot" style="height:60%"></i><i class="hot" style="height:56%"></i><i class="hot" style="height:65%"></i><i style="height:91%"></i><i style="height:100%"></i><i style="height:83%"></i></div><p class="small">Tuesday to Thursday fell by 31%.</p>', row: 'The one number that matters.', check: 'Reading the chart and its one-line finding.', point: 'A bar, a point, a range.', diff: 'The chart before and after new data.', accept: 'Nothing to press.' },
+		{ n: 'Plan', st: ['decide', '?', 'Needs your answer'], t: 'Move the shop to the new theme', c: '<ol class="steps-l"><li>Copy the shop to a test address.</li><li>Apply the theme and fix what breaks.</li><li>Show you the test shop.</li><li>Switch on a Monday morning.</li></ol><p class="small muted">About two days. Nothing is live before step 4.</p>', row: 'What will happen, and how long it takes.', check: 'Agreeing before any work is done.', point: 'A step.', diff: 'Steps added, cut or moved.', accept: 'Go ahead.' },
+		{ n: 'Your steps', st: ['do', '≡', 'Your steps'], t: 'Connect the shop to the bank', c: '<ol class="steps-l"><li>Sign in to the bank.</li><li>Open Settings, then Shops.</li><li>Copy the shop code into the box below.</li></ol>', row: 'That it waits for you, and for what.', check: 'Doing the steps. Each has exact values.', point: 'A step: “this one does not work”.', diff: 'Steps that changed since you started.', accept: 'I did this.' },
+		{ n: 'Watch', st: ['working', '', 'Watching · quiet for 9 days'], t: 'Tell me when a payment fails twice', c: '<p class="small">It never closes. It rises when the rule is met.</p><div class="facts"><span class="pill">Checked every 10 minutes</span><span class="pill ok">Last alert: 9 days ago</span></div>', row: 'Quiet, with the time of the last alert.', check: 'Reading the alert when it rises.', point: 'The rule itself.', diff: 'What happened since the last alert.', accept: 'Got it. It goes back to watching.' },
+	];
+	const tabs = $('#kinds'), card = $('#kind-card'), facts = $('#kind-facts');
+	const show = k => {
+		$$('button', tabs).forEach((b, i) => b.setAttribute('aria-selected', i === k));
+		const x = K[k];
+		card.innerHTML = `<div class="face"><div class="state"><span class="g ${x.st[0]}">${x.st[1]}</span><span>${x.st[2]}</span></div><h3>${x.t}</h3>${x.c}</div>`;
+		facts.innerHTML = [['On the list it shows', x.row], ['Checking it means', x.check], ['A note can point at', x.point], ['Between versions you see', x.diff], ['You accept it with', x.accept]].map(f => `<div><dt>${f[0]}</dt><dd>${f[1]}</dd></div>`).join('');
+	};
+	tabs.innerHTML = K.map((x, i) => `<button class="btn" role="tab" data-k="${i}">${x.n}</button>`).join('');
+	tabs.addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b) show(+b.dataset.k); });
+	show(0);
+})();
+
+/* ───────── the record ───────── */
+(() => {
+	const view = $('#layer-view'), tabs = $('#layer-tabs');
+	const L = {
+		why: `<ul><li>Decided: round once at the end, as the invoice already does.</li><li>Assumed: coupons never stack.</li><li>Left out: gift cards. A follow-up task holds them.</li><li>Not sure: whether old orders should be corrected.</li></ul><div class="askwhy" id="askwhy"><button class="btn" data-ask>Ask: “Why not fix the old orders too?”</button></div>`,
+		what: `<ul><li><small>10:02</small>Read the checkout code and the 3 failing orders.</li><li><small>10:06</small>Showed the fault again: total 45.00, should be 44.91.</li><li><small>10:14</small>Changed 2 files.</li><li><small>10:15</small>Ran the checkout tests: 42 passed.</li><li><small>10:19</small>A second agent read the change: no remarks.</li><li><small>10:20</small>Moved to “Ready for you to check”.</li></ul>`,
+		log: `<pre>10:02:11  read   checkout/total.ts
+10:02:14  read   checkout/coupon.ts
+10:03:40  think  the coupon is applied per line, then
+                 each line is rounded. 3 lines lose 0.09
+10:06:02  run    checkout tests --only coupon   1 failed
+10:13:55  edit   checkout/total.ts   +11 −4
+10:14:20  edit   checkout/coupon.ts  +7 −2
+10:15:08  run    checkout tests       42 passed
+… 61 more steps</pre><p class="small muted">Stored as today. Nobody is expected to read it. It is there to search, and to ask.</p>`,
+	};
+	const show = k => { $$('button', tabs).forEach(b => b.classList.toggle('on', b.dataset.layer === k)); view.innerHTML = L[k]; };
+	tabs.addEventListener('click', e => { const b = e.target.closest('[data-layer]'); if (b) show(b.dataset.layer); });
+	view.addEventListener('click', e => { if (e.target.closest('[data-ask]')) $('#askwhy').innerHTML = `<p style="margin:0 0 .3rem"><b>Why not fix the old orders too?</b></p><p style="margin:0">Three old orders were charged 0.09 too little. Changing a paid order needs your say, so I left them. <span class="muted">Answered from the full log, steps at 10:03 and 10:06.</span></p>`; });
+	show('why');
+})();
+})();
+</script>
+</body>
+</html>
