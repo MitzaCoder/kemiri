@@ -7,6 +7,7 @@ import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
 import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
 import { pointsAtChat } from "./task-chat-pointer.ts";
+import { taskTextWarnings } from "./task-text-style.ts";
 import { countChatDetailTurn, detectMissingChatDetail, missingChatDetailLabel, type ChatDetailCounts } from "./task-chat-detail.ts";
 import { splitTaskReference } from "./queued-inputs.ts";
 import { OWNER_CHAT_ENTRY } from "./wire.ts";
@@ -3428,8 +3429,8 @@ const BoardToolParameters = Type.Object({
 			description: 'A short, plain outcome the user reads at a glance, e.g. "Complete the example change". Tickets and pull requests go in refs, not here.',
 		}),
 	),
-	description: Type.Optional(Type.String()),
-	acceptance: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "Done when…; null clears it." })),
+	description: Type.Optional(Type.String({ description: "add_task, update_task: start with what will be different for the user. Write one whole sentence per fact, about 20 words per line, with no semicolons. Use names, not IDs or file paths." })),
+	acceptance: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "Done when…: one checkable outcome per line, in whole sentences, without repeating the description. Null clears it." })),
 	refs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
@@ -3441,7 +3442,7 @@ const BoardToolParameters = Type.Object({
 			["todo", "in_progress", "blocked", "review", "waiting", "done", "dropped"].map((status) => Type.Literal(status)),
 			{
 				description:
-					"Default todo. blocked: waiting or stopped (say why in blockedReason). review: ready for the user to check; say in the report's next what they should check. done and dropped are the user's alone: you cannot set them.",
+					"Default todo. blocked: waiting or stopped (say why in blockedReason). review: ready for the user to check; put manual checks in steps. done and dropped are the user's alone: you cannot set them.",
 			},
 		),
 	),
@@ -3450,7 +3451,7 @@ const BoardToolParameters = Type.Object({
 	writeScopes: Type.Optional(Type.Array(Type.String(), { description: "Paths the task will change; advisory." })),
 	revisedText: Type.Optional(Type.String({ minLength: 1, description: "reply_question/reopen_question: optional new question wording." })),
  revisedOptions: Type.Optional(Type.Array(Type.String(), { description: "reply_question/reopen_question: optional replacement options, including an empty list." })),
- text: Type.Optional(Type.String({ minLength: 1, description: "The reply (reply_question/reopen_question), question or warning (ask) or the decision (decide)." })),
+ text: Type.Optional(Type.String({ minLength: 1, description: "The reply (reply_question/reopen_question), question or warning (ask) or decision (decide). For a question, ask it in the first sentence so a choice can answer it. Then give at most three short lines needed to choose, including why you recommend a choice. Do not retell the task or list choices here." })),
 	blocksWork: Type.Optional(Type.Boolean({ description: "ask: questions default blocking, warnings nonblocking." })),
  activitySourceId: Type.Optional(Type.String({ description: "ask warning: optional failed activity actor ID; acknowledging clears only that source." })),
  kind: Type.Optional(
@@ -3458,13 +3459,13 @@ const BoardToolParameters = Type.Object({
 			description: 'ask: "question" (default) waits for the user\'s answer. "warning" is something they must not miss; it stays open until they acknowledge it, and has no options.',
 		}),
 	),
-	options: Type.Optional(Type.Array(Type.String(), { description: "ask: suggested answers." })),
+	options: Type.Optional(Type.Array(Type.String(), { description: 'ask: each label says what happens if picked, e.g. "Ship now: goes live tonight". Mark the recommended one and give the reason on a line in text.' })),
 	coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "write_report: optional eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
-	results: Type.Optional(Type.String({ description: "write_report: what came out of the task, with evidence (commit, artifact, test run), rewritten whole." })),
-	next: Type.Optional(Type.String({ description: "write_report: what comes next and who does it, rewritten whole." })),
-	steps: Type.Optional(Type.String({ description: "write_report Your steps: steps to do by hand outside the harness, as a numbered Markdown list with exact values and copyable commands. Rewritten whole; an empty string clears it when done." })),
+	results: Type.Optional(Type.String({ description: "write_report: what changed for the user and what is not done, rewritten whole. Use one plain, whole sentence per fact. Name what was checked, without counts, hashes or paths. Link commits with a Kemiri-Task trailer and save files with taskId instead of repeating the record." })),
+	next: Type.Optional(Type.String({ description: "write_report: agents' next actions in one or two whole sentences. Use names, not IDs. Rewrite the whole section; keep manual actions in steps instead." })),
+	steps: Type.Optional(Type.String({ description: "write_report Your steps: a full numbered Markdown list for actions the user must do by hand. Start each step with a verb. Give exact values and copyable commands. Rewrite the whole list; Next rewrites leave it alone. Clear with an empty string when done." })),
 	milestone: Type.Optional(
 		Type.String({ minLength: 1, description: 'write_report: a few words naming something meaningful that just happened, e.g. "First version merged". Saves a snapshot of the task.' }),
 	),
@@ -3501,7 +3502,7 @@ const BoardToolParameters = Type.Object({
 			description: "feedback: handling when you act on it; addressed when done, with a note that says what addressed it. open puts it back. Only the user dismisses an entry.",
 		}),
 	),
-	note: Type.Optional(Type.String({ description: "feedback: what is being done, or for addressed the full answer or what addressed it (a commit or result)." })),
+	note: Type.Optional(Type.String({ description: "feedback: what is being done, or for addressed the full answer or what changed. Write it here, not in chat. Use whole sentences, one fact per line; keep every step and answer complete and leave revision IDs to the record." })),
 });
 
 type BoardToolArguments = Static<typeof BoardToolParameters>;
@@ -3526,7 +3527,8 @@ function createBoardExtension(service: BoardService): Extension {
 			"claim a task before you work on it, so no other thread takes it too, and release or hand it over when you stop. " +
 			"Tasks link to each other, each link shown from both sides: a required part (`parent`), the task a new one was found while working on (`foundWhile`), `related`, and `blockedBy`. " +
 			"A planned piece of a bigger task gets parent only. foundWhile is for unplanned tasks discovered while working on another task, never a duplicate of parent. " +
-			"The user's messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done.",
+			"Messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done. " +
+			"Write task text in whole sentences with their small words; short is good, shorthand is not. Limit each line, not the number of lines. Style warnings are advisory: the text is saved.",
 		parameters: BoardToolParameters,
 		replay: "unsafe",
 		execute: async (args, api, context) => {
@@ -3583,7 +3585,8 @@ function createBoardExtension(service: BoardService): Extension {
 						);
 						const task = change.after;
 						service.noticeReview(change);
-						return toolText(`Added ${task.id} (r${task.revision}).${duplicateOriginNotice(change, input.foundWhile)}`, { details: { taskId: task.id } });
+						const warnings = taskTextWarnings({ name: "Description", text: input.description }, { name: "Done when", text: input.acceptance });
+						return toolText(`Added ${task.id} (r${task.revision}).${duplicateOriginNotice(change, input.foundWhile)}${warnings}`, { details: { taskId: task.id } });
 					}
 					case "update_task":
 					case "drop_task": {
@@ -3627,7 +3630,8 @@ function createBoardExtension(service: BoardService): Extension {
 						const task = change.after;
 						service.noticeReview(change);
 						await service.noticeUnblocked(task, unblocked);
-						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).${duplicateOriginNotice(change, input.foundWhile)}`, { details: { taskId: task.id } });
+						const warnings = taskTextWarnings({ name: "Description", text: input.description }, { name: "Done when", text: input.acceptance });
+						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).${duplicateOriginNotice(change, input.foundWhile)}${warnings}`, { details: { taskId: task.id } });
 					}
 					case "ask": {
 						const question = await service.commitFor(
@@ -3648,12 +3652,16 @@ function createBoardExtension(service: BoardService): Extension {
        input.taskId,
 						);
 						service.noticeQuestion(question);
+						const warnings = taskTextWarnings(
+							{ name: question.kind === "warning" ? "Warning" : "Question", text: question.text, question: question.kind !== "warning" },
+							...question.options.map((text, index) => ({ name: `Option ${index + 1}`, text })),
+						);
 						if (question.kind === "warning") {
-							return toolText(`Warned the user (${question.id}). It stays open until they acknowledge it; that arrives as a [board] message.`, {
+							return toolText(`Warned the user (${question.id}). It stays open until they acknowledge it; that arrives as a [board] message.${warnings}`, {
 								details: { questionId: question.id },
 							});
 						}
-						return toolText(`Asked ${question.id}. The user's answer arrives as a [board] message.`, {
+						return toolText(`Asked ${question.id}. The user's answer arrives as a [board] message.${warnings}`, {
 							details: { questionId: question.id },
 						});
 					}
@@ -3712,8 +3720,13 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						const warning = pointsAtChat(input.results) || pointsAtChat(input.next) || pointsAtChat(input.steps) ? CHAT_POINTER_WARNING : "";
-						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${warning}`, {
+						const chatWarning = pointsAtChat(input.results) || pointsAtChat(input.next) || pointsAtChat(input.steps) ? CHAT_POINTER_WARNING : "";
+						const styleWarnings = taskTextWarnings(
+							{ name: "Results", text: input.results },
+							{ name: "Next", text: input.next },
+							{ name: "Your steps", text: input.steps },
+						);
+						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${chatWarning}${styleWarnings}`, {
 							details: { taskId: task.id },
 						});
 					}
@@ -3757,8 +3770,9 @@ function createBoardExtension(service: BoardService): Extension {
 							{ taskId: id, feedbackId, state: feedbackState, note: input.note ?? null },
 							writer,
 						);
-						const warning = pointsAtChat(input.note) ? CHAT_POINTER_WARNING : "";
-						return toolText(`${entry.id} on ${id} is ${entry.state}.${warning}`, { details: { taskId: id, feedbackId: entry.id } });
+						const chatWarning = pointsAtChat(input.note) ? CHAT_POINTER_WARNING : "";
+						const styleWarnings = taskTextWarnings({ name: "Feedback note", text: input.note });
+						return toolText(`${entry.id} on ${id} is ${entry.state}.${chatWarning}${styleWarnings}`, { details: { taskId: id, feedbackId: entry.id } });
 					}
 					case "claim":
 					case "release":

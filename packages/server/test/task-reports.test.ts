@@ -223,8 +223,8 @@ describe("reports through the tools", () => {
 		const saved = await legacy.request({ type: "board.task.save", projectId, task: { ...taskInput, parent: parent.task.id } });
 		if (saved.type !== "board.task.save") throw errorOf(saved);
 		const id = saved.task.id;
-		const steps = "1. Open Settings.\n2. Set the timeout to `30`.\n3. Verify the setting:\n\n   ```sh\n   example-cli config get timeout\n   ```";
-		const pointer = "See chat for the commands.";
+		const steps = "1. Open Settings.\n2. Set the timeout to `30`.\n3. Verify the setting:\n\n   ```sh\n   example-cli config get timeout --revision a1b2c3d\n   ```";
+		const pointer = "See chat for the commands. Start from a1b2c3d.";
 		const toolResults: string[] = [];
 		test.faux.setResponses(Array.from({ length: 30 }, () => (request: TranscriptContext) => {
 			const { role, text } = lastOf(request);
@@ -248,7 +248,8 @@ describe("reports through the tools", () => {
 		await submit("File the steps.", "write-steps");
 		await until(() => toolResults.some(text => text.includes("Your steps:")));
 		expect(toolResults[0]).toContain("This points at the chat.");
-		expect(toolResults[1]).not.toContain("This points at the chat.");
+		expect(toolResults[0]).toContain("Your steps, “See chat for the commands.…”: Leave commit hashes and change IDs out of prose.");
+		expect(toolResults[1]).toBe(`Rewrote the report of ${id} (report r2; milestone "Steps ready" saved).`);
 		expect(toolResults.at(-1)).toContain(`Your steps:\n${steps}\nresults: - Test config prepared\nnext: Verify the change.`);
 
 		await current.waitFor(message => message.type === "board.state" && message.board.tasks.some(task => task.id === id && task.state?.kind === "steps_needed"));

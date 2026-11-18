@@ -736,7 +736,7 @@ describe("model notes", () => {
 		expect(context.systemPrompt).toContain("Keep answers short.");
 		expect(context.systemPrompt).not.toContain("Not for faux.");
 		// The writing rule is part of the coordinator's own section.
-		expect(context.systemPrompt).toContain("no labels you coined");
+		expect(context.systemPrompt).toContain("Write task text for a person.");
 
 		await client.request({ type: "conversation.submit", projectId, requestId: "m1", content: "First turn." });
 		await until(async () => prompts.length === 1);

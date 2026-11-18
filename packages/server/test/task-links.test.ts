@@ -432,6 +432,43 @@ async function timelineOf(client: TestClient, projectId: string, taskId: string,
 	return response;
 }
 
+it("saves board text before warning about its writing style", async () => {
+	const { test, client, projectId } = await start();
+	await saveTaskVia(client, projectId, "Ship the patch");
+	const results = "This line has fifteen words in its first sentence, counting each written word here once. This sentence adds fifteen more words so the line can sit at exactly the limit. Ten more words make this single line too long now.";
+	const next = "The patch is in a1b2c3d.";
+	const question = "The patch is ready. Ship now? (A) Ship today. (B) Wait.";
+	const options = ["Ship a1b2c3d now: it goes live today.", "Wait: it goes live tomorrow."];
+	const actions: JsonObject[] = [
+		{ action: "write_report", id: "T1", results, next },
+		{ action: "ask", taskId: "T1", text: question, options },
+		{ action: "ask", taskId: "T1", kind: "warning", text: "The service is down." },
+	];
+	const replies: string[] = [];
+	const factory = (request: TranscriptContext) => {
+		const { role, text } = lastOf(request);
+		if (role === "toolResult") replies.push(text);
+		const action = actions.shift();
+		return action === undefined ? fauxAssistantMessage("Filed.") : call("board", action);
+	};
+	test.faux.setResponses(Array.from({ length: 10 }, () => factory));
+	const sent = await client.request({ type: "conversation.submit", projectId, requestId: "task-text-style", content: "Put the outcome on the board." });
+	if (sent.type !== "conversation.submit") throw errorOf(sent);
+	await until(() => replies.length === 3);
+
+	expect(replies[0]).toStartWith("Rewrote the report of T1");
+	expect(replies[0]).toContain("\nResults, “This line has fifteen words…”: Split this line; it has over 30 words.");
+	expect(replies[0]).toContain("\nNext, “The patch is in a1b2c3d.”: Leave commit hashes and change IDs out of prose.");
+	expect(replies[1]).toStartWith("Asked Q1.");
+	expect(replies[1]).toContain("Put the question in the first sentence.");
+	expect(replies[1]).toContain("Put the choices in options, not in the question text.");
+	expect(replies[1]).toContain("Option 1, “Ship a1b2c3d now: it goes…”: Leave commit hashes and change IDs out of prose.");
+	expect(replies[2]).not.toContain("\n");
+	const board = await boardOfProject(client, projectId);
+	expect(board.tasks[0]?.report).toMatchObject({ results, next });
+	expect(board.questions.find(question => question.id === "Q1")).toMatchObject({ text: question, options });
+});
+
 describe("a user's message about a task", () => {
 	it("saves chat pointers in feedback and report text with a warning, but allows ordinary chat mentions without one", async () => {
 		const { test, client, projectId } = await start();

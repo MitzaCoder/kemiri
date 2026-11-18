@@ -336,7 +336,8 @@ describe("context usage", () => {
 	}, 30_000);
 
 	it("counts prompt cache misses over the whole conversation", async () => {
-		const small = fauxProvider({ provider: "small", api: "small", models: [{ id: "small-1", contextWindow: 32_000 }] });
+		// Switching models must miss the cache, not compact and reset it when the system prompt grows.
+		const small = fauxProvider({ provider: "small", api: "small", models: [{ id: "small-1", contextWindow: 128_000 }] });
 		const test = await setup({ configureModels: (models) => models.setProvider(small.provider) });
 		const client = await connect(test.server);
 		await client.hello();

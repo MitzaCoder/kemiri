@@ -3,6 +3,7 @@ import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
 import { activityTracking, endActivitySource } from "./task-activity.ts";
 import { noteTaskFact } from "./task-freshness.ts";
+import { taskTextWarnings } from "./task-text-style.ts";
 import { stateKind } from "./state-identity.ts";
 /**
  * Workers: background, restart-safe child conversations the project's coordinator delegates work to.
@@ -641,18 +642,18 @@ export function resolveWorkerModel(options: {
 /** Prompt text on when a `codemode` script beats direct tool calls; shared by coordinator and worker, byte-stable. */
 const CODEMODE_GUIDANCE = `A codemode script calls your tools as \`await tools.<name>(args)\` and only what it returns or prints reaches you. Write one to run independent calls together (\`Promise.allSettled\`), to keep only part of a large output (filter, count, extract), to repeat an operation over many items, or for a chain whose later steps follow mechanically from earlier ones. For a single call whose whole output you need, call the tool directly: a script that only wraps one call costs more and clutters the chat. Return only what you need, never raw dumps, e.g. \`const [a, b] = await Promise.allSettled([tools.read({ path: "a.ts" }), tools.bash({ command: "rg -c TODO src" })]); return { a: a.status, todos: b.value?.output };\`. \`tools.bash\` resolves with \`{ output, exitCode, ... }\` even on a non-zero exit, so check \`exitCode\` instead of expecting it to throw.`;
 
-/** How to write, for every coordinator and worker; byte-stable. */
-const WRITING_RULE = `Write for a busy reader: plain words, short sentences, no labels you coined. Say what was done and what was not.`;
+/** How to write task prose, for every coordinator and task worker; byte-stable. */
+const WRITING_RULE = `Write task text for a person. Start with what is different for the user, not what you did. Put one fact per line: one sentence of about 20 words at most, no semicolons. Use plain words and whole sentences with their verbs and small words; short is good, shorthand is not. The limit is on a line, not the number of lines. Say what is not done as plainly as what is. Use names, not IDs ("the deploy question", not "Q2"). Say it once: don't repeat the status, a question, the files or a decision.
+Leave the record to the page: no commit hashes, change IDs, test counts, file paths or worker names in sentences. Link commits with the \`Kemiri-Task: T…\` trailer and save files with \`artifact_save\` and \`taskId\`. Name what was checked in words, without counts or hashes.`;
 
-/**
- * How a coordinator (main or a thread) keeps the task reports and moves tasks; byte-stable. The user reads the tasks,
- * so the rules are here and in the tool descriptions, not in code: nothing limits a report's length.
- */
-const REPORT_RULES = `Each task has a report the user reads instead of the chat. Now is written automatically. Holding a task alone is not activity. Keep \`results\` (outcomes with evidence) and \`next\` (what comes next and who does it) current with the \`board\` action \`write_report\`. Replace the sections you name, never append. Keep Results and Next short and plain, but never shorten steps or answers. Nothing made up. Pass a \`milestone\` (a few words) only when something meaningful happened.
+/** How main and background coordinators write reports and move tasks; byte-stable. */
+const REPORT_RULES = `Each task has a report the user reads instead of the chat. Now is written automatically. Holding a task alone is not activity. Keep \`results\` and \`next\` current with the \`board\` action \`write_report\`. Replace the sections you name, never append. Keep Results and Next short and plain, but never shorten steps or answers. Nothing made up. Pass a \`milestone\` (a few words) only when something meaningful happened.
+
+${WRITING_RULE}
 
 Would the user need this again? Put it on the task first:
-- Manual steps outside the harness → \`steps\` (Your steps) in \`write_report\`: a full numbered list with exact values and copyable commands. It stays when Next is rewritten. Clear it with an empty string once the steps are done.
-- A choice → \`ask\`; explain the options in the question. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
+- Steps the user must do by hand → \`steps\` (Your steps) in \`write_report\`: a full numbered list with exact values and copyable commands. Start each step with a verb. The list stays when Next is rewritten; clear it with an empty string once the steps are done. Keep Next for what agents will do, in one or two sentences; never mix the two.
+- A choice → \`ask\`. The first sentence is the question, and a choice can answer it. Give only what is needed to choose, in at most three short lines after the question; don't retell the task. Say what happens if picked in each option label ("Ship now: goes live tonight"). Mark the recommended option in its label and say why in a line. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
 - A finding → Results, in full, once.
 - Detail longer than a screen → a file on the task (\`artifact_save\` with \`taskId\`).
 - An answer to a task message → the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.
@@ -662,9 +663,9 @@ A message starting with "[task T12, feedback F3] " is feedback F3 on that task. 
 
 A feedback message starting with "Keep on task:" quotes a coordinator reply: put its detail on the task as above, mark the feedback addressed, then reply in one line naming the task.
 
-A message starting with "[reports]" names task reports that went out of date. Read each task with show_task and rewrite only the stale Results or Next, with evidence. Put any detail given in the chat on the task. When you read a task earlier and write later, pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked.
+A message starting with "[reports]" names stale sections or detail that is only in chat. Read the task with show_task. Rewrite only stale sections; file missing detail using the routes above, not in another chat reply. When you read a task earlier and write later, pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked.
 
-Only the user closes a task. Move a task to \`review\` when it is ready for them and say in \`next\` what they should check; you cannot set \`done\` or \`dropped\`. When a task's work is done but it waits on something outside the user's control that the user named (a review, a release, a reply), move it to waiting with that waitingFor note instead of leaving it in review. A worker's report does not move its task: check the work, then move the task yourself. When you keep screenshots or videos for a task with artifact_save, pass its taskId and tag them by platform and state, for example \`web, phone, dark\` (a before/after pair differs only in \`before\` and \`after\`).`;
+Only the user closes a task. Move a task to \`review\` when it is ready for them and put any manual checks in \`steps\`; you cannot set \`done\` or \`dropped\`. When a task's work is done but it waits on something outside the user's control that the user named (a review, a release, a reply), move it to waiting with that waitingFor note instead of leaving it in review. A worker's report does not move its task: check the work, then move the task yourself. When you keep screenshots or videos for a task with artifact_save, pass its taskId and tag them by platform and state, for example \`web, phone, dark\` (a before/after pair differs only in \`before\` and \`after\`).`;
 
 /**
  * The "Show UI changes" rule (`project.uiProof`), as the paragraph plus its blank line, or "" when the setting is off.
@@ -675,7 +676,7 @@ export function uiProofParagraph(project: Project, role: "coordinator" | "worker
 	if (project.uiProof === "off") return "";
 	const videos = project.uiProof === "screenshots-and-videos";
 	const coordinator = role === "coordinator";
-	const proof = `Any change a user can see in a UI (a web page, an app screen) is proven before ${coordinator ? "it goes to review" : "you report"}. For a bug, show it before and after: reproduce it first, then show it fixed. Use before/after screenshots${videos ? ", plus a short screen recording of the interaction" : ""}. Drive the real UI headless (a browser, or an emulator or device for an app). Save the proof with artifact_save on the task, tagged by platform and state, and mention it in \`results\`. A change with nothing visible needs no proof, and backends and terminals are never recorded.`;
+	const proof = `Any change a user can see in a UI (a web page, an app screen) is proven before ${coordinator ? "it goes to review" : "you report"}. For a bug, show it before and after: reproduce it first, then show it fixed. Use before/after screenshots${videos ? ", plus a short screen recording of the interaction" : ""}. Drive the real UI headless (a browser, or an emulator or device for an app). Save the proof with artifact_save and taskId, tagged by platform and state. Say what it shows in \`results\`, without listing the files. A change with nothing visible needs no proof, and backends and terminals are never recorded.`;
 	return `${
 		coordinator
 			? `${proof} Put this rule in every worker brief. The first time the project needs a demo, work out the recipe (how to start the app, test data, how to drive the UI, where artifacts may live) and keep it in project memory, so later workers reuse it.`
@@ -725,8 +726,6 @@ ${uiProofParagraph(project, "coordinator")}${checkIns}
 
 ${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker, or save, delete or run a schedule — only you can, directly.
 
-${WRITING_RULE}
-
 Every worker ends with a report: outcome, files changed, workspace and change ID, open issues, and things worth remembering. Treat that report as a claim to check, not as the truth.`;
 }
 
@@ -767,8 +766,6 @@ ${uiProofParagraph(project, "coordinator")}${checkIns}
 
 ${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker — only you can, directly.
 
-${WRITING_RULE}
-
 When the work is done, or cannot go on, call thread_finish with a summary for main: the outcome, where the work is (workspace, change IDs, branches, pull requests), open issues and anything the user must decide. The summary is all main sees of your work, so make it complete.`;
 }
 
@@ -793,7 +790,7 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYou were started for the board task ${options.taskId}. The user reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished thing with its evidence (commit, artifact, test run); pass a \`milestone\` (a few words) only when something meaningful just happened. Terse plain English, nothing made up. A question or a warning for the user is not report text: put it in your final report and the coordinator puts it on the board.`;
+			: `\n\nYou were started for the board task ${options.taskId}. The user reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; pass a \`milestone\` (a few words) only when something meaningful just happened. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -817,7 +814,7 @@ Read files with the read tool, not a bash \`cat\` chain: a \`&&\` chain whose la
 
 ${uiProofParagraph(project, "worker")}${CODEMODE_GUIDANCE}
 
-${WRITING_RULE}${options.projectBrief ? `\n\n${options.projectBrief}` : ""}
+Write your final report in plain words for the coordinator. Keep its paths and revision IDs there, not in the task prose.${options.projectBrief ? `\n\n${options.projectBrief}` : ""}
 
 If a queued message asks for something you already did and have reported, and you have no new result, warning or question, answer with exactly one line: ${NO_NEW_WORKER_REPORT} Do not repeat the full report or do more checks. This line is recorded without waking the coordinator. Otherwise, end your answer with this report and nothing after it:
 
@@ -2530,7 +2527,7 @@ export function createWorkerWorkspaceExtension(service: {
 	});
 }
 
-/** `task_progress`: optional run phase and evidenced Results; Now is automatic. */
+/** `task_progress`: optional run phase and Results; Now is automatic. */
 function createWorkerTaskExtension(service: WorkerService): Extension {
 	const progressTool = defineTool({
 		name: "task_progress",
@@ -2544,7 +2541,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 				Type.String({ description: "Optional few-word phase, only when it really changes. Expires with this run. Now is automatic; empty clears the phase." }),
 			),
 			addResult: Type.Optional(
-				Type.String({ minLength: 1, description: "One finished thing with its evidence (commit, artifact, test run), added as a bullet." }),
+				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Name what was checked, without counts or revision IDs. Link commits with a Kemiri-Task trailer and save files with taskId." }),
 			),
 			coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Optional: the eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 			milestone: Type.Optional(
@@ -2588,7 +2585,8 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 					context,
 				);
 				const milestone = args.milestone === undefined ? "" : `; milestone "${args.milestone.trim()}" saved`;
-				return toolText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).`, { details: { taskId: task.id } });
+				const warnings = taskTextWarnings({ name: "Results", text: args.addResult });
+				return toolText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${warnings}`, { details: { taskId: task.id } });
 			} catch (error) {
 				return toolText(errorMessage(error), { isError: true });
 			}

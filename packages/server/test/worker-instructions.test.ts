@@ -36,8 +36,12 @@ describe("workerInstructions", () => {
 	it("routes reusable detail onto the task first for both coordinators", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("Would the user need this again? Put it on the task first:");
-			expect(text).toContain("Manual steps outside the harness → `steps` (Your steps) in `write_report`: a full numbered list with exact values and copyable commands. It stays when Next is rewritten. Clear it with an empty string once the steps are done.");
-			expect(text).toContain("A choice → `ask`; explain the options in the question.");
+			expect(text).toContain("Steps the user must do by hand → `steps` (Your steps) in `write_report`: a full numbered list with exact values and copyable commands. Start each step with a verb.");
+			expect(text).toContain("The list stays when Next is rewritten; clear it with an empty string once the steps are done.");
+			expect(text).toContain("Keep Next for what agents will do, in one or two sentences; never mix the two.");
+			expect(text).toContain("A choice → `ask`. The first sentence is the question, and a choice can answer it.");
+			expect(text).toContain("at most three short lines after the question; don't retell the task.");
+			expect(text).toContain('Say what happens if picked in each option label ("Ship now: goes live tonight"). Mark the recommended option in its label and say why in a line.');
 			expect(text).toContain("A finding → Results, in full, once.");
 			expect(text).toContain("Detail longer than a screen → a file on the task (`artifact_save` with `taskId`).");
 			expect(text).toContain("the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.");
@@ -45,6 +49,27 @@ describe("workerInstructions", () => {
 			expect(text).toContain("A chat reply is a line or two naming the task; it may repeat what is on the task.");
 			expect(text).not.toMatch(/answered in chat/i);
 		}
+	});
+
+	it("shares the task prose and evidence rules with both coordinators and task workers", () => {
+		const options = { id: "a", title: "t", project: project(), cwd: "/repo", isolation: "shared", taskId: "T1" } as const;
+		const worker = workerInstructions(options);
+		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project()), worker]) {
+			expect(text.split("Write task text for a person.")).toHaveLength(2);
+			expect(text).toContain("Start with what is different for the user, not what you did.");
+			expect(text).toContain("one sentence of about 20 words at most, no semicolons.");
+			expect(text).toContain("whole sentences with their verbs and small words; short is good, shorthand is not.");
+			expect(text).toContain("The limit is on a line, not the number of lines.");
+			expect(text).toContain('Use names, not IDs ("the deploy question", not "Q2").');
+			expect(text).toContain("Say what is not done as plainly as what is.");
+			expect(text).toContain("Say it once: don't repeat the status, a question, the files or a decision.");
+			expect(text).toContain("no commit hashes, change IDs, test counts, file paths or worker names in sentences.");
+			expect(text).toContain("Link commits with the `Kemiri-Task: T…` trailer and save files with `artifact_save` and `taskId`.");
+			expect(text).toContain("Name what was checked in words, without counts or hashes.");
+			expect(text).not.toContain("evidence (commit, artifact, test run)");
+		}
+		expect(worker).toContain("Give the coordinator any questions, warnings, complete steps or full answers in your final report");
+		expect(worker).toBe(workerInstructions(options));
 	});
 
 	it("tells main and background threads that planned pieces get parent only", () => {
@@ -69,12 +94,12 @@ describe("workerInstructions", () => {
 
 	it("explains stale report messages after introducing reports, for both coordinators", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
-			const report = text.indexOf("Each task has a report");
-			const stale = text.indexOf('A message starting with "[reports]" names task reports that went out of date.');
+			const report = text.indexOf("Each task has a report the user reads instead of the chat.");
+			const stale = text.indexOf('A message starting with "[reports]" names stale sections or detail that is only in chat.');
 			expect(report).toBeGreaterThanOrEqual(0);
 			expect(stale).toBeGreaterThan(report);
 			expect(stale).toBeLessThan(text.indexOf("Only the user closes a task."));
-			expect(text).toContain("rewrite only the stale Results or Next, with evidence. Put any detail given in the chat on the task.");
+			expect(text).toContain("Rewrite only stale sections; file missing detail using the routes above, not in another chat reply.");
 			expect(text).toContain("pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked");
 		}
 	});

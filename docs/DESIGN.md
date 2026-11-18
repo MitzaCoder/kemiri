@@ -2605,15 +2605,18 @@ is where they talk.
 
 - **Every subject is a task.** The coordinator creates a board task for each subject the user brings up, before
   replying, and says which task it filed the message under. No exceptions for now; we will see if it is too much.
-- **A report per task, rewritten in place.** Three short Markdown sections, `now`, `results` (with evidence:
-  commit, artifact, test run) and `next`. A write replaces the sections it names; agents rewrite and shorten rather
-  than append. Plain English, terse, nothing made up. No length limits in code: the prompts carry the rule, and we
-  watch how the models do.
-- **Your steps (T278 / D102).** Optional `report.steps` is a full numbered Markdown list of manual actions, with
-  exact values and copyable commands. `write_report` replaces it whole; an empty string clears it. Results and
-  Next rewrites leave it alone. `show_task` puts it above Results and Next; snapshots save the text. The live
-  report carries `stepsWrittenAt` for the current text. Steps have no staleness tracking and writing them alone
-  does not invalidate Results or Next. Clients gate the section on server `hello.features` containing `task-steps`.
+- **A report per task, rewritten in place.** The Markdown sections are `now` (automatic), `results`, `next` and
+  `steps`. A write replaces the sections it names. Start with what changed for the user and say what is not done.
+  Write one fact per line, about 20 words, in whole sentences with verbs and small words, without semicolons.
+  Use names instead of IDs and say each thing once. Leave hashes, change IDs, test counts, paths and worker names to
+  the record: tie commits to the task with `Kemiri-Task` trailers and files with `artifact_save` and `taskId`. Name
+  what was checked in words; structured checks come later.
+- **Your steps (T278 / D102).** Optional `report.steps` is a full numbered Markdown list of manual actions. Each step
+  starts with a verb and gives exact values and copyable commands. `write_report` replaces it whole; an empty string
+  clears it once the steps are done. Results and Next rewrites leave it alone. `show_task` puts it above Results and
+  Next; snapshots save the text. The live report carries `stepsWrittenAt` for the current text. Steps have no staleness
+  tracking and writing them alone does not invalidate Results or Next. Clients gate the section on server
+  `hello.features` containing `task-steps`.
 - **Who writes.** Workers update `now` (and may add to `results`) of the task they were spawned for, through their
   own tool. The coordinator owns status, `results`, `next`, `steps`, questions and decisions. Background threads report on
   the task they were started for. Report writes have their own revision and never conflict with the user's edits.
@@ -2632,12 +2635,13 @@ is where they talk.
   small quote at the top of the user's bubble.
 - **The chat stays short.** Worker reports, check-ins, thread results and board changes show as one line each with a
   link to their task. Main and background coordinators put anything the user will need again on the task first.
-  Steps the user must do by hand go in Next as a full numbered list with exact values and copyable commands, kept
-  until done. Choices go in `ask` with the options explained; findings go in Results in full, once. Detail longer
-  than a screen goes in a file saved with `artifact_save` and the task's `taskId`. Answers to task messages go in
-  the feedback note itself: short status answers stay there, longer answers also update the report. Results and
-  Next stay short where possible, but steps and answers are complete. The chat reply names the task in a line or
-  two and may repeat what is on it.
+  Steps the user must do by hand go in Your steps. Agents' next actions stay separate in Next, in one or two
+  sentences. Choices go in `ask`: open with the question a choice can answer, then give at most three short lines
+  needed to choose. Each option label says what happens if picked; mark the recommended one and say why on a line.
+  Findings go in Results in full, once. Detail longer than a screen goes in a file saved with `artifact_save` and
+  the task's `taskId`. Answers to task messages go in the feedback note itself: short status answers stay there,
+  longer answers also update the report. The rules limit each line, not the number of lines: steps and answers
+  stay complete. The chat reply names the task in a line or two and may repeat what is on it.
 - **Across tasks.** With `task-state`, list groups are Needs you (Failed, Answer needed, Ready for review),
   In progress (Working, Paused), Waiting (task blockers or an outside wait), To do and Recently closed (folded).
   Kind then oldest `since` sorts attention/work; Waiting is oldest first, To do priority, Closed newest first.
@@ -3959,9 +3963,14 @@ its own list, and a timeline; the description stays the original ask and the rep
   entry. Past messages are not backfilled. The message the coordinator reads starts `[task T12, feedback F3] `, so it can
   refer to the entry; older readers take the task ID up to the comma.
   - State: `open` → `handling` → `addressed`, or `dismissed` ("not needed"). An addressed entry needs a note with
-    the answer itself or what addressed it (a commit or result). Each change is kept with who made it (`changes`).
+    the answer itself or what changed. Each change is kept with who made it (`changes`).
   - The `board` tool saves feedback notes and `write_report` Your steps, Results and Next even if they point to the chat for
     detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
+    Style warnings also follow a successful save: for Your steps, Results, Next, ask text and options, descriptions,
+    acceptance and feedback notes, the tool flags lines over 30 words and likely revision IDs in prose. It also flags
+    questions that do not open with a question or list choices in the question text. Code blocks are skipped; inline
+    code and URLs are not scanned for IDs. `task_progress.addResult` uses the same prose checks. The style warnings
+    quote the affected lines, at most three per reply, and do not change or reject the text.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`
     to put it back); the user dismisses and reopens in the app (`board.feedback.set`), and the coordinator that holds the
     task hears of it as a `[board]` follow-up. Workers do not touch feedback: they keep the task's `now` through
