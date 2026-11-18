@@ -2922,6 +2922,8 @@ no new notification kind. The isolated synthetic walkthrough backend is
 
 Stage 1 (T209) adds server rules and optional protocol fields. Stage 2 (T210) uses the derived
 state throughout web list, board, sheet and graph; missing capability or field retains the old display.
+The web board reads the backend's current `hello` capabilities before its first `board.get`,
+including when it opens after the connection is ready, and refreshes them on reconnect.
 The seven stored statuses stay. Feature `task-state` advertises optional `BoardTask.state`:
 `{ group, kind, since: ISO string, refs: string[] }`. This is derived at emission, never
 stored on a task. Groups are `needs_you`, `in_progress`, `waiting`, `todo`, `closed`.

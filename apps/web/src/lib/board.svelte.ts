@@ -7,7 +7,7 @@ import { taskStateSupported, taskWithStateSupport } from "./task-state.js";
  * report a conflict as an outcome, with the newer row read back, instead of throwing.
  */
 import { taskActivitySupported } from './task-activity.js';
-import { boardConflict, boardStateIsFor, errorFromResponse, type HarnessClient } from "@kemiri/client";
+import { boardConflict, boardStateIsFor, errorFromResponse, type ClientState, type HarnessClient } from "@kemiri/client";
 import { questionClarifySupported, questionNeedsAnswer } from "./question-clarify.js";
 import type {
 	Board,
@@ -86,18 +86,18 @@ export class ProjectBoard {
 			this.#apply(state.board);
 			if (this.showArchived) void this.#readArchived();
 		});
-		// A reconnect loses the pushes sent while away, so ask for the board again.
-		this.#unsubscribeState = client.subscribe((state) => {
-			if (state.status === "ready") {
-				this.activityEnabled = taskActivitySupported(state.features);
-				this.freshnessEnabled = state.features?.includes('task-freshness') ?? false;
-				this.stateEnabled = taskStateSupported(state.features);
-				this.clarifyEnabled = questionClarifySupported(state.features);
-				this.partsEnabled = state.features?.includes("task-part-states") ?? false;
-				void this.load();
-			}
-		});
-		if (client.connected) void this.load();
+		const loadWithCapabilities = (state: ClientState) => {
+			if (state.status !== "ready") return;
+			this.activityEnabled = taskActivitySupported(state.features);
+			this.freshnessEnabled = state.features?.includes('task-freshness') ?? false;
+			this.stateEnabled = taskStateSupported(state.features);
+			this.clarifyEnabled = questionClarifySupported(state.features);
+			this.partsEnabled = state.features?.includes("task-part-states") ?? false;
+			void this.load();
+		};
+		// Subscribe for the next hello, but also read the current one: subscribe does not replay it.
+		this.#unsubscribeState = client.subscribe(loadWithCapabilities);
+		loadWithCapabilities(client.state);
 	}
 
 	async load(): Promise<void> {

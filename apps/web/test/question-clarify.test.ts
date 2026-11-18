@@ -76,8 +76,9 @@ test('actual question card renders waiting, revision history, folded exchanges a
 		const { ProjectBoard } = await vite.ssrLoadModule('/src/lib/board.svelte.ts');
 		let response: unknown = { type: 'board.question.clarify', question: waiting };
 		const calls: unknown[] = [];
-		const client = { connected: false, onBoardState: () => () => {}, subscribe: (listener: (s: unknown) => void) => { listener({ status: 'ready', features: ['task-state', 'question-clarify'] }); return () => {}; }, request: async (request: unknown) => { calls.push(request); return response; }, readBoard: async () => ({ tasks: [task], questions: [waiting] }) };
+		const client = { state: { status: 'ready', attempt: 0, features: ['task-state', 'question-clarify'] }, connected: true, onBoardState: () => () => {}, subscribe: () => () => {}, request: async (request: unknown) => { calls.push(request); return response; }, readBoard: async () => ({ tasks: [task], questions: [waiting] }) };
 		const board = new ProjectBoard(client, 'bakery');
+		await Promise.resolve(); // Let the first board read complete before setting up the question.
 		board.board = { tasks: [task], questions: [question] };
 		expect(board.clarifyEnabled).toBe(true);
 		expect((await board.clarify('Q1', 1, 'How much?')).kind).toBe('clarified');
@@ -87,7 +88,6 @@ test('actual question card renders waiting, revision history, folded exchanges a
 		board.board = { tasks: [task], questions: [{ ...waiting, revision: 3, waitingOn: 'user' }] };
 		await board.clarify('Q1', 1, 'How much?');
 		expect(board.question('Q1')?.revision).toBe(3);
-		client.connected = true;
 		response = { type: 'error', error: { code: 'board_conflict', message: 'Revision changed' } };
 		expect(await board.clarify('Q1', 1, 'How much?')).toEqual({ kind: 'conflict', newer: waiting });
 		response = { type: 'error', error: { code: 'bad_request', message: 'Refused' } };
