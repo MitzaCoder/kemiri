@@ -5300,88 +5300,58 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   missed (a laptop that was away) adds "Catching up to a1b2c3d: …" to its release
   line from the optional `pending` note of its deploy status.
 
-### Task sheet — Dashboard cards, single column (D27 / D28 / T43)
+### Task sheet — Read the task in one pass (D103 / T289)
 
 - **Task return trail (T219 / D83).** Opening any linked task from a task sheet pushes one history entry. Its
   header shows `← T12 · Parent title` (one line, truncated), naming the task actually opened from, not an inferred
   parent relation. Repeated drill-downs retain the trail. The control and browser/system Back pop the same entry;
   Forward can revisit the child. Fresh openings from lists, chat references and external links have no task Back.
+- **Frame and header.** The sheet still opens at the right, up to 74rem wide, and fills a phone. State in words is
+  the status menu label; the title, edit pencil and refs stay in the header. The title and refs wrap. There is no
+  section navigation. The reading column is at most 42rem; at 58rem of sheet width, About this task sits alongside
+  it. On narrower sheets About follows the record. Headings are small, body prose uses one size, and only Needs
+  you has a tinted section background. All colours come from the app's theme tokens.
+- **Needs you.** Open questions and warnings that wait for the reader keep the shared `BoardQuestionCard`
+  controls (choices, free text, Ask back, or Got it for a warning). Questions waiting on an agent stay readable
+  outside the tint. Review uses today's Next Markdown as its check steps; “It works: close the task” uses the
+  normal Done flow, including the open-parts choice, and “Something is off…” focuses the task reply. A blocked task
+  puts its reason and unresolved blockers here. On `task-steps` backends, non-empty Your steps (T278) is shown as
+  numbered Markdown for open tasks, before the review check. When steps take priority, the header says “Your steps
+  to do” and the task appears in Needs you with a checklist icon, including in the graph and part progress. Web opts
+  in through `hello.client.features`; Android keeps the server's review fallback until it opts in separately.
+- **What you get and Next.** Results stays Markdown, with at most three clickable image/video proof thumbnails
+  from the task artifact feed. Next shows the agents' plan unless it is already in the review check. A working
+  task's automatic Now appears once here; delivery activity can appear in About instead. Current reports have no
+  freshness lines; a stale report gets one line with the existing request-update action.
+- **Your notes.** Feedback stays in the scrollable body, with the stored answer under each entry as Markdown.
+  Addressed and dismissed entries start folded and can be reopened; active entries can be dismissed.
+- **The record.** The request is first and open by default (D104); “Done when” renders flat semicolon- or newline-separated
+  criteria as a list and retains existing Markdown lists. Decided and Activity are closed by default. Each row's
+  open choice is stored independently in this browser. Activity contains timeline events (including worker events)
+  and snapshot history. The timeline keeps its kind filters, bounded event viewport, keyboard scrolling, local
+  day separators and sort control. The web reading-direction choice remains in `aiki.timeline-order.v1`.
+- **About this task.** Shows available delivery and status facts, owner thread, titled task links with small IDs,
+  parts progress, full files (including the existing media viewer and tag controls), workers and task times.
+  Header refs retain their existing status and link controls without a second refs list. Unresolved blockers shown
+  in Needs you aren't repeated here. Task-reference previews and T273's green “this task” chip stay available,
+  as does quoting selected text from the page into chat.
+- **Compact refs and keyboard space (T113).** Header refs start closed per opened task: kind counts include
+  unknown status, and failing/running PR checks take precedence over open/closed totals. Historical checks on
+  merged/closed PRs do not demand attention. Expanded refs stay in a bounded scroll viewport (at most 15rem/240dp
+  and a quarter of the available height); the header also scrolls if it reaches its height cap. Web follows the
+  visual viewport above mobile keyboards and caps the draft field to 20% of that height. Android budgets from
+  inset/IME-reduced constraints (header at most 35%, reserving 220dp outside it on short windows; draft field at
+  most 20%/160dp). Below 400dp available height, Android's section chips temporarily yield space to its body.
+- **Reply.** `TaskReply` stays in a fixed sheet footer outside the scrolling body. The footer respects the bottom
+  safe area and stays above the keyboard. It reuses the coordinator `Composer` without model/worker/task pickers.
+  Attachments, paste/drop, autosizing and keyboard rules are unchanged. The hint reads `To the coordinator · this task`.
+  Drafts are independent per backend/project/task (`task-reply:<taskId>`), using the existing text and image stores.
+  Sending goes to main with `taskId` and `keepDraft: true`; main still forwards to a holding thread. Composer
+  clears/restores the task draft on success/failure and announces a successful send politely.
 
-Selected by the user on 2026-11-09, after three screenshot proposals. This is the only web task sheet look; there is no
-`look` query parameter, preview bar or stored look preference. Board/list cards are not part of this redesign. Android
-follows the same visual hierarchy in D28, using its existing Jarvis theme and shared reply composer (details below).
-
-- **Frame.** A right-hand sheet, up to 74rem wide with a small outside gutter; full screen on a phone. The header keeps
-  the task ID, status menu, title, refs, update time and holder. D29 replaces Done/Drop/Reopen with the status menu and inline waiting form. Header and reply stay available while
-  the body scrolls. Safe-area padding is retained.
-- **Compact task context (T62).** No summary strip or its divider below the header. Status stays in the header menu;
-  Questions (including warnings) and Feedback keep their open counts in section navigation. Feedback uses stored open
-  plus handling totals even before the timeline read completes. Waiting note, since time and optional return date move
-  into the wrapping header metadata; subtask done/total also lives there, including zero done and archived/absent links.
-  Workers' section/nav count includes both total and currently running workers when nonzero. Blocked reasons and
-  dependency links remain in the existing blocked callout. No information depends on expanding History or Timeline.
-- **Compact refs and keyboard space (T113).** Refs start collapsed per opened task. A small disclosure shows kind
-  counts (including unknown state) and prioritizes failing/running PR checks; otherwise it shows open/closed/unknown
-  totals. Historical checks on merged/closed PRs do not demand attention. No extra status/needs-you strip or chip wall.
-  Expanded refs have their own scroll viewport, capped at 15rem/240dp and a quarter of the available height. Every ref
-  remains reachable. The header itself is bounded and scrollable for long titles and short screens; reply and body
-  retain space independently of refs. Web follows the visual viewport above mobile keyboards, caps the task draft
-  field to 20% of that height, and keeps the existing per-task draft state. Android budgets from the inset/IME-reduced
-  constraints (header at most 35%, reserving 220dp outside it on short windows; draft field at most 20%/160dp); this fixes the non-weighted header consuming all
-  height before the reply could be measured. The inset policy and shared chat composer are unchanged. Multiline
-  input scrolls internally without discarding text; expanding refs or changing keyboard size never recreates it.
-  Below 400dp available Android height, section chips temporarily yield their space to the scrollable body and its
-  padding is reduced; normal-height windows retain the existing section navigation.
-- **One column at every width (T43).** Questions comes immediately after the header/navigation, then Report, Brief,
-  Timeline, Feedback and Files. Related, Workers, Decisions and History follow. Empty reference sections do not leave
-  blank cards. Brief starts expanded each time the task opens and can still be folded (T275); History and Timeline
-  retain their existing folding behaviour.
-- **Section navigation (T43).** At 54rem of sheet width (a container query, not window width), a slim sticky rail sits
-  left of the single card column. Below that width it becomes a horizontally scrolling chip row, sticky below the
-  header from the start of the body. It lists the rendered sections only, with shared icons, labels and count
-  chips. Links are keyboard accessible in a `nav` landmark with `aria-current="location"`. Clicking selects and pins
-  that section immediately, scrolls its card below the header/chips (accounting for the chips' negative sticky top),
-  and clamps to the available scroll limit. The pin survives `scrollend` (debounced timeout fallback) until the user
-  scrolls the body by wheel, touch, a scroll key or scrollbar drag; moving just the nav does not release it. During
-  hand scrolling, IntersectionObserver and scroll position select the section at the activation line; at the end,
-  the last visible section wins so short folded cards are reachable. Navigation scrolls smoothly, or instantly under
-  reduced motion; the active horizontal chip scrolls into view without moving the body. The rail can scroll
-  independently on short viewports. Editing hides the navigation.
-- **Files is always full card-column width.** Its carousel keeps the wider 84cqw slides with neighbouring slides
-  peeking; caption, tag filters, thumbnail strip, video controls and full-screen viewer are unchanged.
-- **Sections.** `TaskSection` and `TaskSectionHeader` give every section a bordered theme surface, a tinted header band,
-  a meaningful icon, a real h3 heading (1rem, bold, foreground colour) and a small count/context chip when useful.
-  Disclosure buttons remain inside their headings, with `aria-expanded` and a stable controlled content element. The
-  palette is exclusively `--chat-*` / `--accent-*`, including light/dark and the neutral theme. Avoid the existing global
-  `section-label` chat utility here; it has a different tiny uppercase treatment.
-- **Report.** Next, Now and Results appear in that order, with stronger labels. Next keeps its quiet accent inset; report metadata remains
-  secondary. A report not yet written gets a plain explanation, not empty Now/Results/Next blocks or a misleading update
-  chip. Finished and archived reports remain readable; Reopen, archive lookup and thread-holder identification keep
-  their existing behaviour. Long titles and refs wrap on a phone or narrow desktop.
-- **Timeline reading (T118).** Timeline and its navigation chip sit between Report and Feedback, still folded by
-  default. Entries are sorted newest first; a separate 44px/48dp icon button in the section header reverses the
-  direction, with a named current direction and tooltip. Web stores the global choice in `aiki.timeline-order.v1`;
-  Android stores `timelineNewestFirst` in device preferences (old settings default to true). Opening, reversing or
-  filtering starts at the newest end: top in newest-first, bottom in oldest-first. Live entries do not force a jump.
-  The web event viewport is at most 400px / 48dvh, keyboard focusable, with contained overscroll; Android uses a bounded
-  LazyColumn at most 400dp / 36% of screen height and a horizontally scrolling filter row. The sheet keeps its own
-  scrolling and T113 header/composer/IME budgets. Rows use quiet kind/outcome-tinted icons, actor and relative time,
-  exact time on hover (web) or long-press (Android), single-line labels, expandable secondary detail, and from → to
-  status chips. Local calendar-day separators say Today, Yesterday or a date, independent of reading direction.
-  The existing wire timeline remains chronological; no history data, endpoint, kind filter or status action changes.
-- **Reply.** `TaskReply` renders the actual coordinator `Composer`, without model/worker/task pickers. No copied shell:
-  it has the same glass card, 16px type, internal attach and arrow-up send controls, paste/drop handling, image strip,
-  autosizing and Enter/Shift+Enter rules (touch Enter is a newline). The coordinator composer itself is unchanged.
-  The hint under the card is one ellipsized line, `To the coordinator · T3`; errors remain readable, not truncated.
-  Drafts are independent per backend/project/task (`task-reply:<taskId>`, using the existing draft protocol and image
-  store), not shared with the coordinator's draft. Sending goes to main with `taskId` and `keepDraft: true`; main still
-  forwards to a holding thread. Composer clears/restores the task draft on success/failure and announces a successful
-  send politely. A close/reopen or reload retains text and images on a drafts-capable backend.
-
-Code: `TaskSheet.svelte`, `TaskSection.svelte`, `TaskSectionHeader.svelte`, `TaskReply.svelte`,
-`TaskSectionNav.svelte`, `lib/task-sheet.css`, `lib/task-sections.ts`, `lib/task-section-icons.ts`, `lib/task-sheet-meta.ts`,
-and the existing feedback/relations/timeline/media components. Compact context rules are tested in `task-sheet-meta.test.ts`;
-report order and scroll-spy selection in `task-sections.test.ts`.
+Web code: `TaskSheet.svelte`, `TaskRecordFold.svelte`, `TaskReply.svelte`, `TaskFeedback.svelte`,
+`TaskRelations.svelte`, `TaskProof.svelte`, `lib/task-sheet.css` and `lib/task-details.ts`. The state, fold
+and acceptance rules are tested in `task-details.test.ts`. The protocol, server and Android layout are unchanged.
 
 **Android Dashboard (D28, 2026-11-09).** `features/tasks/TaskSection.kt` provides the corresponding bordered theme surface,
 accent-tinted header band, 18dp section icon, 16sp bold heading and small count chip. It explicitly supplies the theme's
@@ -5389,7 +5359,7 @@ foreground as the surface content colour, so nested Markdown retains its previou
 never weighted: a free-form metadata slot is constrained to the remaining width, with the report's existing two-line
 ellipsis treatment (T31). Foldable sections retain heading/button semantics and an announced open/folded state.
 
-- **T62 removes `TaskSummary.kt`.** `TaskSheetMeta.kt` keeps the same compact context as web: waiting and subtask
+- **T62 removes `TaskSummary.kt`.** `TaskSheetMeta.kt` keeps Android's compact context: waiting and subtask
   progress in wrapping header metadata, open question/feedback and running-worker counts on section chips. It adds no reads.
 - **T43 removes the 840dp two-column layout.** Every window uses the same Questions, Report, Brief, Timeline, Feedback, Files,
   Related, Workers, Decisions, History order. The side sheet still starts at 600dp, has a maximum

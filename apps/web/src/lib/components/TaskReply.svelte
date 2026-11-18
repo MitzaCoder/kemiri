@@ -11,6 +11,9 @@
 	/** Keyed by task in TaskSheet: its draft and send result cannot leak to the next opened task. */
 	let { backend, projectId, taskId }: { backend: BackendConnection; projectId: string; taskId: string } = $props();
 	const draftId = untrack(() => `task-reply:${taskId}`);
+	let composer = $state<{ focus(): void }>();
+	export function focus(): void { composer?.focus(); }
+
 	let sent = $state(false);
 	let problem = $state<string | undefined>(undefined);
 
@@ -34,6 +37,7 @@
 
 <div aria-label="Reply about {taskId}" data-task-composer>
 	<Composer
+		bind:this={composer}
 		models={[]}
 		model={null}
 		thinkingLevel={null}

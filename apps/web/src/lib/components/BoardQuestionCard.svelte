@@ -32,6 +32,7 @@
 		onanswer,
 		onclarify,
 		compact = false,
+		plain = false,
 		strip = false,
 		optionsOnly = false
 	}: {
@@ -45,6 +46,8 @@
 		onanswer?: (question: BoardQuestion, answer: string) => Promise<AnswerOutcome>;
 		onclarify?: (question: BoardQuestion, text: string) => Promise<ClarifyOutcome>;
 		compact?: boolean;
+		/** Use the surrounding task page surface instead of a tinted card. */
+		plain?: boolean;
 		/** A single-line preview in a job band; full Markdown opens in the existing reader. */
 		strip?: boolean;
 		/** Graph preview: suggested answers only; replies and other actions stay in the full task. */
@@ -145,8 +148,8 @@
 			onkeydown={onKeydown}
 		/>
 		{#if warning}
-			<Button variant={askHighlighted ? 'outline' : 'default'} size="sm" disabled={busy} onclick={acknowledge} title={askHighlighted ? "Acknowledge the warning" : "Acknowledge (Ctrl+Enter)"} aria-label="Acknowledge {question.id}">
-				<CheckIcon />Acknowledge
+			<Button variant={askHighlighted ? 'outline' : 'default'} size="sm" disabled={busy} onclick={acknowledge} title={askHighlighted ? "Acknowledge the warning" : "Acknowledge (Ctrl+Enter)"} aria-label={plain ? `Got it: acknowledge ${question.id}` : `Acknowledge ${question.id}`}>
+				<CheckIcon />{plain ? 'Got it' : 'Acknowledge'}
 			</Button>
 		{:else}
 			<Button
@@ -233,7 +236,7 @@
 {/snippet}
 
 <div
-	class="flex min-w-0 flex-col gap-2 rounded-2xl border px-3 py-2.5 {waitingForAgent
+	class="flex min-w-0 flex-col gap-2 {plain ? 'task-question' : 'rounded-2xl border px-3 py-2.5'} {plain ? '' : waitingForAgent
 		? 'border-(--chat-border) bg-(--chat-surface)/50'
 		: warning
 		? 'border-(--chat-warning)/50 bg-(--chat-warning)/10'

@@ -10,23 +10,23 @@ import { buildGraphModel } from '../src/lib/task-graph-model.ts';
 import { closePartsQuestion, openDirectParts, saveWithCloseChoice, type OpenPartsChoice, type TaskSaveOptions } from '../src/lib/task-close.ts';
 
 function task(id: string, kind: NonNullable<BoardTask['state']>['kind'] = 'todo', since = '2026-11-01T10:00:00Z', overrides: Partial<BoardTask> = {}): BoardTask {
-	const group = ['failed', 'answer_needed', 'review'].includes(kind) ? 'needs_you' : ['working', 'paused'].includes(kind) ? 'in_progress' : ['blocked_by_task', 'waiting_outside'].includes(kind) ? 'waiting' : ['done', 'dropped'].includes(kind) ? 'closed' : 'todo';
+	const group = ['failed', 'answer_needed', 'steps_needed', 'review'].includes(kind) ? 'needs_you' : ['working', 'paused'].includes(kind) ? 'in_progress' : ['blocked_by_task', 'waiting_outside'].includes(kind) ? 'waiting' : ['done', 'dropped'].includes(kind) ? 'closed' : 'todo';
 	return { id, revision: 1, title: `Bakery ${id}`, status: 'todo', description: '', acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [], workerIds: [], order: Number(id.slice(1)), parent: null, report: { now: '', next: '', results: '', revision: 1, updatedAt: null, updatedBy: null }, createdAt: since, updatedAt: since, settledAt: null, archived: false, state: { group, kind, since, refs: [] }, ...overrides } as BoardTask;
 }
 const input = (status: BoardTaskInput['status']): BoardTaskInput => ({ title: 'Bakery task', status, description: '', acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [] });
 
 describe('derived task states', () => {
 	test('list and board share groups and kind/age/priority sorting', () => {
-		const tasks = [task('T1', 'review'), task('T2', 'answer_needed'), task('T3', 'failed', '2026-11-01T12:00:00Z'), task('T4', 'failed'), task('T5', 'paused'), task('T6', 'working'), task('T7', 'working', '2026-10-31T10:00:00Z'), task('T8', 'blocked_by_task'), task('T9', 'waiting_outside', '2026-10-31T10:00:00Z'), task('T11'), task('T10'), task('T12', 'done'), task('T13', 'dropped', '2026-11-02T10:00:00Z')];
+		const tasks = [task('T1', 'review'), task('T2', 'answer_needed'), task('T3', 'failed', '2026-11-01T12:00:00Z'), task('T4', 'failed'), task('T5', 'paused'), task('T6', 'working'), task('T7', 'working', '2026-10-31T10:00:00Z'), task('T8', 'blocked_by_task'), task('T9', 'waiting_outside', '2026-10-31T10:00:00Z'), task('T11'), task('T10'), task('T12', 'done'), task('T13', 'dropped', '2026-11-02T10:00:00Z'), task('T14', 'steps_needed')];
 		const board = { tasks, questions: [] };
 		const sections = taskSections(board);
 		expect(sections.map(s => s.id)).toEqual(['needs_you', 'in_progress', 'waiting', 'todo', 'closed']);
-		expect(sections.map(s => s.rows.map(row => row.task.id))).toEqual([['T4', 'T3', 'T2', 'T1'], ['T7', 'T6', 'T5'], ['T9', 'T8'], ['T10', 'T11'], ['T13', 'T12']]);
+		expect(sections.map(s => s.rows.map(row => row.task.id))).toEqual([['T4', 'T3', 'T2', 'T14', 'T1'], ['T7', 'T6', 'T5'], ['T9', 'T8'], ['T10', 'T11'], ['T13', 'T12']]);
 		const columns = kanbanColumns(board, { stateEnabled: true });
 		expect(columns.map(c => c.label)).toEqual(['Needs you', 'In progress', 'Waiting', 'To do', 'Closed']);
 		expect(columns.map(c => c.cards.map(card => card.task.id))).toEqual(sections.map(s => s.rows.map(row => row.task.id)));
-		expect(needsYouCount(board)).toBe(4);
-		expect(kanbanColumns(board, { stateEnabled: true, onlyNeedsYou: true }).flatMap(c => c.cards).length).toBe(4);
+		expect(needsYouCount(board)).toBe(5);
+		expect(kanbanColumns(board, { stateEnabled: true, onlyNeedsYou: true }).flatMap(c => c.cards).length).toBe(5);
 		expect(sections.at(-1)?.collapsedByDefault).toBe(true);
 	});
 	test('missing capability strips the field; missing field keeps the original status groups', () => {
@@ -67,11 +67,11 @@ describe('derived task states', () => {
 		expect(taskStateLabel(blocked, [{ id: 'T7', title: 'Repair the oven' }])).toBe('Blocked by T7 Repair the oven');
 	});
 	test('graph maps state colour keys and attention reasons, preserving legacy exports', () => {
-		const tasks = ['failed', 'answer_needed', 'review', 'working', 'paused', 'blocked_by_task'].map((kind, i) => task(`T${i + 1}`, kind as NonNullable<BoardTask['state']>['kind']));
-		expect(tasks.map(graphTaskState)).toEqual(['failed', 'answer_needed', 'review', 'working', 'paused', 'blocked_by_task']);
-		expect(buildTaskGraph(tasks, [], [], []).nodes.map(n => n.attention)).toEqual([true, true, true, false, false, false]);
+		const tasks = ['failed', 'answer_needed', 'steps_needed', 'review', 'working', 'paused', 'blocked_by_task'].map((kind, i) => task(`T${i + 1}`, kind as NonNullable<BoardTask['state']>['kind']));
+		expect(tasks.map(graphTaskState)).toEqual(['failed', 'answer_needed', 'steps_needed', 'review', 'working', 'paused', 'blocked_by_task']);
+		expect(buildTaskGraph(tasks, [], [], []).nodes.map(n => n.attention)).toEqual([true, true, true, true, false, false, false]);
 		const model = buildGraphModel(tasks, [], [], [], Date.now());
-		expect([...model.details.values()].map(d => d.reasons)).toEqual([['failed'], ['question'], ['review'], [], [], ['waiting']]);
+		expect([...model.details.values()].map(d => d.reasons)).toEqual([['failed'], ['question'], ['steps'], ['review'], [], [], ['waiting']]);
 	});
 });
 
@@ -104,7 +104,7 @@ describe('close-parent choice on every save path', () => {
 
 describe('one state sentence per compact row/card', () => {
 	const cases = [
-		['failed', 'Failed'], ['answer_needed', 'Answer needed'], ['review', 'Ready for review'],
+		['failed', 'Failed'], ['answer_needed', 'Answer needed'], ['steps_needed', 'Your steps'], ['review', 'Ready for review'],
 		['working', 'Working'], ['paused', 'Paused'], ['blocked_by_task', 'Blocked by T7'],
 		['waiting_outside', 'Waiting'], ['todo', 'To do'], ['done', 'Done'], ['dropped', 'Dropped'],
 	] as const;

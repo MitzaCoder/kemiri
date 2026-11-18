@@ -5,6 +5,7 @@
 	import { taskRowActivity } from '#lib/task-activity.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
+	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import LinkIcon from '@lucide/svelte/icons/link';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
@@ -97,6 +98,8 @@
 	<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
 		{#if needsYou && (warned || task.state?.kind === 'failed')}
 			<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
+		{:else if task.state?.kind === 'steps_needed'}
+			<ListChecksIcon class="size-3.5 text-(--task-status)" />
 		{:else if needsYou && (!task.state || task.state.kind === 'answer_needed')}
 			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 		{:else}

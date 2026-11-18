@@ -46,6 +46,8 @@ export function taskRowActivity(task: BoardTask, enabled: boolean, tasks: readon
 	if (!state) return activity;
 	if (activity && taskUsesPartsSentence(task)) return activity;
 	if (state.sentence) return state.sentence;
+	// Review activity can describe a separate check; never use it to label manual steps.
+	if (state.kind === 'steps_needed') return { kind: 'review', text: taskStateLabel(task)!, since: state.since, refs: state.refs, ageFormat: 'none' };
 	const conveysState: Partial<Record<typeof state.kind, readonly BoardTaskActivity['kind'][]>> = {
 		failed: ['failure'], answer_needed: ['question'], review: ['review'],
 		working: ['working', 'deploy'], blocked_by_task: ['blocked'],

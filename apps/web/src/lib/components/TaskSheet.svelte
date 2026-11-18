@@ -1,31 +1,29 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { drillIntoTask } from "#lib/task-navigation.js";
 	import { timelineGroupsSupported } from '#lib/timeline-groups.js';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity.js';
-	import CardMarkdown from './markdown/CardMarkdown.svelte';
 	import { provideOpenTaskId } from '#lib/task-detail-context.js';
 	import TaskDetailText from './TaskDetailText.svelte';
 	import TaskText from './chat/TaskText.svelte';
-	import ReportSectionFreshness from './ReportSectionFreshness.svelte';
 	import ReportStaleAction from './ReportStaleAction.svelte';
 	import { reportFreshnessEnabled, emptyFinishedResults } from '#lib/report-freshness.js';
 	import { taskSheetViewport } from '#lib/task-sheet-viewport.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
-	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import LayersIcon from '@lucide/svelte/icons/layers';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import '#lib/task-sheet.css';
-	import { TASK_SHEET_REPORT_SECTIONS } from '#lib/task-sections.js';
-	import { taskSheetMeta, taskWorkerCount } from '#lib/task-sheet-meta.js';
 	import { openFeedbackCount } from '#lib/task-relations.js';
+	import { acceptanceMarkdown, taskDetailState, taskNeedsYou } from '#lib/task-details.js';
+	import { threadHref } from '#lib/backends.js';
+	import { splitMedia } from '#lib/media-gallery.js';
+	import TaskRecordFold from './TaskRecordFold.svelte';
+	import TaskProof from './artifacts/TaskProof.svelte';
+	import { waitingSummary } from '#lib/task-waiting.js';
 	import TaskReply from '#lib/components/TaskReply.svelte';
-	import TaskSectionNav from '#lib/components/TaskSectionNav.svelte';
-	import TaskSection from '#lib/components/TaskSection.svelte';
 	import { formatMinutes } from '@kemiri/client';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -51,7 +49,7 @@
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
-	import { REPORT_SECTIONS, shortWriterLabel, taskFromUrl, taskRefs, waitingOn, withTask } from '#lib/tasks.js';
+	import { shortWriterLabel, taskFromUrl, taskRefs, withTask } from '#lib/tasks.js';
 	import { questionAskedBy, taskOwner, threadName } from '#lib/threads.js';
 	import SelectionQuote from '#lib/components/chat/SelectionQuote.svelte';
 	import type {
@@ -66,13 +64,7 @@
 		WorkerSummary
 	} from '@kemiri/protocol';
 
-	/**
-	 * A task as a sheet over the project chat, opened by `?task=T12` on main's page or a thread's: a wide panel on a
-	 * desktop, the whole screen on a phone. Questions lead a single column of section cards with sticky section navigation.
-	 * Report, feedback and files follow, then references, folded history and brief. The user closes the task from here (Done, Drop, Reopen) and talks about it in the reply box, which
-	 * sends to main's conversation with the task's ID. Text selected in the task can be quoted into the chat's message
-	 * (`onquote`): the sheet closes so the message can be written.
-	 */
+	/** Task details over the project chat. Linked tasks keep a return trail; quoted text returns to chat. */
 	let {
 		backend,
 		projectId,
@@ -153,9 +145,7 @@
 	let waitingForm = $state(false);
 	let problem = $state<string | undefined>(undefined);
 	let closing = $state(false);
-	let briefOpen = $state(true);
-	let historyOpen = $state(false);
-	let timelineOpen = $state(false);
+	let reply = $state<{ focus(): void }>();
 
 	// The timeline and the feedback come from one read, repeated when anything the board carries about the task moves.
 	let timelineEntries = $state<BoardTimelineEntry[] | undefined>(undefined);
@@ -171,8 +161,6 @@
 		confirmDrop = false;
 		waitingForm = false;
 		problem = undefined;
-		historyOpen = false;
-		timelineOpen = false;
 		timelineEntries = undefined;
 		timelineGroups = undefined;
 		timelineError = undefined;
@@ -180,31 +168,25 @@
 		feedbackProblem = undefined;
 	});
 
-	// A fresh opening starts expanded, even when reopening the same task.
-	$effect(() => {
-		if (requestedId !== null) briefOpen = true;
-	});
-
 	const tasks = $derived(board?.tasks ?? []);
-	const questions = $derived(board?.board === undefined || task === undefined ? [] : waitingOn(board.board.questions, task.id));
 	const decisions = $derived(board?.board === undefined || task === undefined ? [] : decisionsFor(board.board.decisions, task.id));
 	const blockers = $derived(task === undefined ? [] : blockersOf(task, tasks).filter((blocker) => !blocker.settled));
+	const needsYou = $derived(task === undefined ? undefined : taskNeedsYou(task, board?.board?.questions ?? [], blockers.length > 0, backend.supports('task-steps')));
 	const owner = $derived(task === undefined ? undefined : taskOwner(task, threads));
 	const taskWorkers = $derived(
 		task === undefined ? [] : task.workerIds.map((id) => ({ id, worker: workers.find((entry) => entry.id === id) }))
 	);
-	const report = $derived(task?.report);
-	const automaticActivity = $derived(task === undefined ? undefined : automaticTaskActivity(task, taskActivitySupported(backend.connection.features)));
-	const hasReport = $derived(automaticActivity !== undefined || (report !== undefined && REPORT_SECTIONS.some(({ key }) => report[key].trim().length > 0)));
-
+	const activity = $derived(task === undefined ? undefined : automaticTaskActivity(task, taskActivitySupported(backend.connection.features)));
+	const showNow = $derived(task?.status === 'in_progress' && (activity ? ['working', 'deploy', 'idle', 'unknown'].includes(activity.kind) : Boolean(task.report.now.trim())));
 	const supportsLinks = $derived(backend.supports('task-links'));
-	const supportsFreshness = $derived(task !== undefined && reportFreshnessEnabled(backend.supports('task-freshness'), task));
+	const staleReport = $derived(Boolean(task && reportFreshnessEnabled(backend.supports('task-freshness'), task) &&
+		(task.report.freshness?.results.stale || task.report.freshness?.next.stale)));
 
 	const supportsTimelineGroups = $derived(timelineGroupsSupported(backend.connection.features));
 	// A stable primitive prevents activity/report-only board pushes from re-reading grouped history.
 	const timelineReadKey = $derived.by(() => {
 		if (!task || !board || !supportsLinks || (supportsTimelineGroups && (requestedId === null || backend.connection.status !== 'ready'))) return undefined;
-		const revision = supportsTimelineGroups ? task.timelineRevision ?? 0 : [task.timelineRevision, task.snapshots, task.feedback, task.status, task.report.revision, task.revision, questions.length, decisions.length];
+		const revision = supportsTimelineGroups ? task.timelineRevision ?? 0 : [task.timelineRevision, task.snapshots, task.feedback, task.status, task.report.revision, task.revision, needsYou?.ownerQuestions.length, needsYou?.questionsForAgent.length, decisions.length];
 		return JSON.stringify([backend.id, projectId, task.id, supportsTimelineGroups, revision]);
 	});
 	$effect(() => {
@@ -254,6 +236,7 @@
 			: undefined
 	);
 	const artifacts = $derived(artifactFeed.current?.artifacts ?? []);
+	const proof = $derived(splitMedia(artifacts).media.slice(0, 3));
 
 	async function updateArtifactTags(artifact: Artifact, tags: string[]): Promise<void> {
 		const row = await backend.client.updateArtifactTags(projectId, artifact.id, tags);
@@ -270,6 +253,14 @@
 
 	function close(): void {
 		void goto(withTask(page.url, null), { replace: true, reset: false });
+	}
+
+	async function completeReview(): Promise<void> {
+		await setStatus('done');
+		await tick();
+		if (task?.status === 'done' && document.activeElement === document.body) {
+			sheet?.querySelector<HTMLElement>('[data-status-trigger]')?.focus();
+		}
 	}
 
 	async function setStatus(target: BoardTaskStatus, waitingFor?: string, waitUntil?: string): Promise<void> {
@@ -314,7 +305,7 @@
 		{#if task === undefined}
 			<header class="flex shrink-0 items-center gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
 				<Dialog.Title class="min-w-0 flex-1 truncate text-base font-semibold">{taskId ?? 'Task'}</Dialog.Title>
-				<Button variant="ghost" size="icon-sm" onclick={close} aria-label="Close the task" title="Close"><XIcon /></Button>
+				<Button variant="ghost" size="icon-sm" onclick={close} aria-label="Close the task page" title="Close the task page"><XIcon /></Button>
 			</header>
 			{#if board === undefined || !board.loaded || !lookedUp}
 				<div class="flex flex-col gap-2 px-4 py-6" role="status" aria-busy="true" aria-label="Loading {taskId ?? 'the task'}">
@@ -340,20 +331,16 @@
 				{/if}
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-xs text-(--chat-fg-subtle)">{task.id}</span>
-					<TaskStatusMenu status={task.status} {task} disabled={closing} supportsWaiting={backend.supports('task-waiting')} onpick={(status) => {
+					<TaskStatusMenu status={task.status} {task} label={taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing} supportsWaiting={backend.supports('task-waiting')} onpick={(status) => {
 						confirmDrop = status === 'dropped';
 						waitingForm = status === 'waiting';
 						if (!confirmDrop && !waitingForm) void setStatus(status);
 					}} />
 					<span class="flex-1"></span>
 					{#if !editing}
-						<Button variant="ghost" size="icon-sm" onclick={() => (editing = true)} aria-label="Edit {task.id}" title="Edit the task">
-							<PencilIcon />
-						</Button>
+						<Button variant="ghost" size="icon-sm" class="size-11" onclick={() => (editing = true)} aria-label="Edit {task.id}" title="Edit the task"><PencilIcon /></Button>
 					{/if}
-					<Button variant="ghost" size="icon-sm" onclick={close} aria-label="Close the task" title="Close">
-						<XIcon />
-					</Button>
+					<Button variant="ghost" size="icon-sm" class="size-11" onclick={close} aria-label="Close the task page" title="Close the task page"><XIcon /></Button>
 				</div>
 				<Dialog.Title class="text-lg leading-snug font-semibold break-words"
 					>{#each splitRefMentions(task.title, refLinks()?.links) as piece, index (index)}{#if piece.href}<a
@@ -366,23 +353,6 @@
 				{#key task.id}
 					{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} />{/if}
 				{/key}
-				<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-(--chat-fg-subtle)">
-					{#if task.inProgressMinutes !== undefined && (task.inProgressMinutes > 0 || task.status === 'in_progress')}
-						<span data-in-progress>{formatMinutes(task.inProgressMinutes)} in progress</span>
-						<span aria-hidden="true">·</span>
-					{/if}
-					<span title={exactTime(task.updatedAt)}>Updated {ago(task.updatedAt)}</span>
-					{#if owner?.claimed && !owner.main}
-						<span aria-hidden="true">·</span>
-						<span class="inline-flex items-center gap-1"><LayersIcon class="size-3" aria-hidden="true" /><TaskDetailText text={owner.label} /></span>
-					{/if}
-					{#each taskSheetMeta(task) as context (context)}
-						<span aria-hidden="true">·</span><span class="min-w-0 break-words" data-task-context>{context}</span>
-					{/each}
-					{#if task.archived}
-						<span aria-hidden="true">·</span><span>Archived</span>
-					{/if}
-				</p>
 
 				{#if waitingForm}
 					<TaskWaitingForm waiting={task.waiting} busy={closing} onsave={(note, until)=>setStatus('waiting',note,until)} oncancel={()=>waitingForm=false}/>
@@ -394,289 +364,181 @@
 				{/if}
 			</header>
 
-			<div class="task-body-frame relative flex min-h-0 flex-1 flex-col">
-				<div
-					bind:this={body}
-					data-navigation-scroll="task-body"
-					use:overlayScroll={'parent'}
-					class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
-					data-task-body
-				>
-					{#key task.id}
-						<div class="task-body-layout">
-							{#if !editing}<TaskSectionNav root={body} />{/if}
-							<div class="task-sections flex min-w-0 flex-col gap-5">
-							{#if editing}
-								<BoardTaskEditor
-									{task}
-									{tasks}
-									onsave={(input, options) => board!.saveTask(input, options)}
-									onback={() => (editing = false)}
-								/>
-							{:else}
-								{#snippet questionsSection()}
-									{#if questions.length > 0}
-										<TaskSection
-											title="Questions"
-											kind="questions"
-											count={questions.length + ' open'}
-											class="flex flex-col gap-2"
-											data-needs-you
-										>
-											{#each questions as question (question.id)}
-												<BoardQuestionCard
-													{question}
-													askedBy={questionAskedBy(question, threads)}
-													onclarify={board?.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined}
-													onanswer={(entry, text) => board!.answer(entry.id, entry.revision, text)}
-												/>
-											{/each}
-										</TaskSection>
-									{/if}
-								{/snippet}
-								{#snippet blockedSection()}
-									{#if task.status === 'blocked' && (task.blockedReason || blockers.length > 0)}
-										<section
-											class="flex flex-col gap-1.5 rounded-xl border border-(--chat-danger)/30 px-3 py-2.5 text-task"
-											aria-label="Blocked"
-										>
-											{#if task.blockedReason}<div class="break-words text-(--chat-danger)"><Markdown source={task.blockedReason} /></div>{/if}
-											{#if blockers.length > 0}
-												<p class="flex flex-wrap items-center gap-1.5 text-xs text-(--chat-fg-muted)">
-													Waits for
-													{#each blockers as blocker (blocker.id)}
-														<a
-															href={withTask(page.url, blocker.id)}
-															class="rounded-md border border-(--chat-border) px-1.5 py-0.5 hover:bg-(--chat-surface-2)"
-															title={blocker.title}
-														>
-															<span class="font-mono">{blocker.id}</span>{#if blocker.title} · <TaskDetailText text={blocker.title} focusable={false} />{/if}
-														</a>
-													{/each}
-												</p>
-											{/if}
-										</section>
-									{/if}
-								{/snippet}
-								{#snippet reportSection()}
-									<TaskSection
-										title="Report"
-										kind="report"
-										count={hasReport ? 'Current update' : undefined}
-										class="flex flex-col gap-3"
-										data-report
-									>
-										{#snippet meta()}<span class="inline-flex items-center gap-2 text-[0.6875rem] text-(--chat-fg-subtle)">
-												{#if task.report.updatedAt !== null}
-													<span title={exactTime(task.report.updatedAt)}>{ago(task.report.updatedAt)}</span>
-													{#if task.report.updatedBy}· {writerName(task.report.updatedBy)}{/if}
-												{/if}
-												{#if supportsFreshness}<ReportStaleAction {backend} {projectId} taskId={task.id} />{/if}
-											</span>{/snippet}
-										{#if supportsFreshness && report?.freshness}
-											{#each TASK_SHEET_REPORT_SECTIONS as section (section.key)}
-												{#if (section.key === 'now' && automaticActivity) || report[section.key].trim().length > 0 || (section.key === 'results' && emptyFinishedResults(task))}
-													<div data-report-section={section.key}>
-														<p class="mb-0.5 text-xs font-semibold text-(--chat-fg-muted)">{section.label}</p>
-														{#if section.key === 'now' && automaticActivity}<TaskActivityLine activity={automaticActivity} />
-														{:else if section.key === 'results' && emptyFinishedResults(task)}
-															<div class="text-task text-(--chat-fg-muted)">No results yet · work finished</div>
-														{:else}<Markdown source={report[section.key]} class="report-md" />{/if}
-														{#if section.key !== 'now'}<ReportSectionFreshness section={report.freshness[section.key]} emptyResults={section.key === 'results' && emptyFinishedResults(task)} />{/if}
-													</div>
-												{/if}
-											{/each}
-											{#if !hasReport && !emptyFinishedResults(task)}<p class="text-task text-(--chat-fg-subtle)">Nothing written yet. The agents fill this in as they work.</p>{/if}
-										{:else if hasReport && report}
-											{#each TASK_SHEET_REPORT_SECTIONS as section (section.key)}
-												{#if (section.key === 'now' && automaticActivity) || report[section.key].trim().length > 0}
-													<div data-report-section={section.key}>
-														<p class="mb-0.5 text-xs font-semibold text-(--chat-fg-muted)">{section.label}</p>
-														{#if section.key === 'now' && automaticActivity}<TaskActivityLine activity={automaticActivity} />{:else}<Markdown source={report[section.key]} class="report-md" />{/if}
-													</div>
-												{/if}
-											{/each}
-										{:else}
-											<p class="text-task text-(--chat-fg-subtle)">Nothing written yet. The agents fill this in as they work.</p>
+			<div class="relative flex min-h-0 flex-1 flex-col">
+				<div bind:this={body} data-navigation-scroll="task-body" use:overlayScroll={'parent'}
+					class="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-task-body>
+					{#key `${backend.id}/${projectId}/${task.id}`}
+						{#if editing}
+							<div class="task-reading mx-auto"><BoardTaskEditor {task} {tasks}
+								onsave={(input, options) => board!.saveTask(input, options)} onback={() => (editing = false)} /></div>
+						{:else}
+							<div class="task-details-layout">
+								<div class="task-reading">
+									{#snippet questionCard(question: NonNullable<typeof needsYou>['ownerQuestions'][number])}
+										<BoardQuestionCard {question} plain askedBy={questionAskedBy(question, threads)}
+											onclarify={board?.clarifyEnabled ? (entry, text) => board!.clarify(entry.id, entry.revision, text) : undefined}
+											onanswer={(entry, text) => board!.answer(entry.id, entry.revision, text)} />
+									{/snippet}
+									{#if needsYou?.show}
+										<section class="task-needs-you" aria-label="Needs you" data-needs-you>
+											<h2 class="task-detail-heading">Needs you</h2>
+											{#each needsYou.ownerQuestions as question (question.id)}{@render questionCard(question)}{/each}
+											{#if needsYou.stepsMarkdown}
+											<div class="flex flex-col gap-3" data-task-steps>
+												<h3 class="font-semibold">Your steps</h3>
+												<Markdown source={needsYou.stepsMarkdown} class="task-detail-markdown" />
+											</div>
 										{/if}
-									</TaskSection>
-								{/snippet}
-								{#snippet feedbackSection()}
-									{#if supportsLinks}
-										<TaskFeedback
-											entries={feedbackEntries}
-											openCount={task.feedback === undefined ? undefined : openFeedbackCount(task)}
-											busy={feedbackBusy}
-											problem={feedbackProblem}
-											onset={setFeedback}
-											threadName={(id) => threadName(id, threads)}
-										/>
-									{/if}
-								{/snippet}
-								{#snippet relatedSection()}
-									<TaskRelations
-										{task}
-										{tasks}
-										archivedLinks={board?.archivedLinks}
-										hrefOf={(id) => withTask(page.url, id)}
-										onshowlinked={onshowlinked === undefined ? undefined : showLinked}
-									/>
-								{/snippet}
-								{#snippet decisionsSection()}
-									{#if decisions.length > 0}
-										<TaskSection title="Decisions" kind="decisions" count={decisions.length} class="flex flex-col gap-1.5">
-											<ul class="flex flex-col gap-1.5">
-												{#each decisions as decision (decision.id)}
-													<li class="rounded-xl border border-(--chat-border)/70 px-3 py-2 text-task">
-														<span class="font-mono text-xs text-(--chat-fg-subtle)">{decision.id}</span>
-														<CardMarkdown source={decision.text} />
-														{#if decision.why}<div class="mt-1 text-(--chat-fg-muted)"><CardMarkdown source={decision.why} /></div>{/if}
-														<p class="mt-0.5 text-[0.6875rem] text-(--chat-fg-subtle)">{ago(decision.at)}</p>
-													</li>
-												{/each}
-											</ul>
-										</TaskSection>
-									{/if}
-								{/snippet}
-								{#snippet workersSection()}
-									{#if taskWorkers.length > 0}
-										<TaskSection title="Workers" kind="workers" count={taskWorkerCount(taskWorkers.length, taskWorkers.filter((entry) => entry.worker?.status === 'running').length)} class="flex flex-col gap-1.5">
-											<ul class="flex flex-col gap-1">
-												{#each taskWorkers as entry (entry.id)}
-													<li class="min-w-0">
-														{#if entry.worker !== undefined}
-															<a
-																href={workerHref(entry.worker)}
-																class="flex min-w-0 items-center gap-2 rounded-lg border border-(--chat-border)/70 px-3 py-1.5 text-[0.8125rem] hover:bg-(--chat-surface-2)/70"
-																data-worker={entry.worker.id}
-															>
-																<span class="min-w-0 flex-1 truncate font-medium"><TaskDetailText text={entry.worker.title || entry.worker.id} focusable={false} /></span>
-																<WorkerStatusBadge status={entry.worker.status} class="shrink-0" />
-																<ChevronRightIcon class="size-3.5 shrink-0 text-(--chat-fg-subtle)" />
-															</a>
-														{:else}
-															<span
-																class="block truncate px-3 py-1.5 font-mono text-xs text-(--chat-fg-subtle)"
-																title="This worker was forgotten"
-															>
-																{entry.id}
-															</span>
-														{/if}
-													</li>
-												{/each}
-											</ul>
-										</TaskSection>
-									{/if}
-								{/snippet}
-								{#snippet filesSection()}
-									{#if artifacts.length > 0}
-										<TaskSection title="Files" kind="files" count={artifacts.length} class="flex flex-col gap-2">
-											<TaskFiles
-												{artifacts}
-												client={backend.client}
-												{projectId}
-												onupdatetags={backend.supports('artifact-tags') ? updateArtifactTags : undefined}
-											/>
-										</TaskSection>
-									{/if}
-								{/snippet}
-								{#snippet briefSection()}
-									{#if task.description.trim().length > 0 || (task.acceptance ?? '').trim().length > 0}
-										<TaskSection
-											title="Brief"
-											kind="brief"
-											count={'Reference'}
-											expanded={briefOpen}
-											ontoggle={() => (briefOpen = !briefOpen)}
-											class="flex flex-col gap-1.5"
-										>
-											{#if briefOpen}
-												<div class="flex flex-col gap-2">
-													{#if task.description.trim().length > 0}
-														<Markdown source={task.description} class="report-md" />
-													{/if}
-													{#if task.acceptance}
-														<div>
-															<p class="mb-0.5 text-xs font-semibold text-(--chat-fg-muted)">Done when</p>
-															<Markdown source={task.acceptance} class="report-md" />
-														</div>
+										{#if needsYou.review}
+												<div class="flex flex-col gap-3">
+													<h3 class="font-semibold">Check the work</h3>
+													{#if task.report.next.trim()}<Markdown source={task.report.next} class="task-detail-markdown" />{/if}
+													<div class="flex flex-wrap gap-2">
+														<Button class="min-h-11" disabled={closing} onclick={completeReview}>It works: close the task</Button>
+														<Button class="min-h-11" variant="outline" onclick={() => reply?.focus()}>Something is off…</Button>
+													</div>
+												</div>
+											{/if}
+											{#if needsYou.blocked}
+												<div class="flex flex-col gap-1">
+													{#if task.blockedReason}<Markdown source={task.blockedReason} class="task-detail-markdown" />{/if}
+													{#if blockers.length > 0}
+														<h3 class="task-detail-heading">Blocked by</h3>
+														<ul>{#each blockers as blocker (blocker.id)}
+															<li><a class="task-fact-link" href={withTask(page.url, blocker.id)}><TaskDetailText text={blocker.title || 'Not on the board'} focusable={false} /> <span class="task-id-chip">{blocker.id}</span></a></li>
+														{/each}</ul>
 													{/if}
 												</div>
 											{/if}
-										</TaskSection>
+											</section>
 									{/if}
-								{/snippet}
-								{#snippet timelineSection()}
-									{#if supportsLinks && (timelineGroups !== undefined || (timelineEntries !== undefined && timelineEntries.length > 0))}
-										<TaskSection
-											title="Timeline"
-											kind="timeline"
-											count={timelineGroups === undefined ? timelineEntries?.length : `${timelineGroups.length} ${timelineGroups.length === 1 ? 'group' : 'groups'}`}
-											expanded={timelineOpen}
-											ontoggle={() => (timelineOpen = !timelineOpen)}
-											class="flex flex-col gap-2"
-											data-timeline
-										>
-											{#snippet meta()}
-												<button type="button" class="inline-flex size-11 items-center justify-center rounded-lg hover:bg-(--chat-surface-2)" aria-label={timelineOrder.order === 'newest' ? 'Newest first; show oldest first' : 'Oldest first; show newest first'} title={timelineOrder.order === 'newest' ? 'Newest first' : 'Oldest first'} onclick={() => timelineOrder.toggle()} data-timeline-order>
-													{#if timelineOrder.order === 'newest'}<ArrowDownWideNarrowIcon class="size-4" />{:else}<ArrowUpWideNarrowIcon class="size-4" />{/if}
-												</button>
-											{/snippet}
-											{#if timelineOpen}
-												<TaskTimeline
-													entries={timelineEntries}
-													groups={timelineGroups}
-													error={timelineError}
-													{writerName}
-													workerHref={(id) => {
-														const worker = workers.find((entry) => entry.id === id);
-														return worker === undefined ? undefined : workerHref(worker);
-													}}
-													taskHref={(id) => withTask(page.url, id)}
-												/>
+
+									<section class="task-reading-section" aria-label="What you get">
+										<h2 class="task-detail-heading">What you get</h2>
+										{#if staleReport}
+											<div class="task-stale-report flex min-h-11 flex-wrap items-center gap-x-1 text-(--chat-fg-muted)"><span>Report may be out of date.</span><ReportStaleAction {backend} {projectId} taskId={task.id} /></div>
+										{/if}
+										{#if task.report.results.trim()}<Markdown source={task.report.results} class="task-detail-markdown" />
+										{:else}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
+										{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
+									</section>
+
+									{#if showNow || (!needsYou?.review && task.report.next.trim())}
+										<section class="task-reading-section" aria-label="Next">
+											<h2 class="task-detail-heading">Next</h2>
+											{#if showNow}
+												<div class="flex flex-wrap items-baseline gap-x-2"><span class="text-sm font-medium text-(--chat-fg-muted)">Now</span>
+													{#if activity}<TaskActivityLine {activity} />{:else}<Markdown source={task.report.now} class="task-detail-markdown" />{/if}
+												</div>
 											{/if}
-										</TaskSection>
+											{#if !needsYou?.review && task.report.next.trim()}<Markdown source={task.report.next} class="task-detail-markdown" />{/if}
+										</section>
 									{/if}
-								{/snippet}
-								{#snippet historySection()}
-									{#if task.snapshots > 0}
-										<TaskSection
-											title="History"
-											kind="history"
-											count={task.snapshots}
-											expanded={historyOpen}
-											ontoggle={() => (historyOpen = !historyOpen)}
-											class="flex flex-col gap-2"
-										>
-											{#if historyOpen && board !== undefined}
-												<TaskHistory {board} {task} {writerName} />
+									{#if needsYou?.questionsForAgent.length}
+										<section class="task-reading-section" aria-label="Waiting for an agent reply">
+											<h2 class="task-detail-heading">Waiting for an agent reply</h2>
+											{#each needsYou.questionsForAgent as question (question.id)}{@render questionCard(question)}{/each}
+										</section>
+									{/if}
+
+									{#if supportsLinks && (feedbackEntries.length || openFeedbackCount(task) || feedbackProblem || timelineError)}
+										<section class="task-reading-section" aria-label="Your notes">
+											<h2 class="task-detail-heading">Your notes</h2>
+											<TaskFeedback entries={feedbackEntries} openCount={openFeedbackCount(task)} busy={feedbackBusy}
+												problem={feedbackProblem ?? timelineError} onset={setFeedback} threadName={(id) => threadName(id, threads)} />
+										</section>
+									{/if}
+
+									<section aria-label="The record">
+										<h2 class="task-detail-heading mb-2">The record</h2>
+										<TaskRecordFold row="request" title="The request">
+											{#if task.description.trim()}<Markdown source={task.description} class="task-detail-markdown" />
+											{:else if !task.acceptance?.trim()}<p class="text-(--chat-fg-muted)">No request written.</p>{/if}
+											{#if task.acceptance?.trim()}
+												<div><h4 class="mb-1 font-semibold">Done when</h4><Markdown source={acceptanceMarkdown(task.acceptance)} class="task-detail-markdown" /></div>
 											{/if}
-										</TaskSection>
+										</TaskRecordFold>
+										{#if decisions.length > 0}
+											<TaskRecordFold row="decided" title="Decided">
+												<ul class="flex flex-col gap-3">
+													{#each decisions as decision (decision.id)}
+														<li><p class="text-xs text-(--chat-fg-muted)" title={exactTime(decision.at)}>{decision.id} · {ago(decision.at)}</p>
+															<Markdown source={decision.text} class="task-detail-markdown" />
+															{#if decision.why}<div class="text-(--chat-fg-muted)"><Markdown source={decision.why} class="task-detail-markdown" /></div>{/if}
+														</li>
+													{/each}
+												</ul>
+											</TaskRecordFold>
+										{/if}
+										{#if supportsLinks || task.snapshots > 0}
+											<TaskRecordFold row="activity" title="Activity">
+												{#if supportsLinks}
+													<div class="flex items-center justify-between" data-timeline>
+														<h4 class="task-detail-heading">Timeline</h4>
+														<button type="button" class="inline-flex size-11 items-center justify-center rounded-lg hover:bg-(--chat-surface-2)" aria-label={timelineOrder.order === 'newest' ? 'Newest first; show oldest first' : 'Oldest first; show newest first'} title={timelineOrder.order === 'newest' ? 'Newest first' : 'Oldest first'} onclick={() => timelineOrder.toggle()} data-timeline-order>
+															{#if timelineOrder.order === 'newest'}<ArrowDownWideNarrowIcon class="size-4" />{:else}<ArrowUpWideNarrowIcon class="size-4" />{/if}
+														</button>
+													</div>
+													<TaskTimeline entries={timelineEntries} groups={timelineGroups} error={timelineError} {writerName}
+														workerHref={(id) => { const worker = workers.find(entry => entry.id === id); return worker ? workerHref(worker) : undefined; }}
+														taskHref={(id) => withTask(page.url, id)} />
+												{/if}
+												{#if task.snapshots > 0 && board}
+													<h4 class="task-detail-heading">History</h4>
+													<TaskHistory {board} {task} {writerName} />
+												{/if}
+											</TaskRecordFold>
+										{/if}
+									</section>
+								</div>
+
+								<aside class="task-about" aria-label="About this task">
+									<h2 class="task-detail-heading">About this task</h2>
+									<dl class="task-facts">
+										{#if activity?.kind === 'delivery' || (activity?.kind === 'deploy' && task.status !== 'in_progress')}
+											<div><dt>Delivery</dt><dd><TaskActivityLine {activity} /></dd></div>
+										{/if}
+										{#if owner}<div><dt>Owner thread</dt><dd>{#if owner.threadId}<a class="task-fact-link underline" href={threadHref(backend.id, projectId, owner.threadId)}>{owner.label}</a>{:else}{owner.label}{/if}</dd></div>{/if}
+										{#if task.status === 'waiting' && task.waiting}<div><dt>Waiting details</dt><dd><TaskDetailText text={waitingSummary(task)} /></dd></div>{/if}
+										{#if task.archived}<div><dt>Status</dt><dd>Archived</dd></div>{/if}
+									</dl>
+									<TaskRelations {task} {tasks} archivedLinks={board?.archivedLinks} hrefOf={(id) => withTask(page.url, id)}
+										blockersInNeedsYou={needsYou?.blocked ? blockers.map(blocker => blocker.id) : []}
+										onshowlinked={onshowlinked === undefined ? undefined : showLinked} />
+									{#if artifacts.length > 0}
+										<details>
+											<summary class="task-fold task-detail-heading">Files ({artifacts.length})</summary>
+											<TaskFiles {artifacts} client={backend.client} {projectId} onupdatetags={backend.supports('artifact-tags') ? updateArtifactTags : undefined} />
+										</details>
 									{/if}
-								{/snippet}
-								{@render questionsSection()}
-								{@render blockedSection()}
-								{@render reportSection()}
-								{@render briefSection()}
-								{@render timelineSection()}
-								{@render feedbackSection()}
-								{@render filesSection()}
-								{@render relatedSection()}
-								{@render workersSection()}
-								{@render decisionsSection()}
-								{@render historySection()}
-							{/if}
-						</div>
-						</div>
+									{#if taskWorkers.length > 0}
+										<div><h3 class="task-detail-heading">Workers</h3>
+											<ul>{#each taskWorkers as entry (entry.id)}
+												<li>{#if entry.worker}
+													<a class="task-fact-link" href={workerHref(entry.worker)} data-worker={entry.id}>
+														<TaskDetailText text={entry.worker.title || entry.id} focusable={false} /> <WorkerStatusBadge status={entry.worker.status} />
+													</a>
+												{:else}<span class="text-(--chat-fg-muted)" title="This worker was forgotten">{entry.id}</span>{/if}</li>
+											{/each}</ul>
+										</div>
+									{/if}
+									<dl class="task-facts">
+										<div><dt>Created</dt><dd><time datetime={task.createdAt} title={exactTime(task.createdAt)}>{ago(task.createdAt)}</time></dd></div>
+										<div><dt>Updated</dt><dd><time datetime={task.updatedAt} title={exactTime(task.updatedAt)}>{ago(task.updatedAt)}</time></dd></div>
+										{#if task.settledAt}<div><dt>Closed</dt><dd><time datetime={task.settledAt} title={exactTime(task.settledAt)}>{ago(task.settledAt)}</time></dd></div>{/if}
+										{#if task.inProgressMinutes !== undefined && task.inProgressMinutes > 0}<div><dt>Time in progress</dt><dd data-in-progress>{formatMinutes(task.inProgressMinutes)}</dd></div>{/if}
+									</dl>
+								</aside>
+							</div>
+						{/if}
 					{/key}
 				</div>
 			</div>
-
 			{#if !editing}
 				<footer class="max-h-[45%] shrink-0 overflow-y-auto border-t border-(--chat-border)" data-task-reply>
 					<div class="mx-auto w-full max-w-3xl">
 						{#key `${backend.id}/${projectId}/${task.id}`}
-							<TaskReply {backend} {projectId} taskId={task.id} />
+							<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} />
 						{/key}
 					</div>
 				</footer>
@@ -687,18 +549,3 @@
 		{/if}
 	</Dialog.Content>
 </Dialog.Root>
-
-<style>
-	/* Let a long update confirmation wrap within the header, never across its title. */
-	:global([data-report] .section-heading h3) {
-		min-width: max-content;
-	}
-	/* Leave room for send controls even with a long draft and an IME-reduced visual viewport. */
-	:global([data-task-composer] textarea) {
-		max-height: max(2.5rem, calc(var(--task-viewport-height, 100dvh) * 0.2));
-	}
-	:global(.report-md.md) {
-		font-size: var(--text-task);
-		line-height: 1.6;
-	}
-</style>

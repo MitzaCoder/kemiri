@@ -2,6 +2,7 @@
 	import { markdownText, type BoardQuestion, type BoardTask, type BoardTaskBrief, type WorkerSummary } from '@kemiri/protocol';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
+	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import LockIcon from '@lucide/svelte/icons/lock';
@@ -63,7 +64,7 @@
 {#snippet stateGlyph(entry: BoardTask)}
 	<span class="{taskDisplayToneClass(entry)} inline-flex h-5 w-4 shrink-0 items-center justify-center" title={taskDisplayWords(entry, tasks)}>
 		{#if entry.state && entry.state.kind !== 'working'}
-			{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: CircleHelpIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[entry.state.kind]}
+			{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: ListChecksIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[entry.state.kind]}
 			<StateIcon class="size-3.5 text-(--task-status)" aria-hidden="true" />
 		{:else}<span class="task-status-dot" aria-hidden="true"></span>{/if}
 	</span>

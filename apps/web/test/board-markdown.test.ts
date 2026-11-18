@@ -54,9 +54,10 @@ describe('board Markdown plain previews', () => {
 		expect(card).toContain("readingExpanded = false;");
 		expect(card).toContain('finally {');
 	});
-	test('all expanded board surfaces share the compact safe chat renderer', () => {
+	test('question cards and compact board surfaces share the safe preview renderer', () => {
 		const component = (name: string) => readFileSync(new URL(`../src/lib/components/${name}.svelte`, import.meta.url), 'utf8');
-		for (const name of ['BoardQuestionCard', 'BoardPanel', 'TasksPanel', 'TaskSheet', 'chat/BoardCallCard']) expect(component(name)).toContain('CardMarkdown');
+		for (const name of ['BoardQuestionCard', 'BoardPanel', 'TasksPanel', 'chat/BoardCallCard']) expect(component(name)).toContain('CardMarkdown');
+		expect(component('TaskSheet')).toContain('<BoardQuestionCard');
 		const card = component('markdown/CardMarkdown');
 		expect(card).toContain('<Markdown {source} userMessage class="md-card"');
 		expect(card).toContain('aria-expanded={expanded}');

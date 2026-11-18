@@ -17,10 +17,10 @@ const question = (taskId: string, extra: Partial<BoardQuestion> = {}) => ({ task
 
 describe('Live task folding', () => {
 	it('folds only todo/waiting-outside singles; preserves every other derived kind and closed option', () => {
-		const kinds: BoardTaskState['kind'][] = ['failed', 'answer_needed', 'review', 'working', 'clarifying', 'paused', 'blocked_by_task', 'todo', 'waiting_outside', 'done', 'dropped'];
-		const graph = build(kinds.map((kind, i) => task(`T${i + 1}`, { state: state(kind, ['failed', 'answer_needed', 'review'].includes(kind) ? 'needs_you' : kind === 'todo' ? 'todo' : 'waiting') })));
+		const kinds: BoardTaskState['kind'][] = ['failed', 'answer_needed', 'review', 'working', 'clarifying', 'paused', 'blocked_by_task', 'todo', 'waiting_outside', 'done', 'dropped', 'steps_needed'];
+		const graph = build(kinds.map((kind, i) => task(`T${i + 1}`, { state: state(kind, ['failed', 'answer_needed', 'review', 'steps_needed'].includes(kind) ? 'needs_you' : kind === 'todo' ? 'todo' : 'waiting') })));
 		expect(graphFoldGroups(graph).map(group => [group.kind, group.taskIds])).toEqual([['todo', ['T8']], ['waiting', ['T9']]]);
-		expect(ids(liveTaskGraph(graph, graphFoldGroups(graph), 'live', empty))).toEqual(['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T10', 'T11']);
+		expect(ids(liveTaskGraph(graph, graphFoldGroups(graph), 'live', empty))).toEqual(['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T10', 'T11', 'T12']);
 		expect(liveTaskGraph(graph, graphFoldGroups(graph), 'all', empty)).toBe(graph);
 	});
 	it('uses list sections for old backends, question waiting direction, review and blocked states', () => {

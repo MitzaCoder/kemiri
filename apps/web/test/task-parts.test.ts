@@ -7,9 +7,9 @@ import type { BoardTask } from '@kemiri/protocol';
 const parent = (states?: BoardTask['subtaskStates']) => ({ id: 'T1', status: 'in_progress', parent: null, foundWhile: null, related: [], blockedBy: [], refs: [], subtaskCount: { done: 1, total: 3 }, subtaskStates: states, state: { group: 'in_progress', kind: 'working', since: '2026-11-12T12:00:00Z', refs: ['T3'] } }) as BoardTask;
 
 test('parts are ordered done, working, needs-you, rest; dropped and zero counts stay out', () => {
-	const progress = taskPartProgress(parent(['todo', 'review', 'working', 'done', 'failed', 'dropped']))!;
-	expect(progress.text).toBe('1 of 5 parts done · 1 working · 2 needs you');
-	expect(progress.segments.map(segment => segment.tone)).toEqual(['done', 'working', 'needs-you', 'needs-you', 'other']);
+	const progress = taskPartProgress(parent(['todo', 'review', 'working', 'done', 'failed', 'dropped', 'steps_needed']))!;
+	expect(progress.text).toBe('1 of 6 parts done · 1 working · 3 needs you');
+	expect(progress.segments.map(segment => segment.tone)).toEqual(['done', 'working', 'needs-you', 'needs-you', 'needs-you', 'other']);
 	expect(taskPartProgress(parent(['todo']))!.text).toBe('0 of 1 parts done');
 	expect(taskPartProgress(parent())).toBeUndefined();
 	expect(taskPartProgress(parent([]))).toBeUndefined();

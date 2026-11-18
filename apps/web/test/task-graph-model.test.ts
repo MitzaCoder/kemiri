@@ -41,7 +41,7 @@ describe('graph product model', () => {
 		expect(model.details.get('T6')?.reasons).toEqual(['waiting']);
 		expect(model.details.get('T6')?.task.waiting?.until).toBe('2026-06-15T09:00:00Z');
 		expect(model.details.get('T39')?.reasons).toContain('failed');
-		expect(model.reasonCounts).toEqual({ review: 10, blocked: 20, waiting: 10, question: 5, failed: 1 });
+		expect(model.reasonCounts).toEqual({ steps: 0, review: 10, blocked: 20, waiting: 10, question: 5, failed: 1 });
 	});
 	it('uses the exact 48-hour quiet boundary and never marks closed tasks quiet', () => {
 		const fixture = makeGraphFixture(9);

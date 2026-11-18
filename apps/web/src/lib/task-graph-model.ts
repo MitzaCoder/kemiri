@@ -11,6 +11,7 @@ export const GRAPH_STATUSES: { key: BoardTaskStatus; label: string; mark: string
 	{ key: 'dropped', label: 'Dropped', mark: '−', tone: 'var(--graph-muted)' },
 ];
 export const GRAPH_REASONS = [
+	{ key: 'steps', label: 'Your steps', mark: '☷', tone: 'var(--graph-review)' },
 	{ key: 'review', label: 'Review', mark: '◇', tone: 'var(--graph-review)' },
 	{ key: 'blocked', label: 'Blocked', mark: '⊣', tone: 'var(--graph-blocked)' },
 	{ key: 'waiting', label: 'Waiting', mark: '◷', tone: 'var(--graph-waiting)' },
@@ -83,6 +84,7 @@ export function buildGraphModel(tasks: readonly BoardTask[], questions: readonly
 		if (task.state) {
 			if (task.state.kind === 'failed') reasons.push('failed');
 			if (task.state.kind === 'answer_needed') reasons.push('question');
+			if (task.state.kind === 'steps_needed') reasons.push('steps');
 			if (task.state.kind === 'review') reasons.push('review');
 			if (task.state.group === 'waiting') reasons.push('waiting');
 		} else {

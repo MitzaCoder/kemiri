@@ -38,8 +38,12 @@ test('status chips, secondary summaries and event tones keep meaning', () => {
 	expect(timelineTone(entries[1]!)).toBe('success');
 	expect(timelineTone({ ...entries[1]!, label: 'Worker lens failed' })).toBe('danger');
 });
-test('timeline body order also drives section navigation', async () => {
+test('timeline and history are together in the Activity fold after Your notes', async () => {
 	const source = await Bun.file(new URL('../src/lib/components/TaskSheet.svelte', import.meta.url)).text();
-	expect(source.indexOf('{@render reportSection()}')).toBeLessThan(source.indexOf('{@render timelineSection()}'));
-	expect(source.indexOf('{@render timelineSection()}')).toBeLessThan(source.indexOf('{@render feedbackSection()}'));
+	const record = source.slice(source.indexOf('aria-label="The record"'), source.indexOf('<aside'));
+	expect(record).toContain('row="request" title="The request"');
+	expect(record).toContain('row="activity" title="Activity"');
+	expect(record).toContain('<TaskTimeline');
+	expect(record).toContain('<TaskHistory');
+	expect(source.indexOf('aria-label="Your notes"')).toBeLessThan(source.indexOf('aria-label="The record"'));
 });

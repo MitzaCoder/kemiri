@@ -4,7 +4,7 @@ export type PartTone = 'done' | 'working' | 'needs-you' | 'other';
 export function partTone(kind: BoardTaskState['kind']): PartTone {
 	if (kind === 'done') return 'done';
 	if (kind === 'working') return 'working';
-	if (['failed', 'answer_needed', 'review'].includes(kind)) return 'needs-you';
+	if (['failed', 'answer_needed', 'steps_needed', 'review'].includes(kind)) return 'needs-you';
 	return 'other';
 }
 

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import TaskDetailText from './TaskDetailText.svelte';
-	import TaskSection from '#lib/components/TaskSection.svelte';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
 	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
 	import { linkGroups, subtaskFraction, subtaskProgressText } from '#lib/task-relations.js';
@@ -17,6 +16,7 @@
 		tasks,
 		archivedLinks = [],
 		hrefOf,
+		blockersInNeedsYou,
 		onshowlinked
 	}: {
 		task: BoardTask;
@@ -25,38 +25,25 @@
 		/** Archived tasks the board names only by title and status. */
 		archivedLinks?: readonly BoardTaskBrief[];
 		hrefOf: (taskId: string) => string;
+		blockersInNeedsYou: readonly string[];
 		onshowlinked?: () => void;
 	} = $props();
 
-	const groups = $derived(linkGroups(task, tasks, archivedLinks));
+	const groups = $derived(linkGroups(task, tasks, archivedLinks)
+		.map(group => group.kind === 'blockedBy' ? { ...group, items: group.items.filter(item => !blockersInNeedsYou.includes(item.id)) } : group)
+		.filter(group => group.items.length > 0));
 	const progressText = $derived(subtaskProgressText(task));
 	const fraction = $derived(subtaskFraction(task));
 </script>
 
-{#if groups.length > 0}
-	<TaskSection
-		title="Related"
-		kind="related"
-		count={groups.reduce((total, group) => total + group.items.length, 0)}
-		class="flex flex-col gap-2.5"
-		data-related
-	>
-		{#snippet meta()}
-			{#if onshowlinked}
-				<button
-					type="button"
-					class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6875rem] text-(--chat-fg-subtle) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)"
-					onclick={onshowlinked}
-					data-show-linked
-					title="Show this task and everything linked to it in the task list"
-				>
-					<ListFilterIcon class="size-3" aria-hidden="true" />Show with linked
-				</button>
-			{/if}
-		{/snippet}
+{#if groups.length > 0 || progressText || blockersInNeedsYou.length > 0}
+	<div class="flex flex-col gap-3" data-related>
+		{#if progressText && !groups.some(group => group.kind === 'subtasks')}
+			<p class="task-detail-heading">Subtasks <span class="font-normal tabular-nums">· {progressText}</span></p>
+		{/if}
 		{#each groups as group (group.kind)}
 			<div class="flex flex-col gap-1" data-link-group={group.kind}>
-				<p class="flex items-baseline gap-2 px-0.5 text-xs font-semibold text-(--chat-fg-muted)">
+				<p class="task-detail-heading flex flex-wrap items-baseline gap-x-2">
 					{group.label}
 					{#if group.kind === 'subtasks' && progressText}
 						<span class="font-normal text-(--chat-fg-subtle) tabular-nums" data-subtask-progress>{progressText}</span>
@@ -79,16 +66,14 @@
 						<li class="min-w-0">
 							<a
 								href={hrefOf(item.id)}
-								class="relation-row flex min-w-0 items-center gap-2 rounded-lg border border-(--chat-border)/70 px-3 py-1.5 text-[0.8125rem] hover:bg-(--chat-surface-2)/70"
+								class="task-fact-link relation-row"
 								class:relation-closed={item.closed}
 								data-link={item.id}
 								data-link-closed={item.closed ? 'true' : undefined}
 								title={item.archived ? `${item.id} is archived` : undefined}
 							>
-								<span class="shrink-0 font-mono text-xs text-(--chat-fg-subtle)">{item.id}</span>
-								<span class="min-w-0 flex-1 truncate font-medium" class:line-through={item.status === 'dropped'}
-									><TaskDetailText text={item.title || 'Not on the board'} focusable={false} /></span
-								>
+								<span class="min-w-0" class:line-through={item.status === 'dropped'}><TaskDetailText text={item.title || 'Not on the board'} focusable={false} /></span>
+								<span class="task-id-chip">{item.id}</span>
 								{#if item.archived}<span class="shrink-0 text-[0.6875rem] text-(--chat-fg-subtle)">archived</span>{/if}
 								{#if item.status !== 'unknown'}<TaskStatusBadge status={item.status} class="shrink-0" />{/if}
 							</a>
@@ -97,16 +82,22 @@
 				</ul>
 			</div>
 		{/each}
-	</TaskSection>
+		{#if onshowlinked}
+			<button type="button" class="task-fact-link justify-start text-(--chat-fg-muted) hover:underline" onclick={onshowlinked} data-show-linked
+				title="Show this task and everything linked to it in the task list">
+				<ListFilterIcon class="size-4" aria-hidden="true" />Show with linked
+			</button>
+		{/if}
+	</div>
 {/if}
 
 <style>
 	/* Done, dropped and archived targets stay, quieter than the live ones. */
 	.relation-closed {
-		opacity: 0.62;
+		color: var(--chat-fg-muted);
 	}
 	.relation-closed:hover,
 	.relation-closed:focus-visible {
-		opacity: 1;
+		color: var(--chat-fg);
 	}
 </style>
