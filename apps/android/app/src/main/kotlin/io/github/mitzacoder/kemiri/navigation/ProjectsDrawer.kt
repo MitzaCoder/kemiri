@@ -191,7 +191,7 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
     }
     HorizontalDivider()
     FooterItem(NavGlyphs.Gauge, "Usage", "Subscription limits", "Usage: subscription limits and when they reset", current == Destination.Usage, rail) { navigate(Destination.Usage) }
-    FooterItem(NavGlyphs.Settings, "Settings", "Appearance, backends, notifications", "Settings: appearance, backends, notifications, archived projects", current is Destination.Settings, rail) { navigate(Destination.Settings()) }
+    FooterItem(NavGlyphs.Settings, "Settings", "Project, computer, device", "Settings for this project, this computer and this device", current is Destination.Settings, rail) { navigate(Destination.Settings()) }
     val versionConnections = sessions.associate { backend ->
         backend.config.key to key(backend.config.key) { backend.client.state.collectAsStateWithLifecycle().value }
     }

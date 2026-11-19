@@ -48,8 +48,8 @@
 	 *
 	 * A row says what its project is doing — the coordinator working or failed, how many
 	 * workers run, when it last answered — and marks a reply this browser has not seen.
-	 * The footer opens Usage (subscription limits, a modal) and General settings (theme, backends, notifications,
-	 * archived projects).
+	 * The footer opens Usage (subscription limits, a modal) and Settings (this project, this computer and this
+	 * device).
 	 */
 	const wide = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
 	const current = $derived(currentProject(page.url.pathname));
@@ -326,15 +326,15 @@
 				class:text-(--chat-fg)={settingsOpen}
 				class:bg-(--chat-surface-2)={settingsOpen}
 				aria-current={settingsOpen ? 'page' : undefined}
-				aria-label="Settings: theme, backends, notifications, archived projects"
-				title="Settings: theme, backends, notifications, archived projects"
+				aria-label="Settings for this project, this computer and this device"
+				title="Settings for this project, this computer and this device"
 			>
 				<SettingsIcon class="size-4 shrink-0" />
 				{#if !rail}
 					<span class="flex min-w-0 flex-col">
 						<span class="truncate text-[0.8125rem] font-medium">Settings</span>
 						<span class="truncate text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
-							Theme, backends, alerts
+							Project, computer, device
 						</span>
 					</span>
 				{/if}
