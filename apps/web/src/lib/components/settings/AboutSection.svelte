@@ -1,62 +1,30 @@
 <script lang="ts">
+	import { version as webVersion } from '../../../../package.json';
 	import BrandMark from '#lib/components/BrandMark.svelte';
-	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
-	import { backendVersion } from '#lib/aiki-version.js';
-	import XIcon from '@lucide/svelte/icons/x';
-	import SelfUpdate from '../SelfUpdate.svelte';
-	import { Button } from '#lib/components/ui/button/index.js';
+	import { harness } from '#lib/harness.svelte.js';
+	import { backendVersion, versionLabel } from '#lib/aiki-version.js';
+	import { backendSettingsHref } from '#lib/settings.js';
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsGroup from './SettingsGroup.svelte';
-	let error = $state('');
-	let saving = $state(false);
-	async function dismiss(backend: BackendConnection, dismissVersion: string) {
-		saving = true;
-		error = '';
-		try {
-			const response = await backend.client.request({ type: 'server.updates.set', dismissVersion });
-			if (response.type === 'server.updates.set' && backend.status) backend.status = { ...backend.status, updates: response.updates };
-		} catch { error = 'Could not dismiss. Try again when connected.'; }
-		finally { saving = false; }
-	}
-	async function setEnabled(backend: BackendConnection, enabled: boolean) {
-		saving = true;
-		error = '';
-		try {
-			const response = await backend.client.request({ type: 'server.updates.set', enabled });
-			if (response.type === 'server.updates.set' && backend.status) backend.status = { ...backend.status, updates: response.updates };
-		} catch { error = 'Could not save update checks. Try again when connected.'; }
-		finally { saving = false; }
-	}
+	import SettingsRow from './SettingsRow.svelte';
+	import StatusChip from './StatusChip.svelte';
 </script>
 
-<SettingsSection title="About" description="Kemiri versions and updates" icon="settings">
+<SettingsSection title="About" description="Kemiri versions" icon="settings">
 	<div class="flex items-center gap-3"><BrandMark /><span class="text-lg font-semibold">Kemiri</span></div>
-	{#each harness.backends as backend (backend.id)}
-		{@const updates = backend.supports('release-updates') ? backend.status?.updates : undefined}
-		<SettingsGroup title={backend.name}>
-			<div class="flex flex-col gap-3 px-4 py-4 text-sm sm:px-5" data-release-update-about>
-				<p>Kemiri {backendVersion(backend.connection.server?.version, backend.status) ?? '—'}</p>
-				{#if updates?.schemaVersion === 1}
-					<p>{updates.installedVersion ? `Installed ${updates.installedVersion} · ${updates.channel} channel` : 'Source checkout · checks off by default'}</p>
-					<label class="flex min-h-11 items-center gap-3">
-						<input type="checkbox" checked={updates.enabled} disabled={saving} onchange={(event) => setEnabled(backend, event.currentTarget.checked)} />
-						Check for Kemiri updates
-					</label>
-					<p class="text-(--chat-fg-muted)">Checks public GitHub releases about once a day. Does not install or restart anything.</p>
-					{#if updates.enabled && updates.available}
-						<p>Kemiri <strong>{updates.available.version}</strong> is available. <a class="underline" href={updates.available.notesUrl} target="_blank" rel="noopener noreferrer">Release notes</a></p>
-						{#if !backend.status?.selfUpdate?.enabled}<p>Stop Kemiri, then <code>kemiri update</code>, then start it.</p>{/if}
-						{#if updates.dismissedVersion !== updates.available.version}
-							<Button variant="ghost" size="xs" class="self-start text-(--chat-fg-muted)" disabled={saving} onclick={() => dismiss(backend, updates.available!.version)} title="Hide the update notice until a newer release appears" aria-label="Dismiss the update notice" data-update-dismiss>
-								<XIcon data-icon="inline-start" />
-								Dismiss
-							</Button>
-						{:else}<p class="text-(--chat-fg-muted)">Update notice dismissed.</p>{/if}
-					{:else if updates.enabled}<p>No newer release found yet.</p>{/if}
-				{:else}<p>Update checks are not available on this computer.</p>{/if}
-				<SelfUpdate {backend} />
-			</div>
-		</SettingsGroup>
-	{/each}
-	{#if error}<p role="status">{error}</p>{/if}
+	<SettingsGroup title="Versions">
+		<SettingsRow label="This browser" hint="App version" control="auto">
+			<span class="text-sm">{versionLabel(webVersion)}</span>
+		</SettingsRow>
+		{#each harness.backends as backend (backend.id)}
+			{@const updates = backend.supports('release-updates') ? backend.status?.updates : undefined}
+			<SettingsRow label={backend.name} hint={backendVersion(backend.connection.server?.version, backend.status) ?? 'Version unknown'} control="auto">
+				{#if updates?.enabled && updates.available}
+					<a class="inline-flex min-h-11 items-center" href={backendSettingsHref(backend.id, 'overview')} aria-label={`Update available on ${backend.name}`}>
+						<StatusChip tone="info">Update available</StatusChip>
+					</a>
+				{/if}
+			</SettingsRow>
+		{/each}
+	</SettingsGroup>
 </SettingsSection>

@@ -12,12 +12,13 @@
 	 *
 	 * Only HTTPS backends can travel: a link leaves this browser, so a development backend on loopback stays here.
 	 */
-	let excluded = $state<string[]>([]);
+	let { backendId }: { backendId: string } = $props();
+	let included = $state<string[]>([]);
 
-	const chosen = $derived(
-		harness.backends.filter((backend) => !excluded.includes(backend.id) && isConnectUrl(backend.url)),
-	);
-	const unshareable = $derived(harness.backends.filter((backend) => !isConnectUrl(backend.url)));
+	const chosen = $derived(harness.backends.filter(backend =>
+		(backend.id === backendId || included.includes(backend.id)) && isConnectUrl(backend.url)));
+	const primary = $derived(harness.backend(backendId));
+	const otherComputers = $derived(harness.backends.filter(backend => backend.id !== backendId && isConnectUrl(backend.url)));
 	/** What to show under the choices: a link, a nudge, or a cap the selection has run into. */
 	const share = $derived.by((): { kind: 'empty' } | { kind: 'too-many' } | { kind: 'link'; href: string } => {
 		if (chosen.length === 0) return { kind: 'empty' };
@@ -32,55 +33,33 @@
 	});
 
 	function toggle(id: string, checked: boolean): void {
-		excluded = checked
-			? excluded.filter((entry) => entry !== id)
-			: [...excluded.filter((entry) => entry !== id), id];
+		included = checked ? [...included, id] : included.filter(entry => entry !== id);
 	}
 </script>
 
 <div class="flex flex-col gap-3" data-testid="connect-device">
-	<p class="text-sm text-muted-foreground">
-		Choose the backends to pass on. The link keeps them in its fragment, so it never reaches a server log; opening it
-		on the other device shows them, and one tap adds them there.
-	</p>
-
-	<div class="flex flex-col gap-2">
-		{#each harness.backends as backend (backend.id)}
-			{#if isConnectUrl(backend.url)}
-				<label class="flex items-start gap-2 text-sm">
-					<Checkbox
-						checked={!excluded.includes(backend.id)}
-						onCheckedChange={(value) => toggle(backend.id, value === true)}
-						aria-label="Include {backend.name}"
-					/>
-					<span class="flex min-w-0 flex-col">
-						<span class="font-medium">{backend.name}</span>
-						<span class="font-mono text-xs break-words text-muted-foreground">{backend.url}</span>
-					</span>
+	<p class="text-sm text-muted-foreground">This link shares computer addresses without signing in.</p>
+	{#if primary && isConnectUrl(primary.url)}
+		<p class="text-sm font-medium">{primary.name}</p>
+	{:else}
+		<p class="text-sm text-muted-foreground">This computer stays in this browser: connect links carry only HTTPS addresses.</p>
+	{/if}
+	{#if otherComputers.length}
+		<div class="flex flex-col gap-2">
+			{#each otherComputers as backend (backend.id)}
+				<label class="flex items-center gap-2 text-sm">
+					<Checkbox checked={included.includes(backend.id)} onCheckedChange={(value) => toggle(backend.id, value === true)} aria-label="Include {backend.name}" />
+					Include {backend.name}
 				</label>
-			{/if}
-		{/each}
-	</div>
-
-	{#if unshareable.length > 0}
-		<p class="text-xs text-muted-foreground">
-			{#if unshareable.length === 1}
-				{unshareable[0]?.name ?? 'One backend'} stays in this browser: a connect link carries only HTTPS origins.
-			{:else}
-				{unshareable.length} backends stay in this browser: a connect link carries only HTTPS origins.
-			{/if}
-		</p>
+			{/each}
+		</div>
 	{/if}
 
-	{#if share.kind === 'empty'}
-		{#if unshareable.length < harness.backends.length}
-			<p class="text-sm text-muted-foreground">Choose at least one backend.</p>
-		{/if}
-	{:else if share.kind === 'too-many'}
+	{#if share.kind === 'too-many'}
 		<p class="text-sm text-muted-foreground">
-			A link carries at most {MAX_CONNECT_BACKENDS} backends. Leave some out and make a second link.
+			A link carries at most {MAX_CONNECT_BACKENDS} computers. Leave some out and make a second link.
 		</p>
-	{:else}
+	{:else if share.kind === 'link'}
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start">
 			<div class="w-40 max-w-full shrink-0 self-center rounded-md bg-white p-1.5">
 				<QrCode value={share.href} />

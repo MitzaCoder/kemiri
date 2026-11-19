@@ -1,4 +1,5 @@
 <script lang="ts">
+	import StatusChip from "./StatusChip.svelte";
 	import SettingsTerm from "./SettingsTerm.svelte";
 	import type { Snippet } from 'svelte';
 	import LearnMore from '#lib/components/settings/LearnMore.svelte';
@@ -17,6 +18,7 @@
 		label,
 		term,
 		hint,
+		chip,
 		for: forId,
 		learn,
 		status,
@@ -28,6 +30,7 @@
 		term?: string;
 		label: string;
 		hint?: string;
+		chip?: string;
 		for?: string;
 		learn?: Snippet;
 		status?: SaveState;
@@ -49,11 +52,14 @@
 	data-settings-row
 >
 	<div class="flex min-w-0 flex-col gap-0.5">
-		{#if forId}
-			<label for={forId} class="text-sm leading-5 font-semibold">{label}</label>
-		{:else}
-			<span class="text-sm leading-5 font-semibold">{label}</span>
-		{/if}
+		<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+			{#if forId}
+				<label for={forId} class="text-sm leading-5 font-semibold">{label}</label>
+			{:else}
+				<span class="text-sm leading-5 font-semibold">{label}</span>
+			{/if}
+			{#if chip}<StatusChip tone="muted" dot={false}>{chip}</StatusChip>{/if}
+		</div>
 		<SettingsTerm {term} />
 		{#if hint}
 			<p id={hintId} class="text-[0.8125rem] leading-5 text-muted-foreground">{hint}</p>

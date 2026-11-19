@@ -9,7 +9,7 @@
 </script>
 
 {#if backend}
-	<AccountsSection {backend} />
+	{#key backend.id}<AccountsSection {backend} />{/key}
 {:else}
 	<NotFoundNote title="Unknown computer">
 		No computer with the ID "{page.params.id}" is in this browser.

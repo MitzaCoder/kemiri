@@ -8,8 +8,11 @@
 	import QrCode from '#lib/components/QrCode.svelte';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import ConnectDevice from '#lib/components/ConnectDevice.svelte';
 	import SettingsGroup from './SettingsGroup.svelte';
 	let { backend }: { backend: BackendConnection } = $props();
+	const canSignIn = $derived(!!backend.authSessionId || backend.authMode === 'optional' || backend.authMode === 'required' || !!backend.connection.error?.match(/pair|signed out/i));
+	let shareAddress = $state(false);
 	let devices = $state<AuthDevice[]>([]);
 	let pairings = $state<AuthPairing[]>([]);
 	let confirmDevice = $state(true);
@@ -126,11 +129,8 @@
 	const date = (timestamp: string): string => formatDateTime(timestamp);
 </script>
 
-<SettingsGroup title="Devices">
+<SettingsGroup title="Signed-in devices">
 	<div class="space-y-5 p-4 sm:p-5" data-devices>
-		<p class="text-sm text-muted-foreground">
-			Every paired device has full access to this computer, including files, terminals and provider accounts.
-		</p>
 		{#if backend.storageWarning}<p role="status" class="text-sm text-amber-700 dark:text-amber-300">
 				{backend.storageWarning}
 			</p>{/if}
@@ -138,13 +138,15 @@
 				{backend.authNotice}
 			</p>{/if}
 		{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
-		{#if !backend.authSessionId}
+		{#if !canSignIn}
+			<p class="text-sm text-muted-foreground">This computer does not use device sign-in.</p>
+		{:else if !backend.authSessionId}
 			<p class="text-sm text-muted-foreground">
 				{backend.authMode === 'optional' && backend.ready
-					? 'You can keep using this backend while the owner approves this browser. Compare the code using the owner CLI.'
-					: 'Pair this backend using a new link from another device or the owner CLI.'}
+					? 'You can keep using this computer while the owner approves this browser. Compare the code using the owner CLI.'
+					: 'Pair this computer using a new link from another device or the owner CLI.'}
 			</p>
-			<a class="text-sm underline" href="/pair">Pair this backend</a>
+			<a class="text-sm underline" href="/pair">Pair this computer</a>
 			{#if backend.authMode === 'optional' && backend.authNotice?.includes('enrollment')}<Button
 					variant="outline"
 					onclick={() => void backend.requestMigrationApproval()}>Request approval again</Button
@@ -200,8 +202,15 @@
 					</li>
 				{/each}
 			</ul>
-			<div class="space-y-3 rounded-xl border p-4">
-				<h3 class="text-sm font-semibold">Add a device</h3>
+		{/if}
+	</div>
+</SettingsGroup>
+
+<SettingsGroup title="Add a device">
+	<div class="space-y-3 p-4 sm:p-5">
+		{#if canSignIn}
+			<p class="text-sm text-muted-foreground">Every paired device has full access to this computer, including files, terminals and provider accounts.</p>
+			{#if backend.authSessionId}
 				<label class="flex items-center gap-2 text-sm"
 					><input
 						type="checkbox"
@@ -234,10 +243,18 @@
 				{:else}<Button disabled={busy} onclick={() => void create()}
 						>{busy ? 'Creating…' : 'Create pairing link'}</Button
 					>{/if}
-			</div>
-			{#if pairings.some((p) => ['unused', 'claimed'].includes(p.state) && Date.parse(p.expiresAt) > now)}
-				<div class="space-y-2">
-					<h3 class="text-sm font-semibold">Pending pairings</h3>
+			{:else}
+				<p class="text-sm text-muted-foreground">Sign in on this browser before creating a pairing link.</p>
+			{/if}
+			<button type="button" class="block min-h-11 text-left text-sm text-muted-foreground underline underline-offset-4" aria-expanded={shareAddress} onclick={() => (shareAddress = !shareAddress)}>Only share the address (no sign-in)</button>
+		{/if}
+		{#if !canSignIn || shareAddress}<ConnectDevice backendId={backend.id} />{/if}
+	</div>
+</SettingsGroup>
+
+{#if pairings.some((p) => ['unused', 'claimed'].includes(p.state) && Date.parse(p.expiresAt) > now) && backend.authSessionId}
+	<SettingsGroup title="Pending pairings">
+		<div class="space-y-2 p-4 sm:p-5">
 					{#each pairings.filter((p) => ['unused', 'claimed'].includes(p.state) && Date.parse(p.expiresAt) > now) as pairing}<div
 							class="flex items-center justify-between gap-3 text-sm"
 						>
@@ -255,11 +272,9 @@
 								>
 							</div>
 						</div>{/each}
-				</div>
-			{/if}
-		{/if}
-	</div>
-</SettingsGroup>
+		</div>
+	</SettingsGroup>
+{/if}
 {#if revokeDevice}
 	<Dialog.Root
 		open={true}

@@ -1,10 +1,6 @@
 <script lang="ts">
-	import SettingsTerm from "./SettingsTerm.svelte";
-	import { COMPUTER_ACCOUNTS, COMPUTER_APPS } from "#lib/settings.js";
 	import YourNameGroup from "./YourNameGroup.svelte";
 	import DevicesSection from './DevicesSection.svelte';
-	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import { goto } from '$app/navigation';
 	import Banner from '#lib/components/Banner.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
 	import DeployBanner from '#lib/components/DeployBanner.svelte';
@@ -14,35 +10,28 @@
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
 	import SettingsSection from '#lib/components/settings/SettingsSection.svelte';
-	import StatusChip from '#lib/components/settings/StatusChip.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import AutoInput from '#lib/components/settings/AutoInput.svelte';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import { notifications } from '#lib/notifications.svelte.ts';
 	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
-	import { backendSettingsHref, generalSettingsHref } from '#lib/settings.js';
+	import { COMPUTER_SECTIONS, generalSettingsHref, type ComputerSectionId } from '#lib/settings.js';
+	import { navigateSettings } from '#lib/settings-navigation.svelte.js';
+	import SoftwareUpdatesGroup from './SoftwareUpdatesGroup.svelte';
 
-	/**
-	 * General → Backends → one backend: its connection and release, its name (saved when you leave the field), where its
-	 * accounts and API keys live, its memory maintenance, and removing it from this browser.
-	 */
-	let { backend }: { backend: BackendConnection } = $props();
-
+	let { backend, section }: { backend: BackendConnection; section: Exclude<ComputerSectionId, 'accounts' | 'mcp'> } = $props();
+	const sectionInfo = $derived(COMPUTER_SECTIONS.find(entry => entry.id === section)!);
 	let confirmingRemove = $state(false);
-	const ready = $derived(backend.providers.filter((provider) => provider.configured).length);
 
 	async function remove(): Promise<void> {
 		await notifications.disableBackend(backend);
 		harness.removeBackend(backend.id);
-		await goto(generalSettingsHref('backends'), { replaceState: true });
+		await navigateSettings(generalSettingsHref('backends'), true);
 	}
 </script>
 
-<SettingsSection title={backend.name} description={backend.url} icon="server">
-	{#snippet actions()}
-		<span class="mt-1.5 max-sm:hidden"><ConnectionBadge {backend} /></span>
-	{/snippet}
-
+<SettingsSection title={sectionInfo.label} description={sectionInfo.hint} icon={sectionInfo.icon}>
+{#if section === 'overview'}
 	{#if backend.lastError}<Banner tone="error">{backend.lastError}</Banner>{/if}
 	{#if backend.connection.status !== 'ready'}
 		<Banner tone="warning">
@@ -54,21 +43,30 @@
 		</Banner>
 	{/if}
 
-	<YourNameGroup {backend} />
 	{#if backend.supports('server-status')}
 		<DeployBanner status={backend.status} dismissed={harness.dismissedDeploys} ondismiss={(deploy) => harness.dismissDeploy(deploy)} />
-		<SettingsGroup title="Status">
+	{/if}
+	<SettingsGroup title="Status">
+		<SettingsRow label="Connection" control="auto"><ConnectionBadge {backend} /></SettingsRow>
+		{#if backend.supports('server-status')}
 			<SettingsRow label="Release" hint="The commit this computer runs." control="full">
 				<ReleaseLine release={backend.status?.release} deploy={backend.status?.deploy} />
 			</SettingsRow>
 			<SettingsRow label="Machine" hint="Disk space on the host." control="full">
 				<MachineLine status={backend.status} />
 			</SettingsRow>
-		</SettingsGroup>
-	{/if}
+		{/if}
+	</SettingsGroup>
 
+	<SoftwareUpdatesGroup {backend} />
+{:else if section === 'you'}
+	<YourNameGroup {backend} />
+	{#if backend.supports('memory-maintenance')}<MemoryMaintenanceGroup {backend} />{/if}
+{:else if section === 'devices'}
+	<DevicesSection {backend} />
+{:else if section === 'advanced'}
 	<SettingsGroup title="This computer">
-		<SettingsRow label="Name on this device" hint="Only for you, in this browser." for="backend-name">
+		<SettingsRow label="Name on this device" hint="Only for you, in this browser." chip="This device only" for="backend-name">
 			<AutoInput id="backend-name" value={backend.name} commit={(next) => harness.renameBackend(backend.id, next)} />
 		</SettingsRow>
 		<SettingsRow label="Address" hint="Where the app connects." control="auto">
@@ -77,41 +75,13 @@
 				<CopyButton text={backend.url} label="Copy the address" />
 			</div>
 		</SettingsRow>
-		{#if backend.supports('credentials') || backend.supports('logins')}
-			<a
-				href={backendSettingsHref(backend.id, 'accounts')}
-				data-link="accounts"
-				class="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors hover:bg-(--chat-surface-2)/50 sm:px-5"
-			>
-				<span class="flex min-w-0 flex-1 flex-col">
-					<span class="text-sm font-semibold">{COMPUTER_ACCOUNTS.label}</span>
-					<SettingsTerm term={COMPUTER_ACCOUNTS.term} />
-					<span class="text-[0.8125rem] text-muted-foreground">{COMPUTER_ACCOUNTS.hint}</span>
-				</span>
-				{#if backend.providers.length > 0}
-					<StatusChip tone={ready > 0 ? 'ok' : 'warn'}>{ready} of {backend.providers.length} ready</StatusChip>
-				{/if}
-				<ChevronRightIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
-			</a>
-		{/if}
-        {#if backend.supports('mcp-servers')}
-            <a href={backendSettingsHref(backend.id, 'mcp')} data-link="mcp" class="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors hover:bg-(--chat-surface-2)/50 sm:px-5">
-                <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-semibold">{COMPUTER_APPS.label}</span><SettingsTerm term={COMPUTER_APPS.term} /><span class="text-[0.8125rem] text-muted-foreground">{COMPUTER_APPS.hint}</span></span>
-                <ChevronRightIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
-            </a>
-        {/if}
 	</SettingsGroup>
-
-	{#if backend.supports('memory-maintenance')}
-		<MemoryMaintenanceGroup {backend} />
-	{/if}
-
-	{#if backend.authBackendId || backend.connection.error?.includes('Pair') || backend.connection.error?.includes('signed out')}<DevicesSection {backend} />{/if}
 
 	<SettingsGroup title="Remove" tone="danger">
 		<SettingsRow
 			label="Remove this computer from this browser"
 			hint="Its projects and data stay on the computer."
+			chip="This device only"
 			control="auto"
 		>
 			{#if confirmingRemove}
@@ -124,4 +94,5 @@
 			{/if}
 		</SettingsRow>
 	</SettingsGroup>
+{/if}
 </SettingsSection>

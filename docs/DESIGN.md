@@ -5943,6 +5943,12 @@ The shared section order and route names (a quiet technical term follows the pla
 | This device | Computers (Backends) | `backends` | Computers this device connects to |
 | This device | Archived projects | `archived` | Bring a project back |
 | This device | About (Android: About and licences) | `about` | Kemiri versions; licences on Android |
+| This computer | Overview | `overview` | Connection, release, disk, deploy and software updates |
+| This computer | AI accounts (Accounts and API keys) | `accounts` | Sign-in, API keys and monthly plan prices |
+| This computer | You and memory | `you` | Your name and automatic memory cleanup |
+| This computer | Connected apps (MCP servers) | `mcp` | Outside tools and their computer-wide policies |
+| This computer | Devices | `devices` | Signed-in devices, add a device and pending pairings |
+| This computer | Advanced | `advanced` | Name on this device, address and removal |
 | Project | General | `general` | Name, folder, archive |
 | Project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
 | Project | Workers | `workers` | Ordered worker models and check-ins, including reset |
@@ -5953,10 +5959,14 @@ The shared section order and route names (a quiet technical term follows the pla
 | Project | Storage | `storage` | Finished workspaces and disk use |
 | Project | Advanced | `advanced` | Page privacy, conversation cache, proof of screen changes, report checks, live lines and code delivery |
 
-A computer's page shows status, release, machine, deploy, its local name, Your name, removal, and **Automatic memory
-cleanup** (Memory maintenance). **AI accounts** (Accounts and API keys) and **Connected apps** (MCP servers) are
-child pages: credentials and tool policies stay on that computer. With `memory-maintenance-enabled`, turning cleanup
-off keeps the model. Turning it on without a model opens the model picker. Older computers use the No model option.
+With `memory-maintenance-enabled`, turning cleanup off keeps the model. Turning it on without a model opens
+its model picker. Older computers use the No model option. Software updates belong to the computer. About
+shows only versions and links update notices to Overview. Signed-in subscriptions in AI accounts edit or reset
+the current monthly price shared with the Usage Value tab. API keys do not show prices.
+
+Devices has one Add a device group. Pairing grants access using the existing confirmation flow. The address-only
+option shares HTTPS computer addresses, not sign-in. On computers without sign-in, address sharing comes first.
+This device → Computers accepts either invitation and hands off to its existing confirmation flow.
 
 Advanced holds Page privacy (Artifact pages) as a switch, Conversation cache (Prompt cache), Proof of screen changes
 (Show UI changes), Report check, Live news lines, then Code delivery (Integration branch, deploy feed).

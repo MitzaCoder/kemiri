@@ -2,7 +2,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import BackendForm from '#lib/components/BackendForm.svelte';
-	import ConnectDevice from '#lib/components/ConnectDevice.svelte';
+	import ConnectComputerGroup from './ConnectComputerGroup.svelte';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
 	import SettingsSection from '#lib/components/settings/SettingsSection.svelte';
@@ -25,7 +25,7 @@
 	}
 </script>
 
-<SettingsSection title="Computers" term="Backends" description="The computers running Kemiri, their AI accounts and apps" icon="server">
+<SettingsSection title="Computers" term="Backends" description="Computers this browser connects to" icon="server">
 	<SettingsGroup title="Your computers">
 		{#each harness.backends as backend (backend.id)}
 			{@const view = connectionView(backend.connection)}
@@ -67,11 +67,5 @@
 		</SettingsRow>
 	</SettingsGroup>
 
-	{#if harness.backends.length > 0}
-		<SettingsGroup title="Connect another device">
-			<SettingsRow label="Link or QR code" hint="Opens this list on a phone or another computer." control="full">
-				<ConnectDevice />
-			</SettingsRow>
-		</SettingsGroup>
-	{/if}
+	<ConnectComputerGroup />
 </SettingsSection>

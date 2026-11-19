@@ -12,7 +12,9 @@
 	import type { ComboOption } from '#lib/combobox.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { OFFICIAL_AGENT_LABEL, providerDisplayName } from '#lib/official-agents.js';
-	import type { ProviderInfo } from '@kemiri/protocol';
+	import AccountPlanPrice from './AccountPlanPrice.svelte';
+	import { localValueMonth, valueMonthRequest } from '#lib/subscription-value.js';
+	import type { ProviderInfo, SubscriptionPrice, UsageValueResponse } from '@kemiri/protocol';
 
 	/**
 	 * General → Backends → one backend → Accounts and API keys. Credentials belong to the backend that holds them, so
@@ -53,6 +55,25 @@
 		}))
 	);
 	const addProvider = $derived(others.find((provider) => provider.id === adding));
+	let planPrices = $state<Record<string, SubscriptionPrice>>({});
+	let planPriceError = $state(false);
+	const signedInProviders = $derived(backend.credentials.filter(credential => credential.type === 'oauth').map(credential => credential.providerId).sort().join(' '));
+	$effect(() => {
+		if (!backend.ready || !backend.supports('subscription-value') || !signedInProviders) {
+			planPrices = {};
+			planPriceError = false;
+			return;
+		}
+		let cancelled = false;
+		planPriceError = false;
+		void backend.client.request<UsageValueResponse>(valueMonthRequest(localValueMonth())).then(response => {
+			if (cancelled) return;
+			if (response.type === 'error') throw new Error(response.error.message);
+			planPrices = Object.fromEntries(response.subscriptions.filter(subscription => subscription.billing === 'subscription')
+				.map(subscription => [subscription.providerId, subscription.price]));
+		}).catch(() => { if (!cancelled) planPriceError = true; });
+		return () => { cancelled = true; };
+	});
 	const supported = $derived(backend.supports('credentials') || backend.supports('logins'));
 </script>
 
@@ -69,6 +90,8 @@
 			</StatusChip>
 		{/if}
 	{/snippet}
+
+	{#if planPriceError}<Banner tone="warning">Could not load monthly plan prices.</Banner>{/if}
 
 	{#if backend.lastError}<Banner tone="error">{backend.lastError}</Banner>{/if}
 
@@ -108,6 +131,8 @@
 						</Button>
 					</div>
 					{#snippet below()}
+						{@const price = state.label === 'Signed in' ? planPrices[provider.id] : undefined}
+						{#if price}<AccountPlanPrice {backend} providerId={provider.id} {price} onprice={(next) => { planPrices[provider.id] = next; }} />{/if}
 						{#if open}<ProviderPanel {backend} {provider} />{/if}
 					{/snippet}
 				</SettingsRow>
