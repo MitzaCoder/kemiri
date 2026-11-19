@@ -11,13 +11,12 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -25,6 +24,8 @@ import androidx.core.net.toUri
 import androidx.compose.ui.graphics.toArgb
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JarvisColors
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * An HTML artifact shown as the page it is, and how that page is allowed to behave: the Android half of the web's
@@ -164,10 +165,16 @@ internal fun artifactLinkIntent(url: String): Intent? {
  */
 @SuppressLint("ClickableViewAccessibility") // The listener never consumes events; WebView keeps native click/accessibility handling.
 @Composable
-internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequests: Boolean = false, hostControls: Boolean = false, onPrintReady: ((() -> Unit)?) -> Unit = {}, reviewRead: Int = 0, reviewPicking: Boolean = false, onReviewSelection: (ArtifactSelection?) -> Unit = {}) {
+internal fun ArtifactPage(
+    html: String, modifier: Modifier = Modifier, blockRequests: Boolean = false, hostControls: Boolean = false,
+    onPrintReady: ((() -> Unit)?) -> Unit = {}, reviewRead: Int = 0, reviewPicking: Boolean = false,
+    reviewComments: List<ReviewComment> = emptyList(), onReviewPin: (String) -> Unit = {},
+    onReviewSelection: (ArtifactSelection?) -> Unit = {},
+) {
     val context = LocalContext.current
     val colors = Jarvis.colors
     val document = artifactPageDocument(html, colors.dark, artifactThemeTokens(colors), blockRequests, !hostControls)
+    var pageRevision by remember { mutableIntStateOf(0) }
     val webView = remember(context) {
         WebView(context).also { view ->
             applyArtifactPagePolicy(view)
@@ -180,6 +187,9 @@ internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequ
                 false
             }
             view.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, url: String?) { pageRevision += 1 }
+                override fun onScaleChanged(view: WebView, oldScale: Float, newScale: Float) { pageRevision += 1 }
+
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     if (request.url.toString() == "aiki-artifact:print" && request.hasGesture()) {
                         val printing = view.context.getSystemService(Context.PRINT_SERVICE) as PrintManager
@@ -233,7 +243,44 @@ internal fun ArtifactPage(html: String, modifier: Modifier = Modifier, blockRequ
             }
         } else webView.evaluateJavascript(ARTIFACT_REVIEW_CANCEL_PICK, null)
     }
-    AndroidView(factory = { webView }, modifier = modifier.fillMaxWidth())
+    val watchedPaths = remember(reviewComments) { artifactReviewPaths(reviewComments) }
+    var rectangles by remember(document) { mutableStateOf<ArtifactAnchorRects?>(null) }
+    DisposableEffect(webView, document, watchedPaths, pageRevision) {
+        if (watchedPaths.isEmpty()) {
+            rectangles = null
+            onDispose { }
+        } else {
+            val request = "($ARTIFACT_REVIEW_RECTS)(${JsonArray(watchedPaths.map(::JsonPrimitive))})"
+            var observing = true
+            var requestNumber = 0
+            val read = Runnable {
+                val number = ++requestNumber
+                webView.evaluateJavascript(request) {
+                    if (observing && number == requestNumber) rectangles = decodeArtifactAnchorRects(it, watchedPaths)
+                }
+            }
+            fun schedule() {
+                webView.removeCallbacks(read)
+                webView.postOnAnimation(read)
+            }
+            val layout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> schedule() }
+            webView.addOnLayoutChangeListener(layout)
+            webView.setOnScrollChangeListener { _, _, _, _, _ -> schedule() }
+            schedule()
+            onDispose {
+                observing = false
+                webView.removeCallbacks(read)
+                webView.removeOnLayoutChangeListener(layout)
+                webView.setOnScrollChangeListener(null)
+            }
+        }
+    }
+    Box(modifier.fillMaxWidth().clipToBounds()) {
+        AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+        if (!reviewPicking) rectangles?.let {
+            ArtifactReviewPinLayer(reviewComments, it, onReviewPin, Modifier.matchParentSize())
+        }
+    }
 }
 
 

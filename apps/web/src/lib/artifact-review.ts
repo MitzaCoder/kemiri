@@ -106,3 +106,32 @@ export function precedingArtifactHeading(scope: Element, node: Node): string {
 	}
 	return reviewText(heading, 300);
 }
+
+export function reviewCommentCount(count: number): string { return `${count} ${count === 1 ? 'comment' : 'comments'}`; }
+
+/** An unfinished editor is local to this version and separate from the review that can be sent. */
+export interface ArtifactCommentDraft { selection: ArtifactSelection; intent?: ReviewIntent; note: string; index?: number }
+export function loadArtifactCommentDraft(storage: ReviewStorage, key: string): ArtifactCommentDraft | undefined {
+	try {
+		const draft = JSON.parse(storage.getItem(`${key}:editor`) ?? 'null');
+		if (!draft?.selection || typeof draft.note !== 'string' || (!draft.intent && !draft.note) ||
+			(draft.intent !== undefined && !REVIEW_INTENTS.includes(draft.intent)) ||
+			(draft.index !== undefined && (!Number.isInteger(draft.index) || draft.index < 0 || draft.index >= 100))) return;
+		const { anchor, text, section, elementId, block } = draft.selection;
+		const selection = validateArtifactSelection(storage, storage, {
+			type: REVIEW_SELECTION_TYPE, text,
+			...(section === undefined ? {} : { section }),
+			...(elementId === undefined ? {} : { elementId }),
+			...(block === undefined ? {} : { block }),
+		});
+		if (!selection?.text) return;
+		return { selection: { ...selection, ...(isReviewAnchor(anchor) ? { anchor } : {}) }, intent: draft.intent, note: draft.note.slice(0, 4000), index: draft.index };
+	} catch { return; }
+}
+export function saveArtifactCommentDraft(storage: ReviewStorage, key: string, draft?: ArtifactCommentDraft): boolean {
+	try {
+		if (draft && (draft.note || draft.intent)) storage.setItem(`${key}:editor`, JSON.stringify(draft));
+		else storage.removeItem(`${key}:editor`);
+		return true;
+	} catch { return false; }
+}

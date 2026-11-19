@@ -144,6 +144,8 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
     actions: @Composable RowScope.() -> Unit = {},
     onReviewSelection: ((ArtifactSelection) -> Unit)? = null,
     reviewCount: Int = 0,
+    reviewComments: List<ReviewComment> = emptyList(),
+    onReviewPin: (String) -> Unit = {},
     onReviewTray: () -> Unit = {},
     htmlActions: @Composable (dismiss: () -> Unit) -> Unit = {},
 ) {
@@ -187,6 +189,7 @@ internal fun artifactDetailFacts(item: Artifact, now: Long = System.currentTimeM
             when {
                 page -> ArtifactPage(text, Modifier.fillMaxWidth()
                     .then(if (fillHeight) Modifier.weight(1f) else Modifier.height(288.dp)).clipToBounds(), blockRequests = blockRequests, hostControls = fillHeight, onPrintReady = { printPage = it }, reviewRead = reviewRead, reviewPicking = picking,
+                    reviewComments = reviewComments, onReviewPin = onReviewPin,
                     onReviewSelection = { selection ->
                         if (selection?.text?.isNotEmpty() == true) { picking = false; reviewHint = null; onReviewSelection?.invoke(selection) }
                         else if (picking) { picking = false; reviewHint = null }

@@ -105,6 +105,35 @@ class ArtifactReviewTest {
         assertNull(state.selection); assertEquals(1, state.review.comments.size); assertTrue(state.tray)
         assertEquals("1 comment", reviewCommentCount(1)); assertEquals("2 comments", reviewCommentCount(2))
     }
+    @Test fun `page anchors stay local and invalid locators do not enter the review`() {
+        assertEquals("p:0.3", validateArtifactSelection(selection(",\"anchor\":\"0.3\""))?.anchor)
+        assertNull(validateArtifactSelection(selection(",\"anchor\":\"p:0.3\"")))
+        val storage = MemoryStorage()
+        val comment = ReviewComment("Quote", intent = "Keep", anchor = "p:0.3")
+        val review = ArtifactReview(listOf(comment, comment.copy(anchor = "p:bad")))
+        assertTrue(saveArtifactReview(storage, "review", review))
+        assertEquals(listOf("p:0.3", null), loadArtifactReview(storage, "review").comments.map { it.anchor })
+        val artifact = ReviewArtifact("Report", "report", 1, "report.html")
+        assertEquals(formatArtifactReview(artifact, review), formatArtifactReview(artifact, ArtifactReview(review.comments.map { it.copy(anchor = null) })))
+    }
+    @Test fun `pin geometry rejects unrelated paths and clamps grouped pins to the visible document`() {
+        fun decode(rects: String) = decodeArtifactAnchorRects(Json.encodeToString("""{"width":200,"height":100,"rects":"$rects"}"""), listOf("0", "1", "2"))
+        assertNull(decode("3=0,1,2,3"))
+        assertNull(decode("0=1,2,3,4|0=1,2,3,4"))
+        assertNull(decode("0=1,2,-3,4"))
+        val rects = decode("0=30,-10,200,50|1=30,0,200,50|2=0,-50,50,10")!!
+        val comment = ReviewComment("Quote", intent = "Keep", anchor = "p:0")
+        val comments = listOf(comment, comment, comment.copy(anchor = "p:1"), comment.copy(anchor = "p:2"))
+        assertEquals(listOf("0", "1", "2"), artifactReviewPaths(comments))
+        assertEquals(listOf(ArtifactReviewPin("p:0", "Quote", 2, 376f, 24f), ArtifactReviewPin("p:1", "Quote", 1, 328f, 24f)), artifactReviewPins(comments, rects, 400f, 200f, 48f))
+    }
+    @Test fun `deleting the final comment closes only the pin preview`() {
+        val state = ArtifactReviewState(MemoryStorage(), "key")
+        state.update(ArtifactReview(listOf(ReviewComment("Quote", note = "A note", anchor = "p:0"))))
+        state.preview("p:0"); assertEquals("p:0", state.pinAnchor)
+        state.edit(0); assertEquals("p:0", state.selection?.anchor); state.selection = null
+        state.delete(0); assertNull(state.pinAnchor); assertTrue(state.review.comments.isEmpty())
+    }
     @Test fun `page picking has no outbound transport or permission changes`() {
         assertFalse(ARTIFACT_REVIEW_READ.contains("postMessage")); assertFalse(ARTIFACT_REVIEW_READ.contains("location.href"))
         assertTrue(ARTIFACT_REVIEW_PICK.contains("picking=true")); assertTrue(ARTIFACT_REVIEW_CANCEL_PICK.contains(".stop()"))

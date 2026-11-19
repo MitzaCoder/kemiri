@@ -45,12 +45,19 @@ enough to save. Desktop Enter or Cmd/Ctrl+Enter saves and Shift+Enter adds a lin
 On a coarse pointer the card does not take focus and Enter adds a line. Escape
 cancels the editor or dismisses a pin preview before closing the viewer.
 
+The floating Review control opens the comments tray or starts HTML block picking.
+Saving a picked block rearms that mode until it is cancelled. An unfinished card
+is saved separately on the device and can be resumed from the Review control; it
+is not sent. Each intent has an icon next to its label.
+
 A pin at each commented part counts its comments. Hover or keyboard focus opens
 the preview; click keeps it open, and a touch tap toggles it. The preview offers
 Edit and Delete. A comment with a missing anchor can still be edited in the tray.
 At modal widths of 640 px and above the tray sits beside the document; below that
 it is a bottom sheet behind the comment counter, and opening a card or preview
-closes it. HTML's source/version/print actions remain separate. Markdown/text retain
+closes it. Clicking an anchored tray comment jumps to the target and briefly outlines
+it. Removing a comment offers Undo until the next removal or a successful send.
+The whole-page note sits above the list. HTML's source/version/print actions remain separate. Markdown/text retain
 their metadata, download and delete controls. Images/video/audio have no review controls.
 
 `artifact-review.ts` owns the framework-free selection validator, Markdown
@@ -73,7 +80,8 @@ new tab or an inline preview. `kemiri:artifact-selection` has required string
 text clears an untouched selection. `kemiri:artifact-anchors` has `type` and a
 single `rects` string with entries `path=x,y,width,height` in frame viewport pixels;
 `*` is the live selection. The parent can watch up to 100 valid child-index paths
-and clear the frame selection. Scroll, resize, load and layout changes refresh
+and clear the frame selection or scroll a validated element path into view. Scroll,
+resize, load and layout changes refresh
 geometry. Messages must come from the mounted frame window, use exact text-only
 keys without accessors, and pass path, rectangle and vocabulary checks. The app
 clips its overlay to the reading surface, keeps cards inside it, and hides pins
@@ -100,7 +108,7 @@ nearest preceding rendered heading. The app maps Range and element rectangles
 into the same overlay, updating on scroll, resize and comment changes. The app
 outlines the active target even when focus leaves the native selection.
 
-**Send N comments** submits exactly one Markdown message. Task-linked artifacts
+**Send 1 comment** or **Send N comments** submits exactly one Markdown message. Task-linked artifacts
 mirror TaskReply: main coordinator, `taskId`, `whenBusy: steer`, `keepDraft: true`,
 so the server records one task feedback entry without clearing an unrelated chat
 draft. Without a task, the recipient is the viewer's route thread or main when
@@ -135,7 +143,14 @@ An overall note may be sent alone. In-flight sends cannot collect new comments
 that the acknowledgement would discard. Failed sends retain the review and reuse
 the request ID for unchanged text during the visit; acknowledged sends clear it.
 
-Android HTML reads selection only after Comment through `evaluateJavascript`.
+Android HTML reads text selection after Comment through `evaluateJavascript`.
+Picking a block opens the comment sheet automatically. Saving returns to the page,
+where a native Compose pin counts the comments at that element. Tapping it opens a
+filtered sheet with Edit and Delete. Anchors are local to the artifact version;
+the native layer reads bounded geometry only for watched paths on WebView layout,
+scroll, load and scale changes. No new origin permissions or JavaScript interface
+are used. Native Markdown, text and Source retain their paragraph picker and tray.
+
 Pick mode installs a document-local click listener through the same API; a
 300 ms poll reads its bounded text result until selection or cancellation. Pick
 mode outlines pointer/keyboard candidates, supports arrows/Enter/Escape, and

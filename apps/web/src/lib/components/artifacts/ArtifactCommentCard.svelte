@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ReviewIntentIcon from './ReviewIntentIcon.svelte';
 	import { onMount } from 'svelte';
 	import { REVIEW_INTENTS, reviewLocation, type ArtifactSelection, type ReviewIntent } from '#lib/artifact-review.js';
 
@@ -25,7 +26,7 @@
 	<div class="location"><span>{reviewLocation(selection) || 'Selected passage'}</span><strong>{editing ? 'Edit comment' : 'New comment'}</strong></div>
 	<blockquote title={selection.text}>{selection.text}</blockquote>
 	<div class="intents" role="group" aria-label="Comment intent">
-		{#each REVIEW_INTENTS as label}<button type="button" aria-pressed={intent === label} onclick={() => intent = intent === label ? undefined : label}>{label}</button>{/each}
+		{#each REVIEW_INTENTS as label}<button type="button" aria-pressed={intent === label} onclick={() => intent = intent === label ? undefined : label}><ReviewIntentIcon intent={label} />{label}</button>{/each}
 	</div>
 	<textarea bind:this={input} bind:value={note} aria-label="Comment note" onkeydown={noteKeys} maxlength="4000" rows="2" placeholder="What would help? An intent alone is enough."></textarea>
 	<div class="actions">
@@ -46,7 +47,7 @@
 	button { cursor:pointer; min-height:32px; padding:4px 10px; border:1px solid var(--tone-border-strong); border-radius:8px; background:var(--chat-surface); color:var(--chat-fg); font-size:12px; }
 	button:hover { background:var(--chat-surface-2); }
 	button:disabled { opacity:.5; cursor:default; }
-	.intents button { border-radius:999px; }
+	.intents button { display:inline-flex; align-items:center; gap:4px; border-radius:999px; }
 	button[aria-pressed=true] { background:color-mix(in srgb,var(--tone-primary) 14%,var(--chat-bg)); color:var(--accent-2); border-color:var(--accent-2); font-weight:600; }
 	button.save { color:var(--tone-primary-fg); background:var(--tone-primary); border-color:var(--tone-primary); font-weight:600; }
 	textarea { display:block; width:100%; min-height:62px; max-height:160px; field-sizing:content; resize:none; padding:8px 10px; background:var(--chat-surface); color:var(--chat-fg); border:1px solid var(--tone-border-strong); border-radius:8px; font-size:14px; line-height:1.45; }

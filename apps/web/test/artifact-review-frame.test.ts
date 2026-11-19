@@ -25,7 +25,8 @@ class Element {
 	removeAttribute(key: string) { delete this.attributes[key]; }
 	left = 10; top = 20;
 	getBoundingClientRect() { return { left: this.left, top: this.top, width: this.width, height: this.height }; }
-	scrollIntoView() {}
+	scrolled = false;
+	scrollIntoView() { this.scrolled = true; }
 }
 
 function frame(platform: 'web' | 'android', elements: Element[] = [new Element('svg', { 'aria-label': 'Before 410 After 312' })]) {
@@ -70,7 +71,7 @@ for (const platform of ['web', 'android'] as const) {
 		view.emit('pointerover', { target: view.chart });
 		expect(view.chart.attributes['data-kemiri-review-pick']).toBe('');
 		view.click(view.chart);
-		expect(view.messages).toEqual([{ type: 'kemiri:artifact-selection', text: 'Before 410 After 312', section: '', elementId: '', block: 'chart', ...(platform === 'web' ? { anchor: '0' } : {}) }]);
+		expect(view.messages).toEqual([{ type: 'kemiri:artifact-selection', text: 'Before 410 After 312', section: '', elementId: '', block: 'chart', anchor: '0' }]);
 		expect(view.chart.attributes['data-kemiri-review-pick']).toBeUndefined();
 		expect(view.root.attributes['data-kemiri-review-picking']).toBeUndefined();
 	});
@@ -95,7 +96,7 @@ for (const platform of ['web', 'android'] as const) {
 		const row = mock.append(new Element('div')).append(new Element('span', {}, 'Fix the till')); row.display = 'inline';
 		const view = frame(platform, [mock]); view.control('kemiri:pick-artifact-block'); view.emit('pointerover', { target: row });
 		expect(mock.attributes['data-kemiri-review-pick']).toBe('');
-		view.click(row); expect(view.messages[0]).toEqual({type:'kemiri:artifact-selection',text:'Bakery board mock-up',section:'',elementId:'mock',block:'image', ...(platform === 'web' ? { anchor: '0' } : {})});
+		view.click(row); expect(view.messages[0]).toEqual({type:'kemiri:artifact-selection',text:'Bakery board mock-up',section:'',elementId:'mock',block:'image', anchor: '0'});
 	});
 
 	for (const [tag, attributes, text, expected, block] of [
@@ -159,4 +160,15 @@ test('web: watches only valid parent paths; scroll and clear refresh the rectang
 	expect(view.rectangles.at(-1)?.rects).toBe('0=10,-30,100,40');
 	view.chart.visibility = 'hidden'; view.emit('resize', {});
 	expect(view.rectangles.at(-1)?.rects).toBe('');
+});
+
+
+test('web: jumping to a watched element accepts only a path from the parent', () => {
+	const view = frame('web');
+	view.control('kemiri:watch-artifact-anchors:0');
+	view.control('kemiri:show-artifact-anchor:0', {});
+	view.control('kemiri:show-artifact-anchor:0.');
+	expect(view.chart.scrolled).toBe(false);
+	view.control('kemiri:show-artifact-anchor:0');
+	expect(view.chart.scrolled).toBe(true);
 });

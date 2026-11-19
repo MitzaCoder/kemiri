@@ -180,7 +180,8 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
                 ArtifactTextPreview(artifact?.name ?: "Text", loaded, html = true, truncated = textTruncated,
                     size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, fillHeight = true, modifier = Modifier.weight(1f),
                     copy = { copy(loaded) }, onReviewSelection = review?.let { state -> { selection -> state.comment(selection) } },
-                    reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.tray = true },
+                    reviewCount = review?.review?.comments?.size ?: 0, reviewComments = review?.review?.comments.orEmpty(),
+                    onReviewPin = { review?.preview(it) }, onReviewTray = { review?.showTray() },
                     htmlActions = { dismiss ->
                         val index = versions.indexOfFirst { it.id == artifact?.id }
                         if (versions.size > 1) {
@@ -251,7 +252,7 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
                     ArtifactTextPreview(artifact?.name ?: "Text", loaded, markdown = markdown, html = html, truncated = textTruncated,
                         size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, copy = { copy(loaded) },
                         onReviewSelection = review?.let { state -> { selection -> state.comment(selection) } },
-                        reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.tray = true })
+                        reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.showTray() })
                 } ?: Text("Loading text…")
                 else -> artifact?.let { ArtifactFileRow(it) }
             } else if(error == null) CircularProgressIndicator()

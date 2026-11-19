@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { placeReviewCard, reviewPins, validateArtifactRects, watchAnchorsMessage } from '../src/lib/artifact-review-anchors.ts';
-import { formatArtifactReview, loadArtifactReview, saveArtifactReview, validateArtifactSelection, type ReviewStorage } from '../src/lib/artifact-review.ts';
+import { formatArtifactReview, loadArtifactReview, saveArtifactReview, validateArtifactSelection, loadArtifactCommentDraft, saveArtifactCommentDraft, reviewCommentCount, type ReviewStorage } from '../src/lib/artifact-review.ts';
 
 const frame = {};
 const report = (rects: string) => ({ type: 'kemiri:artifact-anchors', rects });
@@ -62,4 +62,23 @@ test('anchors round-trip locally, old comments still load, and neither changes t
 	expect(formatArtifactReview(artifact, restored)).toBe(formatArtifactReview(artifact, { ...review, comments: review.comments.map(({ text, note }) => ({ text, note })) }));
 	expect(validateArtifactSelection(frame, frame, { type: 'kemiri:artifact-selection', text: 'Quote', anchor: '0.2' })?.anchor).toBe('p:0.2');
 	expect(validateArtifactSelection(frame, frame, { type: 'kemiri:artifact-selection', text: 'Quote', anchor: 's:32' })).toBeUndefined();
+});
+
+
+test('unfinished notes restore separately and stay out of the review', () => {
+	const records = new Map<string, string>();
+	const storage: ReviewStorage = { getItem: key => records.get(key) ?? null, setItem: (key, value) => { records.set(key, value); }, removeItem: key => { records.delete(key); } };
+	const draft = { selection: { text: 'Bread', anchor: 'p:1.2' }, note: '  Kept as typed\n', intent: 'Clarify' as const, index: 1 };
+	expect(saveArtifactCommentDraft(storage, 'version-one', draft)).toBe(true);
+	expect(loadArtifactCommentDraft(storage, 'version-one')).toEqual(draft);
+	const savedComment = { ...draft.selection, intent: 'Keep' as const, note: 'Previously saved' };
+	expect(saveArtifactCommentDraft(storage, 'version-one', { ...draft, selection: savedComment })).toBe(true);
+	expect(loadArtifactCommentDraft(storage, 'version-one')).toEqual(draft);
+	expect(loadArtifactCommentDraft(storage, 'version-two')).toBeUndefined();
+	expect(loadArtifactReview(storage, 'version-one')).toEqual({ comments: [], overall: '' });
+	expect(saveArtifactCommentDraft(storage, 'version-one')).toBe(true);
+	expect(loadArtifactCommentDraft(storage, 'version-one')).toBeUndefined();
+	expect(reviewCommentCount(1)).toBe('1 comment');
+	expect(reviewCommentCount(0)).toBe('0 comments');
+	expect(reviewCommentCount(2)).toBe('2 comments');
 });

@@ -26,7 +26,8 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
 @Stable internal class ArtifactReviewState(private val storage: ReviewStorage, private val key: String) {
     var review by mutableStateOf(loadArtifactReview(storage, key)); private set
     var sending by mutableStateOf(false)
-    var tray by mutableStateOf(false)
+    var tray by mutableStateOf(false); private set
+    var pinAnchor by mutableStateOf<String?>(null); private set
     var selection by mutableStateOf<ArtifactSelection?>(null)
     var editing by mutableStateOf<Int?>(null)
     var status by mutableStateOf<String?>(null)
@@ -35,10 +36,26 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
         review = next
         if (!saveArtifactReview(storage, key, next)) status = "Could not save on this device. Keep this viewer open until sending."
     }
+    fun closePreview() { pinAnchor = null }
+    fun closeTray() { tray = false }
+    fun showTray() { closePreview(); tray = true }
+    fun preview(anchor: String) {
+        if (sending || selection != null) return
+        closeTray(); pinAnchor = anchor
+    }
+    fun edit(index: Int) {
+        if (sending) return
+        review.comments.getOrNull(index)?.let { editing = index; selection = it.selection() }
+    }
+    fun delete(index: Int) {
+        if (sending) return
+        update(review.copy(comments = review.comments.filterIndexed { i, _ -> i != index }))
+        if (review.comments.none { it.anchor == pinAnchor }) closePreview()
+    }
     fun comment(selection: ArtifactSelection) {
         if (sending) { tray = true; return }
         if (review.comments.size >= 100) { status = "A review can hold 100 comments. Remove one first."; tray = true; return }
-        editing = null; this.selection = selection
+        closeTray(); closePreview(); editing = null; this.selection = selection
     }
 }
 @Composable internal fun rememberArtifactReview(context: ProjectScreenContext, artifact: Artifact?): ArtifactReviewState? {
@@ -72,16 +89,34 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { state.selection = null }) { Text("Cancel") }
                     Button(enabled = intent != null || note.isNotBlank(), onClick = {
-                        val comment = ReviewComment(selection.text, selection.section, selection.elementId, selection.block, intent, reviewText(note, 4000))
+                        val comment = ReviewComment(selection.text, selection.section, selection.elementId, selection.block, intent, reviewText(note, 4000), selection.anchor)
                         val comments = state.review.comments.toMutableList()
                         state.editing?.let { comments[it] = comment } ?: comments.add(comment)
-                        state.update(state.review.copy(comments = comments)); state.selection = null; state.tray = true
+                        state.update(state.review.copy(comments = comments)); state.selection = null
                     }) { Text(if (previous == null) "Add comment" else "Save comment") }
                 }
             }
         }
+    } else if (state.pinAnchor != null) {
+        val comments = state.review.comments.withIndex().filter { it.value.anchor == state.pinAnchor }
+        ModalBottomSheet(onDismissRequest = state::closePreview, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(reviewCommentCount(comments.size).replaceFirstChar(Char::titlecase), style = MaterialTheme.typography.titleLarge)
+                comments.firstOrNull()?.value?.let { Text(it.text, maxLines = 3) }
+                for ((index, comment) in comments) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(comment.intent ?: "Note", style = MaterialTheme.typography.labelLarge)
+                        if (comment.note.isNotBlank()) Text(comment.note, Modifier.padding(top = 6.dp))
+                        Row {
+                            TextButton(onClick = { state.edit(index) }) { Text("Edit comment ${index + 1}") }
+                            TextButton(onClick = { state.delete(index) }) { Text("Delete comment ${index + 1}") }
+                        }
+                    }
+                }
+            }
+        }
     } else if (state.tray) {
-        ModalBottomSheet(onDismissRequest = { state.tray = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ModalBottomSheet(onDismissRequest = { state.closeTray() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Review pass · ${reviewCommentCount(state.review.comments.size)}", style = MaterialTheme.typography.titleLarge)
                 state.status?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -91,8 +126,8 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
                         Text(comment.text, maxLines = 4)
                         if (comment.note.isNotBlank()) Text(comment.note, Modifier.padding(top = 8.dp))
                         Row {
-                            TextButton(enabled = !sending, onClick = { state.editing = index; state.selection = comment.selection() }) { Text("Edit comment ${index + 1}") }
-                            TextButton(enabled = !sending, onClick = { state.update(state.review.copy(comments = state.review.comments.filterIndexed { i, _ -> i != index })) }) { Text("Remove comment ${index + 1}") }
+                            TextButton(enabled = !sending, onClick = { state.edit(index) }) { Text("Edit comment ${index + 1}") }
+                            TextButton(enabled = !sending, onClick = { state.delete(index) }) { Text("Remove comment ${index + 1}") }
                         }
                     }
                 }
@@ -109,7 +144,7 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
                             if (draft) appendArtifactReviewDraft(android, context, recipient, formatted, artifact.taskId)
                             else context.backend.client.request(ConversationSubmitRequest(projectId = recipient.projectId, threadId = recipient.threadId,
                                 requestId = state.submission.requestIdFor(formatted), content = JsonPrimitive(formatted), taskId = artifact.taskId, whenBusy = "steer", keepDraft = true))
-                            state.submission.accepted(); state.update(ArtifactReview()); state.tray = false
+                            state.submission.accepted(); state.update(ArtifactReview()); state.closeTray()
                             context.navigate(recipient)
                         } catch (e: CancellationException) { throw e }
                         catch (_: Exception) { state.status = if (draft) "Could not add to the draft. Your comments are still here." else "Send was not confirmed. Your comments are still here; retry when connected." }
@@ -120,7 +155,7 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
                     Text(if (sending) "Working…" else "Send ${reviewCommentCount(state.review.comments.size)}")
                 }
                 OutlinedButton(onClick = { transfer(true) }, enabled = hasReview && !sending, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Add to chat draft") }
-                TextButton(enabled = !sending, onClick = { state.tray = false }) { Text("Continue reviewing") }
+                TextButton(enabled = !sending, onClick = { state.closeTray() }) { Text("Continue reviewing") }
             }
         }
     }

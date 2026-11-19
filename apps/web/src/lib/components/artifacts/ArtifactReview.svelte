@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ReviewIntentIcon from './ReviewIntentIcon.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -12,10 +13,11 @@
 	import { projectHref, threadHref } from '#lib/backends.js';
 	import { moveReviewToDraft } from '#lib/artifact-review-draft.js';
 	import { quoteFromSelection, selectionInWholeWords } from '#lib/chat/quotes.js';
+	import { DropdownMenu } from 'bits-ui';
 	import MessageSquareIcon from '@lucide/svelte/icons/message-square';
 	import ArtifactCommentCard from './ArtifactCommentCard.svelte';
 	import ArtifactCommentPreview from './ArtifactCommentPreview.svelte';
-	import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, loadArtifactReview, saveArtifactReview, formatArtifactReview, precedingArtifactHeading, reviewText, reviewLocation, validateArtifactSelection, type ArtifactSelection, type ReviewComment, type ReviewIntent } from '#lib/artifact-review.js';
+	import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, loadArtifactReview, saveArtifactReview, formatArtifactReview, precedingArtifactHeading, reviewText, reviewLocation, validateArtifactSelection, loadArtifactCommentDraft, saveArtifactCommentDraft, reviewCommentCount, type ArtifactSelection, type ArtifactCommentDraft, type ReviewComment, type ReviewIntent } from '#lib/artifact-review.js';
 	import { SELECTION_RECT, validateArtifactRects, watchAnchorsMessage, reviewPins, placeReviewCard, blockPath, textOffset, anchorClientRect, type ReviewRect } from '#lib/artifact-review-anchors.js';
 
 	let { artifact, client, layout, surface, textRoot, frame, anchorKind, onclose }: {
@@ -28,7 +30,14 @@
 	const restored = untrack(() => loadArtifactReview(localStorage, key));
 	let comments = $state(restored.comments);
 	let overall = $state(restored.overall);
-	let editor = $state<{ selection: ArtifactSelection; index?: number; inTray: boolean }>();
+	const restoredDraft = untrack(() => loadArtifactCommentDraft(localStorage, key));
+	let draftEditor = $state<ArtifactCommentDraft | undefined>(restoredDraft);
+	let draftStored = $state(true);
+	let removed = $state<{ comment: ReviewComment; index: number }>();
+	let flashAnchor = $state<string>();
+	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+	let pickFromMenu = false;
+	let editor = $state<{ selection: ArtifactSelection; index?: number; inTray: boolean; recovered?: boolean }>();
 	let intent = $state<ReviewIntent>();
 	let note = $state('');
 	let editorOrigin: HTMLElement | undefined;
@@ -38,7 +47,7 @@
 	let problem = $state('');
 	let status = $state('');
 	let stored = $state(true);
-	let commentCounter: HTMLButtonElement;
+	let commentCounter = $state<HTMLButtonElement | null>(null);
 	let coarsePointer = $state(false);
 	let hoverPointer = $state(false);
 	let sheet = $state(false);
@@ -63,13 +72,16 @@
 	});
 	const pins = $derived(reviewPins(comments, offsetRects, layer));
 	const previewPin = $derived(pins.find(pin => pin.anchor === preview?.anchor));
-	const editRect = $derived(editor && offsetRects.get(editor.index === undefined ? SELECTION_RECT : editor.selection.anchor ?? ''));
-	const outline = $derived(editor && !editor.inTray ? editRect : previewPin?.rect);
+	const editRect = $derived(editor && offsetRects.get(editor.index === undefined && !editor.recovered ? SELECTION_RECT : editor.selection.anchor ?? ''));
+	const outline = $derived(editor && !editor.inTray ? editRect : previewPin?.rect ?? offsetRects.get(flashAnchor ?? ''));
 	const cardPosition = $derived(placeReviewCard(editRect ?? { x: 0, y: 0, width: 0, height: 0 }, layer, { width: cardWidth, height: cardHeight }));
 	const previewPosition = $derived(previewPin && placeReviewCard({ x: previewPin.x - previewWidth + 22, y: previewPin.y - 22, width: 44, height: 44 }, layer, { width: previewWidth, height: previewHeight }, 2));
-	const watched = $derived(watchAnchorsMessage(comments));
+	const watched = $derived(watchAnchorsMessage(draftEditor ? [...comments, draftEditor.selection] : editor?.recovered ? [...comments, editor.selection] : comments));
 
 	$effect(() => { stored = saveArtifactReview(localStorage, key, { comments, overall }); });
+	$effect(() => {
+		draftStored = saveArtifactCommentDraft(localStorage, key, editor ? { selection: editor.selection, index: editor.index, note, intent } : draftEditor);
+	});
 	$effect(() => {
 		const viewer = frame;
 		if (!pageView || !viewer) return;
@@ -78,7 +90,7 @@
 			frameRects = new Map();
 			closePreview();
 			picking = false;
-			if (editor && !editor.inTray && editor.index === undefined) {
+			if (editor && !editor.inTray && editor.index === undefined && !editor.recovered) {
 				if (editorTouched()) { editor.inTray = true; trayOpen = true; }
 				else dismissEditor(false, false);
 			}
@@ -99,7 +111,7 @@
 		for (const element of new Set([viewer, parent, ...(root ? [root] : [])])) observer.observe(element);
 		return () => observer.disconnect();
 	});
-	$effect(() => { comments; textRoot; surface; anchorKind; scheduleGeometry(); });
+	$effect(() => { comments; draftEditor; editor?.recovered; textRoot; surface; anchorKind; scheduleGeometry(); });
 	$effect(() => {
 		anchorKind;
 		untrack(() => {
@@ -132,7 +144,7 @@
 			if (!textRoot || anchorKind === 'p') return;
 			const relative = (rect: ReviewRect) => ({ x: (rect.x - bounds.x) / scaleX, y: (rect.y - bounds.y) / scaleY, width: rect.width / scaleX, height: rect.height / scaleY });
 			const rects = new Map<string, ReviewRect>();
-			for (const { anchor } of comments) {
+			for (const { anchor } of draftEditor ? [...comments, draftEditor.selection] : editor?.recovered ? [...comments, editor.selection] : comments) {
 				if (!anchor || rects.has(anchor)) continue;
 				const rect = anchorClientRect(textRoot, anchorKind, anchor);
 				if (rect) rects.set(anchor, relative(rect));
@@ -193,6 +205,7 @@
 			cancelAnimationFrame(refreshFrame);
 			clearTimeout(previewTimer);
 			clearTimeout(selectionTimer);
+			clearTimeout(flashTimer);
 		};
 	});
 
@@ -220,17 +233,17 @@
 	}
 	function editorTouched(): boolean { return editor?.index !== undefined || intent !== undefined || note !== ''; }
 	function select(selection?: ArtifactSelection): void {
-		if (sending || editorTouched()) return;
+		if (sending || draftEditor || editorTouched()) return;
 		if (!selection) { if (editor) dismissEditor(false); return; }
 		closePreview();
-		if (!editor) editorOrigin = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : commentCounter;
+		if (!editor) editorOrigin = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : commentCounter ?? undefined;
 		editor = { selection, inTray: false };
 		if (sheet) trayOpen = false;
 	}
 	function edit(index: number): void {
 		const comment = comments[index];
-		if (!comment || editor || sending) return;
-		editorOrigin = preview ? pinButton(preview.anchor) ?? undefined : document.activeElement instanceof HTMLElement ? document.activeElement : commentCounter;
+		if (!comment || editor || draftEditor || sending) return;
+		editorOrigin = preview ? pinButton(preview.anchor) ?? undefined : document.activeElement instanceof HTMLElement ? document.activeElement : commentCounter ?? undefined;
 		closePreview();
 		intent = comment.intent;
 		note = comment.note;
@@ -247,6 +260,7 @@
 			if (pageView) frame?.contentWindow?.postMessage('kemiri:clear-artifact-selection', '*');
 			else document.getSelection()?.removeAllRanges();
 		}
+		draftEditor = undefined;
 		if (restoreFocus && !coarse) {
 			suppressPinFocus = true;
 			(editorOrigin?.isConnected ? editorOrigin : commentCounter)?.focus({ preventScroll: true });
@@ -259,11 +273,16 @@
 		const comment = { ...editor.selection, intent, note: reviewText(note, 4000) };
 		const editingIndex = editor.index;
 		comments = editingIndex === undefined ? [...comments, comment] : comments.map((saved, index) => index === editingIndex ? comment : saved);
-		dismissEditor(); status = ''; problem = '';
+		const continuePicking = pageView && editingIndex === undefined && comment.block !== undefined;
+		dismissEditor(!continuePicking); status = ''; problem = '';
+		if (continuePicking) startPicking();
 	}
 	function deleteComment(index: number): void {
-		if (editor || sending) return;
-		const anchor = comments[index]?.anchor;
+		if (editor || draftEditor || sending) return;
+		const comment = comments[index];
+		if (!comment) return;
+		removed = { comment, index };
+		const anchor = comment.anchor;
 		comments = comments.filter((_, at) => at !== index);
 		if (preview && anchor) {
 			closePreview();
@@ -300,15 +319,58 @@
 			if (!preview?.pinned && !document.activeElement?.closest('[data-review-pin-group]')) closePreview();
 		}, 240);
 	}
-	function togglePicking(): void {
-		if (editor) return;
+	function startPicking(): void {
+		if (editor || draftEditor || sending) return;
 		closePreview();
-		picking = !picking;
-		frame?.contentWindow?.postMessage(picking ? 'kemiri:pick-artifact-block' : 'kemiri:cancel-artifact-pick', '*');
-		if (picking) frame?.focus();
+		picking = true;
+		frame?.contentWindow?.postMessage('kemiri:pick-artifact-block', '*');
+		frame?.focus();
+	}
+	function stopPicking(): void {
+		picking = false;
+		frame?.contentWindow?.postMessage('kemiri:cancel-artifact-pick', '*');
+	}
+	function toggleTray(): void {
+		closePreview();
+		if (editor?.inTray && trayOpen) dismissEditor();
+		else if (sheet && editor && !trayOpen) return;
+		trayOpen = !trayOpen;
+	}
+	function undoRemove(): void {
+		if (!removed || editor || draftEditor || sending || comments.length >= 100) return;
+		const { comment, index } = removed;
+		comments = [...comments.slice(0, index), comment, ...comments.slice(index)];
+		removed = undefined;
+	}
+	function showComment(anchor: string): void {
+		if (editor || sending || !surface || !anchor.startsWith(`${anchorKind}:`)) return;
+		if (sheet) trayOpen = false;
+		if (anchorKind === 'p') frame?.contentWindow?.postMessage(`kemiri:show-artifact-anchor:${anchor.slice(2)}`, '*');
+		else if (textRoot) {
+			const target = anchorClientRect(textRoot, anchorKind, anchor);
+			if (!target) return;
+			const bounds = surface.getBoundingClientRect();
+			surface.scrollBy({ top: target.y + target.height / 2 - bounds.y - bounds.height / 2, behavior: 'instant' });
+		}
+		closePreview();
+		flashAnchor = anchor;
+		clearTimeout(flashTimer);
+		flashTimer = setTimeout(() => { flashAnchor = undefined; }, 1400);
+	}
+	function resumeDraft(): void {
+		if (!draftEditor || editor || sending) return;
+		const { selection, index, note: draftNote, intent: draftIntent } = draftEditor;
+		const inTray = !selection.anchor || !surfaceRects.has(selection.anchor);
+		// A recovered draft uses its stored target rather than a live selection rectangle.
+		editor = { selection, index: index !== undefined && comments[index]?.text === selection.text && comments[index]?.anchor === selection.anchor ? index : undefined, inTray, recovered: true };
+		intent = draftIntent;
+		note = draftNote;
+		draftEditor = undefined;
+		if (inTray) trayOpen = true;
+		else if (sheet) trayOpen = false;
 	}
 	function formatted(): string { return formatArtifactReview({ title: artifactTitle(artifact), id: artifact.id, version: artifact.version ?? 1, name: artifact.name }, { comments, overall }); }
-	function clear(): void { submission.accepted(); comments = []; overall = ''; dismissEditor(false); closePreview(); }
+	function clear(): void { submission.accepted(); comments = []; overall = ''; removed = undefined; dismissEditor(false); closePreview(); }
 	const recipient = $derived(reviewThreadId(artifact.taskId, page.params.threadId));
 	async function send(): Promise<void> {
 		if (sending) return;
@@ -344,13 +406,13 @@
 {/snippet}
 {#snippet layerBox()}
 	<!-- The rectangle is clipped to this layer, not trusted as host coordinates. -->
-	{#if outline}<div class="target-outline" style:left={`${outline.x}px`} style:top={`${outline.y}px`} style:width={`${outline.width}px`} style:height={`${outline.height}px`}></div>{/if}
+	{#if outline}<div class="target-outline" class:jump-flash={!!flashAnchor && !editor && !previewPin} style:left={`${outline.x}px`} style:top={`${outline.y}px`} style:width={`${outline.width}px`} style:height={`${outline.height}px`}></div>{/if}
 {/snippet}
 
 {#if layer.width > 16 && layer.height > 16}
 	{@const layerStyle = `left:${layer.x}px;top:${layer.y}px;width:${layer.width}px;height:${layer.height}px`}
 	<div class="review-layer pin-layer" style={layerStyle} data-artifact-review>
-		{#if previewPin}{@render layerBox()}{/if}
+		{#if previewPin || flashAnchor}{@render layerBox()}{/if}
 		{#each pins as pin (pin.anchor)}
 			{@const expanded = previewPin?.anchor === pin.anchor}
 			{@const count = pin.comments.length}
@@ -358,7 +420,7 @@
 				if (expanded && !preview?.pinned && !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) closePreview();
 			}}>
 				<button type="button" class="review-pin" style:left={`${pin.x}px`} style:top={`${pin.y}px`} data-review-pin={pin.anchor}
-					aria-label={`${count} ${count === 1 ? 'comment' : 'comments'} on ${comments[pin.comments[0]!]?.text.slice(0, 75) ?? 'this part'}`} aria-expanded={expanded} disabled={!!editor || sending}
+					aria-label={`${count} ${count === 1 ? 'comment' : 'comments'} on ${comments[pin.comments[0]!]?.text.slice(0, 75) ?? 'this part'}`} aria-expanded={expanded} disabled={!!editor || !!draftEditor || sending}
 					onpointerenter={event => { if (event.pointerType === 'mouse' && !coarse) openPreview(pin.anchor); }}
 					onfocus={() => { if (!coarse && !suppressPinFocus) openPreview(pin.anchor); }}
 					onclick={() => { if (expanded && (coarse || preview?.pinned)) closePreview(); else openPreview(pin.anchor, true); }}>
@@ -382,30 +444,46 @@
 	{/if}
 {/if}
 <div class="review-controls" data-artifact-review>
-	{#if pageView}<button type="button" aria-pressed={picking} disabled={sending || !!editor || !frame} onclick={togglePicking}>{picking ? 'Cancel picking' : 'Pick a block'}</button>{/if}
-	{#if picking}<span class="pick-hint" role="status">Pick a block, or use ↓ ↑ then Enter. Escape cancels.</span>{/if}
-	<button bind:this={commentCounter} type="button" aria-expanded={trayOpen} onclick={() => {
-		closePreview();
-		if (editor?.inTray && trayOpen) dismissEditor();
-		else if (sheet && editor && !trayOpen) return;
-		trayOpen = !trayOpen;
-	}}>Comments · {comments.length}</button>
+	{#if removed}<div class="review-undo" role="status"><span>Comment removed</span><button type="button" onclick={undoRemove} disabled={!!editor || !!draftEditor || sending || comments.length >= 100}>Undo</button></div>{/if}
+	{#if picking}
+		<span class="pick-hint" role="status">Pick a block, or use ↓ ↑ then Enter.</span>
+		<button type="button" class="review-trigger" onclick={stopPicking}>Cancel picking</button>
+	{:else if pageView}
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger bind:ref={commentCounter} class="review-trigger" aria-label={`Review actions · ${reviewCommentCount(comments.length)}`}><MessageSquareIcon size={15} aria-hidden="true" /> Review · {comments.length}{draftEditor ? ' · Draft' : ''}</DropdownMenu.Trigger>
+			<DropdownMenu.Portal><DropdownMenu.Content class="artifact-review-menu" align="start" side="top" sideOffset={6} onCloseAutoFocus={event => {
+				if (pickFromMenu) { pickFromMenu = false; event.preventDefault(); startPicking(); }
+			}}>
+				<DropdownMenu.Item disabled={!!editor || !!draftEditor || sending || !frame} onSelect={() => { pickFromMenu = true; }}>Pick a block</DropdownMenu.Item>
+				<DropdownMenu.Item onSelect={toggleTray}>{trayOpen ? 'Close comments' : `Comments · ${comments.length}`}</DropdownMenu.Item>
+				{#if draftEditor}<DropdownMenu.Item onSelect={resumeDraft}>Resume comment</DropdownMenu.Item>{/if}
+			</DropdownMenu.Content></DropdownMenu.Portal>
+		</DropdownMenu.Root>
+	{:else}
+		<button bind:this={commentCounter} class="review-trigger" type="button" aria-expanded={trayOpen} onclick={toggleTray}><MessageSquareIcon size={15} aria-hidden="true" /> Review · {comments.length}{draftEditor ? ' · Draft' : ''}</button>
+	{/if}
 </div>
 {#if trayOpen}
 	<aside class="review-panel" aria-label="Artifact review" data-artifact-review>
 		<header><div><strong>Your comments · {comments.length}</strong><p>Version {artifact.version ?? 1} · only on this device</p></div><Button variant="ghost" size="icon-sm" class="self-start" aria-label="Close comments" title="Close comments" onclick={() => { trayOpen = false; if (editor?.inTray) dismissEditor(); }}><XIcon /></Button></header>
 		<div class="review-scroll">
+			{#if draftEditor}<button type="button" onclick={resumeDraft}>Resume comment</button>{/if}
+			<label class="overall-note">About the whole page (optional)<textarea bind:value={overall} disabled={sending} maxlength="4000" rows="2" placeholder="The bigger picture…"></textarea></label>
 			{#if editor?.inTray}<div class="tray-editor" data-review-editor>{@render commentCard()}</div>{/if}
 			{#if !comments.length && !editor}<p class="hint">Select a sentence{pageView ? ', or pick any visible block' : ''}. Your comments gather here before you send.</p>{/if}
-			<ol>{#each comments as comment, index}<li><strong>{index + 1}. {comment.intent ?? 'Note'}</strong><p class="location">{reviewLocation(comment)}</p><blockquote>{comment.text}</blockquote>{#if comment.note}<p class="comment-note">{comment.note}</p>{/if}<div class="buttons"><button type="button" disabled={sending || !!editor} onclick={() => edit(index)}>Edit<span class="sr-only"> comment {index + 1}</span></button><button type="button" disabled={sending || !!editor} onclick={() => deleteComment(index)}>Remove<span class="sr-only"> comment {index + 1}</span></button></div></li>{/each}</ol>
-			<label>About the whole page (optional)<textarea bind:value={overall} disabled={sending} maxlength="4000" rows="2" placeholder="The bigger picture…"></textarea></label>
+			<ol>{#each comments as comment, index}<li>{#snippet commentSummary()}
+				<strong class="tray-intent"><ReviewIntentIcon intent={comment.intent} />{index + 1}. {comment.intent ?? 'Note'}</strong><span class="location">{reviewLocation(comment)}</span><span class="tray-quote">{comment.text}</span>
+			{/snippet}
+			{#if comment.anchor?.startsWith(`${anchorKind}:`)}
+				<button type="button" class="tray-target" title="Show on the page" disabled={!!editor || sending} onclick={() => showComment(comment.anchor!)}>{@render commentSummary()}</button>
+			{:else}{@render commentSummary()}{/if}{#if comment.note}<p class="comment-note">{comment.note}</p>{/if}<div class="buttons"><button type="button" disabled={sending || !!editor || !!draftEditor} onclick={() => edit(index)}>Edit<span class="sr-only"> comment {index + 1}</span></button><button type="button" disabled={sending || !!editor || !!draftEditor} onclick={() => deleteComment(index)}>Remove<span class="sr-only"> comment {index + 1}</span></button></div></li>{/each}</ol>
 		</div>
 		<footer>
-			{#if !stored}<p role="alert">Storage unavailable. Keep this viewer open until you send.</p>{/if}
+			{#if !stored || !draftStored}<p role="alert">Storage unavailable. Keep this viewer open until you send.</p>{/if}
 			{#if problem}<p role="alert">{problem}</p>{/if}
 			<p role="status">{status}</p>
-			<button type="button" class="primary" disabled={sending || !!editor || (!comments.length && !overall.trim())} onclick={() => void send()}>{sending ? 'Sending…' : `Send ${comments.length} comments`}</button>
-			<button type="button" disabled={sending || !!editor || (!comments.length && !overall.trim())} onclick={() => void draft()}>Add to chat draft</button>
+			<button type="button" class="primary" disabled={sending || !!editor || !!draftEditor || (!comments.length && !overall.trim())} onclick={() => void send()}>{sending ? 'Sending…' : `Send ${reviewCommentCount(comments.length)}`}</button>
+			<button type="button" disabled={sending || !!editor || !!draftEditor || (!comments.length && !overall.trim())} onclick={() => void draft()}>Add to chat draft</button>
 		</footer>
 	</aside>
 {/if}
@@ -415,19 +493,35 @@
 	button:hover { background:var(--chat-surface-2); }
 	button:focus-visible, textarea:focus-visible { outline:2px solid var(--accent-2); outline-offset:2px; }
 	button:disabled { opacity:.5; cursor:default; }
-	.primary, button[aria-pressed=true] { background:var(--chat-surface-2); color:var(--accent-2); border-color:var(--accent-2); font-weight:600; }
-	.review-controls { position:absolute; z-index:5; bottom:12px; left:12px; display:flex; flex-wrap:wrap; gap:6px; max-width:calc(100% - 24px); padding:5px; background:var(--chat-bg); border:1px solid var(--chat-border); border-radius:12px; box-shadow:0 3px 16px #0002; }
+	.primary { background:var(--chat-surface-2); color:var(--accent-2); border-color:var(--accent-2); font-weight:600; }
+	.review-controls { position:absolute; z-index:5; bottom:12px; left:12px; display:grid; justify-items:start; gap:6px; max-width:calc(100% - 24px); pointer-events:none; }
 	.pick-hint { font-size:12px; align-self:center; max-width:240px; color:var(--chat-fg-muted); }
 	.review-panel { flex:0 0 320px; width:320px; max-width:100%; min-height:0; display:flex; flex-direction:column; background:var(--chat-bg); border-left:1px solid var(--chat-border); color:var(--chat-fg); font-size:13px; z-index:6; }
 	header { display:flex; justify-content:space-between; gap:8px; padding:16px 14px 12px; border-bottom:1px solid var(--chat-border); }
-	header p, .location { font-size:11px; color:var(--chat-fg-muted); margin:4px 0; }
+	header p, .location { display:block; font-size:11px; color:var(--chat-fg-muted); margin:4px 0; }
 	.review-scroll { min-height:0; flex:1; overflow:auto; padding:14px; overscroll-behavior:contain; }
 	ol { list-style:none; margin:0; padding:0; }
 	li, .tray-editor { padding:0 0 16px; margin-bottom:16px; border-bottom:1px solid var(--chat-border); }
-	blockquote { max-height:112px; overflow:auto; border-left:2px solid var(--accent-2); margin:8px 0; padding-left:10px; color:var(--chat-fg-muted); white-space:pre-wrap; overflow-wrap:anywhere; }
+	.tray-quote { display:block; max-height:112px; overflow:auto; border-left:2px solid var(--accent-2); margin:8px 0; padding-left:10px; color:var(--chat-fg-muted); white-space:pre-wrap; overflow-wrap:anywhere; }
 	.buttons { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
 	label { display:block; font-size:12px; color:var(--chat-fg-muted); }
 	textarea { display:block; width:100%; border:1px solid var(--chat-border); border-radius:8px; padding:10px; margin-top:6px; background:var(--chat-surface); color:var(--chat-fg); resize:vertical; font-size:14px; }
+	.tray-intent { display:flex; align-items:center; gap:5px; }
+	.overall-note { margin:8px 0 18px; }
+	button.tray-target { width:100%; text-align:left; background:transparent; border-color:transparent; padding:5px; }
+	button.tray-target:hover { background:var(--chat-surface-2); border-color:var(--chat-border); }
+	:global(.review-trigger), .review-undo, .pick-hint { pointer-events:auto; background:var(--chat-bg); color:var(--chat-fg); border:1px solid var(--chat-border); border-radius:12px; box-shadow:0 3px 16px #0002; }
+	:global(button.review-trigger) { display:inline-flex; cursor:pointer; min-height:40px; align-items:center; gap:6px; padding:6px 12px; font-size:12px; font-weight:600; }
+	:global(button.review-trigger:focus-visible) { outline:2px solid var(--tone-ring); outline-offset:2px; }
+	.review-undo { display:flex; align-items:center; gap:8px; padding:4px 6px 4px 10px; font-size:12px; }
+	.pick-hint { padding:5px 9px; }
+	:global(.artifact-review-menu) { z-index:100; min-width:165px; padding:5px; background:var(--chat-bg); color:var(--chat-fg); border:1px solid var(--chat-border); border-radius:12px; box-shadow:0 6px 24px #0004; font-size:13px; }
+	:global(.artifact-review-menu [role=menuitem]) { cursor:pointer; padding:8px; border-radius:7px; outline:none; }
+	:global(.artifact-review-menu [data-highlighted]) { background:var(--chat-surface-2); }
+	:global(.artifact-review-menu [data-disabled]) { opacity:.45; cursor:default; }
+	.jump-flash { animation:review-jump 1.4s ease-out; }
+	@keyframes review-jump { 0%, 35% { background:color-mix(in srgb,var(--tone-primary) 32%, transparent); } 100% { opacity:.4; } }
+	@media (prefers-reduced-motion:reduce) { .jump-flash { animation:none; } }
 	.comment-note { white-space:pre-wrap; overflow-wrap:anywhere; }
 	.hint { color:var(--chat-fg-muted); line-height:1.6; }
 	footer { padding:12px 14px; border-top:1px solid var(--chat-border); display:grid; gap:8px; }
