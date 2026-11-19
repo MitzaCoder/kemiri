@@ -1,4 +1,6 @@
 import { workerCommandIntent } from "./worker-command-intent.ts";
+import { acpToolLabel, acpToolStep } from "./official-agents/acp-activity.ts";
+import { recordAcpActivity } from "./official-agents/acp-recording.ts";
 import { appendLiveFact, runningLiveSources } from "./task-live.ts";
 import type { ArtifactStore, TaskArtifactSave } from "./artifacts.ts";
 import { officialAgentWorkerTools } from "./official-agents/mcp-worker-tools.ts";
@@ -807,7 +809,7 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${options.officialAgent ? "" : planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${options.officialAgent ? WRITING_RULE.replace(" and `taskId`", " (the task is assigned automatically)") : WRITING_RULE}`;
+			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with ${options.officialAgent ? "the `task_progress` tool from the `kemiri` MCP server. Use it after the first meaningful result and before the final report if there is more to record. If it is unavailable, mention that in the final report." : "task_progress."} Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${options.officialAgent ? "" : planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${options.officialAgent ? WRITING_RULE.replace(" and `taskId`", " (the task is assigned automatically)") : WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -906,6 +908,8 @@ export function textOfContent(content: unknown): string {
 
 /** One line per thing the worker did: its messages, its tool calls and their results. */
 export function entryLines(entry: EntryRecord, limit: number): string[] {
+	const step = acpToolStep(entry);
+	if (step) return [`${acpToolLabel(step.kind)} (${step.status})`];
 	const lines: string[] = [];
 	for (const message of entry.model ?? []) {
 		const record = message as { role?: string; content?: unknown; toolName?: string; isError?: boolean };
@@ -1357,7 +1361,10 @@ export class WorkerService {
 					const coordinatorId = this.coordinators.placeOfThread(threadId)?.conversationId;
 					const artifacts = this.#options.officialAgentArtifacts;
 					const taskId = record.taskId ?? null;
-					sessions.tag(last, { cwd, turnId: String(api.taskId), projectId, conversationId,
+					const turnId = String(api.taskId);
+					sessions.tag(last, { cwd, turnId, projectId, conversationId,
+						...(taskId && this.#options.taskLive ? { recordActivity: update => this.harness.commit(tx =>
+							recordAcpActivity(tx, { conversationId, mainId: this.mainId as ConversationId, taskId, turnId }, update), BACKGROUND_CONTEXT) } : {}),
 						...(artifacts && coordinatorId !== undefined ? { mcpScope: { taskId, create: async () => officialAgentWorkerTools({
 							projectId, workerId: record.id, threadId, taskId, cwd, artifacts, harness: this.harness, mainId: this.mainId as ConversationId,
 							taskLive: this.#options.taskLive === true,

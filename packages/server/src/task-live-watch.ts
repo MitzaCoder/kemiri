@@ -1,6 +1,6 @@
 import { TaskWatcherRun } from "./task-watcher-live.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { LiveDoc, type ConversationId, type EntryId, type Harness, type LiveState } from "@earendil-works/pi-durable";
+import { type ConversationId, type EntryId, type Harness, type LiveState } from "@earendil-works/pi-durable";
 import type { Board, BoardLivePulse } from "@kemiri/protocol";
 import type { TaskArtifactSave } from "./artifacts.ts";
 import type { BoardState } from "./board.ts";
@@ -68,16 +68,18 @@ export class TaskLiveWatch {
   try {
    const owner = this.#watches.get(conversationId);
    const conversation = await this.harness.conversation(conversationId, BACKGROUND_CONTEXT);
-   const watch = conversation && await this.harness.watchDoc(LiveDoc, conversationId, BACKGROUND_CONTEXT);
+   const watch = conversation && await conversation.watch(BACKGROUND_CONTEXT, { min: 1, max: 1 });
    if (!conversation || !watch || !owner) return async () => { await watch?.stop(); };
    let signature: string | undefined;
    let lastEntry: EntryId | undefined;
-   const update = async (live: Readonly<LiveState> | null) => {
+   const update = async (view: NonNullable<typeof watch>["value"]) => {
+    const live = view.docs["pi.live"] as Readonly<LiveState> | undefined;
     if (this.#watches.get(conversationId) !== owner) return;
     const active = live?.run && !live.run.afterRun ? live.run : undefined;
     const runId = active ? String(active.first ?? active.taskId) : undefined;
     const writing = live?.generation?.message?.content.some(part => part.type === "text" && !!part.text);
-    const next = JSON.stringify([runId, Boolean(live?.generation), Boolean(writing),
+    const tailId = view.entries.at(-1)?.id;
+    const next = JSON.stringify([runId, tailId, Boolean(live?.generation), Boolean(live?.generation?.retry), Boolean(writing),
      live?.tools?.map(slot => [slot.callId, slot.taskId, slot.status]), live?.nestedTools?.map(slot => [slot.callId, slot.taskId, slot.status])]);
     if (signature === next) return;
     signature = next;
@@ -91,16 +93,16 @@ export class TaskLiveWatch {
     }
     const run = owner.run;
     const previousEntry = lastEntry;
-    if (run && active?.first !== undefined) {
+    if (run && active?.first !== undefined && tailId !== undefined && tailId !== lastEntry) {
      let cursor: Parameters<typeof conversation.entries>[2];
      do {
-      const page = await conversation.entries({ minEntryId: lastEntry === undefined ? active.first : (lastEntry + 1) as EntryId, order: "ascending" }, 200, cursor, BACKGROUND_CONTEXT);
+      const page = await conversation.entries({ minEntryId: lastEntry === undefined ? active.first : (lastEntry + 1) as EntryId, maxEntryId: tailId, order: "ascending" }, 200, cursor, BACKGROUND_CONTEXT);
       for (const entry of page.items) { run.add(entry); owner.watcher?.add(entry); lastEntry = entry.id; }
       cursor = page.next;
      } while (cursor !== undefined);
     }
     if (owner.watcher && runId && lastEntry !== previousEntry) await this.onSteps?.(conversationId, runId, owner.watcher);
-    run?.updatePulse(live, observedAt);
+    run?.updatePulse(live ?? null, observedAt);
     if (this.#watches.get(conversationId) === owner) this.#requestPush();
    };
    await update(watch.value).catch(this.log);

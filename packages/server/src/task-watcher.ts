@@ -61,7 +61,7 @@ export function watcherToolCalls(entry: EntryRecord): Map<string, WatcherToolCal
 		if (message.role !== "assistant") continue;
 		for (const part of blocks(message.content)) {
 			if (part.type === "toolCall" && part.id && part.name) {
-				const action = actionFromTool(part.name, part.arguments);
+				const action = watcherToolAction(part.name, part.arguments);
 				calls.set(part.id, { tool: excerpt(part.name, 48), intent: toolIntent(part.arguments), ...(action ? { action } : {}) });
 			}
 		}
@@ -374,7 +374,7 @@ function commandAction(command: string): WatcherAction | undefined {
 	return undefined;
 }
 
-function actionFromTool(tool: string, args: unknown): WatcherAction | undefined {
+export function watcherToolAction(tool: string, args: unknown): WatcherAction | undefined {
 	if (!args || typeof args !== "object") return undefined;
 	const fields = args as Record<string, unknown>;
 	if (["read", "edit", "write"].includes(tool)) {

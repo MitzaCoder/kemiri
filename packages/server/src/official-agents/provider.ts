@@ -6,11 +6,12 @@ import { contentText, createAssistantMessageEventStream, getCurrentSystemPrompt,
 import type { ProviderInfo } from "@kemiri/protocol";
 import { OfficialAgentAccounts, officialAgentAccounts, officialAgentEnvironment } from "./auth.ts";
 import { readJsonFile, writeJsonFile } from "../fs-json.ts";
+import { acpActivityUpdate, acpToolLabel, type AcpActivityUpdate } from "./acp-activity.ts";
 import { AcpClient, AcpProcessError, AcpProtocolError, AcpRpcError, type AcpUpdate } from "./acp-client.ts";
 import { OFFICIAL_AGENT_API, type OfficialAgentDefinition, type OfficialAgentLogin, type OfficialAgentModel } from "./definition.ts";
 import type { OfficialAgentMcpBridge, OfficialAgentMcpGrant, OfficialAgentMcpScope } from "./mcp-bridge.ts";
 
-export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string; mcpScope?: { taskId: string | null; create: () => Promise<OfficialAgentMcpScope> } };
+export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string; recordActivity?: (update: AcpActivityUpdate) => Promise<void>; mcpScope?: { taskId: string | null; create: () => Promise<OfficialAgentMcpScope> } };
 type Turn = { state: "sent" } | { state: "done"; text: string; usage: Usage } | { state: "failed"; error: string };
 type SessionJournal = { sessionId: string; cwd: string; modelId: string; loginMode: OfficialAgentLogin["mode"]; loginIdentity?: string; turns: Record<string, Turn> };
 type AgentSession = {
@@ -252,12 +253,18 @@ export class OfficialAgentSessions {
 					checkCancelled();
 					events.push({ type: "start", partial: answer });
 					if (resumed) delta("text", RESUME_NOTE);
-					const calls = new Map<string, { kind: string; title: string; status: string }>();
 					let usage: unknown;
+					let recorded = Promise.resolve();
 					const result = await running.client.prompt(prompt, update => {
-						streamUpdate(update, calls, delta);
+						const activity = acpActivityUpdate(update, request.cwd);
+						const record = request.recordActivity;
+						if (record && activity) recorded = recorded.then(() => record(activity)).catch(() => {
+							this.log("Could not record official-agent activity.");
+						});
+						else if (activity && "callId" in activity && activity.status) delta("thinking", `${acpToolLabel(activity.kind ?? "other")} (${activity.status})\n`);
+						else streamUpdate(update, delta);
 						if (update.sessionUpdate === "usage_update" && ("usage" in update || "inputTokens" in update)) usage = update.usage ?? update;
-					}, kind => delta("thinking", `Permission: ${kind === "cancelled" ? "cancelled" : `approved (${kind})`}\n`));
+					}, kind => delta("thinking", `Permission: ${kind === "cancelled" ? "cancelled" : `approved (${kind})`}\n`)).finally(async () => { await recorded; });
 					checkCancelled();
 					if (result?.stopReason !== "end_turn") {
 						const reason = result?.stopReason;
@@ -327,22 +334,13 @@ export class OfficialAgentSessions {
 	}
 }
 
-function streamUpdate(update: AcpUpdate, calls: Map<string, { kind: string; title: string; status: string }>, delta: (type: "text" | "thinking", fragment: string) => void): void {
+function streamUpdate(update: AcpUpdate, delta: (type: "text" | "thinking", fragment: string) => void): void {
 	const linePart = (value: unknown, fallback: string) => typeof value === "string" ? value.replace(/\s+/g, " ").slice(0, 160) : fallback;
 	switch (update.sessionUpdate) {
 		case "agent_message_chunk":
 		case "agent_thought_chunk": {
 			const content = update.content as { type?: string; text?: string } | undefined;
 			if (content?.type === "text" && typeof content.text === "string") delta(update.sessionUpdate === "agent_message_chunk" ? "text" : "thinking", content.text);
-			break;
-		}
-		case "tool_call":
-		case "tool_call_update": {
-			if (typeof update.toolCallId !== "string") break;
-			const prior = calls.get(update.toolCallId);
-			const call = { kind: linePart(update.kind, prior?.kind ?? "tool"), title: linePart(update.title, prior?.title ?? "Agent tool"), status: linePart(update.status, prior?.status ?? "pending") };
-			if (!prior || prior.kind !== call.kind || prior.title !== call.title || prior.status !== call.status) delta("thinking", `${call.kind}: ${call.title} (${call.status})\n`);
-			calls.set(update.toolCallId, call);
 			break;
 		}
 		case "plan": {

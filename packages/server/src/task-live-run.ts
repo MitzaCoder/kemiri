@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import type { EntryRecord, LiveState } from "@earendil-works/pi-durable";
 import type { BoardLivePulse } from "@kemiri/protocol";
+import { acpToolLabel, acpToolStep } from "./official-agents/acp-activity.ts";
 
 export const COMMAND_INTENT_MAX_CHARS = 60;
 
@@ -50,6 +51,10 @@ export class TaskLiveRun {
  // Keep sanitized labels only while a direct call can still become the pulse.
  readonly #pendingIntents = new Map<string, string>();
  readonly #calls = new Map<string, string>();
+ readonly #acpCalls = new Set<string>();
+ readonly #acpRunning = new Map<string, BoardLivePulse>();
+ #acpTurnId: string | undefined;
+ readonly acpFileFacts: { entryId: number; at: string; files: number }[] = [];
  #nestedSteps = 0;
  readonly #settledCodemode = new Set<string>();
  readonly #pending = new Map<string, "commit" | { path: string }>();
@@ -58,13 +63,33 @@ export class TaskLiveRun {
  commitsWithoutId = 0;
  #pulseKey: string | undefined;
  pulse: BoardLivePulse | undefined;
- get steps(): number { return this.#calls.size + this.#nestedSteps; }
+ get steps(): number { return this.#calls.size + this.#nestedSteps + this.#acpCalls.size; }
 
  #changedPath(name: string, args: Record<string, unknown>): string | undefined {
   return (name === "edit" || name === "write") && typeof args.path === "string" && args.path ? posix.normalize(args.path) : undefined;
  }
 
- add(entry: Pick<EntryRecord, "model">): void {
+ add(entry: Pick<EntryRecord, "model"> & Partial<Pick<EntryRecord, "id" | "kind" | "data">>): void {
+  const acp = entry.kind === undefined ? undefined : acpToolStep({ kind: entry.kind, data: entry.data });
+  if (acp && entry.id !== undefined) {
+   this.#acpCalls.add(acp.callId);
+   if (acp.turnId !== this.#acpTurnId) { this.#acpTurnId = acp.turnId; this.#acpRunning.clear(); }
+   const at = new Date(acp.at).toISOString();
+   if (acp.status === "in_progress") this.#acpRunning.set(acp.callId, {
+    tool: acp.kind, label: acpToolLabel(acp.kind), since: this.#acpRunning.get(acp.callId)?.since ?? at,
+   });
+   else this.#acpRunning.delete(acp.callId);
+   if (acp.status === "completed") {
+    const before = this.changedPaths.size;
+    for (const path of acp.changedPaths) this.changedPaths.add(path);
+    const files = this.changedPaths.size - before;
+    if (files) {
+     this.acpFileFacts.push({ entryId: entry.id, at, files });
+     if (this.acpFileFacts.length > 30) this.acpFileFacts.shift();
+    }
+   }
+   return;
+  }
   for (const message of entry.model ?? []) {
    if (message.role === "assistant") for (const call of message.content) {
     if (call.type !== "toolCall" || this.#calls.has(call.id)) continue;
@@ -106,6 +131,9 @@ export class TaskLiveRun {
 
  /** Identity ignores streamed output and partial tokens. The clock starts when the slot is first observed. */
  updatePulse(live: Readonly<LiveState> | null, now: string): void {
+  const acp = live?.generation && !live.generation.retry ? [...this.#acpRunning].at(-1) : undefined;
+  if (acp) { this.#pulseKey = `acp:${acp[0]}`; this.pulse = acp[1]; return; }
+  if (!live?.generation || live.generation.retry) this.#acpRunning.clear();
   const nested = live?.nestedTools?.findLast(slot => slot.status === "running");
   const slot = nested ?? live?.tools?.find(slot => slot.status === "running");
   const writing = live?.generation?.message?.content.some(part => part.type === "text" && !!part.text);

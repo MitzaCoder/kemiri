@@ -78,8 +78,8 @@ test("official-agent worker receives its brief in its isolated workspace and rep
 		const transcript = new ViewClient(s.client);
 		await transcript.start(s.projectId, { workerId: "official" });
 		const serialized = JSON.stringify(transcript.view?.entries);
-		expect(serialized).toContain("read: Read fixture (in_progress)");
-		expect(serialized).toContain("read: Read fixture (completed)");
+		expect(serialized).toContain("Reading a file (in progress)");
+		expect(serialized).toContain("Reading a file (completed)");
 		expect(serialized).toContain("Permission: approved (allow_once)");
 		expect(serialized).not.toContain('"type":"toolCall"');
 		expect(serialized).toContain('"totalTokens":18');
@@ -96,6 +96,46 @@ test("official-agent worker receives its brief in its isolated workspace and rep
 		expect(catalog.models.find(m => m.provider === AGY.provider && m.modelId === "other")?.workerOnly).toBe(true);
 		expect(catalog.providers.find(p => p.id === AGY.provider)?.officialAgent?.installedVersion).toBe("1.5.12");
 	} finally { await s.cleanup(); }
+}, 30_000);
+
+test("official-agent ACP tool updates and plan appear on a running task without a progress call", async () => {
+ const s = await workerSetup("LIVE_TASK HOLD_TURN");
+ try {
+  await s.client.request({ type: "board.get", projectId: s.projectId });
+  await s.submit();
+   const event = await s.client.waitFor(m => m.type === "board.state" && m.board.tasks.some(t =>
+   t.id === "T1" && t.live?.pulse?.tool === "execute" && t.live.lines.some(line => line.kind === "auto")));
+  if (event.type !== "board.state") throw new Error("Expected the live board");
+  const live = event.board.tasks.find(t => t.id === "T1")?.live;
+  expect(live?.pulse?.label).toBe("Running a command");
+  expect(live?.counters).toEqual({ steps: 12, filesChanged: 2, filesSaved: 0, checks: 0, commits: 0 });
+  expect(live?.plan).toEqual([
+   { text: "Read the checkout flow", status: "done" }, { text: "Draft gift card support", status: "doing" },
+   { text: "Verify partial payments", status: "todo" },
+  ]);
+  expect(live?.lines.filter(line => line.kind === "fact").map(line => line.text)).toEqual(["Changed 2 files"]);
+  const auto = live?.lines.find(line => line.kind === "auto");
+  expect(auto?.text).toMatch(/Editing/);
+  expect(auto?.evidence?.steps.some(step => step.description.includes("Editing a file"))).toBe(true);
+  const transcript = new ViewClient(s.client);
+  await transcript.start(s.projectId, { workerId: "official" });
+  const transcriptJson = JSON.stringify(transcript.view?.entries);
+  expect(transcriptJson).toContain("Running a command (in progress)");
+  expect(transcriptJson).not.toContain("synthetic raw command");
+  expect(transcriptJson).not.toContain("synthetic diff text");
+  expect(transcript.view?.entries.some(entry => String(entry.id) === auto?.evidence?.steps.find(step => step.description.includes("Editing a file"))?.entryId)).toBe(true);
+ } finally { await s.cleanup(); }
+}, 30_000);
+
+test("a taskless official worker keeps ACP plans in its thinking", async () => {
+ const s = await workerSetup("Read the fixture and report.", { taskless: true });
+ try {
+  await s.submit();
+  await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
+  const transcript = new ViewClient(s.client);
+  await transcript.start(s.projectId, { workerId: "official" });
+  expect(JSON.stringify(transcript.view?.entries)).toContain("Plan: Read fixture (in_progress)");
+ } finally { await s.cleanup(); }
 }, 30_000);
 
 async function watchHeld(s: Awaited<ReturnType<typeof workerSetup>>) {
@@ -350,6 +390,12 @@ test("a backend restart reloads the session and sends a continuation, not the or
 			expect(prompts[1]).toMatch(/^Kemiri restarted while you worked\./);
 			expect(prompts[1]).not.toContain("HOLD_TURN");
 			expect(s.setup.models.getModel(AGY.provider, "other")?.name).toBe("Another model");
+			const transcript = new ViewClient(nextClient);
+			await transcript.start(s.projectId, { workerId: "official" });
+			const entries = transcript.view?.entries.filter(entry => entry.kind === "pi.tool-result");
+			expect(entries?.map(entry => JSON.stringify(entry))).toEqual([
+				expect.stringContaining("Reading a file (in progress)"), expect.stringContaining("Reading a file (completed)"),
+			]);
 		} finally { nextClient.close(); }
 	} finally { await s.cleanup(); }
 }, 30_000);

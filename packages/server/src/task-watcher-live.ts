@@ -4,6 +4,7 @@ import { estimateTextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { DEFAULT_TASK_WATCHER, type BoardLiveLine, type TaskWatcherSettings, type TaskWatcherStatus } from "@kemiri/protocol";
 import type { BoardState } from "./board.ts";
 import type { TaskActivitySource, TaskActivityTracking } from "./task-activity.ts";
+import { acpToolLabel, acpToolStep } from "./official-agents/acp-activity.ts";
 import { liveToolLabel } from "./task-live-run.ts";
 import { mergeLiveLines } from "./task-live.ts";
 import { timelineId } from "./task-timeline.ts";
@@ -11,7 +12,7 @@ import { auditDay, chooseAuditModel } from "./report-audit.ts";
 import { newModelSessionId } from "./model-session.ts";
 import {
  boundWatcherEvidence, checkWatcherCandidate, pickWatcherCandidate, watcherCandidatePrompt, watcherCandidates,
- watcherLineRateAllows, watcherNearDuplicate, watcherPassReason, watcherToolCalls, WATCHER_MAX_STEPS, WATCHER_TUNED_TRIGGER,
+ watcherLineRateAllows, watcherNearDuplicate, watcherPassReason, watcherToolAction, watcherToolCalls, WATCHER_MAX_STEPS, WATCHER_TUNED_TRIGGER,
  type WatcherAnswer, type WatcherCandidate, type WatcherPageLine, type WatcherStep, type WatcherToolCall,
 } from "./task-watcher.ts";
 
@@ -54,11 +55,21 @@ export class TaskWatcherRun {
  #last: WatcherCursor | undefined;
 
  add(entry: EntryRecord): void {
+  if (this.#last && entry.id <= this.#last.entryId) return;
+  const acp = acpToolStep(entry);
+  if (acp) {
+   const path = acp.changedPaths[0] ?? acp.paths[0];
+   const filename = safeFilename(path);
+   const label = acpToolLabel(acp.kind);
+   const action = acp.status === "failed" ? undefined : watcherToolAction(acp.changedPaths.length ? "edit" : acp.kind, { path });
+   this.#addStep(entry.id, acp.at, acp.callId, filename ? `${label} · ${filename}` : label, action);
+   return;
+  }
   const messages = entry.model ?? [];
   const result = messages.find(message => message.role === "toolResult");
   const assistant = messages.find(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall"));
   const tool = result ?? assistant;
-  if (!tool || this.#last && entry.id <= this.#last.entryId) return;
+  if (!tool) return;
   const actions = watcherToolCalls(entry);
   let firstCallId: string | undefined;
   for (const message of messages) if (message.role === "assistant") for (const call of message.content) {
@@ -71,12 +82,16 @@ export class TaskWatcherRun {
   if (!actionKey) return;
   const recorded = this.#calls.get(actionKey);
   const description = recorded?.description ?? liveToolLabel(result?.toolName ?? "", undefined);
-  const step = { id: String(entry.id), actionKey, ...(recorded?.action ? { action: recorded.action } : {}) };
   for (const message of messages) if (message.role === "toolResult") this.#calls.delete(message.toolCallId);
   while (this.#calls.size > 128) this.#calls.delete(this.#calls.keys().next().value!);
-  const at = Number.isFinite(tool.timestamp) ? Math.max(this.#last?.at ?? 0, tool.timestamp) : this.#last?.at ?? 0;
+  this.#addStep(entry.id, tool.timestamp, actionKey, description, recorded?.action);
+ }
+
+ #addStep(entryId: number, timestamp: number, actionKey: string, description: string, action?: RecordedTool["action"]): void {
+  const step = { id: String(entryId), actionKey, ...(action ? { action } : {}) };
+  const at = Number.isFinite(timestamp) ? Math.max(this.#last?.at ?? 0, timestamp) : this.#last?.at ?? 0;
   const gap = this.#last ? at - this.#last.at : 0;
-  const cursor = { entryId: entry.id, at, activityMs: (this.#last?.activityMs ?? 0) + (gap <= ACTIVE_GAP_MS ? gap : 0) };
+  const cursor = { entryId, at, activityMs: (this.#last?.activityMs ?? 0) + (gap <= ACTIVE_GAP_MS ? gap : 0) };
   this.#last = cursor;
   this.#steps.push({ cursor, step, description });
   if (this.#steps.length > WATCHER_MAX_STEPS) this.#steps.shift();

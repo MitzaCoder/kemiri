@@ -2251,10 +2251,27 @@ persisted worker instructions and brief as separately delimited text; later prom
 last assistant answer. A shared worker uses its coordinator's checkout; an isolated worker uses its own jj workspace.
 
 The agent owns its history, tools and tool loop. It gets no Kemiri browser launcher or project-configured MCP servers.
-Agent text streams into the worker transcript. Thoughts, plans, tool status changes and permission decisions appear as
-thinking, not pi-ai tool calls, so they are visible to worker peek and check-ins without triggering Kemiri execution.
-The usual reporter takes the final text to the coordinator and associates it with the board task. Explicit agent
-failures block a linked task with a readable reason. No account, model or native-provider fallback is performed.
+Agent text streams into the worker transcript. Thoughts and permission decisions still appear as thinking. Without an
+assigned task or Live enabled, plans and fixed tool status labels appear as thinking too. The usual reporter takes the
+final text to the coordinator and associates it with the board task. Explicit agent failures block a linked task with a
+readable reason. No account, model or native-provider fallback is performed.
+
+**Official-agent Live (T323):** for a task worker, `tool_call` and `tool_call_update` append display-only transcript
+entries, not model-facing tool calls or results. Kemiri never executes them. This lets Live and the task watcher use
+the same committed entry IDs for progress, evidence links and the run-end fold, without a second work log. A
+one-entry conversation watch wakes the existing incremental scan when entries land, and the same two-second
+window batches the Live projection. The current turn keeps a durable index of call IDs and their last snapshots in
+the same transaction as each entry. Repeated updates are no-ops, including a retry of the same durable turn;
+`session/load` history is not recorded again. The pulse uses fixed ACP kind labels and the observed start of the
+in-flight call. Raw titles, arguments, command text, output and diff bodies are not recorded as tool evidence.
+
+Completed edit, delete and move calls with ACP file locations, and completed calls with ACP diff paths, count
+normalized, distinct paths and produce Recorded facts. A failed or pathless call still counts as a step but does not
+prove a file changed. ACP by itself does not establish tests passed or a commit landed. The watcher follows its
+usual thresholds and can describe work backed by a safe filename. An ACP `plan` replaces the running task's plan
+without changing report freshness, mapping `pending` to `todo`, `in_progress` to `doing`, and `completed` to `done`.
+It shows up to seven 80-character steps and can contain fewer than the native progress tool's minimum of three.
+An empty plan clears it.
 
 **Scoped Kemiri tools (T308):** `session/new` and `session/load` each supply one stdio MCP server named `kemiri`.
 The backend executable starts a bridge subcommand (under Bun in development) with a loopback URL and a random bearer
@@ -2269,6 +2286,14 @@ native worker schema and report writer, including the same activity trail and, w
 Saves infer the task from the capability (or keep conversation scope when unassigned), reuse native tags and versioning, and only copy regular files whose
 resolved paths stay within the worker's workspace or its own proof folder. No IDs for selecting another scope and
 no board-wide actions, memory, codemode, shell or credentials are exposed by this bridge.
+
+Pinned agy 1.5.12 starts an ACP-supplied stdio MCP server under `--sandbox`. In an isolated profile with a synthetic
+key, both `session/new` and `session/load` reached `tools/list` through the scoped loopback bridge. A completely
+signed-out session returns `Authentication required` before loading MCP. The profile `config/mcp_config.json` also
+works, but Kemiri keeps the per-session ACP grant rather than placing task capabilities in a shared profile. The
+older real-run logs show that agy received one ACP server to preload, but not whether the model saw or chose the tool.
+Worker instructions now name the `kemiri` server explicitly and ask for a report if the tool is missing; Live evidence
+does not depend on a call to it.
 
 **First approval policy:** run unattended like native workers. Approve an ACP allow option, preferring allow once.
 Cancel when there is no allow option or the turn is stopping. Workspace separation is the guard against accidental

@@ -566,7 +566,7 @@ export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: Boar
  const runSaves = saves.filter(save => save.taskId === taskId && save.conversationId === source.actor.conversationId && save.runId === source.actor.runId);
  const endingAt = Date.parse(at);
  const watcher = source.actor.kind === "worker" && watcherCanPublish(state, taskId, endingAt) ? new TaskWatcherRun() : undefined;
- if (!watcher && !tracking.liveLines?.some(line => line.actor.id === sourceId) && !source.livePlan && !runSaves.length) return false;
+ if (source.actor.kind !== "worker" && !watcher && !tracking.liveLines?.some(line => line.actor.id === sourceId) && !source.livePlan && !runSaves.length) return false;
  const run = new TaskLiveRun();
  const first = Number(source.actor.runId);
  if (Number.isSafeInteger(first) && first > 0) {
@@ -586,8 +586,8 @@ export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: Boar
  const queued = watcher && evaluateWatcherRun(state, taskId, tracking, source, watcher, endingAt, true);
  const trail = takeLiveTrail(tracking, source);
  const pending = Object.values(state.taskWatcherJobs ?? {}).some(job => job.taskId === taskId && job.source.id === sourceId);
- if (!trail && !runSaves.length && !queued && !pending) return false;
  const { lines, counters } = liveRunFacts(taskId, source, run, runSaves);
+ if (!trail && !lines.length && !queued && !pending) return false;
  const live = { ...trail, lines: mergeLiveLines(trail?.lines ?? [], lines), ...(counters ? { counters } : {}) };
  delete source.liveChecks;
  delete source.liveCheckWrites;

@@ -275,7 +275,7 @@ export const BoardTaskLiveSchema = Type.Object({
  lines: Type.Array(BoardLiveLineSchema, { maxItems: 30 }),
  pulse: Type.Optional(BoardLivePulseSchema),
  counters: Type.Optional(BoardLiveCountersSchema),
- plan: Type.Optional(Type.Array(BoardLivePlanStepSchema, { minItems: LIVE_PLAN_MIN_STEPS, maxItems: LIVE_PLAN_MAX_STEPS })),
+ plan: Type.Optional(Type.Array(BoardLivePlanStepSchema, { minItems: 1, maxItems: LIVE_PLAN_MAX_STEPS })),
 });
 
 export function liveCounterLabels(counters: BoardLiveCounters | undefined): string[] {

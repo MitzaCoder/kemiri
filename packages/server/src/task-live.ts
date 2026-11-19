@@ -68,7 +68,10 @@ export function runningLiveSources(tracking: TaskActivityTracking | undefined): 
 }
 
 export function liveRunFacts(taskId: string, source: TaskActivitySource, run: TaskLiveRun | undefined, saves: readonly TaskArtifactSave[]): BoardTaskLive {
- const lines: BoardLiveLine[] = [];
+ const lines: BoardLiveLine[] = (run?.acpFileFacts ?? []).map(({ entryId, at, files }) => ({
+  id: timelineId(taskId, `live:${source.actor.id}:acp-files:${entryId}`), at, kind: "fact", actor: source.actor,
+  text: `Changed ${files} file${files === 1 ? "" : "s"}`,
+ }));
  let burstEnd = -Infinity;
  let burstSize = 0;
  for (const save of saves) {

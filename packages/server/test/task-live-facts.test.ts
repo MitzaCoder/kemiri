@@ -92,8 +92,11 @@ it("rebuilds a live view from the transcript after restart and opens no transact
  const view = () => ({ tasks: [{ id: "T1", live: { lines: [] } }] }) as unknown as Board;
  const live = { run: { taskId: 7, first: 10, inputs: [], turns: 1 }, tools: [{ callId: call.id, name: call.name, status: "running" }] } as unknown as LiveState;
  for (let restart = 0; restart < 2; restart++) {
-  let changed: ((update: { kind: "changed"; value: LiveState }) => Promise<void>) | undefined;
-  const fake = { commit, conversation: async () => ({ entries: scan }), watchDoc: async () => ({ value: live, start(fn: typeof changed) { changed = fn; }, stop: async () => {} }) } as unknown as Harness;
+  const viewOf = (live: LiveState) => ({ docs: { "pi.live": live }, entries: entries.slice(-1) });
+  let changed: ((update: { kind: "changed"; value: ReturnType<typeof viewOf> }) => Promise<void>) | undefined;
+  const fake = { commit, conversation: async () => ({ entries: scan, watch: async () => ({
+   value: viewOf(live), start(fn: typeof changed) { changed = fn; }, stop: async () => {},
+  }) }) } as unknown as Harness;
   const { promise, resolve } = Promise.withResolvers<void>();
   const watch = new TaskLiveWatch(fake, resolve, error => { throw error; });
   try {
@@ -101,7 +104,7 @@ it("rebuilds a live view from the transcript after restart and opens no transact
    await promise;
    expect(watch.project(view(), state).tasks[0]?.live).toMatchObject({ pulse: { tool: "write" }, counters: counters(1, 1, 0) });
    const reads = scan.mock.calls.length;
-   await changed?.({ kind: "changed", value: { ...live, tools: live.tools?.map(slot => ({ ...slot, output: "new tokens" })) } });
+   await changed?.({ kind: "changed", value: viewOf({ ...live, tools: live.tools?.map(slot => ({ ...slot, output: "new tokens" })) }) });
    expect(scan.mock.calls).toHaveLength(reads);
    expect(commit).not.toHaveBeenCalled();
   } finally { await watch.stop(); }

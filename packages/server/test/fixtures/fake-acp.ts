@@ -44,6 +44,28 @@ let promptId: number;
 let hold = false;
 let servers: AcpStdioMcpServer[] = [];
 
+function liveTaskUpdates() {
+ const plan = (status: string) => update({ sessionUpdate: "plan", entries: [
+  { content: "Read the checkout flow", status },
+  { content: "Draft gift card support", status: status === "completed" ? "in_progress" : "pending" },
+  { content: "Verify partial payments", status: "pending" },
+ ] });
+ plan("in_progress");
+ const checkout = { toolCallId: "checkout", kind: "edit", locations: [{ path: "gift-card-balance.ts" }] };
+ update({ sessionUpdate: "tool_call", ...checkout, status: "in_progress" });
+ const completed = { sessionUpdate: "tool_call_update", toolCallId: "checkout", status: "completed", content: [
+  { type: "diff", path: join(process.cwd(), "gift-card-balance.ts"), oldText: "old", newText: "synthetic diff text" },
+  { type: "diff", path: "checkout.ts", newText: "synthetic diff text" },
+ ] };
+ update(completed);
+ update(completed);
+ update({ sessionUpdate: "tool_call", toolCallId: "failed", kind: "edit", locations: [{ path: "failed-edit.ts" }], status: "failed" });
+ for (let i = 0; i < 8; i++) update({ sessionUpdate: "tool_call", toolCallId: `search-${i}`, kind: "search", status: "completed" });
+ plan("completed");
+ update({ sessionUpdate: "tool_call", toolCallId: "command", kind: "execute", status: "in_progress", title: "echo synthetic raw command", rawInput: { command: "echo synthetic raw command" } });
+}
+
+
 async function callMcp(exercise: boolean) {
 	const server = servers[0];
 	if (!server) return;
@@ -123,9 +145,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 				break;
 			}
 			hold = input.includes("HOLD_TURN");
+			if (input.includes("LIVE_TASK")) liveTaskUpdates();
 			update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Inspecting workspace.\n" } });
-			update({ sessionUpdate: "plan", entries: [{ content: "Read fixture", status: "in_progress" }] });
-			update({ sessionUpdate: "tool_call", toolCallId: "fake-read", kind: "read", title: "Read fixture", status: "in_progress" });
+			if (!input.includes("LIVE_TASK")) {
+				update({ sessionUpdate: "plan", entries: [{ content: "Read fixture", status: "in_progress" }] });
+				update({ sessionUpdate: "tool_call", toolCallId: "fake-read", kind: "read", title: "Read fixture", status: "in_progress" });
+			} else update({ sessionUpdate: "tool_call", toolCallId: "fake-read", kind: "read", status: "completed" });
 			send({ id: "permission", method: "session/request_permission", params: { sessionId, toolCall: { toolCallId: "fake-read" }, options: [{ optionId: "always", kind: "allow_always" }, { optionId: "once", kind: "allow_once" }] } });
 			break;
 		}

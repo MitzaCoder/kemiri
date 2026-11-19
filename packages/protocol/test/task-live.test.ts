@@ -17,6 +17,7 @@ it("accepts a bounded plan and keeps it optional for earlier backends", () => {
  const plan = [{ text: "Read the receipt", status: "done" }, { text: "Check balances", status: "doing" }, { text: "Run tests", status: "todo" }];
  expect(Value.Check(BoardTaskLiveSchema, { lines: [] })).toBe(true);
  expect(Value.Check(BoardTaskLiveSchema, { lines: [], plan })).toBe(true);
- expect(Value.Check(BoardTaskLiveSchema, { lines: [], plan: plan.slice(0, 2) })).toBe(false);
+ expect(Value.Check(BoardTaskLiveSchema, { lines: [], plan: plan.slice(0, 1) })).toBe(true);
+ expect(Value.Check(BoardTaskLiveSchema, { lines: [], plan: [] })).toBe(false);
  expect(Value.Check(BoardTaskLiveSchema, { lines: [], plan: [{ text: "x".repeat(81), status: "todo" }, ...plan] })).toBe(false);
 });
