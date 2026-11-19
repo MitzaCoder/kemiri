@@ -47,6 +47,8 @@ internal fun taskDecided(taskId: String, decisions: List<BoardDecision>, questio
 internal data class ActivityRow(
     val id: String, val at: String?, val label: String, val detail: String? = null, val workerId: String? = null,
     val taskId: String? = null, val fact: BoardTimelineFact? = null, val snapshot: BoardTaskSnapshot? = null, val now: Boolean = false,
+    /** `task-live`: the lines a finished run folded into this row. */
+    val live: BoardTaskLive? = null,
 )
 
 internal data class ActivityNow(val text: String, val at: String, val activity: BoardTaskActivity? = null)
@@ -64,6 +66,7 @@ internal data class ActivitySources(
     val snapshots: List<BoardTaskSnapshot> = emptyList(), val questions: List<BoardQuestion> = emptyList(),
     val decisions: List<DecidedRow> = emptyList(), val feedback: List<BoardFeedback> = emptyList(),
     val workers: Map<String, WorkerSummary?> = emptyMap(), val now: ActivityNow? = null, val deliveryShown: Boolean = false,
+    val taskLiveEnabled: Boolean = false,
 )
 
 private val questionRef = Regex("""^(?:(?:Question|Warning) )?(Q[1-9]\d*)\b""", RegexOption.IGNORE_CASE)
@@ -96,7 +99,7 @@ internal fun taskActivityRows(sources: ActivitySources): List<ActivityRow> {
     val entries = sources.groups?.flatMap { it.entries }?.map { fact ->
         BoardTimelineEntry(
             at = fact.at, kind = fact.kind, label = fact.label, detail = fact.detail,
-            ref = fact.ref, state = fact.state, by = fact.by,
+            ref = fact.ref, state = fact.state, by = fact.by, live = fact.live,
         ) to fact
     } ?: sources.entries.map { it to null }
     for ((entry, fact) in entries) {
@@ -105,14 +108,15 @@ internal fun taskActivityRows(sources: ActivitySources): List<ActivityRow> {
         if (entry.kind == "feedback" && (entry.ref ?: feedbackRef.find(entry.label)?.groupValues?.get(1)) in feedbackIds) continue
         if (Triple(entry.ref, entry.at, entry.label) in snapshotKeys) continue
         if (sources.deliveryShown && isDeliveryMilestone(entry, fact)) continue
-        val key = fact?.id ?: ActivityEntryKey(entry.kind, entry.ref, entry.at, entry.label).rowId()
+        val run = entry.live?.lines?.firstOrNull()?.takeIf { sources.taskLiveEnabled }
+        val key = fact?.id ?: run?.let { "live-run:${it.id}" } ?: ActivityEntryKey(entry.kind, entry.ref, entry.at, entry.label).rowId()
         if (!seen.add(key)) continue
 
         val worker = if (entry.kind != "worker") null else fact?.actor?.takeIf { it.kind == "worker" }?.name
             ?: entry.ref ?: entry.by?.workerId ?: workerLabel.find(entry.label)?.groupValues?.get(1)
         val row = ActivityRow(key, fact?.endAt ?: entry.at,
             if (entry.kind == "status") activityStatus(entry.label) else entry.label, entry.detail, worker,
-            taskId = entry.ref.takeIf { entry.kind == "link" }, fact = fact)
+            taskId = entry.ref.takeIf { entry.kind == "link" }, fact = fact, live = entry.live.takeIf { sources.taskLiveEnabled })
         if (worker != null) {
             representedWorkers += worker
             if (fact == null) {

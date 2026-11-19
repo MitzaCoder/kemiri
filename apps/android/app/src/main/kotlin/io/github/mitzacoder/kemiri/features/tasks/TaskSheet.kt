@@ -162,6 +162,8 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val timelineGroupsEnabled = connection.supports(HarnessFeature.TASK_TIMELINE_GROUPS)
     val deliveryEnabled = connection.supports(HarnessFeature.TASK_DELIVERY)
     val activity = taskActivity(task, connection.supports("task-activity"))
+    // The Live block replaces the Now lines; it needs the backend flag, a working task and a trail.
+    val liveNow = taskLiveNow(task, connection.supports(HarnessFeature.TASK_LIVE), activity)
     var timelineKinds by rememberSaveable(taskId) { mutableStateOf<List<String>?>(null) }
     var timeline by remember(taskId) { mutableStateOf<BoardTaskTimelineResponse?>(null) }
     var timelineProblem by remember(taskId) { mutableStateOf<String?>(null) }
@@ -198,8 +200,8 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val delivery = timeline?.delivery?.takeIf { deliveryEnabled && it.commits.isNotEmpty() }
     val taskQuestions = view.questions.filter { it.taskId == task.id }
     val decided = if (deliveryEnabled) taskDecided(task.id, decisions, taskQuestions) else null
-    val recordNow = if (deliveryEnabled) taskRecordNow(task, activity, taskQuestions, delivery != null) else null
-    val showNow = !deliveryEnabled && showTaskNow(task, activity)
+    val recordNow = if (deliveryEnabled && liveNow == null) taskRecordNow(task, activity, taskQuestions, delivery != null) else null
+    val showNow = !deliveryEnabled && liveNow == null && showTaskNow(task, activity)
     val showNext = !needsYou.review && task.report.next.isNotBlank()
     val showPlan = showNow || showNext
     val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
@@ -284,6 +286,9 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                         if (replyFocus.requestFocus()) keyboard?.show()
                     })
                 }
+                if (liveNow != null && task.live != null) item(key = "live") {
+                    TaskLive(task.live, liveNow, context.backend.config.key, project, taskId)
+                }
                 item(key = "results") {
                     TaskReadingSection("What you get") {
                         fields.summary?.let { Text(it, style = TextStyles.task.copy(fontWeight = FontWeight.Medium), color = colors.fg) }
@@ -342,7 +347,8 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                                 val workersById = workers.associateBy { it.id }
                                 val sources = ActivitySources(entries = timeline?.entries.orEmpty(), groups = timeline?.groups.takeIf { timelineGroupsEnabled },
                                     questions = taskQuestions, decisions = decided.orEmpty(), feedback = timeline?.feedback.orEmpty(),
-                                    workers = task.workerIds.associateWith { workersById[it] }, now = recordNow, deliveryShown = delivery != null)
+                                    workers = task.workerIds.associateWith { workersById[it] }, now = recordNow, deliveryShown = delivery != null,
+                                    taskLiveEnabled = connection.supports(HarnessFeature.TASK_LIVE))
                                 TaskRecordActivity(context, task, sources, workersById, linksEnabled && timeline == null && timelineProblem == null,
                                     timelineProblem, deviceSettings.timelineNewestFirst, toggleOrder, now, ::writerName)
                             } else {

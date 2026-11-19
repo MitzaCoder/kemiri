@@ -77,11 +77,11 @@ private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTa
     val colors = Jarvis.colors
     val label = remember(row.label) { activityText(row.label) }
     val clock = row.at?.let { at -> runCatching { timeFormatter("HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(at)) }.getOrDefault("—") } ?: "—"
-    val canExpand = row.snapshot != null || row.detail != null || (row.fact != null && row.fact.at != row.fact.endAt) || label.length > 42
+    val canExpand = row.live != null || row.snapshot != null || row.detail != null || (row.fact != null && row.fact.at != row.fact.endAt) || label.length > 42
     val heading: @Composable RowScope.() -> Unit = {
         Text(clock, style = TaskType.meta, color = colors.fgMuted)
         TaskDetailText((if (row.now) "Now · " else "") + label, Modifier.weight(1f), style = TaskType.sectionTitle,
-            color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            color = colors.fg, maxLines = if (row.live != null) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
     }
     if (canExpand) {
         var expanded by rememberSaveable { mutableStateOf(false) }
@@ -91,7 +91,13 @@ private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTa
                 TaskSnapshotDetail(task, row.snapshot, before)
             } else {
                 if (row.fact != null && row.fact.at != row.fact.endAt) Text("Started ${exactTime(row.fact.at)}", style = TaskType.xs, color = colors.fgMuted)
-                TaskDetailText(activityText(row.detail ?: row.label), style = TaskType.sectionTitle, color = colors.fgMuted)
+                row.live?.let { live ->
+                    val minute = rememberTaskMinuteNow()
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        visibleLiveLines(live.lines).forEach { line -> key(line.id) { LiveLineRow(line, minute) } }
+                    }
+                }
+                if (row.detail != null || row.live == null) TaskDetailText(activityText(row.detail ?: row.label), style = TaskType.sectionTitle, color = colors.fgMuted)
             }
             if (openRelated != null) TextButton(onClick = openRelated, modifier = Modifier.heightIn(min = 48.dp)) { Text(linkTitle) }
         }

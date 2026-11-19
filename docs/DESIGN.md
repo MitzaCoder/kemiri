@@ -3240,7 +3240,20 @@ The shared minute clock supplies local ages. A device-local checkpoint per backe
 and task advances only while the sheet is open and the document is visible. The divider
 remembers where that visit started; new arrivals highlight once unless reduced motion is set.
 No notifications are sent. The same lines can be opened from the completed Activity row.
-Backends without the flag retain the previous view; Android rendering is a separate stage.
+Backends without the flag retain the previous view.
+
+On Android (T314), `TaskLive.kt` and `TaskLiveTrail.kt` (the testable logic) draw the same block in the task sheet
+between Needs you and What you get. It shows only when the connection lists `task-live`, the task is `working` and
+`live` has lines; its Now is the state sentence (or the automatic activity), and it replaces the older Now lines and the
+Activity "Now" row. Lines of unknown kinds are skipped. Newest first: the newest three under "So far", the rest under a
+folded "Earlier · N" (with "· M new" when some are unseen). A newest phase line whose text equals Now's phase
+(Now is "<name> is <phase>", with any "· +N workers" removed) is left out, and so is its place among the unseen. The
+checkpoint (last seen line id and time) lives in SharedPreferences `aiki.task-live-seen.v1` per device, backend, project
+and task, and advances only while the app is started; the divider is frozen at where the visit started and reads
+"↑ New since you looked" (TalkBack: "New since you looked: lines above"). A new line gets one 1.4 s soft highlight,
+none when the system animator scale is 0. Ages tick on the shared minute clock; each line and Now carry content
+descriptions with kind, actor, age and text. Colours come only from the theme. The completed Work row opens to its
+lines in Activity, oldest first, like the web. Without the flag the Android sheet is unchanged.
 
 #### Harness facts in the Live block (T315, stage B of T305)
 
