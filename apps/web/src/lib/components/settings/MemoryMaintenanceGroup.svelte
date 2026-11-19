@@ -17,6 +17,7 @@
 		parseNightlyTime
 	} from '#lib/memory.js';
 	import { modelKey, modelOptions } from '#lib/models.js';
+	import { withoutWorkerOnly } from '#lib/official-agents.js';
 	import type { MemoryMaintenanceSettings, ThinkingLevel } from '@kemiri/protocol';
 
 	/**
@@ -32,7 +33,7 @@
 	const levels = $derived(settings.model === null ? [] : maintenanceThinkingLevels(settings.model, backend.models));
 	const options = $derived<ComboOption[]>([
 		{ value: '', label: 'No model (off)', description: 'Maintenance does not run' },
-		...modelOptions(backend.models, backend.providers)
+		...modelOptions(withoutWorkerOnly(backend.models), backend.providers)
 	]);
 
 	function save(next: Partial<MemoryMaintenanceSettings>): void {

@@ -5,6 +5,7 @@
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import ModelSearchList from '#lib/components/ModelSearchList.svelte';
 	import { sameModel } from '#lib/models.js';
+	import { OFFICIAL_AGENT_LABEL } from '#lib/official-agents.js';
 	import { projectWorkerModelRows } from '#lib/worker-model-hint.js';
 	import {
 		THINKING_LEVELS,
@@ -99,7 +100,7 @@
 						{#each projectRows as row (row.key)}
 							<li class="flex items-start gap-2 text-xs">
 								<span class="text-(--chat-fg-subtle)">{row.order}.</span>
-								<div class="min-w-0 flex-1"><p class="break-words font-medium">{row.name}</p><p class="break-all text-[0.6875rem] text-(--chat-fg-subtle)">{row.provider} · {row.thinking ?? 'Model default'}</p></div>
+								<div class="min-w-0 flex-1"><p class="break-words font-medium">{row.name}</p><p class="break-all text-[0.6875rem] text-(--chat-fg-subtle)">{row.provider}{row.officialAgent ? ` · ${OFFICIAL_AGENT_LABEL}` : ''} · {row.thinking ?? 'Model default'}</p></div>
 								<span class="text-[0.6875rem] text-(--chat-fg-subtle)">{row.role}</span>
 							</li>
 						{:else}

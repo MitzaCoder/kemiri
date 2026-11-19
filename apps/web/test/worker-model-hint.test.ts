@@ -11,9 +11,9 @@ const catalog = [
 describe('project worker model hint', () => {
 	test('preserves project order, missing IDs, and per-model thinking', () => {
 		expect(projectWorkerModelRows([ref('removed'), ref('careful', 'high'), ref('swift')], catalog, null)).toEqual([
-			{ key: 'example/removed', name: 'removed', provider: 'example', order: 1, role: 'Unavailable', thinking: null },
-			{ key: 'example/careful', name: 'Careful', provider: 'example', order: 2, role: 'Default', thinking: 'high' },
-			{ key: 'example/swift', name: 'Swift', provider: 'example', order: 3, role: 'Fallback', thinking: null }
+			{ key: 'example/removed', name: 'removed', provider: 'example', order: 1, role: 'Unavailable', officialAgent: false, thinking: null },
+			{ key: 'example/careful', name: 'Careful', provider: 'example', order: 2, role: 'Default', officialAgent: false, thinking: 'high' },
+			{ key: 'example/swift', name: 'Swift', provider: 'example', order: 3, role: 'Fallback', officialAgent: false, thinking: null }
 		]);
 	});
 	test('composer thinking overrides every candidate including off', () => {

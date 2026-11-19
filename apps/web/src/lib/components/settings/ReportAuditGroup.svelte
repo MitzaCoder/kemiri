@@ -3,6 +3,7 @@
 	import { DEFAULT_REPORT_AUDIT, type ReportAuditSettings } from '@kemiri/protocol';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { modelKey, modelOptions } from '#lib/models.js';
+	import { withoutWorkerOnly } from '#lib/official-agents.js';
 	import { parseReportAuditBudget, reportAuditStatusLines, reportAuditSupported } from '#lib/report-audit.js';
 	import { exactTime } from '#lib/relative-time.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
@@ -15,7 +16,7 @@
 	const project = $derived(backend.projects.find(entry => entry.id === projectId));
 	const settings = $derived(project?.reportAudit ?? DEFAULT_REPORT_AUDIT);
 	const supported = $derived(reportAuditSupported(backend.connection.features));
-	const options = $derived(modelOptions(backend.models, backend.providers));
+	const options = $derived(modelOptions(withoutWorkerOnly(backend.models), backend.providers));
 	let pendingMode = $state<ReportAuditSettings['mode'] | undefined>(undefined);
 	let pendingModel = $state<string | undefined>(undefined);
 	let busy = $state(false);

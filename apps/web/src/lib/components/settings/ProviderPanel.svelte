@@ -4,6 +4,12 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
+	import {
+		officialAgentLogin,
+		officialAgentLoginLabel,
+		officialAgentVersionLine,
+		officialAgentWarning
+	} from '#lib/official-agents.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
 	import type { AuthLogin, AuthPrompt, ProviderInfo } from '@kemiri/protocol';
 
@@ -19,6 +25,11 @@
 	const stored = $derived(backend.credentials.find((credential) => credential.providerId === provider.id));
 	const login = $derived(backend.loginFor(provider.id));
 	const ended = $derived(login === undefined ? backend.finishedLoginFor(provider.id) : undefined);
+
+	const agent = $derived(provider.officialAgent);
+	const agentLogin = $derived(officialAgentLogin(provider));
+	// Shown while the subscription is in use and beside the subscription sign-in, before anyone signs in.
+	const warning = $derived(officialAgentWarning(provider, canLogins));
 
 	let keyDraft = $state('');
 	let answerDraft = $state<Record<string, string>>({});
@@ -101,6 +112,19 @@
 </script>
 
 <div class="flex flex-col gap-4 rounded-xl bg-(--chat-surface-2)/40 p-3.5 ring-1 ring-foreground/8 sm:p-4" data-provider-panel={provider.id}>
+	{#if agent !== undefined}
+		<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm" data-official-agent={provider.id}>
+			<dt class="text-muted-foreground">Login in use</dt>
+			<dd class="font-medium" data-official-agent-login={agentLogin}>{officialAgentLoginLabel(provider.id, agentLogin)}</dd>
+			<dt class="text-muted-foreground">Agent</dt>
+			<dd class="font-medium">{officialAgentVersionLine(provider.id, agent)}</dd>
+		</dl>
+	{/if}
+
+	{#if warning !== undefined}
+		<div role="note" data-official-agent-warning><Banner tone="warning">{warning}</Banner></div>
+	{/if}
+
 	{#if provider.oauth && canLogins}
 		<div class="flex flex-wrap items-center gap-2">
 			<Button variant="outline" class="max-sm:h-11" disabled={login !== undefined || signOutSave.status === 'saving'} onclick={() => void signIn()}>

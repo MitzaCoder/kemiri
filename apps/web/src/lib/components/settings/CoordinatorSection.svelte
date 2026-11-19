@@ -12,6 +12,7 @@
 	import Banner from '#lib/components/Banner.svelte';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { contextSize, modelKey, modelOptions, providerName } from '#lib/models.js';
+	import { withoutWorkerOnly } from '#lib/official-agents.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
 	import { backendSettingsHref } from '#lib/settings.js';
 	import { DEFAULT_UI_PROOF, type ThinkingLevel, type UiProof } from '@kemiri/protocol';
@@ -44,7 +45,7 @@
 		{ value: 'screenshots', label: 'Screenshots', description: 'Before/after screenshots only.' },
 		{ value: 'off', label: 'Off', description: 'Agents are not asked to show UI changes.' }
 	];
-	const options = $derived(modelOptions(backend.models, backend.providers));
+	const options = $derived(modelOptions(withoutWorkerOnly(backend.models), backend.providers));
 	const info = $derived(backend.models.find((model) => modelKey(model) === modelValue));
 	const provider = $derived(info === undefined ? undefined : backend.providers.find((entry) => entry.id === info.provider));
 

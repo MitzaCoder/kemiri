@@ -6,11 +6,12 @@
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import ModelSearchList from '#lib/components/ModelSearchList.svelte';
 	import { sameModel } from '#lib/models.js';
+	import { withoutWorkerOnly } from '#lib/official-agents.js';
 	import type { ModelInfo, ModelRef, ProviderInfo } from '@kemiri/protocol';
 
 	/**
 	 * The coordinator's model, as a chip in the composer: a searchable list of
-	 * every model a backend offers, grouped by provider.
+	 * every model the coordinator can run on, grouped by provider. Worker-only models (official agents) are not offered.
 	 */
 	let {
 		models,
@@ -53,7 +54,7 @@
 	</Popover.Trigger>
 	<Popover.Content side="top" align="start" class="w-[26rem] max-w-[calc(100vw-1.5rem)] gap-0 p-0">
 		<ModelSearchList
-			{models}
+			models={withoutWorkerOnly(models)}
 			{providers}
 			selected={(model) => value !== null && sameModel(model, value)}
 			onpick={select}

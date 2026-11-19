@@ -15,6 +15,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { modelLabel, type BackendConnection } from '#lib/harness.svelte.js';
 	import { modelKey, modelOptions, sameModel } from '#lib/models.js';
+	import { OFFICIAL_AGENT_LABEL, isOfficialAgentModel } from '#lib/official-agents.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
 	import { moveWorkerModel, removeWorkerModel, setWorkerModelThinkingLevel } from '#lib/workers.js';
 	import { THINKING_LEVELS, type ModelRef, type ThinkingLevel, type WorkerModel } from '@kemiri/protocol';
@@ -83,6 +84,11 @@
 		void persist([...draft, { provider: model.provider, modelId: model.modelId, thinkingLevel: null }]);
 	}
 
+	function officialAgentModel(model: ModelRef): boolean {
+		const entry = backend.models.find((candidate) => sameModel(candidate, model));
+		return entry !== undefined && isOfficialAgentModel(entry, backend.providers);
+	}
+
 	function levelsFor(model: WorkerModel): readonly ThinkingLevel[] {
 		return backend.models.find((entry) => sameModel(entry, model))?.thinkingLevels ?? THINKING_LEVELS;
 	}
@@ -133,7 +139,9 @@
 				</span>
 				<span class="flex min-w-0 flex-1 basis-40 flex-col">
 					<span class="truncate text-sm font-semibold">{name}</span>
-					<span class="truncate font-mono text-xs text-muted-foreground">{modelKey(model)}</span>
+					<span class="truncate font-mono text-xs text-muted-foreground">
+						{modelKey(model)}{officialAgentModel(model) ? ` · ${OFFICIAL_AGENT_LABEL}` : ''}
+					</span>
 				</span>
 				<div class="flex w-full items-center gap-1 sm:w-auto">
 					<ThinkingSelect

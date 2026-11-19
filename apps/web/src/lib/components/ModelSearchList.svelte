@@ -4,6 +4,7 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import type { Snippet } from 'svelte';
 	import { groupModels } from '#lib/models.js';
+	import { OFFICIAL_AGENT_LABEL, isOfficialAgentModel } from '#lib/official-agents.js';
 	import type { ModelInfo, ProviderInfo } from '@kemiri/protocol';
 
 	/**
@@ -101,7 +102,7 @@
 					<span class="block truncate text-sm font-medium">
 						{entry.name}{entry.configured ? '' : ' (no credential)'}
 					</span>
-					<span class="block truncate font-mono text-[0.6875rem] text-(--chat-fg-subtle)">{entry.modelId}</span>
+					<span class="block truncate font-mono text-[0.6875rem] text-(--chat-fg-subtle)">{entry.modelId}{isOfficialAgentModel(entry, providers) ? ` · ${OFFICIAL_AGENT_LABEL}` : ''}</span>
 				</span>
 				<span class="flex shrink-0 items-center gap-1.5 text-(--chat-fg-subtle)">
 					{@render trailing?.(entry)}

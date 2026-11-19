@@ -10,6 +10,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import type { ComboOption } from '#lib/combobox.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
+	import { OFFICIAL_AGENT_LABEL, providerDisplayName } from '#lib/official-agents.js';
 	import type { ProviderInfo } from '@kemiri/protocol';
 
 	/**
@@ -42,8 +43,10 @@
 	const addOptions = $derived<ComboOption[]>(
 		others.map((provider) => ({
 			value: provider.id,
-			label: provider.name,
-			description: provider.oauth ? `${provider.id} · ${provider.oauth.name}` : provider.id,
+			label: providerDisplayName(provider.name),
+			description: [provider.id, provider.oauth?.name, provider.officialAgent ? OFFICIAL_AGENT_LABEL : undefined]
+				.filter((part) => part !== undefined)
+				.join(' · '),
 			keywords: provider.oauth?.name ?? '',
 			...(provider.oauth?.isSubscription ? { badge: 'subscription' } : {})
 		}))
@@ -75,7 +78,7 @@
 		{#if signingIn.length > 0}
 			<SettingsGroup title="Signing in">
 				{#each signingIn as provider (provider.id)}
-					<SettingsRow label={provider.name} hint={provider.oauth?.name ?? provider.id} control="full">
+					<SettingsRow label={providerDisplayName(provider.name)} hint={provider.oauth?.name ?? provider.id} control="full">
 						{#snippet below()}<ProviderPanel {backend} {provider} />{/snippet}
 					</SettingsRow>
 				{/each}
@@ -89,8 +92,9 @@
 			{#each configured as provider (provider.id)}
 				{@const state = how(provider)}
 				{@const open = expanded[provider.id] === true || inProgress(provider)}
-				<SettingsRow label={provider.name} hint={provider.oauth ? `${provider.id} · ${provider.oauth.name}` : provider.id} control="auto">
+				<SettingsRow label={providerDisplayName(provider.name)} hint={provider.oauth ? `${provider.id} · ${provider.oauth.name}` : provider.id} control="auto">
 					<div class="flex flex-wrap items-center gap-2 sm:justify-end">
+						{#if provider.officialAgent}<StatusChip dot={false}>{OFFICIAL_AGENT_LABEL}</StatusChip>{/if}
 						<StatusChip tone={state.tone}>{state.label}</StatusChip>
 						<Button
 							variant="outline"

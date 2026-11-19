@@ -1,5 +1,6 @@
 import type { ModelInfo, ThinkingLevel, WorkerModel } from '@kemiri/protocol';
 import { sameModel } from './models.ts';
+import { isWorkerOnly } from './official-agents.ts';
 
 /** Project preference order, not a promise: a coordinator's explicit model still wins. */
 export function projectWorkerModelRows(
@@ -18,6 +19,7 @@ export function projectWorkerModelRows(
 			provider: ref.provider,
 			order: index + 1,
 			role,
+			officialAgent: model !== undefined && isWorkerOnly(model),
 			thinking: thinkingOverride ?? ref.thinkingLevel ?? null
 		};
 	});

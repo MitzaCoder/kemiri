@@ -6,6 +6,7 @@
  */
 import type { ModelInfo, ModelRef, ProviderInfo } from "@kemiri/protocol";
 import type { ComboOption } from "./combobox.ts";
+import { OFFICIAL_AGENT_LABEL, isOfficialAgentModel, providerDisplayName } from "./official-agents.ts";
 
 /** How a model is named on the wire and in a list key: `provider/modelId`. */
 export function modelKey(model: ModelRef): string {
@@ -18,7 +19,8 @@ export function sameModel(left: ModelRef, right: ModelRef): boolean {
 
 /** A provider's display name, or its ID when the backend did not list it. */
 export function providerName(providers: readonly ProviderInfo[], id: string): string {
-	return providers.find((provider) => provider.id === id)?.name ?? id;
+	const name = providers.find((provider) => provider.id === id)?.name;
+	return name === undefined ? id : providerDisplayName(name);
 }
 
 export type ModelGroup = {
@@ -64,6 +66,20 @@ export function contextSize(tokens: number): string {
 }
 
 /**
+ * The line under a model's name in a list: its ID, its context window (an official agent reports none) and, for an
+ * official agent's model, the hint that it runs as a worker.
+ */
+export function modelDescription(model: ModelInfo, providers: readonly ProviderInfo[]): string {
+	return [
+		model.modelId,
+		model.contextWindow > 0 ? `${contextSize(model.contextWindow)} context` : undefined,
+		isOfficialAgentModel(model, providers) ? OFFICIAL_AGENT_LABEL : undefined
+	]
+		.filter((part) => part !== undefined)
+		.join(" · ");
+}
+
+/**
  * The catalog as combobox options: one group per provider (ordered by the provider's name), models by name, the
  * model's ID and context window under its name and a chip when its provider has no credential yet.
  */
@@ -77,7 +93,7 @@ export function modelOptions(models: readonly ModelInfo[], providers: readonly P
 		.map((model) => ({
 			value: modelKey(model),
 			label: model.name,
-			description: `${model.modelId} · ${contextSize(model.contextWindow)} context`,
+			description: modelDescription(model, providers),
 			group: model.provider,
 			groupLabel: providerName(providers, model.provider),
 			keywords: model.provider,

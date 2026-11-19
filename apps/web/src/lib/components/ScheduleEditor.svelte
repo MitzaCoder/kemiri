@@ -15,6 +15,7 @@
 	import { Spinner } from '#lib/components/ui/spinner/index.js';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
 	import { modelKey, modelOptions, sameModel } from '#lib/models.js';
+	import { isWorkerOnly, withoutWorkerOnly } from '#lib/official-agents.js';
 	import {
 		DAY_SHORT,
 		briefLabel,
@@ -91,8 +92,18 @@
 
 	const modelChoices = $derived<ComboOption[]>([
 		{ value: '', label: 'Worker default', description: "The composer's pick, then the project's worker models" },
-		...modelOptions(backend.models, backend.providers)
+		...modelOptions(draft.runsAs === 'thread' ? withoutWorkerOnly(backend.models) : backend.models, backend.providers)
 	]);
+
+	/** A background job runs on Kemiri's own loop, which refuses a worker-only model: drop one picked for a worker. */
+	function chooseRunsAs(next: string): void {
+		draft.runsAs = next as 'worker' | 'thread';
+		const chosen = draft.model === null ? undefined : backend.models.find((entry) => sameModel(entry, draft.model as ModelRef));
+		if (draft.runsAs === 'thread' && chosen !== undefined && isWorkerOnly(chosen)) {
+			draft.model = null;
+			draft.thinkingLevel = null;
+		}
+	}
 
 	function chooseModel(key: string): void {
 		const model = backend.models.find((entry) => modelKey(entry) === key);
@@ -191,7 +202,7 @@
 				{#if supportsThreads}
 					<Field.Field>
 						<Field.Label for="schedule-runs-as">Each run</Field.Label>
-						<Combobox id="schedule-runs-as" options={runsAsOptions} value={draft.runsAs} onchange={(next) => (draft.runsAs = next as 'worker' | 'thread')} />
+						<Combobox id="schedule-runs-as" options={runsAsOptions} value={draft.runsAs} onchange={chooseRunsAs} />
 						<Field.Description>One focused job, or a background job that plans its own workers.</Field.Description>
 					</Field.Field>
 				{/if}

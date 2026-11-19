@@ -2283,6 +2283,17 @@ in again; a worker never starts an interactive login or switches accounts automa
 replacement try ACP `logout` and remove the old subscription profile without opening its files. Sign-out also deletes
 the Kemiri credential. The signed-out probe verifies the code prompt, not persistence or refresh after Google consent.
 
+**Web presentation:** `apps/web/src/lib/official-agents.ts` holds the pure rules, tested in `official-agents.test.ts`.
+Accounts and API keys marks a provider with `officialAgent` with an "Official agent" chip (also in Add a provider) and
+drops the backend's "(official agent)" name suffix. Its panel shows the login in use from `authType` ("Google
+subscription", "Gemini API key" or "Not signed in"), the agent version ("agy 1.5.12", or "Installs agy 1.5.12 on first
+use" while `installedVersion` is null) and `subscriptionWarning` as a warning banner. The banner shows whenever the
+subscription is in use and beside the subscription sign-in before anyone signs in, so it stays above the sign-in
+button while an API key is stored. The sign-in flow itself is the generic one. Every picker that chooses a model for
+Kemiri's own loop hides `workerOnly` models: the composer's coordinator model, Coordinator settings, memory
+maintenance, report audit and a background-job schedule (a schedule that runs a worker still lists them). The worker
+pickers (composer worker picker and its project rows, Workers settings) keep them with an "Official agent" hint.
+
 **Signed-out Linux x64 probe:** the pinned archive verified against Google's manifest. `agy acp` negotiated ACP 1.
 It advertised `loadSession`, session load/resume/list/close and additional directories, logout, image prompts and
 embedded context but not audio. It did not advertise `mcpCapabilities` (neither HTTP nor SSE). It listed personal
@@ -5794,7 +5805,7 @@ short choice shown whole (Prompt cache).
 | General | `appearance` | Theme cards (light and dark preview), light/dark follows the device. Stored in the browser. |
 | General | `backends` | Backends list (name, address, connection chip, link to its page), suggested backends, add a backend, connect another device (link + QR). |
 | General | `backends/<id>` | Status (release incl. the "catching up" note, machine/disk, deploy banner), name, address, link to Accounts and API keys with "N of M ready", memory maintenance (model, thinking, nightly time, after writes), remove from this browser. |
-| General | `backends/<id>/accounts` | Providers ready (signed in, API key, environment) with Manage; "Add a provider" (searchable); sign-in flow (OAuth prompts, code paste) and API key form per provider. |
+| General | `backends/<id>/accounts` | Providers ready (signed in, API key, environment) with Manage; "Add a provider" (searchable); sign-in flow (OAuth prompts, code paste) and API key form per provider. An official agent (Antigravity) carries an "Official agent" chip and a panel with the login in use, the agent version and the ban-risk warning. |
 | General | `notifications` | This device on/off, one switch per event kind (+ reset), quiet hours (from, to, still notify failures), per-backend registration with a test push, muted projects. |
 | General | `archived` | Archived projects per backend with Unarchive. |
 | Project | `general` | Name, folder (copy), backend, archive/unarchive. |
