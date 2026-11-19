@@ -31,7 +31,8 @@ internal fun AdvancedSection(backend: BackendSession, project: ProjectSummary, s
                 }, "Stop pages from sending data", enabled = artifactPrivacySave.status != SaveStatus.Saving)
             }
         }
-        // An older backend does not send the setting, so the group stays out.
+        PromptCacheGroup(backend, project)
+        // An older backend does not send the proof setting, so that group stays out.
         if (showCodingSettings && storedUiProof != null) SettingsGroup(title = "Proof of screen changes", term = "Show UI changes") {
             SettingsRow(
                 "Prove UI work with", hint = "Agents show web and app changes before review; computers and terminals are never recorded.",

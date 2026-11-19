@@ -21,11 +21,11 @@ private val LONG_PROMPT_CACHE_CHOICES = listOf(
 )
 
 /**
- * Project → Prompt cache (web `PromptCacheSection.svelte`): who keeps the provider's prompt cache for an hour instead of
- * 5 minutes. One choice, saved as soon as it is picked; shown only when the backend sends `longPromptCache`.
+ * Project → Advanced → Conversation cache: one-hour retention and idle keep-warm controls.
+ * Shown only when the backend sends `longPromptCache`.
  */
 @Composable
-internal fun PromptCacheSection(backend: BackendSession, project: ProjectSummary) {
+internal fun PromptCacheGroup(backend: BackendSession, project: ProjectSummary) {
     val stored = project.longPromptCache ?: return
     val models by backend.models.collectAsStateWithLifecycle()
     val supported = models.any { it.provider == project.coordinator.model?.provider && it.modelId == project.coordinator.model.modelId && it.provider == "anthropic" && it.api == "anthropic-messages" }
@@ -42,28 +42,30 @@ internal fun PromptCacheSection(backend: BackendSession, project: ProjectSummary
             finally { pending = null }
         }
     }
-    SettingsSectionPage(ProjectSection.Cache) {
-        SettingsGroup(title = "One-hour cache") {
-            SettingsRow(
-                "Keep the cache for an hour for", hint = "Costs more per write, saves paying for the whole conversation again after a long wait.",
-                control = RowControl.Full, status = save, onRetry = { pick(value) },
-                learn = { Text("Claude keeps what it has read for 5 minutes, and the next request pays a tenth of the price for it. A coordinator often waits longer than that for its workers. An hour makes each write dearer (twice the input price instead of 1.25 times). Workers rarely wait 5 minutes, so for them the dearer writes usually cost more than they save. Codex models ignore this. A change applies from the next request.") },
-            ) {
-                Column(Modifier.selectableGroup()) {
-                    LONG_PROMPT_CACHE_CHOICES.forEach { (choice, label) ->
-                        Row(
-                            Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(value == choice, enabled = save.status != SaveStatus.Saving, role = Role.RadioButton) { pick(choice) },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = value == choice, onClick = null, enabled = save.status != SaveStatus.Saving)
-                            Spacer(Modifier.width(12.dp))
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
-                        }
+    SettingsGroup(
+        title = "Conversation cache",
+        term = "Prompt cache",
+        description = "Pay a little more now so long pauses cost less",
+    ) {
+        SettingsRow(
+            "Keep the cache for an hour for", hint = "Costs more per write, saves paying for the whole conversation again after a long wait.",
+            control = RowControl.Full, status = save, onRetry = { pick(value) },
+            learn = { Text("Claude keeps what it has read for 5 minutes, and the next request pays a tenth of the price for it. A coordinator often waits longer than that for its workers. An hour makes each write dearer (twice the input price instead of 1.25 times). Workers rarely wait 5 minutes, so for them the dearer writes usually cost more than they save. Codex models ignore this. A change applies from the next request.") },
+        ) {
+            Column(Modifier.selectableGroup()) {
+                LONG_PROMPT_CACHE_CHOICES.forEach { (choice, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(value == choice, enabled = save.status != SaveStatus.Saving, role = Role.RadioButton) { pick(choice) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = value == choice, onClick = null, enabled = save.status != SaveStatus.Saving)
+                        Spacer(Modifier.width(12.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         }
-        if (backend.client.supports("cache-keep-warm")) SettingsGroup(title = "While idle") {
+        if (backend.client.supports("cache-keep-warm")) {
             SettingsRow("Keep coordinator cache warm", hint = "Uses cached-input tokens while idle. Claude only.", status = warmSave) {
                 Switch(checked = project.keepPromptCacheWarm ?: true, onCheckedChange = { setWarm(ProjectSetting.KeepPromptCacheWarm(it)) }, enabled = supported)
             }

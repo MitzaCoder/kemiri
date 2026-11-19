@@ -1,14 +1,17 @@
 package io.github.mitzacoder.kemiri.features.settings
 
-import kotlinx.serialization.Serializable
 import io.github.mitzacoder.kemiri.data.HarnessFeature
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /**
  * Settings, split in two as on the web (`lib/settings.ts`, `docs/DESIGN.md` "Settings"): General settings (this device and
  * its backends) and Project settings (one project). Both are a list of sections; the section ids are the web's URL
  * segments, so a web link maps to the same screen. Pure, so the lists, the parents and the availability rules are tested.
  */
-enum class SettingsIcon { Palette, Server, Bell, Archive, Folder, Cpu, Users, CalendarClock, Ticket, DatabaseZap, HardDrive, KeyRound, Settings }
+enum class SettingsIcon { Palette, Server, Bell, Archive, Folder, Cpu, Users, CalendarClock, Ticket, HardDrive, KeyRound, Settings }
 
 /** One entry of a section list: [id] is the last URL segment, [hint] the line under the label on a phone. */
 interface SettingsSectionInfo {
@@ -28,6 +31,7 @@ enum class GeneralSection(override val id: String, override val label: String, o
     About("about", "About and licences", "Kemiri versions and updates, plus licences", SettingsIcon.Settings),
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 enum class ProjectSection(override val id: String, override val label: String, override val hint: String, override val icon: SettingsIcon, override val term: String? = null) : SettingsSectionInfo {
     General("general", "General", "Name, folder, archive", SettingsIcon.Folder),
@@ -37,21 +41,23 @@ enum class ProjectSection(override val id: String, override val label: String, o
     Mcp("mcp", "Connected apps", "Which outside tools this project's agents may use", SettingsIcon.Server, "MCP"),
     Skills("skills", "Skills", "What this project's agents know how to do", SettingsIcon.Folder),
     Tickets("tickets", "Tickets and pull requests", "Turn ticket keys and PR numbers into links", SettingsIcon.Ticket),
-    Cache("cache", "Conversation cache", "Pay a little more now so long pauses cost less", SettingsIcon.DatabaseZap, "Prompt cache"),
     Storage("storage", "Storage", "Finished workspaces and disk use", SettingsIcon.HardDrive),
-    // Preserve Delivery in the saved back stack; web routes use the id instead of this enum's serial name.
-    @kotlinx.serialization.SerialName("Delivery")
-    Advanced("advanced", "Advanced", "Page privacy, proof of screen changes, report checks, live lines, code delivery", SettingsIcon.Settings),
+    // Saved back stacks write "Delivery" and can still read the old standalone "Cache" section.
+    @SerialName("Delivery")
+    @JsonNames("Cache")
+    Advanced("advanced", "Advanced", "Page privacy, conversation cache, proof of screen changes, report checks, live lines, code delivery", SettingsIcon.Settings),
 }
 
 fun generalSectionFor(id: String?): GeneralSection? = GeneralSection.entries.firstOrNull { it.id == id }
-fun projectSectionFor(id: String?): ProjectSection? = if (id == "delivery") ProjectSection.Advanced else ProjectSection.entries.firstOrNull { it.id == id }
+fun projectSectionFor(id: String?): ProjectSection? = when (id) {
+    "cache", "delivery" -> ProjectSection.Advanced
+    else -> ProjectSection.entries.firstOrNull { it.id == id }
+}
 
 /** What a backend offers a project's settings: the features it advertises and what its project summary carries. */
 data class ProjectSectionSupport(
     val supports: (String) -> Boolean,
     val links: Boolean,
-    val longPromptCache: Boolean,
     val repository: Boolean? = null,
 ) {
     val showCodingSettings: Boolean get() = !supports(HarnessFeature.PROJECT_REPOSITORY) || repository != false
@@ -67,7 +73,6 @@ fun projectSectionAvailable(section: ProjectSection, has: ProjectSectionSupport)
     ProjectSection.Workers -> has.supports("projects") && has.supports("models") && has.supports("workers")
     ProjectSection.Schedules -> has.supports("schedules")
     ProjectSection.Tickets -> has.links && has.showCodingSettings
-    ProjectSection.Cache -> has.longPromptCache
     ProjectSection.Storage -> has.supports("storage")
     ProjectSection.Mcp -> has.supports(MCP_FEATURE)
     ProjectSection.Skills -> has.supports(PROJECT_SKILLS_FEATURE)

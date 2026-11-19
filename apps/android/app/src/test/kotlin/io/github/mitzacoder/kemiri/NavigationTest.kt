@@ -24,6 +24,15 @@ class NavigationTest {
         assertNotEquals(contextTarget, contextTarget.copy(threadId = "main"))
         assertNotEquals(route, route.copy(backendKey = "https://another.example"))
     }
+    @Test fun savedCacheAndDeliveryBackStacksOpenAdvanced() {
+        val route = Destination.Chat("https://backend.example", "p")
+        val stack = BackStack(listOf(route)).push(Destination.ProjectSettings(route, ProjectSection.Advanced))
+        val saved = wireJson.encodeToString(BackStack.serializer(), stack)
+        assertTrue(saved.contains("\"section\":\"Delivery\""))
+        assertEquals(stack, wireJson.decodeFromString(BackStack.serializer(), saved))
+        assertEquals(stack, wireJson.decodeFromString(BackStack.serializer(), saved.replace("\"Delivery\"", "\"Cache\"")))
+    }
+
     @Test fun aSavedRouteToTheRemovedWorkersTabReadsBackAsInfo() {
         val route = Destination.Chat("https://backend.example", "p")
         val saved = wireJson.encodeToString(Destination.serializer(), Destination.Panel(route, PanelTab.Memory)).replace("\"Memory\"", "\"Workers\"")

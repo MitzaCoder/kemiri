@@ -92,8 +92,8 @@ private fun NotFound(title: String, text: String) {
 }
 
 /**
- * A project's settings (web `.../settings/<section>`): General, Coordinator, Workers, Scheduled tasks, Tickets and pull
- * requests, Prompt cache and Storage; a section the backend does not offer is left out. [section] null is the list.
+ * A project's settings (web `.../settings/<section>`). Sections the backend does not offer are left out.
+ * [section] null opens the section list.
  */
 @Composable
 fun ProjectSettingsScreen(context: ProjectScreenContext, section: ProjectSection?, scheduleId: String?, navigator: SettingsNavigator, modifier: Modifier = Modifier, unavailableSection: String? = null) {
@@ -105,7 +105,7 @@ private fun ProjectSettingsContent(context: ProjectScreenContext, section: Proje
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val project = projects.firstOrNull { it.id == context.route.projectId }
-    val support = ProjectSectionSupport(connection::supports, project?.links != null, project?.longPromptCache != null, project?.repository)
+    val support = ProjectSectionSupport(connection::supports, project?.links != null, project?.repository)
     val offered = ProjectSection.entries.filter { projectSectionAvailable(it, support) }
     val chips = projectChips(project?.coordinator?.model != null)
     val items = offered.map { SettingsNavItem(it, chips[it]) }
@@ -153,7 +153,6 @@ private fun ProjectSettingsContent(context: ProjectScreenContext, section: Proje
                     ProjectSection.Workers -> WorkersSection(context, project)
                     ProjectSection.Schedules -> SchedulesSection(context, scheduleId)
                     ProjectSection.Tickets -> project.links?.let { TicketsSection(context, it) }
-                    ProjectSection.Cache -> PromptCacheSection(context.backend, project)
                     ProjectSection.Storage -> StorageSection(context.backend, project.id)
                     ProjectSection.Mcp -> McpProjectSection(context.backend, project.id) {
                         navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, context.backend.config.key, mcp = true)))

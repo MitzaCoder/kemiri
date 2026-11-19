@@ -14,8 +14,8 @@ class ProjectSkillsTest {
         ProjectSkill(name = name, description = "Synthetic skill", path = "/example/$name/SKILL.md", origin = origin, source = source, hides = emptyList(), roles = roles, decided = decided)
 
     @Test fun sectionRequiresItsOwnCapability() {
-        assertFalse(projectSectionAvailable(ProjectSection.Skills, ProjectSectionSupport({ it == "mcp-servers" }, true, true)))
-        assertTrue(projectSectionAvailable(ProjectSection.Skills, ProjectSectionSupport({ it == "project-skills" }, false, false)))
+        assertFalse(projectSectionAvailable(ProjectSection.Skills, ProjectSectionSupport({ it == "mcp-servers" }, links = true)))
+        assertTrue(projectSectionAvailable(ProjectSection.Skills, ProjectSectionSupport({ it == "project-skills" }, links = false)))
         assertEquals(ProjectSection.Skills, projectSectionFor("skills"))
     }
     @Test fun originAndSourceLabelsAreExplicit() {

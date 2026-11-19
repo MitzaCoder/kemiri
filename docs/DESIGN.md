@@ -5969,7 +5969,7 @@ Every section has a URL; the last segment is the section name, which Android reu
 ```
 
 - `/notifications` redirects to `/settings/notifications`. An explicit section URL opens that section at any width.
-  Android’s old `delivery` route opens Advanced.
+  Android’s old `cache` and `delivery` routes open Advanced.
 - The old web `.../settings/cache` URL opens `.../settings/advanced#conversation-cache` and scrolls to that group
   when it is available. A cold link replaces the URL, and an in-app link writes only the Advanced destination.
 - A schedule notification links to `.../settings#schedule-<id>` (Android's route parser knows only `.../settings`);
@@ -6009,9 +6009,10 @@ gestures change nothing. Named Up pops to a parent within this visit, or replace
 current entry if absent. Close × discards the visit to its exact origin, falling back
 to main project chat or Home when no origin remains. Sibling sections replace; children
 always push, including a computer's AI accounts, Devices and Connected apps. Cross-tree settings links keep the same visit.
-External settings links build Chat/Home underneath. The old `delivery` link and a saved `Delivery` destination
-open Advanced. A Tickets link to a non-repository opens the section with a note instead of redirecting. Transient MCP sub-views register depth-ordered Back/Up
-targets shared with the app bar; dialogs and the drawer take precedence. Secret fields
+External settings links build Chat/Home underneath. Old `cache` and `delivery` links and saved `Cache` and
+`Delivery` destinations open Advanced. A Tickets link to a non-repository opens the section with a note instead
+of redirecting. Transient MCP sub-views register depth-ordered Back/Up targets shared with the app bar;
+dialogs and the drawer take precedence. Secret fields
 remain transient and are never serialized. Predictive Back deliberately has no animation.
 
 On Android, Appearance summarizes the device-wide code wrap, task timeline order, image comparison and
@@ -6022,6 +6023,9 @@ Automatic memory cleanup uses a switch on computers that advertise `memory-maint
 turning it off retains the chosen model. The composer reads the project's first worker model on computers
 with `worker-picker-project-default`, and the picker shows each listed model's own thinking level.
 Only older computers show the legacy composer override and its explanation.
+Android shows Conversation cache (Prompt cache) in Advanced, after Page privacy and before Proof of screen
+changes. It is available outside code repositories when the computer sends `longPromptCache`; the keep-warm
+controls still require `cache-keep-warm`.
 
 ### Layout
 

@@ -32,7 +32,6 @@ internal object SettingsGlyphs {
     val Folder = LucideIcon("folder", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")
     val Cpu = LucideIcon("cpu", "M12 20v2", "M12 2v2", "M17 20v2", "M17 2v2", "M2 12h2", "M2 17h2", "M2 7h2", "M20 12h2", "M20 17h2", "M20 7h2", "M7 20v2", "M7 2v2", "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M8 8h8v8H8z")
     val Ticket = LucideIcon("ticket", "M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z", "M13 5v2", "M13 17v2", "M13 11v2")
-    val DatabaseZap = LucideIcon("database-zap", "M3 5a9 3 0 1 0 18 0a9 3 0 1 0 -18 0", "M3 5v14a9 3 0 0 0 8.4 2.9", "M21 5v4", "M3 12a9 3 0 0 0 8.7 3", "m19 16-2 3h4l-2 3")
     val KeyRound = LucideIcon("key-round", "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z", "M16.5 7.5h.01")
     val GitPullRequest = LucideIcon("git-pull-request", "M15 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0", "M3 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0", "M13 6h3a2 2 0 0 1 2 2v7", "M6 9v12")
     val Play = LucideIcon("play", "M6 3l14 9-14 9z")
@@ -51,7 +50,6 @@ internal fun settingsIconGlyph(icon: SettingsIcon): LucideIcon = when (icon) {
     SettingsIcon.Users -> Lucide.Users
     SettingsIcon.CalendarClock -> io.github.mitzacoder.kemiri.features.status.StatusGlyphs.CalendarClock
     SettingsIcon.Ticket -> SettingsGlyphs.Ticket
-    SettingsIcon.DatabaseZap -> SettingsGlyphs.DatabaseZap
     SettingsIcon.HardDrive -> io.github.mitzacoder.kemiri.features.status.StatusGlyphs.HardDrive
     SettingsIcon.KeyRound -> SettingsGlyphs.KeyRound
     SettingsIcon.Settings -> Lucide.Settings2

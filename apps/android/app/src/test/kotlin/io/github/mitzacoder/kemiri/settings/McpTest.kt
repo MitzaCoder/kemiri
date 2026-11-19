@@ -79,8 +79,8 @@ class McpTest {
         assertNull(mcpAuthorizationState("invalid"))
     }
     @Test fun settingsAreCapabilityGatedAndParented() {
-        assertFalse(projectSectionAvailable(ProjectSection.Mcp, ProjectSectionSupport({ false }, false, false)))
-        assertTrue(projectSectionAvailable(ProjectSection.Mcp, ProjectSectionSupport({ it == MCP_FEATURE }, false, false)))
+        assertFalse(projectSectionAvailable(ProjectSection.Mcp, ProjectSectionSupport({ false }, links = false)))
+        assertTrue(projectSectionAvailable(ProjectSection.Mcp, ProjectSectionSupport({ it == MCP_FEATURE }, links = false)))
         assertEquals(GeneralPage(GeneralSection.Backends, "synthetic"), generalParent(GeneralPage(GeneralSection.Backends, "synthetic", mcp = true)))
     }
 }
