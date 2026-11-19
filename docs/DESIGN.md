@@ -6017,7 +6017,8 @@ Notifications uses native time pickers that save each valid change, and folds aw
 test notifications and relay setup under Delivery details. Notification presets match the protocol kind sets.
 Automatic memory cleanup uses a switch on computers that advertise `memory-maintenance-enabled`;
 turning it off retains the chosen model. The composer reads the project's first worker model on computers
-with `worker-picker-project-default`; older computers keep the legacy composer override.
+with `worker-picker-project-default`, and the picker shows each listed model's own thinking level.
+Only older computers show the legacy composer override and its explanation.
 
 ### Layout
 

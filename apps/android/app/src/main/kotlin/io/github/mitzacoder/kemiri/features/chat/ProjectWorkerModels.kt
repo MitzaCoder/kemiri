@@ -25,7 +25,9 @@ internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: L
     }
 }
 
-@Composable internal fun ProjectWorkerModels(models: List<WorkerModel>, catalog: List<ModelInfo>, thinking: String?, pickedModel: ModelRef?, onSettings: () -> Unit) {
+@Composable internal fun ProjectWorkerModels(
+    models: List<WorkerModel>, catalog: List<ModelInfo>, legacyThinkingOverride: String?, legacyModelOverride: ModelRef?, onSettings: () -> Unit,
+) {
     Surface(shape = MaterialTheme.shapes.medium,color = Jarvis.colors.surface2) {
         Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.SpaceBetween,verticalAlignment = Alignment.CenterVertically) {
@@ -33,7 +35,7 @@ internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: L
                 TextButton(onClick = onSettings,contentPadding = PaddingValues(horizontal = 8.dp),modifier = Modifier.heightIn(min = 48.dp)) { Text("Change") }
             }
             Text("From project settings · tried in order",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
-            val rows = projectWorkerModelRows(models,catalog,thinking)
+            val rows = projectWorkerModelRows(models, catalog, legacyThinkingOverride)
             rows.forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${row.order}.",style = MaterialTheme.typography.bodySmall,color = Jarvis.colors.fgSubtle)
@@ -45,8 +47,8 @@ internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: L
                 }
             }
             if(rows.isEmpty()) Text("None set. No backend fallback; choose a worker model to start workers.",style = MaterialTheme.typography.bodySmall)
-            Text((if(pickedModel != null) "Your composer pick overrides this list. " else "") +
-                (if(thinking != null) "Thinking comes from your composer pick. " else "") + "The coordinator can name another model.",
+            Text((if (legacyModelOverride != null) "Your composer pick overrides this list. " else "") +
+                (if (legacyThinkingOverride != null) "Thinking comes from your composer pick. " else "") + "The main chat can name another model.",
                 style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
         }
     }

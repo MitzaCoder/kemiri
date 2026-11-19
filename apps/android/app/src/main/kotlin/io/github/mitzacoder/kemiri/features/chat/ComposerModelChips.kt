@@ -146,7 +146,11 @@ private object ChipGlyphs {
             OutlinedTextField(query,{ query = it },placeholder = { Text(if(worker) "Search models for new workers…" else "Search models…") },singleLine = true,
                 leadingIcon = { LucideGlyph(Lucide.Search,size = 16.dp) },modifier = Modifier.fillMaxWidth())
             Column(Modifier.weight(1f,fill = false).verticalScroll(rememberScrollState()).padding(top = 6.dp)) {
-                if(worker) ProjectWorkerModels(projectWorkerModels,models,thinking,model) { open = false; onWorkerSettings() }
+                if (worker) ProjectWorkerModels(
+                    projectWorkerModels, models,
+                    legacyThinkingOverride = thinking.takeUnless { projectWorkerDefault },
+                    legacyModelOverride = model.takeUnless { projectWorkerDefault },
+                ) { open = false; onWorkerSettings() }
                 if(worker && !projectWorkerDefault) PickerRow(chosen = model == null,enabled = enabled,onClick = { onChange(null,null); open = false }) {
                     Column(Modifier.weight(1f)) {
                         Text("Worker default",style = MaterialTheme.typography.bodyMedium,fontWeight = FontWeight.Medium,color = Jarvis.colors.fg)
