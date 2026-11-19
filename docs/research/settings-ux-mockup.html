@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kemiri — Proposed Settings UX Mockup (Option A)</title>
+<style>
+@layer artifact-defaults {
+:root {
+  color-scheme: light;
+  --tone-radius: 0.875rem;
+  --tone-bg: #fbfaff;
+  --tone-surface: #f3f1fb;
+  --tone-surface-2: #eae7f6;
+  --tone-border: #e3dff0;
+  --tone-border-strong: #d2cce6;
+  --tone-fg: #1a1830;
+  --tone-fg-muted: #5d5a78;
+  --tone-fg-subtle: #8c89a6;
+  --tone-primary: #6366f1;
+  --tone-primary-fg: #ffffff;
+  --tone-accent-1: #22d3ee;
+  --tone-accent-2: #6366f1;
+  --tone-accent-3: #d946ef;
+  --tone-accent-4: #fb923c;
+  --tone-danger: #e11d48;
+  --tone-success: #059669;
+  --tone-warning: #d97706;
+  --tone-ring: #8b5cf6;
+  --tone-shadow: 0 10px 30px -14px rgb(76 29 149 / 0.16), 0 2px 6px -2px rgb(76 29 149 / 0.06);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-task: .9375rem;
+  --text-task-sm: .8125rem;
+  --spacing: .25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --tone-bg: #09090f;
+    --tone-surface: #15141f;
+    --tone-surface-2: #1d1b2b;
+    --tone-border: #262437;
+    --tone-border-strong: #34314b;
+    --tone-fg: #ecebf5;
+    --tone-fg-muted: #a3a0bd;
+    --tone-fg-subtle: #6e6b88;
+    --tone-primary: #818cf8;
+    --tone-primary-fg: #0b0b14;
+    --tone-danger: #fb7185;
+    --tone-success: #34d399;
+    --tone-warning: #fbbf24;
+    --tone-ring: #a78bfa;
+    --tone-shadow: 0 10px 36px -12px rgb(0 0 0 / 0.65), 0 2px 8px -2px rgb(0 0 0 / 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --tone-bg: #09090f;
+  --tone-surface: #15141f;
+  --tone-surface-2: #1d1b2b;
+  --tone-border: #262437;
+  --tone-border-strong: #34314b;
+  --tone-fg: #ecebf5;
+  --tone-fg-muted: #a3a0bd;
+  --tone-fg-subtle: #6e6b88;
+  --tone-primary: #818cf8;
+  --tone-primary-fg: #0b0b14;
+  --tone-danger: #fb7185;
+  --tone-success: #34d399;
+  --tone-warning: #fbbf24;
+  --tone-ring: #a78bfa;
+  --tone-shadow: 0 10px 36px -12px rgb(0 0 0 / 0.65), 0 2px 8px -2px rgb(0 0 0 / 0.35);
+}
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--tone-bg); color: var(--tone-fg); font-family: var(--font-sans); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+body { min-height: 100vh; overflow-x: hidden; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--tone-ring); outline-offset: 2px; }
+
+.page { max-width: 68rem; margin: 0 auto; padding: 1.25rem 1rem 3.5rem; }
+@media (min-width: 640px) { .page { padding: 1.75rem 1.5rem 4rem; } }
+
+/* Top framing bar */
+.mockup-banner {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem;
+  margin-bottom: 1.25rem; padding: .75rem 1rem; border-radius: var(--tone-radius);
+  background: var(--tone-surface); border: 1px solid var(--tone-border);
+}
+.mockup-banner h1 { margin: 0; font-size: 1.125rem; font-weight: 700; letter-spacing: -.015em; }
+.mockup-banner p { margin: .15rem 0 0; font-size: var(--text-task-sm); color: var(--tone-fg-muted); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  min-height: 2.35rem; padding: .35rem .8rem; border-radius: .65rem;
+  border: 1px solid var(--tone-border-strong); background: var(--tone-bg);
+  font-size: var(--text-task-sm); font-weight: 500; cursor: pointer;
+}
+.btn:hover { background: var(--tone-surface-2); }
+.btn-primary { background: var(--tone-primary); color: var(--tone-primary-fg); border-color: transparent; }
+.btn-primary:hover { filter: brightness(1.06); background: var(--tone-primary); }
+.btn-danger { color: var(--tone-danger); border-color: color-mix(in oklab, var(--tone-danger) 40%, var(--tone-border)); }
+.btn-ghost { border-color: transparent; background: transparent; color: var(--tone-fg-muted); }
+.btn-ghost:hover { color: var(--tone-fg); background: var(--tone-surface-2); }
+
+/* App frame */
+.app-shell {
+  background: var(--tone-bg); border: 1px solid var(--tone-border-strong);
+  border-radius: calc(var(--tone-radius) + .25rem); box-shadow: var(--tone-shadow);
+  overflow: hidden;
+}
+.app-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .75rem;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--tone-border);
+  background: var(--tone-surface);
+}
+.app-title { font-size: 1.125rem; font-weight: 700; margin: 0; margin-right: auto; }
+.search-wrap { flex: 1 1 13rem; max-width: 19rem; min-width: 0; }
+.search-input {
+  width: 100%; min-height: 2.35rem; padding: .4rem .75rem; border-radius: .65rem;
+  border: 1px solid var(--tone-border-strong); background: var(--tone-bg);
+  font-size: var(--text-task-sm);
+}
+
+/* Scope switcher */
+.scope-bar {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem;
+  padding: .75rem 1.25rem; border-bottom: 1px solid var(--tone-border);
+  background: var(--tone-surface);
+}
+@media (max-width: 560px) { .scope-bar { grid-template-columns: 1fr; } }
+.scope-tab {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .1rem;
+  padding: .65rem .85rem; border-radius: .75rem; border: 1px solid var(--tone-border);
+  background: var(--tone-bg); text-align: left; cursor: pointer;
+}
+.scope-tab:hover { border-color: var(--tone-border-strong); background: var(--tone-surface-2); }
+.scope-tab[aria-selected="true"] {
+  border-color: var(--tone-primary);
+  box-shadow: inset 0 0 0 1px var(--tone-primary);
+  background: color-mix(in oklab, var(--tone-primary) 9%, var(--tone-bg));
+}
+.scope-tab .kicker { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--tone-fg-muted); }
+.scope-tab[aria-selected="true"] .kicker { color: var(--tone-primary); }
+.scope-tab .name { font-size: var(--text-task); font-weight: 650; }
+.scope-tab .sub { font-size: .78rem; color: var(--tone-fg-muted); }
+
+/* Scope notice strip */
+.scope-strip {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .6rem 1.25rem; font-size: var(--text-task-sm);
+  border-bottom: 1px solid var(--tone-border);
+  background: color-mix(in oklab, var(--tone-primary) 6%, var(--tone-bg));
+}
+.scope-strip strong { font-weight: 650; }
+
+/* Two-column settings layout */
+.settings-grid {
+  display: grid; grid-template-columns: 14.5rem minmax(0, 1fr); min-height: 34rem;
+}
+@media (max-width: 760px) { .settings-grid { grid-template-columns: 1fr; } }
+
+.nav-rail {
+  padding: 1rem .75rem; border-right: 1px solid var(--tone-border);
+  background: color-mix(in oklab, var(--tone-surface) 55%, var(--tone-bg));
+  display: flex; flex-direction: column; gap: .25rem;
+}
+@media (max-width: 760px) {
+  .nav-rail {
+    border-right: 0; border-bottom: 1px solid var(--tone-border);
+    flex-direction: row; flex-wrap: wrap; padding: .65rem .75rem;
+  }
+}
+.nav-item {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  min-height: 2.65rem; padding: .5rem .75rem; border-radius: .65rem; border: 1px solid transparent;
+  background: transparent; text-align: left; cursor: pointer; font-size: var(--text-task-sm);
+  color: var(--tone-fg-muted); font-weight: 500;
+}
+.nav-item:hover { background: var(--tone-surface-2); color: var(--tone-fg); }
+.nav-item[aria-current="page"] {
+  background: var(--tone-surface-2); color: var(--tone-fg); font-weight: 650;
+  border-color: var(--tone-border-strong);
+}
+.nav-sep { height: 1px; background: var(--tone-border); margin: .45rem .5rem; }
+@media (max-width: 760px) { .nav-sep { display: none; } }
+
+.content { padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+@media (min-width: 640px) { .content { padding: 1.5rem 1.75rem; } }
+
+.section-head h2 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -.015em; }
+.section-head p { margin: .25rem 0 0; font-size: var(--text-task-sm); color: var(--tone-fg-muted); max-width: 65ch; }
+
+/* Settings group cards */
+.group {
+  border: 1px solid var(--tone-border); border-radius: var(--tone-radius);
+  background: var(--tone-surface); overflow: hidden;
+}
+.group-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .75rem 1rem; border-bottom: 1px solid var(--tone-border);
+  background: color-mix(in oklab, var(--tone-surface-2) 55%, var(--tone-surface));
+}
+.group-head h3 { margin: 0; font-size: .875rem; font-weight: 700; }
+.group-head p { margin: .15rem 0 0; font-size: .78rem; color: var(--tone-fg-muted); width: 100%; }
+
+.row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.25rem;
+  padding: .9rem 1rem; border-top: 1px solid var(--tone-border); background: var(--tone-bg);
+}
+.group-head + .row, .row:first-child { border-top: 0; }
+.row-text { flex: 1 1 15rem; min-width: 0; }
+.row-label { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; font-size: var(--text-task); font-weight: 600; }
+.row-hint { margin: .2rem 0 0; font-size: var(--text-task-sm); color: var(--tone-fg-muted); max-width: 58ch; }
+.row-control { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; flex-shrink: 0; }
+
+/* Pills & chips */
+.chip {
+  display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .55rem;
+  border-radius: 999px; font-size: .74rem; font-weight: 600;
+  border: 1px solid var(--tone-border-strong); background: var(--tone-surface); color: var(--tone-fg-muted);
+}
+.chip-ok { color: var(--tone-success); border-color: color-mix(in oklab, var(--tone-success) 38%, var(--tone-border)); background: color-mix(in oklab, var(--tone-success) 10%, var(--tone-bg)); }
+.chip-warn { color: var(--tone-warning); border-color: color-mix(in oklab, var(--tone-warning) 42%, var(--tone-border)); background: color-mix(in oklab, var(--tone-warning) 10%, var(--tone-bg)); }
+.chip-scope { color: var(--tone-primary); border-color: color-mix(in oklab, var(--tone-primary) 38%, var(--tone-border)); background: color-mix(in oklab, var(--tone-primary) 9%, var(--tone-bg)); }
+
+/* Inputs & controls */
+.field {
+  min-height: 2.4rem; padding: .35rem .65rem; border-radius: .55rem;
+  border: 1px solid var(--tone-border-strong); background: var(--tone-bg);
+  font-size: var(--text-task-sm); min-width: 11rem;
+}
+.field-sm { min-width: 6.5rem; }
+.segmented {
+  display: inline-flex; flex-wrap: wrap; padding: .2rem; gap: .2rem;
+  border-radius: .65rem; border: 1px solid var(--tone-border-strong); background: var(--tone-surface);
+}
+.segmented button {
+  min-height: 2rem; padding: .25rem .7rem; border: 0; border-radius: .48rem;
+  background: transparent; font-size: var(--text-task-sm); font-weight: 500; cursor: pointer;
+  color: var(--tone-fg-muted);
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--tone-bg); color: var(--tone-fg); font-weight: 650;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}
+
+/* Switch */
+.switch {
+  position: relative; width: 2.75rem; height: 1.6rem; border-radius: 999px;
+  border: 1px solid var(--tone-border-strong); background: var(--tone-surface-2);
+  cursor: pointer; flex-shrink: 0; transition: background .15s ease;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 1.25rem; height: 1.25rem;
+  border-radius: 50%; background: var(--tone-bg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform .15s ease;
+}
+.switch[aria-checked="true"] { background: var(--tone-primary); border-color: var(--tone-primary); }
+.switch[aria-checked="true"]::after { transform: translateX(1.12rem); }
+
+/* Callout & disclosure */
+.callout {
+  padding: .75rem .95rem; border-radius: .75rem; font-size: var(--text-task-sm);
+  border: 1px solid color-mix(in oklab, var(--tone-warning) 42%, var(--tone-border));
+  background: color-mix(in oklab, var(--tone-warning) 10%, var(--tone-bg));
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem;
+}
+details.disclosure { padding: .75rem 1rem; border-top: 1px solid var(--tone-border); background: var(--tone-bg); }
+details.disclosure summary { cursor: pointer; font-size: var(--text-task-sm); font-weight: 600; color: var(--tone-primary); }
+details.disclosure .inner { margin-top: .75rem; display: flex; flex-direction: column; gap: .5rem; }
+
+.theme-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; padding: .9rem 1rem; background: var(--tone-bg); }
+@media (max-width: 500px) { .theme-cards { grid-template-columns: 1fr; } }
+.theme-card {
+  border: 1px solid var(--tone-border-strong); border-radius: .75rem; overflow: hidden;
+  background: var(--tone-surface); text-align: left; cursor: pointer; padding: 0;
+}
+.theme-card[aria-pressed="true"] { border: 2px solid var(--tone-primary); }
+.swatch-row { display: grid; grid-template-columns: 1fr 1fr; height: 3.2rem; }
+.theme-meta { padding: .6rem .75rem; }
+.theme-meta strong { display: block; font-size: var(--text-task-sm); }
+.theme-meta span { font-size: .76rem; color: var(--tone-fg-muted); }
+
+.mono { font-family: var(--font-mono); font-size: .8rem; }
+.hidden { display: none !important; }
+.search-results { padding: 1.25rem; display: flex; flex-direction: column; gap: .65rem; }
+.result-card {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .75rem 1rem; border-radius: .75rem; border: 1px solid var(--tone-border);
+  background: var(--tone-surface); cursor: pointer; text-align: left; width: 100%;
+}
+.result-card:hover { border-color: var(--tone-primary); }
+.footer-note { margin-top: 1rem; font-size: var(--text-task-sm); color: var(--tone-fg-muted); max-width: 75ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  .switch, .switch::after { transition: none; }
+}
+@media print {
+  html, body { background: #ffffff; color: #111111; }
+  .toolbar, .search-wrap, .nav-rail, .scope-bar { display: none !important; }
+  .app-shell { border: 0; box-shadow: none; }
+  .settings-grid { display: block; }
+  .panel { display: block !important; break-inside: avoid; margin-bottom: 1.5rem; }
+  .hidden { display: block !important; }
+  .search-results { display: none !important; }
+  details.disclosure { display: block; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="mockup-banner" id="top">
+    <div>
+      <h1>Kemiri Settings — Proposed Structure Mockup (Option A)</h1>
+      <p>Interactive prototype with synthetic data ("Bakery Launch" on "Studio Laptop"). Click any scope tab, section, preset, or search term.</p>
+    </div>
+    <div class="toolbar">
+      <button type="button" class="btn" id="themeToggle" aria-pressed="false">Switch to Dark preview</button>
+    </div>
+  </header>
+
+  <main class="app-shell" aria-label="Kemiri Settings Mockup">
+    <div class="app-header">
+      <p class="app-title">Settings</p>
+      <div class="search-wrap">
+        <label for="settingsSearch" class="hidden">Search all settings</label>
+        <input id="settingsSearch" class="search-input" type="search" placeholder="Search settings (e.g. Claude, quiet, price, Jira)…">
+      </div>
+      <span class="chip">The owner</span>
+    </div>
+
+    <!-- Top-level Scope Switcher -->
+    <div class="scope-bar" role="tablist" aria-label="Settings scope">
+      <button type="button" class="scope-tab" role="tab" data-scope="project" aria-selected="true">
+        <span class="kicker">This project</span>
+        <span class="name">Bakery Launch ▾</span>
+        <span class="sub">Shared across all your devices</span>
+      </button>
+      <button type="button" class="scope-tab" role="tab" data-scope="computer" aria-selected="false">
+        <span class="kicker">This computer</span>
+        <span class="name">Studio Laptop</span>
+        <span class="sub">All projects on this computer</span>
+      </button>
+      <button type="button" class="scope-tab" role="tab" data-scope="device" aria-selected="false">
+        <span class="kicker">This device</span>
+        <span class="name">This browser</span>
+        <span class="sub">Look, clock &amp; alerts here only</span>
+      </button>
+    </div>
+
+    <div class="scope-strip" id="scopeStrip" role="status">
+      <span><strong>Scope: Bakery Launch</strong> — changes here apply to this project on every device connected to Studio Laptop.</span>
+      <span class="chip chip-scope" id="scopeBadge">Project setting</span>
+    </div>
+
+    <div id="searchResults" class="search-results hidden" aria-live="polite"></div>
+
+    <div class="settings-grid" id="settingsGrid">
+      <nav class="nav-rail" id="navRail" aria-label="Settings sections"></nav>
+
+      <div class="content" id="contentArea">
+        <!-- ===================== PROJECT SCOPE ===================== -->
+        <section class="panel" id="project-overview" data-scope="project" data-section="overview" data-title="Overview" data-keywords="project name folder mute archive notifications">
+          <div class="section-head">
+            <h2>Project overview</h2>
+            <p>Basic details for Bakery Launch, plus a quick mute for this device.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Identity</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Project name</div>
+                <p class="row-hint">Shown in the sidebar and at the top of chat.</p>
+              </div>
+              <div class="row-control"><input class="field" aria-label="Project name" value="Bakery Launch"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Folder on Studio Laptop</div>
+                <p class="row-hint">Where files live. Read-only here.</p>
+              </div>
+              <div class="row-control"><span class="mono">/workspace/bakery-launch</span></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Quick actions</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Mute alerts for Bakery Launch <span class="chip">This device only</span></div>
+                <p class="row-hint">Silences push notifications for this project on this browser. Same as the bell in chat.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="Mute alerts for Bakery Launch"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Archive this project</div>
+                <p class="row-hint">Hides it from your project list and pauses routines. Nothing is deleted.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Archive project</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="project-ai" data-scope="project" data-section="ai" data-title="AI &amp; helpers" data-keywords="coordinator main chat model thinking level workers helper agents check-ins composer override">
+          <div class="section-head">
+            <h2>AI &amp; helpers</h2>
+            <p>Choose which AI you talk to in Main chat and which models helper agents use by default.</p>
+          </div>
+          <div class="group">
+            <div class="group-head">
+              <h3>Main assistant</h3>
+              <p>Changing this in the chat box updates this project setting immediately.</p>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Main assistant model <span class="chip chip-ok">Ready</span></div>
+                <p class="row-hint">The AI you chat with directly and that plans work.</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Main assistant model">
+                  <option selected>Claude Sonnet (Anthropic)</option>
+                  <option>GPT-5 (OpenAI)</option>
+                  <option>Gemini Pro (Google)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Thinking depth</div>
+                <p class="row-hint">Higher depth thinks longer on hard tasks, but is slower and uses more quota.</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Main assistant thinking depth">
+                  <option selected>Model default</option>
+                  <option>Low</option>
+                  <option>Medium</option>
+                  <option>High</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-head">
+              <h3>Helper agents (workers)</h3>
+              <p>Tried in order whenever the main assistant delegates a task.</p>
+            </div>
+            <div class="row" id="overrideBannerRow">
+              <div class="callout" style="width:100%">
+                <span><strong>Composer override active:</strong> The chat box is currently forcing helpers to use <em>GPT-5 · Medium</em> across all your devices.</span>
+                <button type="button" class="btn" id="clearOverrideBtn">Use project defaults</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">1. Claude Sonnet <span class="chip">Primary</span></div>
+                <p class="row-hint">Anthropic · Thinking: Model default</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-ghost">Move down</button><button type="button" class="btn btn-ghost">Remove</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">2. GPT-5 <span class="chip">Fallback</span></div>
+                <p class="row-hint">OpenAI · Thinking: Medium</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-ghost">Move up</button><button type="button" class="btn btn-ghost">Remove</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Check in on running helpers</div>
+                <p class="row-hint">Periodically updates the main assistant so it can unstick a helper that stalls.</p>
+              </div>
+              <div class="row-control">
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Check in on running helpers"></button>
+                <input class="field field-sm" type="number" value="10" min="1" max="1440" aria-label="Check-in minutes">
+                <span class="row-hint" style="margin:0">min</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="project-routines" data-scope="project" data-section="routines" data-title="Routines" data-keywords="scheduled tasks cron interval github review event trigger">
+          <div class="section-head">
+            <h2>Routines (scheduled tasks)</h2>
+            <p>Work Kemiri starts automatically on a schedule or when an event happens.</p>
+          </div>
+          <div class="group">
+            <div class="group-head">
+              <h3>Active routines</h3>
+              <button type="button" class="btn btn-primary">+ New routine</button>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Weekly menu &amp; inventory check <span class="chip chip-ok">Active</span></div>
+                <p class="row-hint">Every Monday at 09:00 · Next run in 3 days · Last run succeeded</p>
+              </div>
+              <div class="row-control">
+                <button type="button" class="btn">Run now</button>
+                <button type="button" class="btn btn-ghost">Edit</button>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Weekly menu check enabled"></button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Review incoming supplier notes <span class="chip chip-warn">Paused</span></div>
+                <p class="row-hint">Every day at 18:00 · Runs as a background job</p>
+              </div>
+              <div class="row-control">
+                <button type="button" class="btn">Run now</button>
+                <button type="button" class="btn btn-ghost">Edit</button>
+                <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Review incoming supplier notes enabled"></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="project-tools" data-scope="project" data-section="tools" data-title="Tools &amp; skills" data-keywords="mcp connected apps skills notion jira github roles">
+          <div class="section-head">
+            <h2>Tools &amp; skills</h2>
+            <p>Choose which external apps and reusable guides assistants can use inside Bakery Launch.</p>
+          </div>
+          <div class="group">
+            <div class="group-head">
+              <h3>Connected apps (MCP)</h3>
+              <button type="button" class="btn" data-jump="computer:apps">Manage or add apps on Studio Laptop →</button>
+              <p>Apps installed on Studio Laptop start off in each project until you turn them on here.</p>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Notion Workspace <span class="chip chip-ok">Connected · 14 tools</span></div>
+                <p class="row-hint">Allowed for: Main assistant, Helper agents</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Enable Notion Workspace for Bakery Launch"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Cloud Docs <span class="chip">Disconnected</span></div>
+                <p class="row-hint">Off for this project.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="Enable Cloud Docs for Bakery Launch"></button></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Guides &amp; skills</h3><span class="chip">2 offered</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">HTML reports &amp; mockups <span class="chip">Built in</span></div>
+                <p class="row-hint">Creates self-contained visual reports and interactive prototypes.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Offer HTML reports skill"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Web browser check <span class="chip chip-scope">New</span></div>
+                <p class="row-hint">Opens web pages in a browser to check layout and take screenshots.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Offer Web browser check skill"></button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="project-advanced" data-scope="project" data-section="advanced" data-title="Advanced" data-keywords="ui proof screenshots report check live news budget artifact privacy block requests jira tickets github delivery integration branch deploy feed prompt cache storage disk cleanup">
+          <div class="section-head">
+            <h2>Project advanced</h2>
+            <p>Optional tuning for visual reviews, automatic task summaries, privacy, developer links, billing cache, and disk space. Safe to leave at defaults.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Reviews &amp; privacy</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Visual proof of screen changes</div>
+                <p class="row-hint">Ask assistants to attach before/after screenshots or a short video when changing a webpage or app.</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Visual proof of screen changes">
+                  <option selected>Screenshots and videos (default)</option>
+                  <option>Screenshots only</option>
+                  <option>Off</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Block web requests from preview pages</div>
+                <p class="row-hint">Stops generated HTML reports and mockups from sending data over the network.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="Block web requests from preview pages"></button></div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-head"><h3>Automatic task summaries</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Hourly report check</div>
+                <p class="row-hint">Uses a small model to spot missing updates on active tasks. Budget: Standard (~65k tokens/day).</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Hourly report check">
+                  <option selected>Automatic (default)</option>
+                  <option>Off</option>
+                  <option>Choose a model…</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Live progress notes</div>
+                <p class="row-hint">Shows short one-line status updates while work is running without extra AI calls.</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Live progress notes">
+                  <option selected>Automatic — no AI cost (default)</option>
+                  <option>Off</option>
+                  <option>Choose a model…</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-head"><h3>Developer &amp; cost tuning</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Tickets &amp; pull requests</div>
+                <p class="row-hint">Turn ticket codes (e.g. EX-123) and GitHub #numbers into live links. Auto-detected.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Configure links</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Software delivery tracking</div>
+                <p class="row-hint">Track commits landing on main/master and optional deploy logs. Safe to ignore for non-coding projects.</p>
+              </div>
+              <div class="row-control"><span class="chip">Branch: Auto · Feed: Off</span></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Claude cost caching</div>
+                <p class="row-hint">Keeps Claude's conversation memory warm for 1 hour (default: Main assistant only, idle limit 8 h).</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Claude cost caching">
+                  <option selected>Main assistant only (default)</option>
+                  <option>Main assistant &amp; helpers</option>
+                  <option>Off</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Workspace storage <span class="chip">420 MB · 3 finished</span></div>
+                <p class="row-hint">Temporary copies used by finished helpers. Your main project folder is never touched.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Clean up finished</button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== COMPUTER SCOPE ===================== -->
+        <section class="panel hidden" id="computer-accounts" data-scope="computer" data-section="accounts" data-title="AI accounts" data-keywords="providers oauth subscription api key monthly price anthropic openai google">
+          <div class="section-head">
+            <h2>AI accounts</h2>
+            <p>Connect your AI subscriptions or API keys on Studio Laptop. Promoted to the top level so setup takes one click instead of four.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Connected providers</h3><span class="chip chip-ok">2 ready</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Anthropic (Claude) <span class="chip chip-ok">Signed in</span></div>
+                <p class="row-hint">Subscription · Monthly plan price used in Usage: <strong>$20/mo</strong></p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Edit price</button><button type="button" class="btn">Manage</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">OpenAI <span class="chip chip-ok">API key</span></div>
+                <p class="row-hint">Pay-as-you-go API key stored privately on Studio Laptop.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Manage</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Add another AI provider</div>
+                <p class="row-hint">Sign in to a subscription or paste an API key.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-primary">+ Add provider</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="computer-profile" data-scope="computer" data-section="profile" data-title="Profile &amp; memory" data-keywords="your name memory maintenance cleanup nightly writes">
+          <div class="section-head">
+            <h2>Profile &amp; memory</h2>
+            <p>Applies across every project running on Studio Laptop.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>About the owner</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">What assistants should call the owner</div>
+                <p class="row-hint">Optional. Used in reports, questions, and handoffs from the next reply.</p>
+              </div>
+              <div class="row-control"><input class="field" aria-label="Owner display name" value="The owner" placeholder="Optional name"></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Automatic memory cleanup</h3><span class="chip chip-ok" id="memStatus">On</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Tidy memory notes automatically</div>
+                <p class="row-hint">Merges duplicates, fixes stale notes, and archives old items. Uses a real switch instead of "No model (off)".</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" id="memSwitch" aria-label="Tidy memory notes automatically"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Cleanup model &amp; schedule</div>
+                <p class="row-hint">Runs nightly at 03:00 (computer time) or after 20 new notes.</p>
+              </div>
+              <div class="row-control">
+                <select class="field" aria-label="Cleanup model"><option selected>Claude Haiku (fast)</option><option>GPT-5 mini</option></select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="computer-apps" data-scope="computer" data-section="apps" data-title="Connected apps" data-keywords="mcp servers oauth token permissions blocked ask allow">
+          <div class="section-head">
+            <h2>Connected apps (MCP)</h2>
+            <p>Install external apps once on Studio Laptop, set safety rules, then switch them on per project.</p>
+          </div>
+          <div class="group">
+            <div class="group-head">
+              <h3>Installed apps</h3>
+              <button type="button" class="btn btn-primary">+ Connect an app</button>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Notion Workspace <span class="chip chip-ok">Connected</span></div>
+                <p class="row-hint">14 tools · Enabled in 1 project (Bakery Launch)</p>
+              </div>
+              <div class="row-control">
+                <div class="segmented" role="group" aria-label="Default safety policy for Notion write tools">
+                  <button type="button" aria-pressed="false">Blocked</button>
+                  <button type="button" aria-pressed="true">Ask me first</button>
+                  <button type="button" aria-pressed="false">Always allow</button>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Cloud Docs <span class="chip chip-warn">Needs sign-in</span></div>
+                <p class="row-hint">Sign in to refresh available tools.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Sign in</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="computer-devices" data-scope="computer" data-section="devices" data-title="Devices &amp; updates" data-keywords="pair phone qr code access revoke software updates check version disk status">
+          <div class="section-head">
+            <h2>Devices &amp; updates</h2>
+            <p>Control which phones and browsers can access Studio Laptop, and keep Kemiri up to date.</p>
+          </div>
+          <div class="group">
+            <div class="group-head">
+              <h3>Paired devices</h3>
+              <button type="button" class="btn btn-primary">+ Pair a phone or browser</button>
+              <p>One clear pairing flow replaces the two lookalike QR codes. Every paired device has full access to Studio Laptop.</p>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Desktop Browser <span class="chip chip-scope">This device</span></div>
+                <p class="row-hint">Linux · Active now</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-ghost">Rename</button><button type="button" class="btn btn-danger">Sign out</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Owner’s Phone</div>
+                <p class="row-hint">Android · Last seen 12m ago</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-ghost">Rename</button><button type="button" class="btn btn-danger">Revoke</button></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Software updates &amp; health</h3><span class="chip chip-ok">Up to date</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Check for Kemiri updates</div>
+                <p class="row-hint">Checks daily for new releases. Never installs or restarts without asking.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Check for Kemiri updates"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Disk space on Studio Laptop</div>
+                <p class="row-hint">184 GB free · Kemiri v0.14.0</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn" data-jump="project:advanced">Clean project workspaces</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="computer-advanced" data-scope="computer" data-section="advanced" data-title="Advanced" data-keywords="backend nickname address url published list remove forget computer">
+          <div class="section-head">
+            <h2>Computer advanced</h2>
+            <p>Connection details stored on this browser for Studio Laptop.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Connection</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Local nickname <span class="chip">This device only</span></div>
+                <p class="row-hint">How Studio Laptop is labelled in this browser.</p>
+              </div>
+              <div class="row-control"><input class="field" aria-label="Local nickname" value="Studio Laptop"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Server address</div>
+                <p class="row-hint">Where the app connects.</p>
+              </div>
+              <div class="row-control"><span class="mono">https://studio-laptop.example.com</span></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Connect another computer</div>
+                <p class="row-hint">Add a second machine by address or suggestion.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">+ Add computer</button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Forget Studio Laptop on this device <span class="chip">This device only</span></div>
+                <p class="row-hint">Removes it from this browser. Projects and files stay untouched on the computer.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-danger">Forget computer</button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== DEVICE SCOPE ===================== -->
+        <section class="panel hidden" id="device-appearance" data-scope="device" data-section="appearance" data-title="Look &amp; feel" data-keywords="theme jarvis neutral light dark clock 24-hour 12-hour work day snooze wrap code timeline order">
+          <div class="section-head">
+            <h2>Look &amp; feel</h2>
+            <p>Visual style, clock, and reading defaults. Saved only on this browser.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Theme</h3></div>
+            <div class="theme-cards" role="group" aria-label="Color palette">
+              <button type="button" class="theme-card" aria-pressed="true" data-palette="jarvis">
+                <div class="swatch-row"><div style="background:#fbfaff;border-right:1px solid #e3dff0"></div><div style="background:#09090f"></div></div>
+                <div class="theme-meta"><strong>Jarvis</strong><span>Soft violet surfaces with a warm accent gradient.</span></div>
+              </button>
+              <button type="button" class="theme-card" aria-pressed="false" data-palette="neutral">
+                <div class="swatch-row"><div style="background:#fafafa;border-right:1px solid #e4e4e7"></div><div style="background:#111113"></div></div>
+                <div class="theme-meta"><strong>Neutral</strong><span>Clean, distraction-free greys.</span></div>
+              </button>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Light or dark</div>
+                <p class="row-hint">Now available on both web and Android.</p>
+              </div>
+              <div class="row-control">
+                <div class="segmented" role="group" aria-label="Light or dark mode">
+                  <button type="button" aria-pressed="true" data-mode="auto">Device</button>
+                  <button type="button" aria-pressed="false" data-mode="light">Light</button>
+                  <button type="button" aria-pressed="false" data-mode="dark">Dark</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-head"><h3>Time &amp; reading</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Clock format</div>
+                <p class="row-hint">Automatic matches your device settings.</p>
+              </div>
+              <div class="row-control">
+                <div class="segmented" role="group" aria-label="Clock format">
+                  <button type="button" aria-pressed="true">Automatic</button>
+                  <button type="button" aria-pressed="false">24-hour</button>
+                  <button type="button" aria-pressed="false">12-hour</button>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Snoozed tasks return at</div>
+                <p class="row-hint">When you pause a task until tomorrow or a future date, it reappears at this local time.</p>
+              </div>
+              <div class="row-control"><input class="field field-sm" type="time" value="08:00" aria-label="Snoozed tasks return at"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Reading defaults</div>
+                <p class="row-hint">Task timelines: Newest first · Code blocks: Scroll sideways · Before/after images: Side by side.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Reset reading defaults</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="device-notifications" data-scope="device" data-section="notifications" data-title="Notifications" data-keywords="push alerts events presets quiet hours night muted projects relay test">
+          <div class="section-head">
+            <h2>Notifications</h2>
+            <p>Choose what alerts this browser receives from your connected computers.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Alerts on this browser</h3><span class="chip chip-ok">On</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Allow notifications here</div>
+                <p class="row-hint">When Kemiri is open and active, alerts wait 15 seconds and cancel automatically.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Allow notifications here"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">What to notify me about</div>
+                <p class="row-hint" id="presetDesc">Questions, finished work, tasks ready for review, and failures (11 of 15 alert types).</p>
+              </div>
+              <div class="row-control">
+                <div class="segmented" role="group" aria-label="Notification preset" id="notifPresets">
+                  <button type="button" aria-pressed="true" data-preset="important">Important updates</button>
+                  <button type="button" aria-pressed="false" data-preset="urgent">Urgent &amp; questions</button>
+                  <button type="button" aria-pressed="false" data-preset="all">Everything</button>
+                </div>
+              </div>
+            </div>
+            <details class="disclosure">
+              <summary>Customize individual alerts (15 types)</summary>
+              <div class="inner">
+                <div class="row" style="padding:.5rem 0;border:0">
+                  <div class="row-text"><div class="row-label">Needs input</div><p class="row-hint">Board questions, tasks ready for review, provider login prompts.</p></div>
+                  <div class="row-control"><span class="chip chip-ok">3 of 3 on</span></div>
+                </div>
+                <div class="row" style="padding:.5rem 0">
+                  <div class="row-text"><div class="row-label">Work finished</div><p class="row-hint">Project quiet summary, main replies, background jobs. (Per-worker reports &amp; scheduled runs off by default.)</p></div>
+                  <div class="row-control"><span class="chip">3 of 5 on</span></div>
+                </div>
+                <div class="row" style="padding:.5rem 0">
+                  <div class="row-text"><div class="row-label">Problems &amp; failures</div><p class="row-hint">Failed helpers, schedules, deploys, background jobs, low disk space. (System compaction &amp; memory cleanup off by default.)</p></div>
+                  <div class="row-control"><span class="chip chip-ok">5 of 7 on</span></div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="group">
+            <div class="group-head"><h3>Quiet hours</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Be quiet overnight</div>
+                <p class="row-hint">Silences non-urgent alerts between 22:00 and 07:00 in your local time zone.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Be quiet overnight"></button></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Quiet window</div>
+                <p class="row-hint">Auto-saves immediately on both web and Android.</p>
+              </div>
+              <div class="row-control">
+                <input class="field field-sm" type="time" value="22:00" aria-label="Quiet hours start">
+                <span>to</span>
+                <input class="field field-sm" type="time" value="07:00" aria-label="Quiet hours end">
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Still alert on failures</div>
+                <p class="row-hint">Failed work, schedules, deploys, or low disk space can still break through.</p>
+              </div>
+              <div class="row-control"><button type="button" class="switch" role="switch" aria-checked="true" aria-label="Still alert on failures"></button></div>
+            </div>
+            <details class="disclosure">
+              <summary>Delivery status &amp; diagnostics (1 computer connected)</summary>
+              <div class="inner">
+                <div class="row" style="padding:.5rem 0;border:0">
+                  <div class="row-text"><div class="row-label">Studio Laptop <span class="chip chip-ok">Connected</span></div><p class="row-hint">Last test notification delivered cleanly.</p></div>
+                  <div class="row-control"><button type="button" class="btn">Send test alert</button></div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="device-about" data-scope="device" data-section="about" data-title="Archived &amp; About" data-keywords="archived projects unarchive version licences">
+          <div class="section-head">
+            <h2>Archived projects &amp; About</h2>
+            <p>Bring back hidden projects, or view Kemiri app details and open-source licences.</p>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>Archived projects</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Spring Pop-Up Notes</div>
+                <p class="row-hint">On Studio Laptop · Hidden from sidebar, nothing deleted.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn">Restore project</button></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head"><h3>About Kemiri</h3></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-label">Web app v0.14.0</div>
+                <p class="row-hint">Computer updates now live under Studio Laptop → Devices &amp; updates.</p>
+              </div>
+              <div class="row-control"><button type="button" class="btn btn-ghost">Open-source licences</button></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <p class="footer-note">
+    <strong>Why Option A works for non-technical people:</strong> Every setting lives in one place with an unmistakable scope banner, AI accounts take 1 click instead of 4, technical controls stay tidy inside <em>Advanced</em>, and web and Android share the exact same labels and layout.
+  </p>
+</div>
+
+<script>
+(function () {
+  const navConfig = {
+    project: [
+      { id: 'overview', label: 'Overview' },
+      { id: 'ai', label: 'AI & helpers', chip: 'Override' },
+      { id: 'routines', label: 'Routines', chip: '2' },
+      { id: 'tools', label: 'Tools & skills' },
+      { sep: true },
+      { id: 'advanced', label: 'Advanced' }
+    ],
+    computer: [
+      { id: 'accounts', label: 'AI accounts', chip: '2 ready' },
+      { id: 'profile', label: 'Profile & memory' },
+      { id: 'apps', label: 'Connected apps' },
+      { id: 'devices', label: 'Devices & updates' },
+      { sep: true },
+      { id: 'advanced', label: 'Advanced' }
+    ],
+    device: [
+      { id: 'appearance', label: 'Look & feel' },
+      { id: 'notifications', label: 'Notifications', chip: 'On' },
+      { id: 'about', label: 'Archived & About' }
+    ]
+  };
+
+  const scopeInfo = {
+    project: {
+      strip: '<strong>Scope: Bakery Launch</strong> — changes here apply to this project on every device connected to Studio Laptop.',
+      badge: 'Project setting'
+    },
+    computer: {
+      strip: '<strong>Scope: Studio Laptop</strong> — changes here apply to all projects running on this computer.',
+      badge: 'Computer setting'
+    },
+    device: {
+      strip: '<strong>Scope: This browser</strong> — changes here only affect how Kemiri looks and alerts on this device.',
+      badge: 'This device only'
+    }
+  };
+
+  const presetCopy = {
+    important: 'Questions, finished work, tasks ready for review, and failures (11 of 15 alert types).',
+    urgent: 'Only board questions, login prompts, and critical failures (7 of 15 alert types).',
+    all: 'Every event including per-worker reports, scheduled runs, and system maintenance (15 of 15).'
+  };
+
+  let activeScope = 'project';
+  let activeSection = { project: 'overview', computer: 'accounts', device: 'appearance' };
+
+  const navRail = document.getElementById('navRail');
+  const scopeStrip = document.getElementById('scopeStrip');
+  const panels = Array.from(document.querySelectorAll('.panel'));
+  const scopeTabs = Array.from(document.querySelectorAll('.scope-tab'));
+  const searchInput = document.getElementById('settingsSearch');
+  const searchResults = document.getElementById('searchResults');
+  const settingsGrid = document.getElementById('settingsGrid');
+
+  function render() {
+    scopeTabs.forEach((tab) => {
+      tab.setAttribute('aria-selected', String(tab.dataset.scope === activeScope));
+    });
+    const info = scopeInfo[activeScope];
+    scopeStrip.innerHTML = '<span>' + info.strip + '</span><span class="chip chip-scope">' + info.badge + '</span>';
+
+    navRail.innerHTML = '';
+    navConfig[activeScope].forEach((item) => {
+      if (item.sep) {
+        const div = document.createElement('div');
+        div.className = 'nav-sep';
+        navRail.appendChild(div);
+        return;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nav-item';
+      if (activeSection[activeScope] === item.id) btn.setAttribute('aria-current', 'page');
+      btn.innerHTML = '<span>' + item.label + '</span>' + (item.chip ? '<span class="chip">' + item.chip + '</span>' : '');
+      btn.addEventListener('click', () => {
+        activeSection[activeScope] = item.id;
+        render();
+      });
+      navRail.appendChild(btn);
+    });
+
+    panels.forEach((panel) => {
+      const match = panel.dataset.scope === activeScope && panel.dataset.section === activeSection[activeScope];
+      panel.classList.toggle('hidden', !match);
+    });
+  }
+
+  scopeTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      activeScope = tab.dataset.scope;
+      searchInput.value = '';
+      updateSearch();
+      render();
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    const sw = e.target.closest('.switch');
+    if (sw) {
+      const next = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', String(next));
+      if (sw.id === 'memSwitch') {
+        const badge = document.getElementById('memStatus');
+        badge.textContent = next ? 'On' : 'Off';
+        badge.className = 'chip ' + (next ? 'chip-ok' : '');
+      }
+      return;
+    }
+    const segBtn = e.target.closest('.segmented button');
+    if (segBtn) {
+      const group = segBtn.parentElement;
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === segBtn)));
+      if (segBtn.dataset.preset) {
+        document.getElementById('presetDesc').textContent = presetCopy[segBtn.dataset.preset];
+      }
+      if (segBtn.dataset.mode) {
+        setThemeMode(segBtn.dataset.mode);
+      }
+      return;
+    }
+    const card = e.target.closest('.theme-card');
+    if (card) {
+      card.parentElement.querySelectorAll('.theme-card').forEach((c) => c.setAttribute('aria-pressed', String(c === card)));
+      return;
+    }
+    const jump = e.target.closest('[data-jump]');
+    if (jump) {
+      const parts = jump.dataset.jump.split(':');
+      activeScope = parts[0];
+      activeSection[activeScope] = parts[1];
+      render();
+    }
+  });
+
+  const clearOverrideBtn = document.getElementById('clearOverrideBtn');
+  if (clearOverrideBtn) {
+    clearOverrideBtn.addEventListener('click', () => {
+      document.getElementById('overrideBannerRow').classList.add('hidden');
+      const aiItem = navConfig.project.find((i) => i.id === 'ai');
+      if (aiItem) delete aiItem.chip;
+      render();
+    });
+  }
+
+  const themeToggle = document.getElementById('themeToggle');
+  function setThemeMode(mode) {
+    if (mode === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      themeToggle.setAttribute('aria-pressed', 'true');
+      themeToggle.textContent = 'Switch to Light preview';
+    } else if (mode === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+      themeToggle.setAttribute('aria-pressed', 'false');
+      themeToggle.textContent = 'Switch to Dark preview';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      themeToggle.setAttribute('aria-pressed', 'false');
+      themeToggle.textContent = 'Switch to Dark preview';
+    }
+  }
+  themeToggle.addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    setThemeMode(isDark ? 'light' : 'dark');
+  });
+
+  function updateSearch() {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) {
+      searchResults.classList.add('hidden');
+      settingsGrid.classList.remove('hidden');
+      return;
+    }
+    const words = q.split(/\s+/);
+    const hits = panels.filter((p) => {
+      const hay = (p.dataset.title + ' ' + p.dataset.keywords + ' ' + p.textContent).toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    settingsGrid.classList.add('hidden');
+    searchResults.classList.remove('hidden');
+    if (hits.length === 0) {
+      searchResults.innerHTML = '<p class="row-hint">No settings match "' + q.replace(/</g, '&lt;') + '".</p>';
+      return;
+    }
+    searchResults.innerHTML = '';
+    hits.forEach((p) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'result-card';
+      const scopeLabel = p.dataset.scope === 'project' ? 'This project · Bakery Launch' : p.dataset.scope === 'computer' ? 'This computer · Studio Laptop' : 'This device';
+      const desc = p.querySelector('.section-head p')?.textContent || '';
+      btn.innerHTML = '<div><strong>' + p.dataset.title + '</strong><p class="row-hint" style="margin:.15rem 0 0">' + desc + '</p></div><span class="chip chip-scope">' + scopeLabel + '</span>';
+      btn.addEventListener('click', () => {
+        activeScope = p.dataset.scope;
+        activeSection[activeScope] = p.dataset.section;
+        searchInput.value = '';
+        updateSearch();
+        render();
+      });
+      searchResults.appendChild(btn);
+    });
+  }
+  searchInput.addEventListener('input', updateSearch);
+
+  render();
+})();
+</script>
+</body>
+</html>
