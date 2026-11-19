@@ -45,14 +45,14 @@ class TaskRecordPresentationTest {
     @Test fun mergesLegacyWorkerEpisodesAndSnapshotsAndOmitsFactsShownElsewhere() {
         val snapshot = BoardTaskSnapshot(1, later, "in_progress → review", user, "Task", "review", report = BoardTaskSnapshotReport("", "", ""))
         val entries = listOf(
-            BoardTimelineEntry(later, "status", snapshot.label, ref = "1"),
-            BoardTimelineEntry(asked, "question", "Question Q1"),
-            BoardTimelineEntry(answered, "question", "Q2 answered", ref = "Q2"),
-            BoardTimelineEntry(answered, "decision", "Decision D1", ref = "D1"),
-            BoardTimelineEntry(asked, "worker", "Worker demo started", ref = "demo"),
-            BoardTimelineEntry(answered, "worker", "Worker demo reported", ref = "demo", detail = "Checked the work"),
-            BoardTimelineEntry(answered, "worker", "Worker demo reported", ref = "demo", detail = "Checked the work"),
-            BoardTimelineEntry(answered, "milestone", "1 change landed on main", detail = "Landed b4a1e00bad01 Add it"),
+            BoardTimelineEntry(at = later, kind = "status", label = snapshot.label, ref = "1"),
+            BoardTimelineEntry(at = asked, kind = "question", label = "Question Q1"),
+            BoardTimelineEntry(at = answered, kind = "question", label = "Q2 answered", ref = "Q2"),
+            BoardTimelineEntry(at = answered, kind = "decision", label = "Decision D1", ref = "D1"),
+            BoardTimelineEntry(at = asked, kind = "worker", label = "Worker demo started", ref = "demo"),
+            BoardTimelineEntry(at = answered, kind = "worker", label = "Worker demo reported", ref = "demo", detail = "Checked the work"),
+            BoardTimelineEntry(at = answered, kind = "worker", label = "Worker demo reported", ref = "demo", detail = "Checked the work"),
+            BoardTimelineEntry(at = answered, kind = "milestone", label = "1 change landed on main", detail = "Landed b4a1e00bad01 Add it"),
         )
         val rows = taskActivityRows(ActivitySources(entries, snapshots = listOf(snapshot), questions = listOf(answer("Q1").copy(status = "open"), answer("Q2")),
             decisions = taskDecided("T1", listOf(decision("D1", "Answer to Q2")), listOf(answer("Q2"))),
@@ -72,11 +72,14 @@ class TaskRecordPresentationTest {
 
     @Test fun groupedEpisodesUseOutcomeTimeAndAbsorbNowForTheSameRunningActor() {
         val actor = BoardActivityActor("run-a", "worker", "demo", threadId = "main", conversationId = 2, runId = "run-a")
-        val fact = BoardTimelineFact(asked, "worker", "Worker started", id = "worker-run", endAt = answered, revision = 1,
+        val fact = BoardTimelineFact(at = asked, kind = "worker", label = "Worker started", id = "worker-run", endAt = answered, revision = 1,
             group = "work", outcome = "running", factCount = 1, actor = actor)
         val group = BoardTimelineGroup("group", "work", asked, BoardTimelineGroupRange(asked, answered), 1, 1, "Worker started", listOf(fact))
-        val sources = ActivitySources(groups = listOf(group), entries = listOf(BoardTimelineEntry(asked, "worker", "Worker demo started", ref = "demo")),
-            workers = mapOf("demo" to null))
+        val sources = ActivitySources(
+            groups = listOf(group),
+            entries = listOf(BoardTimelineEntry(at = asked, kind = "worker", label = "Worker demo started", ref = "demo")),
+            workers = mapOf("demo" to null),
+        )
         assertEquals(answered, taskActivityRows(sources).single().at)
         val now = ActivityNow("Demo is checking the work", later, BoardTaskActivity("working", "Demo is checking the work", later, listOf(actor.id), actor = actor))
         val row = taskActivityRows(sources.copy(now = now)).single()

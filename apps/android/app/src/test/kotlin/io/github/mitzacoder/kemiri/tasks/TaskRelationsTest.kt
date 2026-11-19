@@ -70,7 +70,10 @@ class TaskRelationsTest {
         fun feedback(id: String, state: String, at: String) = BoardFeedback(id, id, threadId = "main", at = at, state = state, note = null, updatedAt = at, changes = emptyList())
         val entries = listOf(feedback("F1", "dismissed", "1"), feedback("F2", "handling", "3"), feedback("F3", "open", "2"), feedback("F4", "addressed", "4"))
         assertEquals(listOf("F3", "F2", "F4", "F1"), sortedFeedback(entries).map { it.id })
-        val timeline = listOf(BoardTimelineEntry("1", "feedback", "Feedback"), BoardTimelineEntry("2", "status", "Working"))
+        val timeline = listOf(
+            BoardTimelineEntry(at = "1", kind = "feedback", label = "Feedback"),
+            BoardTimelineEntry(at = "2", kind = "status", label = "Working"),
+        )
         assertEquals(listOf("status"), visibleTimeline(timeline, setOf("feedback")).map { it.kind })
         assertEquals(timeline, visibleTimeline(timeline, emptySet()))
     }

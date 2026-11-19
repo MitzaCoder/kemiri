@@ -11,9 +11,9 @@ import org.junit.Test
 
 class TaskTimelineTest {
     private val entries = listOf(
-        BoardTimelineEntry("2026-11-02T14:00:00Z", "status", "todo → in_progress"),
-        BoardTimelineEntry("2026-11-03T14:00:00Z", "worker", "Worker lens reported"),
-        BoardTimelineEntry("2026-11-03T14:00:00Z", "milestone", "Preview ready"),
+        BoardTimelineEntry(at = "2026-11-02T14:00:00Z", kind = "status", label = "todo → in_progress"),
+        BoardTimelineEntry(at = "2026-11-03T14:00:00Z", kind = "worker", label = "Worker lens reported"),
+        BoardTimelineEntry(at = "2026-11-03T14:00:00Z", kind = "milestone", label = "Preview ready"),
     )
     @Test fun ordersBothWaysWithoutMutatingAndKeepsEqualTimeDirection() {
         assertEquals(entries.reversed(), orderedTimeline(entries, true))

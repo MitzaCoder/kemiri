@@ -94,7 +94,10 @@ internal fun taskActivityRows(sources: ActivitySources): List<ActivityRow> {
     val workerStarts = mutableMapOf<Pair<String, String>, Int>()
     val seen = hashSetOf<String>()
     val entries = sources.groups?.flatMap { it.entries }?.map { fact ->
-        BoardTimelineEntry(fact.at, fact.kind, fact.label, fact.detail, fact.ref, fact.state, fact.by) to fact
+        BoardTimelineEntry(
+            at = fact.at, kind = fact.kind, label = fact.label, detail = fact.detail,
+            ref = fact.ref, state = fact.state, by = fact.by,
+        ) to fact
     } ?: sources.entries.map { it to null }
     for ((entry, fact) in entries) {
         if (entry.kind == "question" && (entry.ref ?: questionRef.find(entry.label)?.groupValues?.get(1)?.uppercase()) in questionIds) continue

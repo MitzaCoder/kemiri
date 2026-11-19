@@ -71,5 +71,5 @@ internal fun BoardTimelineFact.timelineEntry(): BoardTimelineEntry {
     }
     val subject = if (source == "deploy") label else actor?.name ?: ref ?: label
     val evolvingLabel = if (start != null && factCount > 1 && outcome != "running") "$subject · $start → ${outcome.replace('_', ' ')}" else label
-    return BoardTimelineEntry(at, kind, evolvingLabel, detail, ref, state, by)
+    return BoardTimelineEntry(at = at, kind = kind, label = evolvingLabel, detail = detail, ref = ref, state = state, by = by)
 }
