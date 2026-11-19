@@ -10,6 +10,7 @@ import { createModels, type Message, type TranscriptContext } from "@earendil-wo
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { AntigravityInstaller } from "../src/antigravity-install.ts";
 import { antigravityDefinition } from "../src/official-agents/antigravity.ts";
+import { OfficialAgentAccounts } from "../src/official-agents/auth.ts";
 import { OfficialAgentMcpBridge, type OfficialAgentMcpGrant } from "../src/official-agents/mcp-bridge.ts";
 import { BRIDGE_URL_ENV, BRIDGE_TOKEN_ENV, OFFICIAL_AGENT_MCP_COMMAND, bridgeCommand } from "../src/official-agents/mcp-bridge-command.ts";
 import { OfficialAgentSessions } from "../src/official-agents/provider.ts";
@@ -188,6 +189,25 @@ test("Antigravity sign-out calls native logout and removes the profile and marke
 		expect(await authType(client)).toBeUndefined();
 		expect(await subscriptionProfiles(setup.dataDir)).toHaveLength(0);
 		expect(await authEvents(setup.dataDir)).toContainEqual({ event: "logout", method: "oauth-personal", hadNativeAuth: true });
+	} finally { client.close(); await setup.cleanup(); }
+});
+
+test("Antigravity sign-in reports a recognized rejection without exposing output or the submitted code", async () => {
+	const logs: string[] = [];
+	const setup = await createSetup({ antigravityCommand: fakeAgent, log: message => logs.push(message) });
+	const client = await TestClient.open(setup.server);
+	try {
+		await client.hello();
+		const login = await startSubscription(client);
+		const value = "synthetic-rejected-code";
+		await client.request({ type: "credentials.loginAnswer", loginId: login.id, promptId: login.prompt!.id, value });
+		const failed = await waitForLogin(client, login.id, "failed");
+		expect(failed.error).toContain("Google rejected it (invalid_grant)");
+		const published = JSON.stringify({ failed, logs });
+		expect(published).not.toContain(value);
+		expect(published).not.toContain("synthetic-do-not-log");
+		expect(published).not.toContain("error_description");
+		expect(await authType(client)).toBeUndefined();
 	} finally { client.close(); await setup.cleanup(); }
 });
 
@@ -385,6 +405,42 @@ test("a journal replays done and failed turns without prompting twice", async ()
 		for (const file of (await readdir(dir)).filter(name => name.endsWith(".json"))) expect((await stat(join(dir, file))).mode & 0o777).toBe(0o600);
 	} finally { await rm(dataDir, { recursive: true, force: true }); }
 });
+
+test("first sign-in launches fake agy from a verified tar larger than 256 MiB", async () => {
+	const dataDir = await mkdtemp(join(tmpdir(), "official-install-large-"));
+	try {
+		const padding = 256 * 1024 * 1024;
+		const tar = Buffer.alloc(padding + 2560);
+		const launcher = `#!/bin/sh\nexec bun '${fakeAgent}' "$@"\n`;
+		tar.write("antigravity");
+		tar.write(Buffer.byteLength(launcher).toString(8).padStart(11, "0") + "\0", 124);
+		tar[156] = 48;
+		tar.write(launcher, 512);
+		tar.write("other-member", 1024);
+		tar.write(padding.toString(8).padStart(11, "0") + "\0", 1024 + 124);
+		tar[1024 + 156] = 48;
+		const archive = gzipSync(tar, { level: 1 });
+		const release = { url: "https://example.com/agy.tar.gz", sha512: createHash("sha512").update(archive).digest("hex") };
+		const installer = new AntigravityInstaller({ dataDir, platform: "linux_amd64", pin: { version: "1.5.12", platforms: { linux_amd64: release } },
+			fetch: Object.assign(async () => new Response(new Uint8Array(archive)), fetch) });
+		const credentials = new FileCredentialStore(join(dataDir, "credentials.json"));
+		const definition = antigravityDefinition(dataDir);
+		const accounts = new OfficialAgentAccounts({ directory: agentDir(dataDir), credentials,
+			definition: { ...definition, install: () => installer.ensure() }, stopWorkers: async () => {}, log: () => {} });
+		let authorizationUrl: string | undefined;
+		expect(await installer.installedVersion()).toBeNull();
+		const marker = await accounts.login({ signal: AbortSignal.timeout(10_000),
+			notify: event => { if (event.type === "auth_url") authorizationUrl = event.url; },
+			prompt: async prompt => {
+				if (!authorizationUrl || prompt.type !== "manual_code") throw new Error("Missing fake agy login prompt");
+				return `synthetic-${new URL(authorizationUrl).searchParams.get("state")}`;
+			},
+		});
+		expect(await installer.installedVersion()).toBe("1.5.12");
+		expect(await credentials.read(AGY.provider)).toEqual(marker);
+		expect(await authEvents(dataDir)).toContainEqual({ event: "login-finished" });
+	} finally { await rm(dataDir, { recursive: true, force: true }); }
+}, 15_000);
 
 test("the pin verifies SHA-512 before installing the one executable from its archive", async () => {
 	const dataDir = await mkdtemp(join(tmpdir(), "official-install-"));

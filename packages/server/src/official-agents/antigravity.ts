@@ -5,6 +5,7 @@ import { writeJsonFile } from "../fs-json.ts";
 import { serverSettings } from "../server-settings.ts";
 import { loginAntigravity } from "./antigravity-login.ts";
 import { officialAgentEnvironment } from "./auth.ts";
+import { OfficialAgentAuthError } from "./auth-error.ts";
 import type { OfficialAgentDefinition } from "./definition.ts";
 
 export const ANTIGRAVITY_PROVIDER = "antigravity";
@@ -47,7 +48,7 @@ export function antigravityDefinition(dataDir: string, command = serverSettings.
 		async install() {
 			if (!command) return installer.ensure();
 			const binary = executable();
-			if (!binary) throw new Error("KEMIRI_ANTIGRAVITY_COMMAND is not executable");
+			if (!binary) throw new OfficialAgentAuthError("The backend's KEMIRI_ANTIGRAVITY_COMMAND override is not executable.");
 			return binary;
 		},
 		installedVersion() {

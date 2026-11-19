@@ -2297,7 +2297,9 @@ Disable pi-durable compaction for these workers: the ACP agent manages its own c
 Kemiri summary prompt. Ungated calls, including internal model jobs without a worker generation tag, are rejected.
 
 **Install and sign-in:** install Antigravity 1.5.12 on first use from the Google platform pin. Check SHA-512 before
-extracting just the regular executable, then publish a private staging directory by atomic rename. Use
+extracting just the regular executable, then publish a private staging directory by atomic rename. The verified
+Antigravity tar has a 384 MiB unpacked limit. The Linux x64 tar in this pin exceeded the shared extractor's 256 MiB
+agent-browser limit and failed before agy could print a link (T332). Use
 `bun scripts/pin-antigravity.ts <version>` against Google's release manifests to advance the pin.
 `KEMIRI_ANTIGRAVITY_COMMAND` substitutes a trusted executable. The profile lives under the backend's data directory.
 Start with the Google AI subscription and show the warning in Accounts and API keys. Google does not support
@@ -2307,10 +2309,12 @@ and avoids that risk. See [the research](research/official-cli-harnesses.md).
 Subscription sign-in starts the pinned `agy acp --login` in a private profile with no browser or terminal. The signed-out
 CLI prints a Google sign-in link and waits on standard input. Kemiri shows the link and a manual-code prompt. Open
 the link in a local browser, copy the authorization code from Google's callback page, and paste the code (not its URL)
-into Kemiri. There is no loopback listener or callback replay. Kemiri pipes the code to agy; only agy performs
-the exchange and stores and refreshes its tokens, using forced file storage in the private profile. The credential
-store holds only a non-secret profile marker. A login is limited to five minutes, and cancel or timeout kills the
-process group. The link is only held in memory for the active login, and raw output and answers are not logged.
+into Kemiri. There is no loopback listener or callback replay. Kemiri sends the code and a newline on stdin to the
+same agy process that generated the link and holds the PKCE verifier. Only agy performs the exchange and stores and
+refreshes its tokens, using forced file storage in the private profile. The credential store holds only a non-secret
+profile marker. A login is limited to five minutes, and cancel or timeout kills the process group. Install and launch
+failures name the failing stage. On exit, Kemiri checks bounded stdout and stderr for recognized agy or OAuth failures
+and reports fixed descriptions, never the raw output, authorization link, answers, or OAuth response body in diagnostics.
 
 Saving a login replaces the previous one. An API key is stored by Kemiri and goes only into agy's environment, with
 `gemini-api-key` selected in its settings. Changing or removing a login cancels and closes running agent processes.

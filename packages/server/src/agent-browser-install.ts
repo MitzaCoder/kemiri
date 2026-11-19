@@ -16,8 +16,8 @@ export function agentBrowserBinaryFromTarball(tarball: Uint8Array): Buffer {
 	return regularTarMember(tarball, "package/bin/agent-browser");
 }
 
-export function regularTarMember(tarball: Uint8Array, member: string): Buffer {
-	const tar = gunzipSync(tarball, { maxOutputLength: 256 * 1024 * 1024 });
+export function regularTarMember(tarball: Uint8Array, member: string, maxOutputLength = 256 * 1024 * 1024): Buffer {
+	const tar = gunzipSync(tarball, { maxOutputLength });
 	let binary: Buffer | undefined;
 	for (let offset = 0; offset + 512 <= tar.length;) {
 		const header = tar.subarray(offset, offset + 512);

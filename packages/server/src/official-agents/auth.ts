@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Credential, CredentialStore, OAuthCredential, Provider, ProviderAuthInteraction } from "@earendil-works/pi-ai";
 import { childEnvironment } from "../child-environment.ts";
 import { AcpClient } from "./acp-client.ts";
+import { OfficialAgentAuthError } from "./auth-error.ts";
 import type { OfficialAgentDefinition, OfficialAgentLogin } from "./definition.ts";
 
 export const officialAgentAccounts = new WeakMap<Provider, OfficialAgentAccounts>();
@@ -49,17 +50,21 @@ export class OfficialAgentAccounts {
 			const profile = this.#profile(id);
 			const login = { mode: "subscription" } as const;
 			let saved = false;
+			let failure = "Antigravity could not install. Check that the backend's data directory is writable and has space.";
 			try {
 				signal.throwIfAborted();
 				const binary = await definition.install();
+				failure = "Antigravity could not prepare its private sign-in profile.";
 				signal.throwIfAborted();
 				await mkdir(profile, { recursive: true, mode: 0o700 });
 				await chmod(profile, 0o700);
 				await definition.prepareProfile(profile, login);
 				const scratch = await mkdtemp(join(profile, "tmp-"));
 				try {
+					failure = "Antigravity could not run its Google sign-in.";
 					await definition.loginSubscription(binary, profile, scratch, { ...interaction, signal });
 				} finally { await rm(scratch, { recursive: true, force: true }); }
+				failure = "Antigravity signed in, but the backend could not activate the new profile.";
 				signal.throwIfAborted();
 				await stopWorkers();
 				const previous = subscriptionId(await credentials.read(definition.id, { signal }));
@@ -69,9 +74,10 @@ export class OfficialAgentAccounts {
 				saved = true;
 				if (previous) await this.#removeSubscription(previous).catch(() => this.options.log("Could not remove the previous Antigravity sign-in profile."));
 				return marker;
-			} catch {
+			} catch (error) {
 				if (signal.aborted) throw new Error("Antigravity sign-in cancelled or timed out. Start it again.");
-				throw new Error("Antigravity could not sign in. Start again with a new Google authorization code.");
+				if (error instanceof OfficialAgentAuthError) throw error;
+				throw new Error(failure);
 			} finally {
 				if (!saved) await rm(profile, { recursive: true, force: true }).catch(() => this.options.log("Could not remove an incomplete Antigravity sign-in profile."));
 			}

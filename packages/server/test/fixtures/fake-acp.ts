@@ -22,7 +22,11 @@ if (process.argv.includes("--login")) {
 	audit({ event: "login-started", pid: process.pid, mode: settings.auth.type, hasKey: Boolean(process.env.GEMINI_API_KEY) });
 	process.stdout.write(`Open this page:\n  ${google}\n\nPaste the authorization code: `);
 	for await (const answer of createInterface({ input: process.stdin })) {
-		if (answer !== expected) process.exit(4);
+		if (answer !== expected) {
+			process.stdout.write(`received ${answer}\n`);
+			process.stderr.write(`failed to exchange authorization code: oauth2: cannot fetch token: {"error":"invalid_grant","error_description":"received ${answer}","access_token":"synthetic-do-not-log"}\n`);
+			process.exit(4);
+		}
 		const token = `fake-native-token-${crypto.randomUUID()}`;
 		writeFileSync(nativeAuth, token, { mode: 0o600 });
 		process.stdout.write(`${token}\n`);
