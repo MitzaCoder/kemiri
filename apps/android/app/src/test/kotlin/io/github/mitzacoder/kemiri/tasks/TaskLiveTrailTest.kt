@@ -25,7 +25,7 @@ class TaskLiveTrailTest {
     }
 
     @Test fun ignoresLineKindsItDoesNotKnow() {
-        val future = listOf(a, line("x", "fact"), b, line("y", "auto"))
+        val future = listOf(a, line("x", "future"), b, line("y", "auto"))
         assertEquals(listOf(a, b), visibleLiveLines(future))
         assertEquals(listOf("b", "a"), ids(liveTrail(future, null).newest))
     }
@@ -123,16 +123,37 @@ class TaskLiveTrailTest {
         assertEquals("New since you looked: lines above", LIVE_DIVIDER_DESCRIPTION)
     }
 
-    @Test fun descriptionsSayKindActorAgeAndText() {
-        assertEquals("Phase, fern, 3 min ago: checking a", liveLineDescription(a, "3 min ago"))
-        assertEquals("Result, fern, just now: checking b", liveLineDescription(b, "just now"))
+    @Test fun aWorkingTaskCanShowLiveBeforeItHasALine() {
+        val sentence = BoardTaskActivity("working", "fern is working", a.at, emptyList(), ageFormat = "duration")
+        val working = task("T1", "in_progress").copy(state = BoardTaskState("in_progress", "working", a.at, emptyList(), sentence))
+        val pulseOnly = working.copy(live = BoardTaskLive(emptyList(), pulse = BoardTaskLivePulse("Reading", "read", a.at)))
+        val countersOnly = working.copy(live = BoardTaskLive(emptyList(), counters = BoardTaskLiveCounters(steps = 1, filesChanged = 0, filesSaved = 0, commits = 0, checks = 0)))
+        assertEquals(sentence, taskLiveNow(pulseOnly, true, null))
+        assertEquals(sentence, taskLiveNow(countersOnly, true, null))
+        assertNull(taskLiveNow(pulseOnly, false, null))
+        assertNull(taskLiveNow(countersOnly, false, null))
+    }
+
+    @Test fun factsAreRecordedNotPhasesOrResultsAndDoNotRepeatNow() {
+        val fact = line("c", "fact", "passed a check")
+        assertEquals(LiveLineKind.Fact, LiveLineKind.fromWire(fact.kind))
+        assertEquals(listOf(a, b, fact), visibleLiveLines(listOf(a, b, fact)))
+        assertEquals(listOf("c", "|", "b", "a"), ids(liveTrail(listOf(a, b, fact), "fern is passed a check", setOf("c")).newest))
+        assertEquals("Recorded, fern, just now: passed a check", liveLineDescription(LiveLineKind.Fact, fact, "just now"))
+        assertEquals("Phase, fern, 3 min ago: checking a", liveLineDescription(LiveLineKind.Phase, a, "3 min ago"))
+        assertEquals("Result, fern, just now: checking b", liveLineDescription(LiveLineKind.Result, b, "just now"))
     }
 
     @Test fun aFinishedRunShowsAsOneWorkRowWithItsLines() {
-        val entry = BoardTimelineEntry(at = "2026-06-01T12:10:00Z", kind = "worker", label = "Worker fern reported", live = BoardTaskLive(listOf(a, b)))
+        val fact = line("c", "fact", "passed a check")
+        val label = "fern worked 10 minutes: 2 steps, 1 check"
+        val entry = BoardTimelineEntry(at = "2026-06-01T12:10:00Z", kind = "worker", label = label, live =
+            BoardTaskLive(listOf(a, b, fact), counters = BoardTaskLiveCounters(steps = 2, filesChanged = 0, filesSaved = 0, commits = 0, checks = 1)))
         val rows = taskActivityRows(ActivitySources(entries = listOf(entry), taskLiveEnabled = true))
-        assertEquals(listOf(a, b), rows.single().live?.lines)
-        assertEquals("live-run:a", rows.single().id)
+        val row = rows.single()
+        assertEquals(label, activityText(row.label))
+        assertEquals(listOf(a, b, fact), visibleLiveLines(row.live!!.lines))
+        assertEquals("live-run:a", row.id)
         assertNull(taskActivityRows(ActivitySources(entries = listOf(entry))).single().live)
     }
 }

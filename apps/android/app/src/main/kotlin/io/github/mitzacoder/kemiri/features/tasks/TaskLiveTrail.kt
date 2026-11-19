@@ -20,15 +20,34 @@ internal const val LIVE_DIVIDER_DESCRIPTION = "New since you looked: lines above
 /** The newest lines shown under "So far"; the rest wait under "Earlier". */
 internal const val LIVE_NEWEST_LIMIT = 3
 
-/** `task-live`: only lines of a kind this version knows are shown; later stages add more kinds. */
-internal fun visibleLiveLines(lines: List<BoardLiveLine>): List<BoardLiveLine> = lines.filter { it.kind == "phase" || it.kind == "result" }
+internal enum class LiveLineKind(val label: String) {
+    Phase("Phase"), Result("Result"), Fact("Recorded");
+
+    companion object {
+        fun fromWire(kind: String): LiveLineKind? = when (kind) {
+            "phase" -> Phase
+            "result" -> Result
+            "fact" -> Fact
+            else -> null
+        }
+    }
+}
+
+/** Unknown wire kinds do not occupy a place in the trail or advance its checkpoint. */
+internal fun visibleLiveLines(lines: List<BoardLiveLine>): List<BoardLiveLine> =
+    lines.filter { LiveLineKind.fromWire(it.kind) != null }
 
 /**
- * Whether the Live block replaces the older Now lines: the backend says so, the task is working and its trail exists.
+ * A working task with supported live content replaces the older Now lines when the backend advertises the feature.
  * The block's Now is the state sentence, or the automatic activity when the sentence is missing.
  */
-internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?): BoardTaskActivity? =
-    if (featureEnabled && task.live?.lines?.isNotEmpty() == true && task.state?.kind == "working") task.state.sentence ?: activity else null
+internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?): BoardTaskActivity? {
+    if (!featureEnabled || task.state?.kind != "working") return null
+    val live = task.live ?: return null
+    if (live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
+        live.lines.none { LiveLineKind.fromWire(it.kind) != null }) return null
+    return task.state.sentence ?: activity
+}
 
 private val workersSuffix = Regex("""\s*·\s*\+\d+ workers?$""")
 private val whitespace = Regex("""\s+""")
@@ -143,9 +162,7 @@ internal class LiveTrailVisit(private val store: LiveSeenStore, private val key:
 }
 
 /** The spoken form of a line: kind, who, what and how long ago. */
-internal fun liveLineDescription(line: BoardLiveLine, age: String): String =
-    "${liveKindLabel(line.kind)}, ${line.actor.name}, $age: ${line.text}"
-
-internal fun liveKindLabel(kind: String): String = if (kind == "result") "Result" else "Phase"
+internal fun liveLineDescription(kind: LiveLineKind, line: BoardLiveLine, age: String): String =
+    "${kind.label}, ${line.actor.name}, $age: ${line.text}"
 
 internal fun liveNowDescription(now: BoardTaskActivity, age: String): String = "Now: ${now.text}, $age"

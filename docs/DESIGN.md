@@ -3284,6 +3284,16 @@ row, never a pulse. A counters-only run leaves its legacy Activity unchanged.
 Web marks facts as Recorded, hides zero counters and omits the phase already shown
 in Now without removing it from the completed trail.
 
+On Android (T316), a working task with `task-live` can show Live as soon as it has a
+supported line, a pulse, or a nonzero counter. Below Now, the pulse shows the server's
+label (explicit intent when supplied), muted tool name and elapsed time. The pulse
+clock ticks locally each second while the sheet is shown. The quiet counter row
+wraps on narrow screens and omits zero counts. Both rows have TalkBack descriptions.
+Recorded facts have a dashed theme-coloured rail and normal text, distinct from
+muted phases and stronger results. They join the same trail and seen checkpoint.
+Activity uses the server's counter summary in the finished Work row heading, and
+its expanded trail uses the same Recorded styling. It never shows the live pulse.
+
 #### Worker plans and command intent (T317, stage C of T305)
 
 With `task-live`, a task worker can replace its run plan in `task_progress`: `plan` is
