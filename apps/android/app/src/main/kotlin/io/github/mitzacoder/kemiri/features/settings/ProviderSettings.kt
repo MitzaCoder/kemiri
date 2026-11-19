@@ -1,5 +1,11 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import io.github.mitzacoder.kemiri.features.usage.monthlyPriceFromInput
+import io.github.mitzacoder.kemiri.features.usage.usageMoney
+import io.github.mitzacoder.kemiri.features.usage.valueMonthRequest
+import java.math.BigDecimal
+import java.time.YearMonth
+import java.time.ZoneId
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -202,6 +208,24 @@ internal fun AccountsPage(backend: BackendSession) {
     val addProvider = others.firstOrNull { it.id == adding }
     val supported = canKeys || canLogin
 
+    var prices by remember(backend) { mutableStateOf<Map<String, SubscriptionPrice>>(emptyMap()) }
+    val signedInProviders = configured.filter { provider ->
+        (credentials.firstOrNull { it.providerId == provider.id }?.type ?: provider.authType) == "oauth"
+    }.map { it.id }.toSet()
+    val priceFeature = connection.supports("subscription-value")
+    val zone = ZoneId.systemDefault()
+    val month = YearMonth.now(zone)
+    LaunchedEffect(backend, priceFeature, connection.generation, connection.status, signedInProviders, month) {
+        if (priceFeature && connection.status == ConnectionStatus.Ready && signedInProviders.isNotEmpty()) {
+            try {
+                val subscriptions = client.request(valueMonthRequest(month, zone)).subscriptions
+                prices = subscriptions.filter { it.providerId in signedInProviders && it.billing in setOf("subscription", "agent") }
+                    .sortedBy { it.billing != "subscription" }.distinctBy { it.providerId }.associate { it.providerId to it.price }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { error = "Could not load monthly plan prices." }
+        } else prices = emptyMap()
+    }
+
     @Composable fun panel(provider: ProviderInfo) {
         val stored = credentials.any { it.providerId == provider.id }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -270,7 +294,16 @@ internal fun AccountsPage(backend: BackendSession) {
                     val warning = subscriptionWarning(provider, canLogin).takeIf { usesSubscription(provider) }
                     SettingsRow(
                         provider.name, hint = officialAgentHint(provider) ?: provider.oauth?.let { "${provider.id} · ${it.name}" } ?: provider.id, control = RowControl.Auto,
-                        below = if (open) ({ panel(provider) }) else warning?.let { text -> ({ SubscriptionWarning(text) }) },
+                        below = {
+                            prices[provider.id]?.takeIf { priceFeature && provider.id in signedInProviders }?.let { price ->
+                                AccountPlanPrice(provider.id, price, enabled = connection.status == ConnectionStatus.Ready) { amount ->
+                                    val saved = client.request(SubscriptionsPriceSetRequest(providerId = provider.id, monthlyPrice = amount),
+                                        explicitNulls = if (amount == null) setOf("monthlyPrice") else emptySet())
+                                    prices = prices + (provider.id to saved.price)
+                                }
+                            }
+                            if (open) panel(provider) else warning?.let { SubscriptionWarning(it) }
+                        },
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusChip(howLabel, howTone)
@@ -291,6 +324,31 @@ internal fun AccountsPage(backend: BackendSession) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AccountPlanPrice(providerId: String, price: SubscriptionPrice, enabled: Boolean, save: suspend (Double?) -> Unit) {
+    var editing by rememberSaveable(providerId) { mutableStateOf(false) }
+    val saveState = rememberSaveState(providerId)
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(price.monthlyPrice?.let { "${usageMoney(it)} / month" } ?: "Monthly price not set", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = {
+            if (editing) focus.clearFocus()
+            if (saveState.status != SaveStatus.Saving) editing = !editing
+        }, enabled = saveState.status != SaveStatus.Saving) { Text(if (editing) "Done" else "Edit") }
+    }
+    if (editing) {
+        Text("Monthly price (USD)", style = MaterialTheme.typography.labelMedium)
+        AutoInput(price.monthlyPrice?.let { BigDecimal.valueOf(it).stripTrailingZeros().toPlainString() }.orEmpty(), saveState,
+            label = "Monthly price (USD)", enabled = enabled) { text ->
+            save(requireNotNull(monthlyPriceFromInput(text)) { "Enter a monthly price greater than zero." })
+        }
+        TextButton(onClick = { saveState.launch { save(null) } }, enabled = enabled && price.kind == "owner" && saveState.status != SaveStatus.Saving) {
+            Text("Reset to default")
+        }
+        SaveStatusLine(saveState)
     }
 }
 
