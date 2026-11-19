@@ -68,6 +68,7 @@ import {
 import { isOriginAllowed, resolveAllowedOrigins } from "./origins.ts";
 import { ProjectStore } from "./projects.ts";
 import { backfillProjects } from "./request-backfill.ts";
+import { hasCatalogPrice, requestBilling } from "./request-billing.ts";
 import { RequestLog, type RequestLogOptions } from "./request-log.ts";
 import { REQUEST_LOG_FILE, RequestLogStore } from "./request-log-store.ts";
 import { ProjectManager } from "./runtime.ts";
@@ -307,7 +308,19 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		if (!("setProvider" in options.models) || typeof options.models.setProvider !== "function") throw new Error("An injected Antigravity command requires mutable models");
 		options.models.setProvider(officialAgent);
 	}
+	const modelHasCatalogPrice = (provider: string, model: string) => hasCatalogPrice(unobservedModels.getModel(provider, model));
+	const cacheReadPerToken = (provider: string, modelId: string): number | undefined => {
+		const perMillion = unobservedModels.getModel(provider, modelId)?.cost.cacheRead;
+		return perMillion === undefined ? undefined : perMillion / 1_000_000;
+	};
+	const requestLog = openRequestLog(options.requestLog, dataDir, {
+		log,
+		cacheReadPerToken,
+		billingFor: (provider) => requestBilling(credentials, unobservedModels, provider),
+		...(options.now === undefined ? {} : { now: options.now }),
+	});
 	const subscriptionUsage = new SubscriptionUsageService({
+		...(requestLog === undefined ? {} : { ledger: requestLog.store.ledger }),
 		models: unobservedModels,
 		credentials,
 		dataDir,
@@ -317,15 +330,6 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		onChange: (subscriptions) => {
 			for (const connection of connections) connection.notifySubscriptionsUsage(subscriptions);
 		},
-	});
-	const cacheReadPerToken = (provider: string, modelId: string): number | undefined => {
-		const perMillion = unobservedModels.getModel(provider, modelId)?.cost.cacheRead;
-		return perMillion === undefined ? undefined : perMillion / 1_000_000;
-	};
-	const requestLog = openRequestLog(options.requestLog, dataDir, {
-		log,
-		cacheReadPerToken,
-		...(options.now === undefined ? {} : { now: options.now }),
 	});
 	// Every model request passes the usage service, which reads rate-limit headers and notices when a turn ends, and the
 	// request log, which writes a row for each turn's request once it ends. Outside both, the cache retention each
@@ -1136,6 +1140,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 					requestLog,
 					projects: projects.map((project) => ({ id: project.id, sessionPath: store.sessionPath(project.id) })),
 					cacheReadPerToken,
+					hasCatalogPrice: modelHasCatalogPrice,
 					log,
 					...(options.now === undefined ? {} : { now: options.now }),
 				}),

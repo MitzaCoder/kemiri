@@ -1856,6 +1856,14 @@ misses can be analysed with real numbers rather than per-conversation totals.
   Anthropic reports it), output, each cost and the total; prompt tokens; the idle gap since the conversation's previous
   request; the miss (tokens, cost, reason, every miss, no threshold) by the protocol's `CacheMissTracker`; what woke the
   agent; pi-ai's cache retention; what changed in the prompt; `live` or `backfill`; the response's duration.
+- Schema 3 adds billing, binding-window period and catalog price status. Live rows record the provider's credential
+  type at write time: OAuth is `subscription`, plan keys are `plan_key`, and other API keys are `api_key`. `agent`
+  is reserved for later. Unknown and historical billing stays null. `priced = 0` means there is no catalog price,
+  not that the response was free. Existing rows keep unknown price status rather than guessing from zero cost.
+- `usage_rollup` keeps request, token, catalog-cost and unpriced-request totals by UTC day, project, task, worker,
+  thread, usage role, provider, model, billing and period. Inserts and their roll-ups commit together, including
+  transcript read-back. The schema migration seeds totals from retained rows once, before the first prune. The
+  90-day prune leaves roll-ups intact. The request log has no project-deletion hook.
 - Live capture (`request-log.ts`), off the request's path: the `aiki.request-log` extension (hooks only, no section or
   tool, so no prompt changes; workers and threads keep it) has a `beforeRequest` hook on pi-durable's generation task
   that tags the last message object with the project and conversation. The server's `Models` is wrapped (after the
@@ -1915,15 +1923,15 @@ Usage totals count input, cache read, cache write and output separately, includi
 catalog-price equivalent, not cache-miss cost: caller role (scheduled runs take precedence over worker/thread),
 provider/model × role, project, board task and conversation. All shares use the same recorded total. These are not
 subscription percentages or invoices: providers do not expose a per-request conversion into subscription allowance,
-account attribution is not recorded, and other clients can consume the same subscription.
+and other clients can consume the same subscription. The analysis does not use the billing and limit ledger yet.
 
 Existing request rows already identify coordinator/worker/thread, schedule, board task and keep-warm. New recording
 adds an optional internal purpose for coordinator compaction, memory extraction and backend memory maintenance,
 observing their `completeSimple` calls without logging prompt content or affecting the call. Internal requests are
 not cache-miss comparisons; they cannot be backfilled from transcripts. Internal conversation ID 0 means no linked
-conversation (not the coordinator). The log schema is now 2 (additive purpose column); old readers can still open a legacy log read-only, but old writers
-refuse a newer schema rather than silently dropping attribution. The 90-day retention still applies. Ordinary calls continue deriving
-role from their identity, so historic attribution works without guessing new internal purposes.
+conversation (not the coordinator). Readers can still open legacy logs read-only, and writers refuse a newer schema
+rather than silently dropping attribution. Ordinary calls continue deriving role from their identity, so historic
+attribution works without guessing new internal purposes.
 
 Waste shows observed prompt reuse (read / all prompt tokens), rebilled-cache estimates, failed/aborted response
 cost, keep-warm cost and unexpected writes, largest prompts, and check-in/retry pressure. These are investigation
@@ -5413,6 +5421,17 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   `subscription-usage.json`. Only `opencode-go` counts among API keys
   (`API_KEY_PLAN_PROVIDERS`); other keys (the `opencode` Zen provider,
   anthropic, openai) are pay-as-you-go with no plan limits and are left out.
+- The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the
+  live samples. In `request-log.sqlite`, `limit_samples` keeps changes in percent or reset time plus the last reading
+  in a flat run. Samples are pruned at 90 days. `limit_periods` preserves observed periods across restarts, including
+  window length, label and model or surface scope. A period closes at its scheduled reset, when a reading moves
+  the reset by more than five minutes, or when use drops. A recent credit spend confirmed through Kemiri marks a
+  drop on the affected period as a manual reset, unless the scheduled reset has already passed.
+- Subscription and plan-key requests bind to the longest observed unscoped window's period at request start, with
+  no binding before the first reading or in a reset gap. The log counts their requests and catalog value for that
+  period, including rows written after it closed. Periods and the reserved `subscription_terms` table are not
+  pruned. The split between Kemiri's points and use elsewhere, price history, and value reporting are later stages.
+  The live JSON and the wire response are unchanged.
 
 ## Scope
 

@@ -4,7 +4,8 @@ import type { Conversation } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { CacheWarmSchedule, type CacheWarmClock } from "./cache-warm-schedule.ts";
 import { refreshAnthropicCache, supportsCacheWarm, zeroOutputPayload, type CacheWarmPayload } from "./cache-warm-transport.ts";
-import type { RequestLogStore, RequestRow } from "./request-log-store.ts";
+import { hasCatalogPrice } from "./request-billing.ts";
+import type { RequestBilling, RequestLogStore, RequestRow } from "./request-log-store.ts";
 
 type WarmProject = {
 	settings: () => { keepPromptCacheWarm: boolean; promptCacheWarmHours: number; archived?: boolean };
@@ -24,12 +25,17 @@ export type WarmRequest = {
 export class CoordinatorCacheWarm {
 	readonly #store: RequestLogStore;
 	readonly #clock: CacheWarmClock | undefined;
+	readonly #billingFor: (provider: string) => Promise<RequestBilling | null>;
 	readonly #projects = new Map<string, WarmProject>();
 	readonly #armed = new Map<string, Armed>();
 	readonly #revision = new Map<string, number>();
 	readonly #ttl = new Map<string, number>();
 	#models: Models | undefined;
-	constructor(store: RequestLogStore, clock?: CacheWarmClock) { this.#store = store; this.#clock = clock; }
+	constructor(store: RequestLogStore, clock?: CacheWarmClock, billingFor = async (_provider: string): Promise<RequestBilling | null> => null) {
+		this.#store = store;
+		this.#clock = clock;
+		this.#billingFor = billingFor;
+	}
     async prefixRevision(projectId: string, conversationId: number): Promise<string | undefined> {
         const project = this.#projects.get(projectId);
         if (!project?.settings().keepPromptCacheWarm || await project.conversation(conversationId) === undefined) return undefined;
@@ -125,7 +131,9 @@ export class CoordinatorCacheWarm {
 				const warm = response.stopReason !== "error" && response.stopReason !== "aborted" && usage.cacheRead > 0 && usage.cacheWrite === 0;
 				if (warm) { summary.refreshes += 1; summary.lastReadAt = at; }
 				else summary.stopped = response.stopReason === "error" || response.stopReason === "aborted" ? "Cache refresh stopped: provider request failed" : usage.cacheRead <= 0 ? "Cache refresh stopped: no cache read" : "Cache refresh stopped: unexpected cache write";
-				this.#store.recordWarm({ ...row, at, input: usage.input, output: usage.output, cacheRead: usage.cacheRead,
+				const billing = await this.#billingFor(row.provider);
+				const periodId = billing === "subscription" || billing === "plan_key" ? this.#store.ledger.bindingPeriodId(row.provider, at) : null;
+				this.#store.recordWarm({ ...row, at, billing, periodId, priced: hasCatalogPrice(request.model), input: usage.input, output: usage.output, cacheRead: usage.cacheRead,
 					cacheWrite: usage.cacheWrite, cacheWrite1h: usage.cacheWrite1h ?? null, cost: usage.cost.total,
 					costInput: usage.cost.input, costOutput: usage.cost.output, costCacheRead: usage.cost.cacheRead, costCacheWrite: usage.cost.cacheWrite,
 					promptTokens: usage.input + usage.cacheRead + usage.cacheWrite, source: "keepWarm", wake: null, changes: null,

@@ -22,6 +22,7 @@ import { Value } from "typebox/value";
 import { CLAUDE_USAGE_USER_AGENT, consumeReset, discoverResets, type ResetTransport } from "./subscription-resets.ts";
 import type { SubscriptionResets, SubscriptionsResetRequest } from "@kemiri/protocol";
 import { errorMessage } from "./errors.ts";
+import { RESET_TOLERANCE_MS, type LimitLedger, type LimitReading } from "./limit-ledger.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 
 export const SUBSCRIPTION_USAGE_FILE = "subscription-usage.json";
@@ -33,7 +34,7 @@ export const OPENCODE_GO_BASE_URL = "https://opencode.ai/inference/go";
  * API-key providers that are a plan with limits, not pay-as-you-go: only these are listed for an API key. Everything
  * else with a key (anthropic, openai, the `opencode` Zen provider) has no plan windows and stays out.
  */
-const API_KEY_PLAN_PROVIDERS: ReadonlySet<string> = new Set(["opencode-go"]);
+export const API_KEY_PLAN_PROVIDERS: ReadonlySet<string> = new Set(["opencode-go"]);
 /** Claude Code's OAuth beta; the usage and profile endpoints refuse a request without it. */
 const ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20";
 const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
@@ -53,17 +54,8 @@ const RESET_DISCOVERY_MAX_AGE_MS = 60 * 60_000;
 /** Two samples closer than this collapse into the newer one. */
 const MIN_SAMPLE_GAP_MS = 60_000;
 const MAX_SAMPLES_PER_WINDOW = 1000;
-/** A reset time that moves by more than this starts a new period (the provider's own value jitters by seconds). */
-const RESET_TOLERANCE_MS = 5 * 60_000;
-
 /** One window as a source reports it, before samples. */
-export type WindowReading = {
-	id: string;
-	label: string;
-	usedPercent: number | null;
-	resetsAt: string | null;
-	windowMinutes: number | null;
-};
+export type WindowReading = Omit<LimitReading, "source">;
 
 export type UsageReading = {
 	manualResets?: SubscriptionResets | null;
@@ -78,6 +70,7 @@ export type SubscriptionUsageOptions = {
 	models: Models;
 	credentials: CredentialStore;
 	dataDir: string;
+	ledger?: Pick<LimitLedger, "reading" | "manualReset">;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
 	fetch?: typeof fetch;
 	now?: () => number;
@@ -134,6 +127,7 @@ export class SubscriptionUsageService {
 	readonly #afterTurnQuietMs: number;
 	readonly #minReadGapMs: number;
 	readonly #log: (message: string) => void;
+	readonly #ledger: SubscriptionUsageOptions["ledger"];
 	readonly #readers: Record<string, UsageReader>;
 	readonly #states = new Map<string, ProviderState>();
 	readonly #resetAttempts = new Map<string, { signature: string; answer: Promise<{ ok: boolean; code: string }> }>();
@@ -160,6 +154,7 @@ export class SubscriptionUsageService {
 		this.#afterTurnQuietMs = options.afterTurnQuietMs ?? DEFAULT_AFTER_TURN_QUIET_MS;
 		this.#minReadGapMs = options.minReadGapMs ?? DEFAULT_MIN_READ_GAP_MS;
 		this.#log = options.log ?? (() => {});
+		this.#ledger = options.ledger;
 		this.#readers = {
 			anthropic: (auth, state) => this.#readClaude(auth.apiKey, state),
 			"openai-codex": (auth) => this.#readChatGpt(auth.apiKey),
@@ -205,6 +200,14 @@ export class SubscriptionUsageService {
 				// An in-flight read predates this mutation; wait before invalidating its discovery cache.
 				await state?.inFlight;
 				if (state) { state.resetsReadAt = 0; state.blockedUntil = 0; }
+				if (result.ok) {
+					try {
+						const windowIds = request.providerId === "openai-codex" ? ["primary", "secondary"] : credit.clears;
+						this.#ledger?.manualReset(request.providerId, windowIds, this.#now());
+					} catch (error) {
+						this.#log(`limit ledger: could not note a reset: ${errorMessage(error)}`);
+					}
+				}
 				await this.#read(request.providerId, { force: true });
 				return result;
 			} catch {
@@ -296,7 +299,7 @@ export class SubscriptionUsageService {
 		this.#noteActivity(providerId);
 		if (providerId !== "openai-codex") return;
 		const reading = parseCodexRateLimitEvent(data);
-		if (reading !== undefined) void this.#applyFromHeaders(providerId, reading);
+		if (reading !== undefined) void this.#applyFromHeaders(providerId, reading, "stream_event");
 	}
 
 	async stop(): Promise<void> {
@@ -496,7 +499,7 @@ export class SubscriptionUsageService {
 		return [...oauth];
 	}
 
-	async #applyFromHeaders(providerId: string, reading: UsageReading): Promise<void> {
+	async #applyFromHeaders(providerId: string, reading: UsageReading, source: LimitReading["source"] = "response_headers"): Promise<void> {
 		try {
 			await this.#load();
 			if (!this.#states.has(providerId)) {
@@ -504,7 +507,7 @@ export class SubscriptionUsageService {
 				if (!credentials.some((credential) => credential.providerId === providerId)) return;
 				this.#states.set(providerId, this.#newState(this.#emptyUsage(providerId)));
 			}
-			this.#apply(providerId, reading);
+			this.#apply(providerId, reading, source);
 			this.#persist();
 			this.#publishIfChanged();
 		} catch (error) {
@@ -512,10 +515,15 @@ export class SubscriptionUsageService {
 		}
 	}
 
-	#apply(providerId: string, reading: UsageReading): void {
+	#apply(providerId: string, reading: UsageReading, source: LimitReading["source"] = reading.source): void {
 		const state = this.#states.get(providerId);
 		if (state === undefined) return;
-		state.usage = applyReading(state.usage, reading, new Date(this.#now()).toISOString());
+		const at = this.#now();
+		for (const window of reading.windows) {
+			try { this.#ledger?.reading(providerId, { ...window, source }, at); }
+			catch (error) { this.#log(`limit ledger: could not record a reading: ${errorMessage(error)}`); }
+		}
+		state.usage = applyReading(state.usage, reading, new Date(at).toISOString());
 	}
 
 	#newState(usage: SubscriptionUsage): ProviderState {
@@ -781,6 +789,7 @@ function parseClaudeLimits(limits: unknown, keyed: WindowReading[]): WindowReadi
 			usedPercent: clampPercent(finiteNumber(limit.percent ?? limit.utilization)),
 			resetsAt: isoFromString(limit.resets_at) ?? isoFromUnixSeconds(limit.resets_at),
 			windowMinutes: minutes,
+			...(scope === null ? {} : { scope }),
 		});
 	}
 	return windows;
@@ -802,9 +811,11 @@ export function parseClaudeUsage(body: unknown): WindowReading[] {
 		const minutes = known?.minutes ?? (id.startsWith("five_hour") ? 5 * 60 : 7 * 24 * 60);
 		const suffix = id.replace(/^(five_hour|seven_day)_?/, "").replaceAll("_", " ");
 		const prefix = minutes === 5 * 60 ? "5-hour" : "Weekly";
+		const label = known?.label ?? (suffix === "" ? windowLabel(minutes) : `${prefix} · ${capitalize(suffix)}`);
 		windows.push({
 			id,
-			label: known?.label ?? (suffix === "" ? windowLabel(minutes) : `${prefix} · ${capitalize(suffix)}`),
+			label,
+			...(suffix === "" ? {} : { scope: label.slice(prefix.length + 3) }),
 			usedPercent: clampPercent(finiteNumber(value.utilization)),
 			resetsAt: isoFromString(value.resets_at),
 			windowMinutes: minutes,
@@ -922,6 +933,7 @@ function codexWindow(id: string, label: string | undefined, value: unknown): Win
 	return {
 		id,
 		label: label === undefined ? windowLabel(minutes) : `${windowLabel(minutes)} · ${label}`,
+		...(label === undefined ? {} : { scope: label }),
 		usedPercent: clampPercent(finiteNumber(value.used_percent)),
 		resetsAt: isoFromUnixSeconds(value.reset_at),
 		windowMinutes: minutes,

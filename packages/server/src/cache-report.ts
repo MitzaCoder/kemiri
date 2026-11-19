@@ -16,6 +16,7 @@ import { resolveDataDir } from "./data-dir.ts";
 import { createHarnessModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { backfillProjects } from "./request-backfill.ts";
+import { hasCatalogPrice } from "./request-billing.ts";
 import { RequestLog } from "./request-log.ts";
 import { REQUEST_LOG_FILE, RequestLogStore, type RequestRow } from "./request-log-store.ts";
 
@@ -148,6 +149,7 @@ async function main(): Promise<void> {
 			requestLog,
 			projects: list.map((project) => ({ id: project.id, sessionPath: projects.sessionPath(project.id) })),
 			log: (message) => console.error(message),
+			hasCatalogPrice: (provider, modelId) => hasCatalogPrice(models.getModel(provider, modelId)),
 			cacheReadPerToken: (provider, modelId) => {
 				const perMillion = models.getModel(provider, modelId)?.cost.cacheRead;
 				return perMillion === undefined ? undefined : perMillion / 1_000_000;

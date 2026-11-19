@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createLimitLedgerTables, LimitLedger } from "../src/limit-ledger.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,9 +193,13 @@ function byProvider(list: SubscriptionUsage[], providerId: string): Subscription
 
 describe("saved subscription resets (fake HTTP only)", () => {
 	it("caches reset discovery separately, discovers without a marker and refreshes after explicit spend", async () => {
+		const db = new Database(":memory:");
+		cleanups.push(() => db.close());
+		createLimitLedgerTables(db);
+		const ledger = new LimitLedger(db);
 		let discoveries = 0, posts = 0, windows = 0;
 		const headers: string[] = [];
-		const test = await setupService({ fetch: (async (input, init) => {
+		const test = await setupService({ ledger, fetch: (async (input, init) => {
 			const url = String(input);
 			if (url.includes("/wham/")) return Response.json({ rate_limit: {} });
 			headers.push(new Headers(init?.headers).get("user-agent") ?? "");
@@ -215,6 +221,7 @@ describe("saved subscription resets (fake HTTP only)", () => {
 		const refreshed = byProvider(await test.service.usage(), "anthropic");
 		expect(refreshed.windows[0]?.usedPercent).toBe(0); expect(refreshed.manualResets?.available).toBe(2);
 		expect(headers.every(header => header === CLAUDE_USAGE_USER_AGENT)).toBe(true);
+		expect(db.query("SELECT end_reason FROM limit_periods ORDER BY id").all()).toEqual([{ end_reason: "manual_reset" }, { end_reason: null }]);
 	});
 	it("retains Codex detailed-credit discovery on ordinary refreshes", async () => {
 		const test = await setupService({ fetch: (async (input) => {
@@ -314,7 +321,7 @@ describe("subscription usage parsing", () => {
 		expect(windows).toEqual([
 			{ id: "five_hour", label: "5-hour limit", usedPercent: 12.5, resetsAt: "2026-11-04T13:00:00.512Z", windowMinutes: 300 },
 			{ id: "seven_day", label: "Weekly limit", usedPercent: 40, resetsAt: null, windowMinutes: 10_080 },
-			{ id: "seven_day_fable", label: "Weekly · Fable", usedPercent: 3, resetsAt: "2026-11-06T00:00:00.000Z", windowMinutes: 10_080 },
+			{ id: "seven_day_fable", label: "Weekly · Fable", scope: "Fable", usedPercent: 3, resetsAt: "2026-11-06T00:00:00.000Z", windowMinutes: 10_080 },
 		]);
 		expect(parseClaudeProfile({ organization: { rate_limit_tier: "default_claude_max_5x" } }).plan).toBe("Max 5x");
 		expect(parseClaudeProfile({ account: { email: "a@b", has_claude_pro: true } })).toEqual({ plan: "Pro", account: "a@b" });
@@ -349,7 +356,7 @@ describe("subscription usage parsing", () => {
 			["weekly_scoped.fable", "Weekly · Fable", 0],
 			["weekly_surface.claude_code", "Weekly · Claude Code", 9],
 		]);
-		expect(windows[3]).toEqual({ id: "weekly_scoped.fable", label: "Weekly · Fable", usedPercent: 0, resetsAt: at, windowMinutes: 10_080 });
+		expect(windows[3]).toEqual({ id: "weekly_scoped.fable", label: "Weekly · Fable", scope: "Fable", usedPercent: 0, resetsAt: at, windowMinutes: 10_080 });
 
 		// A codename key shows only when it has a window, with its name as the label; a lone `limits` entry fills a missing key.
 		const fallback = parseClaudeUsage({
@@ -392,6 +399,7 @@ describe("subscription usage parsing", () => {
 			{
 				id: "codex_spark.primary",
 				label: "Weekly limit · GPT-5 Codex Spark",
+				scope: "GPT-5 Codex Spark",
 				usedPercent: 7,
 				resetsAt: new Date(1_800_000_000_000).toISOString(),
 				windowMinutes: 10_080,
@@ -446,6 +454,30 @@ describe("subscription usage parsing", () => {
 });
 
 describe("SubscriptionUsageService", () => {
+	it("feeds endpoint, header and stream readings to the ledger before live samples collapse", async () => {
+		const db = new Database(":memory:");
+		cleanups.push(() => db.close());
+		createLimitLedgerTables(db);
+		const test = await setupService({ ledger: new LimitLedger(db) });
+		await test.service.usage({ refresh: true });
+		const samples = () => db.query("SELECT at, used_percent, source FROM limit_samples WHERE window_id = 'primary' ORDER BY at").all();
+		test.advance(1_000);
+		test.service.noteResponseHeaders("openai-codex", { "x-codex-primary-used-percent": "31", "x-codex-primary-reset-at": String(T0 / 1000 + 7200) });
+		await until(() => samples().length === 2);
+		test.advance(1_000);
+		test.service.noteStreamEvent("openai-codex", { type: "codex.rate_limits", rate_limits: {
+			primary: { used_percent: 32, reset_at: T0 / 1000 + 7200 },
+		} });
+		await until(() => samples().length === 3);
+		expect(samples()).toEqual([
+			{ at: T0, used_percent: 30, source: "usage_api" },
+			{ at: T0 + 1_000, used_percent: 31, source: "response_headers" },
+			{ at: T0 + 2_000, used_percent: 32, source: "stream_event" },
+		]);
+		const live = byProvider(await test.service.usage(), "openai-codex");
+		expect(live.source).toBe("response_headers");
+		expect(live.windows.find(window => window.id === "primary")?.samples.map(sample => sample.usedPercent)).toEqual([30, 32]);
+	});
 	it("reads both usage endpoints with the OAuth bearer and their headers", async () => {
 		const test = await setupService();
 		const list = await test.service.usage({ refresh: true });

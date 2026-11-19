@@ -38,7 +38,8 @@ import {
 	type PromptFingerprint,
 	startsOver,
 } from "./prompt-fingerprint.ts";
-import { type ConversationIdentity, REQUEST_LOG_KEEP_DAYS, type RequestLogStore, type RequestRow, type InternalUsagePurpose } from "./request-log-store.ts";
+import { hasCatalogPrice } from "./request-billing.ts";
+import { type ConversationIdentity, REQUEST_LOG_KEEP_DAYS, type RequestBilling, type RequestLogStore, type RequestRow, type InternalUsagePurpose } from "./request-log-store.ts";
 
 export const REQUEST_LOG_EXTENSION_NAME = stateKind("request-log");
 
@@ -243,6 +244,7 @@ export function requestTail(messages: readonly unknown[]): RequestTail & { updat
 
 export type RequestLogOptions = {
 	store: RequestLogStore;
+	billingFor?: (provider: string) => Promise<RequestBilling | null>;
 	log?: (message: string) => void;
 	now?: () => number;
 	/** The cache-read price per token of a model, for a request that read nothing. */
@@ -257,6 +259,7 @@ export class RequestLog {
 	readonly warming: CoordinatorCacheWarm;
 	readonly #log: (message: string) => void;
 	readonly #now: () => number;
+	readonly #billingFor: NonNullable<RequestLogOptions["billingFor"]>;
 	readonly #cacheReadPerToken: RequestLogOptions["cacheReadPerToken"];
 	/** The last message object of each request the hook saw, to the conversation that sends it. */
 	readonly #tags = new WeakMap<object, RequestTag>();
@@ -272,8 +275,12 @@ export class RequestLog {
 	constructor(options: RequestLogOptions) {
 		this.store = options.store;
 		this.store.markWarmRestarted();
-		this.warming = new CoordinatorCacheWarm(options.store);
 		this.#log = options.log ?? ((message) => console.log(message));
+		this.#billingFor = async (provider) => {
+			try { return await options.billingFor?.(provider) ?? null; }
+			catch { return null; } // A failed credential lookup must not lose the usage row.
+		};
+		this.warming = new CoordinatorCacheWarm(options.store, undefined, this.#billingFor);
 		this.#now = options.now ?? Date.now;
 		this.#cacheReadPerToken = options.cacheReadPerToken;
 	}
@@ -378,14 +385,14 @@ export class RequestLog {
 
 	/** Known internal services only. Never guesses a role from prompt text, and never persists prompt content. */
 	observeInternalModels(models: Models, projectId: string, purpose: InternalUsagePurpose): Models {
-		const record = (message: AssistantLike): void => {
+		const record = (message: AssistantLike, priced: boolean): void => {
 			if (this.#closed) return;
 			this.#queue = this.#queue.then(async () => {
 				await new Promise(resolve => setTimeout(resolve, 0));
 				try {
 					const requests = new ConversationRequests({ projectId, conversationId: 0, identity: UNKNOWN_IDENTITY });
 					const row = requests.request(message, { wake: null, retention: "none", changes: null, source: "live" });
-					this.store.insert({ ...row, purpose });
+					await this.#writeLiveRow({ ...row, purpose, priced });
 				} catch (error) { this.#log(`request log: internal usage could not be recorded: ${errorMessage(error)}`); }
 			});
 		};
@@ -394,8 +401,9 @@ export class RequestLog {
 				const value = Reflect.get(target, property, receiver) as unknown;
 				if (typeof value !== "function") return value;
 				if (property === "completeSimple") return async (...args: unknown[]) => {
+					const priced = hasCatalogPrice(args[0] as WarmRequest["model"] | undefined);
 					const answer = await value.apply(target, args) as AssistantLike;
-					record(answer);
+					record(answer, priced);
 					return answer;
 				};
 				return value.bind(target);
@@ -516,10 +524,14 @@ export class RequestLog {
 			changes: previous === undefined ? null : diffFingerprints(previous, fingerprint, tail.updates),
 			source: "live",
 		});
-		this.store.insert(row);
+		await this.#writeLiveRow({ ...row, priced: hasCatalogPrice(request.warm.model) });
 		live.fingerprint = fingerprint;
 		this.store.savePromptState(projectId, conversationId, fingerprint, row.at);
 		await this.warming.real({ ...request.warm, row, payload: request.payload });
+	}
+	async #writeLiveRow(row: RequestRow): Promise<void> {
+		const billing = await this.#billingFor(row.provider);
+		this.store.insert({ ...row, billing });
 	}
 }
 

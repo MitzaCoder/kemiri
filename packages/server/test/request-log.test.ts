@@ -4,6 +4,7 @@
  * one-hour cache what-if).
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,8 @@ import type { Models, TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { CHECK_IN_PREFIX, type ModelRef } from "@kemiri/protocol";
 import { cacheStats, longCacheWhatIf, wakeGroups } from "../src/cache-stats.ts";
+import { FileCredentialStore } from "../src/credentials.ts";
+import { requestBilling } from "../src/request-billing.ts";
 import { createHarnessModels } from "../src/models.ts";
 import { diffFingerprints, fingerprintRequest } from "../src/prompt-fingerprint.ts";
 import { RequestLog, requestTail, wakeOf } from "../src/request-log.ts";
@@ -223,12 +226,19 @@ describe("request log", () => {
 		await test.restart();
 		await test.server.requestLogBackfill;
 		const back = await logged(test, 2);
-		const comparable = (row: RequestRow): RequestRow => ({ ...row, changes: null, retention: null, source: "backfill" });
+		const comparable = (row: RequestRow): RequestRow => ({ ...row, changes: null, retention: null, source: "backfill", billing: null });
 		expect(back).toEqual(live.map(comparable));
+		const rollup = () => {
+			using db = new Database(join(test.dataDir, REQUEST_LOG_FILE), { readonly: true });
+			return db.query("SELECT SUM(requests) AS requests, SUM(cost) AS cost FROM usage_rollup").get();
+		};
+		const backfilled = rollup();
+		expect(backfilled).toEqual({ requests: 2, cost: live[0]!.cost + live[1]!.cost });
 
 		// Read once: another restart reads nothing again, and a new request follows on from the last row.
 		await test.restart();
 		await test.server.requestLogBackfill;
+		expect(rollup()).toEqual(backfilled);
 		const again = await connect(test);
 		await ask(again, projectId, "Third.");
 		const rows = await logged(test, 3);
@@ -254,13 +264,18 @@ describe("observing requests", () => {
 	it("sees the provider payload of a tagged request, keeps the caller's own hook, and leaves other requests alone", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "request-log-"));
 		cleanups.push(() => rm(dir, { recursive: true, force: true }));
-		const log = new RequestLog({ store: RequestLogStore.open(join(dir, REQUEST_LOG_FILE)), log: () => undefined });
+		const credentials = new FileCredentialStore(join(dir, "credentials.json"));
+		await credentials.modify("synthetic", async () => ({ type: "api_key", key: "fixture-key" }));
+		await credentials.modify("opencode-go", async () => ({ type: "api_key", key: "fixture-plan-key" }));
+		const log = new RequestLog({ store: RequestLogStore.open(join(dir, REQUEST_LOG_FILE)), log: () => undefined,
+			billingFor: (provider) => requestBilling(credentials, models, provider),
+		});
 		const extension = log.extension("p", async () => ({ kind: "main", threadId: "main", workerId: null, taskId: null, scheduleId: null }));
 		const beforeRequest = (extension.hooks?.[0] as { handlers: { beforeRequest: (request: unknown, api: unknown) => unknown } })
 			.handlers.beforeRequest;
-		const answer = (at: number) => ({
+		const answer = (at: number, provider: string) => ({
 			role: "assistant",
-			provider: "anthropic",
+			provider,
 			model: "m",
 			timestamp: at,
 			stopReason: "stop",
@@ -270,18 +285,18 @@ describe("observing requests", () => {
 		const sent: unknown[] = [];
 		let calls = 0;
 		const models = {
-			streamSimple: (_model: unknown, _context: unknown, options?: { onPayload?: (payload: unknown, model: unknown) => unknown }) => {
+			streamSimple: (model: { provider: string }, _context: unknown, options?: { onPayload?: (payload: unknown, model: unknown) => unknown }) => {
 				calls += 1;
 				const payload = { system: [{ type: "text", text: calls === 1 ? "one" : "two" }], messages: [] };
-				const result = Promise.resolve(options?.onPayload?.(payload, {})).then(() => answer(calls * 1000));
+				const result = Promise.resolve(options?.onPayload?.(payload, {})).then(() => answer(calls * 1000, model.provider));
 				return { result: () => result };
 			},
 		} as unknown as Models;
 		const observed = log.observeModels(models);
-		const request = async (tagged: boolean) => {
+		const request = async (tagged: boolean, provider = "synthetic", cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }) => {
 			const messages = [{ role: "user", content: "Hi", timestamp: 1 }];
 			if (tagged) beforeRequest({ messages }, { conversationId: 1 });
-			const stream = (observed.streamSimple as unknown as (...args: unknown[]) => { result(): Promise<unknown> })({}, { messages }, {
+			const stream = (observed.streamSimple as unknown as (...args: unknown[]) => { result(): Promise<unknown> })({ provider, cost }, { messages }, {
 				onPayload: (payload: unknown) => {
 					sent.push(payload);
 					return undefined;
@@ -290,12 +305,16 @@ describe("observing requests", () => {
 			await stream.result();
 		};
 		await request(true);
-		await request(false);
-		await request(true);
 		await log.flush();
-		expect(sent).toHaveLength(3);
+		await request(false);
+		await credentials.modify("synthetic", async () => ({ type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: 42 }));
+		await request(true, "synthetic", { input: 1, output: 0, cacheRead: 0, cacheWrite: 0 });
+		await request(true, "opencode-go");
+		await log.flush();
+		expect(sent).toHaveLength(4);
 		const rows = log.store.rows({ from: 0, to: 10_000 });
-		expect(rows.map((row) => row.at)).toEqual([1000, 3000]);
+		expect(rows.map((row) => row.at)).toEqual([1000, 3000, 4000]);
+		expect(rows.map((row) => [row.billing, row.priced])).toEqual([["api_key", false], ["subscription", true], ["plan_key", false]]);
 		expect(rows[1]?.changes).toEqual(["wire:system[0]"]);
 		await log.close();
 	});

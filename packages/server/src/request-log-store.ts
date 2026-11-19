@@ -15,10 +15,12 @@ import {
 	type WakeReason,
 } from "@kemiri/protocol";
 import type { PromptFingerprint } from "./prompt-fingerprint.ts";
+import { createLimitLedgerTables, LimitLedger } from "./limit-ledger.ts";
+import { usageRole } from "./usage-analysis.ts";
 
 export const REQUEST_LOG_FILE = "request-log.sqlite";
 export const REQUEST_LOG_KEEP_DAYS = 90;
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Which conversation sent a request. */
@@ -33,7 +35,13 @@ export type ConversationIdentity = {
 
 export type InternalUsagePurpose = "compaction" | "memory_extraction" | "memory_maintenance" | "report_audit";
 
+export type RequestBilling = "subscription" | "plan_key" | "api_key" | "agent";
+
 export type RequestRow = ConversationIdentity & {
+	billing?: RequestBilling | null;
+	periodId?: number | null;
+	/** Null for legacy rows whose catalog price at the time of the request is unknown. */
+	priced?: boolean | null;
 	/** Internal calls have no transcript identity; ordinary roles derive from existing identity fields. */
 	purpose?: InternalUsagePurpose | null;
 	/** The response's timestamp (pi-ai stamps it when the request starts), ms since the epoch. */
@@ -69,6 +77,9 @@ export type RequestRow = ConversationIdentity & {
 };
 
 type DbRow = {
+	billing: RequestBilling | null;
+	period_id: number | null;
+	priced: number | null;
 	purpose: string | null;
 	at: number;
 	project_id: string;
@@ -104,6 +115,9 @@ type DbRow = {
 };
 
 const COLUMNS = [
+	"billing",
+	"period_id",
+	"priced",
 	"purpose",
 	"at",
 	"project_id",
@@ -140,6 +154,9 @@ const COLUMNS = [
 
 function toDb(row: RequestRow): DbRow {
 	return {
+		billing: row.billing ?? null,
+		period_id: row.periodId ?? null,
+		priced: row.priced == null ? null : Number(row.priced),
 		purpose: row.purpose ?? null,
 		at: row.at,
 		project_id: row.projectId,
@@ -177,6 +194,9 @@ function toDb(row: RequestRow): DbRow {
 
 function fromDb(row: DbRow): RequestRow {
 	return {
+		billing: row.billing ?? null,
+		periodId: row.period_id ?? null,
+		priced: row.priced == null ? null : row.priced === 1,
 		purpose: (row.purpose ?? null) as InternalUsagePurpose | null,
 		at: row.at,
 		projectId: row.project_id,
@@ -212,15 +232,44 @@ function fromDb(row: DbRow): RequestRow {
 	};
 }
 
+function createUsageRollup(db: Database): void {
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS usage_rollup (
+			day TEXT NOT NULL, project_id TEXT NOT NULL, task_id TEXT, worker_id TEXT, thread_id TEXT,
+			role TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, billing TEXT, period_id INTEGER,
+			requests INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
+			output INTEGER NOT NULL, cost REAL NOT NULL, unpriced_requests INTEGER NOT NULL
+		) STRICT;
+		CREATE UNIQUE INDEX IF NOT EXISTS usage_rollup_group ON usage_rollup (
+			day, project_id, coalesce(task_id, 0), coalesce(worker_id, 0), coalesce(thread_id, 0),
+			role, provider, model, coalesce(billing, 0), coalesce(period_id, '')
+		);
+	`);
+}
+
+function addToUsageRollup(db: Database, row: RequestRow): void {
+	// The grouping index treats missing dimensions as equal, using a different SQLite type from each column.
+	db.query(`INSERT INTO usage_rollup (day, project_id, task_id, worker_id, thread_id, role, provider, model, billing, period_id,
+		requests, input, cache_read, cache_write, output, cost, unpriced_requests)
+		VALUES (date(? / 1000.0, 'unixepoch'), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET requests = requests + 1, input = input + excluded.input,
+		cache_read = cache_read + excluded.cache_read, cache_write = cache_write + excluded.cache_write,
+		output = output + excluded.output, cost = cost + excluded.cost, unpriced_requests = unpriced_requests + excluded.unpriced_requests`
+	).run(row.at, row.projectId, row.taskId, row.workerId, row.threadId, usageRole(row), row.provider, row.model,
+		row.billing ?? null, row.periodId ?? null, row.input, row.cacheRead, row.cacheWrite, row.output, row.cost, Number(row.priced === false));
+}
+
 export type BackfillRecord = { projectId: string; doneAt: number; rows: number; error: string | null };
 
 export class RequestLogStore {
 	readonly #db: Database;
+	readonly ledger: LimitLedger;
 	readonly #warmListeners = new Set<() => void>();
 	readonly #insert: ReturnType<Database["prepare"]>;
 
 	private constructor(db: Database) {
 		this.#db = db;
+		this.ledger = new LimitLedger(db);
 		const knownColumns = new Set(db.query<{ name: string }, []>("PRAGMA table_info(requests)").all().map(column => column.name));
 		const columns = COLUMNS.filter(column => knownColumns.has(column));
 		this.#insert = db.prepare(
@@ -297,9 +346,27 @@ export class RequestLogStore {
 			rows INTEGER NOT NULL,
 			error TEXT
 		) STRICT`);
-		const columns = db.query<{ name: string }, []>("PRAGMA table_info(requests)").all();
-		if (!columns.some(column => column.name === "purpose")) db.exec("ALTER TABLE requests ADD COLUMN purpose TEXT");
-		db.query("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+		try {
+			db.transaction(() => {
+				const schema = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
+				if (Number(schema?.value) === SCHEMA_VERSION) return;
+				if (schema && Number(schema.value) > SCHEMA_VERSION) {
+					throw new Error(`request log schema ${schema.value} is newer than this release's ${SCHEMA_VERSION}`);
+				}
+				const columns = new Set(db.query<{ name: string }, []>("PRAGMA table_info(requests)").all().map(column => column.name));
+				for (const [name, type] of [["purpose", "TEXT"], ["billing", "TEXT"], ["period_id", "INTEGER"], ["priced", "INTEGER"]] as const) {
+					if (!columns.has(name)) db.exec(`ALTER TABLE requests ADD COLUMN ${name} ${type}`);
+				}
+				createLimitLedgerTables(db);
+				createUsageRollup(db);
+				// Seed retained rows before startup pruning. The schema stamp and totals commit together.
+				for (const row of db.query<DbRow, []>("SELECT * FROM requests").iterate()) addToUsageRollup(db, fromDb(row));
+				db.query("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+			}).immediate();
+		} catch (error) {
+			db.close();
+			throw error;
+		}
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('internal_since', ?)").run(String(options.now ?? Date.now()));
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('live_since', ?)").run(String(options.now ?? Date.now()));
 		return new RequestLogStore(db);
@@ -327,12 +394,24 @@ export class RequestLogStore {
 	}
 
 	insert(row: RequestRow): void {
+		this.#db.transaction(() => this.#insertRequest(row))();
+	}
+
+	#insertRequest(row: RequestRow): void {
+		if (row.periodId === undefined && (row.billing === "subscription" || row.billing === "plan_key")) {
+			row = { ...row, periodId: this.ledger.bindingPeriodId(row.provider, row.at) };
+		}
 		this.#insert.run(toDb(row) as never);
+		addToUsageRollup(this.#db, row);
+		if (row.periodId != null) {
+			this.#db.query("UPDATE limit_periods SET api_value = api_value + ?, requests = requests + 1 WHERE id = ?")
+				.run(row.cost, row.periodId);
+		}
 	}
 
 	insertMany(rows: readonly RequestRow[]): void {
 		this.#db.transaction(() => {
-			for (const row of rows) this.#insert.run(toDb(row) as never);
+			for (const row of rows) this.#insertRequest(row);
 		})();
 	}
 
@@ -404,20 +483,22 @@ export class RequestLogStore {
 	/** Record a project's read-back with its rows in one transaction, so a crash in between reads it again. */
 	finishBackfill(projectId: string, rows: readonly RequestRow[], at: number, error: string | null): void {
 		this.#db.transaction(() => {
-			for (const row of rows) this.#insert.run(toDb(row) as never);
+			if (this.backfill(projectId) !== undefined) return;
+			for (const row of rows) this.#insertRequest(row);
 			this.#db
 				.query("INSERT OR REPLACE INTO backfills (project_id, done_at, rows, error) VALUES (?, ?, ?, ?)")
 				.run(projectId, at, rows.length, error);
-		})();
+		}).immediate();
 	}
 
-	/** Forget rows and fingerprints older than `keepDays`. */
+	/** Forget rows, samples and fingerprints older than `keepDays`, but keep their accumulated totals. */
 	prune(now: number, keepDays: number = REQUEST_LOG_KEEP_DAYS): number {
 		const cutoff = now - keepDays * DAY_MS;
 		this.#db.query("DELETE FROM cache_warm_snapshots WHERE json_extract(snapshot, '$.request.row.at') < ?").run(now - 8 * 3_600_000);
 		this.#db.query("DELETE FROM cache_warm_stretches WHERE at < ?").run(cutoff);
 		const removed = this.#db.query("DELETE FROM requests WHERE at < ?").run(cutoff).changes;
 		this.#db.query("DELETE FROM prompt_state WHERE updated_at < ?").run(cutoff);
+		this.#db.query("DELETE FROM limit_samples WHERE at < ?").run(cutoff);
 		return removed;
 	}
 
@@ -457,7 +538,7 @@ export class RequestLogStore {
             .all(projectId, conversationId).map(row => JSON.parse(row.summary) as CacheWarmStretch);
     }
     recordWarm(row: RequestRow, summary: CacheWarmStretch): void {
-        this.#db.transaction(() => { this.insert(row); this.saveWarmStretch(row.projectId, row.conversationId, summary); })();
+        this.#db.transaction(() => { this.#insertRequest(row); this.saveWarmStretch(row.projectId, row.conversationId, summary); })();
     }
 	close(): void {
 		this.#db.close();

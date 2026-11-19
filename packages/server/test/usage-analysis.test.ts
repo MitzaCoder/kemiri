@@ -95,7 +95,10 @@ it("migrates a legacy log losslessly and still opens it read-only before migrati
 	store.close();
 	const db = new Database(path);
 	db.exec(
-		"ALTER TABLE requests DROP COLUMN purpose; UPDATE meta SET value='1' WHERE key='schema_version'; DELETE FROM meta WHERE key='internal_since'",
+		`ALTER TABLE requests DROP COLUMN purpose; ALTER TABLE requests DROP COLUMN billing;
+		ALTER TABLE requests DROP COLUMN period_id; ALTER TABLE requests DROP COLUMN priced;
+		DROP TABLE usage_rollup; DROP TABLE limit_samples; DROP TABLE limit_periods; DROP TABLE subscription_terms;
+		UPDATE meta SET value='1' WHERE key='schema_version'; DELETE FROM meta WHERE key='internal_since'`,
 	);
 	db.close();
 	store = RequestLogStore.open(path, { readonly: true });

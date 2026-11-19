@@ -193,6 +193,7 @@ export type BackfillOptions = {
 	projectId: string;
 	/** Only requests before this time: later ones the live log has. */
 	before: number;
+	hasCatalogPrice?: (provider: string, model: string) => boolean;
 	cacheReadPerToken?: (provider: string, model: string) => number | undefined;
 };
 
@@ -233,7 +234,10 @@ export async function backfillRows(storage: Storage, options: BackfillOptions): 
 						const wake = wakeOf({ toolResults, userTexts, firstTurn: !answered, repeated: false }, identity);
 						const row = requests.request(message as never, { wake, retention: null, changes: null, source: "backfill" });
 						// A forked conversation sees its parent's entries too; those rows are the parent's.
-						if (entry.conversationId === record.id && row.at < options.before) rows.push(row);
+						if (entry.conversationId === record.id && row.at < options.before) {
+							row.priced = options.hasCatalogPrice?.(row.provider, row.model) ?? null;
+							rows.push(row);
+						}
 						userTexts = [];
 						toolResults = 0;
 						answered = true;
@@ -255,6 +259,7 @@ export function backfillProjects(options: {
 	projects: readonly { id: string; sessionPath: string }[];
 	now?: () => number;
 	log?: (message: string) => void;
+	hasCatalogPrice?: (provider: string, model: string) => boolean;
 	cacheReadPerToken?: (provider: string, model: string) => number | undefined;
 }): Promise<void> {
 	const store = options.requestLog.store;
@@ -275,6 +280,7 @@ export function backfillProjects(options: {
 				const rows = await backfillRows(storage, {
 					projectId: project.id,
 					before,
+					...(options.hasCatalogPrice === undefined ? {} : { hasCatalogPrice: options.hasCatalogPrice }),
 					...(options.cacheReadPerToken === undefined ? {} : { cacheReadPerToken: options.cacheReadPerToken }),
 				});
 				store.finishBackfill(project.id, rows, now(), null);
