@@ -54,7 +54,12 @@
 			{subscription.source === 'none' ? 'This provider reports no limits for the plan.' : 'No limits read yet.'}
 		</p>
 	{:else}
-		<div class="grid items-start gap-2 @3xl:grid-cols-2 @6xl:grid-cols-3">
+		<div class={[
+			"grid items-start gap-2 @3xl:grid-cols-2 @6xl:grid-cols-3",
+			// Check the card width, not just the modal: backends can report multiple subscriptions side by side.
+			subscription.windows.length === 2 && "@7xl:grid-cols-2",
+			subscription.windows.length >= 4 && "@7xl:grid-cols-4"
+		]}>
 			{#each subscription.windows as window (window.id)}
 				<UsageWindowRow {window} {now} />
 			{/each}

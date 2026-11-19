@@ -226,7 +226,7 @@
 <Dialog.Root bind:open>
 	{#if artifact !== undefined && artifact.kind === 'text' && isHtmlArtifact(artifact)}
 		<!-- A dim-only backdrop avoids filtering the app behind an independently composited, scrolling iframe. -->
-		<Dialog.Content class="artifact-dialog html-artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none sm:rounded-[8px] sm:border sm:border-(--chat-border)" overlayClass="bg-black/35 supports-backdrop-filter:backdrop-blur-none" showCloseButton={false} data-artifact-dialog data-html-artifact-dialog onEscapeKeydown={(event) => { if ((event.target as Element | null)?.closest?.('[role="menu"]')) event.preventDefault(); }}>
+		<Dialog.Content size="viewer" class="artifact-dialog html-artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:rounded-[8px] sm:border sm:border-(--chat-border)" overlayClass="bg-black/35 supports-backdrop-filter:backdrop-blur-none" showCloseButton={false} data-artifact-dialog data-html-artifact-dialog onEscapeKeydown={(event) => { if ((event.target as Element | null)?.closest?.('[role="menu"]')) event.preventDefault(); }}>
 			<Dialog.Title class="sr-only">HTML artifact</Dialog.Title>
 			<Dialog.Description class="sr-only">Sandboxed HTML page. Use Artifact actions for source, versions, printing and closing.</Dialog.Description>
 				<ArtifactText {artifact} {client} roomy fullSpace onclose={() => open = false}>
@@ -245,7 +245,7 @@
 
 		</Dialog.Content>
 	{:else if artifact?.kind === 'text'}
-		<Dialog.Content class="artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none sm:rounded-lg" data-artifact-dialog>
+		<Dialog.Content size="viewer" class="artifact-dialog flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:rounded-lg" data-artifact-dialog>
 			<header class="shrink-0 border-b border-(--chat-border) px-4 py-3 pr-12">
 				<Dialog.Title class="text-base font-semibold">{artifactTitle(artifact)}</Dialog.Title>
 				<Dialog.Description class="flex flex-wrap gap-2 text-xs text-(--chat-fg-muted)">{@render factsLine(artifact)}</Dialog.Description>

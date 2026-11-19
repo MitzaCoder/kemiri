@@ -89,7 +89,7 @@
 			<p class="text-sm text-(--chat-fg-muted)">
 				Signals to investigate, not proof of wasted work. Cache reuse is cached reads / all prompt tokens.
 			</p>
-			<div class="grid gap-3 sm:grid-cols-2">
+			<div class="grid gap-3 sm:grid-cols-2 @7xl/usage-modal:grid-cols-3">
 				{#each [{ title: 'Prompt reuse', value: reuse === null ? 'Not measured' : `${reuse.toFixed(1)}%`, detail: `${tokens(usage.totals.cacheReadTokens)} cached prompt tokens read.` }, { title: 'Prompt billed again', value: money(stats.totals.missedCost), detail: `${tokens(stats.totals.missedTokens)} tokens in ${stats.totals.misses} inferred misses. Estimate, not a provider invoice.` }, { title: 'Failed or stopped responses', value: money(usage.failed.cost), detail: `${usage.failed.requests} responses with returned usage. Whole-run outcomes and errors without usage are not measured.` }, { title: 'Keep-warm', value: money(stats.keepWarm?.cost ?? 0), detail: `${stats.keepWarm?.refreshes ?? 0} refreshes; ${money(stats.keepWarm?.failedWriteCost ?? 0)} in unexpected writes. Usefulness is not known.` }, { title: 'Check-in pressure', value: `${usage.checkIns.requests} requests`, detail: `${money(usage.checkIns.cost)} for the check-in requests themselves, not their follow-up turns. No-action checks are not classified.` }, { title: 'Retries', value: `${usage.retries.requests} requests`, detail: `${money(usage.retries.cost)} in retry requests. Retries may be necessary.` }] as signal (signal.title)}
 					<article class="rounded-xl border border-(--chat-border) bg-(--chat-surface)/55 p-3">
 						<h3 class="text-xs text-(--chat-fg-muted)">{signal.title}</h3>

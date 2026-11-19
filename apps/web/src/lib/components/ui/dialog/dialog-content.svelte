@@ -13,6 +13,7 @@
 		class: className,
 		portalProps,
 		overlayClass,
+		size,
 		children,
 		showCloseButton = true,
 		...restProps
@@ -21,6 +22,8 @@
 		children: Snippet;
 		/** Optional backdrop styling; content sizing does not affect the overlay. */
 		overlayClass?: string;
+		/** Expansive dimensions for dialogs that display a document or dashboard. */
+		size?: "viewer";
 		showCloseButton?: boolean;
 	} = $props();
 </script>
@@ -32,6 +35,7 @@
 		data-slot="dialog-content"
 		class={cn(
 			"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 grid max-w-[calc(100%_-_2rem)] gap-6 rounded-xl p-6 text-sm ring-1 duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
+			size === "viewer" && "sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none",
 			className
 		)}
 		{...restProps}

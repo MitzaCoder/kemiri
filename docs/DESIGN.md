@@ -1959,6 +1959,10 @@ older release therefore keeps working with its own log. Requests logged during a
 
 ### Usage analysis (T78 web prototype)
 
+The web Usage modal stays full-screen on phones and keeps its compact size below the `2xl` breakpoint. On larger
+screens it shares the text artifact viewer's size (80vw up to 100rem, 90dvh tall). When there is enough room, live
+subscription charts and recorded breakdowns fit more columns without adding another scroll region.
+
 The Usage modal has Overview, By role, By model, Projects & tasks, and Waste tabs. Value appears second when a backend
 advertises `subscription-value`. A shared Today / 7 days / 30 days picker applies to recorded requests, not to the
 provider's live subscription windows. Today starts at local midnight; the other ranges are rolling. Tab arrows, Home

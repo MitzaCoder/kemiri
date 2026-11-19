@@ -17,7 +17,7 @@
 		>
 			{empty}
 		</p>
-	{:else}<div class="grid gap-3 md:grid-cols-2">
+	{:else}<div class={["grid gap-3 md:grid-cols-2", groups.length >= 3 && "@7xl/usage-modal:grid-cols-3"]}>
 			{#each groups as group (group.key)}
 				<article class="min-w-0 rounded-xl border border-(--chat-border) bg-(--chat-surface)/55 p-3">
 					<div class="flex items-start justify-between gap-3">

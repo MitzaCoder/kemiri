@@ -175,10 +175,19 @@ describe('the viewers wire the new sizing and button up', () => {
 		const html = dialog.slice(dialog.indexOf('class="artifact-dialog html-artifact-dialog'), dialog.indexOf('<Dialog.Title class="sr-only">HTML artifact'));
 		expect(html).toContain('h-dvh w-screen');
 		expect(html).toContain('rounded-none p-0 ring-0');
-		expect(html).toContain('sm:h-[90dvh] sm:w-[min(80vw,100rem)]');
 		expect(html).toContain('sm:rounded-[8px] sm:border sm:border-(--chat-border)');
 		expect(html).toContain('overlayClass="bg-black/35 supports-backdrop-filter:backdrop-blur-none"');
 		expect(html).toContain('showCloseButton={false}');
+	});
+	test('usage shares the text viewer size only on large screens', () => {
+		const content = source('../src/lib/components/ui/dialog/dialog-content.svelte');
+		const artifact = source('../src/lib/components/artifacts/ArtifactDialog.svelte');
+		const usage = source('../src/lib/components/usage/UsageModal.svelte');
+		expect(content).toContain('size === "viewer" && "sm:h-[90dvh] sm:w-[min(80vw,100rem)] sm:max-w-none"');
+		expect(artifact.match(/<Dialog.Content size="viewer"/g)).toHaveLength(2);
+		expect(usage).toContain('size="viewer"');
+		expect(usage).toContain('max-sm:h-dvh');
+		expect(usage).toContain('sm:max-2xl:h-[min(52rem,88dvh)] sm:max-2xl:w-full sm:max-2xl:max-w-6xl');
 	});
 	test('HTML dims without the shared backdrop filter; other dialogs retain it', () => {
 		const overlay = source('../src/lib/components/ui/dialog/dialog-overlay.svelte');
