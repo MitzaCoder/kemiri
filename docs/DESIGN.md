@@ -5924,21 +5924,25 @@ To add a theme:
 Decided with the user on 2026-11-08 (D8, D9). Every section is built to the standard below. `lib/settings.ts` holds the
 section lists, the URLs and the rules below as pure functions (`test/settings.test.ts`).
 
-### Split and where things go
+### Scopes and where things go
 
-- **General settings**, opened from the bottom of the left sidebar (Usage stays its own modal and footer entry).
-- **Project settings**, opened from the top bar gear and the ⋯ menu, apply to one project.
-- `/` stays the projects home, with Add a project and first-run computer pairing. Manage computers in Settings.
+- One Settings shell switches between **This project**, **This computer**, and **This device**. The scope note
+  names what the settings affect. Change picks a project grouped by computer or, when there is more than one,
+  a computer. The sidebar opens This device; the project gear and ⋯ menu open This project. Usage stays separate.
+- Project scope prefers the visit's project, then the last project opened on the device, then a project on a
+  ready computer. With no project it is disabled. Computer scope prefers the project context, the sole computer,
+  or the last computer used. The full computer list lives under This device → Computers.
+- `/` stays the projects home, with Add a project and first-run computer pairing.
 
 The shared section order and route names (a quiet technical term follows the plain label where needed):
 
 | Scope | Section | URL segment / route | Contents |
 | --- | --- | --- | --- |
-| General | Appearance | `appearance` | Theme, light or dark, time and reading |
-| General | Computers (Backends) | `backends` | Computers running Kemiri, their AI accounts and apps |
-| General | Notifications | `notifications` | Alerts, quiet hours, muted projects and delivery details |
-| General | Archived projects | `archived` | Bring a project back |
-| General | About (Android: About and licences) | `about` | Kemiri versions and updates; licences on Android |
+| This device | Appearance | `appearance` | Theme, light or dark, time and reading |
+| This device | Notifications | `notifications` | Alerts, quiet hours, muted projects and delivery details |
+| This device | Computers (Backends) | `backends` | Computers this device connects to |
+| This device | Archived projects | `archived` | Bring a project back |
+| This device | About (Android: About and licences) | `about` | Kemiri versions; licences on Android |
 | Project | General | `general` | Name, folder, archive |
 | Project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
 | Project | Workers | `workers` | Ordered worker models and check-ins, including reset |
@@ -5992,9 +5996,8 @@ Every section has a URL; the last segment is the section name, which Android reu
 /settings                                   section index / wide entry to Appearance
 /settings/appearance | notifications | archived | about
 /settings/backends                          list
-/settings/backends/<id>                     one computer
-/settings/backends/<id>/accounts            AI accounts
-/settings/backends/<id>/mcp                 Connected apps
+/settings/backends/<id>                     section index / wide entry to Overview
+/settings/backends/<id>/overview | accounts | you | mcp | devices | advanced
 /b/<backend>/projects/<id>/settings         section index / wide entry to General
 /b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | mcp | skills | tickets | storage | advanced
 ```
@@ -6021,16 +6024,16 @@ Android retains its task/panel stack, saves each task sheet's scroll state and s
 
 Web and Android use one model (D83/D84): Back follows real history; Up pops to a parent already in this visit,
 or replaces with that parent when absent. Close pops to the exact launch context; cold links replace with project
-main chat or Projects. Sibling section switches replace, children push, independent of width. Cross-tree repairs
+main chat or Projects. Sibling section and scope switches replace, children push, independent of width. Cross-tree repairs
 continue the visit. Usage and MCP navigation-level views are entries, not untracked local overlays. In-app Back
 is shown only with a known earlier app entry, including installed windows. Unknown sections explain and recover.
 Web stores a visit ID, validated local origin, owned entry index and prior visit entries in per-entry PageState;
 SvelteKit `persistState` preserves them on reload. Only view identifiers enter state, never form values/secrets.
-A fresh opening of a section index on a split layout selects its first section: Appearance for Settings and
-General for project settings. On the web, a cold opening replaces the index; an in-app opening writes the final
+A fresh opening of a section index on a split layout selects its first section: Appearance for This device,
+Overview for This computer, and General for This project. On the web, a cold opening replaces the index; an in-app opening writes the final
 section into the new entry directly. Android replaces the newly opened index in its stack. There is no extra
-index entry for Back or Close to cross. Backends is already a section with real content, as are backend details,
-Accounts, Devices (Android) and MCP, so opening them never picks a backend, account or server automatically.
+index entry for Back or Close to cross. Computers, AI accounts, Devices and Connected apps are real sections,
+so opening them never picks a computer, account, device or server automatically.
 Phones still open the index. Width is read only when opening: resize, history traversal and restored entries
 never select a default. Up still pops to an existing parent or replaces with the requested parent list.
 

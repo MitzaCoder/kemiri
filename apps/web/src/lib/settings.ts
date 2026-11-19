@@ -1,5 +1,5 @@
 /**
- * Settings, split in two: General settings (this browser and its backends) and Project settings (one project). Both
+ * Settings has three scopes: This project, This computer and This device. All three
  * are a list of sections, and every section has its own URL, so a link, a banner or a notification can open the right
  * one and Android can map the same names one to one. Pure helpers, no runes: the routes, the sidebar and the tests
  * share them. docs/DESIGN.md "Settings" says what each section holds.
@@ -40,13 +40,33 @@ export const COMPUTER_APPS = {
 
 export const GENERAL_SECTIONS = [
 	{ id: "appearance", label: "Appearance", hint: "Theme, light or dark, time and reading", icon: "palette" },
-	{ id: "backends", label: "Computers", term: "Backends", hint: "The computers running Kemiri, their AI accounts and apps", icon: "server" },
 	{ id: "notifications", label: "Notifications", hint: "What reaches this device, and when", icon: "bell" },
+	{ id: "backends", label: "Computers", term: "Backends", hint: "Computers this browser connects to", icon: "server" },
 	{ id: "archived", label: "Archived projects", hint: "Bring a project back", icon: "archive" },
-	{ id: "about", label: "About", hint: "Kemiri versions and updates", icon: "settings" },
+	{ id: "about", label: "About", hint: "Kemiri versions", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
 
 export type GeneralSectionId = (typeof GENERAL_SECTIONS)[number]["id"];
+
+export const COMPUTER_SECTIONS = [
+	{ id: "overview", label: "Overview", hint: "Status and software updates", icon: "server" },
+	{ id: "accounts", ...COMPUTER_ACCOUNTS, icon: "key-round" },
+	{ id: "you", label: "You and memory", hint: "Your name and automatic memory cleanup", icon: "users" },
+	{ id: "mcp", ...COMPUTER_APPS, icon: "server" },
+	{ id: "devices", label: "Devices", hint: "Signed-in devices and adding a device", icon: "users" },
+	{ id: "advanced", label: "Advanced", hint: "Name on this device, address and removal", icon: "settings" },
+] as const satisfies readonly SettingsSectionInfo[];
+
+export type ComputerSectionId = (typeof COMPUTER_SECTIONS)[number]["id"];
+export function isComputerSection(value: unknown): value is ComputerSectionId {
+	return COMPUTER_SECTIONS.some(section => section.id === value);
+}
+
+export const SETTINGS_SCOPES = [
+	{ value: "project", label: "This project" },
+	{ value: "computer", label: "This computer" },
+	{ value: "device", label: "This device" },
+] as const;
 
 export const PROJECT_SECTIONS = [
 	{ id: "general", label: "General", hint: "Name, folder, archive", icon: "folder" },
@@ -82,7 +102,7 @@ export function generalSettingsHref(section?: GeneralSectionId): string {
 }
 
 /** One backend's own page, or one of its subpages. */
-export function backendSettingsHref(backendId: string, sub?: "accounts" | "mcp"): string {
+export function backendSettingsHref(backendId: string, sub?: ComputerSectionId): string {
 	const base = `${GENERAL_SETTINGS_HREF}/backends/${encodeURIComponent(backendId)}`;
 	return sub === undefined ? base : `${base}/${sub}`;
 }
@@ -112,6 +132,9 @@ export function settingsEntryRedirect(url: Pick<URL, 'pathname' | 'search' | 'ha
 	if (path === GENERAL_SETTINGS_HREF && split) {
 		return generalSettingsHref(GENERAL_SECTIONS[0].id) + url.search + url.hash;
 	}
+	if (location?.scope === "computer" && split && path === backendSettingsHref(location.backendId)) {
+		return backendSettingsHref(location.backendId, COMPUTER_SECTIONS[0].id) + url.search + url.hash;
+	}
 	if (location?.scope !== "project" || path !== projectSettingsHref(location.backendId, location.projectId)) return;
 	// Old schedule notification URLs point at the project index with a fragment, even on phones.
 	const section = url.hash.startsWith("#schedule-") ? "schedules" : split ? PROJECT_SECTIONS[0].id : undefined;
@@ -119,7 +142,8 @@ export function settingsEntryRedirect(url: Pick<URL, 'pathname' | 'search' | 'ha
 }
 
 export type SettingsLocation =
-	| { scope: "general"; section: GeneralSectionId | undefined; parts: string[] }
+	| { scope: "device"; section: GeneralSectionId | undefined; parts: string[] }
+	| { scope: "computer"; backendId: string; section: ComputerSectionId | undefined; parts: string[] }
 	| { scope: "project"; backendId: string; projectId: string; section: ProjectSectionId | undefined; parts: string[] };
 
 function decode(part: string): string | undefined {
@@ -138,8 +162,13 @@ export function settingsLocation(pathname: string): SettingsLocation | undefined
 	const parts = pathname.split("/").filter((part) => part.length > 0);
 	if (parts[0] === "settings") {
 		const section = parts[1];
-		if (section === undefined) return { scope: "general", section: undefined, parts: [] };
-		return { scope: "general", section: isGeneralSection(section) ? section : undefined, parts: parts.slice(2) };
+		if (section === "backends" && parts[2] !== undefined) {
+			const backendId = decode(parts[2]);
+			if (backendId === undefined) return undefined;
+			return { scope: "computer", backendId, section: isComputerSection(parts[3]) ? parts[3] : undefined, parts: parts.slice(4) };
+		}
+		if (section === undefined) return { scope: "device", section: undefined, parts: [] };
+		return { scope: "device", section: isGeneralSection(section) ? section : undefined, parts: parts.slice(2) };
 	}
 	if (parts[0] === "b" && parts[2] === "projects" && parts[4] === "settings") {
 		const backendId = decode(parts[1] ?? "");
@@ -163,14 +192,13 @@ export function settingsLocation(pathname: string): SettingsLocation | undefined
  */
 export function settingsParentHref(pathname: string): string | undefined {
 	const location = settingsLocation(pathname);
-	if (location === undefined || location.section === undefined) return undefined;
-	if (location.scope === "general") {
-		if (location.section === "backends" && location.parts.length > 1) {
-			return backendSettingsHref(decode(location.parts[0] ?? "") ?? "");
-		}
-		if (location.section === "backends" && location.parts.length === 1) return generalSettingsHref("backends");
-		return GENERAL_SETTINGS_HREF;
+	if (location === undefined) return undefined;
+	if (location.scope === "computer") {
+		return pathname.replace(/\/$/, "") === backendSettingsHref(location.backendId)
+			? generalSettingsHref("backends") : backendSettingsHref(location.backendId);
 	}
+	if (location.section === undefined) return undefined;
+	if (location.scope === "device") return GENERAL_SETTINGS_HREF;
 	return projectSettingsHref(location.backendId, location.projectId);
 }
 

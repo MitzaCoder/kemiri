@@ -2,12 +2,12 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { page } from '$app/state';
-	import { harness } from '#lib/harness.svelte.js';
-	import { settingsParentHref, backendSettingsHref } from '#lib/settings.js';
+	import { settingsParentHref, settingsLocation, backendSettingsHref, generalSettingsHref, projectSettingsHref, SETTINGS_SCOPES, GENERAL_SECTIONS, COMPUTER_SECTIONS, PROJECT_SECTIONS } from '#lib/settings.js';
 	import { inAppBackVisible } from '#lib/settings-navigation.js';
 	import { settingsUp, settingsClose, mcpListUp } from '#lib/settings-navigation.svelte.js';
 	import type { Snippet } from 'svelte';
 	import ProjectsMenuButton from '#lib/components/ProjectsMenuButton.svelte';
+	import SettingsScopeSwitch from './SettingsScopeSwitch.svelte';
 	import SettingsNav, { type SettingsNavItem } from '#lib/components/settings/SettingsNav.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
@@ -20,9 +20,6 @@
 		activeId,
 		navLabel,
 		leaveHref,
-		parentHref,
-		parentLabel,
-		header,
 		children
 	}: {
 		items: readonly SettingsNavItem[];
@@ -30,32 +27,27 @@
 		navLabel: string;
 		/** Cold-link Close fallback; warm visits pop to their exact origin. */
 		leaveHref: string;
-		parentHref?: string;
-		parentLabel?: string;
-		header: Snippet;
 		children?: Snippet;
 	} = $props();
 
-	const rootHref = $derived(items[0] ? settingsParentHref(items[0].href) : page.url.pathname);
-	const atList = $derived(page.url.pathname === rootHref);
+	const location = $derived(settingsLocation(page.url.pathname));
+	const rootHref = $derived(location?.scope === 'project' ? projectSettingsHref(location.backendId, location.projectId)
+		: location?.scope === 'computer' ? backendSettingsHref(location.backendId) : generalSettingsHref());
+	const atList = $derived(page.url.pathname.replace(/\/$/, '') === rootHref && items.length > 0);
 	const mcpSelected = $derived(page.state.mcp?.selectedId);
-	const upHref = $derived(mcpSelected ? page.url.pathname : parentHref ?? (!atList ? rootHref : undefined));
+	const upHref = $derived(mcpSelected ? page.url.pathname : settingsParentHref(page.url.pathname) ?? (!atList && page.url.pathname !== rootHref ? rootHref : undefined));
 	function goUp(to: string): void { if (mcpSelected && to === page.url.pathname) mcpListUp(); else settingsUp(to); }
 	const breadcrumbs = $derived.by(() => {
-		const paths = [page.url.pathname];
-		let parent = settingsParentHref(page.url.pathname);
-		while (parent) { paths.unshift(parent); parent = settingsParentHref(parent); }
-		if (paths.length === 1 && !atList && rootHref) paths.unshift(rootHref);
-		const crumbs = paths.map(path => ({ href: path, label:
-			items.find(item => item.href === path)?.label
-			?? harness.backends.find(backend => backendSettingsHref(backend.id) === path)?.name
-			?? (path === rootHref ? (navLabel.startsWith('Project') ? 'Project settings' : 'Settings')
-				: path.endsWith('/accounts') ? 'Accounts' : path.endsWith('/mcp') ? 'MCP' : 'Unknown section')
-		}));
+		const scopeLabel = SETTINGS_SCOPES.find(scope => scope.value === location?.scope)?.label ?? 'This device';
+		const crumbs = [{ href: generalSettingsHref(), label: 'Settings' }, { href: rootHref, label: scopeLabel }];
+		if (page.url.pathname.replace(/\/$/, '') !== rootHref) {
+			const sections = location?.scope === 'project' ? PROJECT_SECTIONS : location?.scope === 'computer' ? COMPUTER_SECTIONS : GENERAL_SECTIONS;
+			crumbs.push({ href: page.url.pathname, label: sections.find(section => section.id === location?.section)?.label ?? 'Unknown section' });
+		}
 		if (mcpSelected) crumbs.push({ href: page.url.pathname, label: mcpSelected });
 		return crumbs;
 	});
-	const upLabel = $derived(mcpSelected ? 'MCP servers' : parentLabel ?? breadcrumbs.at(-2)?.label ?? 'Settings');
+	const upLabel = $derived(mcpSelected ? 'Connected apps' : atList && location?.scope === 'computer' ? 'Computers' : breadcrumbs.at(-2)?.label ?? 'Settings');
 </script>
 
 <div class="relative h-full w-full">
@@ -72,6 +64,9 @@
 						<ArrowLeftIcon /> <span class="max-sm:sr-only">Back</span>
 					</Button>
 				{/if}
+				{#if atList && location?.scope === 'computer' && upHref}
+					<Button variant="ghost" class="hidden h-11 px-3 md:inline-flex" onclick={() => goUp(upHref!)} aria-label="Up to Computers"><ArrowLeftIcon /> Computers</Button>
+				{/if}
 				<nav aria-label="Settings breadcrumbs" class="hidden min-w-0 flex-1 flex-wrap items-center md:flex">
 					{#each breadcrumbs as crumb, index}
 						{#if index > 0}<span aria-hidden="true">›</span>{/if}
@@ -80,14 +75,15 @@
 						{:else}<span class="px-3 text-sm" aria-current="page">{crumb.label}</span>{/if}
 					{/each}
 				</nav>
-				{#if !atList && upHref}
+				{#if upHref}
 					<Button variant="ghost" class="h-11 min-w-0 flex-1 px-3 text-sm md:hidden" onclick={() => goUp(upHref)} data-settings-up>
 						<span class="truncate">Up to {upLabel}</span>
 					</Button>
 				{/if}
 				<Button variant="ghost" class="ml-auto h-11 min-w-11 px-3" aria-label="Close settings" title="Close settings" onclick={() => settingsClose(leaveHref)}><XIcon /></Button>
 			</div>
-			{@render header()}
+			<h1 class="text-2xl font-bold tracking-tight">Settings</h1>
+			{#if location}<SettingsScopeSwitch {location} />{/if}
 		</header>
 
 		<div class={atList ? 'md:max-w-md' : 'md:grid md:grid-cols-[13.5rem_minmax(0,1fr)] md:items-start md:gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10'}>

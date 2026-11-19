@@ -8,6 +8,8 @@
 	import { reportInteraction, startInteractionReporting } from '#lib/interaction.js';
 	import { notifications } from '#lib/notifications.svelte.js';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
+	import { LAST_PROJECT_KEY } from '#lib/settings-scope.js';
+	import { settingsLocation } from '#lib/settings.js';
 	import { currentProject, projectSeenKey } from '#lib/projects.js';
 	import { suggestedBackends } from '#lib/suggested-backends.svelte.js';
 	import ProjectsSidebar from '#lib/components/ProjectsSidebar.svelte';
@@ -36,6 +38,9 @@
 		const project = backend?.projects.find((entry) => entry.id === target.projectId);
 		if (backend === undefined || project === undefined) return;
 		projectsNav.markSeen(projectSeenKey(backend.id, project.id), project.activity);
+		if (!settingsLocation(page.url.pathname) && !project.archived) {
+			try { localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify(target)); } catch { /* Optional device storage. */ }
+		}
 	});
 
 	// The drawer is a transient menu: following a link in it closes it.

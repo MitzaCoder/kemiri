@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Banner from '#lib/components/Banner.svelte';
-	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
 	import NotFoundNote from '#lib/components/settings/NotFoundNote.svelte';
 	import SettingsShell from '#lib/components/settings/SettingsShell.svelte';
 	import type { SettingsNavItem } from '#lib/components/settings/SettingsNav.svelte';
@@ -12,8 +11,7 @@
 		PROJECT_SECTIONS,
 		projectSectionAvailable,
 		projectSettingsHref,
-		settingsLocation,
-		settingsParentHref
+		settingsLocation
 	} from '#lib/settings.js';
 	import type { LayoutProps } from './$types';
 
@@ -55,36 +53,15 @@
 </script>
 
 <svelte:head>
-	<title>Project settings · Kemiri</title>
+	<title>Settings · Kemiri</title>
 </svelte:head>
 
-{#if backend === undefined}
-	<main class="mx-auto flex w-full max-w-3xl flex-col gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-5">
-		<NotFoundNote title="Unknown backend">
-			No backend with the ID "{backendId}" is configured in this browser. <a class="underline" href="/">Back to projects</a>
+<SettingsShell {items} {activeId} navLabel="Project settings sections" leaveHref={backend ? projectHref(backendId, projectId) : '/'}>
+	{#if backend === undefined}
+		<NotFoundNote title="Unknown computer">
+			This computer is not configured in this browser. <a class="underline" href="/">Back to projects</a>
 		</NotFoundNote>
-	</main>
-{:else}
-	<SettingsShell
-		{items}
-		{activeId}
-		navLabel="Project settings sections"
-		leaveHref={projectHref(backendId, projectId)}
-		parentHref={settingsParentHref(page.url.pathname)}
-		parentLabel="{project?.name ?? 'Project'} settings"
-	>
-		{#snippet header()}
-			<div class="flex items-start gap-2">
-				<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-					<h1 class="text-2xl font-bold tracking-tight break-words">{project?.name ?? 'Project settings'}</h1>
-					<p class="font-mono text-xs break-words text-muted-foreground">
-						{backend.name}{project ? ` · ${project.path}` : ''}
-					</p>
-				</div>
-				<ConnectionBadge {backend} />
-			</div>
-		{/snippet}
-
+	{:else}
 		<div class="flex flex-col gap-5">
 			{#if backend.lastError}<Banner tone="error">{backend.lastError}</Banner>{/if}
 			{#if project === undefined}
@@ -102,5 +79,5 @@
 				{@render children()}
 			{/if}
 		</div>
-	</SettingsShell>
-{/if}
+	{/if}
+</SettingsShell>

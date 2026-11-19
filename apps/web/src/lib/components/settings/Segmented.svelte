@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { cn } from '#lib/utils.js';
 
-	export type SegmentedOption = { value: string; label: string; disabled?: boolean };
+	export type SegmentedOption = { value: string; label: string; disabled?: boolean; hint?: string };
 
 	/**
 	 * A short choice shown whole, as one raised bar of buttons: a radio group underneath, so the arrows move between
@@ -56,6 +56,7 @@
 			type="button"
 			role="radio"
 			aria-checked={checked}
+			title={option.hint}
 			tabindex={checked || (value === '' && option === options[0]) ? 0 : -1}
 			disabled={disabled || option.disabled}
 			class="min-h-11 flex-1 rounded-lg px-3 text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 {compact ? 'sm:min-h-7 sm:px-2 sm:text-xs' : 'sm:min-h-8'} {checked

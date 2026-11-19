@@ -71,7 +71,7 @@ describe('settings history policy', () => {
 		h.go(-1); h.assert([...start, S, S + '/coordinator'], 1);
 	});
 	test('W2: a wide opening uses one entry, so Back and Close return to the exact origin', () => {
-		for (const [index, section] of [['/settings', '/settings/appearance'], [S, S + '/general']] as const) {
+		for (const [index, section] of [['/settings', '/settings/appearance'], [S, S + '/general'], ['/settings/backends/sample', '/settings/backends/sample/overview']] as const) {
 			const h = new BrowserHistory();
 			h.move(settingsEntryRedirect(new URL(index, origin), true) ?? index);
 			h.assert([...start, section]);
@@ -86,7 +86,7 @@ describe('settings history policy', () => {
 		h.go(-1); h.assert([...start, S], 1);
 	});
 	test('fresh indexes respect width and retain query and fragment; subsection links are untouched', () => {
-		for (const path of ['/settings', S, '/settings?example=1']) {
+		for (const path of ['/settings', S, '/settings?example=1', '/settings/backends/sample']) {
 			expect(settingsEntryRedirect(new URL(path, origin), false)).toBeUndefined();
 		}
 		expect(settingsEntryRedirect(new URL('/settings/?example=1#section', origin), true))
@@ -95,11 +95,23 @@ describe('settings history policy', () => {
 			expect(settingsEntryRedirect(new URL(S + '?example=1#schedule-sample', origin), split))
 				.toBe(S + '/schedules?example=1#schedule-sample');
 			for (const path of ['/settings/notifications', '/settings/unknown', '/settings/backends',
-				'/settings/backends/sample', '/settings/backends/sample/accounts', '/settings/backends/sample/mcp',
+				'/settings/backends/sample/accounts', '/settings/backends/sample/mcp',
 				S + '/coordinator', S + '/unknown']) {
 				expect(settingsEntryRedirect(new URL(path, origin), split)).toBeUndefined();
 			}
 		}
+	});
+	test('scope and context switches replace, while cross-scope content links push', () => {
+		const h = new BrowserHistory();
+		const computer = '/settings/backends/sample';
+		h.move(S + '/general');
+		h.move(computer + '/overview', true);
+		h.move('/settings/appearance', true);
+		h.assert([...start, '/settings/appearance']);
+		h.close(); h.assert([...start, '/settings/appearance'], 1);
+		h.move(S + '/mcp'); h.move(computer + '/mcp');
+		h.assert([...start, S + '/mcp', computer + '/mcp']);
+		h.go(-1); h.assert([...start, S + '/mcp', computer + '/mcp'], 2);
 	});
 	test('W3: backend drilldown has real parents at every width', () => {
 		const h = new BrowserHistory();

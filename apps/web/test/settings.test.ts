@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	GENERAL_SECTIONS,
+	COMPUTER_SECTIONS,
 	PROJECT_SECTIONS,
 	backendSettingsHref,
 	generalSettingsHref,
@@ -27,8 +28,12 @@ describe("settings routes", () => {
 
 	test("keeps the shared section order, labels and old segments", () => {
 		expect(GENERAL_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
-			["appearance", "Appearance"], ["backends", "Computers"], ["notifications", "Notifications"],
+			["appearance", "Appearance"], ["notifications", "Notifications"], ["backends", "Computers"],
 			["archived", "Archived projects"], ["about", "About"],
+		]);
+		expect(COMPUTER_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
+			["overview", "Overview"], ["accounts", "AI accounts"], ["you", "You and memory"],
+			["mcp", "Connected apps"], ["devices", "Devices"], ["advanced", "Advanced"],
 		]);
 		expect(PROJECT_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
 			["general", "General"], ["coordinator", "Main chat"], ["workers", "Workers"], ["schedules", "Scheduled tasks"],
@@ -49,13 +54,14 @@ describe("settings routes", () => {
 		expect(settingsAliasRedirect(legacy)).toBeUndefined();
 	});
 
-	test("reads a general path", () => {
-		expect(settingsLocation("/settings")).toEqual({ scope: "general", section: undefined, parts: [] });
-		expect(settingsLocation("/settings/appearance")).toEqual({ scope: "general", section: "appearance", parts: [] });
+	test("reads device and computer paths", () => {
+		expect(settingsLocation("/settings")).toEqual({ scope: "device", section: undefined, parts: [] });
+		expect(settingsLocation("/settings/appearance")).toEqual({ scope: "device", section: "appearance", parts: [] });
 		expect(settingsLocation("/settings/backends/a%20b/accounts")).toEqual({
-			scope: "general",
-			section: "backends",
-			parts: ["a%20b", "accounts"],
+			scope: "computer",
+			backendId: "a b",
+			section: "accounts",
+			parts: [],
 		});
 		expect(settingsLocation("/settings/nonsense")?.section).toBeUndefined();
 	});
