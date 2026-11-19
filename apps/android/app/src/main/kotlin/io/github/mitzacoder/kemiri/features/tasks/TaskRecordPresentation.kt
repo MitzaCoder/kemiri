@@ -47,7 +47,7 @@ internal fun taskDecided(taskId: String, decisions: List<BoardDecision>, questio
 internal data class ActivityRow(
     val id: String, val at: String?, val label: String, val detail: String? = null, val workerId: String? = null,
     val taskId: String? = null, val fact: BoardTimelineFact? = null, val snapshot: BoardTaskSnapshot? = null, val now: Boolean = false,
-    /** `task-live`: the lines a finished run folded into this row. */
+    /** `task-live`: the trail, counters and plan a finished run folded into this row. */
     val live: BoardTaskLive? = null,
 )
 

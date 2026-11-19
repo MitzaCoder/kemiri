@@ -44,7 +44,8 @@ internal fun visibleLiveLines(lines: List<BoardLiveLine>): List<BoardLiveLine> =
 internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?): BoardTaskActivity? {
     if (!featureEnabled || task.state?.kind != "working") return null
     val live = task.live ?: return null
-    if (live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
+    val hasPlan = live.plan?.any { LivePlanStepStatus.fromWire(it.status) != null } == true
+    if (!hasPlan && live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
         live.lines.none { LiveLineKind.fromWire(it.kind) != null }) return null
     return task.state.sentence ?: activity
 }

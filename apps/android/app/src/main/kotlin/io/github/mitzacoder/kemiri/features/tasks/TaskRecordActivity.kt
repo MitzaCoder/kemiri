@@ -92,9 +92,13 @@ private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTa
             } else {
                 if (row.fact != null && row.fact.at != row.fact.endAt) Text("Started ${exactTime(row.fact.at)}", style = TaskType.xs, color = colors.fgMuted)
                 row.live?.let { live ->
-                    val minute = rememberTaskMinuteNow()
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        visibleLiveLines(live.lines).forEach { line -> key(line.id) { LiveLineRow(line, minute) } }
+                    live.plan?.let { TaskLivePlan(it) }
+                    val lines = visibleLiveLines(live.lines)
+                    if (lines.isNotEmpty()) {
+                        val minute = rememberTaskMinuteNow()
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            lines.forEach { line -> key(line.id) { LiveLineRow(line, minute) } }
+                        }
                     }
                 }
                 if (row.detail != null || row.live == null) TaskDetailText(activityText(row.detail ?: row.label), style = TaskType.sectionTitle, color = colors.fgMuted)

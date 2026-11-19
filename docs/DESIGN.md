@@ -3443,7 +3443,16 @@ arguments are already in the transcript. Plan updates and intents need no extra 
 requests. The one optional bash field changes the tool schema and invalidates prompt
 caches once. Coordinators do not get plan tools. No new flag is needed: stage A/B
 clients ignore the optional plan and already render the pulse label as plain text.
-Android DTOs are regenerated; Android rendering remains a separate stage.
+
+On Android (T318), `task-live` shows Plan and its done count above So far, even for a
+working run with only a plan. Unknown step statuses are skipped before counting.
+Done steps have a tick, the doing step is emphasized and to-do steps are muted. On
+phones (up to 480 dp wide), lists of more than three supported steps default to the
+count and the doing step (or first to-do step), with Show steps and Hide steps to
+toggle the full list. A completed checklist has no current step. TalkBack reads
+“Plan, 3 of 5 done” and each visible step with its state. An expanded Work row in
+Activity shows the full saved plan, including for runs without trail lines. The
+pulse still renders the server's label, including any intent, as plain text.
 
 ### Report freshness (T121, stage 1 of T120)
 

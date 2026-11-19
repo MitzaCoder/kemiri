@@ -91,6 +91,7 @@ internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: S
         }
         live.pulse?.let { LivePulse(it, shown) }
         if (counters.isNotEmpty()) LiveCounters(counters)
+        live.plan?.let { steps -> key(key) { TaskLivePlan(steps, foldOnPhone = true) } }
         if (trail.newest.isNotEmpty()) {
             TaskHeading("So far")
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
