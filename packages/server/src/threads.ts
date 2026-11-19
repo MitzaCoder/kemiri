@@ -93,9 +93,6 @@ import {
 
 /** Threads a schedule started are archived this long after they finish. */
 export const THREAD_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
-/** How many messages one thread may send with `thread_send` in any hour. */
-export const THREAD_MESSAGES_PER_HOUR = 10;
-const HOUR_MS = 60 * 60 * 1000;
 
 /** How much a `thread_peek` shows; a check-in shows less of each thread. */
 export const THREAD_PEEK_ENTRIES = 8;
@@ -136,8 +133,6 @@ export type ThreadRecord = {
 
 export type ThreadsState = {
 	threads: Record<string, ThreadRecord>;
-	/** Each sender's `thread_send` calls of the last hour, for the hourly cap; keyed by call so a rerun counts once. */
-	sent: Record<string, { at: number; callId: string }[]>;
 	/** When the list was created: main's `createdAt` in the protocol. */
 	createdAt: string | null;
 };
@@ -149,11 +144,11 @@ export const ThreadsDoc = defineDoc<ThreadsState>({
 	history: "latest",
 	fork: "initial",
 	checkpointWhen: () => false,
-	initial: () => ({ threads: {}, sent: {}, createdAt: null }),
+	initial: () => ({ threads: {}, createdAt: null }),
 });
 
 function emptyThreadsState(): ThreadsState {
-	return { threads: {}, sent: {}, createdAt: null };
+	return { threads: {}, createdAt: null };
 }
 
 /** Whether a thread counts as archived at `now`: by hand, or 7 days after a schedule-started one finished. */
@@ -1127,28 +1122,6 @@ export class ThreadService {
 	}
 
 	/**
-	 * Count one `thread_send` against the sender's hourly cap; a rerun of the same call is counted once. Returns false
-	 * when the cap is reached.
-	 */
-	async countSend(sender: string, callId: string, commit: <T>(change: (tx: Tx) => Promise<T>) => Promise<T>): Promise<boolean> {
-		const now = this.#options.now();
-		return commit(async (tx) => {
-			const doc = await tx.doc(ThreadsDoc, this.#mainId);
-			const recent = (doc.sent[sender] ?? []).filter((send) => send.at > now - HOUR_MS);
-			if (recent.some((send) => send.callId === callId)) {
-				doc.sent[sender] = recent;
-				return true;
-			}
-			if (recent.length >= THREAD_MESSAGES_PER_HOUR) {
-				doc.sent[sender] = recent;
-				return false;
-			}
-			doc.sent[sender] = [...recent, { at: now, callId }];
-			return true;
-		});
-	}
-
-	/**
 	 * Deliver `[from <sender>] <message>` at the receiver's next step. A request wakes an idle receiver; a reply only
 	 * steers a busy one and is written without a turn into an idle one.
 	 */
@@ -1507,7 +1480,7 @@ function createThreadExtension(service: ThreadService): Extension {
 		description:
 			'Send a message to another thread ("main" for main); it arrives as "[from <you>] ..." at its next step and wakes ' +
 			"it if it is idle. Mark an answer to a message you got with `reply: true`: a reply never wakes an idle thread, it " +
-			`is read at its next turn. Requests and hand-overs only, at most ${THREAD_MESSAGES_PER_HOUR} an hour.`,
+			"is read at its next turn. Requests and hand-overs only.",
 		parameters: Type.Object({
 			id: Type.String({ minLength: 1, description: 'The receiving thread; "main" for main.' }),
 			message: Type.String({ minLength: 1 }),
@@ -1529,13 +1502,6 @@ function createThreadExtension(service: ThreadService): Extension {
 				if (record.archived) {
 					return toolText(`Thread "${args.id}" is archived. Start a new one, or ask main to bring it back.`, { isError: true });
 				}
-			}
-			const allowed = await service.countSend(sender, api.callId, (change) => api.commit(change, context));
-			if (!allowed) {
-				return toolText(
-					`You sent ${THREAD_MESSAGES_PER_HOUR} messages in the last hour, the most a thread may. Put what is left on the board, or in your summary, instead.`,
-					{ isError: true, details: { code: "thread_message_cap" } },
-				);
 			}
 			try {
 				const how = await service.deliver({

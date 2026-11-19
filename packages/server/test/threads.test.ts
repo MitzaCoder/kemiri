@@ -15,7 +15,7 @@ import type {
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { type BoardState, changeOwner, emptyBoardState, askQuestion, openBoard, saveTask } from "../src/board.ts";
-import { THREAD_ARCHIVE_AFTER_MS, THREAD_MESSAGES_PER_HOUR, MAIN_THREADS_SECTION, threadInstructions } from "../src/threads.ts";
+import { THREAD_ARCHIVE_AFTER_MS, MAIN_THREADS_SECTION, threadInstructions } from "../src/threads.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
 it("asks jj background threads to use the namespaced task trailer", () => {
@@ -536,8 +536,9 @@ describe("background threads", () => {
 		expect((await threads(client, projectId, true)).map((entry) => entry.id)).toEqual(["main", "jira-run"]);
 	});
 
-	threadTest("delivers messages between threads: a request wakes, a reply never wakes an idle thread, and a cap holds", async () => {
+	threadTest("delivers requests and batches of replies without waking an idle thread for replies", async () => {
 		const test = await setup();
+		const replies = Array.from({ length: 12 }, (_, index) => `Update ${index + 1}`);
 		let mainReplies = false;
 		script(test, (turn) => {
 			if (turn.who === "thread" && turn.text === THREAD_BRIEF) {
@@ -552,11 +553,9 @@ describe("background threads", () => {
 			if (turn.who === "main" && turn.text === "Answer the thread.") {
 				return call("thread_send", { id: "jira-run", message: "Project ABC.", reply: true });
 			}
-			if (turn.who === "main" && turn.text === "Flood the thread.") {
+			if (turn.who === "main" && turn.text === "Send the updates.") {
 				return fauxAssistantMessage(
-					Array.from({ length: THREAD_MESSAGES_PER_HOUR }, (_, index) =>
-						fauxToolCall("thread_send", { id: "jira-run", message: `ping ${index}`, reply: true }),
-					),
+					replies.map((message) => fauxToolCall("thread_send", { id: "jira-run", message, reply: true })),
 					{ stopReason: "toolUse" },
 				);
 			}
@@ -579,12 +578,14 @@ describe("background threads", () => {
 		expect(answeredAfter(threadView.view, "[from main] Project ABC.")).toBe(false);
 		expect((await thread(client, projectId, "jira-run"))?.status).toBe("idle");
 
-		// With the reply above, one more than the hourly cap: one is refused.
-		await submit(client, projectId, "Flood the thread.");
-		await view.waitForView((value) => toolResultTexts(value, "thread_send").length === THREAD_MESSAGES_PER_HOUR + 1);
-		const flood = toolResultTexts(view.view, "thread_send").slice(1);
-		expect(flood.filter((result) => result.isError)).toHaveLength(1);
-		expect(flood.find((result) => result.isError)?.text).toContain("in the last hour");
+		await submit(client, projectId, "Send the updates.");
+		await view.waitForView((value) => toolResultTexts(value, "thread_send").length === replies.length + 1);
+		expect(toolResultTexts(view.view, "thread_send").filter((result) => result.isError)).toHaveLength(0);
+		await threadView.waitForView((value) => userEntries(value, "[from main] Update ").length === replies.length);
+		expect(userEntries(threadView.view, "[from main] Update ").map(entryText).sort()).toEqual(
+			replies.map((message) => `[from main] ${message}`).sort(),
+		);
+		expect((await thread(client, projectId, "jira-run"))?.status).toBe("idle");
 	});
 
 	threadTest("resumes a thread and its workers after a restart with the same memory brief", async () => {

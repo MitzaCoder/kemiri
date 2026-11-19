@@ -2521,7 +2521,7 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   (compare-and-set on the revision) before working on it, releases or hands it over. Memory is shared, and every
   coordinator thread may write it (writes are serialized and committed).
 - **Messages.** `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply never wakes an idle
-  receiver, and each thread has an hourly cap, so threads cannot ping-pong. Requests and hand-overs only.
+  receiver. Requests and hand-overs only.
 - **Finishing.** A background thread ends with `thread_finish` and a summary, which reaches the thread that started
   it (main for schedules) as `[thread <id> finished] …`, reviewed or recorded (`onFinish`). Threads started by a
   schedule archive 7 days after finishing; others stay until archived. Unlike worker submissions, summaries come from
@@ -2580,8 +2580,8 @@ Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-
   posted once per error entry). Writing to a done or stopped thread (the user in the app, a non-reply message, a
   board answer to its question, a task handed to it, an unblocked task it owns) revives it. Stopping or finishing
   releases the open board tasks it held; a settled task keeps its owner.
-- **Messages.** At most 10 `thread_send` per sender per rolling hour, main included; a rerun of the same call counts
-  once. A reply (`reply: true`) to an idle receiver is a write.
+- **Messages.** Each `thread_send` uses a request ID derived from the tool call so a replay does not duplicate the
+  message. A reply (`reply: true`) to an idle receiver is written without starting a turn.
 - **Schedules.** `kind: "thread"` runs as `<scheduleId>-<yyyy-mm-dd-hhmm>`; the next run is skipped while the
   previous thread is `running` or `idle` (a failed or stopped one does not block). `onReport` is `onFinish`, and a
   `record` thread does not keep main's check-ins going.

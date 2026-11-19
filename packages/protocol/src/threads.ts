@@ -10,8 +10,7 @@
  *
  * Threads talk through the project's shared board (tasks carry `ownerThreadId`; a thread claims a task before working
  * on it), shared memory, and messages: `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply
- * (`reply: true`) never wakes an idle receiver, and each thread may send a bounded number of messages per hour, so two
- * threads cannot keep each other busy.
+ * (`reply: true`) never wakes an idle receiver.
  *
  * The user talks to main. Main relays status and steering, everything a thread does shows in main as cards, and
  * questions any thread asks on the board appear above main's composer. A thread can still be opened and typed into.
