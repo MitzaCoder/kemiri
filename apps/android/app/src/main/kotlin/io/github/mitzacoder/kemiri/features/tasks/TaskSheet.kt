@@ -237,6 +237,8 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         }
     }
 
+    val taskUsage = rememberTaskUsage(context, taskId)
+
     // Budget from the space ABOVE the IME, not the full display. Non-weighted headers used to consume all
     // Column constraints before the reply was measured, leaving a focused but invisible input/send button.
     BoxWithConstraints(Modifier.fillMaxSize().then(insets).imePadding()) {
@@ -301,6 +303,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                         if (task.report.results.isNotBlank()) ReportMarkdown(task.report.results)
                         else if (fields.summary == null && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                         failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
+                        TaskUsageDisclosure(taskUsage, taskId)
                         TaskProof(context, artifacts)
                     }
                 }

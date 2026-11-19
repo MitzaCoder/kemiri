@@ -10,6 +10,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import io.github.mitzacoder.kemiri.navigation.Destination
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -30,8 +32,35 @@ import kotlin.math.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier) {
+fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, navigate: (Destination) -> Unit) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
+    val valueBackends = sessions.mapNotNull { backend -> key(backend) {
+        val connection by backend.client.state.collectAsStateWithLifecycle()
+        backend.takeIf { connection.supports(HarnessFeature.SUBSCRIPTION_VALUE) }
+    } }
+    var showValue by rememberSaveable { mutableStateOf(false) }
+    val viewingValue = showValue && valueBackends.isNotEmpty()
+    Column(modifier.fillMaxSize()) {
+        if (valueBackends.isNotEmpty()) {
+            val tabs = listOf("Limits", "Value")
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                tabs.forEachIndexed { index, label ->
+                    SegmentedButton(
+                        selected = viewingValue == (index == 1), onClick = { showValue = index == 1 },
+                        shape = SegmentedButtonDefaults.itemShape(index, tabs.size), label = { Text(label) },
+                    )
+                }
+            }
+        }
+        if (viewingValue) SubscriptionValueScreen(valueBackends) { backend, projectId, taskId ->
+            navigate(Destination.Task(Destination.Chat(backend.config.key, projectId), taskId))
+        } else UsageLimits(sessions)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UsageLimits(sessions: List<BackendSession>) {
     var now by remember { mutableDoubleStateOf(System.currentTimeMillis().toDouble()) }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(owner) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while(true) { now = System.currentTimeMillis().toDouble(); delay(15000) } } }
@@ -40,7 +69,7 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier) {
     val loading = watches.map { (_, watch) -> watch.state.collectAsStateWithLifecycle().value.loading }.any { it }
     PullToRefreshBox(isRefreshing = loading, onRefresh = {
         watches.forEach { (_, watch) -> if (!watch.state.value.loading) watch.refresh() }
-    }, modifier = modifier.fillMaxSize()) {
+    }, modifier = Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().wrapContentWidth().widthIn(max = 1200.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text("Subscription usage", style = MaterialTheme.typography.headlineSmall)
         Text("Your subscription limits, not API billing. The outer arc is usage; the inner arc is time passed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

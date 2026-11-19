@@ -212,7 +212,7 @@ fun HarnessApp(
                     else screenState.SaveableStateProvider(current.screenStateKey()) {
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
-                            Destination.Usage -> UsageScreen(repository, modifier)
+                            Destination.Usage -> UsageScreen(repository, modifier, navigate)
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, navigate, connectPayload, onConnectHandled, modifier)
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, modifier, current.unavailableSection) else MissingBackend(modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)

@@ -1948,6 +1948,12 @@ Default prices disclose their checked date and source. The owner can enter a mon
 reset it to the default with `null`. Changes apply from now; older months are read-only. A missing price shows
 “Add what you pay” in the current month without suppressing the usage estimates.
 
+**Android (T329).** The usage screen keeps the existing Limits view and adds a Limits / Value switch only when
+at least one backend advertises `subscription-value`. Value requests the selected calendar month with the device's
+UTC offset at that month's start, and shows the supporting backends' cards in one column. It uses the same realised
+ratio, money format (including “< $0.01”), separate API payments, and project coordinator rows as web. Top tasks open
+the task sheet. Only the current month offers price editing and an explicit null reset. Older reports are read-only.
+
 Usage totals count input, cache read, cache write and output separately, including keep-warm calls. Groups rank by
 catalog-price equivalent, not cache-miss cost: caller role (scheduled runs take precedence over worker/thread),
 provider/model × role, project, board task and conversation. All shares use the same recorded total. These are not
@@ -5795,6 +5801,10 @@ lines; a stale one offers the existing update action. There is no section naviga
 - Your notes folds addressed and dismissed entries and shows each stored reply under its note. The request
   starts open; Decided and Activity start closed. The three choices are saved independently on the device.
   Activity keeps timeline filtering and sort, snapshot history and worker links.
+- With `task-usage`, Android reads the task's usage projection when the sheet opens. Below the report, tasks with
+  recorded requests get a fold showing their API value, estimated limit share and worker, thread and subtask counts.
+  The fold separates the task's own work from its nested subtasks, subscription coverage from API-key spend, and lists
+  costs by worker or thread. Board cards and the live block do not change.
 - The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
   sync. See Compact refs and keyboard space above.
 
