@@ -11,8 +11,8 @@ export const workerCommandIntent = defineExtension({
   return { ...tool, parameters: Type.Unsafe({
    ...parameters,
    properties: { ...parameters.properties, intent: Type.String({
-    maxLength: COMMAND_INTENT_MAX_CHARS,
-    description: "Optional few words on what the command is for, shown on the task. Use prose, not command text or secrets.",
+    // No maxLength: a long intent is clipped for display instead of failing the whole command call.
+    description: `Optional few words on what the command is for, shown on the task (about ${COMMAND_INTENT_MAX_CHARS} characters; longer is cut). Use prose, not command text or secrets.`,
    }) },
   }) };
  })],

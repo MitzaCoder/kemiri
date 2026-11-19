@@ -483,7 +483,8 @@ it("a reused worker's progress goes to its new task and folds when its answer en
   await send("Reuse the worker");
   await sample;
   expect(commandOutput).toContain("synthetic-receipt");
-  expect(commandSchema).toMatchObject({ properties: { intent: { type: "string", maxLength: 60 } }, required: ["command"] });
+  expect(commandSchema).toMatchObject({ properties: { intent: { type: "string" } }, required: ["command"] });
+  expect((commandSchema as { properties: { intent: Record<string, unknown> } }).properties.intent.maxLength).toBeUndefined();
   await send("Read the run plan");
   expect(shownTask).toContain("Plan (1 of 3):\n1. [x] Read the receipt\n2. [>] Check the balance");
   expect(coordinatorSchema).toBeDefined();

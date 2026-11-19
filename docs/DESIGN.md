@@ -3447,7 +3447,7 @@ even with no trail lines. The row label includes the count, and web opens to the
 checklist. In Live, web shows the checklist above So far; on phones, plans longer than
 three steps default to the current step and count, with the rest one tap away.
 
-Worker `bash` takes an optional `intent` of up to 60 characters, without changing shell
+Worker `bash` takes an optional `intent` (no schema limit, so a long one never fails the call), without changing shell
 execution. The pulse prefers that prose to its fixed label, folds whitespace, removes
 control characters, rejects assignment-shaped text and clips to 60 characters on
 projection. It is not copied to board storage or retained after the tool call; the
