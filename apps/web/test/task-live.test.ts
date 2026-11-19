@@ -1,8 +1,5 @@
-import { expect, it } from 'bun:test';
-import { createServer } from 'vite';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { beforeAll, describe, expect, it } from 'bun:test';
+import { loadSvelteSsr } from './svelte-ssr.js';
 import type { BoardLiveLine, BoardTaskActivity, WorkerSummary } from '@kemiri/protocol';
 import { liveNewsWorkLogHref, liveSeenKey, visibleLiveLines, visitLiveTrail } from '../src/lib/task-live.js';
 
@@ -32,7 +29,6 @@ it('ignores future kinds and treats a checkpoint outside the retained trail as o
  expect(visitLiveTrail(storage, 'task')(lines)).toEqual({ unseen: 2, arrived: [] });
 });
 
-
 it('does not re-highlight earlier lines when a source folds, and marks the first line in an open empty trail', () => {
  const storage = { getItem: () => null, setItem: () => {} };
  const visit = visitLiveTrail(storage, 'task');
@@ -44,16 +40,19 @@ it('does not re-highlight earlier lines when a source folds, and marks the first
 });
 
 
-it('renders the pulse and recorded facts with nonzero counters, without repeating Now', async () => {
- const directory = await mkdtemp(join(tmpdir(), 'kemiri-live-test-'));
- const vite = await createServer({ root: import.meta.dir + '/..', cacheDir: join(directory, 'cache'), server: { middlewareMode: true }, logLevel: 'error' });
- try {
-  const { default: TaskLive } = await vite.ssrLoadModule('/src/lib/components/TaskLive.svelte');
-  const { render } = await vite.ssrLoadModule('svelte/server');
-  const now: BoardTaskActivity = { actor: a.actor, kind: 'working', text: `fern is ${a.text}`, since: a.at, refs: [] };
-  const fact = { ...b, kind: 'fact', text: 'Saved 9 files' };
+describe('task live server rendering', () => {
+ let ssr: typeof import('./fixtures/task-live-ssr.js');
+ beforeAll(async () => {
+  ssr = await loadSvelteSsr(import.meta.dir + '/fixtures/task-live-ssr.ts') as typeof ssr;
+ });
+
+ const now: BoardTaskActivity = { actor: a.actor, kind: 'working', text: `fern is ${a.text}`, since: a.at, refs: [] };
+ const props = { now, backendId: 'demo', projectId: 'bakery', taskId: 'T1' };
+ const fact = { ...b, kind: 'fact', text: 'Saved 9 files' };
+
+ it('renders the pulse and recorded facts with nonzero counters, without repeating Now', () => {
+  const { TaskLive, render } = ssr;
   const counters = { steps: 2, filesSaved: 9, filesChanged: 0, commits: 0, checks: 0 };
-  const props = { now, backendId: 'demo', projectId: 'bakery', taskId: 'T1' };
   const html = render(TaskLive, { props: { ...props, live: { lines: [a, fact], pulse: { tool: 'bash', label: 'Running tests', since: a.at }, counters } } }).body;
   expect(html).toContain('Running tests');
   expect(html).toContain('Recorded');
@@ -66,6 +65,10 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   expect(empty).not.toContain('Run counters');
   expect(empty).not.toContain('Run pulse');
   expect(empty).not.toContain('Plan steps');
+ });
+
+ it('renders plan progress above the live trail', () => {
+  const { TaskLive, render } = ssr;
   const withPlan = render(TaskLive, { props: { ...props, live: { lines: [fact], plan: [
    { text: 'Trace payments', status: 'done' }, { text: 'Add gift cards', status: 'done' },
    { text: 'Check balances', status: 'done' }, { text: 'Run tests', status: 'doing' },
@@ -79,6 +82,10 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   expect(withPlan).toContain('data-status="todo"');
   expect(withPlan).toContain('Show steps');
   expect(withPlan.indexOf('Plan steps')).toBeLessThan(withPlan.indexOf('So far'));
+ });
+
+ it('renders automatic news with grouped evidence and work log links', () => {
+  const { TaskLive, render } = ssr;
   const auto = { ...line('c', 'auto'), picker: 'most_steps', evidence: { conversationId: 1, steps: [
    ...[18, 20, 22, 24].map(id => ({ entryId: String(id), description: 'Editing a file · payments.ts' })),
    { entryId: '26', description: 'Running tests · checkout' }, { entryId: '28', description: 'Editing a file · payments.ts' },
@@ -104,9 +111,11 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   expect(wrongHtml).toContain('Marked wrong');
   expect(wrongHtml).not.toContain('This is wrong');
   expect(render(TaskLive, { props: { ...props, live: { lines: [auto] } } }).body).not.toContain('data-kind="auto"');
+ });
 
-  const { default: Settings } = await vite.ssrLoadModule('/src/lib/components/settings/ReportAuditGroup.svelte');
-  const setting = (features: string[], mode: 'auto' | 'model') => render(Settings, { props: { watcher: true, projectId: 'bakery', backend: {
+ it('renders live news settings only when the backend supports them', () => {
+  const { ReportAuditGroup, render } = ssr;
+  const setting = (features: string[], mode: 'auto' | 'model') => render(ReportAuditGroup, { props: { watcher: true, projectId: 'bakery', backend: {
    supports: (feature: string) => features.includes(feature), projects: [{ id: 'bakery', taskWatcher: { mode, dailyTokens: 1000 } }],
    connection: { features }, models: [], providers: [], modelsLoaded: true,
   } } }).body;
@@ -116,8 +125,5 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   expect(chooseModel).toContain('Live news lines');
   expect(chooseModel).toContain('Live news model');
   expect(chooseModel).toContain('task-watcher-budget');
- } finally {
-  await vite.close();
-  await rm(directory, { recursive: true, force: true });
- }
+ });
 });

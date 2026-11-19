@@ -3473,6 +3473,9 @@ answer finishes. Its next report and Live trail go to the new task, not the orig
 
 On web, a working task shows Live below Needs you and above What you get. Now appears only
 once, followed by So far in newest-first order, with all but three folded under Earlier.
+The web Live tests compile a single temporary Svelte server bundle for the Live block
+and its news settings. The tests render HTML synchronously without starting Vite or
+mounting browser effects.
 The shared minute clock supplies local ages. A device-local checkpoint per backend, project
 and task advances only while the sheet is open and the document is visible. The divider
 remembers where that visit started; new arrivals highlight once unless reduced motion is set.
