@@ -472,7 +472,7 @@ describe("workers", () => {
 
 		expect(await client.listWorkers(project.id)).toEqual({
 			workers: [],
-			defaults: { model: null, thinkingLevel: null },
+			defaults: { model: { provider: "faux", modelId: "faux-1" }, thinkingLevel: null },
 		});
 
 		const brief = "Summarize the project's README for me.";
