@@ -25,6 +25,7 @@ import { errorMessage } from "./errors.ts";
 import type { SubscriptionTerms } from "./subscription-terms.ts";
 import { RESET_TOLERANCE_MS, type LimitLedger, type LimitReading } from "./limit-ledger.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { ANTIGRAVITY_PROVIDER } from "./official-agents/antigravity.ts";
 
 export const SUBSCRIPTION_USAGE_FILE = "subscription-usage.json";
 export const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
@@ -75,6 +76,7 @@ export type SubscriptionUsageOptions = {
 	terms?: SubscriptionTerms;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
 	fetch?: typeof fetch;
+	readAntigravityQuota?: (signal: AbortSignal) => Promise<UsageReading>;
 	now?: () => number;
 	anthropicBaseUrl?: string;
 	chatgptBaseUrl?: string;
@@ -134,6 +136,8 @@ export class SubscriptionUsageService {
 	readonly #replacedCredentials = new Set<string>();
 	readonly #storedCredentialTypes = new Map<string, string>();
 	readonly #readers: Record<string, UsageReader>;
+	readonly #readAntigravityQuota: SubscriptionUsageOptions["readAntigravityQuota"];
+	readonly #nativeReadAbort = new AbortController();
 	readonly #states = new Map<string, ProviderState>();
 	readonly #resetAttempts = new Map<string, { signature: string; answer: Promise<{ ok: boolean; code: string }> }>();
 	readonly #resetting = new Set<string>();
@@ -161,6 +165,7 @@ export class SubscriptionUsageService {
 		this.#log = options.log ?? (() => {});
 		this.#ledger = options.ledger;
 		this.#terms = options.terms;
+		this.#readAntigravityQuota = options.readAntigravityQuota;
 		this.#readers = {
 			anthropic: (auth, state) => this.#readClaude(auth.apiKey, state),
 			"openai-codex": (auth) => this.#readChatGpt(auth.apiKey),
@@ -320,6 +325,7 @@ export class SubscriptionUsageService {
 
 	async stop(): Promise<void> {
 		this.#stopped = true;
+		this.#nativeReadAbort.abort();
 		if (this.#pollTimer !== undefined) clearInterval(this.#pollTimer);
 		this.#pollTimer = undefined;
 		for (const state of this.#states.values()) {
@@ -343,11 +349,12 @@ export class SubscriptionUsageService {
 		}
 	}
 
-	/** One read of a provider's usage endpoint; concurrent callers share it. Never throws. */
+	/** One read of a provider's quota; concurrent callers share it. Never throws. */
 	#read(providerId: string, options: { force: boolean }): Promise<void> {
 		const state = this.#states.get(providerId);
 		const reader = this.#readers[providerId];
-		if (state === undefined || reader === undefined || this.#stopped) return Promise.resolve();
+		const readNative = providerId === ANTIGRAVITY_PROVIDER ? this.#readAntigravityQuota : undefined;
+		if (state === undefined || (!reader && !readNative) || this.#stopped) return Promise.resolve();
 		if (state.inFlight !== undefined) return state.inFlight;
 		if (this.#now() < state.blockedUntil) return Promise.resolve();
 		const now = performance.now();
@@ -356,10 +363,15 @@ export class SubscriptionUsageService {
 		state.lastAttemptAt = now;
 		state.inFlight = (async () => {
 			try {
+				if (readNative) {
+					const reading = await readNative(this.#nativeReadAbort.signal);
+					if (this.#states.get(providerId) === state && !this.#stopped) this.#apply(providerId, reading);
+					return;
+				}
 				const auth = await this.#models.getAuth(providerId);
 				const apiKey = auth?.auth.apiKey;
 				if (apiKey === undefined) throw new Error("No credential to read usage with; log in again");
-				const reading = await reader({ apiKey }, state);
+				const reading = await reader!({ apiKey }, state);
 				const transport = this.#resetTransport(providerId, apiKey);
 				// Reset discovery has its own cache, independent of window/header updates.
 				if (providerId !== "anthropic" || state.resetsReadAt === 0 || this.#now() - state.resetsReadAt >= RESET_DISCOVERY_MAX_AGE_MS) {
@@ -369,12 +381,12 @@ export class SubscriptionUsageService {
 				if (this.#states.get(providerId) === state) this.#apply(providerId, reading);
 			} catch (error) {
 				const message = this.#describeFailure(state, error);
-				if (this.#states.get(providerId) === state) state.usage = { ...state.usage, error: message };
+				if (this.#states.get(providerId) === state && !this.#stopped) state.usage = { ...state.usage, error: message };
 			} finally {
 				state.inFlight = undefined;
+				this.#persist();
+				this.#publishIfChanged();
 			}
-			this.#persist();
-			this.#publishIfChanged();
 		})();
 		return state.inFlight;
 	}

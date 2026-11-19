@@ -50,6 +50,9 @@ import { MemoryStore } from "./memory.ts";
 import { antigravityDefinition } from "./official-agents/antigravity.ts";
 import { OfficialAgentMcpBridge } from "./official-agents/mcp-bridge.ts";
 import { OfficialAgentSessions } from "./official-agents/provider.ts";
+import { officialAgentAccounts } from "./official-agents/auth.ts";
+import { OfficialAgentAuthError } from "./official-agents/auth-error.ts";
+import { readAntigravityQuota } from "./official-agents/antigravity-quota.ts";
 import { createHarnessModels } from "./models.ts";
 import {
 	type Notifier,
@@ -301,7 +304,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const sockets = new Set<ServerWebSocket<SocketData>>();
 	let pendingHandshakes = 0;
 	const officialAgents = new OfficialAgentSessions(dataDir, credentials, log, new OfficialAgentMcpBridge());
-	const officialAgent: Provider = officialAgents.provider(antigravityDefinition(dataDir, options.antigravityCommand));
+	const antigravity = antigravityDefinition(dataDir, options.antigravityCommand);
+	const officialAgent: Provider = officialAgents.provider(antigravity);
+	const antigravityAccounts = officialAgentAccounts.get(officialAgent)!;
 	const unobservedModels = options.models ?? createHarnessModels({ credentials, officialAgent });
 	if (options.models && options.antigravityCommand) {
 		// Test setups supply a mutable catalog to retain their scripted coordinator provider.
@@ -325,6 +330,13 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		credentials,
 		dataDir,
 		...options.subscriptionUsage,
+		...(unobservedModels.getProvider(antigravity.id) === officialAgent ? {
+			readAntigravityQuota: (signal: AbortSignal) => antigravityAccounts.readSubscription(signal, async (profile, readSignal) => {
+				const command = await antigravity.installedQuotaCommand();
+				if (!command) throw new OfficialAgentAuthError("The pinned Antigravity executable is not installed. Start an Antigravity worker or sign in again.");
+				return readAntigravityQuota(command, antigravity.pinnedVersion, profile, readSignal);
+			}),
+		} : {}),
 		...(options.now === undefined ? {} : { now: options.now }),
 		log,
 		onChange: (subscriptions) => {

@@ -2368,6 +2368,21 @@ in again; a worker never starts an interactive login or switches accounts automa
 replacement try ACP `logout` and remove the old subscription profile without opening its files. Sign-out also deletes
 the Kemiri credential. The signed-out probe verifies the code prompt, not persistence or refresh after Google consent.
 
+**Subscription quota (T341):** read the pinned `agy --print /usage --output-format json` with no prompt turn, not
+`session/prompt` or a Cloud Code API request. A detached, bounded subprocess gets an empty cwd and disposable HOME.
+Only after the version check, alias its `.gemini/antigravity-cli` directory to the selected Kemiri profile's
+`antigravity-acp` directory. This lets agy use and refresh its own native login in place, including atomic writes;
+Kemiri checks the token file's type but never opens, copies or sends it. The read cannot launch browser sign-in,
+install or update agy, or use a Gemini API key. Switching accounts cancels and drains the read before profile
+removal. Request failures retain the last reading and show only a fixed diagnostic, not output from agy.
+
+Read the enabled, measured buckets in a successful zero-turn `usage` command report. Convert remaining fraction
+into used percent, keep the provider's bucket ID and shared model group, and use the reported UTC reset if it is
+in the future. An untouched bucket's moving full-window placeholder is not a scheduled reset. The report carries
+no verified plan label, account identity or catalog price. The Overview shows the quota gauges and real reset times;
+the Value ledger records scoped pools without treating one as a plan-wide binding window. This is quota visibility,
+not Google approval of consumer delegation. See [source and policy evidence](research/antigravity-quota.md).
+
 **Web presentation:** `apps/web/src/lib/official-agents.ts` holds the pure rules, tested in `official-agents.test.ts`.
 Accounts and API keys marks a provider with `officialAgent` with an "Official agent" chip (also in Add a provider) and
 drops the backend's "(official agent)" name suffix. Its panel shows the login in use from `authType` ("Google
@@ -5549,9 +5564,10 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 - The user can choose worker models with each reply; otherwise the
   project's default workers are used.
 - Subscription usage (`subscriptions.usage`, server
-  `subscription-usage.ts`): every OAuth login's rate-limit windows, plus
-  the OpenCode Go API key (a plan with limits), from
-  the endpoint the provider's own CLI shows (Claude Code's `/usage`:
+  `subscription-usage.ts`): every OAuth login's available rate-limit windows, plus
+  the OpenCode Go API key (a plan with limits). Antigravity uses its official CLI's standalone `/usage` JSON
+  and never sends a subscription credential through the backend's HTTP client. Other readers use endpoints
+  shown by the provider's own clients (Claude Code's `/usage`:
   `GET api.anthropic.com/api/oauth/usage`; Codex CLI's `/status`:
   `GET chatgpt.com/backend-api/wham/usage`; OpenCode Go's console meter:
   `GET opencode.ai/inference/go/v1/usage` with `Authorization: Bearer <key>`,

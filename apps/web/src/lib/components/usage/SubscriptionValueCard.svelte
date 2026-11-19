@@ -17,7 +17,8 @@
 
 	const coordinatorProjects = $derived(subscription.coordinatorProjects ?? []);
 	const headline = $derived(realisedValue(subscription));
-	const binding = $derived(subscription.windows.find((window) => window.binding) ?? subscription.windows[0]);
+	const binding = $derived(subscription.windows.find((window) => window.binding));
+	const hasWindows = $derived(subscription.windows.length > 0);
 	const fullUse = $derived(binding?.fullWindowValue && binding.windowsPerMonth
 		? binding.fullWindowValue.estimate * binding.windowsPerMonth : null);
 	const scale = $derived(Math.max(subscription.apiValue, subscription.price.monthlyPrice ?? 0, fullUse ?? 0));
@@ -116,7 +117,7 @@
 		<span class="sr-only" role="status">{priceStatus}</span>
 	</header>
 
-	{#if binding}
+	{#if hasWindows}
 		<dl class="space-y-2 text-xs">
 			{#each [{ label: 'Monthly price', amount: subscription.price.monthlyPrice, color: 'bg-(--chat-fg-muted)', format: valueMoney }, { label: 'API value used', amount: subscription.apiValue, color: 'bg-(--accent-2)', format: valueMoney }, { label: 'At full use · estimated', amount: fullUse, color: 'bg-(--accent-2)/35', format: estimatedMoney }] as comparison (comparison.label)}
 				{#if comparison.amount !== null}
@@ -128,6 +129,7 @@
 			{/each}
 		</dl>
 
+		{#if binding}
 		<dl class="grid grid-cols-3 gap-2 border-y border-(--chat-border) py-3 text-xs">
 			<div>
 				<dt class="text-(--chat-fg-muted)">Plan used this month</dt>
@@ -147,6 +149,15 @@
 				<dd class="mt-1 font-semibold tabular-nums">{valuePercent(binding.elsewhereShare)}</dd>
 			</div>
 		</dl>
+		{:else}
+			<section class="space-y-1 border-y border-(--chat-border) py-3 text-xs" aria-label="Observed quota pools">
+				<h5 class="font-semibold">Observed quota pools</h5>
+				<p class="text-(--chat-fg-muted)">These pools have separate limits. There is no single plan-wide estimate.</p>
+				<ul class="list-inside list-disc text-(--chat-fg-muted)">
+					{#each subscription.windows as window (window.windowId)}<li>{window.label}</li>{/each}
+				</ul>
+			</section>
+		{/if}
 
 		{#if subscription.models.length}
 			<section class="space-y-2" aria-label="Models">
@@ -168,7 +179,7 @@
 		{/if}
 	{/if}
 
-	{#if binding || coordinatorProjects.length}
+	{#if hasWindows || coordinatorProjects.length}
 		<section class="space-y-2" aria-label="Where it went">
 			<h5 class="text-sm font-semibold">Where it went</h5>
 			{#if !subscription.topTasks.length}

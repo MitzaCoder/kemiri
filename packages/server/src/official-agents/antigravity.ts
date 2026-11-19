@@ -10,7 +10,7 @@ import type { OfficialAgentDefinition } from "./definition.ts";
 
 export const ANTIGRAVITY_PROVIDER = "antigravity";
 
-export function antigravityDefinition(dataDir: string, command = serverSettings.KEMIRI_ANTIGRAVITY_COMMAND?.trim()): OfficialAgentDefinition {
+export function antigravityDefinition(dataDir: string, command = serverSettings.KEMIRI_ANTIGRAVITY_COMMAND?.trim()): OfficialAgentDefinition & { installedQuotaCommand(): Promise<string | null> } {
 	const installer = new AntigravityInstaller({ dataDir });
 	const executable = () => command ? Bun.which(command, { PATH: childEnvironment().PATH ?? "" }) : null;
 	return {
@@ -50,6 +50,11 @@ export function antigravityDefinition(dataDir: string, command = serverSettings.
 			const binary = executable();
 			if (!binary) throw new OfficialAgentAuthError("The backend's KEMIRI_ANTIGRAVITY_COMMAND override is not executable.");
 			return binary;
+		},
+		async installedQuotaCommand() {
+			if (command) return executable();
+			if (await installer.installedVersion() === null) return null;
+			return Bun.which(join(installer.directory, "agy"));
 		},
 		installedVersion() {
 			if (!command) return installer.installedVersion();

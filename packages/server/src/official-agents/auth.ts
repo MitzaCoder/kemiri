@@ -21,6 +21,7 @@ export function officialAgentEnvironment(profile: string, scratch: string): Reco
 export class OfficialAgentAccounts {
 	#queue: Promise<unknown> = Promise.resolve();
 	#changes = 0;
+	#subscriptionReader: AbortController | undefined;
 
 	constructor(readonly options: {
 		directory: string;
@@ -39,6 +40,22 @@ export class OfficialAgentAccounts {
 		}
 		const id = subscriptionId(credential);
 		return id ? { login: { mode: "subscription" }, profile: this.#profile(id), identity: id } : undefined;
+	}
+
+	/** Give a native read the selected profile, never its stored tokens. A profile swap waits for cleanup. */
+	async readSubscription<T>(signal: AbortSignal, read: (profile: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+		if (this.changing || this.#subscriptionReader) throw new OfficialAgentAuthError("Antigravity sign-in or another read is in progress.");
+		const reader = new AbortController();
+		this.#subscriptionReader = reader;
+		const readSignal = AbortSignal.any([signal, reader.signal]);
+		const run = this.#queue.then(async () => {
+			readSignal.throwIfAborted();
+			const id = subscriptionId(await this.options.credentials.read(this.options.definition.id, { signal: readSignal }));
+			if (!id) throw new OfficialAgentAuthError(this.options.definition.signInRequired);
+			return read(this.#profile(id), readSignal);
+		}).finally(() => { this.#subscriptionReader = undefined; });
+		this.#queue = run.catch(() => undefined);
+		return run;
 	}
 
 	/** Unlike network providers, activation must include process teardown and a native profile swap. */
@@ -112,6 +129,7 @@ export class OfficialAgentAccounts {
 
 	#change<T>(change: () => Promise<T>): Promise<T> {
 		this.#changes++;
+		this.#subscriptionReader?.abort();
 		const run = this.#queue.then(change).finally(() => { this.#changes--; });
 		this.#queue = run.catch(() => undefined);
 		return run;
