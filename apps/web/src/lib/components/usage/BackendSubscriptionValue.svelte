@@ -53,6 +53,10 @@
 		return projectHref(backend.id, projectId) + taskHref(taskId);
 	}
 
+	function projectName(projectId: string): string {
+		return backend.projects.find((project) => project.id === projectId)?.name || projectId;
+	}
+
 	function openTask(event: MouseEvent): void {
 		if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) usageModal.open = false;
 	}
@@ -64,7 +68,7 @@
 {#snippet cards(subscriptions: UsageValueResponse['subscriptions'])}
 	<div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,25rem),1fr))] items-start gap-3">
 		{#each subscriptions as subscription (`${subscription.providerId}/${subscription.billing}`)}
-			<SubscriptionValueCard {subscription} editable={month === currentMonth && backend.ready} savePrice={(amount) => savePrice(subscription.providerId, amount)} taskHref={taskLink} onTaskClick={openTask} />
+			<SubscriptionValueCard {subscription} editable={month === currentMonth && backend.ready} savePrice={(amount) => savePrice(subscription.providerId, amount)} taskHref={taskLink} onTaskClick={openTask} {projectName} />
 		{/each}
 	</div>
 {/snippet}

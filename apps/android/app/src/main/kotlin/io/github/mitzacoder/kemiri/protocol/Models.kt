@@ -2105,6 +2105,12 @@ data class TopTaskValue(
 )
 
 @Serializable
+data class CoordinatorProjectValue(
+    val `projectId`: String,
+    val `apiValue`: Double
+)
+
+@Serializable
 data class SubscriptionValue(
     val `providerId`: String,
     val `label`: String,
@@ -2118,6 +2124,7 @@ data class SubscriptionValue(
     val `windows`: List<WindowValue>,
     val `models`: List<ModelValue>,
     val `topTasks`: List<TopTaskValue>,
+    val `coordinatorProjects`: List<CoordinatorProjectValue>? = null,
     val `assumed`: Boolean
 )
 

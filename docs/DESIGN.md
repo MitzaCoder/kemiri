@@ -1939,9 +1939,10 @@ against its monthly price and, when supported by evidence, an estimated full-use
 window supplies plan use, a full-window estimate with range, and the share used elsewhere. Estimated amounts and range
 endpoints round to whole dollars from $10 up. Models show their recorded API value and a separate estimate only for a
 measured scoped limit. Top tasks open their project task sheets and include subtask totals. Coordinator work is not
-spread across tasks. Keys are listed separately at API prices, with no ratio.
-Subscriptions without limits show recorded value and a realised ratio only when a price exists. The notes distinguish
-estimates, assumed billing on old rows and requests missing a catalog price.
+spread across tasks: “Where it went” lists it at API prices on one unlinked line per project, after the tasks.
+Keys are listed separately at API prices, with no ratio. Subscriptions without limits also show the coordinator
+breakdown when present and show a realised ratio only when a price exists. The notes distinguish estimates, assumed
+billing on old rows and requests missing a catalog price.
 
 Default prices disclose their checked date and source. The owner can enter a monthly USD price in the current month or
 reset it to the default with `null`. Changes apply from now; older months are read-only. A missing price shows
@@ -5543,7 +5544,10 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   unscoped window sets the full-use ratio using 30.44 days per month. Scoped model or family windows can supply direct
   estimates. Other models have their measured API value only.
 - The response ranks up to five root tasks per subscription. It counts archived subtasks through current `parent`
-  links only. Coordinator requests stay in their project's usage and are not spread across tasks.
+  links only. The optional `coordinatorProjects` field sums task-less coordinator requests by project from the
+  monthly usage roll-up, so they survive pruning and are not spread across tasks. Task-less workers and other roles
+  do not count. Compaction, memory extraction, memory maintenance and report audits are logged as separate internal
+  roles without a coordinator conversation identity, so those requests do not count as coordinator work.
 
 ## Scope
 

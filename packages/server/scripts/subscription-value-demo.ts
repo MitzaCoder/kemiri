@@ -1,4 +1,6 @@
 /** Seed a disposable Value tab demo. No provider calls or persistent backend data. */
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createProvider } from '@earendil-works/pi-ai';
 import { lazyApi } from '@earendil-works/pi-ai/api/lazy';
 import { createSetup, TestClient } from '../test/support.ts';
@@ -60,6 +62,12 @@ try {
 	if (added.type !== 'projects.add') throw new Error('Could not add demo project');
 	const projectId = added.project.id;
 	await client.request({ type: 'projects.configure', projectId, name: 'Example bakery', coordinatorModel: { provider: 'faux', modelId: 'faux-1' } });
+	const cafeDir = join(setup.root, 'cafe');
+	await mkdir(cafeDir);
+	const cafe = await client.request({ type: 'projects.add', path: cafeDir });
+	if (cafe.type !== 'projects.add') throw new Error('Could not add second demo project');
+	const cafeProjectId = cafe.project.id;
+	await client.request({ type: 'projects.configure', projectId: cafeProjectId, name: 'Example café', coordinatorModel: { provider: 'faux', modelId: 'faux-1' } });
 	const { runtime } = await setup.server.manager.open(projectId);
 	for (const [title, parent] of [['Publish the spring menu', null], ['Write the menu text', 'T1'], ['Photograph the pastries', 'T1'], ['Prepare the market stall', null], ['Print the price cards', 'T4']] as const) {
 		await runtime.board.saveTask({ task: { title, parent, status: 'todo', description: 'Synthetic bakery work.', acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [] } }, 'coordinator');
@@ -73,8 +81,8 @@ try {
 	}
 	store.subscriptionTerms.setPrice(ownerPlan, 35, lastMonth + minute);
 
-	const request = (at: number, provider: string, model: string, cost: number, billing: RequestBilling | null, taskId: string | null, priced = true): void => {
-		const conversation = new ConversationRequests({ projectId, conversationId: taskId ? Number(taskId.slice(1)) + 1 : 1,
+	const request = (at: number, provider: string, model: string, cost: number, billing: RequestBilling | null, taskId: string | null, priced = true, requestProjectId = projectId): void => {
+		const conversation = new ConversationRequests({ projectId: requestProjectId, conversationId: taskId ? Number(taskId.slice(1)) + 1 : 1,
 			identity: { kind: taskId ? 'worker' : 'main', threadId: 'main', taskId, workerId: taskId ? `example-${taskId}` : null, scheduleId: null } });
 		store.insert({ ...conversation.request({ provider, model, timestamp: at, usage: { input: 84_000, output: 7_000, cost: { total: cost } } },
 			{ wake: 'user', retention: 'short', changes: null, source: 'live' }), billing, priced, durationMs: minute / 2 });
@@ -105,6 +113,7 @@ try {
 		request(at + 8 * sample, claude, 'demo-sonnet', 818 * multiplier, 'subscription', 'T3');
 		request(at + 8 * sample, claude, 'demo-opus', 550 * multiplier, 'subscription', 'T4');
 		request(at + 8 * sample, claude, 'demo-opus', 150 * multiplier, 'subscription', null);
+		request(at + 8 * sample, claude, 'demo-sonnet', 42.5 * multiplier, 'subscription', null, true, cafeProjectId);
 		request(at + 8 * sample, noLimit, 'demo-orchard', 56 * multiplier, 'agent', 'T1');
 		request(at + 8 * sample, noLimit, 'demo-orchard-unpriced', 0, 'agent', 'T1', false);
 		request(at + 8 * sample, apiKey, 'demo-river', 23.45 * multiplier, 'api_key', null);

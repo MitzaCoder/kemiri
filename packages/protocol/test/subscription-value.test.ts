@@ -39,6 +39,7 @@ it("round-trips a value report and the effective price", () => {
 					valuePerPoint, fullWindowValue: { estimate: 200, low: 100, high: 300 } }],
 				models: [{ model: "small", apiValue: 40, scopedWindowId: null, valuePerPoint: null }],
 				topTasks: [{ projectId: "orchard", taskId: "T1", title: "Plant trees", apiValue: 35 }],
+				coordinatorProjects: [{ projectId: "orchard", apiValue: 5 }],
 			}],
 		},
 	]) {

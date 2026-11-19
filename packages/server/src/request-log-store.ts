@@ -270,12 +270,15 @@ function addToUsageRollup(db: Database, row: RequestRow, legacy = false): void {
 		sign * Number(row.priced === false));
 }
 
-export type MonthlyUsageGroup = {
-	provider: string; model: string; billing: RequestBilling | null; project_id: string; task_id: string | null;
-	cost: number; unpriced: number;
+type UsageCostGroup = {
+	provider: string; model: string; billing: RequestBilling | null; cost: number; unpriced: number;
 };
 
-export type TaskUsageGroup = Omit<MonthlyUsageGroup, "task_id" | "project_id"> & {
+export type MonthlyUsageGroup = UsageCostGroup & {
+	project_id: string; task_id: string | null; is_coordinator: 0 | 1;
+};
+
+export type TaskUsageGroup = UsageCostGroup & {
 	task_id: string; worker_id: string | null; thread_id: string | null; period_id: number | null; requests: number;
 };
 
@@ -569,11 +572,12 @@ export class RequestLogStore {
 		const firstDay = new Date(from).toISOString().slice(0, 10);
 		const lastDay = new Date(to - 1).toISOString().slice(0, 10);
 		const groups = this.#db.query<MonthlyUsageGroup, Record<string, string | number>>(`
-			SELECT provider, model, billing, project_id, CASE WHEN role = 'coordinator' THEN NULL ELSE task_id END AS task_id, sum(cost) AS cost, sum(unpriced_requests) AS unpriced
+			SELECT provider, model, billing, project_id, task_id, role = 'coordinator' AS is_coordinator,
+				sum(cost) AS cost, sum(unpriced_requests) AS unpriced
 			FROM usage_rollup WHERE day BETWEEN $firstDay AND $lastDay
 			AND coalesce(minute, unixepoch(day, '12 hours') / 60) >= $from
 			AND coalesce(minute, unixepoch(day, '12 hours') / 60) < $to
-			GROUP BY provider, model, billing, project_id, CASE WHEN role = 'coordinator' THEN NULL ELSE task_id END
+			GROUP BY provider, model, billing, project_id, task_id, is_coordinator
 		`).all({ firstDay, lastDay, from: from / 60_000, to: to / 60_000 });
 		const approximate = this.#db.query<{ found: number }, [string, string, number, number]>(`
 			SELECT EXISTS (SELECT 1 FROM usage_rollup WHERE minute IS NULL

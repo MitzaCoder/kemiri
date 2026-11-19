@@ -108,6 +108,33 @@ it("keeps the historical price and rolls up archived or nested subtasks by paren
 	expect(cleared?.price).toMatchObject({ kind: "default", monthlyPrice: 20 });
 });
 
+it("keeps only task-less coordinator API value per project and subscription after pruning", async () => {
+	const f = fixture();
+	const coordinator = { kind: "main", workerId: null } as const;
+	f.request({ ...coordinator, cost: 6 });
+	f.request({ ...coordinator, cost: 2, model: "other-model" });
+	f.request({ ...coordinator, projectId: "bakery", cost: 5 });
+	f.request({ ...coordinator, billing: "agent", cost: 4 });
+	f.request({ ...coordinator, billing: "api_key", cost: 3 });
+	f.request({ ...coordinator, taskId: "root", cost: 9 });
+	f.request({ ...coordinator, source: "keepWarm", cost: 7 });
+	f.request({ ...coordinator, at: START - 3 * DAY, cost: 11 });
+	f.request({ cost: 90 }); // Task-less worker, otherwise the same roll-up dimensions.
+	f.request({ taskId: "root", cost: 1 });
+	f.request({ kind: "other", workerId: null, purpose: "compaction", cost: 30 });
+	f.request({ kind: "other", workerId: null, purpose: "memory_extraction", cost: 20 });
+	expect(f.store.prune(START + 150 * DAY)).toBe(12);
+
+	const report = await f.report({ boardTasks: async () => [{ id: "root", title: "Root" }] });
+	expect(report.subscriptions).toMatchObject([
+		{ billing: "agent", coordinatorProjects: [{ projectId: "orchard", apiValue: 4 }], topTasks: [] },
+		{ billing: "subscription", coordinatorProjects: [
+			{ projectId: "orchard", apiValue: 8 }, { projectId: "bakery", apiValue: 5 },
+		], topTasks: [{ projectId: "orchard", taskId: "root", apiValue: 1 }] },
+	]);
+	expect(report.payAsYouGo).toMatchObject([{ cost: 3 }]);
+});
+
 it("separates key payments, flags assumed billing, and leaves an unknown plan unpriced", async () => {
 	const f = fixture();
 	f.request({ billing: null, cost: 3 });

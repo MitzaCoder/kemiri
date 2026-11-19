@@ -51,6 +51,12 @@ export const TopTaskValueSchema = Type.Object({
 });
 export type TopTaskValue = Static<typeof TopTaskValueSchema>;
 
+export const CoordinatorProjectValueSchema = Type.Object({
+	projectId: Type.String(),
+	apiValue: Type.Number({ description: "API value of task-less coordinator requests." }),
+});
+export type CoordinatorProjectValue = Static<typeof CoordinatorProjectValueSchema>;
+
 export const SubscriptionValueSchema = Type.Object({
 	providerId: Type.String(),
 	label: Type.String(),
@@ -64,6 +70,7 @@ export const SubscriptionValueSchema = Type.Object({
 	windows: Type.Array(WindowValueSchema),
 	models: Type.Array(ModelValueSchema),
 	topTasks: Type.Array(TopTaskValueSchema),
+	coordinatorProjects: Type.Optional(Type.Array(CoordinatorProjectValueSchema)),
 	assumed: Type.Boolean(),
 });
 export type SubscriptionValue = Static<typeof SubscriptionValueSchema>;

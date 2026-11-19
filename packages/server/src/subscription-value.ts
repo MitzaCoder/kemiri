@@ -1,4 +1,4 @@
-import type { BoardTask, SubscriptionValue, TopTaskValue, UsageValueRequest, UsageValueResponse, WindowValue } from "@kemiri/protocol";
+import type { BoardTask, CoordinatorProjectValue, SubscriptionValue, TopTaskValue, UsageValueRequest, UsageValueResponse, WindowValue } from "@kemiri/protocol";
 import { matchesModelScope, type MeasuredLimitPeriod } from "./limit-ledger.ts";
 import type { MonthlyUsageGroup, RequestBilling, RequestLogStore } from "./request-log-store.ts";
 import { subscriptionBilling, type PlanBilling } from "./subscription-terms.ts";
@@ -71,8 +71,8 @@ export function parentTask(task: TaskLink, tasks: ReadonlyMap<string, TaskLink>)
 /** Only roots get a line. A descendant's usage is counted once, regardless of other links on the board. */
 function topTaskTotals(rows: MonthlyUsageGroup[], boards: ReadonlyMap<string, ReadonlyMap<string, TaskLink>>): TopTaskValue[] {
 	const totals = new Map<string, Map<string, TopTaskValue>>();
-	for (const { project_id: projectId, task_id: taskId, cost } of rows) {
-		if (taskId === null) continue;
+	for (const { project_id: projectId, task_id: taskId, is_coordinator, cost } of rows) {
+		if (taskId === null || is_coordinator) continue;
 		const tasks = boards.get(projectId);
 		const ownTask = tasks?.get(taskId);
 		if (!ownTask) continue;
@@ -93,6 +93,16 @@ function topTaskTotals(rows: MonthlyUsageGroup[], boards: ReadonlyMap<string, Re
 	return [...totals.values()].flatMap(project => [...project.values()])
 		.sort((a, b) => b.apiValue - a.apiValue || a.projectId.localeCompare(b.projectId) || a.taskId.localeCompare(b.taskId))
 		.slice(0, TOP_TASKS_LIMIT);
+}
+
+function coordinatorProjectTotals(rows: MonthlyUsageGroup[]): CoordinatorProjectValue[] {
+	const totals = new Map<string, number>();
+	for (const { project_id: projectId, task_id: taskId, is_coordinator, cost } of rows) {
+		if (taskId !== null || !is_coordinator) continue;
+		totals.set(projectId, (totals.get(projectId) ?? 0) + cost);
+	}
+	return [...totals].map(([projectId, apiValue]) => ({ projectId, apiValue }))
+		.sort((a, b) => b.apiValue - a.apiValue || a.projectId.localeCompare(b.projectId));
 }
 
 export async function readSubscriptionValue(options: {
@@ -123,7 +133,7 @@ export async function readSubscriptionValue(options: {
 		const billing = row.billing ?? billingByProvider.get(row.provider) ?? null;
 		if (subscriptionBilling(billing)) {
 			subscriptionRows(row.provider, billing).push(row);
-			if (row.task_id !== null) taskProjects.add(row.project_id);
+			if (row.task_id !== null && !row.is_coordinator) taskProjects.add(row.project_id);
 		} else if (billing === "api_key") {
 			const total = payAsYouGo.get(row.provider) ?? { providerId: row.provider, label: label(row.provider), cost: 0, assumed: false };
 			total.cost += row.cost;
@@ -165,7 +175,8 @@ export async function readSubscriptionValue(options: {
 						.sort((a, b) => Number(b.valuePerPoint !== null) - Number(a.valuePerPoint !== null) || b.kemiriPoints - a.kemiriPoints)[0];
 					return { model, apiValue, scopedWindowId: scoped?.windowId ?? null, valuePerPoint: scoped?.valuePerPoint ?? null };
 				}),
-				topTasks: topTaskTotals(rows, boards), assumed: rows.some(row => row.billing === null),
+				topTasks: topTaskTotals(rows, boards), coordinatorProjects: coordinatorProjectTotals(rows),
+				assumed: rows.some(row => row.billing === null),
 			});
 		}
 	}

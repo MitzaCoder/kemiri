@@ -6,14 +6,16 @@
 	import Banner from '#lib/components/Banner.svelte';
 	import { estimatedMoney, fullWindowLabel, realisedValue, valueMoney, valuePercent, valueRange } from '#lib/subscription-value.js';
 
-	let { subscription, editable, savePrice, taskHref, onTaskClick }: {
+	let { subscription, editable, savePrice, taskHref, onTaskClick, projectName }: {
 		subscription: SubscriptionValue;
 		editable: boolean;
 		savePrice: (monthlyPrice: number | null) => Promise<void>;
 		taskHref: (projectId: string, taskId: string) => string;
 		onTaskClick: (event: MouseEvent) => void;
+		projectName: (projectId: string) => string;
 	} = $props();
 
+	const coordinatorProjects = $derived(subscription.coordinatorProjects ?? []);
 	const headline = $derived(realisedValue(subscription));
 	const binding = $derived(subscription.windows.find((window) => window.binding) ?? subscription.windows[0]);
 	const fullUse = $derived(binding?.fullWindowValue && binding.windowsPerMonth
@@ -164,10 +166,15 @@
 				</ul>
 			</section>
 		{/if}
+	{/if}
 
+	{#if binding || coordinatorProjects.length}
 		<section class="space-y-2" aria-label="Where it went">
 			<h5 class="text-sm font-semibold">Where it went</h5>
-			{#if subscription.topTasks.length}
+			{#if !subscription.topTasks.length}
+				<p class="text-xs text-(--chat-fg-muted)">No recorded work linked to tasks this month.</p>
+			{/if}
+			{#if subscription.topTasks.length || coordinatorProjects.length}
 				<ul class="space-y-1.5 text-xs">
 					{#each subscription.topTasks as task (`${task.projectId}/${task.taskId}`)}
 						<li class="flex justify-between gap-3">
@@ -175,10 +182,14 @@
 							<span class="shrink-0 font-medium tabular-nums">{valueMoney(task.apiValue)}</span>
 						</li>
 					{/each}
+					{#each coordinatorProjects as project (project.projectId)}
+						<li class="flex justify-between gap-3">
+							<span class="break-words">Coordinator · {projectName(project.projectId)}</span>
+							<span class="shrink-0 font-medium tabular-nums">{valueMoney(project.apiValue)}</span>
+						</li>
+					{/each}
 				</ul>
-				<p class="text-xs text-(--chat-fg-muted)">Top tasks include their subtasks. Coordinator work is not spread across tasks.</p>
-			{:else}
-				<p class="text-xs text-(--chat-fg-muted)">No recorded work linked to tasks this month.</p>
+				<p class="text-xs text-(--chat-fg-muted)">{subscription.topTasks.length ? 'Top tasks include their subtasks. ' : ''}Coordinator work is not spread across tasks.</p>
 			{/if}
 		</section>
 	{/if}

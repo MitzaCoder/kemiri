@@ -59,7 +59,8 @@ beforeAll(async () => {
 				import Card from ${JSON.stringify(card)};
 				import { render } from ${JSON.stringify(svelteServer)};
 				export default (subscription) => render(Card, { props: { subscription, editable: true,
-					savePrice: async () => {}, taskHref: (_, id) => '?task=' + id, onTaskClick: () => {} } }).body;
+					savePrice: async () => {}, taskHref: (_, id) => '?task=' + id, onTaskClick: () => {},
+					projectName: (id) => ({ bakery: 'Example bakery', cafe: 'Example café' })[id] ?? id } }).body;
 			` }));
 			build.onLoad({ filter: /\.svelte$/ }, async ({ path }) => ({ loader: 'js', contents: compile(await Bun.file(path).text(), { filename: path, generate: 'server' }).js.code }));
 		},
@@ -72,6 +73,20 @@ test('the card renders the default price disclosure, estimate range, model wordi
 	const html = renderCard(subscription);
 	for (const text of ['$1,640 of work for $100.', '16× what this subscription costs.', 'default price', 'Checked 2026-11-19',
 		'https://example.test/pricing', 'range $560–$670', 'not measured separately', 'href="?task=T1"']) expect(html).toContain(text);
+});
+
+test('coordinator project lines follow task links but are not linked to tasks', () => {
+	const coordinatorProjects = [{ projectId: 'bakery', apiValue: 15.25 }, { projectId: 'cafe', apiValue: 8.5 }];
+	const html = renderCard({ ...subscription, coordinatorProjects });
+	const list = html.slice(html.indexOf('aria-label="Where it went"'));
+	expect(list).toMatch(/href="\?task=T1".*Coordinator · Example bakery<\/span>.*\$15\.25.*Coordinator · Example café<\/span>.*\$8\.5<\/span>/s);
+	expect(list.match(/<a /g)).toHaveLength(1);
+	expect(list).toContain('Coordinator work is not spread across tasks.');
+	expect(renderCard(subscription)).not.toContain('Coordinator ·');
+
+	const noTasksOrLimits = renderCard({ ...subscription, coordinatorProjects, topTasks: [], windows: [] });
+	expect(noTasksOrLimits).toContain('Coordinator · Example bakery');
+	expect(noTasksOrLimits).toContain('Coordinator work is not spread across tasks.');
 });
 
 test('the card rounds estimates and range endpoints but keeps small estimates and recorded cents', () => {
