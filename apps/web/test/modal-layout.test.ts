@@ -102,12 +102,15 @@ describe('the update controls are small and quiet', () => {
 		}
 		expect(line('data-update-confirm="accept"')).toContain('size="sm"');
 	});
-	test('About dismisses the notice with a labelled icon button', () => {
+	test('Overview dismisses the notice with a labelled icon button; About is read-only', () => {
+		const updates = source('../src/lib/components/settings/SoftwareUpdatesGroup.svelte');
 		const about = source('../src/lib/components/settings/AboutSection.svelte');
-		expect(about).toContain('data-update-dismiss');
-		expect(about).toContain('aria-label="Dismiss the update notice"');
-		expect(about).toContain('title="Hide the update notice until a newer release appears"');
-		expect(about).not.toContain('min-h-11 self-start underline');
+		expect(updates).toContain('data-update-dismiss');
+		expect(updates).toContain('aria-label="Dismiss the update notice"');
+		expect(updates).toContain('title="Hide the update notice until a newer release appears"');
+		expect(updates).not.toContain('min-h-11 self-start underline');
+		expect(about).not.toContain('SelfUpdate');
+		expect(about).toContain("backendSettingsHref(backend.id, 'overview')");
 	});
 });
 

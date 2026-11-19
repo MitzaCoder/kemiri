@@ -11,7 +11,7 @@ const page = await connectChromiumPage(option('--cdp') ?? 'http://127.0.0.1:9393
 await page.call('Page.enable'); await page.call('Runtime.enable');
 await page.call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 async function navigate() {
- await page.call('Page.navigate', { url: fixture.origin + '/settings/about' });
+ await page.call('Page.navigate', { url: fixture.origin + (args.includes('--before') ? '/settings/about' : '/settings/backends/rehearsal/overview') });
  await Bun.sleep(1000);
 }
 async function waitFor(text: string, timeout = 10_000) {
@@ -21,7 +21,7 @@ async function waitFor(text: string, timeout = 10_000) {
 }
 async function click(text: string, dialog = false) {
  const clicked = await page.run((text, dialog) => {
-  const root = dialog ? document.querySelector('[role="dialog"]') : document.querySelector('[data-release-update-about]') ?? document;
+  const root = dialog ? document.querySelector('[role="dialog"]') : document.querySelector('[data-release-update-settings], [data-release-update-about]') ?? document;
   const button = [...(root?.querySelectorAll('button') ?? [])].find(button => button.innerText.trim() === text && !button.disabled);
   button?.click(); return !!button;
  }, text, dialog);
