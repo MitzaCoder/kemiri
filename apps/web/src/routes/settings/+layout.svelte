@@ -44,7 +44,7 @@
 	const parentLabel = $derived.by(() => {
 		if (parentHref === undefined) return undefined;
 		if (parentHref === generalSettingsHref()) return 'Settings';
-		if (parentHref === generalSettingsHref('backends')) return 'Backends';
+		if (parentHref === generalSettingsHref('backends')) return 'Computers';
 		const backend = harness.backends.find((entry) => backendSettingsHref(entry.id) === parentHref);
 		return backend?.name ?? 'Back';
 	});
@@ -64,7 +64,7 @@
 >
 	{#snippet header()}
 		<h1 class="text-2xl font-bold tracking-tight">Settings</h1>
-		<p class="text-sm text-muted-foreground">This browser and its backends.</p>
+		<p class="text-sm text-muted-foreground">This browser and its computers.</p>
 	{/snippet}
 	{@render children()}
 </SettingsShell>

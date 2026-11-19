@@ -194,7 +194,7 @@
 
 											{#if project.coordinator.model === null && backend.supports('models')}
 												<Banner tone="warning">
-													No coordinator model yet.
+													No model for the main chat yet.
 													<a class="underline" href={projectSettingsHref(backend.id, project.id, 'coordinator')}>Choose a model</a>
 													before chatting.
 												</Banner>

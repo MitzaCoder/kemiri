@@ -25,8 +25,8 @@
 	}
 </script>
 
-<SettingsSection title="Backends" description="The servers this browser talks to. Each keeps its own projects, agents and tools." icon="server">
-	<SettingsGroup title="Your backends">
+<SettingsSection title="Computers" term="Backends" description="The computers running Kemiri, their AI accounts and apps" icon="server">
+	<SettingsGroup title="Your computers">
 		{#each harness.backends as backend (backend.id)}
 			{@const view = connectionView(backend.connection)}
 			<a
@@ -47,20 +47,20 @@
 				<ChevronRightIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 			</a>
 		{:else}
-			<p class="px-5 py-6 text-center text-sm text-muted-foreground">No backends yet. Add one below.</p>
+			<p class="px-5 py-6 text-center text-sm text-muted-foreground">No computers yet. Add one below.</p>
 		{/each}
 	</SettingsGroup>
 
 	{#if suggested.length > 0}
-		<SettingsGroup title="Suggested backends" description="Published beside the app. One tap adds one and connects.">
+		<SettingsGroup title="Suggested computers" description="Published beside the app. One tap adds one and connects.">
 			<div class="px-4 py-4 sm:px-5"><SuggestedBackends backends={suggested} /></div>
 		</SettingsGroup>
 	{/if}
 
-	<SettingsGroup title="Add a backend">
-		<SettingsRow label="Name and address" hint="A bare name like harness-pc expands to the published domain." control="full">
+	<SettingsGroup title="Add a computer">
+		<SettingsRow label="Name and address" hint="A short computer name expands to the published domain." control="full">
 			{#snippet learn()}
-				A backend is a harness server reached over HTTPS: the app opens wss://&lt;address&gt;/ws and keeps one
+				A backend is a Kemiri server reached over HTTPS: the app opens wss://&lt;address&gt;/ws and keeps one
 				connection per backend. The list is stored in this browser.
 			{/snippet}
 			<BackendForm onsubmit={addBackend} />

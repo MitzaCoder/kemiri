@@ -296,7 +296,7 @@ export class NotificationCenter {
 			if (!record && this.subscription !== null && this.subscriptionKey() === undefined) {
 				throw new Error(
 					"This browser cannot read the existing push key. Its existing subscription was kept unchanged. " +
-						"Enable this backend explicitly to use a separate subscription.",
+						"Enable this computer explicitly to use a separate subscription.",
 				);
 			}
 			const decision = pushSubscriptionDecision({ publicKey, rootKey: this.subscriptionKey(), stored: record });
@@ -565,9 +565,9 @@ export class NotificationCenter {
 		await this.#save({ kinds: withKind(this.settings.kinds, kind, on) }, backends);
 	}
 
-	/** Restore the kinds a new device starts with. */
-	async resetKinds(backends: readonly BackendConnection[], defaults: readonly NotificationKind[]): Promise<void> {
-		await this.#save({ kinds: [...defaults] }, backends);
+	/** Save a complete choice of notification kinds. */
+	async setKinds(backends: readonly BackendConnection[], kinds: readonly NotificationKind[]): Promise<void> {
+		await this.#save({ kinds: [...kinds] }, backends);
 	}
 
 	/** Save this device's quiet hours, or turn them off with null. */

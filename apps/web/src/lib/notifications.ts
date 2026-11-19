@@ -12,6 +12,7 @@ import {
 import {
 	NOTIFICATION_FAILURE_KINDS,
 	DEFAULT_NOTIFICATION_KINDS,
+	NOTIFICATION_PRESETS,
 	type NotificationDevice,
 	type NotificationKind,
 } from "@kemiri/protocol";
@@ -19,6 +20,26 @@ import { currentProject } from "./projects.ts";
 
 /** The Notifications page, linked from the sidebar's footer beside Backends. */
 export const NOTIFICATIONS_HREF = "/settings/notifications";
+
+export const NOTIFICATION_PRESET_CHOICES = [
+ { value: 'important', label: 'Important' },
+ { value: 'needed', label: "Only when I'm needed" },
+ { value: 'everything', label: 'Everything' },
+] as const satisfies readonly { value: keyof typeof NOTIFICATION_PRESETS; label: string }[];
+
+export function notificationPreset(kinds: readonly NotificationKind[]): keyof typeof NOTIFICATION_PRESETS | 'custom' {
+ const selected = new Set(kinds);
+ return NOTIFICATION_PRESET_CHOICES.find(({ value }) => {
+  const preset = NOTIFICATION_PRESETS[value];
+  return preset.length === selected.size && preset.every((kind) => selected.has(kind));
+ })?.value ?? 'custom';
+}
+
+export const NOTIFICATION_ALERT_GROUPS = [
+ { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review'] },
+ { label: 'Work finished', kinds: ['reply', 'worker_report', 'work_finished', 'thread_finished', 'schedule_done'] },
+ { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
+] as const satisfies readonly { label: string; kinds: readonly NotificationKind[] }[];
 
 export type NotificationKindInfo = {
 	kind: NotificationKind;

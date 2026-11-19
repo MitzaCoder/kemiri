@@ -39,7 +39,9 @@
 		const has = {
 			supports: (feature: string) => backend.supports(feature),
 			links: project?.links !== undefined,
-			longPromptCache: project?.longPromptCache !== undefined
+			longPromptCache: project?.longPromptCache !== undefined,
+			pagePrivacy: project?.blockArtifactRequests !== undefined,
+			repository: backend.supports('project-repository') ? project?.repository : undefined
 		};
 		return PROJECT_SECTIONS.filter((section) => projectSectionAvailable(section.id, has)).map((section) => ({
 			...section,

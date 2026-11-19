@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsTerm from "./SettingsTerm.svelte";
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import SettingsIcon from '#lib/components/settings/SettingsIcon.svelte';
 	import StatusChip from '#lib/components/settings/StatusChip.svelte';
@@ -56,7 +57,8 @@
 				<span class="truncate text-sm leading-5 font-medium {active ? 'font-semibold' : 'max-md:text-(--chat-fg)'}">
 					{item.label}
 				</span>
-				<span class="truncate text-xs leading-4 text-(--chat-fg-subtle) md:hidden">{item.hint}</span>
+				<SettingsTerm term={item.term} />
+				<span class="text-xs leading-4 text-(--chat-fg-subtle) md:hidden">{item.hint}</span>
 			</span>
 			{#if item.chip}
 				<StatusChip tone={item.chip.tone} class="h-5 px-2 text-[0.6875rem] max-md:hidden lg:inline-flex">

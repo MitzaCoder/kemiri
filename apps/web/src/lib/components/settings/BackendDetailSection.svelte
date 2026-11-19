@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SettingsTerm from "./SettingsTerm.svelte";
+	import { COMPUTER_ACCOUNTS, COMPUTER_APPS } from "#lib/settings.js";
 	import YourNameGroup from "./YourNameGroup.svelte";
 	import DevicesSection from './DevicesSection.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -56,7 +58,7 @@
 	{#if backend.supports('server-status')}
 		<DeployBanner status={backend.status} dismissed={harness.dismissedDeploys} ondismiss={(deploy) => harness.dismissDeploy(deploy)} />
 		<SettingsGroup title="Status">
-			<SettingsRow label="Release" hint="The commit this backend runs." control="full">
+			<SettingsRow label="Release" hint="The commit this computer runs." control="full">
 				<ReleaseLine release={backend.status?.release} deploy={backend.status?.deploy} />
 			</SettingsRow>
 			<SettingsRow label="Machine" hint="Disk space on the host." control="full">
@@ -65,8 +67,8 @@
 		</SettingsGroup>
 	{/if}
 
-	<SettingsGroup title="This backend">
-		<SettingsRow label="Name" hint="Only for you, in this browser." for="backend-name">
+	<SettingsGroup title="This computer">
+		<SettingsRow label="Name on this device" hint="Only for you, in this browser." for="backend-name">
 			<AutoInput id="backend-name" value={backend.name} commit={(next) => harness.renameBackend(backend.id, next)} />
 		</SettingsRow>
 		<SettingsRow label="Address" hint="Where the app connects." control="auto">
@@ -82,8 +84,9 @@
 				class="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors hover:bg-(--chat-surface-2)/50 sm:px-5"
 			>
 				<span class="flex min-w-0 flex-1 flex-col">
-					<span class="text-sm font-semibold">Accounts and API keys</span>
-					<span class="text-[0.8125rem] text-muted-foreground">Sign in to a subscription or paste a key.</span>
+					<span class="text-sm font-semibold">{COMPUTER_ACCOUNTS.label}</span>
+					<SettingsTerm term={COMPUTER_ACCOUNTS.term} />
+					<span class="text-[0.8125rem] text-muted-foreground">{COMPUTER_ACCOUNTS.hint}</span>
 				</span>
 				{#if backend.providers.length > 0}
 					<StatusChip tone={ready > 0 ? 'ok' : 'warn'}>{ready} of {backend.providers.length} ready</StatusChip>
@@ -93,7 +96,7 @@
 		{/if}
         {#if backend.supports('mcp-servers')}
             <a href={backendSettingsHref(backend.id, 'mcp')} data-link="mcp" class="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors hover:bg-(--chat-surface-2)/50 sm:px-5">
-                <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-semibold">MCP servers</span><span class="text-[0.8125rem] text-muted-foreground">Remote tools, connections and permissions.</span></span>
+                <span class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-semibold">{COMPUTER_APPS.label}</span><SettingsTerm term={COMPUTER_APPS.term} /><span class="text-[0.8125rem] text-muted-foreground">{COMPUTER_APPS.hint}</span></span>
                 <ChevronRightIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
             </a>
         {/if}
@@ -107,8 +110,8 @@
 
 	<SettingsGroup title="Remove" tone="danger">
 		<SettingsRow
-			label="Remove this backend"
-			hint="Forgets it in this browser. Its projects and data stay on the server."
+			label="Remove this computer from this browser"
+			hint="Its projects and data stay on the computer."
 			control="auto"
 		>
 			{#if confirmingRemove}

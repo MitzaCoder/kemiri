@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsTerm from "./SettingsTerm.svelte";
 	import type { Snippet } from 'svelte';
 	import SettingsIcon from '#lib/components/settings/SettingsIcon.svelte';
 	import type { SettingsIconName } from '#lib/settings.js';
@@ -9,11 +10,13 @@
 	 */
 	let {
 		title,
+		term,
 		description,
 		icon,
 		actions,
 		children
 	}: {
+		term?: string;
 		title: string;
 		description?: string;
 		icon: SettingsIconName;
@@ -32,6 +35,7 @@
 		</span>
 		<div class="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
 			<h2 class="text-xl leading-7 font-bold tracking-tight">{title}</h2>
+			<SettingsTerm {term} />
 			{#if description}
 				<p class="text-sm leading-5 text-muted-foreground">{description}</p>
 			{/if}

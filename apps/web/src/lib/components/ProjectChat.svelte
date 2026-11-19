@@ -200,7 +200,11 @@
 	const thinkingLevels = $derived<readonly ThinkingLevel[]>(currentModel?.thinkingLevels ?? []);
 
 	const workerList = $derived(workers?.workers ?? []);
-	const workerDefaults = $derived(workers?.defaults ?? { model: null, thinkingLevel: null });
+	const usesProjectWorkerDefault = $derived(backend.supports('worker-picker-project-default'));
+	const firstWorkerModel = $derived(project?.workerModels[0]);
+	const workerDefaults = $derived(usesProjectWorkerDefault
+		? { model: firstWorkerModel ?? null, thinkingLevel: firstWorkerModel?.thinkingLevel ?? null }
+		: workers?.defaults ?? { model: null, thinkingLevel: null });
 
 	const live = $derived(liveState(session?.view));
 	const busy = $derived(live?.run !== undefined);
@@ -682,7 +686,7 @@
 		const body = text.trim();
 		if (body.length === 0 && images.length === 0 && files.length === 0) return true;
 		if (!canChat) {
-			sendError = 'Choose a coordinator model in the composer before sending.';
+			sendError = 'Choose a main chat model in the composer before sending.';
 			return false;
 		}
 		if (!canSend) {
@@ -694,7 +698,7 @@
 		// The pick rides on the message until the backend confirms it stores one; without a loaded list it would clear the
 		// choice another device made.
 		const defaults =
-			!isThread && workers !== undefined && shouldSendWorkerDefaults(workers.loaded, workers.defaultsSupport)
+			!isThread && !usesProjectWorkerDefault && workers !== undefined && shouldSendWorkerDefaults(workers.loaded, workers.defaultsSupport)
 				? workers.defaults
 				: undefined;
 		try {
@@ -769,7 +773,7 @@
 	 */
 	function changeWorkerModel(model: ModelInfo | null): void {
 		if (workers === undefined) return;
-		const level = workers.defaults.thinkingLevel;
+		const level = workerDefaults.thinkingLevel;
 		const keep = model !== null && level !== null && model.thinkingLevels.includes(level);
 		void workers.pick(
 			model === null ? null : { provider: model.provider, modelId: model.modelId },
@@ -778,7 +782,8 @@
 	}
 
 	function changeWorkerThinking(level: ThinkingLevel | null): void {
-		void workers?.pick(workers.defaults.model, level);
+		if (usesProjectWorkerDefault && workerDefaults.model === null) return;
+		void workers?.pick(workerDefaults.model, level);
 	}
 </script>
 
@@ -1011,7 +1016,7 @@
 
 						{#if !isThread && project !== undefined && project.coordinator.model === null && backend.supports('models')}
 							<Banner tone="warning">
-								This project has no coordinator model. Pick one in the composer, or
+								This project has no model for the main chat. Pick one in the composer, or
 								<a class="underline" href={projectSettingsHref(backend.id, project.id, 'coordinator')}>choose one in settings</a>, before sending
 								a message.
 							</Banner>
@@ -1067,6 +1072,7 @@
 							workerModels={backend.models}
 							workerProviders={backend.providers}
 							projectWorkerModels={project?.workerModels ?? []}
+							{usesProjectWorkerDefault}
 							workerSettingsHref={projectSettingsHref(backend.id, projectId, 'workers')}
 							workerModel={workerDefaults.model}
 							workerThinkingLevel={workerDefaults.thinkingLevel}
@@ -1078,7 +1084,7 @@
 							busy={busy || aborting}
 							disabled={!canSend}
 							placeholder={!canChat
-								? 'Choose a coordinator model first'
+								? 'Choose a main chat model first'
 								: !backend.ready
 									? 'Reconnecting…'
 									: isThread

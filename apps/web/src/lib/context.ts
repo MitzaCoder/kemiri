@@ -208,7 +208,7 @@ export function skillScopeGroups(skills: readonly SkillInfo[]): SkillScopeGroup[
 }
 
 const SKILL_SOURCE_LABELS: Record<SkillSource, string> = {
-	harness: "Harness",
+	harness: "Kemiri",
 	pi: "pi",
 	claude: "Claude",
 	agents: "Agents",
@@ -219,7 +219,7 @@ export function skillSource(skill: Pick<SkillInfo, "source">): SkillSource {
 	return skill.source ?? "pi";
 }
 
-/** How a source reads in the panel: "Harness", "pi" or "Claude". */
+/** How a source reads in the panel: "Kemiri", "pi" or "Claude". */
 export function skillSourceLabel(source: SkillSource): string {
 	return SKILL_SOURCE_LABELS[source];
 }

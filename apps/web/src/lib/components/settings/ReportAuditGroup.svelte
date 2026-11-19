@@ -72,7 +72,7 @@
 </script>
 
 {#if supported}
-	<SettingsGroup title={watcher ? 'Live news lines' : 'Report check'} description={watcher ? 'Short updates from the work log, marked auto. They stay in Live and do not change the task report.' : 'A small model checks once an hour whether active tasks’ reports missed something, and asks the coordinator to update them.'}>
+	<SettingsGroup title={watcher ? 'Live news lines' : 'Report check'} description={watcher ? 'Short updates from the work log, marked auto. They stay in Live and do not change the task report.' : 'Checks active task reports once an hour and asks the main chat to fill in anything missing.'}>
 		<SettingsRow label="Mode" hint={watcher ? "Automatic picks from recorded tool steps without sending them to a model." : "Automatic uses a signed-in small model: Claude Haiku 5.5, then GPT-5 nano, then a small ChatGPT model."} for={`${prefix}-mode`} status={save} onretry={() => mode === 'model' ? pickModel(model) : pickMode(mode)}>
 			<Combobox id={`${prefix}-mode`} options={modeOptions} value={mode} onchange={pickMode} disabled={busy} invalid={save.status === 'failed'} />
 		</SettingsRow>

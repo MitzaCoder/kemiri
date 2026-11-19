@@ -48,6 +48,7 @@
 		workerProviders = [],
 		projectWorkerModels = [],
 		workerSettingsHref,
+		usesProjectWorkerDefault = false,
 		workerModel = null,
 		workerThinkingLevel = null,
 		showWorkerPicker = false,
@@ -78,6 +79,7 @@
 		workerProviders?: readonly ProviderInfo[];
 		projectWorkerModels?: readonly WorkerModel[];
 		workerSettingsHref?: string;
+		usesProjectWorkerDefault?: boolean;
 		/** The worker model the user last picked; `null` lets the coordinator or the project decide. */
 		workerModel?: ModelRef | null;
 		workerThinkingLevel?: ThinkingLevel | null;
@@ -525,6 +527,7 @@
 					providers={workerProviders}
 					{projectWorkerModels}
 					{workerSettingsHref}
+					{usesProjectWorkerDefault}
 					model={workerModel}
 					thinkingLevel={workerThinkingLevel}
 					onModelChange={(entry) => onWorkerModelChange?.(entry)}

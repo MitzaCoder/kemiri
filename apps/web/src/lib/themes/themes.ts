@@ -19,7 +19,7 @@ export type ThemeDefinition = {
 
 export const THEMES = [
 	{ id: "jarvis", name: "Jarvis", description: "Violet surfaces with a cyan-to-orange gradient." },
-	{ id: "neutral", name: "Neutral", description: "Plain shadcn greys." },
+	{ id: "neutral", name: "Neutral", description: "Plain greys." },
 ] as const satisfies readonly ThemeDefinition[];
 
 export const DEFAULT_THEME: ThemeId = "jarvis";

@@ -15,7 +15,7 @@
 	 * it is left; "Fill in automatically" hands all three back to the backend, which fills them from the project's git
 	 * remotes, its commit messages and the machine's Jira sign-in.
 	 */
-	let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
+	let { backend, projectId, note }: { backend: BackendConnection; projectId: string; note?: string } = $props();
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
 	const links = $derived(project?.links);
@@ -63,7 +63,9 @@
 	description="Ticket keys and pull request numbers become links."
 	icon="ticket"
 >
-	{#if links !== undefined}
+	{#if note}
+		<p class="text-sm text-muted-foreground">{note}</p>
+	{:else if links !== undefined}
 		<SettingsGroup title="Links">
 			{#snippet actions()}
 				<StatusChip tone={links.detected ? 'info' : 'muted'}>{links.detected ? 'Filled in automatically' : 'Set by you'}</StatusChip>

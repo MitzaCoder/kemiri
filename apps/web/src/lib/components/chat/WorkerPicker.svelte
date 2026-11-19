@@ -30,6 +30,7 @@
 		providers = [],
 		projectWorkerModels = [],
 		workerSettingsHref,
+		usesProjectWorkerDefault = false,
 		model,
 		thinkingLevel,
 		onModelChange,
@@ -40,6 +41,7 @@
 		providers?: readonly ProviderInfo[];
 		projectWorkerModels?: readonly WorkerModel[];
 		workerSettingsHref?: string;
+		usesProjectWorkerDefault?: boolean;
 		model: ModelRef | null;
 		thinkingLevel: ThinkingLevel | null;
 		onModelChange: (model: ModelInfo | null) => void;
@@ -54,7 +56,7 @@
 			? undefined
 			: models.find((entry) => entry.provider === model?.provider && entry.modelId === model?.modelId)
 	);
-	const projectRows = $derived(projectWorkerModelRows(projectWorkerModels, models, thinkingLevel));
+	const projectRows = $derived(projectWorkerModelRows(projectWorkerModels, models, usesProjectWorkerDefault ? null : thinkingLevel));
 	const defaultSummary = $derived(projectRows.length === 0
 		? 'No project worker models. No backend fallback. Choose a model in Project settings → Workers.'
 		: `Project settings → Workers\n${projectRows.map((row) => `${row.order}. ${row.name} · ${row.provider} · ${row.thinking ?? 'model default'} · ${row.role}`).join('\n')}`);
@@ -71,10 +73,10 @@
 		class="chip max-w-[min(13rem,100%)] max-sm:w-8 max-sm:shrink-0 max-sm:justify-center max-sm:px-0"
 		{disabled}
 		title={defaultSummary}
-		aria-label="Worker model: {current?.name ?? model?.modelId ?? 'default'}"
+		aria-label="Worker model: {current?.name ?? model?.modelId ?? (usesProjectWorkerDefault ? 'No worker model' : 'default')}"
 	>
 		<BotIcon class="size-3.5 shrink-0 text-(--accent-2)" />
-		<span class="truncate max-sm:hidden">{current?.name ?? model?.modelId ?? 'Worker default'}</span>
+		<span class="truncate max-sm:hidden">{current?.name ?? model?.modelId ?? (usesProjectWorkerDefault ? 'No worker model' : 'Worker default')}</span>
 		{#if thinkingLevel !== null}
 			<span class="shrink-0 text-(--chat-fg-subtle) max-sm:hidden">· {thinkingLevel}</span>
 		{/if}
@@ -86,16 +88,19 @@
 			{models}
 			{providers}
 			selected={(entry) => model !== null && sameModel(entry, model)}
-			onpick={(entry) => onModelChange(entry)}
+			onpick={(entry) => {
+				onModelChange(entry);
+				if (usesProjectWorkerDefault) open = false;
+			}}
 			placeholder="Search models for new workers…"
 		>
 			{#snippet top()}
 				<section class="m-1 mb-2 rounded-lg border border-(--chat-border) bg-(--chat-surface-2)/50 p-3" aria-label="Project worker models">
 					<div class="flex items-center justify-between gap-3 text-xs">
 						<h3 class="font-semibold">Project worker models</h3>
-						{#if workerSettingsHref}<a class="shrink-0 text-(--accent-2) underline underline-offset-2" href={workerSettingsHref}>Change</a>{/if}
+						{#if workerSettingsHref}<a class="shrink-0 text-(--accent-2) underline underline-offset-2" href={workerSettingsHref}>{usesProjectWorkerDefault ? 'Settings → Workers' : 'Change'}</a>{/if}
 					</div>
-					<p class="mt-1 text-[0.6875rem] text-(--chat-fg-subtle)">From project settings · tried in order</p>
+					<p class="mt-1 text-[0.6875rem] text-(--chat-fg-subtle)">{usesProjectWorkerDefault ? "Changes this project's default worker model." : 'From project settings · tried in order'}</p>
 					<ol class="mt-2 space-y-2">
 						{#each projectRows as row (row.key)}
 							<li class="flex items-start gap-2 text-xs">
@@ -107,8 +112,9 @@
 							<li class="text-xs text-(--chat-fg-muted)">None set. No backend fallback; choose a worker model to start workers.</li>
 						{/each}
 					</ol>
-					<p class="mt-2 text-[0.6875rem] text-(--chat-fg-subtle)">{model !== null ? 'Your composer pick overrides this list. ' : ''}{thinkingLevel !== null ? 'Thinking comes from your composer pick. ' : ''}The coordinator can name another model.</p>
+					{#if !usesProjectWorkerDefault}<p class="mt-2 text-[0.6875rem] text-(--chat-fg-subtle)">{model !== null ? 'Your composer pick overrides this list. ' : ''}{thinkingLevel !== null ? 'Thinking comes from your composer pick. ' : ''}The coordinator can name another model.</p>{/if}
 				</section>
+				{#if !usesProjectWorkerDefault}
 				<button
 					type="button"
 					class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-(--chat-surface-2) {model ===
@@ -126,9 +132,11 @@
 					</span>
 					<CheckIcon class="size-4 shrink-0 {model === null ? 'text-(--accent-2)' : 'invisible'}" />
 				</button>
+				{/if}
 			{/snippet}
 
 			{#snippet footer()}
+				{#if !usesProjectWorkerDefault || model !== null}
 				<div class="border-t border-(--chat-border) p-2">
 					<p
 						class="px-1.5 pt-0.5 pb-1.5 text-[0.6875rem] font-semibold tracking-wide text-(--chat-fg-subtle) uppercase"
@@ -160,6 +168,7 @@
 						{/each}
 					</div>
 				</div>
+				{/if}
 			{/snippet}
 		</ModelSearchList>
 	</Popover.Content>

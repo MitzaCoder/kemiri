@@ -29,7 +29,7 @@
 	}
 </script>
 
-<SettingsSection title="About" description="Kemiri and updates for each backend, across all projects." icon="settings">
+<SettingsSection title="About" description="Kemiri versions and updates" icon="settings">
 	<div class="flex items-center gap-3"><BrandMark /><span class="text-lg font-semibold">Kemiri</span></div>
 	{#each harness.backends as backend (backend.id)}
 		{@const updates = backend.supports('release-updates') ? backend.status?.updates : undefined}
@@ -53,7 +53,7 @@
 							</Button>
 						{:else}<p class="text-(--chat-fg-muted)">Update notice dismissed.</p>{/if}
 					{:else if updates.enabled}<p>No newer release found yet.</p>{/if}
-				{:else}<p>Update checks are not available on this backend.</p>{/if}
+				{:else}<p>Update checks are not available on this computer.</p>{/if}
 				<SelfUpdate {backend} />
 			</div>
 		</SettingsGroup>

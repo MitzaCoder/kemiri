@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsTerm from "./SettingsTerm.svelte";
 	import type { Snippet } from 'svelte';
 	import { cn } from '#lib/utils.js';
 
@@ -8,12 +9,14 @@
 	 */
 	let {
 		title,
+		term,
 		description,
 		tone = 'default',
 		actions,
 		class: className,
 		children
 	}: {
+		term?: string;
 		title?: string;
 		description?: string;
 		tone?: 'default' | 'danger';
@@ -30,6 +33,7 @@
 				{#if title}
 					<h3 class="text-[0.6875rem] font-semibold tracking-wide text-(--chat-fg-subtle) uppercase">{title}</h3>
 				{/if}
+				<SettingsTerm {term} />
 				{#if description}
 					<p class="text-[0.8125rem] leading-5 text-muted-foreground">{description}</p>
 				{/if}

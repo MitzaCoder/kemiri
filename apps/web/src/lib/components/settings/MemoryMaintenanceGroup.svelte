@@ -4,6 +4,8 @@
 	import Combobox from '#lib/components/settings/Combobox.svelte';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
+	import { tick } from 'svelte';
+	import Switch from './Switch.svelte';
 	import StatusChip from '#lib/components/settings/StatusChip.svelte';
 	import ThinkingSelect from '#lib/components/settings/ThinkingSelect.svelte';
 	import type { ComboOption } from '#lib/combobox.js';
@@ -28,11 +30,14 @@
 	let { backend }: { backend: BackendConnection } = $props();
 
 	const settings = $derived(backend.memoryMaintenance ?? DEFAULT_MEMORY_MAINTENANCE);
-	const timezone = $derived(backend.memoryTimezone ?? "the backend's timezone");
+	const timezone = $derived(backend.memoryTimezone ?? "this computer’s timezone");
+	const hasSwitch = $derived(backend.supports('memory-maintenance-enabled'));
+	let modelPickerOpen = $state(false);
+	let pickToStart = $state(false);
 	const off = $derived(memoryMaintenanceOff(settings));
 	const levels = $derived(settings.model === null ? [] : maintenanceThinkingLevels(settings.model, backend.models));
 	const options = $derived<ComboOption[]>([
-		{ value: '', label: 'No model (off)', description: 'Maintenance does not run' },
+		...(hasSwitch ? [] : [{ value: '', label: 'No model (off)', description: 'Maintenance does not run' }]),
 		...modelOptions(withoutWorkerOnly(backend.models), backend.providers)
 	]);
 
@@ -40,15 +45,31 @@
 		void backend.saveMemoryMaintenance({ ...settings, ...next });
 	}
 
+	async function toggle(on: boolean): Promise<void> {
+		if (on && settings.model === null) {
+			pickToStart = true;
+			await tick();
+			document.getElementById(`maintenance-model-${backend.id}`)?.focus();
+			modelPickerOpen = true;
+			return;
+		}
+		pickToStart = false;
+		modelPickerOpen = false;
+		save({ enabled: on });
+	}
+
 	function pick(key: string): void {
 		const model = backend.models.find((entry) => modelKey(entry) === key);
+		if (hasSwitch && model === undefined) return;
 		const level = settings.thinkingLevel;
 		// A level the new model does not offer would be refused, so it goes back to the model's own default.
 		const keep = model !== undefined && level !== null && model.thinkingLevels.includes(level);
 		save({
 			model: model === undefined ? null : { provider: model.provider, modelId: model.modelId },
-			thinkingLevel: keep ? level : null
+			thinkingLevel: keep ? level : null,
+			...(hasSwitch ? { enabled: true } : {})
 		});
+		pickToStart = false;
 	}
 
 	function commitTime(text: string): void {
@@ -64,16 +85,22 @@
 	}
 </script>
 
-<SettingsGroup title="Memory maintenance" description="Tidies the memory notes on this backend, one commit per run.">
+<SettingsGroup title="Automatic memory cleanup" term="Memory maintenance" description="Tidies this computer's memory notes: merges duplicates and archives old ones.">
 	{#snippet actions()}
-		<StatusChip tone={off ? 'muted' : 'ok'}>{off ? 'Off' : 'On'}</StatusChip>
+		{#if !hasSwitch}<StatusChip tone={off ? 'muted' : 'ok'}>{off ? 'Off' : 'On'}</StatusChip>{/if}
 	{/snippet}
 	{#if backend.memoryMaintenance === undefined}
 		<p class="px-5 py-5 text-sm text-muted-foreground" role="status">
 			{backend.memoryMaintenanceError ?? 'Reading the maintenance settings…'}
 		</p>
 	{:else}
-		<SettingsRow label="Model" hint="Pick a model to turn maintenance on." for="maintenance-model-{backend.id}">
+		{#if hasSwitch}
+			<SettingsRow label="Automatic memory cleanup" for="maintenance-enabled-{backend.id}" control="auto">
+				<Switch id="maintenance-enabled-{backend.id}" checked={!off || pickToStart}
+					disabled={backend.memoryMaintenanceSaving} onchange={(on) => void toggle(on)} />
+			</SettingsRow>
+		{/if}
+		<SettingsRow label="Model" hint={pickToStart ? 'Pick a model to start.' : hasSwitch ? 'Used to tidy memory notes.' : 'Pick a model to turn maintenance on.'} for="maintenance-model-{backend.id}">
 			{#snippet learn()}
 				A run merges duplicates, resolves contradictions, fixes titles, tags and links, and archives stale memories.
 				A scope is maintained only when it changed since its last run. Undoing an extraction or a run from the Memory
@@ -81,12 +108,13 @@
 			{/snippet}
 			<Combobox
 				id="maintenance-model-{backend.id}"
+				bind:open={modelPickerOpen}
 				{options}
 				value={settings.model === null ? '' : modelKey(settings.model)}
 				onchange={pick}
 				placeholder="Choose a model…"
 				searchPlaceholder="Search models or providers…"
-				disabled={backend.models.length === 0}
+				disabled={backend.models.length === 0 || (hasSwitch && off && !pickToStart)}
 			/>
 		</SettingsRow>
 		<SettingsRow label="Thinking level" hint="How hard the model thinks during a run." for="maintenance-thinking-{backend.id}">
@@ -98,7 +126,7 @@
 				disabled={off}
 			/>
 		</SettingsRow>
-		<SettingsRow label="Nightly at" hint="Backend time ({timezone})." for="maintenance-time-{backend.id}" control="auto">
+		<SettingsRow label="Nightly at" hint="Computer time ({timezone})." for="maintenance-time-{backend.id}" control="auto">
 			<AutoInput id="maintenance-time-{backend.id}" type="time" class="w-36" value={settings.time} disabled={off} commit={commitTime} />
 		</SettingsRow>
 		<SettingsRow label="After writes" hint="Also run once a scope has this many new writes." for="maintenance-writes-{backend.id}" control="auto">

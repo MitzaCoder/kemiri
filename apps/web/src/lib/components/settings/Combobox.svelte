@@ -27,6 +27,7 @@
 		disabled = false,
 		invalid = false,
 		searchable,
+		open = $bindable(false),
 		class: className,
 		'aria-label': ariaLabel,
 		selected,
@@ -43,6 +44,7 @@
 		invalid?: boolean;
 		/** Show the search box. By default only when the list is long (more than 8 options). */
 		searchable?: boolean;
+		open?: boolean;
 		class?: string;
 		'aria-label'?: string;
 		/** Replaces how the button shows the current option; it gets undefined when nothing is chosen. */
@@ -54,7 +56,6 @@
 	const uid = $props.id();
 	const listId = `${uid}-list`;
 
-	let open = $state(false);
 	let query = $state('');
 	let active = $state(-1);
 	let input = $state<HTMLInputElement | null>(null);

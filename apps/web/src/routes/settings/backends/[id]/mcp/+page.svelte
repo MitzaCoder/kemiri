@@ -9,5 +9,5 @@
 {#if backend}
   {#key backend.id}<McpServersSection {backend} />{/key}
 {:else}
-  <NotFoundNote title="Unknown backend">This backend is not configured in this browser.</NotFoundNote>
+  <NotFoundNote title="Unknown computer">This computer is not configured in this browser.</NotFoundNote>
 {/if}

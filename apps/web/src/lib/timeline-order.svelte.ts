@@ -4,7 +4,11 @@ const storage = typeof localStorage === 'undefined' ? undefined : localStorage;
 class TimelineOrderPreference {
 	order = $state(loadTimelineOrder(storage));
 	toggle(): void {
-		this.order = this.order === 'newest' ? 'oldest' : 'newest';
+		this.set(this.order === 'newest' ? 'oldest' : 'newest');
+	}
+	reset(): void { this.set('newest'); }
+	private set(order: typeof this.order): void {
+		this.order = order;
 		saveTimelineOrder(storage, this.order);
 	}
 }

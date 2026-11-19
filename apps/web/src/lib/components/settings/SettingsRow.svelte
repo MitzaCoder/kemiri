@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsTerm from "./SettingsTerm.svelte";
 	import type { Snippet } from 'svelte';
 	import LearnMore from '#lib/components/settings/LearnMore.svelte';
 	import SaveStatus from '#lib/components/settings/SaveStatus.svelte';
@@ -14,6 +15,7 @@
 	 */
 	let {
 		label,
+		term,
 		hint,
 		for: forId,
 		learn,
@@ -23,6 +25,7 @@
 		below,
 		children
 	}: {
+		term?: string;
 		label: string;
 		hint?: string;
 		for?: string;
@@ -51,6 +54,7 @@
 		{:else}
 			<span class="text-sm leading-5 font-semibold">{label}</span>
 		{/if}
+		<SettingsTerm {term} />
 		{#if hint}
 			<p id={hintId} class="text-[0.8125rem] leading-5 text-muted-foreground">{hint}</p>
 		{/if}

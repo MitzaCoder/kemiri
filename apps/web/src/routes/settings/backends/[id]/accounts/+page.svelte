@@ -11,8 +11,8 @@
 {#if backend}
 	<AccountsSection {backend} />
 {:else}
-	<NotFoundNote title="Unknown backend">
-		No backend with the ID "{page.params.id}" is in this browser.
-		<a class="underline" href={generalSettingsHref('backends')}>Back to the backends</a>
+	<NotFoundNote title="Unknown computer">
+		No computer with the ID "{page.params.id}" is in this browser.
+		<a class="underline" href={generalSettingsHref('backends')}>Back to Computers</a>
 	</NotFoundNote>
 {/if}

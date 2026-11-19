@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { projectSection } from '#lib/settings.js';
+  const section = projectSection('mcp');
   import type { McpProjectServer, McpRole, McpServer } from '@kemiri/protocol';
   import type { BackendConnection } from '#lib/harness.svelte.js';
   import { MCP_ROLE_OPTIONS, mcpProjectServer, mcpStatus } from '#lib/mcp.js';
@@ -46,11 +48,11 @@
 </script>
 
 <div class="min-w-0 [overflow-wrap:anywhere]">
-<SettingsSection title="MCP" description="Choose remote tools for this project and its agent roles." icon="server">
-  {#if !backend.supports('mcp-servers')}<Banner tone="warning">This backend does not offer MCP servers.</Banner>
+<SettingsSection title={section.label} term={section.term} description={section.hint} icon={section.icon}>
+  {#if !backend.supports('mcp-servers')}<Banner tone="warning">This computer does not offer connected apps.</Banner>
   {:else}
-    <p class="text-sm text-muted-foreground">Servers and roles start off. Enabling a server grants only its selected roles access, subject to each tool's backend-wide Off / Ask / Allow policy.</p>
-    <a href={backendSettingsHref(backend.id, 'mcp')} class="self-start text-sm font-medium underline">Manage backend MCP servers</a>
+    <p class="text-sm text-muted-foreground">Servers and roles start off. Enabling a server grants only its selected roles access, subject to each tool's computer-wide Off / Ask / Allow policy.</p>
+    <a href={backendSettingsHref(backend.id, 'mcp')} class="self-start text-sm font-medium underline">Manage apps on this computer</a>
     {#if error}<Banner tone="error">{error} <button class="underline" onclick={() => void load()}>Try again</button></Banner>
     {:else if !loaded}<p role="status" class="text-sm text-muted-foreground">Loading MCP settings…</p>
     {:else}
@@ -69,7 +71,7 @@
           {/each}
           {#if attempted?.serverId === server.id}<div class="px-4 pb-3"><SaveStatus state={save} onretry={() => attempted && void change(attempted)} /></div>{/if}
         </SettingsGroup>
-      {:else}<SettingsGroup title="Servers"><p class="p-5 text-sm text-muted-foreground">No servers on this backend yet. Add one in backend MCP settings first.</p></SettingsGroup>{/each}
+      {:else}<SettingsGroup title="Servers"><p class="p-5 text-sm text-muted-foreground">No servers on this computer yet. Add one in the computer’s Connected apps settings first.</p></SettingsGroup>{/each}
     {/if}
   {/if}
 </SettingsSection>

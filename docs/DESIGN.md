@@ -5895,18 +5895,46 @@ section lists, the URLs and the rules below as pure functions (`test/settings.te
 
 ### Split and where things go
 
-- **General settings**, opened from the bottom of the left sidebar (one "Settings" entry; Usage stays its own modal and
-  footer entry). Sections: **Appearance** (theme and the device-local work-day start for Waiting dates), **Backends**, **Notifications**, **Archived projects**.
-  - Backends lists the browser's backends, suggested ones, add, connect another device. Each backend has its own
-    subpages: its page (status, release, machine, deploy, name, remove, memory maintenance) and **Accounts and API
-    keys** (moved out of Project settings: credentials belong to the backend that holds them), and **MCP servers**
-    (capability-gated remote connections, token entry and tool policies).
-  - Notifications is the old /notifications page; Archived projects is the unarchive list (the drawer keeps its own).
-- **Project settings**, opened from the top bar gear and the ⋯ menu: **General** (name, folder, archive),
-  **Coordinator** (model, thinking), **Workers** (worker models, check-ins), **Scheduled tasks**, **Tickets and pull
-  requests**, **Prompt cache**, **MCP** (server and agent-role enablement), **Skills** (capability `project-skills`), **Storage**. A section a backend does not offer is left out of the list.
-- `/` stays the projects home (it was both): every backend's projects, Add a project (opens `FolderPicker`), the
-  first-run backend form. Management moved to Settings → Backends.
+- **General settings**, opened from the bottom of the left sidebar (Usage stays its own modal and footer entry).
+- **Project settings**, opened from the top bar gear and the ⋯ menu, apply to one project.
+- `/` stays the projects home, with Add a project and first-run computer pairing. Manage computers in Settings.
+
+The shared section order and route names (a quiet technical term follows the plain label where needed):
+
+| Scope | Section | URL segment / route | Contents |
+| --- | --- | --- | --- |
+| General | Appearance | `appearance` | Theme, light or dark, time and reading |
+| General | Computers (Backends) | `backends` | Computers running Kemiri, their AI accounts and apps |
+| General | Notifications | `notifications` | Alerts, quiet hours, muted projects and delivery details |
+| General | Archived projects | `archived` | Bring a project back |
+| General | About (Android: About and licences) | `about` | Kemiri versions and updates; licences on Android |
+| Project | General | `general` | Name, folder, archive |
+| Project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
+| Project | Workers | `workers` | Ordered worker models and check-ins, including reset |
+| Project | Scheduled tasks | `schedules` | Clocks and event triggers |
+| Project | Connected apps (MCP) | `mcp` | Outside tools and agent roles |
+| Project | Skills | `skills` | Skills offered to project agents |
+| Project | Tickets and pull requests | `tickets` | Turn ticket keys and PR numbers into links |
+| Project | Conversation cache (Prompt cache) | `cache` | Longer reuse of Claude's conversation cache |
+| Project | Storage | `storage` | Finished workspaces and disk use |
+| Project | Advanced | `advanced` | Page privacy, proof of screen changes, report checks, live lines and code delivery |
+
+A computer's page shows status, release, machine, deploy, its local name, Your name, removal, and **Automatic memory
+cleanup** (Memory maintenance). **AI accounts** (Accounts and API keys) and **Connected apps** (MCP servers) are
+child pages: credentials and tool policies stay on that computer. With `memory-maintenance-enabled`, turning cleanup
+off keeps the model. Turning it on without a model opens the model picker. Older computers use the No model option.
+
+Advanced holds Page privacy (Artifact pages) as a switch, Proof of screen changes (Show UI changes), Report check,
+Live news lines, then Code delivery (Integration branch, deploy feed). On `project-repository` computers, a project
+reporting `repository: false` hides Tickets and pull requests, Proof of screen changes and Code delivery.
+A Tickets deep link still opens the section and explains why the settings don't apply. An absent field hides nothing.
+
+Web Appearance saves Device, Light or Dark before first paint. Reading shows the local code wrap, timeline order and
+media comparison choices with a single reset; the controls stay inline. Notifications derives Important, Only when
+I'm needed, Everything or Custom from the actual set of kinds. Individual alerts are grouped behind a closed fold,
+quiet hours save automatically, and per-computer push controls are behind Delivery details.
+With `worker-picker-project-default` the composer's picker changes the first project worker model and its thinking
+level. The legacy composer override remains only for older computers.
 
 Skills choices belong to the backend project, not a repo. Web Project settings → Skills reuses SettingsSection,
 SettingsGroup, StatusChip and Switch, and is hidden (including its deep link) without `project-skills`. It shows
@@ -5930,20 +5958,21 @@ Every section has a URL; the last segment is the section name, which Android reu
 
 ```
 /settings                                   section index / wide entry to Appearance
-/settings/appearance | notifications | archived
+/settings/appearance | notifications | archived | about
 /settings/backends                          list
-/settings/backends/<id>                     one backend
-/settings/backends/<id>/accounts            Accounts and API keys
-/settings/backends/<id>/mcp                 MCP servers
+/settings/backends/<id>                     one computer
+/settings/backends/<id>/accounts            AI accounts
+/settings/backends/<id>/mcp                 Connected apps
 /b/<backend>/projects/<id>/settings         section index / wide entry to General
-/b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | tickets | cache | mcp | skills | storage
+/b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | mcp | skills | tickets | cache | storage | advanced
 ```
 
 - `/notifications` redirects to `/settings/notifications`. An explicit section URL opens that section at any width.
+  Android’s old `delivery` route opens Advanced.
 - A schedule notification links to `.../settings#schedule-<id>` (Android's route parser knows only `.../settings`);
   the project settings index sends that address on to Scheduled tasks with the fragment, and the list scrolls to the
   schedule.
-- Links go to the section they mean: the disk banner to `.../settings/storage`, "no coordinator model" to
+- Links go to the section they mean: the disk banner to `.../settings/storage`, the missing main chat model banner to
   `.../settings/coordinator`, the Usage modal's sign-in link to `/settings/backends/<id>/accounts`.
 
 ### Navigation contract

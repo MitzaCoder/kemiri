@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { COMPUTER_ACCOUNTS } from "#lib/settings.js";
 	import { onMount } from 'svelte';
 	import Banner from '#lib/components/Banner.svelte';
 	import Combobox from '#lib/components/settings/Combobox.svelte';
@@ -56,8 +57,9 @@
 </script>
 
 <SettingsSection
-	title="Accounts and API keys"
-	description="Signed-in accounts and keys for {backend.name}. They stay on that backend."
+	title={COMPUTER_ACCOUNTS.label}
+	term={COMPUTER_ACCOUNTS.term}
+	description={COMPUTER_ACCOUNTS.hint}
 	icon="key-round"
 >
 	{#snippet actions()}
@@ -71,7 +73,7 @@
 	{#if backend.lastError}<Banner tone="error">{backend.lastError}</Banner>{/if}
 
 	{#if !supported}
-		<Banner tone="warning">This backend does not advertise accounts or API keys.</Banner>
+		<Banner tone="warning">This computer does not offer accounts or API keys.</Banner>
 	{:else if backend.providers.length === 0}
 		<p class="text-sm text-muted-foreground" role="status">Loading providers…</p>
 	{:else}

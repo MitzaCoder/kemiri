@@ -123,7 +123,7 @@ export function projectStatus(project: ProjectSummary, now: number): ProjectStat
 		return {
 			tone: "warn",
 			label: "No model",
-			title: "No coordinator model is chosen; this project cannot answer until it has one.",
+			title: "No model is chosen for the main chat; this project cannot answer until it has one.",
 		};
 	}
 	const activity = project.activity;

@@ -292,7 +292,7 @@ describe("skill sources", () => {
 		expect(skillSource({ source: undefined })).toBe("pi");
 		expect(skillSource({ source: "harness" })).toBe("harness");
 		expect(skillSource({ source: "claude" })).toBe("claude");
-		expect(skillSourceLabel("harness")).toBe("Harness");
+		expect(skillSourceLabel("harness")).toBe("Kemiri");
 		expect(skillSourceLabel("pi")).toBe("pi");
 		expect(skillSourceLabel("claude")).toBe("Claude");
 	});
@@ -312,7 +312,7 @@ describe("skill sources", () => {
 				group.scopes.map((scope) => [scope.label, scope.skills.map((entry) => entry.name)]),
 			])
 		).toEqual([
-			["Harness", ["harness-project"], [["Project", ["harness-project"]]]],
+			["Kemiri", ["harness-project"], [["Project", ["harness-project"]]]],
 			[
 				"pi",
 				["pi-global", "pi-project"],

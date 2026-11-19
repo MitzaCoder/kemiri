@@ -5,6 +5,8 @@ import {
 	backendSettingsHref,
 	generalSettingsHref,
 	projectSectionAvailable,
+	projectSectionNote,
+	projectHasCodingSettings,
 	projectSettingsHref,
 	settingsLocation,
 	settingsParentHref,
@@ -20,6 +22,21 @@ describe("settings routes", () => {
 		expect(projectSettingsHref("pc", "demo", "schedules")).toBe("/b/pc/projects/demo/settings/schedules");
 		expect(new Set(GENERAL_SECTIONS.map((s) => s.id)).size).toBe(GENERAL_SECTIONS.length);
 		expect(new Set(PROJECT_SECTIONS.map((s) => s.id)).size).toBe(PROJECT_SECTIONS.length);
+	});
+
+	test("keeps the shared section order, labels and old segments", () => {
+		expect(GENERAL_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
+			["appearance", "Appearance"], ["backends", "Computers"], ["notifications", "Notifications"],
+			["archived", "Archived projects"], ["about", "About"],
+		]);
+		expect(PROJECT_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
+			["general", "General"], ["coordinator", "Main chat"], ["workers", "Workers"], ["schedules", "Scheduled tasks"],
+			["mcp", "Connected apps"], ["skills", "Skills"], ["tickets", "Tickets and pull requests"],
+			["cache", "Conversation cache"], ["storage", "Storage"], ["advanced", "Advanced"],
+		]);
+		const advanced = projectSettingsHref("pc", "demo", "advanced");
+		expect(settingsLocation(advanced)?.section).toBe("advanced");
+		expect(settingsParentHref(advanced)).toBe(projectSettingsHref("pc", "demo"));
 	});
 
 	test("reads a general path", () => {
@@ -61,6 +78,20 @@ describe("settings routes", () => {
 		expect(settingsParentHref("/b/pc/projects/demo/settings")).toBeUndefined();
 		expect(settingsParentHref("/b/pc/projects/demo/settings/storage")).toBe("/b/pc/projects/demo/settings");
 		expect(settingsParentHref("/b/pc/projects/demo")).toBeUndefined();
+	});
+
+	test("only explicitly non-repository projects hide coding controls and get a Tickets deep link note", () => {
+		const supported = { supports: () => true, links: true, longPromptCache: true };
+		for (const repository of [undefined, true]) {
+			expect(projectHasCodingSettings(repository)).toBe(true);
+			expect(projectSectionAvailable("tickets", { ...supported, repository })).toBe(true);
+			expect(projectSectionNote("tickets", repository)).toBeUndefined();
+		}
+		expect(projectHasCodingSettings(false)).toBe(false);
+		expect(projectSectionAvailable("tickets", { ...supported, repository: false })).toBe(false);
+		expect(projectSectionAvailable("advanced", { ...supported, repository: false })).toBe(true);
+		expect(projectSectionNote("advanced", false)).toBeUndefined();
+		expect(projectSectionNote("tickets", false)).toBe("This project isn't a code repository, so these settings don't apply.");
 	});
 
 	test("a project's sections follow what the backend offers", () => {

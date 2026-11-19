@@ -1,5 +1,4 @@
 <script lang="ts">
-	import DeliveryGroup from './DeliveryGroup.svelte';
 	import ArchiveSection from '#lib/components/ArchiveSection.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
 	import CopyButton from '#lib/components/CopyButton.svelte';
@@ -31,12 +30,10 @@
 					<CopyButton text={project.path} label="Copy the folder path" />
 				</div>
 			</SettingsRow>
-			<SettingsRow label="Backend" hint="The server that runs this project." control="auto">
+			<SettingsRow label="Computer" term="Backend" hint="The computer that runs this project." control="auto">
 				<ConnectionBadge {backend} />
 			</SettingsRow>
 		</SettingsGroup>
-
-		<DeliveryGroup {backend} {projectId} />
 
 		{#if backend.supports('project-archive')}
 			<ArchiveSection {backend} {projectId} />

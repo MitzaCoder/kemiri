@@ -20,7 +20,7 @@
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
 		<script>
 			// Before the first paint: the stored theme (see src/lib/themes) and, from
-			// the system setting, the `dark` class that picks each theme's dark tones.
+			// the device or browser preference, the `dark` class for the palette.
 			// This list must match THEMES in src/lib/themes/themes.ts; a test checks it.
 			const THEME_KEY = 'aiki.theme.v1';
 			const THEMES = ['jarvis', 'neutral'];
@@ -29,12 +29,15 @@
 			try {
 				const stored = localStorage.getItem(THEME_KEY);
 				if (THEMES.includes(stored)) root.dataset.theme = stored;
+				const scheme = localStorage.getItem('aiki.color-scheme.v1');
+				if (scheme === 'light' || scheme === 'dark') root.dataset.colorScheme = scheme;
 			} catch {
 				// Storage disabled: the default theme in base.css applies.
 			}
 
 			const dark = window.matchMedia('(prefers-color-scheme: dark)');
-			const apply = () => root.classList.toggle('dark', dark.matches);
+			const apply = () => root.classList.toggle('dark', root.dataset.colorScheme === 'dark' ||
+				(root.dataset.colorScheme !== 'light' && dark.matches));
 			apply();
 			dark.addEventListener('change', apply);
 		</script>

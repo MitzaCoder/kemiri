@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ReportAuditGroup from './ReportAuditGroup.svelte';
 	import BrainIcon from '@lucide/svelte/icons/brain';
 	import ImageIcon from '@lucide/svelte/icons/image';
 	import { onMount } from 'svelte';
@@ -14,8 +13,8 @@
 	import { contextSize, modelKey, modelOptions, providerName } from '#lib/models.js';
 	import { withoutWorkerOnly } from '#lib/official-agents.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
-	import { backendSettingsHref } from '#lib/settings.js';
-	import { DEFAULT_UI_PROOF, type ThinkingLevel, type UiProof } from '@kemiri/protocol';
+	import { backendSettingsHref, projectSection } from '#lib/settings.js';
+	import { type ThinkingLevel } from '@kemiri/protocol';
 
 	/**
 	 * Project → Coordinator: which model the project's main agent runs on, and how hard it thinks. Each field saves the
@@ -23,6 +22,7 @@
 	 */
 	let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
 
+	const section = projectSection('coordinator');
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
 	const storedModel = $derived(project === undefined ? '' : project.coordinator.model === null ? '' : modelKey(project.coordinator.model));
 	const storedThinking = $derived(project?.coordinator.thinkingLevel ?? '');
@@ -30,21 +30,11 @@
 	// The value on screen is the one being saved until the backend answers, so the control never jumps back.
 	let pendingModel = $state<string | undefined>(undefined);
 	let pendingThinking = $state<string | undefined>(undefined);
-	let pendingUiProof = $state<UiProof | undefined>(undefined);
 	const modelSave = new SaveState();
-	const uiProofSave = new SaveState();
-	const artifactPrivacySave = new SaveState();
 	const thinkingSave = new SaveState();
 
 	const modelValue = $derived(pendingModel ?? storedModel);
 	const thinkingValue = $derived(pendingThinking ?? storedThinking);
-	// An older backend does not send the setting, so the row stays out.
-	const uiProofValue = $derived(pendingUiProof ?? project?.uiProof ?? DEFAULT_UI_PROOF);
-	const uiProofOptions = [
-		{ value: 'screenshots-and-videos', label: 'Screenshots and videos', description: 'Before/after screenshots and a short recording. The default.' },
-		{ value: 'screenshots', label: 'Screenshots', description: 'Before/after screenshots only.' },
-		{ value: 'off', label: 'Off', description: 'Agents are not asked to show UI changes.' }
-	];
 	const options = $derived(modelOptions(withoutWorkerOnly(backend.models), backend.providers));
 	const info = $derived(backend.models.find((model) => modelKey(model) === modelValue));
 	const provider = $derived(info === undefined ? undefined : backend.providers.find((entry) => entry.id === info.provider));
@@ -78,28 +68,23 @@
 		pendingThinking = undefined;
 	}
 
-	async function pickUiProof(next: string): Promise<void> {
-		pendingUiProof = next as UiProof;
-		await uiProofSave.run(() => backend.configureProject(projectId, { uiProof: next as UiProof }));
-		pendingUiProof = undefined;
-	}
 </script>
 
-<SettingsSection title="Coordinator" description="The model Main chat runs on." icon="cpu">
+<SettingsSection title={section.label} term={section.term} description={section.hint} icon={section.icon}>
 	{#if project !== undefined && project.coordinator.model === null && pendingModel === undefined}
-		<Banner tone="warning">This project has no coordinator model, so it cannot start a conversation. Choose one below.</Banner>
+		<Banner tone="warning">This project has no model for the main chat, so it cannot start a conversation. Choose one below.</Banner>
 	{/if}
 
 	<SettingsGroup title="Model">
 		<SettingsRow
-			label="Coordinator model"
-			hint="Type to search every model this backend offers."
+			label="Main chat model"
+			hint="Type to search every model this computer offers."
 			for="coordinator-model"
 			status={modelSave}
 			onretry={() => void pickModel(pendingModel ?? modelValue)}
 		>
 			{#snippet learn()}
-				There are no model defaults: every project names its own coordinator. Workers and background jobs pick
+				There are no model defaults: every project names its own main chat model. Workers and background jobs pick
 				their own models; see Workers.
 			{/snippet}
 			<Combobox
@@ -146,7 +131,7 @@
 		>
 			{#snippet learn()}
 				"Model default" leaves the level to the model. A higher level reasons longer: better on hard work, slower and
-				dearer. The composer can still change it for one conversation.
+				dearer. The composer's picker changes this same setting for the whole project.
 			{/snippet}
 			<ThinkingSelect
 				id="coordinator-thinking"
@@ -158,39 +143,4 @@
 		</SettingsRow>
 	</SettingsGroup>
 
-	{#if project?.blockArtifactRequests !== undefined}
-		<SettingsGroup title="Artifact pages">
-			<SettingsRow label="Block artifact pages from sending data" hint="Blocks connections and form submissions. Allowed images, media, CDN files and links can still send requests." status={artifactPrivacySave}>
-				<Combobox aria-label="Block artifact pages from sending data" options={[{value:'off',label:'Off (default)'},{value:'on',label:'On'}]} value={project.blockArtifactRequests ? 'on' : 'off'} onchange={(value) => void artifactPrivacySave.run(() => backend.configureProject(projectId, {blockArtifactRequests: value === 'on'}))} />
-			</SettingsRow>
-		</SettingsGroup>
-	{/if}
-	{#if project?.uiProof !== undefined}
-		<SettingsGroup title="Show UI changes">
-			<SettingsRow
-				label="Prove UI work with"
-				hint="Agents show web and app changes before review; backends and terminals are never recorded."
-				for="coordinator-ui-proof"
-				status={uiProofSave}
-				onretry={() => void pickUiProof(uiProofValue)}
-			>
-				{#snippet learn()}
-					Any change a user can see in a web page or an app screen is shown before it goes to review: a bug
-					before and after, using the real UI in a headless browser, emulator or device. The agent saves the
-					pictures (and the recording) on the task. The coordinator works out how to demo this project once and
-					keeps the recipe in memory. A change reaches the coordinator on its next turn and workers started after it.
-				{/snippet}
-				<Combobox
-					id="coordinator-ui-proof"
-					options={uiProofOptions}
-					value={uiProofValue}
-					onchange={(next) => void pickUiProof(next)}
-					aria-label="Show UI changes"
-					invalid={uiProofSave.status === 'failed'}
-				/>
-			</SettingsRow>
-		</SettingsGroup>
-	{/if}
-	<ReportAuditGroup {backend} {projectId} />
-	<ReportAuditGroup {backend} {projectId} watcher />
 </SettingsSection>

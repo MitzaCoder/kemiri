@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatDateTime } from '#lib/time-format.ts';
 
+	import SettingsFold from './SettingsFold.svelte';
 	import SaveStatus from '#lib/components/settings/SaveStatus.svelte';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import { onMount } from 'svelte';
@@ -18,14 +19,16 @@
 	import type { BackendNotificationView } from '#lib/notifications.js';
 	import { notifications } from '#lib/notifications.svelte.js';
 	import {
-		DEFAULT_KIND_INFO,
+		NOTIFICATION_PRESET_CHOICES,
+		NOTIFICATION_ALERT_GROUPS,
+		notificationPreset,
 		NOTIFICATION_KIND_INFO,
 		kindsSummary,
 		quietHoursDraft,
 		quietHoursProblem
 	} from '#lib/notifications.js';
 	import { mutedProjectEntries, quietHoursSummary, type QuietHours } from '@kemiri/client';
-	import type { NotificationKind } from '@kemiri/protocol';
+	import { NOTIFICATION_PRESETS, type NotificationKind } from '@kemiri/protocol';
 
 	/**
 	 * Notifications for this browser: turn them on for the device, see what each backend knows about it, choose which
@@ -67,11 +70,11 @@
 		await notifications.setKind(harness.backends, kind, on);
 	}
 
-	async function resetKinds(): Promise<void> {
-		await notifications.resetKinds(
-			harness.backends,
-			DEFAULT_KIND_INFO.map((info) => info.kind)
-		);
+	const preset = $derived(notificationPreset(settings.kinds));
+	const kindInfo = new Map(NOTIFICATION_KIND_INFO.map((info) => [info.kind, info]));
+
+	function pickPreset(next: keyof typeof NOTIFICATION_PRESETS): void {
+		void kindsSave.run(() => notifications.setKinds(harness.backends, NOTIFICATION_PRESETS[next]));
 	}
 
 	async function setQuietHours(patch: Partial<QuietHours>): Promise<void> {
@@ -105,11 +108,11 @@
 				'On an iPhone, add the app to the Home Screen first; on Android, Chrome supports it.'
 			);
 		}
-		if (backends.length === 0) return 'Add a backend first.';
+		if (backends.length === 0) return 'Add a computer first.';
 		return undefined;
 	});
 	const deviceHint = $derived(
-		notifications.enabled ? 'Push is on. See each backend’s state below.' : 'Asks the browser for permission once.'
+		notifications.enabled ? 'Push is on. See each computer’s state in Delivery details.' : 'Asks the browser for permission once.'
 	);
 
 	function toneOf(view: BackendNotificationView): 'ok' | 'warn' | 'err' | 'muted' {
@@ -117,7 +120,7 @@
 	}
 </script>
 
-<SettingsSection title="Notifications" description="Push to this browser; each backend sends its own events." icon="bell">
+<SettingsSection title="Notifications" description="What reaches this device, and when" icon="bell">
 	{#if notifications.error}
 		<Banner tone="error">
 			{notifications.error}
@@ -131,7 +134,7 @@
 		<Banner tone={notifications.permission === 'denied' ? 'error' : 'info'}>
 			{permissionNote}
 			{#if backends.length === 0 && notifications.permission !== 'denied' && notifications.permission !== 'unsupported'}
-				<a class="underline" href="/settings/backends">Backends</a>
+				<a class="underline" href="/settings/backends">Computers</a>
 			{/if}
 		</Banner>
 	{/if}
@@ -145,7 +148,7 @@
 			status={deviceSave}
 		>
 			{#snippet learn()}
-				Each backend pushes on its own, using its own subscription or sharing one with other backends.
+				Each computer pushes on its own, using its own subscription or sharing one with other computers.
 				If a subscription changes, reopen the app while signed in.
 				Device {notifications.settings.deviceId.slice(0, 8)} · {kindsSummary(settings)}.
 			{/snippet}
@@ -162,26 +165,35 @@
 		</SettingsRow>
 	</SettingsGroup>
 
-	<SettingsGroup title="Events" description="What this device hears about, from every backend.">
-		{#snippet actions()}
-			<Button variant="ghost" size="sm" class="max-sm:h-11" disabled={notifications.busy} onclick={() => void kindsSave.run(resetKinds)}>
-				Reset to defaults
-			</Button>
-		{/snippet}
-		{#each NOTIFICATION_KIND_INFO as info (info.kind)}
-			<SettingsRow label={info.label} hint={info.description} for="kind-{info.kind}" control="auto">
-				<div class="flex items-center gap-2">
-					{#if info.failure}<StatusChip tone="warn" dot={false}>Failure</StatusChip>{/if}
-					<Switch
-						id="kind-{info.kind}"
-						checked={settings.kinds.includes(info.kind)}
-						disabled={notifications.busy}
-						onchange={(on) => void kindsSave.run(() => toggleKind(info.kind, on))}
-					/>
+	<SettingsGroup title="What to notify me about">
+		<SettingsRow label="Alert preset" for="alert-preset">
+			<select id="alert-preset" value={preset} disabled={notifications.busy}
+				onchange={(event) => pickPreset(event.currentTarget.value as keyof typeof NOTIFICATION_PRESETS)}
+				class="min-h-11 rounded-md border border-(--chat-border) bg-(--chat-bg) px-3 text-base">
+				{#each NOTIFICATION_PRESET_CHOICES as option (option.value)}
+					<option value={option.value}>{option.label}</option>
+				{/each}
+				{#if preset === 'custom'}<option value="custom" disabled>Custom</option>{/if}
+			</select>
+			<SaveStatus state={kindsSave} reserve={false} />
+		</SettingsRow>
+		<SettingsFold title="Choose individual alerts">
+			{#each NOTIFICATION_ALERT_GROUPS as group (group.label)}
+				<div class="divide-y divide-(--chat-border)">
+					<h4 class="px-4 pt-3 text-sm font-semibold text-muted-foreground sm:px-5">{group.label}</h4>
+					{#each group.kinds as kind (kind)}
+						{@const info = kindInfo.get(kind)!}
+						<SettingsRow label={info.label} hint={info.description} for="kind-{kind}" control="auto">
+							<Switch id="kind-{kind}" checked={settings.kinds.includes(kind)} disabled={notifications.busy}
+								onchange={(on) => void kindsSave.run(() => toggleKind(kind, on))} />
+						</SettingsRow>
+					{/each}
 				</div>
-			</SettingsRow>
-		{/each}
-		<div class="px-4 py-2 sm:px-5"><SaveStatus state={kindsSave} reserve={false} /></div>
+			{/each}
+			<div class="px-4 py-2 sm:px-5">
+				<Button variant="outline" disabled={notifications.busy} onclick={() => pickPreset('important')}>Reset to defaults</Button>
+			</div>
+		</SettingsFold>
 	</SettingsGroup>
 
 	<SettingsGroup title="Quiet hours">
@@ -240,10 +252,25 @@
 		{/if}
 	</SettingsGroup>
 
+	<SettingsGroup title="Muted projects" description="Mute one from the bell in the project's chat header.">
+		{#each muted as entry (entry.backendKey + entry.projectId)}
+			<div class="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+				<span class="min-w-0 flex-1 truncate text-sm">
+					<span class="font-medium">{projectNamed(entry.backendKey, entry.projectId)}</span>
+					<span class="text-muted-foreground"> · {serverNamed(entry.backendKey)}</span>
+				</span>
+				<Button variant="outline" class="max-sm:h-11" onclick={() => void unmute(entry.backendKey, entry.projectId)}>Unmute</Button>
+			</div>
+		{:else}
+			<p class="px-5 py-4 text-sm text-muted-foreground">Nothing is muted.</p>
+		{/each}
+	</SettingsGroup>
+
 	{#if backends.length > 0}
+		<SettingsFold title="Delivery details">
 		<SettingsGroup
-			title="Backends"
-			description="Each backend pushes on its own. If a subscription changes, reopen the app while signed in."
+			title="Computers"
+			description="Each computer pushes on its own. If a subscription changes, reopen the app while signed in."
 		>
 			{#each backends as backend (backend.id)}
 				{@const entry = notifications.backends[backend.id]}
@@ -259,7 +286,7 @@
 							This device is not registered here yet.
 						{/if}
 						{#if notifications.keyMismatchFor(entry) && entry?.publicKey}
-							This backend's key: <code class="font-mono break-all">{entry.publicKey.slice(0, 16)}…</code>
+							This computer's key: <code class="font-mono break-all">{entry.publicKey.slice(0, 16)}…</code>
 						{/if}
 					{/snippet}
 					<div class="flex flex-wrap items-center gap-2 sm:justify-end">
@@ -319,19 +346,7 @@
 				</SettingsRow>
 			{/each}
 		</SettingsGroup>
+		</SettingsFold>
 	{/if}
 
-	<SettingsGroup title="Muted projects" description="Mute one from the bell in the project's chat header.">
-		{#each muted as entry (entry.backendKey + entry.projectId)}
-			<div class="flex items-center gap-3 px-4 py-2.5 sm:px-5">
-				<span class="min-w-0 flex-1 truncate text-sm">
-					<span class="font-medium">{projectNamed(entry.backendKey, entry.projectId)}</span>
-					<span class="text-muted-foreground"> · {serverNamed(entry.backendKey)}</span>
-				</span>
-				<Button variant="outline" class="max-sm:h-11" onclick={() => void unmute(entry.backendKey, entry.projectId)}>Unmute</Button>
-			</div>
-		{:else}
-			<p class="px-5 py-4 text-sm text-muted-foreground">Nothing is muted.</p>
-		{/each}
-	</SettingsGroup>
 </SettingsSection>

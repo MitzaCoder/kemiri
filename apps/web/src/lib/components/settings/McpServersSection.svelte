@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { COMPUTER_APPS } from "#lib/settings.js";
   import { page } from '$app/state';
   import { pushMcpView, replaceMcpView, popMcpView, mcpListUp } from '#lib/settings-navigation.svelte.js';
   import { MCP_PRESET_GROUPS, parseMcpImport, mcpImportId, type McpImportRow, type McpListResponse, type McpPolicy, type McpServer } from '@kemiri/protocol';
@@ -146,7 +147,7 @@
     await run(async () => {
       replace((await mcpRequest(backend, { type: 'mcp.token.set', serverId, token: pasted })).server);
       replace((await mcpRequest(backend, { type: 'mcp.refresh', serverId })).server);
-      notice = 'Token saved on the backend. Connection checked.';
+      notice = 'Token saved on the computer. Connection checked.';
     });
   }
   async function changeConnection(type: 'mcp.refresh' | 'mcp.disconnect') {
@@ -163,7 +164,7 @@
     await run(async () => {
       await mcpRequest(backend, { type: 'mcp.remove', serverId });
       servers = servers.filter(server => server.id !== serverId); replaceMcpView({}); confirmingRemove = false;
-      notice = 'Server and credentials removed from this backend and all project selections.';
+      notice = 'Server and credentials removed from this computer and all project selections.';
     });
   }
   function onpolicy(serverId: string, tool: string, policy: McpPolicy) {
@@ -173,9 +174,9 @@
 </script>
 
 <div class="min-w-0 [overflow-wrap:anywhere]">
-<SettingsSection title="MCP servers" description="Remote tools and accounts on {backend.name}." icon="server">
+<SettingsSection title={COMPUTER_APPS.label} term={COMPUTER_APPS.term} description={COMPUTER_APPS.hint} icon="server">
   {#if !supported}
-    <Banner tone="warning">This backend does not offer MCP servers.</Banner>
+    <Banner tone="warning">This computer does not offer connected apps.</Banner>
   {:else}
     {#if error}<Banner tone="error">{error} <button class="underline" onclick={() => void load()} disabled={busy}>Reload servers</button></Banner>{/if}
     <p class="text-sm text-muted-foreground" role="status">{busy ? 'Working…' : notice}</p>
@@ -200,8 +201,8 @@
           </div>
         </SettingsRow>
         {#if selected.command}
-          <SettingsRow label="Backend command" hint="Environment values are stored only on the backend." control="full">
-            <p class="text-sm">Working directory: {selected.command.cwd ?? '(backend default)'}</p>
+          <SettingsRow label="Computer command" hint="Environment values are stored only on the computer." control="full">
+            <p class="text-sm">Working directory: {selected.command.cwd ?? '(computer default)'}</p>
             <p class="text-sm">Environment: {(selected.envNames ?? []).join(', ') || '(none)'}</p>
             <Button variant="outline" onclick={editCommand}>Edit command</Button>
             {#if selected.stderrTail}<pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs" aria-label="Redacted stderr tail">{selected.stderrTail}</pre>{/if}
@@ -210,7 +211,7 @@
         {#if !selected.command}
           {#key selected.id}<McpOAuthConnection {backend} preset={selectedPreset} server={selected} refresh={refreshCatalogue} onserver={replace} />{/key}
         {/if}
-        <SettingsRow label="Connect with a token" hint={selected.hasCredential ? 'A credential is saved on this backend. Paste to replace it.' : 'Paste an MCP bearer token, not an ordinary integration key.'} for="mcp-token" control="full">
+        <SettingsRow label="Connect with a token" hint={selected.hasCredential ? 'A credential is saved on this computer. Paste to replace it.' : 'Paste an MCP bearer token, not an ordinary integration key.'} for="mcp-token" control="full">
           <form class="flex flex-col gap-2 sm:flex-row" onsubmit={(event) => { event.preventDefault(); void connect(); }}>
             <input class="mcp-input min-w-0 flex-1" id="mcp-token" type="password" autocomplete="off" spellcheck="false" bind:value={token} disabled={busy} placeholder="Paste token" />
             <Button type="submit" disabled={busy || !token.trim()}>Connect</Button>
@@ -231,7 +232,7 @@
         {/each}
       </SettingsGroup>
       <SettingsGroup title="Remove server" tone="danger">
-        <SettingsRow label="Remove from this backend" hint="Deletes credentials and disables this server in every project." control="auto">
+        <SettingsRow label="Remove from this computer" hint="Deletes credentials and disables this server in every project." control="auto">
           <Button variant="destructive" disabled={busy} onclick={() => confirmingRemove = true}>Remove</Button>
         </SettingsRow>
       </SettingsGroup>
@@ -255,7 +256,7 @@
   <Dialog.Content class={roomyDialogClass()} data-mcp-dialog="add">
     <!-- One scroll region: the preset catalogue scrolls with the fields, never inside them. -->
     <form class="flex min-h-0 w-full min-w-0 flex-1 flex-col" onsubmit={(event) => { event.preventDefault(); prepareAdd(); }}>
-    <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>{editing ? 'Edit command server' : 'Add MCP server'}</Dialog.Title><Dialog.Description>Runs on this backend. New servers are disabled in projects.</Dialog.Description></Dialog.Header>
+    <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>{editing ? 'Edit command server' : 'Add MCP server'}</Dialog.Title><Dialog.Description>Runs on this computer. New servers are disabled in projects.</Dialog.Description></Dialog.Header>
     <div class={DIALOG_SCROLL_CLASS} data-dialog-scroll>
     <div class="flex min-w-0 flex-col gap-4">
       {#if !editing}
@@ -324,7 +325,7 @@
 </Dialog.Root>
 <Dialog.Root open={confirmingCommand} onOpenChange={(open) => { if (!open) popMcpView(); }}>
  <Dialog.Content class={roomyDialogClass({ wide: true })} data-mcp-dialog="confirm">
- <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>Confirm backend command</Dialog.Title><Dialog.Description>This executes code as the backend user, not on this device. Only confirm commands you trust.</Dialog.Description></Dialog.Header>
+ <Dialog.Header class={DIALOG_HEADER_CLASS}><Dialog.Title>Confirm computer command</Dialog.Title><Dialog.Description>This executes code on the computer, not on this device. Only confirm commands you trust.</Dialog.Description></Dialog.Header>
  <div class={DIALOG_SCROLL_CLASS} data-dialog-scroll>
  {#if pending.length === 0}<p class="text-sm" role="status">This review was cleared. Go Back and enter the command again; secrets are never saved in history.</p>{/if}
  <McpCommandReview entries={pending} retainedEnvNames={editing && env === '{}' ? selected?.envNames : undefined} />
@@ -335,7 +336,7 @@
 </Dialog.Root>
 <Dialog.Root bind:open={confirmingRemove}>
   <Dialog.Content>
-    <Dialog.Header><Dialog.Title>Remove {selected?.name}?</Dialog.Title><Dialog.Description>Deletes its credentials and project selections on this backend. This cannot be undone.</Dialog.Description></Dialog.Header>
+    <Dialog.Header><Dialog.Title>Remove {selected?.name}?</Dialog.Title><Dialog.Description>Deletes its credentials and project selections on this computer. This cannot be undone.</Dialog.Description></Dialog.Header>
     {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
     <Dialog.Footer><Button variant="outline" disabled={busy} onclick={() => confirmingRemove = false}>Keep server</Button><Button variant="destructive" disabled={busy} onclick={() => void remove()}>Remove server</Button></Dialog.Footer>
   </Dialog.Content>

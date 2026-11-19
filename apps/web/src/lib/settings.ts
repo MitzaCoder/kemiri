@@ -26,32 +26,45 @@ export type SettingsSectionInfo<Id extends string = string> = {
 	/** The last URL segment, and the name Android uses for the same screen. */
 	id: Id;
 	label: string;
+	term?: string;
 	/** One line, shown under the label in the phone's list. */
 	hint: string;
 	icon: SettingsIconName;
 };
 
+export const COMPUTER_ACCOUNTS = {
+	label: "AI accounts", term: "Accounts and API keys", hint: "Sign in to AI providers or add API keys so agents can run.",
+};
+export const COMPUTER_APPS = {
+	label: "Connected apps", term: "MCP servers", hint: "Outside tools agents can use, such as issue trackers or docs.",
+};
+
 export const GENERAL_SECTIONS = [
-	{ id: "appearance", label: "Appearance", hint: "Theme and colours", icon: "palette" },
-	{ id: "backends", label: "Backends", hint: "Servers, accounts and API keys", icon: "server" },
-	{ id: "notifications", label: "Notifications", hint: "Push, quiet hours, muted projects", icon: "bell" },
-	{ id: "about", label: "About", hint: "Kemiri versions and updates", icon: "settings" },
+	{ id: "appearance", label: "Appearance", hint: "Theme, light or dark, time and reading", icon: "palette" },
+	{ id: "backends", label: "Computers", term: "Backends", hint: "The computers running Kemiri, their AI accounts and apps", icon: "server" },
+	{ id: "notifications", label: "Notifications", hint: "What reaches this device, and when", icon: "bell" },
 	{ id: "archived", label: "Archived projects", hint: "Bring a project back", icon: "archive" },
+	{ id: "about", label: "About", hint: "Kemiri versions and updates", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
 
 export type GeneralSectionId = (typeof GENERAL_SECTIONS)[number]["id"];
 
 export const PROJECT_SECTIONS = [
 	{ id: "general", label: "General", hint: "Name, folder, archive", icon: "folder" },
-	{ id: "coordinator", label: "Coordinator", hint: "The model and how hard it thinks", icon: "cpu" },
+	{ id: "coordinator", label: "Main chat", term: "Coordinator", hint: "The model the main chat runs on", icon: "cpu" },
 	{ id: "workers", label: "Workers", hint: "Worker models and check-ins", icon: "users" },
 	{ id: "schedules", label: "Scheduled tasks", hint: "Clocks and event triggers", icon: "calendar-clock" },
-	{ id: "tickets", label: "Tickets and pull requests", hint: "Jira site, prefixes, repositories", icon: "ticket" },
-	{ id: "cache", label: "Prompt cache", hint: "How long Claude keeps a conversation", icon: "database-zap" },
-	{ id: "mcp", label: "MCP", hint: "Remote servers and agent roles", icon: "server" },
-	{ id: "skills", label: "Skills", hint: "What this project’s agents know how to do", icon: "key-round" },
+	{ id: "mcp", label: "Connected apps", term: "MCP", hint: "Which outside tools this project's agents may use", icon: "server" },
+	{ id: "skills", label: "Skills", hint: "What this project's agents know how to do", icon: "key-round" },
+	{ id: "tickets", label: "Tickets and pull requests", hint: "Turn ticket keys and PR numbers into links", icon: "ticket" },
+	{ id: "cache", label: "Conversation cache", term: "Prompt cache", hint: "Pay a little more now so long pauses cost less", icon: "database-zap" },
 	{ id: "storage", label: "Storage", hint: "Finished workspaces and disk use", icon: "hard-drive" },
+	{ id: "advanced", label: "Advanced", hint: "Page privacy, proof of screen changes, report checks, live lines, code delivery", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
+
+export function projectSection(id: ProjectSectionId): SettingsSectionInfo<ProjectSectionId> {
+	return PROJECT_SECTIONS.find((section) => section.id === id)!;
+}
 
 export type ProjectSectionId = (typeof PROJECT_SECTIONS)[number]["id"];
 
@@ -151,14 +164,28 @@ export function settingsParentHref(pathname: string): string | undefined {
 	return projectSettingsHref(location.backendId, location.projectId);
 }
 
+export function projectHasCodingSettings(repository?: boolean): boolean {
+	return repository !== false;
+}
+
+/** A hidden coding-only page is still a valid settings destination. */
+export function projectSectionNote(section: ProjectSectionId, repository?: boolean): string | undefined {
+	if (section === 'tickets' && !projectHasCodingSettings(repository)) {
+		return "This project isn't a code repository, so these settings don't apply.";
+	}
+}
+
 /** Whether a section is shown for a backend, by the features it advertises; the list drops the rest. */
 export function projectSectionAvailable(
 	section: ProjectSectionId,
-	has: { supports: (feature: string) => boolean; links: boolean; longPromptCache: boolean },
+	has: { supports: (feature: string) => boolean; links: boolean; longPromptCache: boolean; pagePrivacy?: boolean; repository?: boolean },
 ): boolean {
 	switch (section) {
 		case "general":
 			return true;
+		case "advanced":
+			return has.pagePrivacy === true || has.supports("report-audit") || has.supports("task-live-watcher") ||
+				(projectHasCodingSettings(has.repository) && ["ui-proof", "task-changes", "task-deploys"].some((feature) => has.supports(feature)));
 		case "coordinator":
 			return has.supports("projects") && has.supports("models");
 		case "workers":
@@ -166,7 +193,7 @@ export function projectSectionAvailable(
 		case "schedules":
 			return has.supports("schedules");
 		case "tickets":
-			return has.links;
+			return has.links && projectHasCodingSettings(has.repository);
 		case "cache":
 			return has.longPromptCache;
 		case "mcp":

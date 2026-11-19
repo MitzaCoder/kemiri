@@ -66,7 +66,7 @@
 </script>
 
 {#if support.integration || support.deploy}
-	<SettingsGroup title="Delivery">
+	<SettingsGroup title="Code delivery" term="Integration branch, deploy feed">
 		{#if support.integration}
 			<SettingsRow label="Integration branch" hint="Commits with a Kemiri-Task: T12 line that land here are shown on their tasks." for="integration-branch-mode" status={integrationSave} onretry={() => void pickIntegration(integrationMode)}>
 				<Combobox id="integration-branch-mode" options={integrationOptions} value={integrationMode} onchange={(next) => void pickIntegration(next)} disabled={busy} invalid={integrationSave.status === 'failed'} />
@@ -78,7 +78,7 @@
 			{/if}
 		{/if}
 		{#if support.deploy}
-			<SettingsRow label="Deploy status feed" hint="A JSON journal your deploy scripts write; deploy results then appear on every task they shipped. The harness only reads it." for="deploy-feed-mode" status={feedSave} onretry={() => void pickFeed(feedMode)}>
+			<SettingsRow label="Deploy status feed" hint="A JSON journal your deploy scripts write; deploy results then appear on every task they shipped. Kemiri only reads it." for="deploy-feed-mode" status={feedSave} onretry={() => void pickFeed(feedMode)}>
 				<Combobox id="deploy-feed-mode" options={feedOptions} value={feedMode} onchange={(next) => void pickFeed(next)} disabled={busy} invalid={feedSave.status === 'failed'} />
 			</SettingsRow>
 			{#if feedMode === 'file'}

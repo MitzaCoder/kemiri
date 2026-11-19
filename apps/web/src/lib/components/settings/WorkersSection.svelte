@@ -18,7 +18,7 @@
 	import { OFFICIAL_AGENT_LABEL, isOfficialAgentModel } from '#lib/official-agents.js';
 	import { SaveState } from '#lib/save-state.svelte.js';
 	import { moveWorkerModel, removeWorkerModel, setWorkerModelThinkingLevel } from '#lib/workers.js';
-	import { THINKING_LEVELS, type ModelRef, type ThinkingLevel, type WorkerModel } from '@kemiri/protocol';
+	import { DEFAULT_CHECK_INS, THINKING_LEVELS, type ModelRef, type ThinkingLevel, type WorkerModel } from '@kemiri/protocol';
 
 	/**
 	 * Project → Workers: the ordered list of default worker models (each with the thinking level workers get on it)
@@ -28,6 +28,7 @@
 	let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
+	const usesProjectWorkerDefault = $derived(backend.supports('worker-picker-project-default'));
 	const stored = $derived(project?.workerModels ?? []);
 
 	// ---- default worker models
@@ -110,7 +111,8 @@
 
 	// ---- check-ins
 	const checkInsSave = new SaveState();
-	const checkIns = $derived(project?.checkIns ?? { enabled: true, intervalMinutes: 10 });
+	const resetCheckInsSave = new SaveState();
+	const checkIns = $derived(project?.checkIns ?? DEFAULT_CHECK_INS);
 
 	async function saveCheckIns(next: { enabled: boolean; intervalMinutes: number }): Promise<void> {
 		await backend.configureProject(projectId, { checkIns: next });
@@ -130,7 +132,8 @@
 </script>
 
 <SettingsSection title="Workers" description="Which models workers run on, and when the coordinator checks on them." icon="users">
-	<SettingsGroup title="Default worker models" description="Tried in this order when nothing else names a model.">
+	<SettingsGroup title={usesProjectWorkerDefault ? 'Worker models' : 'Default worker models'}
+		description={usesProjectWorkerDefault ? "The first one is used unless the main chat names another. The composer's worker picker changes the first one." : 'Tried in this order when nothing else names a model.'}>
 		{#each draft as model, index (modelKey(model))}
 			{@const name = modelLabel(model, backend.models)}
 			<div class="flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5" data-worker-model={modelKey(model)}>
@@ -181,9 +184,14 @@
 			onretry={() => void persist(draft)}
 		>
 			{#snippet learn()}
+				{#if usesProjectWorkerDefault}
+					The main chat can name a different model or thinking level when it delegates. Otherwise it starts with this list.
+					"Model default" leaves the thinking level to the model.
+				{:else}
 				New workers run on the model the coordinator names when it delegates, else the one picked in the composer,
 				else the first of these that this backend offers. A model's thinking level applies unless the coordinator or
 				the composer names one; "Model default" leaves it to the model.
+				{/if}
 			{/snippet}
 			<Combobox
 				id="add-worker-model"
@@ -233,6 +241,11 @@
 				disabled={!checkIns.enabled}
 				commit={commitMinutes}
 			/>
+		</SettingsRow>
+		<SettingsRow label="Defaults" hint="Restore this computer’s check-in settings." control="auto" status={resetCheckInsSave}>
+			<Button variant="outline" class="max-sm:h-11" onclick={() => void resetCheckInsSave.run(() => backend.configureProject(projectId, { checkIns: null }))}>
+				Reset check-ins
+			</Button>
 		</SettingsRow>
 	</SettingsGroup>
 </SettingsSection>

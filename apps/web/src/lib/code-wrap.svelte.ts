@@ -19,6 +19,11 @@ class CodeWrap {
 		return effectiveWrap(this.preference, defaultWrap);
 	}
 
+	reset(): void {
+		this.preference = undefined;
+		try { storage?.removeItem(CODE_WRAP_STORAGE_KEY); } catch { /* Keep the in-memory choice. */ }
+	}
+
 	toggle(defaultWrap: boolean): void {
 		this.preference = this.wraps(defaultWrap) ? "scroll" : "wrap";
 		saveCodeWrap(storage, this.preference);

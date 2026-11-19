@@ -70,6 +70,13 @@ export const DEFAULT_NOTIFICATION_KINDS: readonly NotificationKind[] = [
 	"task_review",
 ];
 
+/** Device presets are exact sets, shared across clients. */
+export const NOTIFICATION_PRESETS = {
+	important: DEFAULT_NOTIFICATION_KINDS,
+	needed: ["login_prompt", "board_question", "task_review", ...NOTIFICATION_FAILURE_KINDS],
+	everything: NotificationKindSchema.anyOf.map((kind) => kind.const),
+} satisfies Record<string, readonly NotificationKind[]>;
+
 const TimeOfDay = Type.String({ pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: '"HH:MM", 24-hour.' });
 
 export const NotificationPreferencesSchema = Type.Object({

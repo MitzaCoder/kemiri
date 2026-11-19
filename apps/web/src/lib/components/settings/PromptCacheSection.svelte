@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { projectSection } from '#lib/settings.js';
+  const section = projectSection('cache');
 	import Switch from '#lib/components/settings/Switch.svelte';
 	import Segmented from '#lib/components/settings/Segmented.svelte';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
@@ -29,7 +31,7 @@
 	}
 </script>
 
-<SettingsSection title="Prompt cache" description="How long Claude keeps a conversation it has already read." icon="database-zap">
+<SettingsSection title={section.label} term={section.term} description={section.hint} icon={section.icon}>
 	<SettingsGroup title="One-hour cache">
 		<SettingsRow
 			label="Keep the cache for an hour for"

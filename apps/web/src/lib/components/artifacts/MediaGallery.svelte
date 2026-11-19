@@ -3,7 +3,8 @@
 	import ExpandIcon from '@lucide/svelte/icons/maximize-2';
 	import type { HarnessClient } from '@kemiri/client';
 	import type { Artifact } from '@kemiri/protocol';
-	import { onMount, untrack } from 'svelte';
+	import { untrack } from 'svelte';
+	import { mediaDisplay } from '#lib/media-display.svelte.js';
 	import { artifactTitle } from '#lib/artifacts.js';
 	import { useArtifactFeed } from '#lib/artifacts.svelte.js';
 	import {
@@ -56,10 +57,7 @@
 	let anchorId = $state<string | undefined>(undefined);
 	let viewerOpen = $state(false);
 	let viewerAutoplay = $state(false);
-	let separate = $state(false);
-	onMount(() => {
-		try { separate = localStorage.getItem('aiki.media-separate.v1') === 'true'; } catch { /* Storage can be unavailable. */ }
-	});
+	const separate = $derived(mediaDisplay.separate);
 	let carousel = $state<MediaCarousel | null>(null);
 	let videoSlides = $state<Record<number, MediaVideoSlide | undefined>>({});
 
@@ -133,8 +131,7 @@
 
 	function toggleCompare(id: string): void {
 		anchorId = id;
-		separate = !separate;
-		try { localStorage.setItem('aiki.media-separate.v1', String(separate)); } catch { /* Keep the session choice. */ }
+		mediaDisplay.setSeparate(!separate);
 	}
 
 	function openViewer(at: number): void {

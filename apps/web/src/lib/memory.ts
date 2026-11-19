@@ -435,11 +435,12 @@ export const DEFAULT_MEMORY_MAINTENANCE: MemoryMaintenanceSettings = {
 
 /** Without a model, maintenance never runs. */
 export function memoryMaintenanceOff(settings: MemoryMaintenanceSettings): boolean {
-	return settings.model === null;
+	return settings.enabled === false || settings.model === null;
 }
 
 /** One line saying when maintenance runs on a backend: nightly in its timezone, or after N writes. */
 export function memoryMaintenanceSummary(settings: MemoryMaintenanceSettings, timezone: string): string {
+	if (settings.enabled === false && settings.model !== null) return "Off: the chosen model is kept for later.";
 	if (settings.model === null) return "Off: maintenance doesn't run without a model.";
 	const writes = settings.afterWrites === 1 ? "after 1 write" : `after ${settings.afterWrites} writes`;
 	return `Nightly at ${formatWallTime(settings.time)} (${timezone}), or ${writes}.`;

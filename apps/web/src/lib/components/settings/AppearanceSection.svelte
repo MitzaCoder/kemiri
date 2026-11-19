@@ -3,22 +3,31 @@
  import { timeFormat, setTimeFormat, TIME_FORMAT_OPTIONS, type TimeFormat } from "#lib/time-format.ts";
 	import { workDay } from '#lib/work-day.svelte.js';
 	import CheckIcon from '@lucide/svelte/icons/check';
-	import MoonIcon from '@lucide/svelte/icons/moon';
-	import SunIcon from '@lucide/svelte/icons/sun';
-	import { MediaQuery } from 'svelte/reactivity';
+	import Segmented from './Segmented.svelte';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { colorScheme } from '#lib/themes/color-scheme.svelte.js';
+	import { parseColorScheme } from '#lib/themes/color-scheme.js';
+	import { codeWrap } from '#lib/code-wrap.svelte.js';
+	import { timelineOrder } from '#lib/timeline-order.svelte.js';
+	import { mediaDisplay } from '#lib/media-display.svelte.js';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
 	import SettingsSection from '#lib/components/settings/SettingsSection.svelte';
-	import StatusChip from '#lib/components/settings/StatusChip.svelte';
 	import ThemePreview from '#lib/components/settings/ThemePreview.svelte';
 	import { theme } from '#lib/themes/theme.svelte.js';
 	import { THEMES } from '#lib/themes/themes.js';
 
-	/**
-	 * General → Appearance. The theme is a palette: each card draws the app in it, light and dark side by side. Light
-	 * or dark itself follows the device. Saved in this browser at once, so there is nothing to confirm.
-	 */
-	const systemDark = new MediaQuery('(prefers-color-scheme: dark)');
+	const schemeOptions = [
+		{ value: 'device', label: 'Device' },
+		{ value: 'light', label: 'Light' },
+		{ value: 'dark', label: 'Dark' }
+	];
+
+	function resetReadingChoices(): void {
+		codeWrap.reset();
+		timelineOrder.reset();
+		mediaDisplay.setSeparate(false);
+	}
 
 	function onkeydown(event: KeyboardEvent): void {
 		const keys: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
@@ -79,14 +88,8 @@
 				{/each}
 			</div>
 		</div>
-		<SettingsRow label="Light or dark" hint="Follows your device's setting.">
-			<StatusChip tone="info" dot={false}>
-				{#if systemDark.current}
-					<MoonIcon class="size-3.5" aria-hidden="true" /> Dark now
-				{:else}
-					<SunIcon class="size-3.5" aria-hidden="true" /> Light now
-				{/if}
-			</StatusChip>
+		<SettingsRow label="Light or dark" hint="Device follows this device’s appearance.">
+			<Segmented label="Light or dark" options={schemeOptions} value={colorScheme.preference} onchange={(next) => colorScheme.set(parseColorScheme(next))} />
 		</SettingsRow>
 	</SettingsGroup>
 	<SettingsGroup title="Time">
@@ -97,9 +100,21 @@
 		</SettingsRow>
 	</SettingsGroup>
 	<SettingsGroup title="Waiting tasks">
-		<SettingsRow label="Work day starts at" hint="Return dates use this device’s local time zone. Saved in this browser.">
-			<TimeInput aria-label="Work day starts at" value={workDay.start} onchange={(value) => workDay.set(value)} />
+		<SettingsRow label="Waiting tasks come back at" term="Work day start" hint="A task waiting until a date returns at this time, in this device's time zone.">
+			<TimeInput aria-label="Waiting tasks come back at" value={workDay.start} onchange={(value) => workDay.set(value)} />
 		</SettingsRow>
 	</SettingsGroup>
-	<p class="px-1 text-xs text-(--chat-fg-subtle)">The theme is kept in this browser, not on a backend.</p>
+	<SettingsGroup title="Reading">
+		<SettingsRow label="Wrap code" control="auto">
+			<span class="text-sm text-muted-foreground">{codeWrap.preference === 'wrap' ? 'Wrap lines' : codeWrap.preference === 'scroll' ? 'Scroll sideways' : 'Automatic'}</span>
+		</SettingsRow>
+		<SettingsRow label="Timeline order" control="auto">
+			<span class="text-sm text-muted-foreground">{timelineOrder.order === 'newest' ? 'Newest first' : 'Oldest first'}</span>
+		</SettingsRow>
+		<SettingsRow label="Image compare" control="auto">
+			<span class="text-sm text-muted-foreground">{mediaDisplay.separate ? 'Show singly' : 'Compare pairs'}</span>
+		</SettingsRow>
+		<div class="px-4 py-3 sm:px-5"><Button variant="outline" onclick={resetReadingChoices}>Reset reading choices</Button></div>
+	</SettingsGroup>
+	<p class="px-1 text-xs text-(--chat-fg-subtle)">These choices are kept in this browser.</p>
 </SettingsSection>
