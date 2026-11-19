@@ -11,15 +11,16 @@
 	import TaskSnapshotDetail from './TaskSnapshotDetail.svelte';
 	import TaskLivePlan from './TaskLivePlan.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
-	import { visibleLiveLines } from '#lib/task-live.js';
+	import { visibleLiveLines, type LiveNewsActions } from '#lib/task-live.js';
 
-	let { board, task, sources, loading, error, writerName, workerHref, taskHref }: {
+	let { board, task, sources, loading, error, writerName, workerHref, taskHref, news }: {
 		board: ProjectBoard | undefined;
 		task: BoardTask;
 		sources: Omit<Parameters<typeof taskActivityRows>[0], 'snapshots'>;
 		loading: boolean;
 		error: string | undefined;
 		writerName: (writer: BoardWriter) => string;
+		news?: LiveNewsActions;
 		workerHref: (id: string) => string | undefined;
 		taskHref: (id: string) => string;
 	} = $props();
@@ -81,7 +82,7 @@
 											{#if row.live}
 														{#if row.live.plan}<TaskLivePlan plan={row.live.plan} />{/if}
 												<ul role="list" class="flex flex-col gap-1">
-													{#each visibleLiveLines(row.live.lines) as line (line.id)}<TaskLiveLine {line} />{/each}
+													{#each visibleLiveLines(row.live.lines, !!news) as line (line.id)}<TaskLiveLine {line} {news} />{/each}
 												</ul>
 											{/if}
 											{#if row.detail || !row.live}<p>{activityText(row.detail || row.label)}</p>{/if}

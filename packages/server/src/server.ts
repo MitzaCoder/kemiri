@@ -358,6 +358,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value") ||
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
+   (feature !== "task-live-watcher" || (options.features ?? HARNESS_FEATURES).includes("task-live")) &&
 			(feature !== "fcm-relay-v1" || (relayEndpoint !== undefined &&
 				(options.features ?? HARNESS_FEATURES).includes("device-auth-v1"))),
 	);
@@ -584,6 +585,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskState: features.includes("task-state"),
   taskPartStates: features.includes("task-part-states"),
   taskLive: features.includes("task-live"),
+  taskWatcher: features.includes("task-live-watcher"),
 		reportAudit: features.includes("report-audit"),
 		diskWarnings: () => diskMonitor?.warnings() ?? [],
 		store,

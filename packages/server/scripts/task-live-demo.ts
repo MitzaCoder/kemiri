@@ -1,13 +1,14 @@
-/** Synthetic Live proof. SIGUSR1 ticks a step and starts an intent pulse on first use, then records a check; SIGUSR2 folds. */
+/** Synthetic Live proof: SIGUSR1 advances the plan/check, SIGUSR2 folds, SIGWINCH adds recorded work for a news line. */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { HARNESS_FEATURES } from '@kemiri/protocol';
 import { createSetup, TestClient } from '../test/support.ts';
 import { foldTaskLiveIn, openBoard, workerWriter, writeReportIn } from '../src/board.ts';
 import { LiveDoc, type TaskId } from '@earendil-works/pi-durable';
+import { WorkersDoc } from '../src/workers.ts';
 import { activityTracking, endActivitySource } from '../src/task-activity.ts';
 
-const features = HARNESS_FEATURES.filter(feature => process.env.DEMO_BEFORE !== '1' || feature !== 'task-live');
+const features = HARNESS_FEATURES.filter(feature => (process.env.DEMO_BEFORE !== '1' || feature !== 'task-live') && (process.env.DEMO_STAGE_C !== '1' || feature !== 'task-live-watcher'));
 const setup = await createSetup({ features, allowedOrigins: (process.env.DEMO_ORIGINS ?? 'http://localhost:5210').split(','), terminals: false });
 setup.faux.setResponses(Array.from({ length: 6 }, () => fauxAssistantMessage("Synthetic demo ready.")));
 const client = await TestClient.open(setup.server);
@@ -33,6 +34,12 @@ const actor = await runtime.harness.commit(async tx => {
  const actor = { id: `main:${fixture.id}:${first}`, kind: 'worker', name: 'fern', threadId: 'main', conversationId: fixture.id, runId: String(first) } as const;
  const board = await openBoard(tx, mainId);
  activityTracking(board, task.id).sources[actor.id] = { actor, state: 'running', since: at(23), title: task.title };
+ // Register a synthetic transcript route without starting a real worker or its check-ins.
+ (await tx.doc(WorkersDoc, mainId)).workers.fern = {
+  id: 'fern', title: task.title, conversationId: fixture.id, status: 'idle',
+  isolation: 'shared', workspacePath: null, model: { provider: 'faux', modelId: 'faux-1' }, thinkingLevel: null,
+  spawnedByCallId: null, createdAt: at(23), updatedAt: at(0), lastReport: null, failure: null, anchorTaskId: 1,
+ };
  return actor;
 }, BACKGROUND_CONTEXT);
 
@@ -69,6 +76,16 @@ process.on('SIGUSR1', () => { void runtime.harness.commit(async tx => {
  } else {
   await writeReportIn(tx, mainId, { taskId: task.id, sections: {}, mergeChecks: [{ name: 'Gift card checkout tests', result: 'passed', count: 24 }], by: workerWriter('main', 'fern') }, `demo:${++serial}`, at(0));
  }
+}, BACKGROUND_CONTEXT); });
+process.on('SIGWINCH', () => { void runtime.harness.commit(async tx => {
+ await appendFinishedCall(tx, 'read', { path: 'checkout.ts' }, false);
+ for (let i = 0; i < 4; i++) await appendFinishedCall(tx, 'edit', { path: 'gift-card-balance-display.ts' }, false);
+ await appendFinishedCall(tx, 'write', { path: 'balance-display.test.ts' }, false);
+ await appendFinishedCall(tx, 'bash', { command: 'bun test tests/balance-display.test.ts', intent: 'Check that partial payments show the remaining balance' }, false);
+ // Stage B observes changes to the durable tool slots, then reads the committed events.
+ const call = fauxToolCall('read', { path: 'checkout.ts' });
+ await tx.appendEntry(fixture.id, { kind: 'pi.assistant', model: [fauxAssistantMessage([call], { stopReason: 'toolUse' })] });
+ (await tx.doc(LiveDoc, fixture.id)).tools = [{ callId: call.id, name: call.name, status: 'running', taskId: 3 as TaskId }];
 }, BACKGROUND_CONTEXT); });
 process.on('SIGUSR2', () => { void runtime.harness.commit(async tx => {
  const board = await openBoard(tx, mainId);

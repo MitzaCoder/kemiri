@@ -3701,8 +3701,37 @@ gates without a request or any transcript text leaving the server.
 mutations refused and a shared input-token budget. It writes private evidence and usage to `/tmp`.
 Its paired verifier replay keeps the generator's original page history, so the measured effect is
 what the extra call drops, not what the generator might have written with different history.
-No server path calls the watcher. If wired later, any line is marked **auto** and stays in the live
-block. It cannot update What you get, Not done, Next or Needs you.
+
+### Task watcher, live on web (T319, D107/D109)
+
+`task-live-watcher` requires `task-live`. Web advertises it at hello; without it the server omits
+watcher project settings and rejects watcher requests. Existing clients skip the unrecognized `auto`
+kind. Android presentation is separate. The watcher observes the same committed entries as the Live
+counters for task worker runs. Roughly 12 new tool entries or 120 seconds of activity can admit a
+pass; gaps longer than two minutes and idle clocks do not earn work. The three-minute floor applies
+per task, including an end flush and across distinct runs. At run end any pending work can be
+considered even below the usual trigger. Reopening resumes the persisted per-run entry cursor.
+
+Project `taskWatcher` is `{ mode, model?, dailyTokens }`: Automatic (`auto`) uses most steps locally,
+`off` stops new lines, `model` selects a configured model, and `null` restores Automatic with a
+65,000-token daily limit. `taskWatcherStatus` exposes the effective choice, UTC usage, state and
+reason plus totals and counts per picker. A model sees bounded recorded action candidates, not
+command output or transcript prose, and can return only a candidate ID or null. The harness renders
+and deduplicates the line. The service reserves tokens durably before calling, uses an uncached fresh
+session with a deadline, and logs `task_watcher` usage. It never retries admitted evidence. Unavailable
+or over-budget calls use Automatic; a malformed answer is discarded. A model choice finishing as the
+run ends updates only that existing folded trail.
+
+An `auto` line carries the picker and `{ conversationId, steps: [{ entryId, description }] }` for
+up to sixteen recorded tool steps in the pass, including the chosen action and nearby work. A call
+and its result appear once. Each description has a fixed tool label and, when safe, a short explicit
+intent, file name, or test target. It never copies command text or output. The web view groups
+consecutive identical descriptions. Each group links to its first tool entry when the worker still
+has a transcript route, or the panel says that the work log is unavailable. Lines use the same
+thirty-line limit and run fold. `board.live.mark_wrong` records the authenticated session (or the
+owner for local connections) and time once. The line stays visible but struck through, with evidence
+still readable. These writes do not modify reports, Needs you, freshness, check-ins, nudges,
+notifications, timeline row count or snapshots, and never message the coordinator.
 
 ### Tasks board
 

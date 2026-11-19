@@ -192,4 +192,5 @@
 		</SettingsGroup>
 	{/if}
 	<ReportAuditGroup {backend} {projectId} />
+	<ReportAuditGroup {backend} {projectId} watcher />
 </SettingsSection>

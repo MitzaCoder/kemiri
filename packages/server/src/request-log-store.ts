@@ -41,7 +41,7 @@ export type ConversationIdentity = {
 	scheduleId: string | null;
 };
 
-export type InternalUsagePurpose = "compaction" | "memory_extraction" | "memory_maintenance" | "report_audit";
+export type InternalUsagePurpose = "compaction" | "memory_extraction" | "memory_maintenance" | "report_audit" | "task_watcher";
 
 export type RequestBilling = "subscription" | "plan_key" | "api_key" | "agent";
 

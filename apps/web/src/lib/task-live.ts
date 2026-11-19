@@ -1,14 +1,34 @@
-import type { BoardLiveLine, BoardTaskActivity } from '@kemiri/protocol';
+import type { BoardLiveLine, BoardTaskActivity, WorkerSummary } from '@kemiri/protocol';
+
+import { workerHref } from './backends.js';
+
+export type LiveNewsActions = { markWrong(lineId: string): Promise<void>; workLogHref(line: BoardLiveLine, entryId: string): string | undefined };
+
+export function liveNewsWorkLogHref(backendId: string, projectId: string, workers: readonly WorkerSummary[], line: BoardLiveLine, entryId: string): string | undefined {
+ const worker = workers.find(worker => worker.conversationId === line.evidence?.conversationId && worker.id === line.actor.name && (worker.threadId ?? 'main') === line.actor.threadId);
+ return worker && /^[1-9]\d*$/.test(entryId) ? `${workerHref(backendId, projectId, worker.id, worker.threadId === 'main' ? undefined : worker.threadId)}#entry-${entryId}` : undefined;
+}
+
+/** Collapse consecutive matching descriptions without losing the first entry's link. */
+export function groupLiveEvidence(steps: NonNullable<BoardLiveLine['evidence']>['steps']) {
+ const groups: (typeof steps[number] & { count: number })[] = [];
+ for (const step of steps) {
+  const previous = groups.at(-1);
+  if (previous?.description === step.description) previous.count++;
+  else groups.push({ ...step, count: 1 });
+ }
+ return groups;
+}
 
 type SeenLiveLine = Pick<BoardLiveLine, 'id' | 'at'>;
 
-export function visibleLiveLines(lines: readonly BoardLiveLine[]): BoardLiveLine[] {
-	return lines.filter(line => line.kind === 'phase' || line.kind === 'result' || line.kind === 'fact');
+export function visibleLiveLines(lines: readonly BoardLiveLine[], watcher = false): BoardLiveLine[] {
+	return lines.filter(line => line.kind === 'phase' || line.kind === 'result' || line.kind === 'fact' || watcher && line.kind === 'auto');
 }
 
 /** Only the current actor's phase at the displayed Now timestamp is redundant. */
-export function liveTrailBelowNow(lines: readonly BoardLiveLine[], now: BoardTaskActivity): BoardLiveLine[] {
- return visibleLiveLines(lines).filter(line => !(now.kind === 'working' && line.kind === 'phase' && line.actor.id === now.actor?.id && line.at === now.since && now.text.startsWith(`${line.actor.name} is ${line.text}`)));
+export function liveTrailBelowNow(lines: readonly BoardLiveLine[], now: BoardTaskActivity, watcher = false): BoardLiveLine[] {
+ return visibleLiveLines(lines, watcher).filter(line => !(now.kind === 'working' && line.kind === 'phase' && line.actor.id === now.actor?.id && line.at === now.since && now.text.startsWith(`${line.actor.name} is ${line.text}`)));
 }
 
 export function pulseElapsed(since: string, now: number): string {

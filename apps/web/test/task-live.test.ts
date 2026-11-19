@@ -3,8 +3,8 @@ import { createServer } from 'vite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BoardLiveLine, BoardTaskActivity } from '@kemiri/protocol';
-import { liveSeenKey, visibleLiveLines, visitLiveTrail } from '../src/lib/task-live.js';
+import type { BoardLiveLine, BoardTaskActivity, WorkerSummary } from '@kemiri/protocol';
+import { liveNewsWorkLogHref, liveSeenKey, visibleLiveLines, visitLiveTrail } from '../src/lib/task-live.js';
 
 const line = (id: string, kind = 'phase'): BoardLiveLine => ({ id, kind, at: new Date(Date.UTC(2026, 5, 1, 12, 0, id.charCodeAt(0))).toISOString(), text: 'Checking the page', actor: { id: 'a', kind: 'worker', name: 'fern', threadId: 'main', conversationId: 1, runId: 'one' } });
 const [a, b, c, d] = ['a', 'b', 'c', 'd'].map(id => line(id)) as [BoardLiveLine, BoardLiveLine, BoardLiveLine, BoardLiveLine];
@@ -79,6 +79,43 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   expect(withPlan).toContain('data-status="todo"');
   expect(withPlan).toContain('Show steps');
   expect(withPlan.indexOf('Plan steps')).toBeLessThan(withPlan.indexOf('So far'));
+  const auto = { ...line('c', 'auto'), picker: 'most_steps', evidence: { conversationId: 1, steps: [
+   ...[18, 20, 22, 24].map(id => ({ entryId: String(id), description: 'Editing a file · payments.ts' })),
+   { entryId: '26', description: 'Running tests · checkout' }, { entryId: '28', description: 'Editing a file · payments.ts' },
+  ] } };
+  const worker = { id: 'fern', threadId: 'main', conversationId: 1 } as WorkerSummary;
+  const news = { markWrong: async () => {}, workLogHref: (line: BoardLiveLine, entryId: string) => liveNewsWorkLogHref('demo', 'bakery', [worker], line, entryId) };
+  const autoHtml = render(TaskLive, { props: { ...props, news, live: { lines: [auto] } } }).body;
+  expect(autoHtml).toContain('data-kind="auto"');
+  expect(autoHtml).toMatch(/live-line-kind[^>]*>auto</);
+  expect(autoHtml).toContain('<details');
+  expect(autoHtml).toContain('Recorded steps');
+  expect(autoHtml).toContain('Editing a file · payments.ts');
+  expect(autoHtml).toContain('Running tests · checkout');
+  expect(autoHtml.match(/×4/g)).toHaveLength(1);
+  expect(autoHtml).toContain('#entry-28');
+  expect(autoHtml).not.toContain('#entry-20');
+  expect(render(TaskLive, { props: { ...props, news: { ...news, workLogHref: () => undefined }, live: { lines: [auto] } } }).body).toContain('The work log is not available');
+  expect(autoHtml).toContain('Open the work log here');
+  expect(autoHtml).toContain('/workers/fern#entry-18');
+  expect(autoHtml).toContain('This is wrong');
+  expect(liveNewsWorkLogHref('demo', 'bakery', [{ ...worker, conversationId: 2 }], auto, '18')).toBeUndefined();
+  const wrongHtml = render(TaskLive, { props: { ...props, news, live: { lines: [{ ...auto, wrong: { by: 'owner', at: auto.at } }] } } }).body;
+  expect(wrongHtml).toContain('Marked wrong');
+  expect(wrongHtml).not.toContain('This is wrong');
+  expect(render(TaskLive, { props: { ...props, live: { lines: [auto] } } }).body).not.toContain('data-kind="auto"');
+
+  const { default: Settings } = await vite.ssrLoadModule('/src/lib/components/settings/ReportAuditGroup.svelte');
+  const setting = (features: string[], mode: 'auto' | 'model') => render(Settings, { props: { watcher: true, projectId: 'bakery', backend: {
+   supports: (feature: string) => features.includes(feature), projects: [{ id: 'bakery', taskWatcher: { mode, dailyTokens: 1000 } }],
+   connection: { features }, models: [], providers: [], modelsLoaded: true,
+  } } }).body;
+  expect(setting(['task-live'], 'auto')).not.toContain('Live news lines');
+  expect(setting(['task-live', 'task-live-watcher'], 'auto')).toContain('Uses recorded steps without a model');
+  const chooseModel = setting(['task-live', 'task-live-watcher'], 'model');
+  expect(chooseModel).toContain('Live news lines');
+  expect(chooseModel).toContain('Live news model');
+  expect(chooseModel).toContain('task-watcher-budget');
  } finally {
   await vite.close();
   await rm(directory, { recursive: true, force: true });

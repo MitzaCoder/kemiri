@@ -1,3 +1,4 @@
+import { DEFAULT_TASK_WATCHER, type TaskWatcherSettings } from "@kemiri/protocol";
 /**
  * Project records on disk: one directory per project under `<data>/projects/<id>/`, holding `project.json` and the
  * project's `session.sqlite` (see `sessionPath`).
@@ -45,6 +46,7 @@ export type Project = {
 	uiProof: UiProof;
 	blockArtifactRequests?: boolean;
 	reportAudit?: ReportAuditSettings;
+	taskWatcher?: TaskWatcherSettings;
 	/** Server-only switch for the follow-up when reusable chat detail has not been filed. */
 	chatDetailNudges?: boolean;
 	/** Where ticket keys and PR numbers point, as the user set it; null: filled in automatically (`project-links.ts`). */
@@ -72,6 +74,7 @@ export type ProjectChange = {
 	uiProof?: UiProof | null;
 	blockArtifactRequests?: boolean | null;
 	reportAudit?: ReportAuditSettings | null;
+	taskWatcher?: TaskWatcherSettings | null;
 	chatDetailNudges?: boolean | null;
 	/** `null` goes back to filling them in automatically. */
 	links?: ProjectLinks | null;
@@ -114,6 +117,7 @@ function defaultProject(id: string, name: string, path: string): Project {
 		uiProof: DEFAULT_UI_PROOF,
 		blockArtifactRequests: false,
 		reportAudit: { ...DEFAULT_REPORT_AUDIT },
+		taskWatcher: { ...DEFAULT_TASK_WATCHER },
 		chatDetailNudges: true,
 		links: null,
 	};
@@ -154,6 +158,7 @@ function parseProject(value: unknown, id: string): Project | undefined {
 		uiProof: parseUiProof(record.uiProof),
 		blockArtifactRequests: record.blockArtifactRequests === true,
 		reportAudit: parseReportAudit(record.reportAudit),
+		taskWatcher: parseTaskWatcher(record.taskWatcher),
 		chatDetailNudges: record.chatDetailNudges !== false,
 		links: cleanLinks(record.links),
 		deployFeed: typeof record.deployFeed === "string" ? record.deployFeed : null,
@@ -190,12 +195,15 @@ function parseWorkerModels(value: unknown): WorkerModel[] {
 }
 
 /** Invalid or legacy stored settings get the on-by-default bounded audit. */
-export function parseReportAudit(value: unknown): ReportAuditSettings {
+export function parseReportAudit(value: unknown): ReportAuditSettings { return parseBudgetedPicker(value, DEFAULT_REPORT_AUDIT); }
+export function parseTaskWatcher(value: unknown): TaskWatcherSettings { return parseBudgetedPicker(value, DEFAULT_TASK_WATCHER); }
+
+function parseBudgetedPicker(value: unknown, defaults: ReportAuditSettings): ReportAuditSettings {
 	const record = value as Partial<ReportAuditSettings> | null;
-	if (!record || !["auto", "off", "model"].includes(record.mode ?? "")) return { ...DEFAULT_REPORT_AUDIT };
+	if (!record || !["auto", "off", "model"].includes(record.mode ?? "")) return { ...defaults };
 	const model = record.model;
-	if (record.mode === "model" && (!model || typeof model.provider !== "string" || typeof model.modelId !== "string")) return { ...DEFAULT_REPORT_AUDIT };
-	return { mode: record.mode!, ...(record.mode === "model" ? { model: model! } : {}), dailyTokens: Number.isInteger(record.dailyTokens) && record.dailyTokens! >= 0 && record.dailyTokens! <= 10_000_000 ? record.dailyTokens! : DEFAULT_REPORT_AUDIT.dailyTokens };
+	if (record.mode === "model" && (!model || typeof model.provider !== "string" || typeof model.modelId !== "string")) return { ...defaults };
+	return { mode: record.mode!, ...(record.mode === "model" ? { model: model! } : {}), dailyTokens: Number.isInteger(record.dailyTokens) && record.dailyTokens! >= 0 && record.dailyTokens! <= 10_000_000 ? record.dailyTokens! : defaults.dailyTokens };
 }
 
 const UI_PROOFS: readonly UiProof[] = ["off", "screenshots", "screenshots-and-videos"];
@@ -360,6 +368,7 @@ export class ProjectStore {
 					change.longPromptCache === undefined
 						? project.longPromptCache
 						: (change.longPromptCache ?? DEFAULT_LONG_PROMPT_CACHE),
+				taskWatcher: parseTaskWatcher(change.taskWatcher === undefined ? project.taskWatcher : change.taskWatcher),
 				reportAudit: change.reportAudit === undefined ? parseReportAudit(project.reportAudit) : parseReportAudit(change.reportAudit),
 				chatDetailNudges: change.chatDetailNudges === undefined ? project.chatDetailNudges !== false : change.chatDetailNudges !== false,
 				uiProof: change.uiProof === undefined ? project.uiProof : (change.uiProof ?? DEFAULT_UI_PROOF),

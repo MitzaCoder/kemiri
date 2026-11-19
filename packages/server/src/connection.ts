@@ -195,6 +195,7 @@ export class ClientConnection {
 	#terminalSequence = 0;
 	#ready = false;
 	#clientSupportsTaskSteps = false;
+ #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
 	#closed = false;
 	#watchSequence = 0;
@@ -433,6 +434,7 @@ export class ClientConnection {
 					return;
 				}
 				case "projects.configure": {
+     if (request.taskWatcher !== undefined && !this.#clientSupportsTaskWatcher) return this.#unknownRequest(request);
 					const project = await this.#manager.configure(request.projectId, {
 						...(request.name === undefined ? {} : { name: request.name }),
 						...(request.coordinatorModel === undefined ? {} : { coordinatorModel: request.coordinatorModel }),
@@ -451,6 +453,7 @@ export class ClientConnection {
 						...(request.integrationRef === undefined ? {} : { integrationRef: request.integrationRef }),
 						...(request.deployFeed === undefined ? {} : { deployFeed: request.deployFeed }),
 						...(request.reportAudit === undefined ? {} : { reportAudit: request.reportAudit }),
+      ...(request.taskWatcher === undefined ? {} : { taskWatcher: request.taskWatcher }),
 						...(request.links === undefined ? {} : { links: request.links }),
 						...(request.archived === undefined ? {} : { archived: request.archived }),
 					});
@@ -871,6 +874,13 @@ export class ClientConnection {
 					this.#respond({ type: "board.report.stale", id: request.id, task });
 					return;
 				}
+    case "board.live.mark_wrong": {
+     if (!this.#clientSupportsTaskWatcher) return this.#unknownRequest(request);
+     const { runtime } = await this.#manager.open(request.projectId);
+     await runtime.board.markLiveLineWrong(request.taskId, request.lineId, this.#deviceAuth?.identity?.sessionId ?? "owner");
+     this.#respond({ type: request.type, id: request.id });
+     return;
+    }
 				case "board.task.history": {
 					const snapshots = await this.#manager.boardTaskHistory(request.projectId, request.taskId);
 					this.#respond({ type: "board.task.history", id: request.id, taskId: request.taskId, snapshots });
@@ -1376,6 +1386,7 @@ export class ClientConnection {
 			this.#io.close(1002, "unsupported protocol version");
 			return;
 		}
+  this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#ready = true;
 		this.#respond({
@@ -1620,6 +1631,13 @@ export class ClientConnection {
 		}
 		if (this.#closed) return;
 		try {
+   if (!this.#clientSupportsTaskWatcher) {
+    const legacy = ({ taskWatcher: _watcher, taskWatcherStatus: _status, ...project }: ProjectSummary) => project;
+    switch (message.type) {
+     case "projects.list": message = { ...message, projects: message.projects.map(legacy) }; break;
+     case "projects.add": case "projects.configure": case "project.state": message = { ...message, project: legacy(message.project) }; break;
+    }
+   }
 			this.#io.send(this.#clientSupportsTaskSteps ? message : withLegacyTaskState(message));
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);

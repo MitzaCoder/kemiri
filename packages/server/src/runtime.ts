@@ -1,3 +1,5 @@
+import { DEFAULT_TASK_WATCHER, type TaskWatcherStatus } from "@kemiri/protocol";
+import { watcherStatus } from "./task-watcher-live.ts";
 import { workerCommandIntent } from "./worker-command-intent.ts";
 import { WorkerBrowserService } from "./worker-browser.ts";
 import { backgroundJobCounts } from "@kemiri/protocol";
@@ -240,6 +242,7 @@ export type ProjectManagerOptions = {
  taskPartStates?: boolean;
  taskLive?: boolean;
 	reportAudit?: boolean;
+ taskWatcher?: boolean;
 	/**
 	 * The backend's memory scopes. Default: one over the store's data directory, without change notifications, which only
 	 * the server needs.
@@ -331,6 +334,7 @@ export class ProjectManager {
  readonly #taskPartStates: boolean;
  readonly #taskLive: boolean;
 	readonly #reportAudit: boolean;
+ readonly #taskWatcher: boolean;
 	/** Shared across project summaries; pending auth checks are coalesced too. */
 	readonly #auditModelCache = new Map<string, { expiresAt: number; model: ReturnType<typeof chooseAuditModel> }>();
 	readonly #onWorkersState:
@@ -396,6 +400,7 @@ export class ProjectManager {
   this.#taskPartStates = options.taskPartStates !== false;
   this.#taskLive = options.taskLive !== false;
 		this.#reportAudit = options.reportAudit !== false;
+  this.#taskWatcher = this.#taskLive && options.taskWatcher !== false;
 		this.#now = options.now;
 		this.#setTimer = options.setTimer;
 		this.#agentDir = options.agentDir ?? resolveAgentDir();
@@ -508,6 +513,7 @@ export class ProjectManager {
 		if (entry !== undefined) entry.project = project;
 		if (entry?.runtime !== undefined) {
 			try {
+    if (change.taskWatcher !== undefined || archiving || unarchiving) await entry.runtime.board.configureTaskWatcher();
 				await entry.runtime.conversation.configure(
 					{
 						model: project.coordinator.model,
@@ -1185,6 +1191,10 @@ export class ProjectManager {
 			this.#requireModel(change.coordinatorModel, false);
 		}
 		for (const ref of change.workerModels ?? []) this.#requireModel(ref);
+  if (change.taskWatcher?.mode === "model") {
+   if (!change.taskWatcher.model) throw new ServerError("bad_request", "Live news model mode requires a model");
+   this.#requireModel(change.taskWatcher.model);
+  }
 		if (change.reportAudit?.mode === "model") {
 			if (!change.reportAudit.model) throw new ServerError("bad_request", "Report audit model mode requires a model");
 			this.#requireModel(change.reportAudit.model, false);
@@ -1299,6 +1309,13 @@ export class ProjectManager {
    taskState: this.#taskState,
    taskPartStates: this.#taskPartStates,
    taskLive: this.#taskLive,
+   ...(this.#taskWatcher ? {
+    watcherModels: this.#requestLog?.observeInternalModels(this.models, project.id, "task_watcher") ?? this.models,
+    watcherStatusChanged: async status => {
+     await writeJsonFile(join(this.store.projectDir(project.id), "task-watcher-status.json"), status, 0o600);
+     this.#emit(await this.#summaryOf(entry.project));
+    },
+   } : {}),
    taskArtifactSaves: { read: () => this.artifacts.taskSaves(project.id), watch: listener => this.artifacts.watchTaskSaves(project.id, listener) },
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
@@ -1824,6 +1841,10 @@ export class ProjectManager {
 		this.#armAttentionReturn(project, attention?.nextReturnAt);
 		return {
 			...projectSummary(project, entry, activity, this.#linkSettings(project)),
+   ...(this.#taskWatcher ? { taskWatcher: project.taskWatcher ?? DEFAULT_TASK_WATCHER, taskWatcherStatus: watcherStatus(
+    project.archived ? { mode: "off", dailyTokens: 0 } : project.taskWatcher ?? DEFAULT_TASK_WATCHER, this.#clock(),
+    entry?.runtime ? (await entry.runtime.board.state()).taskWatcherStatus : await readJsonFile(join(this.store.projectDir(project.id), "task-watcher-status.json")) as TaskWatcherStatus | undefined,
+   ) } : {}),
 			...(this.#reportAudit ? { reportAudit: project.reportAudit ?? DEFAULT_REPORT_AUDIT, reportAuditStatus: await this.#auditStatus(project, entry) } : {}),
 			...(attention === undefined ? {} : { attention: entry?.state === "open" || entry?.state === "opening" ? attention : { ...attention, runningWorkers: 0 } }),
 		};

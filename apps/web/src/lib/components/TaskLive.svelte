@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { liveCounterLabels, type BoardTaskActivity, type BoardTaskLive } from '@kemiri/protocol';
-	import { liveSeenKey, liveTrailBelowNow, visitLiveTrail } from '#lib/task-live.js';
+	import { liveSeenKey, liveTrailBelowNow, visitLiveTrail, type LiveNewsActions } from '#lib/task-live.js';
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import TaskLivePulse from './TaskLivePulse.svelte';
 	import TaskLivePlan from './TaskLivePlan.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
 
-	let { live, now, backendId, projectId, taskId }: { live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string } = $props();
-	const chronological = $derived(liveTrailBelowNow(live.lines, now));
+	let { live, now, backendId, projectId, taskId, news }: { live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string; news?: LiveNewsActions } = $props();
+	const chronological = $derived(liveTrailBelowNow(live.lines, now, !!news));
 	const newestFirst = $derived(chronological.toReversed());
 	const newestLimit = 3;
 	const counters = $derived(liveCounterLabels(live.counters));
@@ -56,7 +56,7 @@
 		<ul role="list" class="live-trail">
 			{#each newestFirst.slice(0, newestLimit) as line, index (line.id)}
 				{#if index > 0 && index === unseen}{@render divider()}{/if}
-				<TaskLiveLine {line} arrived={arrived.includes(line.id)} />
+				<TaskLiveLine {line} {news} arrived={arrived.includes(line.id)} />
 			{/each}
 			{#if unseen > 0 && unseen === Math.min(newestLimit, newestFirst.length)}{@render divider()}{/if}
 		</ul>
@@ -66,7 +66,7 @@
 				<ul role="list" class="live-trail">
 					{#each newestFirst.slice(newestLimit) as line, index (line.id)}
 						{#if index > 0 && index + newestLimit === unseen}{@render divider()}{/if}
-						<TaskLiveLine {line} />
+						<TaskLiveLine {line} {news} />
 					{/each}
 					{#if unseen > newestLimit && unseen === newestFirst.length}{@render divider()}{/if}
 				</ul>

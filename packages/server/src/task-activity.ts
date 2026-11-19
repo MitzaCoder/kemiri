@@ -1,3 +1,4 @@
+import type { WatcherCursor } from "./task-watcher-live.ts";
 import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState, BoardLiveLine, BoardLivePlanStep } from "@kemiri/protocol";
 
 /** Durable run identities, never worker names alone. Deployment facts have separate typed slots. */
@@ -8,6 +9,7 @@ export type TaskActivitySource = {
  phase?: string;
  liveStartedAt?: string;
  liveFolded?: boolean;
+ watcherCursor?: WatcherCursor;
  liveChecks?: number;
  livePlan?: BoardLivePlanStep[];
  liveCheckWrites?: string[];

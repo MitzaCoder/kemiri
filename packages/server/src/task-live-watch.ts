@@ -1,3 +1,4 @@
+import { TaskWatcherRun } from "./task-watcher-live.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { LiveDoc, type ConversationId, type EntryId, type Harness, type LiveState } from "@earendil-works/pi-durable";
 import type { Board, BoardLivePulse } from "@kemiri/protocol";
@@ -11,6 +12,7 @@ const LIVE_PUSH_INTERVAL_MS = 2_000;
 type RunWatch = {
  runId?: string | undefined;
  run?: TaskLiveRun | undefined;
+ watcher?: TaskWatcherRun | undefined;
  publishedPulse?: BoardLivePulse | undefined;
  stop: Promise<() => Promise<void>>;
 };
@@ -23,7 +25,8 @@ export class TaskLiveWatch {
  #readingSaves = false;
  #savesDirty = true;
  constructor(readonly harness: Harness, readonly publish: () => void, readonly log: (error: unknown) => void,
-  readonly readSaves?: () => Promise<readonly TaskArtifactSave[]>) {}
+  readonly readSaves?: () => Promise<readonly TaskArtifactSave[]>,
+  readonly onSteps?: (conversationId: number, runId: string, run: TaskWatcherRun) => Promise<void>) {}
 
  sync(state: Readonly<BoardState>): void {
   const conversations = new Set(state.tasks.flatMap(task => task.status === "done" || task.status === "dropped" ? [] :
@@ -83,17 +86,20 @@ export class TaskLiveWatch {
      owner.publishedPulse = undefined;
      owner.run = runId ? new TaskLiveRun() : undefined;
      owner.runId = runId;
+     owner.watcher = runId && this.onSteps ? new TaskWatcherRun() : undefined;
      lastEntry = undefined;
     }
     const run = owner.run;
+    const previousEntry = lastEntry;
     if (run && active?.first !== undefined) {
      let cursor: Parameters<typeof conversation.entries>[2];
      do {
       const page = await conversation.entries({ minEntryId: lastEntry === undefined ? active.first : (lastEntry + 1) as EntryId, order: "ascending" }, 200, cursor, BACKGROUND_CONTEXT);
-      for (const entry of page.items) { run.add(entry); lastEntry = entry.id; }
+      for (const entry of page.items) { run.add(entry); owner.watcher?.add(entry); lastEntry = entry.id; }
       cursor = page.next;
      } while (cursor !== undefined);
     }
+    if (owner.watcher && runId && lastEntry !== previousEntry) await this.onSteps?.(conversationId, runId, owner.watcher);
     run?.updatePulse(live, observedAt);
     if (this.#watches.get(conversationId) === owner) this.#requestPush();
    };

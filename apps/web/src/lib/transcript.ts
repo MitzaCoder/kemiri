@@ -104,6 +104,8 @@ export type ToolPart = {
 	type: "tool";
 	key: string;
 	callId: string;
+	/** Present only on the tool targeted by a work-log link. */
+	entryAnchor?: number;
 	name: string;
 	arguments?: unknown;
 	output?: string;
@@ -196,13 +198,18 @@ export function groupTurnParts(parts: readonly TurnPart[]): TurnRow[] {
 			index += 1;
 			continue;
 		}
+		if (part.type === "tool" && part.entryAnchor !== undefined) {
+			rows.push({ kind: "part", key: part.key, part });
+			index += 1;
+			continue;
+		}
 		if (part.type === "tool" && isCodingTool(part.name)) {
 			const items: CodingItem[] = [{ kind: "call", key: part.key, part }];
 			index += 1;
 			while (index < parts.length) {
 				const next = parts[index];
 				if (next === undefined) break;
-				if (next.type === "tool" && isCodingTool(next.name)) {
+				if (next.type === "tool" && next.entryAnchor === undefined && isCodingTool(next.name)) {
 					items.push({ kind: "call", key: next.key, part: next });
 					index += 1;
 					continue;
@@ -235,7 +242,7 @@ export function groupTurnParts(parts: readonly TurnPart[]): TurnRow[] {
 			index += 1;
 			while (index < parts.length) {
 				const next = parts[index];
-				if (next?.type !== "tool" || isCodingTool(next.name) || next.name === "thread_start") break;
+				if (next?.type !== "tool" || next.entryAnchor !== undefined || isCodingTool(next.name) || next.name === "thread_start") break;
 				calls.push(next);
 				index += 1;
 			}
@@ -609,6 +616,8 @@ export function isTypedInput(text: string): boolean {
 }
 
 export type BuildOptions = {
+ /** A work-log link targets this recorded call or result. */
+ entryAnchor?: number;
 	keepWarm?: readonly CacheWarmStretch[];
 	/**
 	 * The key a message sent from this screen keeps from waiting to placed, by the submission it was: with it the
@@ -630,6 +639,7 @@ export function buildTranscript(
 	const renderedCalls = new Set<string>();
 	const renderedResults = new Set<number>();
 	let turn: TurnBuilder | undefined;
+	let anchored = false;
 
 	function ensureTurn(key?: string): TurnBuilder {
 		// Keyed by the entry the turn starts at, so paging older entries in does not re-key the ones already drawn.
@@ -653,9 +663,12 @@ export function buildTranscript(
 		return slots.length === 0 ? undefined : slots;
 	}
 
-	function pushTool(call: ToolCallBlock, options: { live?: boolean; status?: ToolStatus } = {}): void {
+	function pushTool(call: ToolCallBlock, toolOptions: { live?: boolean; status?: ToolStatus; entryId?: number } = {}): void {
 		renderedCalls.add(call.id);
 		const result = results.get(call.id);
+		const anchor = options.entryAnchor;
+		const targeted = !anchored && anchor !== undefined && (anchor === toolOptions.entryId || anchor === result?.entryId);
+		if (targeted) anchored = true;
 		if (result !== undefined) renderedResults.add(result.entryId);
 		const diagnostics: Diagnostic[] = [
 			...(result?.diagnostics ?? []),
@@ -666,17 +679,18 @@ export function buildTranscript(
 			type: "tool",
 			key: part(),
 			callId: call.id,
+			...(targeted ? { entryAnchor: anchor } : {}),
 			name: call.name,
 			arguments: call.arguments,
-			status: options.status ?? (result === undefined ? "pending" : "done"),
+			status: toolOptions.status ?? (result === undefined ? "pending" : "done"),
 			diagnostics,
 			...(result === undefined ? {} : { output: result.output, isError: result.isError }),
 			...(result?.details === undefined ? {} : { details: result.details }),
 			...(result?.durationMs === undefined ? {} : { durationMs: result.durationMs }),
-			...(options.live === true ? { live: true } : {}),
+			...(toolOptions.live === true ? { live: true } : {}),
 			...(nestedCalls === undefined ? {} : { nestedCalls }),
 		};
-		ensureTurn().parts.push(singleCallOfScript(tool) ?? tool);
+		ensureTurn().parts.push(targeted ? tool : singleCallOfScript(tool) ?? tool);
 	}
 
 	for (const entry of entries) {
@@ -778,7 +792,7 @@ export function buildTranscript(
 								ensureTurn().parts.push({ type: "text", key: part(), text });
 							}
 						} else if (block.type === "toolCall") {
-							pushTool(block as ToolCallBlock);
+							pushTool(block as ToolCallBlock, { entryId: entry.id });
 						}
 					}
 					if (message.stopReason === "error") {
@@ -799,9 +813,11 @@ export function buildTranscript(
 				for (const message of messagesOf(entry)) {
 					if (message.role !== "toolResult" || typeof message.toolCallId !== "string") continue;
 					renderedCalls.add(message.toolCallId);
-					ensureTurn(`turn-${entry.id}`).parts.push({
+					const builder = ensureTurn(`turn-${entry.id}`);
+					builder.parts.push({
 						type: "tool",
 						key: part(),
+						...(entry.id === options.entryAnchor ? { entryAnchor: entry.id } : {}),
 						callId: message.toolCallId,
 						name: message.toolName ?? "tool",
 						status: "done",

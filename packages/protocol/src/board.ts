@@ -232,9 +232,15 @@ export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 export const BoardLiveLineSchema = Type.Object({
  id: Type.String(),
  at: Type.String({ description: "ISO time the line was recorded." }),
- kind: Type.String({ description: "Phase, result or recorded fact. More kinds may be added." }),
+ kind: Type.String({ description: "Phase, result, recorded fact or auto. More kinds may be added." }),
  text: Type.String(),
  actor: BoardActivityActorSchema,
+ picker: Type.Optional(Type.String({ description: 'most_steps or model:<provider>/<modelId> for auto lines.' })),
+ evidence: Type.Optional(Type.Object({
+  conversationId: Type.Integer({ minimum: 1 }),
+  steps: Type.Array(Type.Object({ entryId: Type.String(), description: Type.String({ maxLength: 120 }) }), { maxItems: 16 }),
+ })),
+ wrong: Type.Optional(Type.Object({ by: Type.String(), at: Type.String() })),
 });
 export type BoardLiveLine = Static<typeof BoardLiveLineSchema>;
 export const BoardLivePulseSchema = Type.Object({
@@ -608,6 +614,13 @@ export const BoardFeedbackSetRequestSchema = Type.Object({
 export type BoardFeedbackSetRequest = Static<typeof BoardFeedbackSetRequestSchema>;
 
 /** Feature task-freshness. Marks prose stale, queues one rewrite nudge, never changes status. */
+export const BoardLiveMarkWrongRequestSchema = Type.Object({
+ type: Type.Literal("board.live.mark_wrong"), id: Type.String(), projectId: Type.String(), taskId: Type.String(), lineId: Type.String(),
+});
+export type BoardLiveMarkWrongRequest = Static<typeof BoardLiveMarkWrongRequestSchema>;
+export const BoardLiveMarkWrongResponseSchema = Type.Object({ type: Type.Literal("board.live.mark_wrong"), id: Type.String() });
+export type BoardLiveMarkWrongResponse = Static<typeof BoardLiveMarkWrongResponseSchema>;
+
 export const BoardReportStaleRequestSchema = Type.Object({
 	type: Type.Literal("board.report.stale"),
 	id: RequestIdSchema,

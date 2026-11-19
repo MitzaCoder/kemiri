@@ -8,6 +8,7 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import { onMount } from 'svelte';
+ import { page } from '$app/state';
 	import Banner from '#lib/components/Banner.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
 	import ContextPanel from '#lib/components/ContextPanel.svelte';
@@ -87,7 +88,20 @@
 
 	const worker = $derived(workers?.worker(workerId));
 	const live = $derived(liveState(session?.view));
-	const items = $derived(buildTranscript(session?.entries ?? [], live));
+	const entryAnchor = $derived(Number(/^#entry-([1-9]\d*)$/.exec(page.url.hash)?.[1]) || undefined);
+ const items = $derived(buildTranscript(session?.entries ?? [], live, entryAnchor === undefined ? {} : { entryAnchor }));
+ $effect(() => {
+  const id = entryAnchor;
+  const current = session;
+  if (id === undefined || !current || current.status !== 'live') return;
+  let cancelled = false;
+  void (async () => {
+   // Work-log links usually point into the tail. Bound paging for older retained runs.
+   for (let pages = 0; pages < 8 && !cancelled && current.canLoadEarlier && (current.entries[0]?.id ?? 0) > id; pages++) await current.loadEarlier();
+   if (!cancelled) requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: 'start' }));
+  })().catch(() => { /* The regular earlier-history control is still available. */ });
+  return () => { cancelled = true; };
+ });
 	const busy = $derived(live?.run !== undefined);
 	let board = $state<ProjectBoard | undefined>(undefined);
 	const waitingForUser = $derived(agentWaitingForUser(board?.board?.questions ?? [], threadId, worker?.taskId, true));

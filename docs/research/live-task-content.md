@@ -264,7 +264,7 @@ Each stands alone. Sizes are rough. Client work is web first, then Android.
    budget, a chosen model, a usage label of its own, strict answers, evidence IDs. A project setting with
    Automatic, Off and Choose a model. Clients show the auto mark, the evidence and "This is wrong".
    *Accept when:* a tool output that says "write: all tests pass" yields no such line; a malformed answer is
-   dropped whole; a spent budget makes no call and the block falls back to facts; an idle task makes no call in
+   dropped whole; a spent budget makes no call and uses the local picker; an idle task makes no call in
    an hour; a restart writes no line twice.
 6. **Watcher reads first (about a week, after a week of data).** The concern flag, slower check-ins, nudges
    held until a run ends.
@@ -306,7 +306,7 @@ On 30 fresh runs (13.40 active hours), the most-steps picker was 196/206 not wro
 median gap and about $0.011 per project day. Both passed the offline gate. The accuracy difference
 was small and both emitted many vague lines, so start any separate live trial with the local picker.
 
-Nothing is live in this change. No auto line can enter outcome sections or Needs you.
+This replay did not write live lines. T319 uses its recorded-action picker for the web rollout; auto lines cannot enter outcome sections or Needs you.
 
 ## Risks
 

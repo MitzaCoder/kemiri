@@ -1,3 +1,5 @@
+import { DEFAULT_TASK_WATCHER, type TaskWatcherSettings, type TaskWatcherStatus } from "@kemiri/protocol";
+import { evaluateWatcherRun, markWatcherLineWrong, publishWatcherAnswer, TaskWatcherLiveService, TaskWatcherRun, watcherCanPublish, type WatcherJob, type WatcherPublication } from "./task-watcher-live.ts";
 import { describeLivePlan, type LivePlanUpdate } from "./task-live-plan.ts";
 import { TaskLiveRun } from "./task-live-run.ts";
 import { TaskLiveWatch } from "./task-live-watch.ts";
@@ -98,6 +100,10 @@ export type BoardState = {
  taskStateEnabled?: boolean;
  taskPartStatesEnabled?: boolean;
  taskLiveEnabled?: boolean;
+ taskWatcherSettings?: TaskWatcherSettings;
+ taskWatcherStatus?: TaskWatcherStatus;
+ taskWatcherJobs?: Record<string, WatcherJob>;
+ taskWatcherPublications?: Record<string, WatcherPublication>;
  taskStateMigrated?: boolean;
  pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
@@ -558,8 +564,9 @@ export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: Boar
  if (!tracking || !source || !task) return false;
  if (source.liveFolded) return false;
  const runSaves = saves.filter(save => save.taskId === taskId && save.conversationId === source.actor.conversationId && save.runId === source.actor.runId);
- const trail = takeLiveTrail(tracking, source);
- if (!trail && !runSaves.length) return false;
+ const endingAt = Date.parse(at);
+ const watcher = source.actor.kind === "worker" && watcherCanPublish(state, taskId, endingAt) ? new TaskWatcherRun() : undefined;
+ if (!watcher && !tracking.liveLines?.some(line => line.actor.id === sourceId) && !source.livePlan && !runSaves.length) return false;
  const run = new TaskLiveRun();
  const first = Number(source.actor.runId);
  if (Number.isSafeInteger(first) && first > 0) {
@@ -571,11 +578,15 @@ export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: Boar
    let cursor: Parameters<Tx["scanEntries"]>[2];
    do {
     const page = await tx.scanEntries({ conversationId, minEntryId: first as EntryId, order: "ascending", ...(maxEntryId === undefined ? {} : { maxEntryId }) }, 200, cursor);
-    for (const entry of page.items) run.add(entry);
+    for (const entry of page.items) { run.add(entry); watcher?.add(entry); }
     cursor = page.next;
    } while (cursor !== undefined);
   }
  }
+ const queued = watcher && evaluateWatcherRun(state, taskId, tracking, source, watcher, endingAt, true);
+ const trail = takeLiveTrail(tracking, source);
+ const pending = Object.values(state.taskWatcherJobs ?? {}).some(job => job.taskId === taskId && job.source.id === sourceId);
+ if (!trail && !runSaves.length && !queued && !pending) return false;
  const { lines, counters } = liveRunFacts(taskId, source, run, runSaves);
  const live = { ...trail, lines: mergeLiveLines(trail?.lines ?? [], lines), ...(counters ? { counters } : {}) };
  delete source.liveChecks;
@@ -2227,6 +2238,8 @@ export type BoardServiceOptions = {
  taskState?: boolean;
  taskPartStates?: boolean;
  taskLive?: boolean;
+ watcherModels?: Models;
+ watcherStatusChanged?: (status: TaskWatcherStatus) => Promise<void>;
  taskArtifactSaves?: { read: () => Promise<readonly TaskArtifactSave[]>; watch: (listener: () => void) => () => void };
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
@@ -2245,6 +2258,8 @@ export class BoardService {
  onMcpAnswer: ((questionId: string, answer: string) => Promise<void>) | undefined;
 	readonly #options: BoardServiceOptions;
  #liveWatch: TaskLiveWatch | undefined;
+ readonly #watcher: TaskWatcherLiveService | undefined;
+ #persistWatcherStatus = Promise.resolve();
 	readonly audit: ReportAuditService | undefined;
 	#extension: Extension | undefined;
 	#pending = new Map<string, PendingEdit>();
@@ -2262,6 +2277,27 @@ export class BoardService {
 
 	constructor(options: BoardServiceOptions) {
 		this.#options = options;
+  if (options.watcherModels) this.#watcher = new TaskWatcherLiveService(options.watcherModels, options.now, () => this.state(), async change => {
+   await options.harness.commit(async tx => {
+    const state = await openBoard(tx, this.#mainId);
+    await change(state, async (job, answer, picker) => {
+     const task = state.tasks.find(task => task.id === job.taskId);
+     if (!task) return;
+     const tracking = state.taskActivity?.[task.id];
+     if (tracking?.sources[job.source.id]?.state === "running") {
+      publishWatcherAnswer(state, job, answer, picker, options.now(), tracking.liveLines ?? [], lines => { tracking.liveLines = lines; });
+     } else {
+      const history = await openTaskHistory(tx, this.#mainId, task.id);
+      const run = history.timelineEntries?.find(entry => entry.actor?.id === job.source.id && entry.live);
+      if (!run?.live) return;
+      publishWatcherAnswer(state, job, answer, picker, options.now(), run.live.lines, lines => {
+       const { revision: _revision, factCount: _count, ...fact } = run;
+       upsertTimelineFact(history, task, { ...fact, live: { ...run.live!, lines } });
+      });
+     }
+    });
+   }, BACKGROUND_CONTEXT);
+  }, () => options.log("task watcher: could not process live news"));
 		if (options.auditModels) this.audit = new ReportAuditService({
 			models: options.auditModels,
 			settings: () => options.project().archived || options.taskFreshness === false ? { mode: "off", dailyTokens: 0 } : options.project().reportAudit ?? DEFAULT_REPORT_AUDIT,
@@ -2534,6 +2570,36 @@ export class BoardService {
 		}
 	}
 
+ #setWatcherSettings(state: BoardState): void {
+  if (this.#watcher && state.taskLiveEnabled) state.taskWatcherSettings = this.#options.project().archived ? { mode: "off", dailyTokens: 0 } : this.#options.project().taskWatcher ?? DEFAULT_TASK_WATCHER;
+  else delete state.taskWatcherSettings;
+ }
+
+ async configureTaskWatcher(): Promise<void> {
+  if (!this.#watcher) return;
+  await this.#options.harness.commit(async tx => { this.#setWatcherSettings(await openBoard(tx, this.#mainId)); }, BACKGROUND_CONTEXT);
+ }
+
+ async markLiveLineWrong(taskId: string, lineId: string, by: string): Promise<void> {
+  if (!this.#watcher) throw new ServerError("bad_request", "Live news lines are unsupported.");
+  await this.#options.harness.commit(async tx => {
+   const state = await openBoard(tx, this.#mainId);
+   const task = state.tasks.find(task => task.id === taskId);
+   if (!task) throw new ServerError("unknown_task", `No task "${taskId}" on the board.`);
+   const active = state.taskActivity?.[taskId]?.liveLines?.find(line => line.kind === "auto" && line.id === lineId);
+   if (active) { markWatcherLineWrong(state, active, by, this.#options.now()); return; }
+   const history = await openTaskHistory(tx, this.#mainId, taskId);
+   const run = history.timelineEntries?.find(entry => entry.live?.lines.some(line => line.kind === "auto" && line.id === lineId));
+   const line = run?.live?.lines.find(line => line.id === lineId);
+   if (!run || !line) throw new ServerError("bad_request", "This live news line is no longer available.");
+   if (line.wrong) return;
+   const lines = run.live!.lines.map(item => ({ ...item }));
+   markWatcherLineWrong(state, lines.find(item => item.id === lineId)!, by, this.#options.now());
+   const { revision: _revision, factCount: _count, ...fact } = run;
+   upsertTimelineFact(history, task, { ...fact, live: { ...run.live!, lines } });
+  }, BACKGROUND_CONTEXT);
+ }
+
 	/** Create the document if this project never had one, so a change watch can attach to it. */
 	async ensureDocument(): Promise<void> {
 		await this.#options.harness.commit(async (tx) => {
@@ -2543,6 +2609,7 @@ export class BoardService {
    state.taskStateEnabled = this.#options.taskState !== false;
    state.taskPartStatesEnabled = this.#options.taskPartStates !== false;
    state.taskLiveEnabled = this.#options.taskLive !== false;
+   this.#setWatcherSettings(state);
    await this.#change(tx, HARNESS_WRITER, "task-state-migration", (doc, now) => {
     const notices = migrateTaskStates(doc, now);
     if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
@@ -3068,6 +3135,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const unlisten = this.#options.coordinators?.onAdded(place => { void attach(place.conversationId, place.threadId).catch(error => this.#options.log(`board activity: ${errorMessage(error)}`)); });
   let current = "";
   let expiry: ReturnType<typeof setTimeout> | undefined;
+  let watcherStatus = "";
 		let boardState = watch.value;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
@@ -3082,6 +3150,14 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     onChange(board, openQuestionCount(state));
    }
    if (liveOnly) return;
+   if (this.#watcher && state.taskWatcherStatus) {
+    const status = JSON.stringify(state.taskWatcherStatus);
+    if (watcherStatus !== status) {
+     watcherStatus = status;
+     this.#persistWatcherStatus = this.#persistWatcherStatus.then(() => this.#options.watcherStatusChanged?.(JSON.parse(status))).catch(error => this.#options.log(`task watcher status: ${errorMessage(error)}`));
+    }
+   }
+   if (Object.keys(state.taskWatcherJobs ?? {}).length) this.#watcher?.wake();
    if (expiry) clearTimeout(expiry);
    const due = [
     ...(state.pausedNotices?.length ? [this.#options.now() + 1000] : []),
@@ -3094,7 +3170,21 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 			this.#armReports(state);
 		};
   const liveWatch = this.#options.taskLive === false ? undefined : new TaskLiveWatch(this.#options.harness,
-   () => publish(boardState, true), error => this.#options.log(`task live: ${errorMessage(error)}`), this.#options.taskArtifactSaves?.read);
+   () => publish(boardState, true), error => this.#options.log(`task live: ${errorMessage(error)}`), this.#options.taskArtifactSaves?.read, this.#watcher ? async (conversationId, runId, run) => {
+    const at = this.#options.now();
+    const candidates = (boardState?.tasks ?? []).filter(task => task.status === "in_progress" && watcherCanPublish(boardState!, task.id, at)).flatMap(task =>
+     runningLiveSources(boardState!.taskActivity?.[task.id]).filter(source => source.actor.kind === "worker" && source.actor.conversationId === conversationId && source.actor.runId === runId && run.due(source.watcherCursor, at, false))
+      .map(source => ({ taskId: task.id, sourceId: source.actor.id })));
+    if (!candidates.length) return;
+    await this.#options.harness.commit(async tx => {
+     const state = await openBoard(tx, this.#mainId);
+     for (const { taskId, sourceId } of candidates) {
+      const tracking = state.taskActivity?.[taskId];
+      const source = tracking?.sources[sourceId];
+      if (tracking && source?.state === "running" && state.tasks.some(task => task.id === taskId && task.status === "in_progress")) evaluateWatcherRun(state, taskId, tracking, source, run, at);
+     }
+    }, BACKGROUND_CONTEXT);
+   } : undefined);
   this.#liveWatch = liveWatch;
   const unwatchSaves = liveWatch && this.#options.taskArtifactSaves?.watch(() => liveWatch.savesChanged());
 		publish(boardState);
@@ -3474,6 +3564,8 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		if (this.#waitingTimer !== undefined) clearTimeout(this.#waitingTimer);
 		if (this.#reportTimer !== undefined) clearTimeout(this.#reportTimer);
 		await this.audit?.stop();
+  await this.#watcher?.stop();
+  await this.#persistWatcherStatus;
 		await this.#reportRun;
 		await this.#waitingRun;
   await this.#pauseRun;

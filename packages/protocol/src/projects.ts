@@ -52,6 +52,18 @@ export const ReportAuditStatusSchema = Type.Object({
 });
 export type ReportAuditStatus = Static<typeof ReportAuditStatusSchema>;
 
+export const TaskWatcherSettingsSchema = ReportAuditSettingsSchema;
+export type TaskWatcherSettings = Static<typeof TaskWatcherSettingsSchema>;
+export const DEFAULT_TASK_WATCHER: TaskWatcherSettings = { mode: "auto", dailyTokens: 65_000 };
+const TaskWatcherCountsSchema = Type.Object({ written: Type.Integer({ minimum: 0 }), wrong: Type.Integer({ minimum: 0 }) });
+export const TaskWatcherStatusSchema = Type.Object({
+ ...ReportAuditStatusSchema.properties,
+ state: Type.String({ description: "automatic, off, idle, checked, error, budget, or unavailable." }),
+ totals: TaskWatcherCountsSchema,
+ byPicker: Type.Record(Type.String(), TaskWatcherCountsSchema),
+});
+export type TaskWatcherStatus = Static<typeof TaskWatcherStatusSchema>;
+
 /** Whether a project's Harness is currently open in the server process. */
 export const ProjectStateSchema = Type.Union([Type.Literal("closed"), Type.Literal("open"), Type.Literal("failed")]);
 export type ProjectState = Static<typeof ProjectStateSchema>;
@@ -197,6 +209,8 @@ export const ProjectSummarySchema = Type.Object({
 	deployFeed: Type.Optional(Type.Union([Type.String(), Type.Null()])), 
 	reportAudit: Type.Optional(ReportAuditSettingsSchema),
 	reportAuditStatus: Type.Optional(ReportAuditStatusSchema),
+	taskWatcher: Type.Optional(TaskWatcherSettingsSchema),
+	taskWatcherStatus: Type.Optional(TaskWatcherStatusSchema),
 	/** Where bare ticket keys and PR numbers point. Absent on servers older than this field. */
 	links: Type.Optional(ProjectLinkSettingsSchema),
 	/**
@@ -275,6 +289,7 @@ export const ProjectsConfigureRequestSchema = Type.Object({
 		Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(4), Type.Literal(8), Type.Null()]),
 	),
 	reportAudit: Type.Optional(Type.Union([ReportAuditSettingsSchema, Type.Null()], { description: "Feature report-audit; null restores auto and 65000 daily tokens." })),
+	taskWatcher: Type.Optional(Type.Union([TaskWatcherSettingsSchema, Type.Null()], { description: "Feature task-live-watcher; null restores the no-model picker and default budget." })),
 	blockArtifactRequests: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
 	uiProof: Type.Optional(
 		Type.Union([UiProofSchema, Type.Null()], {
@@ -389,6 +404,7 @@ export const HARNESS_FEATURES = [
 	"task-deploys",
  "task-timeline-groups",
  "task-live",
+ "task-live-watcher",
  "mcp-servers",
  "project-skills",
  "user-settings",
@@ -402,7 +418,7 @@ export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
 /** The original capabilities assumed when a legacy server omits hello.features. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value",);
+	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live-watcher" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value",);
 
 export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("projects"),
@@ -463,6 +479,7 @@ export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("task-deploys"),
  Type.Literal("task-timeline-groups"),
  Type.Literal("task-live"),
+ Type.Literal("task-live-watcher"),
  Type.Literal("mcp-servers"),
  Type.Literal("project-skills"),
  Type.Literal("user-settings"),

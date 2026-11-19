@@ -939,6 +939,7 @@ data class ProjectsConfigureRequest(
     val `keepPromptCacheWarm`: Boolean? = null,
     val `promptCacheWarmHours`: Long? = null,
     val `reportAudit`: ProjectsConfigureRequestReportAudit? = null,
+    val `taskWatcher`: ProjectsConfigureRequestReportAudit? = null,
     val `blockArtifactRequests`: Boolean? = null,
     val `uiProof`: String? = null,
     val `integrationRef`: String? = null,
@@ -978,6 +979,8 @@ data class ProjectSummary(
     val `deployFeed`: String? = null,
     val `reportAudit`: ProjectsConfigureRequestReportAudit? = null,
     val `reportAuditStatus`: ProjectSummaryReportAuditStatus? = null,
+    val `taskWatcher`: ProjectsConfigureRequestReportAudit? = null,
+    val `taskWatcherStatus`: ProjectSummaryTaskWatcherStatus? = null,
     val `links`: ProjectLinkSettings? = null,
     val `archived`: Boolean? = null,
     val `state`: String,
@@ -994,6 +997,24 @@ data class ProjectSummaryReportAuditStatus(
     val `lastRunAt`: String?,
     val `state`: String,
     val `reason`: String?
+)
+
+@Serializable
+data class ProjectSummaryTaskWatcherStatus(
+    val `effectiveModel`: ModelRef?,
+    val `day`: String,
+    val `tokensUsed`: Long,
+    val `lastRunAt`: String?,
+    val `state`: String,
+    val `reason`: String?,
+    val `totals`: ProjectSummaryTaskWatcherStatusTotals,
+    val `byPicker`: Map<String, ProjectSummaryTaskWatcherStatusTotals>
+)
+
+@Serializable
+data class ProjectSummaryTaskWatcherStatusTotals(
+    val `written`: Long,
+    val `wrong`: Long
 )
 
 @Serializable
@@ -2777,6 +2798,15 @@ data class BoardReportSection(
 )
 
 @Serializable
+data class BoardLiveMarkWrongRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.live.mark_wrong",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `taskId`: String,
+    val `lineId`: String
+)
+
+@Serializable
 data class BoardReportStaleRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.report.stale",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -2784,6 +2814,12 @@ data class BoardReportStaleRequest(
     val `taskId`: String,
     val `sections`: List<String>? = null,
     val `reason`: String? = null
+)
+
+@Serializable
+data class BoardLiveMarkWrongResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.live.mark_wrong",
+    val `id`: String
 )
 
 @Serializable
@@ -2820,7 +2856,28 @@ data class BoardLiveLine(
     val `at`: String,
     val `kind`: String,
     val `text`: String,
-    val `actor`: BoardActivityActor
+    val `actor`: BoardActivityActor,
+    val `picker`: String? = null,
+    val `evidence`: BoardLiveLineEvidence? = null,
+    val `wrong`: BoardLiveLineWrong? = null
+)
+
+@Serializable
+data class BoardLiveLineEvidence(
+    val `conversationId`: Long,
+    val `steps`: List<BoardLiveLineEvidenceStepsItem>
+)
+
+@Serializable
+data class BoardLiveLineEvidenceStepsItem(
+    val `entryId`: String,
+    val `description`: String
+)
+
+@Serializable
+data class BoardLiveLineWrong(
+    val `by`: String,
+    val `at`: String
 )
 
 @Serializable

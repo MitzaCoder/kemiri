@@ -21,7 +21,7 @@ function commandIntent(name: string, args: Record<string, unknown> | undefined):
 }
 
 /** Never display command arguments here. Command classes are fixed strings. */
-function toolLabel(name: string, args: Record<string, unknown> | undefined): string {
+export function liveToolLabel(name: string, args: Record<string, unknown> | undefined): string {
  if (name === "bash" && typeof args?.command === "string" &&
      /^(?:bun|npm|pnpm|yarn) (?:run )?test(?:\s|$)|^(?:cargo test|go test|pytest)(?:\s|$)/.test(args.command.trim())) return "Running tests";
  return Object.hasOwn(TOOL_LABELS, name) ? TOOL_LABELS[name]! : "Using a tool";
@@ -68,7 +68,7 @@ export class TaskLiveRun {
   for (const message of entry.model ?? []) {
    if (message.role === "assistant") for (const call of message.content) {
     if (call.type !== "toolCall" || this.#calls.has(call.id)) continue;
-    this.#calls.set(call.id, toolLabel(call.name, call.arguments));
+    this.#calls.set(call.id, liveToolLabel(call.name, call.arguments));
     const intent = commandIntent(call.name, call.arguments);
     if (intent) this.#pendingIntents.set(call.id, intent);
     const path = this.#changedPath(call.name, call.arguments);
@@ -113,8 +113,8 @@ export class TaskLiveRun {
   if (key === this.#pulseKey) return;
   this.#pulseKey = key;
   const label = nested
-   ? commandIntent(nested.name, nested.arguments) ?? toolLabel(nested.name, nested.arguments)
-   : slot && (this.#pendingIntents.get(slot.callId) ?? this.#calls.get(slot.callId) ?? toolLabel(slot.name, undefined));
+   ? commandIntent(nested.name, nested.arguments) ?? liveToolLabel(nested.name, nested.arguments)
+   : slot && (this.#pendingIntents.get(slot.callId) ?? this.#calls.get(slot.callId) ?? liveToolLabel(slot.name, undefined));
   this.pulse = !key ? undefined : slot && label ? { label,
     // Registered names, not call arguments. Some extensions supply arbitrary names; reject those shapes.
     ...(/^[a-z][a-z0-9_-]{0,63}$/.test(slot.name) ? { tool: slot.name } : {}), since: now }

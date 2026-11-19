@@ -158,7 +158,7 @@ export async function syncWorkerActivity(tx: Tx, service: WorkerService, worker:
   const source = tracking.sources[id];
   if (source) appendLiveFact(board, worker.taskId, source, worker.updatedAt, "failure", `${worker.id} failed`);
   await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, "failed", worker.updatedAt, worker.failure ?? "no reason given", await service.taskArtifactSaves());
-  tracking.sources[id] = { actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "failed", title: worker.title, since: worker.updatedAt, failure: worker.failure ?? "no reason given" };
+  tracking.sources[id] = { ...tracking.sources[id], actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "failed", title: worker.title, since: worker.updatedAt, failure: worker.failure ?? "no reason given" };
   tracking.lastEndedAt = worker.updatedAt;
  } else {
   endActivitySource(tracking, id, worker.updatedAt);

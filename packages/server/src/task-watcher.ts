@@ -155,7 +155,7 @@ const TEST_OUTCOME = /\b(?:tests?|checks?|suites?|builds?)\b[^.;!?]{0,30}\b(?:pa
 const ACTIVITY_START = /^(?:adding|adjusting|analyzing|assembling|building|chasing|checking|collecting|comparing|connecting|consolidating|debugging|documenting|drafting|editing|examining|exercising|exploring|gathering|implementing|inspecting|investigating|isolating|looking|mapping|measuring|moving|narrowing|organizing|preparing|reading|refining|removing|replacing|replaying|reproducing|reviewing|rewriting|running|sampling|separating|simplifying|testing|tracing|trying|tuning|updating|validating|verifying|wiring|writing)\b/iu;
 const PLAIN_TEXT = /^[\p{L}\p{M}\p{N} '’",.!?():;–—-]+$/u;
 
-function nearDuplicate(line: string, other: string): boolean {
+export function watcherNearDuplicate(line: string, other: string): boolean {
 	const words = (text: string) => text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 	const a = words(line), b = words(other);
 	if (a.join(" ") === b.join(" ")) return true;
@@ -176,7 +176,7 @@ export function checkWatcherAnswer(text: string, evidence: WatcherEvidence, exis
 	if (!line || line.length > 160 || line.split(/\s+/).length > 20) return { kind: "dropped", reason: "length" };
 	if (!PLAIN_TEXT.test(answer.line) || /\b[\da-f]{7,}\b/iu.test(line) || /[.!?]["')]*\s+\S/u.test(line)) return { kind: "dropped", reason: "not-plain-text" };
 	if (OUTCOME.test(line) || TEST_OUTCOME.test(line) || !ACTIVITY_START.test(line)) return { kind: "dropped", reason: "outcome" };
-	if (existingLines.some(other => nearDuplicate(line, other.text))) return { kind: "dropped", reason: "duplicate" };
+	if (existingLines.some(other => watcherNearDuplicate(line, other.text))) return { kind: "dropped", reason: "duplicate" };
 	return { kind: "line", line, evidence: answer.evidence };
 }
 
@@ -417,7 +417,7 @@ const CANDIDATE_SHAPE = new RegExp(`^\\s*\\{\\s*"candidate"\\s*:\\s*(?:null|${JS
 
 function renderWatcherCandidate(candidate: WatcherCandidate, existingLines: readonly WatcherPageLine[], subject = candidate.subject): WatcherAnswer {
 	const line = `${candidate.verb} ${subject}.`;
-	if (existingLines.some(other => nearDuplicate(line, other.text))) return { kind: "dropped", reason: "duplicate" };
+	if (existingLines.some(other => watcherNearDuplicate(line, other.text))) return { kind: "dropped", reason: "duplicate" };
 	return { kind: "line", line, evidence: [...candidate.evidence] };
 }
 

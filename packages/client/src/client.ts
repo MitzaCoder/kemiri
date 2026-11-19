@@ -1,3 +1,4 @@
+import type { TaskWatcherSettings } from "@kemiri/protocol";
 import type { UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
  * The framework-free harness client: one WebSocket, a `hello` handshake, correlated requests, reconnects with backoff,
@@ -212,6 +213,7 @@ export type ProjectChange = {
 	blockArtifactRequests?: boolean | null;
 	/** Feature `report-audit`; null restores automatic checks with 65,000 daily tokens. */
 	reportAudit?: ReportAuditSettings | null;
+	taskWatcher?: TaskWatcherSettings | null;
 	/** Feature `task-changes`: auto, a full ref, or null to disable read-only observation. */
 	integrationRef?: string | null;
 	/** Feature `task-deploys`: absolute local JSON journal path, or null to disable. */
