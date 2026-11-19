@@ -171,10 +171,13 @@ export const MemoryMaintainRequestSchema = Type.Object({
 export type MemoryMaintainRequest = Static<typeof MemoryMaintainRequestSchema>;
 
 /**
- * The backend's maintenance settings. Maintenance runs on every scope that changed since its last run: nightly at
- * `time` (backend timezone) and after `afterWrites` new writes to a scope. No model, no maintenance.
+ * The backend's maintenance settings. Automatic maintenance requires both `enabled` and a model; it runs on changed
+ * scopes nightly at `time` (backend timezone) or after `afterWrites` new writes. Turning it off keeps the model.
  */
 export const MemoryMaintenanceSettingsSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean({
+		description: "Enable automatic cleanup. If omitted on set, defaults to whether a model is set. Absent on older servers.",
+	})),
 	model: Type.Union([ModelRefSchema, Type.Null()]),
 	thinkingLevel: Type.Union([ThinkingLevelSchema, Type.Null()]),
 	time: Type.String({ pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: '"HH:MM", default "03:00".' }),
@@ -213,7 +216,7 @@ export const MemoryScopeStatusSchema = Type.Object({
 		}),
 		Type.Null(),
 	]),
-	nextMaintenanceAt: Type.Union([Type.String(), Type.Null()], { description: "Null when no model is set." }),
+	nextMaintenanceAt: Type.Union([Type.String(), Type.Null()], { description: "Null when automatic maintenance is disabled or no model is set." }),
 });
 export type MemoryScopeStatus = Static<typeof MemoryScopeStatusSchema>;
 

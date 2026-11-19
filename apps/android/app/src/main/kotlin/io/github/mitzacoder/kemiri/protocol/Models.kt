@@ -967,6 +967,7 @@ data class ProjectSummary(
     val `id`: String,
     val `name`: String,
     val `path`: String,
+    val `repository`: Boolean? = null,
     val `coordinator`: WorkerDefaults,
     val `workerModels`: List<WorkerModel>,
     val `checkIns`: ProjectCheckIns,
@@ -3879,6 +3880,7 @@ data class MemoryMaintainRequest(
 
 @Serializable
 data class MemoryMaintenanceSettings(
+    val `enabled`: Boolean? = null,
     val `model`: ModelRef?,
     val `thinkingLevel`: String?,
     val `time`: String,

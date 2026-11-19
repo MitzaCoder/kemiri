@@ -46,7 +46,7 @@ export const WORKER_REPORT_PREFIX = "[worker ";
 /** The periodic check-in on running workers: `[check-in]` followed by their digest and what to do about it. */
 export const CHECK_IN_PREFIX = "[check-in]";
 
-/** The worker model a project starts from: what the user last picked with a message, or null when they never picked. */
+/** In responses and events, the project's first worker model and thinking level, or nulls when the list is empty. */
 export const WorkerDefaultsSchema = Type.Object({
 	model: Type.Union([ModelRefSchema, Type.Null()]),
 	thinkingLevel: Type.Union([ThinkingLevelSchema, Type.Null()], {
@@ -111,8 +111,8 @@ export const WorkersListRequestSchema = Type.Object({
 export type WorkersListRequest = Static<typeof WorkersListRequestSchema>;
 
 /**
- * Set the worker model the project starts from, as if it had been picked with a message: what the composer's worker
- * picker sends as soon as the user picks. Every connection gets the new defaults through `workers.state`.
+ * Move the picked model to the front of the project's worker models and set its thinking level. A null model
+ * leaves the list alone and only clears a legacy override. Every connection gets the new project and worker state.
  */
 export const WorkersDefaultsSetRequestSchema = Type.Object({
 	type: Type.Literal("workers.defaults.set"),
@@ -145,7 +145,7 @@ export type WorkersDefaultsSetResponse = Static<typeof WorkersDefaultsSetRespons
 
 /**
  * The project's whole worker list, pushed whenever it changes: a spawn, a status change, a report, a stop, or a new
- * worker model picked with a message. The list is small, so replacing it beats diffing it like a transcript.
+ * project worker default. The list is small, so replacing it beats diffing it like a transcript.
  */
 export const WorkersStateEventSchema = Type.Object({
 	type: Type.Literal("workers.state"),

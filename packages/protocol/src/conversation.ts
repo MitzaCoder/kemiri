@@ -193,9 +193,8 @@ export type ConversationPageRequest = Static<typeof ConversationPageRequestSchem
  * `pi.live` and lands as a `pi.assistant` entry. Reusing a `requestId` after a reconnect finds the original
  * submission instead of admitting it twice.
  *
- * `workerModel` and `workerThinkingLevel` record the worker model the user picked with this message: workers the
- * coordinator delegates from now on start with it, until the next message picks another. They are stored with the
- * project's coordinator conversation, so they survive a restart.
+ * `workerModel` and `workerThinkingLevel` move the picked model to the front of the project's worker models.
+ * Omit the model to keep the current setting; null leaves the list alone and only clears a legacy override.
  */
 export const ConversationSubmitRequestSchema = Type.Object({
 	type: Type.Literal("conversation.submit"),
@@ -211,7 +210,7 @@ export const ConversationSubmitRequestSchema = Type.Object({
 	whenBusy: Type.Optional(WhenBusySchema),
 	workerModel: Type.Optional(
 		Type.Union([ModelRefSchema, Type.Null()], {
-			description: "Worker model for the workers this message starts. Null clears the user's choice.",
+			description: "Model to make the project worker default. Null leaves the project list unchanged.",
 		}),
 	),
 	workerThinkingLevel: Type.Optional(Type.Union([ThinkingLevelSchema, Type.Null()])),

@@ -190,10 +190,13 @@ export const ProjectSummarySchema = Type.Object({
 	id: ProjectIdSchema,
 	name: Type.String(),
 	path: Type.String({ description: "Absolute host directory the coordinator's tools run in." }),
+	repository: Type.Optional(Type.Boolean({
+		description: "True when this folder or an ancestor contains .git (file or directory) or .jj. Absent on older servers.",
+	})),
 	coordinator: CoordinatorConfigSchema,
 	workerModels: Type.Array(WorkerModelSchema, {
 		description:
-			"Default models for new workers, in order of preference, each with an optional thinking level. A worker model the user picked with a message, or one the coordinator names when delegating, wins over these.",
+			"Default models for new workers, in order of preference. The composer picker moves its model to the front. A model named by the coordinator or schedule takes precedence.",
 	}),
 	checkIns: ProjectCheckInsSchema,
 	/** Absent on servers older than this field. */
@@ -270,7 +273,7 @@ export const ProjectsConfigureRequestSchema = Type.Object({
 	workerModels: Type.Optional(
 		Type.Union([Type.Array(WorkerModelSchema), Type.Null()], {
 			description:
-				"Replaces the default worker models. An entry's thinkingLevel is optional; without it the model's default applies.",
+				"Replaces the ordered worker model defaults. The composer picker changes the first entry. Without a thinkingLevel, the model's default applies.",
 		}),
 	),
 	checkIns: Type.Optional(
@@ -414,12 +417,17 @@ export const HARNESS_FEATURES = [
 	"task-delivery",
 	"subscription-value",
 	"task-usage",
+	"worker-picker-project-default",
+	"memory-maintenance-enabled",
+	"project-repository",
 ] as const;
 export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
 /** The original capabilities assumed when a legacy server omits hello.features. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live-watcher" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value" && feature !== "task-usage",);
+	(feature) => feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live-watcher" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value" && feature !== "task-usage" &&
+		feature !== "worker-picker-project-default" && feature !== "memory-maintenance-enabled" && feature !== "project-repository",
+);
 
 export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("projects"),
@@ -490,6 +498,9 @@ export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("task-delivery"),
 	Type.Literal("subscription-value"),
 	Type.Literal("task-usage"),
+	Type.Literal("worker-picker-project-default"),
+	Type.Literal("memory-maintenance-enabled"),
+	Type.Literal("project-repository"),
 ]);
 export type HarnessFeatureValue = Static<typeof HarnessFeatureSchema>;
 
