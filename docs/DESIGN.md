@@ -3672,6 +3672,19 @@ are not their own new evidence. Provider results flow through `observeInternalMo
 `report_audit`: usage breakdown labels **Report audit**, attributed to project/model (not a fake task
 or conversation). No prompt text is stored in the request log. No audit-specific pushes are added.
 
+### Task watcher, offline (T313, stage D of T305)
+
+`task-watcher.ts` turns new assistant and tool-result entries into clipped, correlatable evidence and
+adds a bounded tail of page lines. Its pure trigger runs on a new step, not a timer, with a one-minute
+per-task throttle and an end-of-run flush of pending steps. The no-tools prompt treats all evidence as
+untrusted. The answer check accepts only one JSON verdict with in-pass evidence IDs, rejects likely
+outcome claims and near-duplicates, and does not establish factual support on its own.
+
+`watcher-replay.ts` exercises the policy from explicitly named read-only inputs, with credential
+mutations refused and a shared input-token budget. It writes private evidence and usage to `/tmp`.
+No server path calls the watcher. If wired later, any line is marked **auto** and stays in the live
+block. It cannot update What you get, Not done, Next or Needs you.
+
 ### Tasks board
 
 Decided with the user on 2026-11-06. Web only; protocol addition: the optional `note` on `board.task.save` (feature

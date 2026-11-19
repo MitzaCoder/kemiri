@@ -272,6 +272,22 @@ Each stands alone. Sizes are rough. Client work is web first, then Android.
    coordinator turns from check-ins and nudges fall week on week in the request log.
 7. **Settling page (weeks, next-big).** Decided with the chatless exploration.
 
+## Watcher offline test
+
+T313 replayed 20 stored worker runs (9.29 active hours) without writing to the live store. Claude Haiku 5.5
+at 8 steps or 90 seconds produced 195 lines from 419 passes (21.0 lines/hour). A narrower prompt, 12 steps
+or 120 seconds, and a three-minute per-task line throttle produced 123 lines from 353 passes (13.2/hour).
+Median active gap rose from 1.84 to 4.21 minutes. The tuned pass averaged 1,957 input and 52 output tokens,
+about $0.00022 per pass or $0.080 per project day at catalogue prices (9.45 active worker hours).
+
+The quality gate did not pass: 147/195 baseline and 88/123 tuned lines were right or vague, rather than
+wrong. Qwen 3.8 Flash was similar (58/78) on a partial comparison that stopped on a provider error at
+218 passes. It averaged 1,281 input and 29 output tokens, about $0.075 per project day on that slice.
+
+A valid evidence ID did not mean the evidence supported every clause. Keep the watcher offline. Use
+Haiku and the tuned cadence for the next test, but narrow the line to one directly evidenced action
+and check its support before any live trial. No auto line can enter outcome sections or Needs you.
+
 ## Risks
 
 | Risk | Cover |
