@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A task that follows the work (analysis and mockups, synthetic data)</title>
+<style>
+@layer artifact-defaults {
+:root {
+	color-scheme: light;
+	--tone-radius: 0.875rem;
+	--tone-bg: #fbfaff;
+	--tone-surface: #f3f1fb;
+	--tone-surface-2: #eae7f6;
+	--tone-border: #e3dff0;
+	--tone-border-strong: #d2cce6;
+	--tone-fg: #1a1830;
+	--tone-fg-muted: #5d5a78;
+	--tone-fg-subtle: #8c89a6;
+	--tone-primary: #6366f1;
+	--tone-primary-fg: #ffffff;
+	--tone-danger: #e11d48;
+	--tone-success: #059669;
+	--tone-warning: #d97706;
+	--tone-ring: #8b5cf6;
+	--font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;--text-task:.9375rem;--text-task-sm:.8125rem;--spacing:.25rem;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+	color-scheme: dark;
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+}}
+:root[data-theme="dark"]{
+	color-scheme: dark;
+	--tone-bg: #09090f;
+	--tone-surface: #15141f;
+	--tone-surface-2: #1d1b2b;
+	--tone-border: #262437;
+	--tone-border-strong: #34314b;
+	--tone-fg: #ecebf5;
+	--tone-fg-muted: #a3a0bd;
+	--tone-fg-subtle: #6e6b88;
+	--tone-primary: #818cf8;
+	--tone-primary-fg: #0b0b14;
+	--tone-danger: #fb7185;
+	--tone-success: #34d399;
+	--tone-warning: #fbbf24;
+	--tone-ring: #a78bfa;
+}
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--tone-bg);color:var(--tone-fg);font:16px/1.6 var(--font-sans)}
+main{max-width:72rem;margin:auto;padding:clamp(1rem,4vw,3.5rem);padding-bottom:5rem}
+header{padding-bottom:1.75rem;border-bottom:1px solid var(--tone-border)}
+.kicker{font:600 .72rem/1.5 var(--font-mono);text-transform:uppercase;letter-spacing:.12em;color:var(--tone-fg-muted)}
+h1{font-size:clamp(1.9rem,5vw,3.2rem);line-height:1.1;letter-spacing:-.04em;font-weight:650;margin:.75rem 0;max-width:22ch}
+h2{font-size:1.5rem;letter-spacing:-.025em;line-height:1.25;margin:0 0 .5rem}
+h3{font-size:1rem;margin:0 0 .35rem}
+p{max-width:70ch;margin:.5rem 0}
+.lead{font-size:1.1rem;color:var(--tone-fg-muted);max-width:60ch}
+.muted{color:var(--tone-fg-muted)}
+section{margin-top:3rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:1rem}
+.grid.wide{grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr))}
+.card{padding:1.15rem 1.25rem;border:1px solid var(--tone-border);border-radius:var(--tone-radius);background:var(--tone-surface)}
+.verdict{border-left:3px solid var(--tone-primary)}
+.metric{font-size:2.2rem;font-weight:650;letter-spacing:-.04em;line-height:1.15;font-variant-numeric:tabular-nums;margin:.2rem 0}
+.tag{display:inline-block;font-size:.75rem;padding:.1rem .55rem;border:1px solid var(--tone-border-strong);border-radius:99px;color:var(--tone-fg-muted);white-space:nowrap}
+a{color:var(--tone-primary);text-underline-offset:3px}
+button{font:inherit;font-size:.875rem;border:1px solid var(--tone-border-strong);border-radius:.5rem;background:var(--tone-surface);color:var(--tone-fg);padding:.4rem .8rem;cursor:pointer}
+button[aria-pressed="true"]{background:var(--tone-primary);color:var(--tone-primary-fg);border-color:var(--tone-primary)}
+:focus-visible{outline:3px solid var(--tone-ring);outline-offset:2px}
+.table{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.875rem}
+caption{text-align:left;color:var(--tone-fg-muted);padding:.5rem 0}
+td,th{text-align:left;padding:.6rem .5rem;border-bottom:1px solid var(--tone-border);vertical-align:top}
+th{font-weight:600;color:var(--tone-fg-muted)}
+ul.plain{padding-left:1.1rem;margin:.4rem 0}ul.plain li{margin:.25rem 0;max-width:68ch}
+nav.toc{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:1rem}nav.toc a{font-size:.8125rem;text-decoration:none;border:1px solid var(--tone-border);border-radius:99px;padding:.15rem .7rem;color:var(--tone-fg-muted)}
+footer{margin-top:3rem;border-top:1px solid var(--tone-border);padding-top:1rem;font-size:.8125rem;color:var(--tone-fg-muted)}
+
+/* task page mock */
+.task{border:1px solid var(--tone-border-strong);border-radius:1rem;background:var(--tone-bg);padding:1rem;font-size:var(--text-task);line-height:1.5;min-width:0}
+.task .state{display:inline-flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:600;border:1px solid var(--tone-border-strong);border-radius:99px;padding:.1rem .6rem;color:var(--tone-fg-muted)}
+.task .title{font-size:1.05rem;font-weight:650;line-height:1.3;margin:.5rem 0 .15rem}
+.task .goal{color:var(--tone-fg-muted);font-size:var(--text-task-sm);margin:0 0 .75rem}
+.task h4{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);margin:1rem 0 .3rem;font-weight:600}
+.task .fold{display:flex;justify-content:space-between;border-top:1px solid var(--tone-border);padding:.45rem 0;color:var(--tone-fg-muted);font-size:var(--text-task-sm)}
+.task .empty{color:var(--tone-fg-subtle);font-size:var(--text-task-sm)}
+.task ul{list-style:none;margin:0;padding:0}
+.task .res li{padding-left:1.2rem;position:relative;margin:.2rem 0}.task .res li::before{content:"✓";position:absolute;left:0;color:var(--tone-success)}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--tone-primary);display:inline-block;flex:none}
+.dot.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.nowline{display:flex;gap:.5rem;align-items:baseline}.nowline .dot{position:relative;top:-.05rem}
+.nowline .age{color:var(--tone-fg-subtle);font-size:var(--text-task-sm);white-space:nowrap}
+.live{border:1px solid var(--tone-border);border-left:3px solid var(--tone-primary);border-radius:.6rem;padding:.6rem .75rem;background:var(--tone-surface);margin:.25rem 0 .5rem}
+.live h4{margin-top:.7rem}.live h4:first-child{margin-top:0}
+.live .head{display:flex;justify-content:space-between;gap:.5rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tone-fg-muted);font-weight:600;margin-bottom:.35rem}
+.plan li{display:flex;gap:.5rem;margin:.12rem 0;font-size:var(--text-task-sm)}
+.plan .m{width:1rem;flex:none;text-align:center}
+.plan .done{color:var(--tone-fg-muted)}.plan .done .m{color:var(--tone-success)}.plan .active{font-weight:600}.plan .active .m{color:var(--tone-primary)}.plan .todo{color:var(--tone-fg-subtle)}
+.meter{display:flex;gap:.2rem;align-items:center}.meter i{width:1.1rem;height:.3rem;border-radius:2px;background:var(--tone-surface-2)}.meter i.on{background:var(--tone-primary)}
+.trail li{display:grid;grid-template-columns:2.6rem 1fr auto;gap:.5rem;align-items:baseline;margin:.3rem 0;font-size:var(--text-task-sm);border-radius:.3rem;padding:.05rem .2rem}
+.trail .t{color:var(--tone-fg-subtle);font-variant-numeric:tabular-nums;font-size:.75rem}
+.trail li.new{background:color-mix(in srgb,var(--tone-primary) 12%,transparent)}
+.trail li.sep{display:block;font-size:.72rem;color:var(--tone-primary);border-top:1px dashed var(--tone-primary);margin-top:.5rem;padding-top:.15rem}
+.mark{font-size:.66rem;border-radius:99px;padding:0 .4rem;border:1px solid var(--tone-border-strong);color:var(--tone-fg-muted);white-space:nowrap}
+.mark.fact{border-color:var(--tone-success);color:var(--tone-success)}
+.mark.auto{border-style:dashed}
+.mark.guess{border-style:dotted;border-color:var(--tone-warning);color:var(--tone-warning)}
+.counters{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem}.counters span{font-size:.72rem;border:1px solid var(--tone-border);border-radius:.4rem;padding:.05rem .4rem;color:var(--tone-fg-muted);font-variant-numeric:tabular-nums}
+.more{font-size:.75rem;color:var(--tone-fg-muted);margin-top:.2rem}
+
+/* replay */
+.replay{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;align-items:start;margin-top:1rem}
+@media(max-width:60rem){.replay{grid-template-columns:1fr}}
+.col>h3{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem}
+.count{font:600 .75rem var(--font-mono);color:var(--tone-fg-muted)}
+.raw{font:.72rem/1.5 var(--font-mono);border:1px solid var(--tone-border);border-radius:.6rem;background:var(--tone-surface);padding:.6rem;height:30rem;overflow:auto;white-space:pre-wrap;word-break:break-word}
+@media(max-width:60rem){.raw{height:9rem}}
+.raw div{opacity:.55}.raw div:last-child{opacity:1;font-weight:600}
+.raw .t{color:var(--tone-fg-subtle)}
+.controls{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-top:1rem}
+.controls .clock{font:600 1rem var(--font-mono);min-width:5.5rem}
+.controls input[type=range]{flex:1;min-width:10rem;accent-color:var(--tone-primary)}
+.layers{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem;align-items:center}
+.layers span{font-size:.8125rem;color:var(--tone-fg-muted)}
+
+/* list rows */
+.rows{border:1px solid var(--tone-border-strong);border-radius:1rem;overflow:hidden;background:var(--tone-bg)}
+.rows .row{display:grid;grid-template-columns:auto 1fr auto;gap:.6rem;padding:.6rem .8rem;border-top:1px solid var(--tone-border);align-items:start}.rows .row:first-child{border-top:0}
+.rows .row b{font-weight:600;font-size:var(--text-task)}.rows .row small{display:block;color:var(--tone-fg-muted);font-size:var(--text-task-sm)}
+.rows .row .when{font-size:.72rem;color:var(--tone-fg-subtle);text-align:right;white-space:nowrap}
+.rows .dot{margin-top:.45rem}
+
+/* bars */
+.bars .r{display:grid;grid-template-columns:minmax(9rem,16rem) 1fr 4.5rem;gap:.75rem;align-items:center;margin:.55rem 0;font-size:.875rem}
+.bars .track{background:var(--tone-surface-2);border-radius:3px;height:.9rem}
+.bars .bar{height:.9rem;border-radius:3px;background:var(--tone-primary);min-width:2px}
+.bars .bar.small{background:var(--tone-success)}
+.bars .r span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:40rem){.bars .r{grid-template-columns:1fr 4.5rem}.bars .track{grid-column:1/-1;order:3}}
+
+.pick{border:1px solid var(--tone-border);border-radius:.6rem;padding:.6rem .8rem;margin:.4rem 0;background:var(--tone-bg)}
+.pick.rec{border-color:var(--tone-primary)}
+.pick b{font-weight:600}.pick small{display:block;color:var(--tone-fg-muted)}
+
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important}}
+@media print{body{background:white;color:black;font-size:10.5pt}main{padding:0;max-width:none}.card,.task,.live,.raw,.rows{background:none;border-color:#bbb;break-inside:avoid}.raw{height:auto;overflow:visible}h2,h3{break-after:avoid}tr{break-inside:avoid}.no-print,button,input{display:none!important}.muted,.lead,.kicker,th,footer,.tag{color:#444}section{margin-top:1.5rem}a{color:inherit}.table{overflow:visible}.replay{grid-template-columns:1fr 1fr 1fr}}
+</style></head>
+<body><main>
+
+<header>
+<div class="kicker">Research · T305 · synthetic examples</div>
+<h1>A task that follows the work</h1>
+<p class="lead">Today a task shows a state and, at the end, an outcome. It does not show the work in between. This page measures the gap, shows what a live task could look like, and compares six ways to build it.</p>
+<span class="tag">Nothing here is built</span> <span class="tag">Applies to any project</span>
+<nav class="toc" aria-label="Sections">
+<a href="#short-answer">Short answer</a><a href="#measured">What was measured</a><a href="#replay">Replay</a><a href="#grains">What should be live</a><a href="#writers">Who writes</a><a href="#approaches">Six approaches</a><a href="#page">On the page</a><a href="#noise">Noise</a><a href="#cost">Cost</a><a href="#plan">Staged plan</a><a href="#choices">Choices</a><a href="#limits">Limits</a>
+</nav>
+</header>
+
+<section id="short-answer" class="card verdict">
+<div class="kicker">Short answer</div>
+<h2>Add a Live block, fed by three writers with three levels of trust.</h2>
+<ul class="plain">
+<li>The page is static because it has two grains only: a one-line state and a final outcome. The steps in between have no place.</li>
+<li>The harness already records every step. Almost none of it reaches the task.</li>
+<li>Build one <b>Live</b> block on a working task: what is happening now, how far along the plan is, and what happened so far.</li>
+<li>Fill it first with facts the harness records, for no tokens. Then with a short plan from the worker. Then with news lines from a small model.</li>
+<li>Keep the three kinds apart on the page: recorded facts, the agent's own words, and automatic summaries.</li>
+<li>A small model that reads all the work of this project would cost about 5 cents a day. Keeping reports current costs the big models several dollars a day now.</li>
+</ul>
+</section>
+
+<section id="measured">
+<h2>What was measured</h2>
+<p class="muted">One busy project, five and a half days: 124 worker runs of five minutes or more, 52 hours of active work, 9,652 tool calls, 18 coordinator conversations. Counts only.</p>
+<div class="grid">
+<article class="card"><div class="kicker">A typical run</div><p class="metric">66 steps</p><p class="muted">Tool calls in 21 minutes of work. The task changed about four times.</p></article>
+<article class="card"><div class="kicker">Longest quiet stretch</div><p class="metric">11.7 min</p><p class="muted">Median per run, with 31 model turns inside it. One run in six has 20 minutes or more.</p></article>
+<article class="card"><div class="kicker">Title only</div><p class="metric">33%</p><p class="muted">Share of active work time when Now says only "fern is working on" and the title.</p></article>
+<article class="card"><div class="kicker">Results at the end</div><p class="metric">42%</p><p class="muted">Share of worker result lines written in the last 15% of the run.</p></article>
+</div>
+<div class="grid wide" style="margin-top:1rem">
+<article>
+<h3>Why the page feels static</h3>
+<ul class="plain">
+<li><b>Two grains, nothing between.</b> Now is one line that replaces itself. Results describe the end. Steps have no place.</li>
+<li><b>Now is thin.</b> A phase has three words at the median and stays 6.6 minutes. Old phases leave no trail, by design.</li>
+<li><b>Workers write when they finish a chunk.</b> They forget exactly when they are deepest in the work.</li>
+<li><b>The coordinator's view goes to the chat.</b> 284 check-ins led to 247 chat replies and 5 report writes.</li>
+<li><b>The page hides what moves.</b> Activity is folded and lists only starts and reports. Nothing marks what is new since the last look.</li>
+<li><b>No sense of distance.</b> Nothing says how far along the work is.</li>
+</ul>
+</article>
+<article>
+<h3>What exists today</h3>
+<ul class="plain">
+<li><b>Automatic Now.</b> A reducer picks one line from durable facts. It costs nothing and is always true. It carries a state, not a story.</li>
+<li><b>Stale marks and nudges.</b> When facts pass a report by, the coordinator is asked to rewrite it. 312 such turns cost about 41 dollars, 16% of coordinator spend.</li>
+<li><b>The small-model check.</b> It judges whether a report is out of date. It never writes. 76 calls in eight days cost just over one cent.</li>
+<li><b>Worker progress calls.</b> 419 of 443 stood alone in their request, at about 100,000 tokens of context: roughly 2 cents each.</li>
+<li><b>Check-ins.</b> Every ten minutes a coordinator reads a digest of its workers. That digest is the raw material a watcher needs.</li>
+</ul>
+</article>
+</div>
+</section>
+
+<section id="replay">
+<h2>Replay: the same 18 minutes, three views</h2>
+<p class="muted">An invented bookshop task, shaped like a real run that was measured. Press Play, or step through. The layer buttons add one approach at a time to the proposed page.</p>
+<div class="controls no-print" role="group" aria-label="Replay controls">
+<button id="play" type="button">Play</button>
+<button id="back" type="button" aria-label="Step back">‹ Back</button>
+<button id="step" type="button" aria-label="Step forward">Step ›</button>
+<span class="clock" id="clock" aria-live="off">14:30:00</span>
+<input id="scrub" type="range" min="0" max="1" value="0" aria-label="Position in the run">
+</div>
+<div class="layers no-print" role="group" aria-label="Layers on the proposed page">
+<span>Proposed page shows:</span>
+<button type="button" data-layer="a" aria-pressed="true" disabled title="Always on">A · what workers write today, kept as a trail</button>
+<button type="button" data-layer="b" aria-pressed="true">B · facts from the harness</button>
+<button type="button" data-layer="c" aria-pressed="true">C · the worker's plan and intents</button>
+<button type="button" data-layer="d" aria-pressed="true">D · news from a small model</button>
+</div>
+<div class="replay">
+<div class="col"><h3>The work <span class="count" id="rawCount"></span></h3><div class="raw" id="raw" tabindex="0" aria-label="Raw work log"></div></div>
+<div class="col"><h3>The task today <span class="count" id="todayCount"></span></h3><div class="task" id="today"></div></div>
+<div class="col"><h3>The task, proposed <span class="count" id="liveCount"></span></h3><div class="task" id="liveTask"></div></div>
+</div>
+</section>
+
+<section id="grains">
+<h2>What should be live, and at what grain</h2>
+<div class="table"><table>
+<thead><tr><th>Grain</th><th>The question it answers</th><th>How often it changes</th><th>How long it stays</th><th>Today</th></tr></thead>
+<tbody>
+<tr><td><b>Pulse</b></td><td>Is it alive? What is it doing this minute?</td><td>Every step, seconds apart</td><td>Never stored. It replaces itself.</td><td>The Now line, without detail</td></tr>
+<tr><td><b>Steps</b></td><td>What has happened so far?</td><td>Every 3 to 5 minutes of work, and on events</td><td>While the work runs. Then it folds into Activity.</td><td>Missing</td></tr>
+<tr><td><b>Plan</b></td><td>How far along is it?</td><td>A few times per run</td><td>Until the plan is done</td><td>Missing</td></tr>
+<tr><td><b>Outcome</b></td><td>What do I get? What is missing? What comes next?</td><td>Per run and per state change</td><td>The report, as today</td><td>What you get, Not done, Next</td></tr>
+</tbody></table></div>
+<p>The complaint is about the two middle rows. The outcome sections stay as they are: written by agents, checked by the coordinator.</p>
+</section>
+
+<section id="writers">
+<h2>Who writes, and how far to trust it</h2>
+<div class="grid wide">
+<article class="card">
+<h3>Three writers</h3>
+<ul class="plain">
+<li><b>The harness, from events.</b> The pulse, the counters, and facts: a commit, a recorded check, saved files, work sent back, a failure. No tokens. It cannot say why.</li>
+<li><b>The worker, in passing.</b> A plan of three to seven steps, ticked as it goes, and a few words of intent on a command. No extra request when it rides on a call it makes anyway.</li>
+<li><b>A small model, watching.</b> One news sentence for every 8 to 30 steps. It can tick the plan from evidence and flag a stuck worker.</li>
+<li><b>The coordinator</b> keeps the outcome sections. What it decides about the work (checked, sent back) shows as facts.</li>
+</ul>
+</article>
+<article class="card">
+<h3>Three marks on the page</h3>
+<div class="task" style="margin-top:.5rem"><ul class="trail">
+<li><span class="t">14:41</span><span>Commit recorded: Add gift cards to the checkout</span><span class="mark fact">recorded</span></li>
+<li><span class="t">14:41</span><span>Built gift cards in the checkout.</span><span class="mark">fern</span></li>
+<li><span class="t">14:36</span><span>A test failed: part payment left 0.01 unpaid. Fixing the rounding.</span><span class="mark auto">auto</span></li>
+</ul></div>
+<ul class="plain">
+<li><b>Recorded:</b> the harness saw it happen. Always true.</li>
+<li><b>A name:</b> an agent wrote it. A claim, as today.</li>
+<li><b>Auto:</b> a small model read the work log. Tap it to see the steps it was made from.</li>
+<li>Auto text never enters What you get, Not done or Next. It never puts a task under Needs you.</li>
+<li>"Passed", "committed" and "saved" come from recorded facts only.</li>
+</ul>
+</article>
+</div>
+</section>
+
+<section id="approaches">
+<h2>Six approaches</h2>
+<p class="muted">A to D stack: each adds a layer to the same Live block. E and F build on D. Effort is for normal workers, web and Android included where the page changes.</p>
+<div class="grid wide">
+<article class="card"><h3>A · Show what we have</h3><p>Keep this run's phases and result lines as a trail. Show them in a Live block with a "new since you looked" mark.</p><p class="muted"><b>Effort:</b> 3 to 4 days. <b>Tokens:</b> none. <b>Risk:</b> the quiet stretches stay, because workers still write four times a run.</p></article>
+<article class="card"><h3>B · Facts from the harness</h3><p>A pulse from the running tool, counters for the run, and fact lines for commits, checks, saved files, work sent back and failures.</p><p class="muted"><b>Effort:</b> about a week. <b>Tokens:</b> none. <b>Risk:</b> it reads like a machine log if it shows too much. It says what, never why.</p></article>
+<article class="card"><h3>C · The worker narrates in passing</h3><p>The progress tool takes a plan and ticks. A command can carry a few words of intent. The page shows "3 of 5" and the intent as the pulse.</p><p class="muted"><b>Effort:</b> about a week. <b>Tokens:</b> about 12 per command, no extra requests. <b>Risk:</b> models forget to tick. A changed tool invalidates prompt caches once.</p></article>
+<article class="card"><h3>D · A watcher writes the news</h3><p>After every few steps the harness sends a small model the new steps of one task. It answers with one sentence, or with nothing.</p><p class="muted"><b>Effort:</b> about two weeks, with an offline test first. <b>Tokens:</b> about 5 cents a day here. <b>Risk:</b> a wrong line that sounds sure. Text from tools can try to steer it.</p></article>
+<article class="card"><h3>E · The watcher reads first</h3><p>The watcher also flags a stuck or looping worker. Routine check-ins by the big model become rare. Nudges wait until a run ends.</p><p class="muted"><b>Effort:</b> about a week after D. <b>Tokens:</b> saves big-model turns. <b>Risk:</b> a small model misses trouble, so a slow check-in stays as a net.</p></article>
+<article class="card"><h3>F · The page settles</h3><p>From the chatless exploration: the watcher drafts "what you get so far" lines, marked as guesses. The coordinator's check turns them into checked lines.</p><p class="muted"><b>Effort:</b> weeks, on the next-big branch. <b>Risk:</b> the reader acts on a guess. Text moves while it is read.</p></article>
+</div>
+<div class="table" style="margin-top:1rem"><table>
+<caption>Compared</caption>
+<thead><tr><th></th><th>Fills the quiet stretches</th><th>Says why</th><th>Always true</th><th>Extra cost</th><th>Works for any project</th></tr></thead>
+<tbody>
+<tr><td>A · Show what we have</td><td>No</td><td>Sometimes</td><td>Agent's claim</td><td>None</td><td>Yes</td></tr>
+<tr><td>B · Facts</td><td>Yes, mechanically</td><td>No</td><td>Yes</td><td>None</td><td>Yes: tools and files, not project rules</td></tr>
+<tr><td>C · Plan and intents</td><td>Mostly</td><td>Yes</td><td>Agent's claim</td><td>Tiny</td><td>Yes</td></tr>
+<tr><td>D · Watcher</td><td>Yes</td><td>Yes</td><td>No: marked auto</td><td>Cents a day</td><td>Yes</td></tr>
+<tr><td>E · Watcher reads first</td><td>Same as D</td><td>Yes</td><td>No</td><td>Saves money</td><td>Yes</td></tr>
+<tr><td>F · Settling page</td><td>Yes</td><td>Yes</td><td>No: marked per line</td><td>Not measured</td><td>Yes</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="page">
+<h2>How it reads on the page</h2>
+<div class="grid wide">
+<article>
+<h3>While work runs</h3>
+<div class="task">
+<span class="state"><span class="dot pulse"></span>Working · 14 min</span>
+<p class="title">Compare three paper suppliers</p>
+<p class="goal">The shop knows which supplier to order from.</p>
+<div class="live" aria-label="Live">
+<div class="head"><span>Live</span><span>moss · 14 min</span></div>
+<div class="nowline"><span class="dot pulse"></span><span>Reading the third supplier's price list</span><span class="age">1 min</span></div>
+<h4>Plan <span class="meter" style="display:inline-flex;margin-left:.4rem" aria-label="2 of 4 done"><i class="on"></i><i class="on"></i><i></i><i></i></span></h4>
+<ul class="plan"><li class="done"><span class="m">✓</span>Collect the three price lists</li><li class="done"><span class="m">✓</span>Put the prices in one table</li><li class="active"><span class="m">◐</span>Check delivery times and minimum orders</li><li class="todo"><span class="m">○</span>Write the comparison</li></ul>
+<h4>So far</h4>
+<ul class="trail">
+<li class="sep">New since you looked, 6 minutes ago</li>
+<li class="new"><span class="t">10:42</span><span>Two suppliers are within 3% on price. The third is cheaper but sells full pallets only.</span><span class="mark auto">auto</span></li>
+<li class="new"><span class="t">10:39</span><span>File saved: price table</span><span class="mark fact">recorded</span></li>
+<li><span class="t">10:33</span><span>Found all three price lists. One is from last year.</span><span class="mark auto">auto</span></li>
+</ul>
+<div class="more">Earlier · 2 more</div>
+<div class="counters"><span>41 steps</span><span>3 pages read</span><span>1 file saved</span></div>
+</div>
+<h4>What you get</h4><p class="empty">Nothing yet. The work is running.</p>
+<div class="fold"><span>The record</span><span>›</span></div>
+</div>
+<p class="muted">The block sits under the header. Needs you stays above it when something waits. A task with no code shows no commits and no checks.</p>
+</article>
+<article>
+<h3>When the work stops</h3>
+<div class="task">
+<span class="state">Ready for you to check</span>
+<p class="title">Compare three paper suppliers</p>
+<h4>What you get</h4>
+<ul class="res"><li>A table compares the three suppliers on price, delivery and minimum order.</li><li>The recommendation is the second supplier.</li></ul>
+<h4>The record</h4>
+<div class="fold"><span>Activity</span><span>⌄</span></div>
+<ul class="trail" style="margin:.2rem 0 .5rem">
+<li><span class="t">10:28</span><span><b>moss worked 23 minutes</b>: 4 plan steps, 68 steps, 2 files saved</span><span class="mark fact">recorded</span></li>
+<li><span class="t"></span><span class="muted">Open to see the 7 lines of that run.</span><span></span></li>
+</ul>
+</div>
+<p class="muted">The Live block leaves the top. The run becomes one row in Activity that opens to its trail. The task does not become a second chat.</p>
+<h3 style="margin-top:1.25rem">In the list</h3>
+<div class="rows">
+<div class="row"><span class="dot pulse"></span><div><b>Add gift cards to the checkout</b><small>Running the checkout tests · step 3 of 5</small></div><span class="when">2 min</span></div>
+<div class="row"><span class="dot pulse"></span><div><b>Compare three paper suppliers</b><small>Reading the third supplier's price list · step 3 of 4</small></div><span class="when">1 min</span></div>
+<div class="row"><span class="dot" style="background:var(--tone-fg-subtle)"></span><div><b>Renew the market permit</b><small>Waiting for the town office</small></div><span class="when">since Tue</span></div>
+</div>
+</article>
+<article>
+<h3>F · A page that settles</h3>
+<div class="task">
+<span class="state"><span class="dot pulse"></span>Working · settling</span>
+<p class="title">Add gift cards to the checkout</p>
+<h4>What you get, so far</h4>
+<ul class="trail">
+<li><span class="t">✓</span><span>Customers can pay all of an order with a gift card.</span><span class="mark fact">checked</span></li>
+<li><span class="t">·</span><span>A card can pay part of an order. The rest goes to another method.</span><span class="mark guess">not checked</span></li>
+<li><span class="t">·</span><span>The balance left on the card shows after paying.</span><span class="mark guess">not checked</span></li>
+</ul>
+<div class="more">2 of 3 lines wait for the coordinator's check.</div>
+</div>
+<p class="muted">The same watcher writes into the outcome section, line by line, each marked. This is the diffusion idea. It is the most alive and the easiest to believe wrongly.</p>
+<h3 style="margin-top:1.25rem">The evidence behind an auto line</h3>
+<div class="task">
+<p style="margin:0 0 .4rem">A test failed: part payment left 0.01 unpaid. Fixing the rounding. <span class="mark auto">auto</span></p>
+<ul class="trail">
+<li><span class="t">14:36</span><span class="muted">Ran a command: "Running the checkout tests". It failed.</span><span></span></li>
+<li><span class="t">14:36</span><span class="muted">Edited balance.ts: "Fixing the rounding when a card pays part of the price"</span><span></span></li>
+</ul>
+<div class="controls" style="margin-top:.5rem"><button type="button" disabled>Open the work log here</button><button type="button" disabled>This is wrong</button></div>
+</div>
+</article>
+</div>
+</section>
+
+<section id="noise">
+<h2>How it avoids noise and churn</h2>
+<div class="grid wide">
+<article><ul class="plain">
+<li><b>One line per step of the work, not per tool call.</b> The target is one line for every 3 to 5 minutes of work.</li>
+<li><b>The current step replaces itself.</b> A line is added when a step ends or an event happens.</li>
+<li><b>"Nothing new" is the usual answer.</b> The watcher is told to stay silent when the work has not moved.</li>
+<li><b>A cap.</b> At most twelve lines per task per hour. Three show, the rest fold under "Earlier".</li>
+<li><b>Bursts merge.</b> Nine saved files are one line.</li>
+</ul></article>
+<article><ul class="plain">
+<li><b>Nothing reflows.</b> New lines arrive in one place with a soft highlight. Ages tick on the device.</li>
+<li><b>No notifications, no stale marks, no history rows</b> come from the Live block.</li>
+<li><b>It ends with the work.</b> The trail folds into one Activity row when the run ends.</li>
+<li><b>No loops.</b> A pass runs after new steps, never on a timer. An idle task costs nothing.</li>
+<li><b>Cost follows attention.</b> Passes can run at full rate only while the task is open or on screen.</li>
+</ul></article>
+</div>
+</section>
+
+<section id="cost">
+<h2>Cost and token budgets</h2>
+<p class="muted">Measured on the same project over five and a half days. Total model spend in that time: about 544 dollars.</p>
+<div class="bars card" aria-label="Spend on keeping tasks current, in dollars">
+<div class="r"><span>Coordinator turns woken by a report nudge</span><div class="track"><div class="bar" style="width:100%"></div></div><span>$41.10</span></div>
+<div class="r"><span>Coordinator turns woken by a check-in</span><div class="track"><div class="bar" style="width:53.8%"></div></div><span>$22.10</span></div>
+<div class="r"><span>Worker progress calls</span><div class="track"><div class="bar" style="width:25.8%"></div></div><span>$10.60</span></div>
+<div class="r"><span>Watcher, estimated, at a dearer small model</span><div class="track"><div class="bar small" style="width:6.1%"></div></div><span>$2.50</span></div>
+<div class="r"><span>Watcher, estimated, at today's small model</span><div class="track"><div class="bar small" style="width:0.6%"></div></div><span>$0.25</span></div>
+<div class="r"><span>The small-model check, as built</span><div class="track"><div class="bar small" style="width:0.1%"></div></div><span>$0.01</span></div>
+</div>
+<ul class="plain">
+<li><b>The watcher's input</b> is the new steps, clipped: tool name, a short argument or intent, a short result tail, and the model's own thinking summary. That is about 210,000 tokens a day here.</li>
+<li><b>Each pass</b> adds about 500 tokens of rules and page state. About 290 passes a day here, so about 360,000 input and 18,000 output tokens a day.</li>
+<li><b>The budget</b> works like the report check's: a daily token cap per project, a named model, and usage shown in settings. When it runs out, the block falls back to facts.</li>
+<li><b>Intents</b> cost about 12 output tokens per command and no extra request.</li>
+<li><b>More worker reporting</b> is affordable but not reliable. Tripling it would add about 5% to worker spend, and workers would still go quiet when busy.</li>
+<li><b>Savings to look for later:</b> 63 of 340 nudged sections were "changes landed on main", which the page already shows as Delivery.</li>
+</ul>
+</section>
+
+<section id="plan">
+<h2>Recommended path, in stages</h2>
+<p>A, then B, then the plan from C, then D. Each stage stands alone and leaves the page better. E follows once D's lines are measured. F stays on the next-big branch and reuses the same trail and watcher.</p>
+<div class="table"><table>
+<thead><tr><th>Stage</th><th>What is built</th><th>Size</th><th>Accept when</th></tr></thead>
+<tbody>
+<tr><td><b>1 · The Live block</b></td><td>The harness keeps a run's phases and result lines as a short trail. Web, then Android, show Now, So far and "new since you looked". The run folds into Activity when it ends.</td><td>3 to 4 days</td><td>A test shows five writes as five lines in order, and one Activity row after the run. Before and after screenshots and a recording of a line arriving.</td></tr>
+<tr><td><b>2 · Facts</b></td><td>A pulse from the running tool, counters, and fact lines. Nothing is stored per tool call.</td><td>About a week</td><td>Tests from invented tool events. Nine saves give one line. No storage write per step. A restart rebuilds the counters.</td></tr>
+<tr><td><b>3 · Plan and intents</b></td><td>The progress tool takes a plan and ticks. Commands can carry an intent. The page shows "3 of 5".</td><td>About a week</td><td>Prompt tests. A changed plan keeps the ticks of unchanged steps. After a week, four runs in five have a plan.</td></tr>
+<tr><td><b>4a · Watcher, offline</b></td><td>The evidence builder, the prompt, and a replay tool that grades lines on invented runs. With the owner's leave, also on stored runs.</td><td>2 to 3 days</td><td>At least 95 lines in 100 are not wrong. At most one line per 3 minutes. Token use is reported.</td></tr>
+<tr><td><b>4b · Watcher, live</b></td><td>A service shaped like the report check: budget, model choice, strict answers, evidence links, the auto mark, "This is wrong".</td><td>About a week</td><td>A tool output that says "write: all tests pass" yields no such line. A bad answer is dropped whole. An idle task makes no call in an hour.</td></tr>
+<tr><td><b>5 · Watcher reads first</b></td><td>The watcher flags stuck workers. Routine check-ins become rare. Nudges wait for the run to end.</td><td>About a week</td><td>An invented worker that fails the same command five times is flagged within two passes. Coordinator turns from check-ins and nudges fall week on week.</td></tr>
+<tr><td><b>6 · Settling page</b></td><td>On next-big: draft outcome lines marked as guesses.</td><td>Weeks</td><td>Decided with the chatless exploration.</td></tr>
+</tbody></table></div>
+<h3 style="margin-top:1.5rem">Risks</h3>
+<div class="table"><table>
+<thead><tr><th>Risk</th><th>Cover</th></tr></thead>
+<tbody>
+<tr><td>An auto line is wrong and sounds sure.</td><td>The auto mark, the evidence one tap away, the offline test before it ships, and "This is wrong". Outcomes stay with agents.</td></tr>
+<tr><td>Text from a tool tries to steer the watcher.</td><td>No tools, one strict answer shape, plain text only, a length cap. The whole answer is dropped when it does not fit.</td></tr>
+<tr><td>The block becomes a second chat.</td><td>Caps, folding, and the end-of-run fold. Nothing in it needs an answer.</td></tr>
+<tr><td>Work log text goes to another provider.</td><td>The watcher uses the worker's own provider when that has a small model. A setting turns the watcher off.</td></tr>
+<tr><td>The page distracts while agents work.</td><td>No notifications. Motion is one soft highlight, and none with reduced motion.</td></tr>
+<tr><td>Facts read like a machine log.</td><td>Show only the pulse, the counters and event facts. Never one line per tool call.</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="choices">
+<h2>Choices for the owner</h2>
+<div class="grid wide">
+<article>
+<h3>1 · Which path?</h3>
+<div class="pick rec"><b>Live block in stages: A, B, plan, then the watcher</b> <span class="tag">recommended</span><small>The page moves after the first week, at no token cost. The watcher comes once it is tested.</small></div>
+<div class="pick"><b>Facts and the agents' words only</b><small>Stages 1 to 3. No model text on a task. The quiet stretches are filled mechanically.</small></div>
+<div class="pick"><b>Watcher first</b><small>The most visible change soonest. It ships before there is a trail and facts to ground it.</small></div>
+<div class="pick"><b>Only on next-big, as the settling page</b><small>Today's app stays as it is until the big version.</small></div>
+<h3 style="margin-top:1rem">2 · May a small model write on a task?</h3>
+<div class="pick rec"><b>Yes, in the Live block only, marked auto</b> <span class="tag">recommended</span><small>Outcome sections stay written by agents.</small></div>
+<div class="pick"><b>Yes, also drafts of What you get</b><small>The settling page. Each line carries a guess or checked mark.</small></div>
+<div class="pick"><b>No</b><small>Only recorded facts and what agents write.</small></div>
+</article>
+<article>
+<h3>3 · How fine is the grain?</h3>
+<div class="pick rec"><b>About one line per 3 to 5 minutes of work</b> <span class="tag">recommended</span><small>Roughly five lines for a typical run.</small></div>
+<div class="pick"><b>Finer: about one line a minute</b><small>Closer to the chat. More to read, more churn.</small></div>
+<div class="pick"><b>Coarser: plan steps and events only</b><small>No small model needed. Quiet stretches of ten minutes stay.</small></div>
+<h3 style="margin-top:1rem">4 · May the watcher be tested on stored runs?</h3>
+<div class="pick rec"><b>Yes, on this project's stored worker runs</b> <span class="tag">recommended</span><small>Real work is the only fair test. The clipped log goes to the small model's provider. Nothing is committed.</small></div>
+<div class="pick"><b>Invented runs only</b><small>Nothing real leaves the machine. The accuracy number means less.</small></div>
+<h3 style="margin-top:1rem">5 · Should the watcher take over routine check-ins later?</h3>
+<div class="pick rec"><b>Decide after a week of watcher data</b> <span class="tag">recommended</span><small>Stage 5 starts only if the lines prove accurate.</small></div>
+<div class="pick"><b>Plan it in now</b><small>Saves big-model turns sooner. A missed stuck worker costs more.</small></div>
+<div class="pick"><b>Never</b><small>The watcher only writes for the reader.</small></div>
+</article>
+</div>
+</section>
+
+<section id="limits">
+<h2>Limits</h2>
+<ul class="plain">
+<li>One project's board and transcripts. Other projects may run fewer or longer workers.</li>
+<li>No small model was run on the work. Watcher cost and quality are estimates from clipped log sizes.</li>
+<li>Prices are those in this project's request log. A dearer small model is shown at ten times that.</li>
+<li>Progress calls made inside scripts were counted as writes. Their phases were read, their other content was not.</li>
+<li>Android was not drawn. The block is one column and carries over.</li>
+<li>The replay is scripted. It shows the page, not a working watcher.</li>
+</ul>
+</section>
+
+<footer>Synthetic bookshop data in every mockup. The numbers are counts from one project. Write-up: docs/research/live-task-content.md.</footer>
+</main>
+
+<script>
+(function () {
+	"use strict";
+	// One invented run. t is seconds after 14:30:00. Layers: said (A), fact/pulse/count (B), plan/intent (C), auto (D).
+	var E = [
+		{ t: 0, raw: "worker fern started", today: { now: "fern is working on Gift cards in the checkout" }, pulse: "Starting" },
+		{ t: 6, raw: "read docs/checkout.md", pulse: "Reading files", intent: "Reading how the checkout takes payments" },
+		{ t: 11, raw: "read src/checkout/payment.ts", pulse: "Reading files" },
+		{ t: 19, raw: "bash rg -n paymentMethod src", pulse: "Running a command", intent: "Finding every place a payment method is chosen" },
+		{ t: 40, raw: "task_progress plan: 5 steps", plan: 0, auto: "Reading the checkout code to find where payment methods are handled." },
+		{ t: 80, raw: "bash bun run demo --port 5310", pulse: "Running a command", intent: "Starting a demo shop with invented orders" },
+		{ t: 105, raw: "bash browser screenshot (4 times)", pulse: "Using the browser", intent: "Taking screenshots of the checkout before the change" },
+		{ t: 112, raw: "artifact_save 4 files", pulse: "Saving files", fact: "4 files saved: before screenshots", saved: 4 },
+		{ t: 130, raw: "task_progress now, addResult", today: { now: "fern is building the gift card field", result: "Captured four before screenshots." }, said: "Captured four before screenshots.", plan: 1, auto: "The payment step has one function for all methods. Gift cards will be added there." },
+		{ t: 160, raw: "edit src/checkout/payment.ts (3 edits)", pulse: "Editing files", intent: "Adding gift card as a payment method", files: 1 },
+		{ t: 210, raw: "write src/checkout/GiftCardField.svelte", pulse: "Editing files", intent: "Building the gift card field", files: 1 },
+		{ t: 260, raw: "write src/checkout/balance.ts", pulse: "Editing files", intent: "Checking the card balance before the order is placed", files: 1 },
+		{ t: 310, raw: "edit test/checkout.test.ts", pulse: "Editing files", intent: "Writing a test for a card with too little money", files: 1, plan: 2, auto: "Added the gift card field. A balance check runs before the order is placed." },
+		{ t: 370, raw: "bash bun test checkout  → exit 1", pulse: "Running a command", intent: "Running the checkout tests" },
+		{ t: 400, raw: "edit src/checkout/balance.ts", pulse: "Editing files", intent: "Fixing the rounding when a card pays part of the price", auto: "A test failed: part payment left 0.01 unpaid. Fixing the rounding." },
+		{ t: 425, raw: "bash bun test checkout  → exit 0", pulse: "Running a command", intent: "Running the checkout tests again" },
+		{ t: 430, raw: "task_progress checks: checkout tests passed (24)", fact: "Check recorded: checkout tests passed", checks: 1 },
+		{ t: 480, raw: "bash browser screenshot (4 times)", pulse: "Using the browser", intent: "Taking the same screenshots after the change", plan: 3 },
+		{ t: 550, raw: "bash browser record", pulse: "Using the browser", intent: "Recording a payment with a gift card" },
+		{ t: 630, raw: "artifact_save 5 files", pulse: "Saving files", fact: "5 files saved: after screenshots and a recording", saved: 5, auto: "Screenshots and a recording show a payment with a gift card." },
+		{ t: 680, raw: "bash jj commit -m 'Add gift cards to the checkout'", pulse: "Running a command", intent: "Committing the change", fact: "Commit recorded: Add gift cards to the checkout", commits: 1, plan: 4 },
+		{ t: 700, raw: "task_progress now, addResult", today: { now: "fern is verifying the committed change", result: "Built gift cards in the checkout. A card can pay all or part of an order." }, said: "Built gift cards in the checkout. A card can pay all or part of an order." },
+		{ t: 715, raw: "bash bun test; bun run typecheck (background)", pulse: "Running a command", intent: "Running every test before reporting" },
+		{ t: 810, raw: "bash tail test.log", pulse: "Running a command", intent: "Waiting for the full test run", auto: "Running the full test suite before reporting." },
+		{ t: 920, raw: "task_progress checks: all tests passed (1,204), typecheck passed", fact: "Checks recorded: all tests and typecheck passed", checks: 2 },
+		{ t: 940, raw: "task_progress addResult", today: { now: "fern is working on Gift cards in the checkout", result: "All checks passed. Screenshots and a recording are on the task." }, said: "All checks passed. Screenshots and a recording are on the task.", plan: 5 },
+		{ t: 960, raw: "worker fern reported to the coordinator", today: { now: "The coordinator is working on Gift cards in the checkout" }, pulse: "The coordinator is reading fern's report", fact: "fern reported after 16 minutes", who: "coordinator" },
+		{ t: 1000, raw: "coordinator: artifact_read (3 screenshots)", pulse: "The coordinator is looking at saved files", intent: "The coordinator is checking the screenshots against the request", who: "coordinator" },
+		{ t: 1050, raw: "coordinator: worker_send title: Show the balance left on the card", today: { now: "fern is working on Show the balance left on the card" }, pulse: "Starting", fact: "Sent back to fern: Show the balance left on the card", auto: "The coordinator checked the screenshots and asked for one more thing." },
+		{ t: 1062, raw: "coordinator: board write_report results, next", today: { rewrite: true }, pulse: "Reading files", intent: "Reading where the balance is shown" }
+	];
+	var PLAN = ["Read the checkout code", "Add the gift card field and the balance check", "Test a card with too little money", "Screenshots before and after", "Commit and report"];
+	var layers = { a: true, b: true, c: true, d: true };
+	var i = 0, timer = null;
+	var $ = function (id) { return document.getElementById(id); };
+	function clock(t) { var s = 14 * 3600 + 30 * 60 + t; var p = function (n) { return (n < 10 ? "0" : "") + n; }; return p(Math.floor(s / 3600)) + ":" + p(Math.floor(s / 60) % 60) + ":" + p(s % 60); }
+	function hm(t) { return clock(t).slice(0, 5); }
+	function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+	function ago(now, t) { var m = Math.floor((now - t) / 60); return m < 1 ? "now" : m + " min"; }
+
+	function render() {
+		var now = E[i].t, k, e;
+		// raw
+		var raw = "";
+		for (k = 0; k <= i; k++) raw += '<div><span class="t">' + clock(E[k].t) + "</span> " + esc(E[k].raw) + "</div>";
+		$("raw").innerHTML = raw; $("raw").scrollTop = $("raw").scrollHeight;
+		$("rawCount").textContent = (i + 1) + " of " + E.length + " steps shown";
+		// today
+		var tNow = "", tNowAt = 0, results = [], todayChanges = 0, rewritten = false;
+		for (k = 0; k <= i; k++) {
+			e = E[k]; if (!e.today) continue; todayChanges++;
+			if (e.today.now) { tNow = e.today.now; tNowAt = e.t; }
+			if (e.today.result) results.push(e.today.result);
+			if (e.today.rewrite) rewritten = true;
+		}
+		var res = rewritten
+			? "<li>Gift cards work in the checkout, for all or part of an order.</li><li>Screenshots and a recording are on the task.</li>"
+			: results.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("");
+		$("today").innerHTML =
+			'<span class="state"><span class="dot pulse"></span>Working</span>' +
+			'<p class="title">Add gift cards to the checkout</p><p class="goal">Customers can pay with a gift card.</p>' +
+			'<div class="nowline"><span class="dot pulse"></span><span>' + esc(tNow) + '</span><span class="age">' + ago(now, tNowAt) + "</span></div>" +
+			"<h4>What you get</h4>" + (res ? '<ul class="res">' + res + "</ul>" : '<p class="empty">Nothing yet.</p>') +
+			"<h4>Next</h4><p style=\"margin:0\">" + (rewritten ? "The worker adds the balance left on the card. Then the coordinator checks it again." : "The worker builds it. The coordinator checks the result.") + "</p>" +
+			'<div class="fold" style="margin-top:.8rem"><span>The record</span><span>›</span></div>';
+		$("todayCount").textContent = "changed " + todayChanges + (todayChanges === 1 ? " time" : " times");
+		// proposed
+		var pulse = "", pulseAt = 0, planDone = -1, trail = [], c = { steps: 0, files: 0, commits: 0, saved: 0, checks: 0 }, liveChanges = 0, who = "fern";
+		for (k = 0; k <= i; k++) {
+			e = E[k]; var changed = false; c.steps++;
+			who = e.who || "fern";
+			var p = layers.c && e.intent ? e.intent : layers.b && e.pulse ? e.pulse : e.today && e.today.now ? e.today.now : "";
+			if (p && p !== pulse) { pulse = p; pulseAt = e.t; changed = true; }
+			if (e.plan !== undefined) { planDone = e.plan; if (layers.c) changed = true; }
+			if (e.said) { trail.push({ t: e.t, text: e.said, kind: "said" }); changed = true; }
+			if (e.fact && layers.b) { trail.push({ t: e.t, text: e.fact, kind: "fact" }); changed = true; }
+			if (e.auto && layers.d) { trail.push({ t: e.t + 5, text: e.auto, kind: "auto" }); changed = true; }
+			if (e.files) c.files += e.files; if (e.commits) c.commits += e.commits; if (e.saved) c.saved += e.saved; if (e.checks) c.checks += e.checks;
+			if (changed) liveChanges++;
+		}
+		var planHtml = "";
+		if (layers.c && planDone >= 0) {
+			var meter = "", items = "";
+			for (k = 0; k < PLAN.length; k++) {
+				meter += "<i" + (k < planDone ? ' class="on"' : "") + "></i>";
+				var st = k < planDone ? "done" : k === planDone ? "active" : "todo";
+				items += '<li class="' + st + '"><span class="m">' + (st === "done" ? "✓" : st === "active" ? "◐" : "○") + "</span>" + esc(PLAN[k]) + "</li>";
+			}
+			planHtml = '<h4>Plan <span class="meter" style="display:inline-flex;margin-left:.4rem" aria-label="' + Math.min(planDone, PLAN.length) + " of " + PLAN.length + ' done">' + meter + '</span></h4><ul class="plan">' + items + "</ul>";
+		}
+		var shown = trail.slice(-4).reverse(), earlier = trail.length - shown.length;
+		var trailHtml = shown.map(function (x, n) {
+			var mark = x.kind === "fact" ? '<span class="mark fact">recorded</span>' : x.kind === "auto" ? '<span class="mark auto">auto</span>' : '<span class="mark">fern</span>';
+			return '<li' + (n === 0 && now - x.t < 45 ? ' class="new"' : "") + '><span class="t">' + hm(x.t) + "</span><span>" + esc(x.text) + "</span>" + mark + "</li>";
+		}).join("");
+		var counters = layers.b ? '<div class="counters"><span>' + c.steps + " steps</span><span>" + c.files + " files changed</span><span>" + c.commits + (c.commits === 1 ? " commit" : " commits") + "</span><span>" + c.saved + " files saved</span><span>" + c.checks + (c.checks === 1 ? " check" : " checks") + "</span></div>" : "";
+		$("liveTask").innerHTML =
+			'<span class="state"><span class="dot pulse"></span>Working · ' + Math.max(1, Math.floor(now / 60)) + " min</span>" +
+			'<p class="title">Add gift cards to the checkout</p><p class="goal">Customers can pay with a gift card.</p>' +
+			'<div class="live"><div class="head"><span>Live</span><span>' + who + "</span></div>" +
+			'<div class="nowline"><span class="dot pulse"></span><span>' + esc(pulse) + '</span><span class="age">' + ago(now, pulseAt) + "</span></div>" +
+			planHtml +
+			"<h4>So far</h4>" + (trailHtml ? '<ul class="trail">' + trailHtml + "</ul>" : '<p class="empty">Nothing yet.</p>') +
+			(earlier > 0 ? '<div class="more">Earlier · ' + earlier + " more</div>" : "") + counters + "</div>" +
+			"<h4>What you get</h4>" + (rewritten ? '<ul class="res">' + res + "</ul>" : '<p class="empty">Nothing yet. The work is running.</p>') +
+			'<div class="fold" style="margin-top:.8rem"><span>The record</span><span>›</span></div>';
+		$("liveCount").textContent = "changed " + liveChanges + " times";
+		$("clock").textContent = clock(now);
+		$("scrub").value = String(i);
+	}
+	function stop() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = i >= E.length - 1 ? "Restart" : "Play"; }
+	function go(n) { i = Math.max(0, Math.min(E.length - 1, n)); render(); if (i >= E.length - 1) stop(); }
+	$("scrub").max = String(E.length - 1);
+	$("play").addEventListener("click", function () {
+		if (timer) { stop(); return; }
+		if (i >= E.length - 1) i = 0;
+		render(); $("play").textContent = "Pause";
+		timer = setInterval(function () { go(i + 1); }, 900);
+	});
+	$("step").addEventListener("click", function () { stop(); go(i + 1); });
+	$("back").addEventListener("click", function () { stop(); go(i - 1); $("play").textContent = "Play"; });
+	$("scrub").addEventListener("input", function () { stop(); go(Number($("scrub").value)); $("play").textContent = i >= E.length - 1 ? "Restart" : "Play"; });
+	Array.prototype.forEach.call(document.querySelectorAll("[data-layer]"), function (b) {
+		b.addEventListener("click", function () { var l = b.getAttribute("data-layer"); if (l === "a") return; layers[l] = !layers[l]; b.setAttribute("aria-pressed", String(layers[l])); render(); });
+	});
+	window.addEventListener("beforeprint", function () { stop(); go(E.length - 1); });
+	go(14);
+})();
+</script>
+</body>
+</html>
