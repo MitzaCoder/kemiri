@@ -57,7 +57,8 @@ const MAX_TIMER_DELAY_MS = 6 * 60 * 60 * 1000;
 /** Writes arrive in bursts; the clock looks once after a burst instead of once per write. */
 const WAKE_DEBOUNCE_MS = 250;
 
-export const DEFAULT_MAINTENANCE_SETTINGS: MemoryMaintenanceSettings = {
+export const DEFAULT_MAINTENANCE_SETTINGS: StoredMaintenanceSettings = {
+	enabled: false,
 	model: null,
 	thinkingLevel: null,
 	time: DEFAULT_MAINTENANCE_TIME,
@@ -104,14 +105,17 @@ export type MemoryScopeRecord = {
 
 const EMPTY_SCOPE_RECORD: MemoryScopeRecord = { lastRunHead: null, lastAttemptHead: null, recentRuns: [], nightlyAt: null, lastRun: null };
 
+type StoredMaintenanceSettings = MemoryMaintenanceSettings & { enabled: boolean };
+
 type MaintenanceFile = {
 	version: 1;
-	maintenance: MemoryMaintenanceSettings;
+	maintenance: StoredMaintenanceSettings;
 	scopes: Record<string, MemoryScopeRecord>;
 };
 
 export type MemoryMaintenanceStoreOptions = {
 	dataDir: string;
+	enabledSetting?: boolean;
 	log?: (message: string) => void;
 };
 
@@ -122,11 +126,13 @@ export type MemoryMaintenanceStoreOptions = {
 export class MemoryMaintenanceStore {
 	readonly file: string;
 	readonly #log: (message: string) => void;
+	readonly #enabledSetting: boolean;
 	#file: MaintenanceFile | undefined;
 	#queue: Promise<unknown> = Promise.resolve();
 
 	constructor(options: MemoryMaintenanceStoreOptions) {
 		this.file = join(options.dataDir, MEMORY_MAINTENANCE_FILE);
+		this.#enabledSetting = options.enabledSetting !== false;
 		this.#log = options.log ?? (() => undefined);
 	}
 
@@ -145,23 +151,32 @@ export class MemoryMaintenanceStore {
 			version: 1,
 			maintenance:
 				settings !== undefined && Value.Check(MemoryMaintenanceSettingsSchema, settings)
-					? (settings as MemoryMaintenanceSettings)
+					? this.#normalizeSettings(settings)
 					: { ...DEFAULT_MAINTENANCE_SETTINGS },
 			scopes: typeof record.scopes === "object" && record.scopes !== null ? record.scopes : {},
 		};
 		return this.#file;
 	}
 
-	async settings(): Promise<MemoryMaintenanceSettings> {
+	#normalizeSettings({ enabled, model, thinkingLevel, time, afterWrites }: MemoryMaintenanceSettings): StoredMaintenanceSettings {
+		return { enabled: (this.#enabledSetting ? enabled : undefined) ?? (model !== null), model, thinkingLevel, time, afterWrites };
+	}
+
+	/** Wire settings omit the switch when simulating a server without the feature. */
+	wireSettings({ enabled, ...rest }: StoredMaintenanceSettings): MemoryMaintenanceSettings {
+		return this.#enabledSetting ? { enabled, ...rest } : rest;
+	}
+
+	async settings(): Promise<StoredMaintenanceSettings> {
 		return { ...(await this.#load()).maintenance };
 	}
 
-	async setSettings(input: MemoryMaintenanceSettings): Promise<MemoryMaintenanceSettings> {
+	async setSettings(input: MemoryMaintenanceSettings): Promise<StoredMaintenanceSettings> {
 		return this.#enqueue(async () => {
 			const file = await this.#load();
 			const next: MaintenanceFile = {
 				...file,
-				maintenance: { model: input.model, thinkingLevel: input.thinkingLevel, time: input.time, afterWrites: input.afterWrites },
+				maintenance: this.#normalizeSettings(input),
 			};
 			await writeJsonFile(this.file, next);
 			this.#file = next;
@@ -352,14 +367,14 @@ export class MemoryMaintenanceService {
 			lastMaintenance: record.lastRun,
 			recentRuns: record.recentRuns,
 			nextMaintenanceAt:
-				settings.model === null
+				!settings.enabled || settings.model === null
 					? null
 					: new Date(nextMaintenanceSlot(settings.time, this.#now(), this.#timezone)).toISOString(),
 		};
 	}
 
 	async settings(): Promise<MemoryMaintenanceSettings> {
-		return this.store.settings();
+		return this.store.wireSettings(await this.store.settings());
 	}
 
 	/** Save the backend's maintenance settings; the clock is woken by the caller so a new time applies at once. */
@@ -374,7 +389,7 @@ export class MemoryMaintenanceService {
 		} catch (error) {
 			this.#log(`memory maintenance settings listener failed: ${errorMessage(error)}`);
 		}
-		return saved;
+		return this.store.wireSettings(saved);
 	}
 
 	/** Run maintenance on this scope now: the request answers once the run has started, not when it ends. */
@@ -397,7 +412,7 @@ export class MemoryMaintenanceService {
 		const key = scopeKey(target);
 		if (this.#running.has(key)) return;
 		const settings = await this.store.settings();
-		if (settings.model === null) return;
+		if (settings.model === null || (reason !== "manual" && !settings.enabled)) return;
 		this.#running.add(key);
 		this.#notice(target);
 		const run = (async () => {
@@ -633,7 +648,7 @@ export class MemoryMaintenanceClock {
 	async #evaluate(): Promise<void> {
 		if (this.#stopped) return;
 		const settings = await this.#options.store.settings();
-		if (settings.model === null) {
+		if (!settings.enabled || settings.model === null) {
 			this.#disarm?.();
 			this.#disarm = undefined;
 			return;
@@ -675,10 +690,10 @@ export class MemoryMaintenanceClock {
 		await this.#arm(settings);
 	}
 
-	async #arm(settings: MemoryMaintenanceSettings): Promise<void> {
+	async #arm(settings: StoredMaintenanceSettings): Promise<void> {
 		this.#disarm?.();
 		this.#disarm = undefined;
-		if (this.#stopped || settings.model === null) return;
+		if (this.#stopped || !settings.enabled || settings.model === null) return;
 		const next = nextMaintenanceSlot(settings.time, this.#now(), this.#options.timezone);
 		const delay = Math.min(Math.max(0, next - this.#now()), MAX_TIMER_DELAY_MS);
 		this.#disarm = this.#setTimer(

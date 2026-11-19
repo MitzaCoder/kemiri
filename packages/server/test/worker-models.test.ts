@@ -28,7 +28,7 @@ function resolve(options: {
 		...(options.explicitThinkingLevel === undefined
 			? {}
 			: { explicitThinkingLevel: options.explicitThinkingLevel }),
-		defaults: options.defaults ?? { model: null, thinkingLevel: null },
+		legacyDefaults: options.defaults,
 		projectModels: options.projectModels ?? [],
 		models,
 	});
@@ -53,7 +53,7 @@ describe("resolveWorkerModel", () => {
 		});
 	});
 
-	it("puts the composer's level over the list entry's, for both the picked and the default model", () => {
+	it("puts the legacy composer's level over the list entry's, for both the picked and the default model", () => {
 		const projectModels: WorkerModel[] = [{ ...FAUX, thinkingLevel: "medium" }, { ...OTHER, thinkingLevel: "minimal" }];
 		expect(
 			resolve({ defaults: { model: FAUX, thinkingLevel: "high" }, projectModels }),
@@ -82,7 +82,7 @@ describe("resolveWorkerModel", () => {
 		});
 	});
 
-	it("keeps the full order: named level, composer level, list level", () => {
+	it("keeps the legacy order: named level, composer level, list level", () => {
 		const projectModels: WorkerModel[] = [{ ...FAUX, thinkingLevel: "medium" }];
 		const defaults = { model: OTHER, thinkingLevel: "high" as const };
 		expect(resolve({ explicit: FAUX, explicitThinkingLevel: "xhigh", projectModels, defaults })).toEqual({

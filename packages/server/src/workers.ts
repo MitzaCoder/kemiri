@@ -603,17 +603,14 @@ function levelIn(projectModels: readonly WorkerModel[], ref: ModelRef): Thinking
 }
 
 /**
- * Which model a new worker runs on: the one the coordinator names, else the one the user last picked with a message,
- * else the project's default worker models. There are no built-in models, so with none of them a worker cannot start.
- *
- * Its thinking level, in order: the one the coordinator names for this worker, the one the user picked with the model
- * in the composer, the level the project's list stores for that model (a level the coordinator names without a model
- * counts as the first of these).
+ * Use the model named by the coordinator or schedule, else the first available project worker model. A named
+ * thinking level wins; otherwise use the level stored for that model, or the model's default. A server without
+ * `worker-picker-project-default` still honors the legacy composer override ahead of the project list.
  */
 export function resolveWorkerModel(options: {
 	explicit?: ModelRef | undefined;
 	explicitThinkingLevel?: ThinkingLevel | undefined;
-	defaults: WorkerDefaults;
+	legacyDefaults?: WorkerDefaults | undefined;
 	projectModels: readonly WorkerModel[];
 	models: Models;
 }): ResolveWorkerModelResult {
@@ -622,7 +619,7 @@ export function resolveWorkerModel(options: {
 		model: { provider: model.provider, modelId: model.modelId },
 		thinkingLevel:
 			options.explicitThinkingLevel ??
-			options.defaults.thinkingLevel ??
+			options.legacyDefaults?.thinkingLevel ??
 			levelIn(options.projectModels, model),
 	});
 
@@ -636,8 +633,8 @@ export function resolveWorkerModel(options: {
 		return { ok: true, value: resolve(options.explicit) };
 	}
 
-	const fromUser = options.defaults.model;
-	if (fromUser !== null && available(fromUser)) {
+	const fromUser = options.legacyDefaults?.model;
+	if (fromUser != null && available(fromUser)) {
 		return { ok: true, value: resolve(fromUser) };
 	}
 
@@ -649,7 +646,7 @@ export function resolveWorkerModel(options: {
 	return {
 		ok: false,
 		message:
-			"No worker model is set: name a model (in worker_spawn or on the schedule), pick a worker model in the app's composer, or set the project's worker models in settings.",
+			"No worker model is set or available. Pick the project's default worker model in the composer or in Settings → Workers, or name a model in worker_spawn or on the schedule.",
 	};
 }
 
@@ -1125,6 +1122,8 @@ export type WorkerServiceOptions = {
 	memory?: Pick<MemoryStore, "read">;
 	/** Read at each use, so a reconfiguration of the project applies to the next worker. */
 	project(): Project;
+	/** Present with `worker-picker-project-default`; absent for the legacy composer override. */
+	promoteWorkerModel?: (model: ModelRef, thinkingLevel: ThinkingLevel | null) => Promise<void>;
 	harness: Harness;
 	/** The projects' model catalog, for resolving a worker's model before its conversation exists. */
 	models: Models;
@@ -1220,6 +1219,7 @@ export class WorkerService {
 
 	readonly #options: WorkerServiceOptions;
 	#reportAdmission: Promise<unknown> = Promise.resolve();
+	readonly #workerListListeners = new Set<() => void>();
 
 	readonly #coordinators: Coordinators;
 	#extension: Extension | undefined;
@@ -1418,9 +1418,44 @@ export class WorkerService {
 		return state === undefined ? emptyWorkersState() : (state as WorkersState);
 	}
 
-	/** The project's worker model defaults, kept on main's list. */
+	get usesProjectWorkerDefault(): boolean {
+		return this.#options.promoteWorkerModel !== undefined;
+	}
+
+	#projectDefaults(): WorkerDefaults {
+		const first = this.project.workerModels[0];
+		return {
+			model: first ? { provider: first.provider, modelId: first.modelId } : null,
+			thinkingLevel: first?.thinkingLevel ?? null,
+		};
+	}
+
+	/** The project's first worker model, or main's composer override on a legacy server. */
 	async defaults(context: Context = BACKGROUND_CONTEXT): Promise<WorkerDefaults> {
-		return defaultsOf(await this.state(context));
+		return this.usesProjectWorkerDefault ? this.#projectDefaults() : defaultsOf(await this.state(context));
+	}
+
+	projectWorkerModelsChanged(): void {
+		for (const publish of this.#workerListListeners) publish();
+	}
+
+	/** Fold a legacy pick into the list before the Harness resumes any queued work. */
+	async migrateDefaults(): Promise<void> {
+		const promote = this.#options.promoteWorkerModel;
+		if (!promote) return;
+		const legacy = defaultsOf(await this.state());
+		// Persist the list before clearing the document. Repeating the promotion after a crash is safe.
+		if (legacy.model !== null) await promote(legacy.model, legacy.thinkingLevel);
+		await this.#clearLegacyDefaults();
+	}
+
+	async #clearLegacyDefaults(): Promise<void> {
+		const { model, thinkingLevel } = defaultsOf(await this.state());
+		if (model === null && thinkingLevel === null) return;
+		await this.harness.commit(async (tx) => {
+			const state = await tx.doc(WorkersDoc, this.coordinator.id);
+			state.defaults = { model: null, thinkingLevel: null };
+		}, BACKGROUND_CONTEXT);
 	}
 
 	/** Every thread's workers, each with its `threadId`, main's first; or one thread's when `threadId` is given. */
@@ -1439,17 +1474,17 @@ export class WorkerService {
 	}
 
 	/**
-	 * Push every thread's workers (and main's defaults) whenever any thread's list changes, including the list of a
-	 * thread started later. Resolves to a stop function.
+	 * Push the project worker defaults and every thread's workers, including threads started later. Resolves to a stop function.
 	 */
 	async watch(onChange: (workers: WorkerSummary[], defaults: WorkerDefaults) => void): Promise<() => Promise<void>> {
 		const lists = new Map<string, WorkerSummary[]>();
-		let defaults: WorkerDefaults = { model: null, thinkingLevel: null };
+		let legacyDefaults: WorkerDefaults = { model: null, thinkingLevel: null };
 		const stops: (() => Promise<void>)[] = [];
 		let stopped = false;
 		let current = "";
 		const publish = (): void => {
 			const workers = this.#coordinators.places().flatMap((place) => lists.get(place.threadId) ?? []);
+			const defaults = this.usesProjectWorkerDefault ? this.#projectDefaults() : legacyDefaults;
 			const encoded = JSON.stringify({ workers, defaults });
 			if (encoded === current) return;
 			current = encoded;
@@ -1472,7 +1507,7 @@ export class WorkerService {
 			});
 			const take = (state: WorkersState | Readonly<WorkersState> | null): void => {
 				lists.set(place.threadId, summariesOf(state ?? undefined, place.threadId));
-				if (main) defaults = defaultsOf(state ?? undefined);
+				if (main && !this.usesProjectWorkerDefault) legacyDefaults = defaultsOf(state ?? undefined);
 				publish();
 			};
 			take(watch.value);
@@ -1488,8 +1523,10 @@ export class WorkerService {
 				this.log(`worker watch for thread ${place.threadId} failed: ${errorMessage(error)}`);
 			});
 		});
+		if (this.usesProjectWorkerDefault) this.#workerListListeners.add(publish);
 		return async () => {
 			stopped = true;
+			this.#workerListListeners.delete(publish);
 			unsubscribe();
 			for (const stop of stops.splice(0)) await stop();
 		};
@@ -1497,6 +1534,10 @@ export class WorkerService {
 
 	/** Record the worker model the user picked with a message; the next worker starts with it. */
 	async rememberDefaults(change: { model?: ModelRef | null; thinkingLevel?: ThinkingLevel | null }): Promise<void> {
+		if (this.usesProjectWorkerDefault) {
+			if (change.model !== undefined) await this.setDefaults({ model: change.model, thinkingLevel: change.thinkingLevel ?? null });
+			return;
+		}
 		if (change.model === undefined && change.thinkingLevel === undefined) return;
 		await this.harness.commit(async (tx) => {
 			const state = await tx.doc(WorkersDoc, this.coordinator.id);
@@ -1505,17 +1546,20 @@ export class WorkerService {
 		}, BACKGROUND_CONTEXT);
 	}
 
-	/**
-	 * Set the model the project's workers start from, as if the user had picked it with a message. Replaces both fields,
-	 * so a null clears one; the worker-list watch pushes the new defaults to every connection.
-	 */
+	/** Apply a composer pick; a null model only clears the legacy override. */
 	async setDefaults(defaults: WorkerDefaults): Promise<WorkerDefaults> {
+		const promote = this.#options.promoteWorkerModel;
+		if (promote) {
+			if (defaults.model !== null) await promote(defaults.model, defaults.thinkingLevel);
+			await this.#clearLegacyDefaults();
+			return this.#projectDefaults();
+		}
 		await this.harness.commit(async (tx) => {
 			const state = await tx.doc(WorkersDoc, this.coordinator.id);
 			state.defaults.model = defaults.model;
 			state.defaults.thinkingLevel = defaults.thinkingLevel;
 		}, BACKGROUND_CONTEXT);
-		return (await this.list()).defaults;
+		return this.defaults();
 	}
 
 	/** A worker's conversation ID from the durable list of its thread (main's by default). */
@@ -1931,7 +1975,7 @@ export class WorkerService {
 		const resolved = resolveWorkerModel({
 			explicit: run.model ?? undefined,
 			explicitThinkingLevel: run.thinkingLevel ?? undefined,
-			defaults: defaultsOf(state),
+			legacyDefaults: this.usesProjectWorkerDefault ? undefined : defaultsOf(state),
 			projectModels: this.project.workerModels,
 			models: this.#options.models,
 		});
@@ -2198,7 +2242,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 				);
 			}
 			const state = (await api.snapshot(WorkersDoc, api.conversationId, context)) ?? emptyWorkersState();
-			const defaults = service.coordinators.isMain(api.conversationId)
+			const legacyDefaults = service.usesProjectWorkerDefault ? undefined : service.coordinators.isMain(api.conversationId)
 				? defaultsOf(state)
 				: defaultsOf(await api.snapshot(WorkersDoc, service.mainId as ConversationId, context));
 			const existing = state.workers[args.id];
@@ -2217,7 +2261,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 			const resolved = resolveWorkerModel({
 				explicit: args.model,
 				explicitThinkingLevel: args.thinkingLevel,
-				defaults,
+				legacyDefaults,
 				projectModels: service.project.workerModels,
 				models: api.models,
 			});
@@ -2489,18 +2533,17 @@ function createWorkerExtension(service: WorkerService): Extension {
 			const records = Object.values(state.workers).sort(
 				(left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
 			);
-			const defaults = service.coordinators.isMain(api.conversationId)
-				? defaultsOf(state)
-				: defaultsOf(await api.snapshot(WorkersDoc, service.mainId as ConversationId, context));
-			const chosen =
-				defaults.model === null
-					? "none picked yet"
-					: `${defaults.model.provider}/${defaults.model.modelId}${
-							defaults.thinkingLevel === null ? "" : ` (thinking ${defaults.thinkingLevel})`
-						}`;
-			const header = `Worker model from your messages: ${chosen}. Project default: ${
-				service.project.workerModels.map((ref) => `${ref.provider}/${ref.modelId}`).join(", ") || "none"
-			}.`;
+			const projectModels = service.project.workerModels.map((ref) => `${ref.provider}/${ref.modelId}`).join(", ");
+			let header = `Project worker models (in order): ${projectModels || "none"}.`;
+			if (!service.usesProjectWorkerDefault) {
+				const defaults = service.coordinators.isMain(api.conversationId)
+					? defaultsOf(state)
+					: defaultsOf(await api.snapshot(WorkersDoc, service.mainId as ConversationId, context));
+				const chosen = defaults.model === null ? "none picked yet" : `${defaults.model.provider}/${defaults.model.modelId}${
+					defaults.thinkingLevel === null ? "" : ` (thinking ${defaults.thinkingLevel})`
+				}`;
+				header = `Worker model from your messages: ${chosen}. ${header}`;
+			}
 			if (records.length === 0) return toolText(`${header}\nNo workers yet. Start one with worker_spawn.`);
 			return toolText(`${header}\n\n${records.map(describeWorkerRecord).join("\n\n")}`);
 		},

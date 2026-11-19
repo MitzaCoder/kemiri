@@ -6,6 +6,7 @@ import type { TranscriptContext } from "@earendil-works/pi-ai";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { MemoryChange, ModelRef } from "@kemiri/protocol";
+import { join } from "node:path";
 import { MemoryMaintenanceStore, maintenanceSlotAtOrBefore, nextMaintenanceSlot } from "../src/memory-maintenance.ts";
 import { MAX_WORKER_LESSON_PROMPT_CHARS } from "../src/worker-lessons.ts";
 import { createSetup, errorOf, TestClient, type TestSetup } from "./support.ts";
@@ -144,7 +145,7 @@ describe("maintenance", () => {
 
 		const status = await client.request({ type: "memory.status", scope: "project", projectId });
 		if (status.type !== "memory.status") throw errorOf(status);
-		expect(status.maintenance).toEqual({ model: null, thinkingLevel: null, time: "03:00", afterWrites: 20 });
+		expect(status.maintenance).toEqual({ enabled: false, model: null, thinkingLevel: null, time: "03:00", afterWrites: 20 });
 		expect(status.status.nextMaintenanceAt).toBeNull();
 		expect(status.status.lastMaintenance).toBeNull();
 		expect(status.status.writesSinceMaintenance).toBe(1);
@@ -160,6 +161,45 @@ describe("maintenance", () => {
 		expect(errorOf(maintain).code).toBe("bad_request");
 	}, 30_000);
 
+	it("keeps the model while off and suppresses both automatic triggers", async () => {
+		const clock = fakeClock();
+		const test = await setup({ now: clock.now, setTimer: clock.setTimer, timezone: "UTC" });
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		const target = { scope: "project", projectId } as const;
+		const settings = { model: FAUX, thinkingLevel: "low", time: "03:00", afterWrites: 2 } as const;
+		// Legacy settings on disk infer enabled, even before a settings write.
+		await Bun.write(join(test.dataDir, "memory-maintenance.json"), JSON.stringify({ version: 1, maintenance: settings, scopes: {} }));
+		const restarted = await test.restart();
+		const next = await connect(restarted);
+		await next.hello();
+		const previous = await next.request({ type: "memory.status", ...target });
+		expect(previous).toMatchObject({ maintenance: { ...settings, enabled: true } });
+		await seedTopic(test, projectId, { fileId: "testing", text: "Use `bun test`." });
+		await restarted.maintenanceClock.start();
+		const disabled = { ...settings, enabled: false };
+		expect(await next.request({ type: "memory.settings.set", maintenance: disabled })).toMatchObject({ maintenance: disabled });
+		await seedTopic(test, projectId, { fileId: "old-ports", text: "Old notes." });
+		clock.advance(90 * 60_000);
+		await restarted.maintenanceClock.start();
+		expect(await next.request({ type: "memory.status", ...target })).toMatchObject({
+			maintenance: disabled, status: { nextMaintenanceAt: null, lastMaintenance: null, writesSinceMaintenance: 2 },
+		});
+		const store = new MemoryMaintenanceStore({ dataDir: test.dataDir });
+		expect(await store.settings()).toEqual(disabled);
+		test.faux.setResponses(Array.from({ length: 20 }, () => maintenanceReply));
+		await restarted.memoryMaintenance.run(target, "manual");
+		expect(await next.request({ type: "memory.status", ...target })).toMatchObject({
+			maintenance: disabled, status: { recentRuns: [{ trigger: "manual", outcome: "ok" }] },
+		});
+		await next.request({ type: "memory.settings.set", maintenance: { ...settings, enabled: true, model: null } });
+		await restarted.maintenanceClock.start();
+		expect(await next.request({ type: "memory.status", ...target })).toMatchObject({
+			maintenance: { model: null, enabled: true }, status: { nextMaintenanceAt: null },
+		});
+	});
+
 	it("maintains a scope after enough writes, one commit with a readable log", async () => {
 		const clock = fakeClock();
 		const test = await setup({ now: clock.now, setTimer: clock.setTimer, timezone: "UTC" });
@@ -172,7 +212,7 @@ describe("maintenance", () => {
 			maintenance: { model: FAUX, thinkingLevel: "low", time: "23:59", afterWrites: 2 },
 		});
 		if (saved.type !== "memory.settings.set") throw errorOf(saved);
-		expect(saved.maintenance.afterWrites).toBe(2);
+		expect(saved.maintenance).toMatchObject({ enabled: true, afterWrites: 2 });
 
 		const sessions: string[] = [];
 		test.faux.setResponses(Array.from({ length: 20 }, () => (request, options) => {

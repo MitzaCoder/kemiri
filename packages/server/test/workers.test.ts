@@ -215,7 +215,7 @@ describe("workers", () => {
 		expect(worker.spawnedByCallId).toBeTypeOf("string");
 		expect(worker.lastReport).toContain("Outcome: done");
 		expect(worker.failure).toBeNull();
-		expect(list.defaults).toEqual({ model: null, thinkingLevel: null });
+		expect(list.defaults).toEqual({ model: FAUX, thinkingLevel: null });
 
 		// Once the answer is out the worker waits for the next message.
 		await until(async () => (await listWorkers(client, projectId)).workers[0]?.status === "idle");
@@ -264,7 +264,7 @@ describe("workers", () => {
 		if (pushed.type !== "workers.state") return;
 		const worker = pushed.workers[0]!;
 		expect(worker.id).toBe("reader");
-		expect(pushed.defaults).toEqual({ model: null, thinkingLevel: null });
+		expect(pushed.defaults).toEqual({ model: FAUX, thinkingLevel: null });
 
 		// The link from the transcript's tool call to the worker is the call's ID.
 		const called = await view.waitForView((value) =>
@@ -658,7 +658,7 @@ describe("worker isolation", () => {
 });
 
 describe("worker models", () => {
-	workerTest("takes the model the user picked with a message over the project default, and errors without either", async () => {
+	workerTest("a model picked with a message becomes first in the project list", async () => {
 		const other = fauxProvider({ provider: "other", models: [{ id: "other-1" }] });
 		const test = await setup({ configureModels: (models) => models.setProvider(other.provider) });
 		const client = await connect(test.server);
@@ -688,6 +688,7 @@ describe("worker models", () => {
 		expect(asked.type).toBe("conversation.submit");
 		await until(async () => (await listWorkers(client, projectId)).defaults.model?.modelId === FAUX.modelId);
 		expect((await listWorkers(client, projectId)).defaults).toEqual({ model: FAUX, thinkingLevel: "high" });
+		expect((await test.server.manager.requireProject(projectId)).workerModels).toEqual([{ ...FAUX, thinkingLevel: "high" }, OTHER]);
 	});
 
 	workerTest("keeps the picked worker model across a restart and prefers the one the coordinator names", async () => {
@@ -834,7 +835,7 @@ describe("worker models", () => {
 });
 
 describe("worker defaults without a message", () => {
-	workerTest("sets the model and thinking level, pushes workers.state and is used by the next worker", async () => {
+	workerTest("promotes and deduplicates the model, pushes both states, and applies it to the next worker", async () => {
 		const other = fauxProvider({ provider: "other", models: [{ id: "other-1" }] });
 		const test = await setup({ configureModels: (models) => models.setProvider(other.provider) });
 		const client = await connect(test.server);
@@ -842,8 +843,10 @@ describe("worker defaults without a message", () => {
 		await greet(client);
 		await greet(watcher);
 		const projectId = await addProject(client, test.projectDir);
-		// No project default, so the value set here is the only one a worker can resolve.
-		await configure(client, projectId, []);
+		const third = fauxProvider({ provider: "third", models: [{ id: "third-1" }] });
+		test.models.setProvider(third.provider);
+		const thirdModel = { provider: "third", modelId: "third-1", thinkingLevel: "low" } as const;
+		await configure(client, projectId, [FAUX, OTHER, thirdModel, { ...OTHER, thinkingLevel: "low" }, FAUX]);
 
 		const response = await client.request({
 			type: "workers.defaults.set",
@@ -860,9 +863,13 @@ describe("worker defaults without a message", () => {
 				(message) =>
 					message.type === "workers.state" &&
 					message.projectId === projectId &&
-					message.defaults.model?.modelId === OTHER.modelId,
+					message.defaults.model?.modelId === OTHER.modelId && message.defaults.thinkingLevel === "high",
 			);
 			expect(pushed.type).toBe("workers.state");
+			const projectList = await each.waitFor(message => message.type === "project.state" &&
+				message.project.id === projectId && message.project.workerModels[0]?.thinkingLevel === "high");
+			if (projectList.type !== "project.state") throw new Error("Missing project push");
+			expect(projectList.project.workerModels).toEqual([{ ...OTHER, thinkingLevel: "high" }, FAUX, thirdModel]);
 		}
 
 		// A worker started without a model of its own now uses it, exactly as if it had been picked with a message.
@@ -875,7 +882,7 @@ describe("worker defaults without a message", () => {
 		expect(worker.thinkingLevel).toBe("high");
 	});
 
-	workerTest("clears a default with null and refuses an unknown model", async () => {
+	workerTest("does not change the project list for a null pick or an unknown model", async () => {
 		const test = await setup();
 		const client = await connect(test.server);
 		await greet(client);
@@ -895,7 +902,7 @@ describe("worker defaults without a message", () => {
 			defaults: { model: null, thinkingLevel: null },
 		});
 		if (reset.type !== "workers.defaults.set") throw new Error(JSON.stringify(reset));
-		expect(reset.defaults).toEqual({ model: null, thinkingLevel: null });
+		expect(reset.defaults).toEqual({ model: FAUX, thinkingLevel: "low" });
 
 		const unknown = await client.request({
 			type: "workers.defaults.set",
@@ -904,7 +911,41 @@ describe("worker defaults without a message", () => {
 		});
 		expect(errorOf(unknown).code).toBe("unknown_model");
 		// A refused change leaves the stored defaults alone.
+		expect((await listWorkers(client, projectId)).defaults).toEqual({ model: FAUX, thinkingLevel: "low" });
+		await configure(client, projectId, []);
 		expect((await listWorkers(client, projectId)).defaults).toEqual({ model: null, thinkingLevel: null });
+		await client.waitFor(message => message.type === "workers.state" && message.projectId === projectId && message.defaults.model === null);
+	});
+
+	workerTest("migrates the legacy document on load and does not reapply it on the next restart", async () => {
+		const other = fauxProvider({ provider: "other", models: [{ id: "other-1" }] });
+		const test = await setup({ configureModels: models => models.setProvider(other.provider) });
+		const client = await connect(test.server);
+		await greet(client);
+		const projectId = await addProject(client, test.projectDir);
+		await configure(client, projectId, [FAUX, { ...OTHER, thinkingLevel: "low" }, OTHER]);
+		const { runtime } = await test.server.manager.open(projectId);
+		const picked = { model: OTHER, thinkingLevel: null };
+		await runtime.harness.commit(async tx => {
+			(await tx.doc(WorkersDoc, runtime.conversation.id)).defaults = picked;
+		}, BACKGROUND_CONTEXT);
+
+		const next = await test.restart();
+		const watcher = await connect(next);
+		await greet(watcher);
+		expect((await listWorkers(watcher, projectId)).defaults).toEqual(picked);
+		const migrated = [{ ...OTHER, thinkingLevel: null }, FAUX];
+		expect((await next.manager.requireProject(projectId)).workerModels).toEqual(migrated);
+		expect((await (await next.manager.open(projectId)).runtime.workers.state()).defaults).toEqual({ model: null, thinkingLevel: null });
+		await watcher.waitFor(message => message.type === "project.state" && message.project.id === projectId &&
+			JSON.stringify(message.project.workerModels) === JSON.stringify(migrated));
+
+		await configure(watcher, projectId, [FAUX, OTHER]);
+		const third = await test.restart();
+		const again = await connect(third);
+		await greet(again);
+		expect((await listWorkers(again, projectId)).defaults).toEqual({ model: FAUX, thinkingLevel: null });
+		expect((await third.manager.requireProject(projectId)).workerModels).toEqual([FAUX, OTHER]);
 	});
 });
 

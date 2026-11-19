@@ -1058,7 +1058,7 @@ export class ClientConnection {
 							{ projectId: project.id },
 						);
 					}
-					// The worker model the user picks with a message applies to the workers started from now on.
+					// A worker model picked with a message becomes the project default for new workers.
 					if (request.workerModel !== undefined || request.workerThinkingLevel !== undefined) {
 						await this.#manager.rememberWorkerDefaults(request.projectId, {
 							...(request.workerModel === undefined ? {} : { model: request.workerModel }),

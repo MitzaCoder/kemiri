@@ -5,7 +5,7 @@ import { DEFAULT_TASK_WATCHER, type TaskWatcherSettings } from "@kemiri/protocol
  */
 import { createHash } from "node:crypto";
 import { mkdir, readdir, realpath, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { ReportAuditSettings, LongPromptCache, ModelRef, ProjectCheckIns, ProjectLinks, ThinkingLevel, UiProof, WorkerModel } from "@kemiri/protocol";
 import {
 	DEFAULT_CHECK_INS,
@@ -252,6 +252,20 @@ function parseCheckIns(value: unknown): ProjectCheckIns {
 	};
 }
 
+/** Check for worktrees, ordinary repositories and nested project folders without invoking Git or jj. */
+export async function isRepositoryPath(path: string): Promise<boolean> {
+	for (;;) {
+		const [git, jj] = await Promise.all([
+			stat(join(path, ".git")).catch(() => undefined),
+			stat(join(path, ".jj")).catch(() => undefined),
+		]);
+		if (git?.isDirectory() || git?.isFile() || jj !== undefined) return true;
+		const parent = dirname(path);
+		if (parent === path) return false;
+		path = parent;
+	}
+}
+
 export class ProjectStore {
 	readonly dataDir: string;
 
@@ -336,9 +350,10 @@ export class ProjectStore {
 		});
 	}
 
-	async update(id: string, change: ProjectChange): Promise<Project> {
+	async update(id: string, update: ProjectChange | ((project: Project) => ProjectChange)): Promise<Project> {
 		return this.#write(async () => {
 			const project = await this.require(id);
+			const change = typeof update === "function" ? update(project) : update;
 			if (typeof change.integrationRef === "string" && change.integrationRef !== "auto" && (!/^refs\/[A-Za-z0-9_./-]+$/.test(change.integrationRef) || change.integrationRef.includes(".."))) {
 				throw new ServerError("bad_request", "Integration ref must be auto, null, or a full Git ref");
 			}

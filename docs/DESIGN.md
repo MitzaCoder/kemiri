@@ -415,7 +415,7 @@ the task graph with a five-state explanation, and installation steps. The timeli
 stacks on phones and the state descriptions remain visible. Work-tracking claims
 are limited to the published pilot.6; check-ins are described as a configurable
 10-minute default while workers run, Paused applies to quiet in-progress work after
-15 minutes, and nightly memory maintenance requires a configured model and changed
+15 minutes, and nightly memory maintenance requires automatic cleanup enabled, a configured model and changed
 memory. SITE.md records the homepage/defaults coupling. Inline SVG icons and shared
 theme tokens add no network loads or scripts. Site checks reject off-site resources;
 privacy shares the stylesheet. The Website workflow installs locked workspace
@@ -1343,6 +1343,10 @@ This works with ten-minute session-bound URLs without sending device tokens into
 
 ## Projects sidebar: Needs you
 
+Feature `project-repository` adds optional `ProjectSummary.repository`: true if the project folder or an ancestor
+contains `.git` (file or directory) or `.jj`. The server caches detection by path and refreshes it on project list;
+clients treat the absent field as a repository so older backends keep showing code-related settings.
+
 Feature `sidebar-attention` adds optional `ProjectSummary.attention`: separate open question/warning counts,
 Your steps, review and waiting counts with the next return instant, failed workers/threads and all running workers.
 The steps count and first task ID are optional for compatibility. The board's derived kind decides between steps
@@ -2178,14 +2182,11 @@ Status: backend, protocol, client and web UI done (milestone 2).
 - Merge: the worker commits in its workspace and puts the change ID in its report; the coordinator rebases or squashes
   that change into the project's working copy and hands conflicts to a new worker. `worker_forget` removes the
   workspace once the work is merged.
-- Model: the one named in `worker_spawn`, else the one the user picked in the composer (stored with
-  `workers.defaults.set`, and also sent with `conversation.submit` as `workerModel`/`workerThinkingLevel` for a backend
-  that predates that request, or stored with the coordinator conversation), else the project's `workerModels` default,
-  an ordered preference list the first available model of wins. There are no built-in defaults: with none of them the
-  tool errors with what to set.
-- Thinking level, in order: the one `worker_spawn` names, the one the user picked with the model in the composer, the
-  level the project's `workerModels` entry carries for that model. A model the coordinator names without a level still
-  takes its list entry's level; with none, the model's own default applies.
+- Model: the one named in `worker_spawn` or on the schedule, else the first available entry in the project's
+  ordered `workerModels`. A composer pick changes the first entry, not a separate override. With no available
+  model, the tool explains what to set. There are no built-in worker defaults.
+- Thinking level: the named level wins, else the level stored for that model in `workerModels`; a null or absent
+  level uses the model's default.
 - Worker input request IDs derive from the sending tool call; report IDs derive from the final answer. A rerun after
   a crash neither sends a message nor posts a report twice. T85 reproduced duplicate transcript/timeline entries when
   spawn and steer reporters shared an answer: the old per-call report key treated each as different, and the unchanged
@@ -2197,13 +2198,14 @@ Status: backend, protocol, client and web UI done (milestone 2).
   alongside a user steer and
   restart before its next turn (reports themselves intentionally use `followUp`, not `steer`). Schedule worker reports
   share the same answer-keyed admission for both `review` and `record`.
-- Protocol: the `workers` feature; `workers.list`; `workers.defaults.set` stores the composer's pick as if it had been
-  picked with a message (an older backend answers `unknown_request`, and the client falls back to sending it with the
-  next message); the `workers.state` event pushes the project's whole list and defaults on every change;
-  `conversation.watch` and `conversation.page` take a `workerId`; each worker's `spawnedByCallId` links the
-  coordinator's tool call in the transcript to it; `ProjectSummary.workerModels` (an ordered preference list, set with
-  `projects.configure`'s `workerModels`) is the project default, each entry a model plus an optional `thinkingLevel`
-  (`null` or absent means the model's default; older clients and old `project.json` files read the same list);
+- Protocol: with `worker-picker-project-default`, `workers.defaults.set` and a model sent with `conversation.submit`
+  move that model to the front of `ProjectSummary.workerModels`, deduplicating by model and saving its thinking level.
+  A null pick leaves the list as is. On opening a project, a legacy pick is promoted before letting the Harness
+  resume, then cleared from the main conversation's worker document. The two writes are safe to retry in that order.
+  `workers.list`, `workers.state` and the set response report the first entry or nulls if the list is empty.
+  `projects.configure` still replaces the whole list, and every connection receives the updated project and worker
+  defaults. Older backends keep the separate composer override. `conversation.watch` and `conversation.page` take a
+  `workerId`; `spawnedByCallId` links a worker to the coordinator's tool call in the transcript.
   `ProjectSummary.checkIns` and `projects.configure`'s
   `checkIns` (null resets to the defaults) carry the check-in settings, `longPromptCache` the one-hour prompt cache
   (Context → One-hour prompt cache).
@@ -2247,12 +2249,9 @@ Status: backend, protocol, client and web UI done (milestone 2).
   touch) or Android shows a compact Project worker models card above the model choices. It preserves project order,
   names each provider and effective thinking level, and marks the first catalog model Default, later ones Fallback,
   and missing catalog entries Unavailable. Change goes directly to Project settings → Workers. Web hover text also
-  lists the defaults. The card explains composer overrides and that the coordinator can name another model; a
-  composer thinking override replaces each row's stored thinking. Empty settings explicitly say there is no backend
-  fallback. The picker stays usable with an empty catalog so its settings link remains reachable. Resolution is
-  coordinator's explicit model → available saved composer pick → first available project model; availability means
-  catalog membership, not credential status. There are no built-in/backend worker defaults. Existing project summary,
-  model catalog and worker-default state suffice; no protocol additions or role assignments are invented.
+  lists the defaults. The coordinator can name another model, and the picker stays usable with an empty catalog so
+  its settings link remains reachable. With `worker-picker-project-default`, the composer changes the list itself;
+  the separate composer override below that feature boundary is for older backends only.
 - Candidate, not decided (`docs/research/dsh.md`): named worker presets, a bundle of tools, prompt sections and
   skills that `worker_spawn` selects, instead of only replacing a worker's instructions as text.
 
@@ -5175,14 +5174,15 @@ phase 2): the thresholds as fractions of the model's window, the summary through
 and `conversation.compact`, and the `history` tool. Implemented 2026-11-05 (phases 3 and 4): extraction of memories after
 every coordinator compaction as its own durable task, one commit per scope sourced from the `pi.compaction` entry, and
 `memory.undo` reverting an extraction or maintenance commit (refused with `memory_conflict` when later commits touched
-the same files); and memory maintenance, with per-backend settings (model, thinking level, nightly time, after how many
-writes), a server-level clock that walks the scope directories without opening a project, one commit per run with a
+the same files); and memory maintenance, with per-backend settings (enabled, model, thinking level, nightly time,
+write threshold), a server-level clock that walks the scope directories without opening a project, one commit per run with a
 readable log, and `memory.status`/`memory.maintain`/`memory.settings.set`. In the app (hidden without the
 `memory-maintenance` feature): the Memory tab labels every commit by kind and undoes an extraction or a maintenance
 commit (a conflict is explained, an undone one is marked), shows each scope's maintenance state with a "Run maintenance
 now" action, a compaction marker names the memories its entry saved and offers their undo, and the backends page picks
-the maintenance model, thinking level, nightly time and write count ("Off" without a model). Undo is still the only
-memory action in the app. Only the board is still to build.
+the maintenance model, thinking level, nightly time and write count. With `memory-maintenance-enabled`, automatic
+cleanup requires `enabled` and a model. Turning it off retains the model and does not disable "Run maintenance now".
+Old settings and set requests that omit `enabled` follow whether a model is set.
 
 Decisions of 2026-11-04:
 
@@ -6023,7 +6023,7 @@ short choice shown whole (Prompt cache).
 |---|---|---|
 | General | `appearance` | Theme cards (light and dark preview), light/dark follows the device. Stored in the browser. |
 | General | `backends` | Backends list (name, address, connection chip, link to its page), suggested backends, add a backend, connect another device (link + QR). |
-| General | `backends/<id>` | Status (release incl. the "catching up" note, machine/disk, deploy banner), name, address, link to Accounts and API keys with "N of M ready", memory maintenance (model, thinking, nightly time, after writes), remove from this browser. |
+| General | `backends/<id>` | Status (release incl. the "catching up" note, machine/disk, deploy banner), name, address, link to Accounts and API keys with "N of M ready", automatic memory cleanup (switch, model, thinking, nightly time, after writes), remove from this browser. |
 | General | `backends/<id>/accounts` | Providers ready (signed in, API key, environment) with Manage; "Add a provider" (searchable); sign-in flow (OAuth prompts, code paste) and API key form per provider. An official agent (Antigravity) carries an "Official agent" chip and a panel with the login in use, the agent version and the ban-risk warning. |
 | General | `notifications` | This device on/off, one switch per event kind (+ reset), quiet hours (from, to, still notify failures), per-backend registration with a test push, muted projects. |
 | General | `archived` | Archived projects per backend with Unarchive. |
@@ -6102,7 +6102,7 @@ short choice shown whole (Prompt cache).
 |---|---|---|
 | General | `appearance` | Theme cards (light and dark preview), light/dark follows the device. Stored in the browser. |
 | General | `backends` | Backends list (name, address, connection chip, link to its page), suggested backends, add a backend, connect another device (link + QR). |
-| General | `backends/<id>` | Status (release incl. the "catching up" note, machine/disk, deploy banner), name, address, link to Accounts and API keys with "N of M ready", memory maintenance (model, thinking, nightly time, after writes), remove from this browser. |
+| General | `backends/<id>` | Status (release incl. the "catching up" note, machine/disk, deploy banner), name, address, link to Accounts and API keys with "N of M ready", automatic memory cleanup (switch, model, thinking, nightly time, after writes), remove from this browser. |
 | General | `backends/<id>/accounts` | Providers ready (signed in, API key, environment) with Manage; "Add a provider" (searchable); sign-in flow (OAuth prompts, code paste) and API key form per provider. |
 | General | `notifications` | This device on/off, one switch per event kind (+ reset), quiet hours (from, to, still notify failures), per-backend registration with a test push, muted projects. |
 | General | `archived` | Archived projects per backend with Unarchive. |

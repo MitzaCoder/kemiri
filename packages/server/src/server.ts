@@ -489,7 +489,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		log,
 	});
 	// Memory maintenance is the backend's, not a project's: it walks the scope directories and never opens a project.
-	const maintenanceStore = new MemoryMaintenanceStore({ dataDir, log });
+	const maintenanceStore = new MemoryMaintenanceStore({ dataDir, log, enabledSetting: features.includes("memory-maintenance-enabled") });
 	const memoryMaintenance = new MemoryMaintenanceService({
 		memory,
 		store: maintenanceStore,
@@ -587,6 +587,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskLive: features.includes("task-live"),
   taskWatcher: features.includes("task-live-watcher"),
 		reportAudit: features.includes("report-audit"),
+		workerPickerProjectDefault: features.includes("worker-picker-project-default"),
+		projectRepository: features.includes("project-repository"),
 		diskWarnings: () => diskMonitor?.warnings() ?? [],
 		store,
 		artifacts,

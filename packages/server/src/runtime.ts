@@ -94,7 +94,7 @@ import {
 } from "./notifications.ts";
 import { ProjectStorage } from "./storage.ts";
 import { DEFAULT_WORK_QUIET_MS, WorkFinishedWatch, resolveWorkFinishedMs } from "./work-finished.ts";
-import type { Project, ProjectChange, ProjectStore } from "./projects.ts";
+import { isRepositoryPath, type Project, type ProjectChange, type ProjectStore } from "./projects.ts";
 import { ProjectLinkDetector } from "./project-links.ts";
 import type { FireEventOptions, ReviewRequest, ScheduleEventPoller } from "./schedule-events.ts";
 import { RefDetailsService } from "./ref-details.ts";
@@ -243,6 +243,8 @@ export type ProjectManagerOptions = {
  taskLive?: boolean;
 	reportAudit?: boolean;
  taskWatcher?: boolean;
+	workerPickerProjectDefault?: boolean;
+	projectRepository?: boolean;
 	/**
 	 * The backend's memory scopes. Default: one over the store's data directory, without change notifications, which only
 	 * the server needs.
@@ -323,6 +325,9 @@ export class ProjectManager {
 	/** Every project's artifacts: `artifact_save` writes them, the `artifacts.*` requests read and delete them. */
 	readonly artifacts: ArtifactStore;
 	readonly #log: (message: string) => void;
+	readonly #workerPickerProjectDefault: boolean;
+	readonly #projectRepository: boolean;
+	readonly #repositoryByPath = new Map<string, Promise<boolean>>();
 	readonly #onProjectState: ((summary: ProjectSummary) => void) | undefined;
 	readonly #onArchivedChange: ((projectId: string, archived: boolean) => void) | undefined;
 	readonly #onBoardState: ((projectId: string, board: Board) => void) | undefined;
@@ -388,6 +393,8 @@ export class ProjectManager {
 		this.#log = options.log ?? ((message) => console.log(message));
 		this.browsers = options.browsers ?? new WorkerBrowserService({ dataDir: options.store.dataDir, log: this.#log });
 		this.artifacts = options.artifacts ?? new ArtifactStore({ dataDir: options.store.dataDir, log: this.#log });
+		this.#workerPickerProjectDefault = options.workerPickerProjectDefault !== false;
+		this.#projectRepository = options.projectRepository !== false;
 		this.#onProjectState = options.onProjectState;
 		this.#onArchivedChange = options.onArchivedChange;
 		this.#onWorkersState = options.onWorkersState;
@@ -480,7 +487,17 @@ export class ProjectManager {
 
 	async list(): Promise<ProjectSummary[]> {
 		const projects = await this.store.list();
+		for (const path of new Set(projects.map((project) => project.path))) this.#repositoryAt(path, true);
 		return Promise.all(projects.map((project) => this.#summaryOf(project)));
+	}
+
+	#repositoryAt(path: string, refresh = false): Promise<boolean> | undefined {
+		if (!this.#projectRepository) return undefined;
+		const cached = this.#repositoryByPath.get(path);
+		if (!refresh && cached !== undefined) return cached;
+		const checking = isRepositoryPath(path);
+		this.#repositoryByPath.set(path, checking);
+		return checking;
 	}
 
 	async add(path: string): Promise<ProjectSummary> {
@@ -512,6 +529,7 @@ export class ProjectManager {
 		// The worker lists decide their model at spawn time, so an updated default applies to the next worker only.
 		if (entry !== undefined) entry.project = project;
 		if (entry?.runtime !== undefined) {
+			if (change.workerModels !== undefined) entry.runtime.workers.projectWorkerModelsChanged();
 			try {
     if (change.taskWatcher !== undefined || archiving || unarchiving) await entry.runtime.board.configureTaskWatcher();
 				await entry.runtime.conversation.configure(
@@ -573,7 +591,7 @@ export class ProjectManager {
 		if (entry?.runtime !== undefined && entry.state === "open") return { project, runtime: entry.runtime };
 		if (entry?.opening !== undefined) {
 			const runtime = await entry.opening;
-			return { project, runtime };
+			return { project: entry.project, runtime };
 		}
 
 		entry = { project, state: "opening" };
@@ -587,13 +605,13 @@ export class ProjectManager {
 			entry.opening = undefined;
 			await this.#requestLog?.warming.restore(projectId).catch(error => { this.#log(`request log: cache warm restore skipped: ${errorMessage(error)}`); });
 			entry.failure = undefined;
-			await this.#notify(project);
-			return { project, runtime };
+			await this.#notify(entry.project);
+			return { project: entry.project, runtime };
 		} catch (error) {
 			entry.state = "failed";
 			entry.opening = undefined;
 			entry.failure = errorMessage(error);
-			await this.#notify(project, entry.failure);
+			await this.#notify(entry.project, entry.failure);
 			throw error;
 		}
 	}
@@ -1385,6 +1403,25 @@ export class ProjectManager {
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,
 			project: () => entry.project,
+			...(this.#workerPickerProjectDefault ? {
+				promoteWorkerModel: async (model, thinkingLevel) => {
+					entry.project = await this.store.update(project.id, (stored) => {
+						const seen = new Set([JSON.stringify([model.provider, model.modelId])]);
+						const workerModels = stored.workerModels.filter((ref) => {
+							const key = JSON.stringify([ref.provider, ref.modelId]);
+							if (seen.has(key)) return false;
+							seen.add(key);
+							return true;
+						});
+						return { workerModels: [{ ...model, thinkingLevel }, ...workerModels] };
+					});
+					// During migration the opening path publishes the summary, after the document is cleared.
+					if (entry.runtime !== undefined) {
+						entry.runtime.workers.projectWorkerModelsChanged();
+						await this.#notify(entry.project);
+					}
+				},
+			} : {}),
 			invalidateRequestIdentity: conversationId => this.#requestLog?.invalidateIdentity(project.id, conversationId),
 			taskChanges,
    taskArtifactSaves: () => board.taskArtifactSaves(),
@@ -1598,6 +1635,7 @@ export class ProjectManager {
 			);
 			await this.files.removeDeletedConversations(project.id, async id => (await harness.conversation(id as never, BACKGROUND_CONTEXT)) !== undefined);
 			await workers.ensureDocument();
+			await workers.migrateDefaults();
 			await board.ensureDocument();
 			// Every thread registers as a coordinator before anything resumes, so a resumed turn's tools know it.
 			await threads.open();
@@ -1722,7 +1760,7 @@ export class ProjectManager {
 		};
 
 		const runtime: ProjectRuntime = {
-			project,
+			project: entry.project,
 			harness,
 			conversation,
 			registry,
@@ -1840,14 +1878,18 @@ export class ProjectManager {
 		const activity = await this.#activityFor(project.id, entry);
 		const attention = await this.#attentionStore.read(project.id);
 		this.#armAttentionReturn(project, attention?.nextReturnAt);
+		const repository = await this.#repositoryAt(project.path);
 		return {
 			...projectSummary(project, entry, activity, this.#linkSettings(project)),
+			...(repository === undefined ? {} : { repository }),
    ...(this.#taskWatcher ? { taskWatcher: project.taskWatcher ?? DEFAULT_TASK_WATCHER, taskWatcherStatus: watcherStatus(
     project.archived ? { mode: "off", dailyTokens: 0 } : project.taskWatcher ?? DEFAULT_TASK_WATCHER, this.#clock(),
     entry?.runtime ? (await entry.runtime.board.state()).taskWatcherStatus : await readJsonFile(join(this.store.projectDir(project.id), "task-watcher-status.json")) as TaskWatcherStatus | undefined,
    ) } : {}),
 			...(this.#reportAudit ? { reportAudit: project.reportAudit ?? DEFAULT_REPORT_AUDIT, reportAuditStatus: await this.#auditStatus(project, entry) } : {}),
 			...(attention === undefined ? {} : { attention: entry?.state === "open" || entry?.state === "opening" ? attention : { ...attention, runningWorkers: 0 } }),
+			// A concurrent worker pick may have landed while the other summary fields were being read.
+			...(this.#workerPickerProjectDefault && entry ? { workerModels: entry.project.workerModels } : {}),
 		};
 	}
 
