@@ -3689,6 +3689,14 @@ quoted from a cited worker step. The attempt-aware verifier does not require a s
 an in-progress action. Local claim rules can reject explicit completion and unsupported purpose
 markers, but neither a matching word nor a model's verdict is a recorded fact.
 
+For the recorded-action design, the harness derives candidate verbs and subjects from a bounded
+set of file operations and recognizable shell prefixes. It groups by action and subject and counts
+a tool call and its result once. The local picker ranks by distinct calls, then recency, and skips
+near-duplicates. The optional model selector can only choose a candidate ID or abstain. Any shorter
+subject must exactly match the alternative supplied by the harness. Neither selector can claim an
+outcome. The local picker is preferred for a separate live trial because it met the same offline
+gates without a request or any transcript text leaving the server.
+
 `watcher-replay.ts` exercises the policy from explicitly named read-only inputs, with credential
 mutations refused and a shared input-token budget. It writes private evidence and usage to `/tmp`.
 Its paired verifier replay keeps the generator's original page history, so the measured effect is

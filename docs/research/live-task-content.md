@@ -300,9 +300,13 @@ Haiku verifier kept 231/253 not wrong (91.3%), at 11.93 lines per active hour an
 day. It rejected five wrong lines and six right ones. The cheaper round-two worker-words draft
 remains the best result backed by at least 100 grades (93.3%), though the samples differ.
 
-Keep the watcher offline. Prefer direct tool actions with deterministic subjects for the next test,
-and measure whether those lines still say enough to help. No auto line can enter outcome sections
-or Needs you.
+The fourth replay built candidate verbs and subjects from recorded tool calls before ranking them.
+On 30 fresh runs (13.40 active hours), the most-steps picker was 196/206 not wrong (95.15%), with a
+3.94-minute median gap and no model cost. Haiku selected 184/193 not wrong (95.34%), with a 4.10-minute
+median gap and about $0.011 per project day. Both passed the offline gate. The accuracy difference
+was small and both emitted many vague lines, so start any separate live trial with the local picker.
+
+Nothing is live in this change. No auto line can enter outcome sections or Needs you.
 
 ## Risks
 
