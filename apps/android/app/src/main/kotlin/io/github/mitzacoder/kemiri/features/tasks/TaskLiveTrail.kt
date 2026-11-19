@@ -21,32 +21,33 @@ internal const val LIVE_DIVIDER_DESCRIPTION = "New since you looked: lines above
 internal const val LIVE_NEWEST_LIMIT = 3
 
 internal enum class LiveLineKind(val label: String) {
-    Phase("Phase"), Result("Result"), Fact("Recorded");
+    Phase("Phase"), Result("Result"), Fact("Recorded"), Auto("auto");
 
     companion object {
-        fun fromWire(kind: String): LiveLineKind? = when (kind) {
+        fun fromWire(kind: String, watcher: Boolean = false): LiveLineKind? = when (kind) {
             "phase" -> Phase
             "result" -> Result
             "fact" -> Fact
+            "auto" -> Auto.takeIf { watcher }
             else -> null
         }
     }
 }
 
 /** Unknown wire kinds do not occupy a place in the trail or advance its checkpoint. */
-internal fun visibleLiveLines(lines: List<BoardLiveLine>): List<BoardLiveLine> =
-    lines.filter { LiveLineKind.fromWire(it.kind) != null }
+internal fun visibleLiveLines(lines: List<BoardLiveLine>, watcher: Boolean = false): List<BoardLiveLine> =
+    lines.filter { LiveLineKind.fromWire(it.kind, watcher) != null }
 
 /**
  * A working task with supported live content replaces the older Now lines when the backend advertises the feature.
  * The block's Now is the state sentence, or the automatic activity when the sentence is missing.
  */
-internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?): BoardTaskActivity? {
+internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?, watcher: Boolean = false): BoardTaskActivity? {
     if (!featureEnabled || task.state?.kind != "working") return null
     val live = task.live ?: return null
     val hasPlan = live.plan?.any { LivePlanStepStatus.fromWire(it.status) != null } == true
     if (!hasPlan && live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
-        live.lines.none { LiveLineKind.fromWire(it.kind) != null }) return null
+        visibleLiveLines(live.lines, watcher).isEmpty()) return null
     return task.state.sentence ?: activity
 }
 
@@ -89,8 +90,8 @@ internal data class LiveTrail(
  * [chronological] is oldest first, as sent. [unseenIds] are the lines after this visit's checkpoint; they are always the
  * newest ones. A newest phase line that repeats Now is left out, and with it its place among the unseen.
  */
-internal fun liveTrail(chronological: List<BoardLiveLine>, nowText: String?, unseenIds: Set<String> = emptySet()): LiveTrail {
-    val visible = visibleLiveLines(chronological).asReversed()
+internal fun liveTrail(chronological: List<BoardLiveLine>, nowText: String?, unseenIds: Set<String> = emptySet(), watcher: Boolean = false): LiveTrail {
+    val visible = visibleLiveLines(chronological, watcher).asReversed()
     val shown = if (nowText != null && visible.firstOrNull()?.let { repeatsNow(it, nowText) } == true) visible.drop(1) else visible
     val unseen = shown.takeWhile { it.id in unseenIds }.size
     val items = ArrayList<LiveTrailItem>(shown.size + 1)

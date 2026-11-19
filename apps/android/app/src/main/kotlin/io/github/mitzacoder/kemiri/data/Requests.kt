@@ -332,6 +332,10 @@ suspend fun HarnessClient.request(value: BoardQuestionAnswerRequest, explicitNul
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardQuestionAnswerRequest.serializer(), value).jsonObject, explicitNulls), BoardQuestionAnswerResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: BoardLiveMarkWrongRequest, explicitNulls: Set<String> = emptySet()): BoardLiveMarkWrongResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardLiveMarkWrongRequest.serializer(), value).jsonObject, explicitNulls), BoardLiveMarkWrongResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: BoardReportStaleRequest, explicitNulls: Set<String> = emptySet()): BoardReportStaleResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardReportStaleRequest.serializer(), value).jsonObject, explicitNulls), BoardReportStaleResponse.serializer()
 )

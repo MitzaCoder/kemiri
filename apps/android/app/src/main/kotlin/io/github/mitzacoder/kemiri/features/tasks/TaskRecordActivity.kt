@@ -24,7 +24,7 @@ private const val ACTIVITY_PAGE_SIZE = 6
 @Composable
 internal fun TaskRecordActivity(
     context: ProjectScreenContext, task: BoardTask, sources: ActivitySources, workersById: Map<String, WorkerSummary>, timelineLoading: Boolean,
-    timelineError: String?, newestFirst: Boolean, onToggleOrder: () -> Unit, now: Long, writerName: (BoardWriter) -> String,
+    timelineError: String?, newestFirst: Boolean, onToggleOrder: () -> Unit, now: Long, writerName: (BoardWriter) -> String, news: LiveNewsActions?,
 ) {
     val colors = Jarvis.colors
     var snapshots by remember(task.id) { mutableStateOf<List<BoardTaskSnapshot>?>(null) }
@@ -65,7 +65,7 @@ internal fun TaskRecordActivity(
                 val openWorker: (() -> Unit)? = worker?.let { { context.navigate(context.route.copy(threadId = it.threadId, workerId = it.id)) } }
                 val openTask: (() -> Unit)? = row.taskId?.let { { context.openTask(it) } }
                 RecordActivityRow(row, task, before[row.snapshot?.seq], writerName, openTask ?: openWorker,
-                    if (openTask != null) "Open linked task" else "Open worker")
+                    if (openTask != null) "Open linked task" else "Open worker", news)
             } }
         }
     } }
@@ -73,7 +73,7 @@ internal fun TaskRecordActivity(
 }
 
 @Composable
-private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTaskSnapshot?, writerName: (BoardWriter) -> String, openRelated: (() -> Unit)?, linkTitle: String) {
+private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTaskSnapshot?, writerName: (BoardWriter) -> String, openRelated: (() -> Unit)?, linkTitle: String, news: LiveNewsActions?) {
     val colors = Jarvis.colors
     val label = remember(row.label) { activityText(row.label) }
     val clock = row.at?.let { at -> runCatching { timeFormatter("HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(at)) }.getOrDefault("—") } ?: "—"
@@ -93,11 +93,11 @@ private fun RecordActivityRow(row: ActivityRow, task: BoardTask, before: BoardTa
                 if (row.fact != null && row.fact.at != row.fact.endAt) Text("Started ${exactTime(row.fact.at)}", style = TaskType.xs, color = colors.fgMuted)
                 row.live?.let { live ->
                     live.plan?.let { TaskLivePlan(it) }
-                    val lines = visibleLiveLines(live.lines)
+                    val lines = visibleLiveLines(live.lines, watcher = news != null)
                     if (lines.isNotEmpty()) {
                         val minute = rememberTaskMinuteNow()
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            lines.forEach { line -> key(line.id) { LiveLineRow(line, minute) } }
+                            lines.forEach { line -> key(line.id) { LiveLineRow(line, minute, news = news) } }
                         }
                     }
                 }

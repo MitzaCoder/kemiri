@@ -149,6 +149,7 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
             }
         }
         ReportAuditSettings(backend, project)
+        TaskWatcherSettings(backend, project)
     }
 }
 

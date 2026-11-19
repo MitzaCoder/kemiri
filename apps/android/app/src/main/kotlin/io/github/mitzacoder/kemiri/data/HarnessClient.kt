@@ -168,7 +168,7 @@ class HarnessClient(
                     transportTimeout("WebSocket upgrade") { opened.await() }
                     val helloRequest = HelloRequest(
                         protocolVersion = 1,
-                        client = HelloRequestClient(name = "harness-android", version = "0.1.0", features = listOf(HarnessFeature.TASK_STEPS)),
+                        client = HelloRequestClient(name = "harness-android", version = "0.1.0", features = listOf(HarnessFeature.TASK_STEPS, HarnessFeature.TASK_LIVE_WATCHER)),
                         auth = accessToken?.let { HelloRequestAuth(accessToken = it) },
                     )
                     val hello = exchange(helloRequest.id, wireJson.encodeToJsonElement(HelloRequest.serializer(), helloRequest).jsonObject, HelloResponse.serializer(), allowBeforeReady = true)

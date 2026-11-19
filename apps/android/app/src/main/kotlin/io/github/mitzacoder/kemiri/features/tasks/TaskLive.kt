@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -68,18 +69,19 @@ private fun rememberShown(): Boolean {
  * device-local checkpoint.
  */
 @Composable
-internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String) {
+internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String, news: LiveNewsActions?) {
     val colors = Jarvis.colors
     val minute = rememberTaskMinuteNow()
     val context = LocalContext.current
     val shown = rememberShown()
     val key = remember(backendKey, projectId, taskId) { liveSeenKey(backendKey, projectId, taskId) }
-    val chronological = remember(live.lines) { visibleLiveLines(live.lines) }
+    val watcher = news != null
+    val chronological = remember(live.lines, watcher) { visibleLiveLines(live.lines, watcher) }
     val counters = remember(live.counters) { liveCounterLabels(live.counters) }
     // A visit starts when the sheet becomes visible and keeps its divider until it is hidden or the task changes.
     val visit = remember(key, shown) { if (shown) LiveTrailVisit(PreferencesLiveSeenStore(context), key) else null }
     val visitState = remember(visit, chronological) { visit?.update(chronological) ?: LiveVisitState(emptySet(), emptySet()) }
-    val trail = remember(chronological, now.text, visitState) { liveTrail(chronological, now.text, visitState.unseenIds) }
+    val trail = remember(chronological, now.text, visitState, watcher) { liveTrail(chronological, now.text, visitState.unseenIds, watcher) }
     var earlierOpen by rememberSaveable(taskId) { mutableStateOf(false) }
 
     TaskReadingSection("Live") {
@@ -95,7 +97,7 @@ internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: S
         if (trail.newest.isNotEmpty()) {
             TaskHeading("So far")
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                trail.newest.forEach { item -> LiveTrailEntry(item, minute, visitState.arrived) }
+                trail.newest.forEach { item -> LiveTrailEntry(item, minute, visitState.arrived, news) }
             }
             if (trail.earlierLines > 0) {
                 val summary = "Earlier · ${trail.earlierLines}" + if (trail.earlierUnseen > 0) " · ${trail.earlierUnseen} new" else ""
@@ -108,7 +110,7 @@ internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: S
                     Text(summary, style = TaskType.xs, color = colors.fgMuted)
                 }
                 if (earlierOpen) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    trail.earlier.forEach { item -> LiveTrailEntry(item, minute, emptySet()) }
+                    trail.earlier.forEach { item -> LiveTrailEntry(item, minute, emptySet(), news) }
                 }
             }
         }
@@ -151,8 +153,8 @@ private fun LiveCounters(counters: List<String>) {
 }
 
 @Composable
-private fun LiveTrailEntry(item: LiveTrailItem, minute: Long, arrived: Set<String>) = when (item) {
-    is LiveTrailItem.Line -> key(item.line.id) { LiveLineRow(item.line, minute, arrived = item.line.id in arrived) }
+private fun LiveTrailEntry(item: LiveTrailItem, minute: Long, arrived: Set<String>, news: LiveNewsActions?) = when (item) {
+    is LiveTrailItem.Line -> key(item.line.id) { LiveLineRow(item.line, minute, arrived = item.line.id in arrived, news = news) }
     LiveTrailItem.Divider -> LiveDivider()
 }
 
@@ -172,14 +174,15 @@ private fun LiveDivider() {
  * is softly highlighted once, unless the system animations are off.
  */
 @Composable
-internal fun LiveLineRow(line: BoardLiveLine, minute: Long, arrived: Boolean = false) {
+internal fun LiveLineRow(line: BoardLiveLine, minute: Long, arrived: Boolean = false, news: LiveNewsActions?) {
     val colors = Jarvis.colors
-    val kind = LiveLineKind.fromWire(line.kind) ?: return
+    val kind = LiveLineKind.fromWire(line.kind, watcher = news != null) ?: return
+    val auto = remember(line, kind) { autoLinePresentation(kind, line) }
     val reduced = rememberReducedMotion()
     val highlight = remember { Animatable(if (arrived && !reduced) 1f else 0f) }
     LaunchedEffect(Unit) { if (highlight.value > 0f) highlight.animateTo(0f, tween(1400)) }
     val railColor = when (kind) {
-        LiveLineKind.Phase -> colors.border
+        LiveLineKind.Phase, LiveLineKind.Auto -> colors.border
         LiveLineKind.Result -> colors.success
         LiveLineKind.Fact -> colors.fgMuted
     }
@@ -189,19 +192,34 @@ internal fun LiveLineRow(line: BoardLiveLine, minute: Long, arrived: Boolean = f
             .drawBehind { drawRect(colors.surface2.copy(alpha = highlight.value)) }
             .drawBehind {
                 val x = if (layoutDirection == LayoutDirection.Ltr) 1.dp.toPx() else size.width - 1.dp.toPx()
-                val dash = if (kind == LiveLineKind.Fact) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null
+                val dash = when (kind) {
+                    LiveLineKind.Fact -> PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))
+                    LiveLineKind.Auto -> PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx()))
+                    else -> null
+                }
                 drawLine(railColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx(), pathEffect = dash)
             }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .semantics(mergeDescendants = true) { contentDescription = liveLineDescription(kind, line, age) },
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(kind.label, style = TaskType.xsSemibold, color = if (kind == LiveLineKind.Result) colors.fg else colors.fgMuted)
-            Text(line.actor.name, Modifier.weight(1f, fill = false), style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text(age, style = TaskType.xs, color = colors.fgMuted, maxLines = 1)
+        val description = liveLineDescription(kind, line, age)
+        val summary: @Composable (Boolean?) -> Unit = { expanded ->
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                if (expanded != null) LucideGlyph(Lucide.ChevronRight, Modifier.rotate(if (expanded) 90f else 0f), size = 14.dp, tint = colors.fgMuted)
+                Text(auto?.mark ?: kind.label, style = TaskType.xsSemibold, color = if (kind == LiveLineKind.Result) colors.fg else colors.fgMuted)
+                Text(line.actor.name, style = TaskType.xs, color = colors.fgMuted)
+                Text(age, style = TaskType.xs, color = colors.fgMuted)
+                auto?.wrongLabel?.let { Text(it, style = TaskType.xs, color = colors.fgMuted) }
+            }
+            if (auto != null) {
+                Text(line.text, style = TextStyles.sm, color = colors.fgMuted,
+                    textDecoration = if (auto.struckThrough) TextDecoration.LineThrough else null)
+            } else {
+                TaskDetailText(line.text, style = if (kind == LiveLineKind.Result) TextStyles.sm.copy(fontWeight = FontWeight.Medium) else TextStyles.sm,
+                    color = if (kind == LiveLineKind.Phase) colors.fgMuted else colors.fg)
+            }
         }
-        TaskDetailText(line.text, style = if (kind == LiveLineKind.Result) TextStyles.sm.copy(fontWeight = FontWeight.Medium) else TextStyles.sm,
-            color = if (kind == LiveLineKind.Phase) colors.fgMuted else colors.fg)
+        if (auto != null && news != null) LiveAutoLine(line, auto, description, news) { expanded -> summary(expanded) }
+        else Column(Modifier.semantics(mergeDescendants = true) { contentDescription = description }, verticalArrangement = Arrangement.spacedBy(2.dp)) { summary(null) }
     }
 }

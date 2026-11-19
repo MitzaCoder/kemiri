@@ -3702,12 +3702,11 @@ mutations refused and a shared input-token budget. It writes private evidence an
 Its paired verifier replay keeps the generator's original page history, so the measured effect is
 what the extra call drops, not what the generator might have written with different history.
 
-### Task watcher, live on web (T319, D107/D109)
+### Task watcher, live on web and Android (T319/T320, D107/D109)
 
-`task-live-watcher` requires `task-live`. Web advertises it at hello; without it the server omits
-watcher project settings and rejects watcher requests. Existing clients skip the unrecognized `auto`
-kind. Android presentation is separate. The watcher observes the same committed entries as the Live
-counters for task worker runs. Roughly 12 new tool entries or 120 seconds of activity can admit a
+`task-live-watcher` requires `task-live`. Web and Android advertise it at hello; without it the server
+omits watcher project settings and rejects watcher requests. Existing clients skip the unrecognized
+`auto` kind. The watcher observes the same committed entries as the Live counters for task worker runs. Roughly 12 new tool entries or 120 seconds of activity can admit a
 pass; gaps longer than two minutes and idle clocks do not earn work. The three-minute floor applies
 per task, including an end flush and across distinct runs. At run end any pending work can be
 considered even below the usual trigger. Reopening resumes the persisted per-run entry cursor.
@@ -3732,6 +3731,13 @@ thirty-line limit and run fold. `board.live.mark_wrong` records the authenticate
 owner for local connections) and time once. The line stays visible but struck through, with evidence
 still readable. These writes do not modify reports, Needs you, freshness, check-ins, nudges,
 notifications, timeline row count or snapshots, and never message the coordinator.
+
+Android shows auto lines in So far, Earlier and folded runs only with both features in hello. A quiet
+`auto` mark and a TalkBack-labeled disclosure lead to Recorded steps. Android groups consecutive
+matching descriptions and opens the first entry in the matching worker conversation when it still
+has a route. This is wrong sends `board.live.mark_wrong`; the server's mark drives the strike-through
+and leaves the evidence readable. Project model settings put Live news lines beside Report check,
+with Automatic, Off and Choose a model, a daily budget for model mode, and the current status or reason.
 
 ### Tasks board
 

@@ -11,6 +11,7 @@ object HarnessFeature {
     const val STORAGE = "storage"
     const val TASK_DELIVERY = "task-delivery"
     const val TASK_LIVE = "task-live"
+    const val TASK_LIVE_WATCHER = "task-live-watcher"
     const val TASK_FIELDS = "task-fields"
     const val TASK_STEPS = "task-steps"
     const val TASK_REPORTS = "task-reports"
@@ -134,4 +135,11 @@ suspend fun HarnessClient.configureProject(projectId: String, setting: ProjectSe
         is ProjectSetting.Links -> ProjectsConfigureRequest(projectId = projectId, links = setting.value) to "links".takeIf { setting.value == null }
     }
     return request(request, explicitNulls = setOfNotNull(cleared)).project
+}
+
+/** Mark a watcher line wrong without changing the task's report. The board push supplies the stored mark. */
+suspend fun HarnessClient.markLiveLineWrong(projectId: String, taskId: String, lineId: String) {
+    requireFeature(HarnessFeature.TASK_LIVE)
+    requireFeature(HarnessFeature.TASK_LIVE_WATCHER)
+    request(BoardLiveMarkWrongRequest(projectId = projectId, taskId = taskId, lineId = lineId))
 }

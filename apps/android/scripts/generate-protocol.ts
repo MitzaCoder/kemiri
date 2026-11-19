@@ -168,8 +168,7 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
 `;
 const calls: string[] = [];
 for (const [name] of Object.entries(defs)) {
-    // Live news feedback is web-only until Android advertises task-live-watcher.
-    if (!name.endsWith("Request") || name === "BoardLiveMarkWrongRequest") continue;
+    if (!name.endsWith("Request")) continue;
     const response = name.replace(/Request$/, "Response");
     if (output.has(response)) calls.push(`suspend fun HarnessClient.request(value: ${name}, explicitNulls: Set<String> = emptySet()): ${response} = exchange(\n    value.id, withExplicitNulls(wireJson.encodeToJsonElement(${name}.serializer(), value).jsonObject, explicitNulls), ${response}.serializer()\n)`);
 }

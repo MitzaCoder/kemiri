@@ -163,7 +163,12 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val deliveryEnabled = connection.supports(HarnessFeature.TASK_DELIVERY)
     val activity = taskActivity(task, connection.supports("task-activity"))
     // The Live block replaces the Now lines; it needs the backend flag, a working task and a trail.
-    val liveNow = taskLiveNow(task, connection.supports(HarnessFeature.TASK_LIVE), activity)
+    val liveEnabled = connection.supports(HarnessFeature.TASK_LIVE)
+    val news = if (liveEnabled && connection.supports(HarnessFeature.TASK_LIVE_WATCHER)) LiveNewsActions(
+        openWorkLog = { line, entryId -> liveWorkLogRoute(context.route, workers, line, entryId)?.let { route -> { context.navigate(route) } } },
+        markWrong = { lineId -> context.backend.client.markLiveLineWrong(project, task.id, lineId) },
+    ) else null
+    val liveNow = taskLiveNow(task, liveEnabled, activity, watcher = news != null)
     var timelineKinds by rememberSaveable(taskId) { mutableStateOf<List<String>?>(null) }
     var timeline by remember(taskId) { mutableStateOf<BoardTaskTimelineResponse?>(null) }
     var timelineProblem by remember(taskId) { mutableStateOf<String?>(null) }
@@ -287,7 +292,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                     })
                 }
                 if (liveNow != null && task.live != null) item(key = "live") {
-                    TaskLive(task.live, liveNow, context.backend.config.key, project, taskId)
+                    TaskLive(task.live, liveNow, context.backend.config.key, project, taskId, news)
                 }
                 item(key = "results") {
                     TaskReadingSection("What you get") {
@@ -350,7 +355,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
                                     workers = task.workerIds.associateWith { workersById[it] }, now = recordNow, deliveryShown = delivery != null,
                                     taskLiveEnabled = connection.supports(HarnessFeature.TASK_LIVE))
                                 TaskRecordActivity(context, task, sources, workersById, linksEnabled && timeline == null && timelineProblem == null,
-                                    timelineProblem, deviceSettings.timelineNewestFirst, toggleOrder, now, ::writerName)
+                                    timelineProblem, deviceSettings.timelineNewestFirst, toggleOrder, now, ::writerName, news)
                             } else {
                                 if (linksEnabled) TaskTimeline(timeline?.entries.orEmpty(), deviceSettings.timelineNewestFirst, toggleOrder, ::writerName, now,
                                     groups = timeline?.groups.takeIf { timelineGroupsEnabled }, onKindsChanged = { timelineKinds = it })
