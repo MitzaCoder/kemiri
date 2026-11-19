@@ -1502,7 +1502,7 @@ describe("quiet worker reports", () => {
 		const timeline = async (reader = client) => {
 			const history = await reader.request({ type: "board.task.timeline", projectId, taskId: "T1" });
 			if (history.type !== "board.task.timeline") throw errorOf(history);
-			return history.entries.filter((event) => event.label === "Worker reader reported");
+			return history.entries.filter((event) => event.label === "Worker reader reported" || (event.ref === "reader" && event.live && event.label.startsWith("reader worked") && !/ · (failed|stopped)$/.test(event.label)));
 		};
 		return { test, client, projectId, view, runtime, conversation, worker, send, gate, busyGate, reports, settle, timeline, counts: () => ({ workerRequests, workerAnswers, reportTurns, reportNotifications, aborted, busyRequests }) };
 	}

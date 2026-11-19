@@ -1,3 +1,5 @@
+import { appendLiveFact, runningLiveSources } from "./task-live.ts";
+import type { TaskArtifactSave } from "./artifacts.ts";
 import { type WorkerBrowserAvailability, type WorkerBrowserService, type UnsavedProof, workerBrowserInstructions, unsavedProofList } from "./worker-browser.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
@@ -152,16 +154,18 @@ export async function syncWorkerActivity(tx: Tx, service: WorkerService, worker:
   for (const source of Object.values(tracking.sources)) if (source.actor.kind === "worker" && source.actor.threadId === threadId && source.actor.name === worker.id && source.actor.id !== id) {
    if (source.state === "failed" && source.actor.conversationId === worker.conversationId) source.state = "ended"; // Retry of this conversation, not reuse of a worker name.
    endActivitySource(tracking, source.actor.id, worker.updatedAt);
-   await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, source.actor.id, "reported", worker.updatedAt);
+   await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, source.actor.id, "reported", worker.updatedAt, "", await service.taskArtifactSaves());
   }
   if (tracking.sources[id]?.state !== "running") tracking.sources[id] = { actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "running", title: worker.title, since: worker.updatedAt };
  } else if (worker.status === "failed") {
-  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, "failed", worker.updatedAt, worker.failure ?? "no reason given");
+  const source = tracking.sources[id];
+  if (source) appendLiveFact(board, worker.taskId, source, worker.updatedAt, "failure", `${worker.id} failed`);
+  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, "failed", worker.updatedAt, worker.failure ?? "no reason given", await service.taskArtifactSaves());
   tracking.sources[id] = { actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "failed", title: worker.title, since: worker.updatedAt, failure: worker.failure ?? "no reason given" };
   tracking.lastEndedAt = worker.updatedAt;
  } else {
   endActivitySource(tracking, id, worker.updatedAt);
-  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, worker.status === "stopped" ? "stopped" : "reported", worker.updatedAt);
+  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, worker.status === "stopped" ? "stopped" : "reported", worker.updatedAt, "", await service.taskArtifactSaves());
  }
  const task = board.tasks.find(task => task.id === worker.taskId);
  if (task) {
@@ -1119,6 +1123,7 @@ export type WorkerServiceOptions = {
 	/** Directory for worker workspaces, inside the project's data directory and outside the repository. */
 	workspacesDir: string;
 	/** Records base/tip provenance before workspace cleanup. */
+ taskArtifactSaves?: () => Promise<readonly TaskArtifactSave[]>;
 	taskChanges?: Pick<TaskChangeObserver, "rememberWorkspace" | "recordWorkspace" | "forgetWorkspace">;
 	/**
 	 * Extensions a worker removes besides the worker tools: the coordinator's memory, compaction, history and schedule
@@ -1194,6 +1199,8 @@ type CreateWorkerInput = {
  * One project's workers: the durable list, the model defaults, workspace bookkeeping and the tools the coordinator calls.
  */
 export class WorkerService {
+ taskArtifactSaves(): Promise<readonly TaskArtifactSave[]> { return this.#options.taskArtifactSaves?.() ?? Promise.resolve([]); }
+
 	readonly #options: WorkerServiceOptions;
 	#reportAdmission: Promise<unknown> = Promise.resolve();
 
@@ -2260,7 +2267,7 @@ function createWorkerExtension(service: WorkerService): Extension {
      const tracking = activityTracking(board, previousTaskId);
      for (const source of Object.values(tracking.sources)) if (source.actor.kind === "worker" && source.actor.conversationId === worker.conversationId && source.actor.threadId === threadId) {
       endActivitySource(tracking, source.actor.id, now);
-      await foldTaskLiveIn(tx, mainId, board, previousTaskId, source.actor.id, "reported", now);
+      await foldTaskLiveIn(tx, mainId, board, previousTaskId, source.actor.id, "reported", now, "", await service.taskArtifactSaves());
      }
      const statuses = statusesOf(board);
      const links = linksOfBoard(board);
@@ -2270,6 +2277,11 @@ function createWorkerExtension(service: WorkerService): Extension {
      worker.taskId = task.id;
      worker.title = (args.title ?? task.title).slice(0, 120);
      worker.workspaceReused = true;
+    }
+    if (worker.status === "running" && worker.taskId) {
+     const board = await openBoard(tx, service.mainId as ConversationId);
+     const source = runningLiveSources(board.taskActivity?.[worker.taskId]).find(source => source.actor.conversationId === worker.conversationId);
+     if (source) appendLiveFact(board, worker.taskId, source, new Date().toISOString(), `send:${api.callId}`, `Work sent back to ${worker.id}`, "send");
     }
     {
 					if (worker.status !== "running" && worker.taskId != null) {
@@ -2645,7 +2657,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
     for (const [taskId, tracking] of Object.entries(state.taskActivity ?? {})) {
      if (!tracking.sources[id]) continue;
      endActivitySource(tracking, id, at);
-     await foldTaskLiveIn(tx, service.mainId as ConversationId, state, taskId, id, "reported", at);
+     await foldTaskLiveIn(tx, service.mainId as ConversationId, state, taskId, id, "reported", at, "", await service.taskArtifactSaves());
     }
    }, context);
    return undefined;

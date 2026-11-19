@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import type { BoardTaskActivity, BoardTaskLive } from '@kemiri/protocol';
-	import { liveSeenKey, visibleLiveLines, visitLiveTrail } from '#lib/task-live.js';
+	import { liveCounterLabels, type BoardTaskActivity, type BoardTaskLive } from '@kemiri/protocol';
+	import { liveSeenKey, liveTrailBelowNow, visitLiveTrail } from '#lib/task-live.js';
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
+	import TaskLivePulse from './TaskLivePulse.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
 
 	let { live, now, backendId, projectId, taskId }: { live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string } = $props();
-	const chronological = $derived(visibleLiveLines(live.lines));
+	const chronological = $derived(liveTrailBelowNow(live.lines, now));
 	const newestFirst = $derived(chronological.toReversed());
 	const newestLimit = 3;
+	const counters = $derived(liveCounterLabels(live.counters));
 	let visibility = $state<DocumentVisibilityState>('hidden');
 	let unseen = $state(0);
 	let arrived = $state<string[]>([]);
@@ -35,12 +37,18 @@
 </script>
 
 {#snippet divider()}
-	<li class="live-unseen">New since you looked</li>
+	<li class="live-unseen"><span aria-hidden="true">↑</span> New since you looked</li>
 {/snippet}
 
 <section class="task-live" aria-label="Live" data-task-live>
 	<h2 class="live-heading">Live</h2>
 	<p class="live-now"><strong>Now</strong> <span>{now.text}</span> <time datetime={now.since} title={exactTime(now.since)}>{relativeTime(now.since, $activityMinute)}</time></p>
+	{#if live.pulse}<TaskLivePulse pulse={live.pulse} />{/if}
+	{#if counters.length}
+		<ul class="live-counters" aria-label="Run counters" role="list">
+			{#each counters as counter (counter)}<li>{counter}</li>{/each}
+		</ul>
+	{/if}
 	{#if newestFirst.length}
 		<h3 class="live-heading">So far</h3>
 		<ul role="list" class="live-trail">
@@ -70,6 +78,7 @@
 	.live-heading { font-size: 0.8125rem; font-weight: 600; }
 	.live-now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.5rem; font-size: 0.875rem; overflow-wrap: anywhere; }
 	.live-now strong, .live-now time, .live-earlier summary { font-size: 0.75rem; color: var(--chat-fg-muted); }
+	.live-counters { display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; color: var(--chat-fg-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 	.live-trail { display: grid; gap: 0.25rem; }
 	.live-unseen { display: flex; align-items: center; gap: 0.5rem; color: var(--chat-fg-muted); font-size: 0.75rem; }
 	.live-unseen::before, .live-unseen::after { content: ''; flex: 1; border-top: 1px solid var(--chat-border); }

@@ -209,8 +209,8 @@ it.each([false, true])("legacy coordinator Now is a turn phase and folds only wi
  if (taskLiveEnabled) {
   const lines = samples[2]![0]!.live!.lines;
   expect(lines).toEqual([expect.objectContaining({ kind: "phase", text: "testing the card view", actor: expect.objectContaining({ kind: "coordinator" }) })]);
-  expect(timeline.entries).toEqual([expect.objectContaining({ live: { lines } })]);
-  expect(timeline.groups?.flatMap(group => group.entries)).toEqual([expect.objectContaining({ group: "work", live: { lines } })]);
+  expect(timeline.entries).toEqual([expect.objectContaining({ live: expect.objectContaining({ lines, counters: expect.objectContaining({ steps: 4 }) }) })]);
+  expect(timeline.groups?.flatMap(group => group.entries)).toEqual([expect.objectContaining({ group: "work", live: expect.objectContaining({ lines }) })]);
  } else {
   expect(samples[2]![0]!.live).toBeUndefined();
   expect(timeline.entries).toEqual(before.entries);

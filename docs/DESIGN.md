@@ -3242,6 +3242,34 @@ remembers where that visit started; new arrivals highlight once unless reduced m
 No notifications are sent. The same lines can be opened from the completed Activity row.
 Backends without the flag retain the previous view; Android rendering is a separate stage.
 
+#### Harness facts in the Live block (T315, stage B of T305)
+
+The existing `task-live` flag covers optional `pulse` and `counters` and the `fact` line
+kind. Stage A clients ignore the fields and skip the new kind. The pulse follows the
+run behind Now and carries only a registered tool name, a fixed label and an ISO start
+observed by the server. It never includes command text, paths, output or model text.
+A project-local watch batches pulse updates on a two-second window, ignoring output
+and token changes that leave the activity unchanged. Web ticks the age locally.
+
+The same read-side cache scans new transcript entries for issued calls, successful
+distinct edit/write paths and successful direct VCS commands. It rebuilds from the
+current run's first entry, including nested codemode receipts when the parent result
+is available. Commit hashes from command output and the change ledger are matched
+where possible; counts without an identity are reconciled conservatively. Nothing
+is written per tool step. On a task with multiple running actors, the counters are
+for the actor behind Now, not a sum across runs.
+
+Checks, ledger delivery, work sent back to a running worker, and worker failures
+record facts inside the writes that already handle those events. Saved-file facts
+project from successful task-scoped receipts written in the existing artifact index
+transaction, which is separate from board storage. Saves within 15 seconds of each
+other share a line. Adjacent checks, sends and ledger events coalesce in the same
+window. Failed commands alone never add a line. The combined trail is capped at 30.
+The existing run-end fold keeps the facts and nonzero counters with the Activity
+row, never a pulse. A counters-only run leaves its legacy Activity unchanged.
+Web marks facts as Recorded, hides zero counters and omits the phase already shown
+in Now without removing it from the completed trail.
+
 ### Report freshness (T121, stage 1 of T120)
 
 The web Report section shows section-local ages (ticking locally every 30 seconds), uncovered event

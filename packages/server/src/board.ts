@@ -1,4 +1,7 @@
-import { foldedLiveEntries, recordLiveReport, takeLiveTrail, taskLive } from "./task-live.ts";
+import { TaskLiveRun } from "./task-live-run.ts";
+import { TaskLiveWatch } from "./task-live-watch.ts";
+import type { TaskArtifactSave } from "./artifacts.ts";
+import { appendLiveFact, foldedLiveEntries, liveRunFacts, mergeLiveLines, recordLiveReport, runningLiveSources, takeLiveTrail, taskLive } from "./task-live.ts";
 import { buildTimelineGroups, recordTimelineRun, timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { deploySummary, type TaskDeployFact } from "./task-deploys.ts";
 import { activityTracking, taskActivity, endActivitySource, type TaskActivityTracking, DELIVERY_ACTIVITY_MS, taskState, taskQuietSince, TASK_PAUSED_MS, openTaskBlockers, pauseEpisode } from "./task-activity.ts";
@@ -32,7 +35,7 @@ import { OWNER_CHAT_ENTRY } from "./wire.ts";
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
-import type { Conversation, ConversationId, Extension, Harness, JsonObject, ToolRegistration, Tx } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationId, EntryId, Extension, Harness, JsonObject, ToolRegistration, Tx } from "@earendil-works/pi-durable";
 import { LiveDoc, type LiveState, GenerationTask, hook, defineDoc, defineDocFamily, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import {
 	BOARD_PREFIX,
@@ -441,6 +444,7 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
 	initializeTaskFreshness(state, task);
 	const previous = { results: report.results, next: report.next, steps: report.steps, summary: report.summary, notDone: report.notDone };
 	let checksChanged = false;
+ let recordedChecks: BoardReportCheck[] = [];
  if (now !== undefined && !state.taskActivityEnabled) report.now = now.trim();
 	if (results !== undefined) report.results = results.trim();
 	if (next !== undefined) report.next = next.trim();
@@ -465,6 +469,7 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
 			name, result, ...(count === undefined ? {} : { count }), ...(note === undefined ? {} : { note }), at: at ?? input.now,
 		});
 		const writtenChecks = (checks ?? mergeChecks ?? []).map(checkWithTimestamp);
+  recordedChecks = [...new Map(writtenChecks.map(check => [check.name, check])).values()];
 		const nextChecks = checks !== undefined ? writtenChecks : [...new Map(
 			[...plain(report.checks ?? []), ...writtenChecks].map(check => [check.name, check] as const),
 		).values()];
@@ -482,7 +487,7 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
    addedResult = line.replace(/^[-*] /, "");
   }
  }
- if (state.taskActivityEnabled) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey);
+ if (state.taskActivityEnabled) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey, checksChanged ? recordedChecks : []);
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
@@ -543,13 +548,38 @@ export async function writeReportIn(
 }
 
 /** Fold only as part of a run's existing lifecycle commit. No history document is opened for an empty trail. */
-export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: BoardState, taskId: string, sourceId: string, outcome: string, at: string, detail = ""): Promise<boolean> {
+export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: BoardState, taskId: string, sourceId: string, outcome: string, at: string, detail = "", saves: readonly TaskArtifactSave[] = []): Promise<boolean> {
+ if (!state.taskLiveEnabled) return false;
  const tracking = state.taskActivity?.[taskId];
  const source = tracking?.sources[sourceId];
  const task = state.tasks.find(task => task.id === taskId);
  if (!tracking || !source || !task) return false;
- const live = takeLiveTrail(tracking, source);
- if (!live) return false;
+ if (source.liveFolded) return false;
+ const runSaves = saves.filter(save => save.taskId === taskId && save.conversationId === source.actor.conversationId && save.runId === source.actor.runId);
+ const trail = takeLiveTrail(tracking, source);
+ if (!trail && !runSaves.length) return false;
+ const run = new TaskLiveRun();
+ const first = Number(source.actor.runId);
+ if (Number.isSafeInteger(first) && first > 0) {
+  const conversationId = source.actor.conversationId as ConversationId;
+  const belongsToConversation = (await tx.entry(first as EntryId))?.conversationId === conversationId;
+  if (belongsToConversation) {
+   const nextRunFirst = (await tx.doc(LiveDoc, conversationId)).run?.first;
+   const maxEntryId = nextRunFirst !== undefined && nextRunFirst > first ? (nextRunFirst - 1) as EntryId : undefined;
+   let cursor: Parameters<Tx["scanEntries"]>[2];
+   do {
+    const page = await tx.scanEntries({ conversationId, minEntryId: first as EntryId, order: "ascending", ...(maxEntryId === undefined ? {} : { maxEntryId }) }, 200, cursor);
+    for (const entry of page.items) run.add(entry);
+    cursor = page.next;
+   } while (cursor !== undefined);
+  }
+ }
+ const { lines, counters } = liveRunFacts(taskId, source, run, runSaves);
+ const live = { lines: mergeLiveLines(trail?.lines ?? [], lines), ...(counters ? { counters } : {}) };
+ delete source.liveChecks;
+ delete source.liveCheckWrites;
+ delete source.liveCommits;
+ source.liveFolded = true;
  recordTimelineRun(await openTaskHistory(tx, mainId, taskId), task, source.actor, outcome, at, detail, live, source.liveStartedAt);
  return true;
 }
@@ -2194,6 +2224,7 @@ export type BoardServiceOptions = {
  taskState?: boolean;
  taskPartStates?: boolean;
  taskLive?: boolean;
+ taskArtifactSaves?: { read: () => Promise<readonly TaskArtifactSave[]>; watch: (listener: () => void) => () => void };
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
  threadTitle?: (threadId: string) => Promise<string | undefined>;
@@ -2210,6 +2241,7 @@ type PendingEdit = { before: BoardTask | null; after: BoardTask; notes: string[]
 export class BoardService {
  onMcpAnswer: ((questionId: string, answer: string) => Promise<void>) | undefined;
 	readonly #options: BoardServiceOptions;
+ #liveWatch: TaskLiveWatch | undefined;
 	readonly audit: ReportAuditService | undefined;
 	#extension: Extension | undefined;
 	#pending = new Map<string, PendingEdit>();
@@ -2321,6 +2353,15 @@ export class BoardService {
 				const ref = fact.ref.replace(/^refs\/heads\//, "");
     if (landed.length) activityTracking(state, task.id).delivery = { text: `${landed.length} change${landed.length === 1 ? "" : "s"} landed on ${ref}${state.deployFeedConfigured ? " · not deployed yet" : ""}`,  at: fact.at, refs: landed.map(c => c.hash), count: landed.length };
     else delete activityTracking(state, task.id).delivery;
+    if (state.taskLiveEnabled) {
+     const sources = runningLiveSources(state.taskActivity?.[taskId]);
+     const source = sources.find(source => source.actor.kind === "worker") ?? sources[0];
+     if (source) {
+      source.liveCommits = [...new Set([...(source.liveCommits ?? []), ...landed.map(commit => commit.hash)])];
+      const counts = [landed.length ? `${landed.length} landed` : "", removed.length ? `${removed.length} removed` : "", reverted.length ? `${reverted.length} reverted` : ""].filter(Boolean);
+      appendLiveFact(state, taskId, source, fact.at, `ledger:${fact.id}`, `Changes recorded: ${counts.join(", ")}`, "ledger");
+     }
+    }
 				const label = [landed.length ? `${landed.length} change${landed.length === 1 ? "" : "s"} landed on ${ref}` : "",
 					removed.length ? `${removed.length} change${removed.length === 1 ? "" : "s"} removed from ${ref}` : "", reverted.length ? `${reverted.length} change${reverted.length === 1 ? "" : "s"} reverted on ${ref}` : ""].filter(Boolean).join("; ");
 				noteTaskFact(state, taskId, { kind: "commit", reason: label, at: fact.at, ref: fact.id });
@@ -2527,7 +2568,8 @@ export class BoardService {
 				sweepArchive(doc, now);
 			});
 		}
-		return boardView(state, now, includeArchived);
+		const board = boardView(state, now, includeArchived);
+  return this.#liveWatch?.project(board, state) ?? board;
 	}
 
 	get #mainId(): ConversationId {
@@ -2865,13 +2907,20 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   return new Map(state.tasks.flatMap(task => Object.values(state.taskActivity?.[task.id]?.sources ?? {}).map(source => [`${task.id}:${source.actor.id}`, source.state])));
  }
 
+ async taskArtifactSaves(): Promise<readonly TaskArtifactSave[]> {
+  return this.#options.taskLive === false ? [] : await this.#options.taskArtifactSaves?.read().catch(error => {
+   this.#options.log(`task live saves: ${errorMessage(error)}`);
+   return [];
+  }) ?? [];
+ }
+
  async #syncThreadTimeline(tx: Tx, state: BoardState, before: ReadonlyMap<string, string>): Promise<void> {
   for (const task of state.tasks) {
    const sources = Object.values(state.taskActivity?.[task.id]?.sources ?? {}).filter(source => source.state !== "running" || source.actor.kind === "thread").filter(source => before.get(`${task.id}:${source.actor.id}`) !== source.state);
    if (!sources.length) continue;
    for (const source of sources) {
     if (source.state === "ended" || source.state === "failed") {
-     const folded = await foldTaskLiveIn(tx, this.#mainId, state, task.id, source.actor.id, source.state, source.since, source.failure);
+     const folded = await foldTaskLiveIn(tx, this.#mainId, state, task.id, source.actor.id, source.state, source.since, source.failure, await this.taskArtifactSaves());
      if (folded) continue;
     }
     if (source.actor.kind === "thread" && source.state !== "unknown") recordTimelineRun(await openTaskHistory(tx, this.#mainId, task.id), task, source.actor, source.state, source.since, source.failure ?? source.title);
@@ -3016,14 +3065,20 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const unlisten = this.#options.coordinators?.onAdded(place => { void attach(place.conversationId, place.threadId).catch(error => this.#options.log(`board activity: ${errorMessage(error)}`)); });
   let current = "";
   let expiry: ReturnType<typeof setTimeout> | undefined;
-		const publish = (value: BoardState | Readonly<BoardState> | null): void => {
+		let boardState = watch.value;
+  const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
 			const board = boardView(state, this.#options.now(), false);
+   if (state.taskLiveEnabled && this.#liveWatch) {
+    if (!liveOnly) this.#liveWatch.sync(state);
+    this.#liveWatch.project(board, state);
+   }
 			const encoded = JSON.stringify(board);
 			if (encoded !== current) {
     current = encoded;
     onChange(board, openQuestionCount(state));
    }
+   if (liveOnly) return;
    if (expiry) clearTimeout(expiry);
    const due = [
     ...(state.pausedNotices?.length ? [this.#options.now() + 1000] : []),
@@ -3031,18 +3086,25 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !task.state.refs.length && !Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(s => s.state === "running") && state.taskActivity?.[task.id]?.deploy?.state !== "active").map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
    ].filter(at => at > this.#options.now());
    if (board.tasks.some(task => task.state?.kind === "paused") || state.pausedNotices?.length) void this.checkPaused().catch(error => this.#options.log(`board paused: ${errorMessage(error)}`));
-   if (due.length) { expiry = setTimeout(() => publish(watch.value), Math.min(...due) - this.#options.now()); expiry.unref?.(); }
+   if (due.length) { expiry = setTimeout(() => publish(boardState), Math.min(...due) - this.#options.now()); expiry.unref?.(); }
 			this.#armWaiting(state);
 			this.#armReports(state);
 		};
-		publish(watch.value);
+  const liveWatch = this.#options.taskLive === false ? undefined : new TaskLiveWatch(this.#options.harness,
+   () => publish(boardState, true), error => this.#options.log(`task live: ${errorMessage(error)}`), this.#options.taskArtifactSaves?.read);
+  this.#liveWatch = liveWatch;
+  const unwatchSaves = liveWatch && this.#options.taskArtifactSaves?.watch(() => liveWatch.savesChanged());
+		publish(boardState);
 		watch.start(async (call) => {
 			if (call.kind === "failed") throw call.error;
-			const value = call.value;
-			publish(value);
+			boardState = call.value;
+			publish(boardState);
 		});
 		return async () => {
 			unlisten?.();
+   unwatchSaves?.();
+   this.#liveWatch = undefined;
+   await liveWatch?.stop();
    if (expiry) clearTimeout(expiry);
    await Promise.all(stops.map(stop => stop()));
    await watch.stop().catch(() => undefined);

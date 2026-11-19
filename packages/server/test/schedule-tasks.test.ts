@@ -183,7 +183,7 @@ describe("one board task per clock schedule", () => {
 		expect(view.view!.entries.filter((e) => entryText(e).startsWith(`[worker ${workerId} reported]`))).toHaveLength(1);
 		const timeline = await client.request({ type: "board.task.timeline", projectId, taskId: run.taskId! });
 		if (timeline.type !== "board.task.timeline") throw errorOf(timeline);
-		expect(timeline.entries.filter((e) => e.label === `Worker ${workerId} reported`)).toHaveLength(1);
+		expect(timeline.entries.filter((e) => e.label === `Worker ${workerId} reported` || (e.ref === workerId && e.live && e.label.startsWith(`${workerId} worked`)))).toHaveLength(1);
 	});
 
 	it("creates the task on the first run, reuses it for later and manual runs, and keeps it across a restart", async () => {

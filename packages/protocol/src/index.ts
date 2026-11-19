@@ -527,6 +527,9 @@ import {
  BoardTaskActivitySchema,
  type BoardLiveLine,
  BoardLiveLineSchema,
+ type BoardLivePulse,
+ type BoardLiveCounters,
+ liveCounterLabels,
  type BoardTaskLive,
  BoardTaskLiveSchema,
  type BoardActivityActor,
@@ -1618,6 +1621,8 @@ export type {
  BoardTaskState,
  BoardTaskActivity,
  BoardLiveLine,
+ BoardLivePulse,
+ BoardLiveCounters,
  BoardTaskLive,
  BoardActivityActor,
 	BoardReportCheck,
@@ -1769,3 +1774,5 @@ export { markdownText } from "./markdown.ts";
 export * from "./mcp-import.ts";
 
 export { ThreadStateSchema, threadState, backgroundJobCounts, type ThreadState } from "./threads.ts";
+
+export { liveCounterLabels };

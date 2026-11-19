@@ -1,9 +1,10 @@
-/** Synthetic Live proof. DEMO_BEFORE=1 omits task-live; SIGUSR1 adds a line, SIGUSR2 ends the run. */
+/** Synthetic Live proof. SIGUSR1 starts a tool on first use and records a check on the next; SIGUSR2 folds. */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { HARNESS_FEATURES } from '@kemiri/protocol';
 import { createSetup, TestClient } from '../test/support.ts';
 import { foldTaskLiveIn, openBoard, workerWriter, writeReportIn } from '../src/board.ts';
+import { LiveDoc, type TaskId } from '@earendil-works/pi-durable';
 import { activityTracking, endActivitySource } from '../src/task-activity.ts';
 
 const features = HARNESS_FEATURES.filter(feature => process.env.DEMO_BEFORE !== '1' || feature !== 'task-live');
@@ -19,11 +20,28 @@ const { runtime } = await setup.server.manager.open(projectId);
 const task = await runtime.board.saveTask({ task: { title: 'Make gift cards work at checkout', description: 'Let shoppers pay for part or all of an order with a gift card.', acceptance: 'A gift card can pay for part or all of an order.', status: 'in_progress', blockedBy: [], blockedReason: null, writeScopes: [] } }, 'user');
 const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 const mainId = runtime.conversation.id;
-const actor = { id: 'main:102:demo', kind: 'worker', name: 'fern', threadId: 'main', conversationId: 102, runId: 'demo' } as const;
-await runtime.harness.commit(async tx => {
+const fixture = await runtime.harness.createConversation({ ownership: { kind: 'ownerless' } }, BACKGROUND_CONTEXT);
+const actor = await runtime.harness.commit(async tx => {
+ const append = (name: string, args: Record<string, string>, isError = false) => appendFinishedCall(tx, name, args, isError);
+ const first = await append('read', { path: 'checkout.ts' });
+ await append('edit', { path: 'checkout.ts' });
+ await append('write', { path: 'balance.ts' });
+ await append('bash', { command: 'bun test checkout' }, true);
+ await append('bash', { command: "git commit -m 'Add gift card checkout'" });
+ const live = await tx.doc(LiveDoc, fixture.id);
+ live.run = { first, taskId: 1 as TaskId, inputs: [], turns: 0 };
+ const actor = { id: `main:${fixture.id}:${first}`, kind: 'worker', name: 'fern', threadId: 'main', conversationId: fixture.id, runId: String(first) } as const;
  const board = await openBoard(tx, mainId);
  activityTracking(board, task.id).sources[actor.id] = { actor, state: 'running', since: at(23), title: task.title };
+ return actor;
 }, BACKGROUND_CONTEXT);
+
+async function appendFinishedCall(tx: import('@earendil-works/pi-durable').Tx, name: string, args: Record<string, string>, isError: boolean) {
+ const call = fauxToolCall(name, args);
+ const entry = await tx.appendEntry(fixture.id, { kind: 'pi.assistant', model: [fauxAssistantMessage([call], { stopReason: 'toolUse' })] });
+ await tx.appendEntry(fixture.id, { kind: 'pi.tool-result', model: [{ role: 'toolResult', toolCallId: call.id, toolName: name, isError, timestamp: Date.now(), content: [] }] });
+ return entry.id;
+}
 let serial = 0;
 const write = (minutesAgo: number, now?: string, addResult?: string) => runtime.harness.commit(tx => writeReportIn(tx, mainId, {
  taskId: task.id, sections: { now }, addResult, by: workerWriter('main', 'fern'),
@@ -32,9 +50,21 @@ await write(21, 'reading the payment flow');
 await write(15, 'building the gift card field', 'The checkout now accepts a gift card code.');
 await write(8, 'checking partial payments', 'A card can cover part of an order.');
 await write(3, 'checking the balance display');
-process.on('SIGUSR1', () => { void write(0, serial > 4 ? 'running the checkout checks' : 'checking an empty card', serial > 4 ? undefined : 'An empty card now explains why it cannot be used.'); });
+let signalCount = 0;
+process.on('SIGUSR1', () => { void runtime.harness.commit(async tx => {
+ if (signalCount++ === 0) {
+  const call = fauxToolCall('bash', { command: 'bun test checkout-gift-cards' });
+  await tx.appendEntry(fixture.id, { kind: 'pi.assistant', model: [fauxAssistantMessage([call], { stopReason: 'toolUse' })] });
+  (await tx.doc(LiveDoc, fixture.id)).tools = [{ callId: call.id, name: call.name, status: 'running', taskId: 2 as TaskId }];
+ } else {
+  await writeReportIn(tx, mainId, { taskId: task.id, sections: {}, mergeChecks: [{ name: 'Gift card checkout tests', result: 'passed', count: 24 }], by: workerWriter('main', 'fern') }, `demo:${++serial}`, at(0));
+ }
+}, BACKGROUND_CONTEXT); });
 process.on('SIGUSR2', () => { void runtime.harness.commit(async tx => {
  const board = await openBoard(tx, mainId);
+ const live = await tx.doc(LiveDoc, fixture.id);
+ delete live.run;
+ delete live.tools;
  endActivitySource(activityTracking(board, task.id), actor.id, at(0));
  await foldTaskLiveIn(tx, mainId, board, task.id, actor.id, 'reported', at(0));
 }, BACKGROUND_CONTEXT); });

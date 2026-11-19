@@ -231,13 +231,38 @@ export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 /** task-live: chronological, oldest first. Clients skip line kinds they do not recognize. */
 export const BoardLiveLineSchema = Type.Object({
  id: Type.String(),
- at: Type.String({ description: "ISO time of the report write." }),
- kind: Type.String({ description: "Phase or result (wire values: phase, result). More kinds may be added." }),
+ at: Type.String({ description: "ISO time the line was recorded." }),
+ kind: Type.String({ description: "Phase, result or recorded fact. More kinds may be added." }),
  text: Type.String(),
  actor: BoardActivityActorSchema,
 });
 export type BoardLiveLine = Static<typeof BoardLiveLineSchema>;
-export const BoardTaskLiveSchema = Type.Object({ lines: Type.Array(BoardLiveLineSchema, { maxItems: 30 }) });
+export const BoardLivePulseSchema = Type.Object({
+ label: Type.String(),
+ tool: Type.Optional(Type.String()),
+ since: Type.String(),
+});
+export type BoardLivePulse = Static<typeof BoardLivePulseSchema>;
+export const BoardLiveCountersSchema = Type.Object({
+ steps: Type.Integer({ minimum: 0 }),
+ filesChanged: Type.Integer({ minimum: 0 }),
+ filesSaved: Type.Integer({ minimum: 0 }),
+ commits: Type.Integer({ minimum: 0 }),
+ checks: Type.Integer({ minimum: 0 }),
+});
+export type BoardLiveCounters = Static<typeof BoardLiveCountersSchema>;
+export const BoardTaskLiveSchema = Type.Object({
+ lines: Type.Array(BoardLiveLineSchema, { maxItems: 30 }),
+ pulse: Type.Optional(BoardLivePulseSchema),
+ counters: Type.Optional(BoardLiveCountersSchema),
+});
+
+export function liveCounterLabels(counters: BoardLiveCounters | undefined): string[] {
+ if (!counters) return [];
+ return ([[counters.steps, "step", ""], [counters.filesChanged, "file", " changed"],
+  [counters.filesSaved, "file", " saved"], [counters.commits, "commit", ""], [counters.checks, "check", ""]] as const)
+  .flatMap(([count, noun, suffix]) => count > 0 ? [`${count} ${noun}${count === 1 ? "" : "s"}${suffix}`] : []);
+}
 export type BoardTaskLive = Static<typeof BoardTaskLiveSchema>;
 
 export const BoardTaskSchema = Type.Object({

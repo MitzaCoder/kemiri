@@ -192,7 +192,8 @@ export async function probeDurationSeconds(path: string): Promise<number | null>
 
 // --- the store -----------------------------------------------------------------------------------------------------
 
-type ArtifactIndex = { version: 1; artifacts: Artifact[]; receipts?: Record<string, string> };
+export type TaskArtifactSave = { id: string; taskId: string; conversationId: number; runId: string; at: string };
+type ArtifactIndex = { version: 1; artifacts: Artifact[]; receipts?: Record<string, string>; taskSaves?: TaskArtifactSave[] };
 /** Most recent snapshots retained per artifact; numbering never resets. */
 export const ARTIFACT_VERSION_LIMIT = 20;
 
@@ -217,6 +218,7 @@ export type ArtifactSaveInput = {
 	tags?: readonly string[];
 	/** Memoized save-operation ID: a durable replay finds its snapshot instead of appending another version. */
 	artifactId?: string;
+	liveRun?: Pick<TaskArtifactSave, "conversationId" | "runId">;
 };
 
 export type ArtifactListFilter = {
@@ -259,6 +261,7 @@ export class ArtifactStore {
 	readonly maxFileBytes: number;
 	readonly #probeDuration: (path: string) => Promise<number | null>;
 	readonly #now: () => number;
+	readonly #taskSaveListeners = new Map<string, Set<() => void>>();
 	readonly #onChange: ((event: ArtifactsChangedEvent) => void) | undefined;
 	readonly #log: (message: string) => void;
 	/** The tail of each project's write queue. */
@@ -360,15 +363,38 @@ export class ArtifactStore {
 			if (previous !== undefined) index.artifacts.splice(index.artifacts.indexOf(previous), 1);
 			index.artifacts.push(artifact);
 			(index.receipts ??= {})[id] = `${rootId}~${version}`;
+			if (input.taskId && input.liveRun) {
+				index.taskSaves ??= [];
+				index.taskSaves.push({ id, taskId: input.taskId, ...input.liveRun, at: artifact.createdAt });
+			}
 			changed = artifact;
 			return artifact;
 		});
-		if (changed !== undefined) this.#emit({ type: "artifacts.changed", projectId: input.projectId, artifact: changed, deleted: false });
+		if (changed !== undefined) {
+			this.#emit({ type: "artifacts.changed", projectId: input.projectId, artifact: changed, deleted: false });
+			if (input.taskId && input.liveRun) for (const listener of this.#taskSaveListeners.get(input.projectId) ?? []) {
+    try { listener(); } catch (error) { this.#log(`artifacts: task save listener failed: ${errorMessage(error)}`); }
+   }
+		}
 		// Publish before pruning: failure/crash may retain extra bytes, never lose referenced bytes.
 		for (const snapshot of pruned) {
 			await rm((snapshot.version ?? 1) === 1 ? this.filePath(snapshot) : dirname(this.filePath(snapshot)), { force: true, recursive: true }).catch((error: unknown) => this.#log(`artifacts: prune failed: ${errorMessage(error)}`));
 		}
 		return saved;
+	}
+
+	async taskSaves(projectId: string): Promise<readonly TaskArtifactSave[]> {
+		return (await this.#read(projectId)).taskSaves ?? [];
+	}
+
+	watchTaskSaves(projectId: string, listener: () => void): () => void {
+		const listeners = this.#taskSaveListeners.get(projectId) ?? new Set();
+		this.#taskSaveListeners.set(projectId, listeners);
+		listeners.add(listener);
+		return () => {
+			listeners.delete(listener);
+			if (!listeners.size) this.#taskSaveListeners.delete(projectId);
+		};
 	}
 
 	/** Newest first, narrowed by every filter given. Only task-scoped lists are uncapped by default. */

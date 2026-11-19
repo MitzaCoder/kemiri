@@ -1,4 +1,6 @@
-import type { BoardTaskLive, BoardTimelineEntry, BoardTimelineFact, BoardWriter } from "@kemiri/protocol";
+import type { BoardLiveLine, BoardReportCheck, BoardTaskLive, BoardTimelineEntry, BoardTimelineFact, BoardWriter } from "@kemiri/protocol";
+import type { TaskArtifactSave } from "./artifacts.ts";
+import type { TaskLiveRun } from "./task-live-run.ts";
 import type { BoardState } from "./board.ts";
 import { setActivityPhase, type TaskActivitySource, type TaskActivityTracking } from "./task-activity.ts";
 import { timelineId } from "./task-timeline.ts";
@@ -6,7 +8,7 @@ import { timelineId } from "./task-timeline.ts";
 export const TASK_LIVE_LIMIT = 30;
 
 /** Called inside the existing report write. Only the writer's running source on this task can add lines. */
-export function recordLiveReport(state: BoardState, taskId: string, by: BoardWriter, at: string, phase: string | undefined, result: string | undefined, key: string | undefined): void {
+export function recordLiveReport(state: BoardState, taskId: string, by: BoardWriter, at: string, phase: string | undefined, result: string | undefined, key: string | undefined, checks: readonly BoardReportCheck[] = []): void {
  const tracking = state.taskActivity?.[taskId];
  if (!tracking) return;
  const source = Object.values(tracking.sources).find(({ state, actor }) => state === "running" && actor.threadId === by.threadId &&
@@ -15,24 +17,76 @@ export function recordLiveReport(state: BoardState, taskId: string, by: BoardWri
  const startedAt = source.since;
  const changedPhase = phase === undefined ? undefined : setActivityPhase(tracking, source.actor.id, phase, at);
  if (!state.taskLiveEnabled || key === undefined) return;
- const append = (kind: "phase" | "result", text: string | undefined) => {
-  const clean = text?.replace(/\s+/g, " ").trim();
-  if (!clean) return;
-  const id = timelineId(taskId, `live:${source.actor.id}:${key}:${kind}`);
-  tracking.liveLines ??= [];
-  const lines = tracking.liveLines;
-  if (lines.some(line => line.id === id)) return;
-  source.liveStartedAt ??= startedAt;
-  lines.push({ id, at, kind, text: clean.length > 800 ? `${clean.slice(0, 799)}…` : clean, actor: { ...source.actor } });
-  if (lines.length > TASK_LIVE_LIMIT) lines.splice(0, lines.length - TASK_LIVE_LIMIT);
- };
- append("phase", changedPhase);
- if (by.author === "worker") append("result", result);
+ source.liveStartedAt ??= startedAt;
+ appendLiveLine(tracking, taskId, source, at, `${key}:phase`, "phase", changedPhase);
+ if (by.author === "worker") appendLiveLine(tracking, taskId, source, at, `${key}:result`, "result", result);
+ if (checks.length && !source.liveCheckWrites?.includes(key)) {
+  source.liveCheckWrites ??= [];
+  source.liveCheckWrites.push(key);
+  source.liveChecks = (source.liveChecks ?? 0) + checks.length;
+  appendLiveFact(state, taskId, source, at, `checks:${key}`, `Check${checks.length === 1 ? "" : "s"} recorded: ${checks.map(check => `${check.name} ${check.result}`).join("; ")}`, "checks");
+ }
+}
+
+const BURST_MS = 15_000;
+function appendLiveLine(tracking: TaskActivityTracking, taskId: string, source: TaskActivitySource, at: string, key: string, kind: string, text: string | undefined, burst?: string): void {
+ const clean = text?.replace(/\s+/g, " ").trim();
+ if (!clean) return;
+ const id = timelineId(taskId, `live:${source.actor.id}:${key}`);
+ tracking.liveLines ??= [];
+ const lines = tracking.liveLines;
+ if (lines.some(line => line.id === id)) return;
+ const previous = lines.at(-1);
+ const elapsed = previous ? Date.parse(at) - Date.parse(previous.at) : Infinity;
+ if (burst && previous?.actor.id === source.actor.id && tracking.liveBurst?.id === previous.id && tracking.liveBurst.kind === burst && elapsed >= 0 && elapsed <= BURST_MS) {
+  previous.text = clipLine(burst === "send" ? clean : `${previous.text}; ${clean}`);
+  previous.at = at;
+  return;
+ }
+ lines.push({ id, at, kind, text: clipLine(clean), actor: { ...source.actor } });
+ if (burst) tracking.liveBurst = { id, kind: burst };
+ if (lines.length > TASK_LIVE_LIMIT) lines.splice(0, lines.length - TASK_LIVE_LIMIT);
+}
+const clipLine = (text: string) => text.length > 800 ? `${text.slice(0, 799)}…` : text;
+
+export function appendLiveFact(state: BoardState, taskId: string, source: TaskActivitySource, at: string, key: string, text: string, burst?: string): void {
+ if (!state.taskLiveEnabled || source.state !== "running") return;
+ source.liveStartedAt ??= source.since;
+ appendLiveLine(state.taskActivity![taskId]!, taskId, source, at, key, "fact", text, burst);
+}
+
+export function runningLiveSources(tracking: TaskActivityTracking | undefined): TaskActivitySource[] {
+ return Object.values(tracking?.sources ?? {}).filter(source => source.state === "running").sort((a, b) => b.since.localeCompare(a.since) || a.actor.id.localeCompare(b.actor.id));
+}
+
+export function liveRunFacts(taskId: string, source: TaskActivitySource, run: TaskLiveRun | undefined, saves: readonly TaskArtifactSave[]): BoardTaskLive {
+ const lines: BoardLiveLine[] = [];
+ let burstEnd = -Infinity;
+ let burstSize = 0;
+ for (const save of saves) {
+  const at = Date.parse(save.at);
+  if (at - burstEnd > BURST_MS) {
+   burstSize = 0;
+   lines.push({ id: timelineId(taskId, `live:${source.actor.id}:save:${save.id}`), at: save.at, kind: "fact", text: "", actor: source.actor });
+  }
+  burstEnd = at;
+  burstSize += 1;
+  lines.at(-1)!.text = `Saved ${burstSize} file${burstSize === 1 ? "" : "s"}`;
+ }
+ const ledgerCommits = source.liveCommits ?? [];
+ const toolCommits = [...run?.commitIds ?? []].filter(id => !ledgerCommits.some(hash => hash.startsWith(id) || id.startsWith(hash))).length;
+ const counters = { steps: run?.steps ?? 0, filesChanged: run?.changedPaths.size ?? 0, filesSaved: saves.length,
+  commits: toolCommits + Math.max(ledgerCommits.length, run?.commitsWithoutId ?? 0), checks: source.liveChecks ?? 0 };
+ return { lines, ...(Object.values(counters).some(Boolean) ? { counters } : {}), ...(run?.pulse ? { pulse: run.pulse } : {}) };
+}
+
+export function mergeLiveLines(...parts: readonly BoardLiveLine[][]): BoardLiveLine[] {
+ return parts.flat().sort((a, b) => a.at.localeCompare(b.at)).slice(-TASK_LIVE_LIMIT);
 }
 
 export function taskLive(tracking: TaskActivityTracking | undefined): BoardTaskLive | undefined {
  const lines = tracking?.liveLines?.filter(line => tracking.sources[line.actor.id]?.state === "running");
- return tracking && Object.values(tracking.sources).some(source => source.state === "running") ? { lines: lines ?? [] } : undefined;
+ return runningLiveSources(tracking).length ? { lines: lines ?? [] } : undefined;
 }
 
 /** Take just the ending source's lines; other sources on the task keep working. */

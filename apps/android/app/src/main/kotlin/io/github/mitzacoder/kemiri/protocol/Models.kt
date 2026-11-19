@@ -2705,7 +2705,25 @@ data class BoardLiveLine(
 
 @Serializable
 data class BoardTaskLive(
-    val `lines`: List<BoardLiveLine>
+    val `lines`: List<BoardLiveLine>,
+    val `pulse`: BoardTaskLivePulse? = null,
+    val `counters`: BoardTaskLiveCounters? = null
+)
+
+@Serializable
+data class BoardTaskLivePulse(
+    val `label`: String,
+    val `tool`: String? = null,
+    val `since`: String
+)
+
+@Serializable
+data class BoardTaskLiveCounters(
+    val `steps`: Long,
+    val `filesChanged`: Long,
+    val `filesSaved`: Long,
+    val `commits`: Long,
+    val `checks`: Long
 )
 
 @Serializable

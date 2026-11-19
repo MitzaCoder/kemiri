@@ -7,12 +7,17 @@ export type TaskActivitySource = {
  since: string;
  phase?: string;
  liveStartedAt?: string;
+ liveFolded?: boolean;
+ liveChecks?: number;
+ liveCheckWrites?: string[];
+ liveCommits?: string[];
  title: string;
  failure?: string;
 };
 export type TaskActivityTracking = {
  sources: Record<string, TaskActivitySource>;
  liveLines?: BoardLiveLine[];
+ liveBurst?: { id: string; kind: string };
  pauseNudgedEpisode?: string;
  lastEndedAt?: string;
  status?: BoardTask["status"];

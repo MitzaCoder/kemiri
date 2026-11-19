@@ -50,6 +50,7 @@ export type ArtifactToolsOptions = {
 	/** The thread a conversation belongs to, a worker's being its coordinator's; main when not given. */
 	threadIdOf?: (conversationId: number) => Promise<string>;
 	/** Best-effort durable proof receipt, including saves replayed after a restart. Must not fail the save. */
+	liveRunOf?: (conversationId: number) => Promise<{ conversationId: number; runId: string } | undefined>;
 	onSavedSource?: (conversationId: number, path: string) => Promise<void>;
 };
 
@@ -197,6 +198,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			const paths = args.paths ?? [args.path!];
 			if (paths.length < 1 || paths.length > 50) return toolText("paths must contain 1–50 files.", true);
 			const project = options.project();
+			const liveRun = args.taskId ? await options.liveRunOf?.(api.conversationId) : undefined;
 			const files: ArtifactSaveFileResult[] = [];
 			const messages: string[] = [];
 			for (const [index, path] of paths.entries()) {
@@ -221,6 +223,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 						taskId: args.taskId ?? null,
 						tags: [...(args.tags ?? []), ...artifactTagsFromFileName(source.path)],
 						artifactId,
+						...(liveRun ? { liveRun } : {}),
 					});
 					await options.onSavedSource?.(api.conversationId, source.path).catch(() => {});
 					files.push({ path, artifactId: artifact.id, version: artifact.version ?? 1 });

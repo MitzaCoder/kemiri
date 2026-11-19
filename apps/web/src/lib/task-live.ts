@@ -1,9 +1,20 @@
-import type { BoardLiveLine } from '@kemiri/protocol';
+import type { BoardLiveLine, BoardTaskActivity } from '@kemiri/protocol';
 
 type SeenLiveLine = Pick<BoardLiveLine, 'id' | 'at'>;
 
 export function visibleLiveLines(lines: readonly BoardLiveLine[]): BoardLiveLine[] {
-	return lines.filter(line => line.kind === 'phase' || line.kind === 'result');
+	return lines.filter(line => line.kind === 'phase' || line.kind === 'result' || line.kind === 'fact');
+}
+
+/** Only the current actor's phase at the displayed Now timestamp is redundant. */
+export function liveTrailBelowNow(lines: readonly BoardLiveLine[], now: BoardTaskActivity): BoardLiveLine[] {
+ return visibleLiveLines(lines).filter(line => !(now.kind === 'working' && line.kind === 'phase' && line.actor.id === now.actor?.id && line.at === now.since && now.text.startsWith(`${line.actor.name} is ${line.text}`)));
+}
+
+export function pulseElapsed(since: string, now: number): string {
+ const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
+ if (!Number.isFinite(seconds)) return '';
+ return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`;
 }
 
 export function liveSeenKey(backendId: string, projectId: string, taskId: string): string {

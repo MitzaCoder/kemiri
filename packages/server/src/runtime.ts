@@ -1293,6 +1293,7 @@ export class ProjectManager {
    taskState: this.#taskState,
    taskPartStates: this.#taskPartStates,
    taskLive: this.#taskLive,
+   taskArtifactSaves: { read: () => this.artifacts.taskSaves(project.id), watch: listener => this.artifacts.watchTaskSaves(project.id, listener) },
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
 			threadTitle: async (id) => (await threads.record(id))?.title,
@@ -1360,6 +1361,7 @@ export class ProjectManager {
 			memory: this.#memory,
 			project: () => entry.project,
 			taskChanges,
+   taskArtifactSaves: () => board.taskArtifactSaves(),
 			harness,
 			models: this.models,
 			coordinator: conversation,
@@ -1457,6 +1459,11 @@ export class ProjectManager {
 				store: this.artifacts,
 				project: () => entry.project,
 				workspaceDirs: [this.store.workspacesDir(project.id), threadsDir],
+    liveRunOf: async conversationId => {
+     if (!this.#taskLive) return;
+     const run = (await harness.snapshot(LiveDoc, conversationId as Conversation["id"], BACKGROUND_CONTEXT))?.run;
+     if (run?.first !== undefined && !run.afterRun) return { conversationId, runId: String(run.first) };
+    },
 				onSavedSource: async (conversationId, source) => {
 					try { await this.browsers.recordSavedProof(project.id, conversationId, source); }
 					catch (error) { this.#log(`proof receipt: ${errorMessage(error)}`); }
