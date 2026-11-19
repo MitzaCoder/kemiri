@@ -8,6 +8,7 @@
 	 * `danger` tints the edge for things that cannot be undone. `actions` sits on the title's right.
 	 */
 	let {
+		id,
 		title,
 		term,
 		description,
@@ -16,6 +17,7 @@
 		class: className,
 		children
 	}: {
+		id?: string;
 		term?: string;
 		title?: string;
 		description?: string;
@@ -26,7 +28,7 @@
 	} = $props();
 </script>
 
-<section class="flex flex-col gap-2" data-settings-group>
+<section {id} class="flex flex-col gap-2" data-settings-group>
 	{#if title || actions}
 		<div class="flex min-h-6 items-end gap-3 px-1">
 			<div class="flex min-w-0 flex-1 flex-col">

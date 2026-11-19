@@ -1,4 +1,5 @@
 <script lang="ts">
+ import ConversationCacheGroup from './ConversationCacheGroup.svelte';
  import ReportAuditGroup from './ReportAuditGroup.svelte';
  import DeliveryGroup from './DeliveryGroup.svelte';
  import Combobox from './Combobox.svelte';
@@ -39,6 +40,9 @@
 				<Switch id="artifact-privacy" checked={project.blockArtifactRequests} disabled={artifactPrivacySave.status === 'saving'} onchange={(on) => void artifactPrivacySave.run(() => backend.configureProject(projectId, { blockArtifactRequests: on }))} />
 			</SettingsRow>
 		</SettingsGroup>
+	{/if}
+	{#if project?.longPromptCache !== undefined}
+		<ConversationCacheGroup {backend} {projectId} />
 	{/if}
 	{#if coding && project?.uiProof !== undefined}
 		<SettingsGroup title="Proof of screen changes" term="Show UI changes">

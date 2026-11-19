@@ -17,7 +17,6 @@ export type SettingsIconName =
 	| "users"
 	| "calendar-clock"
 	| "ticket"
-	| "database-zap"
 	| "hard-drive"
 	| "key-round"
 	| "settings";
@@ -57,9 +56,8 @@ export const PROJECT_SECTIONS = [
 	{ id: "mcp", label: "Connected apps", term: "MCP", hint: "Which outside tools this project's agents may use", icon: "server" },
 	{ id: "skills", label: "Skills", hint: "What this project's agents know how to do", icon: "key-round" },
 	{ id: "tickets", label: "Tickets and pull requests", hint: "Turn ticket keys and PR numbers into links", icon: "ticket" },
-	{ id: "cache", label: "Conversation cache", term: "Prompt cache", hint: "Pay a little more now so long pauses cost less", icon: "database-zap" },
 	{ id: "storage", label: "Storage", hint: "Finished workspaces and disk use", icon: "hard-drive" },
-	{ id: "advanced", label: "Advanced", hint: "Page privacy, proof of screen changes, report checks, live lines, code delivery", icon: "settings" },
+	{ id: "advanced", label: "Advanced", hint: "Page privacy, conversation cache, proof of screen changes, report checks, live lines, code delivery", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
 
 export function projectSection(id: ProjectSectionId): SettingsSectionInfo<ProjectSectionId> {
@@ -93,6 +91,18 @@ export function backendSettingsHref(backendId: string, sub?: "accounts" | "mcp")
 export function projectSettingsHref(backendId: string, projectId: string, section?: ProjectSectionId): string {
 	const base = `${projectHref(backendId, projectId)}/settings`;
 	return section === undefined ? base : `${base}/${section}`;
+}
+
+export const CONVERSATION_CACHE_GROUP_ID = "conversation-cache";
+
+/** Resolve legacy section URLs independently of viewport width and entry history. */
+export function settingsAliasRedirect(url: Pick<URL, 'pathname' | 'search'>): string | undefined {
+	const location = settingsLocation(url.pathname);
+	if (location?.scope !== "project") return;
+	const index = projectSettingsHref(location.backendId, location.projectId);
+	if (url.pathname.replace(/\/$/, '') === `${index}/cache`) {
+		return `${index}/advanced${url.search}#${CONVERSATION_CACHE_GROUP_ID}`;
+	}
 }
 
 /** Resolve a fresh index entry only. Real sections and content-bearing drill-downs are not indexes. */
@@ -184,7 +194,7 @@ export function projectSectionAvailable(
 		case "general":
 			return true;
 		case "advanced":
-			return has.pagePrivacy === true || has.supports("report-audit") || has.supports("task-live-watcher") ||
+			return has.pagePrivacy === true || has.longPromptCache || has.supports("report-audit") || has.supports("task-live-watcher") ||
 				(projectHasCodingSettings(has.repository) && ["ui-proof", "task-changes", "task-deploys"].some((feature) => has.supports(feature)));
 		case "coordinator":
 			return has.supports("projects") && has.supports("models");
@@ -194,8 +204,6 @@ export function projectSectionAvailable(
 			return has.supports("schedules");
 		case "tickets":
 			return has.links && projectHasCodingSettings(has.repository);
-		case "cache":
-			return has.longPromptCache;
 		case "mcp":
 			return has.supports("mcp-servers");
 		case "skills":

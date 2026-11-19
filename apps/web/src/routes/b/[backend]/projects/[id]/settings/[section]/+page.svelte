@@ -5,7 +5,6 @@
 	import CoordinatorSection from '#lib/components/settings/CoordinatorSection.svelte';
 	import NotFoundNote from '#lib/components/settings/NotFoundNote.svelte';
 	import ProjectGeneralSection from '#lib/components/settings/ProjectGeneralSection.svelte';
-	import PromptCacheSection from '#lib/components/settings/PromptCacheSection.svelte';
 	import { settingsUp } from '#lib/settings-navigation.svelte.js';
 	import TicketsSection from '#lib/components/settings/TicketsSection.svelte';
 	import ProjectSkillsSection from '#lib/components/settings/ProjectSkillsSection.svelte';
@@ -62,8 +61,6 @@
 		<SchedulesSection {backend} {projectId} />
 	{:else if section === 'tickets'}
 		<TicketsSection {backend} {projectId} {note} />
-	{:else if section === 'cache'}
-		<PromptCacheSection {backend} {projectId} />
 	{:else if section === 'mcp'}
 		{#key `${backend.id}:${projectId}`}<ProjectMcpSection {backend} {projectId} />{/key}
 	{:else if section === 'skills'}

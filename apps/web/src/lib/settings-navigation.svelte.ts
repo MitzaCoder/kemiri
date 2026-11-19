@@ -1,7 +1,7 @@
 /** SvelteKit adapter; native Back/Forward is deliberately never intercepted. */
 import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 import { page } from '$app/state';
-import { settingsEntryRedirect } from './settings.js';
+import { settingsAliasRedirect, settingsEntryRedirect } from './settings.js';
 import {
 	closeAction, settingsSurface, upAction, visitEntry,
 	type McpNavigationView, type NavigationAction, type NavigationEntry,
@@ -26,12 +26,13 @@ export function installSettingsNavigation(): void {
 		}
 	});
 	afterNavigate(navigation => {
+		const redirect = settingsAliasRedirect(page.url) ??
+			(navigation.type === 'enter' && !page.state.navigation ? settingsEntryRedirect(page.url, splitSettings()) : undefined);
+		if (redirect) {
+			void navigateSettings(redirect, true);
+			return;
+		}
 		if (!page.state.navigation) {
-			const redirect = navigation.type === 'enter' && settingsEntryRedirect(page.url, splitSettings());
-			if (redirect) {
-				void navigateSettings(redirect, true);
-				return;
-			}
 			const initial = nextEntry ?? { index: 0 };
 			if (settingsSurface(page.url.pathname)) initial.visit = { id: crypto.randomUUID(), entries: [] };
 			void writeEntryState({ ...page.state, navigation: initial }, true);
@@ -44,7 +45,9 @@ export async function navigateSettings(to: string, replace = false): Promise<voi
 	const url = new URL(to, page.url.href);
 	// On an in-app opening, write the final section into the new entry directly (push + replace in one step).
 	// Up and Back use separate paths, so an index they reveal is never resolved again.
-	const target = url.origin === page.url.origin ? settingsEntryRedirect(url, splitSettings()) ?? to : to;
+	const target = url.origin === page.url.origin
+		? settingsAliasRedirect(url) ?? settingsEntryRedirect(url, splitSettings()) ?? to
+		: to;
 	const navigation = visitEntry(entry(), href(), page.url.origin, crypto.randomUUID(), replace,
 		settingsSurface(page.url.pathname) || page.state.usage === true);
 	performingNavigation = true;

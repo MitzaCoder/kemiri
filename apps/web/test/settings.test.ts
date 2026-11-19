@@ -8,6 +8,7 @@ import {
 	projectSectionNote,
 	projectHasCodingSettings,
 	projectSettingsHref,
+	settingsAliasRedirect,
 	settingsLocation,
 	settingsParentHref,
 } from "../src/lib/settings.ts";
@@ -32,11 +33,20 @@ describe("settings routes", () => {
 		expect(PROJECT_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
 			["general", "General"], ["coordinator", "Main chat"], ["workers", "Workers"], ["schedules", "Scheduled tasks"],
 			["mcp", "Connected apps"], ["skills", "Skills"], ["tickets", "Tickets and pull requests"],
-			["cache", "Conversation cache"], ["storage", "Storage"], ["advanced", "Advanced"],
+			["storage", "Storage"], ["advanced", "Advanced"],
 		]);
 		const advanced = projectSettingsHref("pc", "demo", "advanced");
 		expect(settingsLocation(advanced)?.section).toBe("advanced");
 		expect(settingsParentHref(advanced)).toBe(projectSettingsHref("pc", "demo"));
+	});
+
+	test("legacy cache links resolve to the Conversation cache group in Advanced", () => {
+		const legacy = new URL("https://example.com/b/a%2Fb/projects/c%20d/settings/cache/?example=1");
+		expect(settingsAliasRedirect(legacy)).toBe("/b/a%2Fb/projects/c%20d/settings/advanced?example=1#conversation-cache");
+		legacy.pathname = "/b/pc/projects/demo/settings/cache/unknown";
+		expect(settingsAliasRedirect(legacy)).toBeUndefined();
+		legacy.pathname = "/b/pc/projects/demo/settings/advanced";
+		expect(settingsAliasRedirect(legacy)).toBeUndefined();
 	});
 
 	test("reads a general path", () => {
@@ -101,6 +111,10 @@ describe("settings routes", () => {
 		expect(PROJECT_SECTIONS.filter((s) => projectSectionAvailable(s.id, bare)).map((s) => s.id)).toEqual(["general"]);
 		const noStorage = { ...all, supports: (feature: string) => feature !== "storage" };
 		expect(projectSectionAvailable("storage", noStorage)).toBe(false);
-		expect(projectSectionAvailable("cache", noStorage)).toBe(true);
+	});
+
+	test("cache support alone makes Advanced available, even for non-repository projects", () => {
+		const cacheOnly = { supports: () => false, links: false, longPromptCache: true, repository: false };
+		expect(PROJECT_SECTIONS.filter((s) => projectSectionAvailable(s.id, cacheOnly)).map((s) => s.id)).toEqual(["general", "advanced"]);
 	});
 });

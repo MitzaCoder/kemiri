@@ -3,7 +3,6 @@
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
-	import DatabaseZapIcon from '@lucide/svelte/icons/database-zap';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
@@ -27,7 +26,6 @@
 		users: UsersIcon,
 		'calendar-clock': CalendarClockIcon,
 		ticket: TicketIcon,
-		'database-zap': DatabaseZapIcon,
 		'hard-drive': HardDriveIcon,
 		'key-round': KeyRoundIcon,
 		settings: SettingsIcon
