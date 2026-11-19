@@ -46,7 +46,7 @@ internal fun rememberScopeComputers(sessions: List<BackendSession>): List<ScopeC
         if (sessions.isEmpty()) flowOf(emptyList()) else combine(sessions.map { session ->
             combine(session.projects, session.client.state) { projects, connection -> session.scopeComputer(connection.status == ConnectionStatus.Ready, projects) }
         }) { it.toList() }
-    }.collectAsStateWithLifecycle(sessions.map { it.scopeComputer(it.client.state.value.status == ConnectionStatus.Ready, it.projects.value) })
+    }.collectAsStateWithLifecycle(emptyList())
     return computers
 }
 
