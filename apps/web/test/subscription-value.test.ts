@@ -79,7 +79,7 @@ test('coordinator project lines follow task links but are not linked to tasks', 
 	const coordinatorProjects = [{ projectId: 'bakery', apiValue: 15.25 }, { projectId: 'cafe', apiValue: 8.5 }];
 	const html = renderCard({ ...subscription, coordinatorProjects });
 	const list = html.slice(html.indexOf('aria-label="Where it went"'));
-	expect(list).toMatch(/href="\?task=T1".*Coordinator · Example bakery<\/span>.*\$15\.25.*Coordinator · Example café<\/span>.*\$8\.5<\/span>/s);
+	expect(list).toMatch(/href="\?task=T1".*Coordinator · Example bakery<\/span>.*\$15\.25.*Coordinator · Example café<\/span>.*\$8\.50<\/span>/s);
 	expect(list.match(/<a /g)).toHaveLength(1);
 	expect(list).toContain('Coordinator work is not spread across tasks.');
 	expect(renderCard(subscription)).not.toContain('Coordinator ·');
@@ -89,15 +89,15 @@ test('coordinator project lines follow task links but are not linked to tasks', 
 	expect(noTasksOrLimits).toContain('Coordinator work is not spread across tasks.');
 });
 
-test('the card rounds estimates and range endpoints but keeps small estimates and recorded cents', () => {
+test('the card shows whole dollars from $100 and two decimals below, for estimates and recorded amounts alike', () => {
 	const html = renderCard({ ...subscription, apiValue: 1640.25,
 		windows: [{ ...subscription.windows[0]!, windowsPerMonth: 4.34857377,
 			fullWindowValue: { estimate: 610, low: 595.12, high: 625.64 } }],
 		models: [{ model: 'example-small', apiValue: 1640.25, scopedWindowId: 'weekly',
 			valuePerPoint: { estimate: 9.25, low: 8.75, high: 10.51 } }] });
-	for (const text of ['At full use · estimated', '$2,653', 'range $595–$626', '≈ $9.25 per point · range $8.75–$11',
-		'$1,640.25 of work for $100.']) expect(html).toContain(text);
-	for (const text of ['$2,652.63', '$595.12', '$625.64', '$10.51']) expect(html).not.toContain(text);
+	for (const text of ['At full use · estimated', '$2,653', 'range $595–$626', '≈ $9.25 per point · range $8.75–$10.51',
+		'$1,640 of work for $100.']) expect(html).toContain(text);
+	for (const text of ['$2,652.63', '$595.12', '$625.64', '$1,640.25']) expect(html).not.toContain(text);
 });
 
 test('missing prices and insufficient evidence do not hide recorded work', () => {
@@ -105,4 +105,10 @@ test('missing prices and insufficient evidence do not hide recorded work', () =>
 		realisedRatio: null, planUsed: null, windows: [{ ...subscription.windows[0]!, kemiriPoints: 4, fullWindowValue: null, valuePerPoint: null }] });
 	for (const text of ['$1,640 of work.', 'Add what you pay', 'not enough use yet', 'example-small', 'Where it went']) expect(html).toContain(text);
 	for (const text of ['what this subscription costs', 'At full use', 'default price']) expect(html).not.toContain(text);
+});
+
+test('money shows whole dollars from $100 and always two decimals below', async () => {
+	const { usageMoney } = await import('../src/lib/usage-money.ts');
+	expect([982.5, 42.5, 35, 8.5, 99.99, 99.996, 100, 1640.25, 0, 0.004, 0.01].map(usageMoney)).toEqual(
+		['$983', '$42.50', '$35.00', '$8.50', '$99.99', '$100', '$100', '$1,640', '$0.00', '< $0.01', '$0.01']);
 });

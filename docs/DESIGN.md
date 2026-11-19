@@ -1936,8 +1936,8 @@ this phase; generated DTOs include the optional analysis for a later UI.
 Value replaces the period picker with a calendar month and sends the browser's UTC offset at the start of that month.
 It reads only supporting backends and groups results by backend. Each measured subscription shows work at API rates
 against its monthly price and, when supported by evidence, an estimated full-use value on the same scale. The binding
-window supplies plan use, a full-window estimate with range, and the share used elsewhere. Estimated amounts and range
-endpoints round to whole dollars from $10 up. Models show their recorded API value and a separate estimate only for a
+window supplies plan use, a full-window estimate with range, and the share used elsewhere. Money in the Value tab and
+the task sheet's usage line uses one format (`usage-money.ts`): whole dollars from $100 up, two decimals below. Models show their recorded API value and a separate estimate only for a
 measured scoped limit. Top tasks open their project task sheets and include subtask totals. Coordinator work is not
 spread across tasks: “Where it went” lists it at API prices on one unlinked line per project, after the tasks.
 Keys are listed separately at API prices, with no ratio. Subscriptions without limits also show the coordinator

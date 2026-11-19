@@ -1,14 +1,13 @@
 import type { SubscriptionValue, UsageValueRequest, ValueRangeSchema, WindowValue } from '@kemiri/protocol';
 import type { Static } from 'typebox';
+import { usageMoney } from './usage-money.js';
 
 type ValueRange = Static<typeof ValueRangeSchema>;
-const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const wholeDollarUsd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const ratio = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 2 });
 const percent = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 0 });
 
 export function valueMoney(amount: number): string {
-	return amount > 0 && amount < 0.01 ? '< $0.01' : usd.format(amount);
+	return usageMoney(amount);
 }
 
 export function realisedValue({ apiValue, price, realisedRatio }: Pick<SubscriptionValue, 'apiValue' | 'price' | 'realisedRatio'>) {
@@ -18,7 +17,7 @@ export function realisedValue({ apiValue, price, realisedRatio }: Pick<Subscript
 }
 
 export function estimatedMoney(amount: number): string {
-	return amount < 10 ? valueMoney(amount) : wholeDollarUsd.format(amount);
+	return usageMoney(amount);
 }
 
 export function valueRange(range: ValueRange): string {

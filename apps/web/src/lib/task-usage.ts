@@ -1,7 +1,8 @@
 import type { TaskSubscriptionUsage, UsageTaskResponse } from '@kemiri/protocol';
 
-const dollars = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-export const usageDollars = (amount: number) => dollars.format(amount);
+import { usageMoney } from './usage-money.js';
+
+export const usageDollars = usageMoney;
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 export function bindingShareText({ label, bindingWindow }: TaskSubscriptionUsage): string | null {
