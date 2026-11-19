@@ -1848,8 +1848,11 @@ feature) and get it pushed as `conversation.context.changed` while they watch th
 ### Request log and cache statistics
 
 Every backend keeps one row per model request of its conversations (main, threads, workers) in
-`<data dir>/request-log.sqlite` (bun:sqlite, `request-log-store.ts`), for 90 days (pruned at start and daily), so cache
+`<data dir>/request-log-v3.sqlite` (bun:sqlite, `request-log-store.ts`), for 90 days (pruned at start and daily), so cache
 misses can be analysed with real numbers rather than per-conversation totals.
+Releases before schema 3 kept it in `request-log.sqlite` and refuse a newer schema. On first start a newer release copies
+that file into the new one (`VACUUM INTO`) and migrates the copy, leaving the old file unchanged. A deploy rollback to an
+older release therefore keeps working with its own log. Requests logged during a rollback stay in the old file only.
 
 - A row: project, conversation and its kind (`main`, `thread`, `worker`, `other`) with thread, worker, board task and
   schedule IDs; provider and model; the response's timestamp; input, cache read, cache write (and the 1-hour part when
@@ -5423,7 +5426,7 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   (`API_KEY_PLAN_PROVIDERS`); other keys (the `opencode` Zen provider,
   anthropic, openai) are pay-as-you-go with no plan limits and are left out.
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the
-  live samples. In `request-log.sqlite`, `limit_samples` keeps changes in percent or reset time plus the last reading
+  live samples. In the request log, `limit_samples` keeps changes in percent or reset time plus the last reading
   in a flat run. Samples are pruned at 90 days. `limit_periods` preserves observed periods across restarts, including
   window length, label and model or surface scope. A period closes at its scheduled reset, when a reading moves
   the reset by more than five minutes, or when use drops. A recent credit spend confirmed through Kemiri marks a

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LimitReading } from "../src/limit-ledger.ts";
 import { ConversationRequests } from "../src/request-log.ts";
-import { RequestLogStore, type RequestRow } from "../src/request-log-store.ts";
+import { LEGACY_REQUEST_LOG_FILE, REQUEST_LOG_FILE, RequestLogStore, type RequestRow } from "../src/request-log-store.ts";
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -160,6 +160,32 @@ it("migrates schema 2 and seeds the roll-up for retained rows exactly once", () 
 	}
 	sql.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
 	expect(() => RequestLogStore.open(path)).toThrow("schema 5 is newer");
+});
+
+it("copies an older release's log into the new file and leaves the old one for a rollback", () => {
+	const dir = mkdtempSync(join(tmpdir(), "usage-legacy-"));
+	cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+	const legacyPath = join(dir, LEGACY_REQUEST_LOG_FILE);
+	const path = join(dir, REQUEST_LOG_FILE);
+	const store = RequestLogStore.open(legacyPath, { now: START });
+	store.insertMany([request({ purpose: "compaction" })]);
+	store.close();
+	{
+		using sql = new Database(legacyPath);
+		sql.exec(`ALTER TABLE requests DROP COLUMN billing; ALTER TABLE requests DROP COLUMN period_id;
+			ALTER TABLE requests DROP COLUMN priced; DROP TABLE usage_rollup; DROP TABLE limit_samples;
+			DROP TABLE limit_periods; DROP TABLE subscription_terms; UPDATE meta SET value = '2' WHERE key = 'schema_version'`);
+	}
+	expect(RequestLogStore.copyLegacy(legacyPath, path)).toBe(true);
+	expect(RequestLogStore.copyLegacy(legacyPath, path)).toBe(false);
+	const migrated = RequestLogStore.open(path, { now: START });
+	try {
+		expect(migrated.rows({ from: START, to: START + 1 })).toMatchObject([{ cost: 0.125, purpose: "compaction" }]);
+	} finally { migrated.close(); }
+	using legacy = new Database(legacyPath, { readonly: true });
+	expect(legacy.query("SELECT value FROM meta WHERE key = 'schema_version'").get()).toEqual({ value: "2" });
+	expect(legacy.query("SELECT name FROM sqlite_master WHERE name = 'usage_rollup'").all()).toEqual([]);
+	expect(RequestLogStore.copyLegacy(join(dir, "missing.sqlite"), join(dir, "other.sqlite"))).toBe(false);
 });
 
 it.each([

@@ -70,7 +70,7 @@ import { ProjectStore } from "./projects.ts";
 import { backfillProjects } from "./request-backfill.ts";
 import { hasCatalogPrice, requestBilling } from "./request-billing.ts";
 import { RequestLog, type RequestLogOptions } from "./request-log.ts";
-import { REQUEST_LOG_FILE, RequestLogStore } from "./request-log-store.ts";
+import { LEGACY_REQUEST_LOG_FILE, REQUEST_LOG_FILE, RequestLogStore } from "./request-log-store.ts";
 import { ProjectManager } from "./runtime.ts";
 import { GithubReviewReader, ScheduleEventPoller, ScheduleEventStore } from "./schedule-events.ts";
 import { type RunCommand } from "./host-commands.ts";
@@ -1220,6 +1220,9 @@ function openRequestLog(
 	if (config === false) return undefined;
 	const file = config?.file ?? join(dataDir, REQUEST_LOG_FILE);
 	try {
+		if (config?.file === undefined && RequestLogStore.copyLegacy(join(dataDir, LEGACY_REQUEST_LOG_FILE), file)) {
+			options.log(`kemiri: copied the request log of an earlier release into ${file}; the old file stays for a rollback`);
+		}
 		const store = RequestLogStore.open(file, options.now === undefined ? {} : { now: options.now() });
 		options.log(`kemiri: request log ${file}`);
 		return new RequestLog({ store, ...options });

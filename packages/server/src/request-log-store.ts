@@ -6,6 +6,7 @@ import type { CacheWarmStretch } from "@kemiri/protocol";
  * few hundred bytes, written off the request's path.
  */
 import { Database } from "bun:sqlite";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import {
 	type CacheMissReason,
 	type ConversationKind,
@@ -19,7 +20,13 @@ import { createLimitLedgerTables, createRequestEndIndex, LimitLedger } from "./l
 import { SubscriptionTerms } from "./subscription-terms.ts";
 import { usageRole } from "./usage-analysis.ts";
 
-export const REQUEST_LOG_FILE = "request-log.sqlite";
+/**
+ * Schema 3 added billing and the limit ledger in a new file. Releases before it refuse a newer schema, so the
+ * schema-2 file stays where they look for it, untouched: a rolled-back release keeps its own log.
+ */
+export const REQUEST_LOG_FILE = "request-log-v3.sqlite";
+/** Where releases before schema 3 keep their log; copied once into {@link REQUEST_LOG_FILE} and left as it is. */
+export const LEGACY_REQUEST_LOG_FILE = "request-log.sqlite";
 export const REQUEST_LOG_KEEP_DAYS = 90;
 const SCHEMA_VERSION = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -286,6 +293,24 @@ export class RequestLogStore {
 		this.#insert = db.prepare(
 			`INSERT INTO requests (${columns.join(", ")}) VALUES (${columns.map((column) => `$${column}`).join(", ")})`,
 		);
+	}
+
+	/**
+	 * Copy the log of an older release to `path` when `path` does not exist yet, leaving the old file unchanged.
+	 * Returns whether it copied. The copy is migrated when `path` is opened.
+	 */
+	static copyLegacy(legacyPath: string, path: string): boolean {
+		if (existsSync(path) || !existsSync(legacyPath)) return false;
+		const partial = `${path}.copying`;
+		rmSync(partial, { force: true });
+		const legacy = new Database(legacyPath, { readonly: true, strict: true });
+		try {
+			legacy.query("VACUUM INTO ?").run(partial);
+		} finally {
+			legacy.close();
+		}
+		renameSync(partial, path);
+		return true;
 	}
 
 	/** Open or create the log; `now` stamps a new one's `liveSince`. `readonly` opens an existing file for reading only. */
