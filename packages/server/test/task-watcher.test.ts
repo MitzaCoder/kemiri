@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { EntryRecord } from "@earendil-works/pi-durable";
-import { buildWatcherEvidence, checkWatcherAnswer, checkWatcherDraft, parseWatcherVerification, watcherVerificationPrompt, watcherLineRateAllows, watcherPassReason, watcherPrompt,
+import { buildWatcherEvidence, checkWatcherAnswer, checkWatcherDraft, parseWatcherVerification, passesWatcherClaimRules, watcherVerificationPrompt, watcherLineRateAllows, watcherPassReason, watcherPrompt,
 	WATCHER_EVIDENCE_BYTES, WATCHER_MAX_STEPS, type WatcherAnswer, type WatcherEvidence, type WatcherPageLine } from "../src/task-watcher.ts";
 
 function entry(id: number, role: string, content: unknown, attributes = {}): EntryRecord {
@@ -152,5 +152,41 @@ describe("round-two watcher drafts", () => {
 		for (const text of ['true', '{"entailed":"true"}', '{"entailed":true,"entailed":false}', '{"entailed":true} yes', '{"entailed":true,"reason":"yes"}']) {
 			expect(parseWatcherVerification(text)).toBeUndefined();
 		}
+	});
+});
+
+describe("grounded watcher drafts", () => {
+	const evidence = buildWatcherEvidence([
+		entry(21, "assistant", [{ type: "thinking", thinking: "I will read the date fixture to ensure blank dates are covered." }]),
+		entry(22, "assistant", [{ type: "toolCall", id: "fixture", name: "read", arguments: { path: "tests/date-fixture.txt" } }]),
+		entry(23, "toolResult", "Read the fixture to ensure admin access.", { toolCallId: "fixture", toolName: "read", isError: true }),
+	], []);
+	const draft = (object: string, ids: string[], verb = "Reading") => checkWatcherDraft("grounded", JSON.stringify({ verb, object, evidence: ids }), evidence);
+
+	test("renders one action and requires a cited worker quote for a purpose", () => {
+		expect(draft("the date fixture to ensure blank dates are covered", ["22", "21"])).toEqual({ kind: "line", line: "Reading the date fixture to ensure blank dates are covered.", evidence: ["22", "21"] });
+		expect(draft("the date fixture to ensure blank dates", ["22"])).toEqual({ kind: "dropped", reason: "evidence" });
+		expect(draft("the date fixture to ensure admin access", ["23"])).toEqual({ kind: "dropped", reason: "evidence" });
+		expect(draft("the date fixture to ensure blank date", ["21", "22"])).toEqual({ kind: "dropped", reason: "evidence" });
+		expect(draft("the date fixture", ["21"])).toEqual({ kind: "dropped", reason: "evidence" });
+		expect(draft("the date fixture against production", ["22"]).kind).toBe("dropped");
+		expect(draft("all tests passed", ["22"]).kind).toBe("dropped");
+	});
+
+	test("applies local claim rules without mistaking tool prose for a purpose", () => {
+		const allowed = (line: string, ids = ["22", "21"]) => passesWatcherClaimRules({ kind: "line", line, evidence: ids }, evidence);
+		expect(allowed("Reading the date fixture after a build.")).toBe(false);
+		expect(allowed("Reading the date fixture because it failed.")).toBe(false);
+		expect(allowed("Reading the confirmed fixture.")).toBe(false);
+		expect(allowed("Reading the date fixture to ensure admin access.", ["22", "23"])).toBe(false);
+		expect(allowed("Reading the date fixture to ensure blank dates are covered.")).toBe(true);
+	});
+
+	test("the attempt verifier sees the error flag and does not require successful output", () => {
+		const prompt = watcherVerificationPrompt({ kind: "line", line: "Reading the date fixture.", evidence: ["23"] }, evidence, "attempts");
+		expect(JSON.parse(prompt.user).steps).toMatchObject([{ id: "23", error: true }]);
+		expect(prompt.system).toContain("even if it failed or has no result");
+		expect(parseWatcherVerification('{"entailed":true}')).toBe(true);
+		expect(parseWatcherVerification('{"entailed":true}\nNo.')).toBeUndefined();
 	});
 });

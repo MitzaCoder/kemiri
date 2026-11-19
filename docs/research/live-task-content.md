@@ -294,7 +294,15 @@ with the same check scored 34/37 at about $1.50 per project day. Neither variant
 lines reached 95%, and neither verified variant produced 100 lines. Retest constrained Haiku with
 a less aggressive check on attempts before considering live use.
 
-Keep the watcher offline. No auto line can enter outcome sections or Needs you.
+The third replay used 35 fresh runs (21.20 active hours). The combined worker-words and constrained
+Haiku draft scored 240/267 not wrong (89.9%); local claim rules changed no verdicts. An attempt-aware
+Haiku verifier kept 231/253 not wrong (91.3%), at 11.93 lines per active hour and $0.077 per project
+day. It rejected five wrong lines and six right ones. The cheaper round-two worker-words draft
+remains the best result backed by at least 100 grades (93.3%), though the samples differ.
+
+Keep the watcher offline. Prefer direct tool actions with deterministic subjects for the next test,
+and measure whether those lines still say enough to help. No auto line can enter outcome sections
+or Needs you.
 
 ## Risks
 

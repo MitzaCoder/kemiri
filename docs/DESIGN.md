@@ -3684,7 +3684,10 @@ outcome claims and near-duplicates, and does not establish factual support on it
 in a cited worker thinking or assistant step. The other renders a bounded verb and object with a
 word from a cited tool step. A separate no-tools entailment prompt sees only the proposed line and
 its citations. Only an exact affirmative JSON verdict keeps the line; a rejection or invalid answer
-cannot publish it. Neither a matching word nor a model's verdict is a recorded fact.
+cannot publish it. The grounded draft combines the verb-and-object form with an optional purpose
+quoted from a cited worker step. The attempt-aware verifier does not require a successful result for
+an in-progress action. Local claim rules can reject explicit completion and unsupported purpose
+markers, but neither a matching word nor a model's verdict is a recorded fact.
 
 `watcher-replay.ts` exercises the policy from explicitly named read-only inputs, with credential
 mutations refused and a shared input-token budget. It writes private evidence and usage to `/tmp`.

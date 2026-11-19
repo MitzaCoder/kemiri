@@ -1,8 +1,8 @@
 /** Offline only. Use an empty environment with a temporary HOME and explicit file paths.
  *  bun packages/server/scripts/watcher-replay.ts --session FILE --namespace NAME --list
  *  bun packages/server/scripts/watcher-replay.ts --session FILE --namespace NAME --credentials FILE --runs CID:ENTRY,...
- *      [--variant baseline|tuned|both|worker-words|constrained] [--model PROVIDER/MODEL]
- *      [--compare PROVIDER/MODEL] [--verify] [--budget INPUT_TOKENS]
+ *      [--variant baseline|tuned|both|worker-words|constrained|grounded] [--model PROVIDER/MODEL]
+ *      [--compare PROVIDER/MODEL] [--verify] [--claim-rules] [--budget INPUT_TOKENS]
  * Results go in a fresh private /tmp directory. The JSONL has clipped private evidence; don't publish it.
  */
 import { mkdtemp, open, writeFile } from "node:fs/promises";
@@ -16,7 +16,7 @@ import { newModelSessionId } from "../src/model-session.ts";
 import { createHarnessModels } from "../src/models.ts";
 import { chooseAuditModel } from "../src/report-audit.ts";
 import { openStorageReadOnly } from "../src/request-backfill.ts";
-import { boundWatcherEvidence, checkWatcherAnswer, checkWatcherDraft, parseWatcherVerification, watcherDraftPrompt, watcherLineRateAllows, watcherPassReason, watcherPrompt, watcherToolCalls, watcherTranscriptStep, watcherVerificationPrompt,
+import { boundWatcherEvidence, checkWatcherAnswer, checkWatcherDraft, parseWatcherVerification, passesWatcherClaimRules, watcherDraftPrompt, watcherLineRateAllows, watcherPassReason, watcherPrompt, watcherToolCalls, watcherTranscriptStep, watcherVerificationPrompt,
 	WATCHER_LINE_INTERVAL_MS, WATCHER_TRIGGER, WATCHER_TUNED_TRIGGER, type WatcherAnswer, type WatcherPageLine, type WatcherStep, type WatcherToolCall } from "../src/task-watcher.ts";
 
 const INPUT_LIMIT = 3_000_000;
@@ -33,8 +33,8 @@ function parseArgs(argv: string[]) {
 	const options = new Map<string, string>();
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i]!;
-		const val = ["--list", "--verify"].includes(flag) ? "yes" : argv[++i];
-		if (!val || val.startsWith("--") || options.has(flag) || !["--session", "--list", "--runs", "--credentials", "--variant", "--compare", "--budget", "--namespace", "--model", "--verify"].includes(flag)) throw new ReplayStop("Invalid arguments; see the usage in watcher-replay.ts.");
+		const val = ["--list", "--verify", "--claim-rules"].includes(flag) ? "yes" : argv[++i];
+		if (!val || val.startsWith("--") || options.has(flag) || !["--session", "--list", "--runs", "--credentials", "--variant", "--compare", "--budget", "--namespace", "--model", "--verify", "--claim-rules"].includes(flag)) throw new ReplayStop("Invalid arguments; see the usage in watcher-replay.ts.");
 		options.set(flag, val);
 	}
 	const session = options.get("--session");
@@ -45,13 +45,14 @@ function parseArgs(argv: string[]) {
 	const compare = options.get("--compare");
 	const modelRef = options.get("--model");
 	const verify = options.has("--verify");
+	const claimRules = options.has("--claim-rules");
 	const namespace = options.get("--namespace") ?? "aiki";
 	const budget = Number(options.get("--budget") ?? INPUT_LIMIT);
 	if (!/^[\w.-]+$/.test(namespace) || !session || !isAbsolute(session) || (!list && (!credentials || !isAbsolute(credentials) || !runs.length)) ||
 		runs.some(id => !/^\d+:\d+$/.test(id)) || new Set(runs).size !== runs.length ||
 		!(variant === "both" || Object.hasOwn(VARIANTS, variant)) || [compare, modelRef].some(ref => ref && !/^[\w.-]+\/[\w.-]+$/.test(ref)) ||
 		!Number.isSafeInteger(budget) || budget <= 0 || budget > INPUT_LIMIT) throw new ReplayStop("Invalid paths, run IDs, variant, comparison or budget; see watcher-replay.ts.");
-	return { session, credentials, list, runs, variant: variant as Variant | "both", modelRef, verify, compare, budget, namespace };
+	return { session, credentials, list, runs, variant: variant as Variant | "both", modelRef, verify, claimRules, compare, budget, namespace };
 }
 
 /** Refuse mutations before calling the callback. In particular, no OAuth refresh request can start. */
@@ -183,6 +184,7 @@ const VARIANTS = {
 		guidance: "Prefer a specific change in approach, obstacle being investigated, or distinct piece of work. Cite a tool call or result that directly shows it, not just the worker's thinking. An attempt is not a result. Routine reading, testing, and final summaries are not news on their own." },
 	"worker-words": { trigger: WATCHER_TUNED_TRIGGER, lineInterval: WATCHER_LINE_INTERVAL_MS },
 	constrained: { trigger: WATCHER_TUNED_TRIGGER, lineInterval: WATCHER_LINE_INTERVAL_MS },
+	grounded: { trigger: WATCHER_TUNED_TRIGGER, lineInterval: WATCHER_LINE_INTERVAL_MS },
 } as const;
 type Variant = keyof typeof VARIANTS;
 type Pass = { run: ReplayRun; at: number; activeMs: number; reason: string; steps: WatcherStep[]; pageLines: WatcherPageLine[] };
@@ -223,7 +225,7 @@ function schedulePasses(runs: ReplayRun[], variant: Variant): Pass[] {
 type Budget = { limit: number; input: number };
 type PassRow = {
 	run: string; at: number; activeMs: number; reason: string; evidence: ReturnType<typeof boundWatcherEvidence>;
-	answer: WatcherAnswer | { kind: "rate-limited"; candidate: string; evidence: string[] } | { kind: "call-failed" | "verification-no" | "verification-malformed" };
+	answer: WatcherAnswer | { kind: "rate-limited"; candidate: string; evidence: string[] } | { kind: "call-failed" | "verification-no" | "verification-malformed" | "claim-rules" };
 	input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; latencyMs: number;
 	verification?: Pick<PassRow, "input" | "output" | "latencyMs" | "cost">;
 };
@@ -293,15 +295,18 @@ function summary(rows: PassRow[], hours: number) {
 		input, output, cost, perPass: per(rows.length), perHour: per(hours), perProjectDay: per(hours / (52 / 5.5)), latencyMs: distribution(rows.map(row => row.latencyMs)) };
 }
 
-async function replay(folder: string, runs: ReplayRun[], models: Models, model: Model<string>, credentials: ReplayCredentials, variant: Variant, budget: Budget, verifier?: Model<string>): Promise<void> {
+async function replay(folder: string, runs: ReplayRun[], models: Models, model: Model<string>, credentials: ReplayCredentials, variant: Variant, budget: Budget, verifier?: Model<string>, claimRules = false): Promise<void> {
 	const file = join(folder, `${variant}-${model.provider}-${model.id}`);
 	const log = await open(`${file}.jsonl`, "wx", 0o600);
 	const verifiedFile = verifier ? `${file}-verified` : undefined;
 	const verifiedLog = verifiedFile ? await open(`${verifiedFile}.jsonl`, "wx", 0o600) : undefined;
+	const rulesFile = claimRules ? `${file}-rules` : undefined;
+	const rulesLog = rulesFile ? await open(`${rulesFile}.jsonl`, "wx", 0o600) : undefined;
 	const passes = schedulePasses(runs, variant);
 	const rows: PassRow[] = [];
 	const verifiedRows: PassRow[] = [];
-	const draftMode = variant === "worker-words" || variant === "constrained" ? variant : undefined;
+	const rulesRows: PassRow[] = [];
+	const draftMode = variant === "worker-words" || variant === "constrained" || variant === "grounded" ? variant : undefined;
 	const autoLines = new Map<string, WatcherPageLine[]>();
 	const lastLines = new Map<string, number>();
 	let stopped: string | undefined;
@@ -329,12 +334,17 @@ async function replay(folder: string, runs: ReplayRun[], models: Models, model: 
 			const row: PassRow = { run: pass.run.id, at: pass.at, activeMs: pass.activeMs, reason: pass.reason, evidence, answer, ...generation };
 			await log.writeFile(`${JSON.stringify(row)}\n`);
 			rows.push(row);
+			if (rulesLog) {
+				const rulesRow: PassRow = answer.kind !== "line" || passesWatcherClaimRules(answer, evidence) ? row : { ...row, answer: { kind: "claim-rules" } };
+				await rulesLog.writeFile(`${JSON.stringify(rulesRow)}\n`);
+				rulesRows.push(rulesRow);
+			}
 			// Paired postfilter: keep generator history fixed to isolate what the verifier removes.
 			// Only otherwise publishable candidates need a second paid call.
 			if (verifier && verifiedLog) {
 				let verifiedRow = row;
 				if (answer.kind === "line") {
-					const { message: verdict, ...usage } = await paidCall(models, verifier, credentials, watcherVerificationPrompt(answer, evidence), pass.at, budget);
+					const { message: verdict, ...usage } = await paidCall(models, verifier, credentials, watcherVerificationPrompt(answer, evidence, variant === "grounded" ? "attempts" : "strict"), pass.at, budget);
 					const judgment = parseWatcherVerification(answerText(verdict) ?? "");
 					verifiedRow = { ...row, answer: judgment === true ? answer : { kind: judgment === false ? "verification-no" : "verification-malformed" },
 						input: row.input + usage.input, output: row.output + usage.output, cacheRead: row.cacheRead + usage.cacheRead,
@@ -349,6 +359,7 @@ async function replay(folder: string, runs: ReplayRun[], models: Models, model: 
 	} finally {
 		await log.close();
 		await verifiedLog?.close();
+		await rulesLog?.close();
 		const saveSummary = async (path: string, passRows: PassRow[], verifierModel?: Model<string>) => {
 			const finalAt = stopped ? passRows.at(-1)?.at ?? 0 : Infinity;
 			const activeMs = runs.reduce((sum, run) => sum + (run.end <= finalAt ? run.activeMs : passRows.findLast(row => row.run === run.id)?.activeMs ?? 0), 0);
@@ -362,6 +373,7 @@ async function replay(folder: string, runs: ReplayRun[], models: Models, model: 
 		};
 		await saveSummary(file, rows);
 		if (verifiedFile) await saveSummary(verifiedFile, verifiedRows, verifier);
+		if (rulesFile) await saveSummary(rulesFile, rulesRows);
 	}
 	if (stopped) throw new ReplayStop(stopped);
 }
@@ -401,8 +413,8 @@ async function main(): Promise<void> {
 	const budget = { limit: args.budget, input: 0 };
 	const verifier = args.verify ? auditModel : undefined;
 	const variants = args.variant === "both" ? ["baseline", "tuned"] as const : [args.variant];
-	for (const variant of variants) await replay(folder, sample, models, model, credentials, variant, budget, verifier);
-	if (comparison) await replay(folder, sample, models, comparison, credentials, variants.at(-1)!, budget, verifier);
+	for (const variant of variants) await replay(folder, sample, models, model, credentials, variant, budget, verifier, args.claimRules);
+	if (comparison) await replay(folder, sample, models, comparison, credentials, variants.at(-1)!, budget, verifier, args.claimRules);
 }
 
 if (import.meta.main) await main().catch((error: unknown) => {
