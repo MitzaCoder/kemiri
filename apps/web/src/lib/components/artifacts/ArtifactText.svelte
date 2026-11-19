@@ -89,7 +89,9 @@
 	let attempt = $state(0);
 	let tabProblem = $state('');
 	let frame = $state<HTMLIFrameElement>();
-	let scope = $state<HTMLElement>();
+	let layout = $state<HTMLDivElement>();
+	let readingSurface = $state<HTMLDivElement>();
+	let readingBody = $state<HTMLElement>();
 	let review = $state<ArtifactReview>();
 	let menuOpen = $state(false);
 	let copyStatus = $state('');
@@ -160,8 +162,8 @@
 	}
 </script>
 
-<div class:review-layout={roomy}>
-<div bind:this={scope} class={fullSpace ? 'html-viewport' : 'overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-bg)/60'} data-artifact-text>
+<div bind:this={layout} class:review-layout={roomy}>
+<div class={fullSpace ? 'html-viewport' : 'overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-bg)/60'} data-artifact-text>
 	{#if fullSpace}
 		<div class="html-actions">
 			<DropdownMenu.Root bind:open={menuOpen}>
@@ -246,14 +248,14 @@
 				></iframe>
 			</div>
 		{:else if rendered}
-			<div class="relative reading-document">
-			<div use:overlayScroll={'parent'} class="text-body rendered overflow-auto px-4 py-3" class:compact class:roomy data-artifact-markdown>
+			<div bind:this={readingSurface} class="relative reading-document">
+			<div bind:this={readingBody} use:overlayScroll={'parent'} class="text-body rendered overflow-auto px-4 py-3" class:compact class:roomy data-artifact-markdown>
 				<Markdown source={content} />
 			</div>
 			</div>
 		{:else}
-			<div class:html-source={fullSpace} class="relative reading-document">
-			<pre use:overlayScroll={'parent'} class="text-body m-0 overflow-auto px-3 py-2.5 font-mono text-[0.78rem] leading-relaxed" class:wrap class:compact class:roomy>{content}</pre>
+			<div bind:this={readingSurface} class:html-source={fullSpace} class="relative reading-document">
+			<pre bind:this={readingBody} use:overlayScroll={'parent'} class="text-body m-0 overflow-auto px-3 py-2.5 font-mono text-[0.78rem] leading-relaxed" class:wrap class:compact class:roomy>{content}</pre>
 			</div>
 		{/if}
 		{#if truncated}
@@ -271,7 +273,7 @@
 		<p class="px-3 py-3 text-xs text-(--chat-fg-subtle)">Reading…</p>
 	{/if}
 </div>
-{#if roomy}{#key artifact.id}<ArtifactReview bind:this={review} {artifact} {client} {scope} {frame} pageView={page} {onclose} />{/key}{/if}
+{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {onclose} />{/key}{/if}
 </div>
 
 <style>

@@ -33,20 +33,25 @@ it (for example, “this task, T63”). On Android, long-press reveals the ID. T
 sheet header still identifies the task, and other references, chat, board rows
 and stored text are unchanged.
 
-## Artifact review passes (T216 / D88)
+## Artifact review passes (T216 / D88 / T337)
 
 The web text viewer (HTML, Markdown, plain text and Source) collects a review
 before sending it. Select a passage, or choose **Pick a block** in an HTML page
 (any visible block, including charts, mock-ups, images, code and paragraphs).
-The app displays the quote before it can become a comment. A comment has an optional intent
-(Clarify, Change, Show differently, Cut, Keep) and optional note; either one
-alone completes it. Comments can be edited or removed. At modal widths of
-640 px and above the tray sits beside the document;
-below that it is a bottom
-sheet opened by the floating comment counter. Escape cancels a comment composer
-before closing the viewer. HTML's existing menu and source/version/print actions
-remain separate. Markdown/text retain their metadata, download and delete controls.
-Images/video/audio artifacts have no review controls.
+Finishing a selection or picking a block opens a comment card beside the target.
+The card shows the location and quote, an optional intent (Clarify, Change, Show
+differently, Cut, Keep) and a growing plain-text note. Either intent or note is
+enough to save. Desktop Enter or Cmd/Ctrl+Enter saves and Shift+Enter adds a line.
+On a coarse pointer the card does not take focus and Enter adds a line. Escape
+cancels the editor or dismisses a pin preview before closing the viewer.
+
+A pin at each commented part counts its comments. Hover or keyboard focus opens
+the preview; click keeps it open, and a touch tap toggles it. The preview offers
+Edit and Delete. A comment with a missing anchor can still be edited in the tray.
+At modal widths of 640 px and above the tray sits beside the document; below that
+it is a bottom sheet behind the comment counter, and opening a card or preview
+closes it. HTML's source/version/print actions remain separate. Markdown/text retain
+their metadata, download and delete controls. Images/video/audio have no review controls.
 
 `artifact-review.ts` owns the framework-free selection validator, Markdown
 formatter and local persistence contract. Comments and the whole-page note stay
@@ -55,21 +60,28 @@ array `[backendId, projectId, stableArtifactId, version]`. Closing/reloading kee
 the review; selecting another version mounts that version's review. Storage
 failure shows a warning rather than promising reload persistence. At most 100
 comments are restored/added; quote/note/overall text is capped at 4,000 characters,
-headings at 300 and element IDs at 120. Long quotes end with an ellipsis.
+headings at 300 and element IDs at 120. Long quotes end with an ellipsis. Pin
+anchors are local to a version and never sent: `p:` paths start at the HTML body,
+`m:` paths start at the rendered Markdown root, and `s:` offsets count characters
+from the start of plain text or Source. Old comments without anchors stay in the
+tray. If a script changes element ordering on reload, its anchors can shift or
+stop resolving.
 
 HTML receives `artifact-review-frame.ts` only in the app-owned viewer, not in a
-new tab or an inline preview. It adds one outbound object message type,
-`kemiri:artifact-selection`, with required string `type`/`text` and optional string
-`section`/`elementId`/`block`. An empty text clears the selection. The app requires
-`event.source === mountedIframe.contentWindow`, a plain object with only these
-keys and string values (no accessors), and a block label from the fixed vocabulary;
-unknown input is ignored, controls stripped and lengths bounded. It is untrusted
-plain text, never host markup and never an instruction to send. A hostile artifact
-can fabricate a selection, just as it can display misleading text, but cannot send
-a review or access the host's credentials/DOM. There are no new sandbox grants,
-no shared origin, and no additional outgoing network policy. Two exact parent-only
-strings toggle/cancel block picking; pointer candidates are outlined, and keyboard
-arrows plus Enter can choose a block. Escape cancels picking inside the frame.
+new tab or an inline preview. `kemiri:artifact-selection` has required string
+`type`/`text` and optional string `section`/`elementId`/`block`/`anchor`. An empty
+text clears an untouched selection. `kemiri:artifact-anchors` has `type` and a
+single `rects` string with entries `path=x,y,width,height` in frame viewport pixels;
+`*` is the live selection. The parent can watch up to 100 valid child-index paths
+and clear the frame selection. Scroll, resize, load and layout changes refresh
+geometry. Messages must come from the mounted frame window, use exact text-only
+keys without accessors, and pass path, rectangle and vocabulary checks. The app
+clips its overlay to the reading surface, keeps cards inside it, and hides pins
+whose targets are out of view. A hostile artifact can fabricate a selection or
+move its own pins within that surface, but cannot send a review or access host
+credentials or DOM. No iframe permissions, origin or network policy changed.
+Exact parent-only strings still toggle/cancel picking. Keyboard arrows and Enter
+can choose a block. Escape cancels picking inside the frame.
 Both web and Android resolve a nested pointer target to its enclosing graphic
 (`role="img"`, SVG, canvas, image, figure or embedded media), then a semantic
 text block, then the nearest visible layout block (including div/flex/grid),
@@ -84,7 +96,9 @@ change caused by clicking a block cannot erase its pending description.
 `artifact-review-frame.test.ts` executes both shipped scripts over role=img,
 nested flex/grid divs, unselectable text, SVG, img, canvas and plain text cases.
 Markdown/text/Source selections use the chat's whole-word/quote helpers and the
-nearest preceding rendered heading. Passage highlights are not implemented.
+nearest preceding rendered heading. The app maps Range and element rectangles
+into the same overlay, updating on scroll, resize and comment changes. The app
+outlines the active target even when focus leaves the native selection.
 
 **Send N comments** submits exactly one Markdown message. Task-linked artifacts
 mirror TaskReply: main coordinator, `taskId`, `whenBusy: steer`, `keepDraft: true`,

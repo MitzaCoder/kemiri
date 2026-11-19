@@ -23,14 +23,16 @@ class Element {
 	getAttribute(key: string) { return this.attributes[key] ?? null; }
 	setAttribute(key: string, value: string) { this.attributes[key] = value; }
 	removeAttribute(key: string) { delete this.attributes[key]; }
-	getBoundingClientRect() { return { width: this.width, height: this.height }; }
+	left = 10; top = 20;
+	getBoundingClientRect() { return { left: this.left, top: this.top, width: this.width, height: this.height }; }
 	scrollIntoView() {}
 }
 
 function frame(platform: 'web' | 'android', elements: Element[] = [new Element('svg', { 'aria-label': 'Before 410 After 312' })]) {
 	const listeners = new Map<string, ((event: any) => void)[]>();
 	const messages: any[] = [];
-	const parent = { postMessage: (message: unknown) => messages.push(message) };
+	const rectangles: { type: string; rects: string }[] = [];
+	const parent = { postMessage: (message: { type: string; rects: string }) => (message.type === 'kemiri:artifact-anchors' ? rectangles : messages).push(message) };
 	const root = new Element('html'), body = root.append(new Element('body'));
 	for (const element of elements) body.append(element);
 	const document = {
@@ -39,7 +41,8 @@ function frame(platform: 'web' | 'android', elements: Element[] = [new Element('
 		querySelectorAll: (selector: string) => selector === 'body *' ? body.all() : [],
 		addEventListener: (name: string, fn: (event: any) => void) => { listeners.set(name, [...listeners.get(name) ?? [], fn]); },
 	};
-	const selection = { text: 'Selected words', toString() { return this.text; }, anchorNode: null, removeAllRanges() { this.text = ''; } };
+	const range = { cloneRange() { return this; }, getBoundingClientRect: () => ({ left: 15, top: 25, width: 60, height: 20 }) };
+	const selection = { text: 'Selected words', toString() { return this.text; }, anchorNode: null as Node | Element | null, rangeCount: 1, getRangeAt: () => range, removeAllRanges() { this.text = ''; } };
 	const context = createContext({ parent, document, Element, Node: { DOCUMENT_POSITION_FOLLOWING: 4 }, window: document, clearTimeout() {}, setTimeout: (fn: () => void) => { fn(); }, getSelection: () => selection, getComputedStyle: (element: Element) => element });
 	runInContext(platform === 'web' ? ARTIFACT_REVIEW_PRELUDE : androidScript('ARTIFACT_REVIEW_READ'), context);
 	const emit = (name: string, event: unknown) => listeners.get(name)?.forEach(fn => fn(event));
@@ -54,7 +57,7 @@ function frame(platform: 'web' | 'android', elements: Element[] = [new Element('
 	}
 	function click(target: Element) { emit('click', { target, preventDefault() {}, stopImmediatePropagation() {} }); if (platform === 'android') read(); }
 	function key(key: string) { emit('keydown', { key, target: body, preventDefault() {}, stopImmediatePropagation() {} }); if (platform === 'android' && (key === 'Enter' || key === 'Escape')) read(); }
-	return { messages, chart: elements[0]!, root, emit, control, read, click, key, selection };
+	return { messages, rectangles, chart: elements[0]!, root, emit, control, read, click, key, selection };
 }
 
 for (const platform of ['web', 'android'] as const) {
@@ -67,7 +70,7 @@ for (const platform of ['web', 'android'] as const) {
 		view.emit('pointerover', { target: view.chart });
 		expect(view.chart.attributes['data-kemiri-review-pick']).toBe('');
 		view.click(view.chart);
-		expect(view.messages).toEqual([{ type: 'kemiri:artifact-selection', text: 'Before 410 After 312', section: '', elementId: '', block: 'chart' }]);
+		expect(view.messages).toEqual([{ type: 'kemiri:artifact-selection', text: 'Before 410 After 312', section: '', elementId: '', block: 'chart', ...(platform === 'web' ? { anchor: '0' } : {}) }]);
 		expect(view.chart.attributes['data-kemiri-review-pick']).toBeUndefined();
 		expect(view.root.attributes['data-kemiri-review-picking']).toBeUndefined();
 	});
@@ -92,7 +95,7 @@ for (const platform of ['web', 'android'] as const) {
 		const row = mock.append(new Element('div')).append(new Element('span', {}, 'Fix the till')); row.display = 'inline';
 		const view = frame(platform, [mock]); view.control('kemiri:pick-artifact-block'); view.emit('pointerover', { target: row });
 		expect(mock.attributes['data-kemiri-review-pick']).toBe('');
-		view.click(row); expect(view.messages[0]).toEqual({type:'kemiri:artifact-selection',text:'Bakery board mock-up',section:'',elementId:'mock',block:'image'});
+		view.click(row); expect(view.messages[0]).toEqual({type:'kemiri:artifact-selection',text:'Bakery board mock-up',section:'',elementId:'mock',block:'image', ...(platform === 'web' ? { anchor: '0' } : {})});
 	});
 
 	for (const [tag, attributes, text, expected, block] of [
@@ -124,4 +127,36 @@ test('web: an empty text-selection event after a block click does not erase the 
 	view.selection.text = ''; view.read(); expect(view.messages).toHaveLength(1);
 	view.selection.text = 'New text selection'; view.read(); expect(view.messages[1].text).toBe('New text selection');
 	view.selection.text = ''; view.read(); expect(view.messages[2].text).toBe('');
+});
+
+
+test('web: reports the text range and its block after ending the drag', () => {
+	const paragraph = new Element('p');
+	const view = frame('web', [paragraph]);
+	view.selection.anchorNode = paragraph;
+	Object.assign(paragraph, { nodeType: 1 });
+	view.emit('pointerdown', {}); view.read();
+	expect(view.messages).toEqual([]);
+	view.emit('pointermove', { pointerType: 'mouse', buttons: 1 });
+	expect(view.messages).toEqual([]);
+	view.emit('pointerup', {});
+	expect(view.messages[0]).toMatchObject({ text: 'Selected words', anchor: '0' });
+	expect(view.rectangles.at(-1)?.rects).toBe('*=15,25,60,20');
+});
+
+test('web: watches only valid parent paths; scroll and clear refresh the rectangles', () => {
+	const view = frame('web');
+	view.control('kemiri:watch-artifact-anchors:0', {});
+	view.control('kemiri:watch-artifact-anchors:0|bad');
+	expect(view.rectangles).toEqual([]);
+	view.control('kemiri:watch-artifact-anchors:0|0.1');
+	expect(view.rectangles.at(-1)?.rects).toBe('0=10,20,100,40');
+	view.control('kemiri:pick-artifact-block'); view.click(view.chart);
+	expect(view.rectangles.at(-1)?.rects).toBe('*=10,20,100,40|0=10,20,100,40');
+	view.chart.top = -30; view.emit('scroll', {});
+	expect(view.rectangles.at(-1)?.rects).toBe('*=10,-30,100,40|0=10,-30,100,40');
+	view.control('kemiri:clear-artifact-selection');
+	expect(view.rectangles.at(-1)?.rects).toBe('0=10,-30,100,40');
+	view.chart.visibility = 'hidden'; view.emit('resize', {});
+	expect(view.rectangles.at(-1)?.rects).toBe('');
 });

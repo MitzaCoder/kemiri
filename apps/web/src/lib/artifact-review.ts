@@ -5,7 +5,11 @@ export const REVIEW_INTENTS = ['Clarify', 'Change', 'Show differently', 'Cut', '
 export type ReviewIntent = typeof REVIEW_INTENTS[number];
 export const REVIEW_BLOCKS = ['chart', 'table row', 'figure', 'image', 'code', 'list item', 'paragraph', 'block'] as const;
 export type ReviewBlock = typeof REVIEW_BLOCKS[number];
-export interface ArtifactSelection { text: string; section?: string; elementId?: string; block?: ReviewBlock }
+/**
+ * `anchor` only places this device's pin; it never enters the review message. `p:` is an element path in the HTML
+ * page, `m:` one in rendered Markdown, `s:` a character offset in plain text or source.
+ */
+export interface ArtifactSelection { text: string; section?: string; elementId?: string; block?: ReviewBlock; anchor?: string }
 export interface ReviewComment extends ArtifactSelection { intent?: ReviewIntent; note: string }
 export interface ArtifactReview { comments: ReviewComment[]; overall: string }
 /** Task replies always go to main, matching TaskReply; other reviews stay in their source chat. */
@@ -24,7 +28,11 @@ export class ArtifactReviewSubmission {
 	accepted(): void { this.#attempted = undefined; }
 }
 export const REVIEW_SELECTION_TYPE = 'kemiri:artifact-selection';
-const ALLOWED_KEYS = ['type', 'text', 'section', 'elementId', 'block'];
+const ALLOWED_KEYS = ['type', 'text', 'section', 'elementId', 'block', 'anchor'];
+/** Child indexes from the document body: at most 40 levels of at most five digits. */
+export const REVIEW_PATH = /^\d{1,5}(?:\.\d{1,5}){0,39}$/;
+const STORED_ANCHOR = /^(?:[pm]:\d{1,5}(?:\.\d{1,5}){0,39}|s:\d{1,9})$/;
+export function isReviewAnchor(anchor: unknown): anchor is string { return typeof anchor === 'string' && STORED_ANCHOR.test(anchor); }
 
 export function reviewText(text: string, limit: number): string {
 	const clean = quoteFromSelection(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '').trim();
@@ -42,7 +50,8 @@ export function validateArtifactSelection(source: unknown, frameWindow: unknown,
 	const fields = input as Record<string, string>;
 	if (fields.type !== REVIEW_SELECTION_TYPE || typeof fields.text !== 'string') return;
 	if (fields.block !== undefined && !(REVIEW_BLOCKS as readonly string[]).includes(fields.block)) return;
-	return { text: reviewText(fields.text, 4000), ...(fields.section === undefined ? {} : { section: reviewText(fields.section, 300) }), ...(fields.elementId === undefined ? {} : { elementId: reviewText(fields.elementId, 120) }), ...(fields.block === undefined ? {} : { block: fields.block as ReviewBlock }) };
+	if (fields.anchor !== undefined && !REVIEW_PATH.test(fields.anchor)) return;
+	return { ...(fields.anchor === undefined ? {} : { anchor: `p:${fields.anchor}` }), text: reviewText(fields.text, 4000), ...(fields.section === undefined ? {} : { section: reviewText(fields.section, 300) }), ...(fields.elementId === undefined ? {} : { elementId: reviewText(fields.elementId, 120) }), ...(fields.block === undefined ? {} : { block: fields.block as ReviewBlock }) };
 }
 
 export function reviewLocation(comment: ArtifactSelection): string {
@@ -72,9 +81,9 @@ export function loadArtifactReview(storage: ReviewStorage, key: string): Artifac
 		const comments: ReviewComment[] = [];
 		for (const comment of saved.comments.slice(0, 100)) {
 			if (!comment || typeof comment.note !== 'string' || (comment.intent !== undefined && !REVIEW_INTENTS.includes(comment.intent))) continue;
-			const { intent, note, ...selection } = comment;
+			const { intent, note, anchor, ...selection } = comment;
 			const validated = validateArtifactSelection(storage, storage, { type: REVIEW_SELECTION_TYPE, ...selection });
-			if (validated?.text && (intent || note.trim())) comments.push({ ...validated, intent, note: reviewText(note, 4000) });
+			if (validated?.text && (intent || note.trim())) comments.push({ ...validated, ...(isReviewAnchor(anchor) ? { anchor } : {}), intent, note: reviewText(note, 4000) });
 		}
 		return { comments, overall: reviewText(saved.overall, 4000) };
 	} catch { return { comments: [], overall: '' }; }
