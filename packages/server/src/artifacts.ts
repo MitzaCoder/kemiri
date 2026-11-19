@@ -15,7 +15,8 @@
 import { childEnvironment } from "./child-environment.ts";
 import { serverSettings } from "./server-settings.ts";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, createReadStream, createWriteStream, fstatSync } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { type Artifact, type ArtifactKind, type ArtifactsChangedEvent, normalizeTags } from "@kemiri/protocol";
@@ -209,6 +210,9 @@ export type ArtifactSaveInput = {
 	projectId: string;
 	/** An absolute path the caller already checked it may read. */
 	sourcePath: string;
+	/** A scoped caller keeps its checked descriptor open through the save; do not reopen its path. */
+	sourceFd?: number;
+	signal?: AbortSignal;
 	title: string | null;
 	note: string | null;
 	threadId: string;
@@ -307,7 +311,8 @@ export class ArtifactStore {
 			// Legacy tool calls used the stable artifact ID as their memoized receipt.
 			const legacyReplay = index.artifacts.find((row) => row.id === id);
 			if (legacyReplay !== undefined) return withVersions(legacyReplay);
-			const source = await stat(input.sourcePath);
+			input.signal?.throwIfAborted();
+			const source = input.sourceFd === undefined ? await stat(input.sourcePath) : fstatSync(input.sourceFd);
 			if (!source.isFile()) throw new ServerError("bad_request", `${input.sourcePath} is not a regular file`);
 			this.#refuseSize(source.size, input.sourcePath);
 
@@ -324,7 +329,12 @@ export class ArtifactStore {
 			try {
 				const copy = join(partial, name);
 				// A copy, never a move: the file stays where the conversation left it.
-				await copyFile(input.sourcePath, copy, constants.COPYFILE_FICLONE);
+				if (input.sourceFd === undefined) await copyFile(input.sourcePath, copy, constants.COPYFILE_FICLONE);
+				else await pipeline(
+					createReadStream(input.sourcePath, { fd: input.sourceFd, autoClose: false, start: 0, end: this.maxFileBytes }),
+					createWriteStream(copy, { mode: 0o600 }),
+					{ signal: input.signal },
+				);
 				// The source may have grown since it was measured.
 				const size = (await stat(copy)).size;
 				this.#refuseSize(size, input.sourcePath);
@@ -351,6 +361,7 @@ export class ArtifactStore {
 					createdAt: new Date(this.#now()).toISOString(),
 				};
 				await mkdir(join(final, ".."), { recursive: true, mode: 0o700 });
+				input.signal?.throwIfAborted();
 				await rm(final, { recursive: true, force: true });
 				await rename(partial, final);
 			} catch (error) {

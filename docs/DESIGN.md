@@ -2207,11 +2207,25 @@ adapter owns one native process and session per pi-durable conversation session 
 persisted worker instructions and brief as separately delimited text; later prompts carry only user input after the
 last assistant answer. A shared worker uses its coordinator's checkout; an isolated worker uses its own jj workspace.
 
-The agent owns its history, tools and tool loop. It receives no Kemiri tools, browser launcher, or MCP servers in this
-version. Agent text streams into the worker transcript. Thoughts, plans, tool status changes and permission decisions
-appear as thinking, not pi-ai tool calls, so they are visible to worker peek and check-ins without triggering Kemiri
-execution. The usual reporter takes the final text to the coordinator and associates it with the board task. Explicit
-agent failures block a linked task with a readable reason. No account, model or native-provider fallback is performed.
+The agent owns its history, tools and tool loop. It gets no Kemiri browser launcher or project-configured MCP servers.
+Agent text streams into the worker transcript. Thoughts, plans, tool status changes and permission decisions appear as
+thinking, not pi-ai tool calls, so they are visible to worker peek and check-ins without triggering Kemiri execution.
+The usual reporter takes the final text to the coordinator and associates it with the board task. Explicit agent
+failures block a linked task with a readable reason. No account, model or native-provider fallback is performed.
+
+**Scoped Kemiri tools (T308):** `session/new` and `session/load` each supply one stdio MCP server named `kemiri`.
+The backend executable starts a bridge subcommand (under Bun in development) with a loopback URL and a random bearer
+in its MCP environment, not in arguments or on disk. The backend-owned listener is bound only to loopback, even
+when the public backend listens elsewhere. It admits only this bridge's capabilities, never a device or owner session.
+Each bearer is kept in memory and bound to one agent process, project, worker conversation and assigned task.
+Process exit, stop, forget, idle teardown and shutdown revoke it. Reassigning the worker closes the old process and
+reloads its native session with a fresh bearer for the new task.
+
+The only tools are `task_progress` for a task-bound worker and `artifact_save` for any worker. Progress uses the
+native worker schema and report writer, including the same activity trail and, with `task-live`, `plan` and `tick`.
+Saves infer the task from the capability (or keep conversation scope when unassigned), reuse native tags and versioning, and only copy regular files whose
+resolved paths stay within the worker's workspace or its own proof folder. No IDs for selecting another scope and
+no board-wide actions, memory, codemode, shell or credentials are exposed by this bridge.
 
 **First approval policy:** run unattended like native workers. Approve an ACP allow option, preferring allow once.
 Cancel when there is no allow option or the turn is stopping. Workspace separation is the guard against accidental
@@ -2275,8 +2289,11 @@ embedded context but not audio. It did not advertise `mcpCapabilities` (neither 
 Google OAuth, Gemini Enterprise OAuth, Gemini API key and Gemini Enterprise Agent Platform as auth methods.
 `session/new` returned JSON-RPC error `-32000` with an authentication-required message and no data field. No model
 list appeared in the handshake, and `agy models` exited 1 while signed out. No account, consent flow or real prompt
-was used. T308 should expose only scoped `task_progress` and `artifact_save` through MCP once a compatible transport
-is verified; do not infer HTTP or SSE support from the CLI documentation alone.
+was used. Stdio is the ACP baseline; do not infer HTTP or SSE support from the CLI documentation alone. A signed-in
+trial must confirm that agy accepts the ACP server entry on new and loaded sessions and can run both tools under its
+sandbox. If agy rejects the ACP entry, the fallback is to write the same stdio definition into a private per-process
+agent profile at launch and remove it at teardown, without putting the bearer in the shared sign-in profile. This
+fallback is not enabled speculatively; it needs the trial to confirm the native config and sandbox behavior.
 
 The provider boundary is separate from board and worker lifecycle logic. Codex app-server or the Claude Agent SDK can
 add a sibling transport behind the same kind of definition: adapt its native session identity, model selection,

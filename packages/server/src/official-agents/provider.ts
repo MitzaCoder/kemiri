@@ -8,8 +8,9 @@ import { OfficialAgentAccounts, officialAgentAccounts, officialAgentEnvironment 
 import { readJsonFile, writeJsonFile } from "../fs-json.ts";
 import { AcpClient, AcpProcessError, AcpProtocolError, AcpRpcError, type AcpUpdate } from "./acp-client.ts";
 import { OFFICIAL_AGENT_API, type OfficialAgentDefinition, type OfficialAgentLogin, type OfficialAgentModel } from "./definition.ts";
+import type { OfficialAgentMcpBridge, OfficialAgentMcpGrant, OfficialAgentMcpScope } from "./mcp-bridge.ts";
 
-export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string };
+export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string; mcpScope?: { taskId: string | null; create: () => Promise<OfficialAgentMcpScope> } };
 type Turn = { state: "sent" } | { state: "done"; text: string; usage: Usage } | { state: "failed"; error: string };
 type SessionJournal = { sessionId: string; cwd: string; modelId: string; loginMode: OfficialAgentLogin["mode"]; loginIdentity?: string; turns: Record<string, Turn> };
 type AgentSession = {
@@ -20,6 +21,7 @@ type AgentSession = {
 	busy: boolean;
 	idle?: ReturnType<typeof setTimeout>;
 	client?: AcpClient;
+	mcp?: OfficialAgentMcpGrant;
 	scratch?: string;
 	journal?: SessionJournal;
 	closing?: Promise<void>;
@@ -64,7 +66,7 @@ export class OfficialAgentSessions {
 	readonly #accounts = new Set<OfficialAgentAccounts>();
 	#shuttingDown = false;
 
-	constructor(readonly dataDir: string, readonly credentials: CredentialStore, readonly log: (message: string) => void = () => {}) {}
+	constructor(readonly dataDir: string, readonly credentials: CredentialStore, readonly log: (message: string) => void = () => {}, readonly mcp?: OfficialAgentMcpBridge) {}
 
 	tag(message: object, request: OfficialAgentRequest): void { this.#requests.set(message, request); }
 
@@ -73,7 +75,7 @@ export class OfficialAgentSessions {
 			.map(([key, session]) => this.#close(key, session)));
 	}
 
-	beginShutdown(): void { this.#shuttingDown = true; }
+	beginShutdown(): void { this.#shuttingDown = true; this.mcp?.close(); }
 	async close(): Promise<void> {
 		this.beginShutdown();
 		await Promise.all([...this.#sessions].map(([key, session]) => this.#close(key, session)));
@@ -81,6 +83,7 @@ export class OfficialAgentSessions {
 	}
 
 	#close(key: string, session: AgentSession): Promise<void> {
+		session.mcp?.revoke();
 		return session.closing ??= Promise.resolve().then(async () => {
 			clearTimeout(session.idle);
 			session.stop.abort();
@@ -165,14 +168,15 @@ export class OfficialAgentSessions {
 				if (accounts.changing) throw signInChanging();
 				let session = this.#sessions.get(key);
 				if (session?.busy) throw new AcpProtocolError("The worker already has an agent turn in progress.");
-				if (!session || session.closing || (session.client && !session.client.alive)) {
+				if (session && (request.cwd !== session.request.cwd || request.projectId !== session.request.projectId || request.conversationId !== session.request.conversationId)) throw new AcpProtocolError("The agent workspace changed.");
+				// A reassigned worker keeps its native history, but the old process holds a task-bound grant.
+				if (!session || session.closing || (session.client && !session.client.alive) || session.request.mcpScope?.taskId !== request.mcpScope?.taskId) {
 					if (session) await this.#close(key, session);
 					if (accounts.changing) throw signInChanging();
 					session = { providerId: definition.id, request, stop: new AbortController(), busy: false };
 					this.#sessions.set(key, session);
 				}
 				const running = session;
-				if (request.cwd !== running.request.cwd || request.projectId !== running.request.projectId || request.conversationId !== running.request.conversationId) throw new AcpProtocolError("The agent workspace changed.");
 				running.busy = true;
 				const finished = Promise.withResolvers<void>();
 				running.turnFinished = finished.promise;
@@ -216,9 +220,14 @@ export class OfficialAgentSessions {
 						if (cancelled()) { await rm(scratch, { recursive: true, force: true }); checkCancelled(); }
 						running.scratch = scratch;
 						const env = { ...officialAgentEnvironment(profile, scratch), ...definition.environment(profile, login) };
-						const client = running.client = new AcpClient(binary, definition.launchArgs(profile), request.cwd, env, this.log);
+						if (this.mcp && request.mcpScope) {
+							const scope = await request.mcpScope.create();
+							checkCancelled();
+							running.mcp = this.mcp.grant(scope);
+						}
+						const client = running.client = new AcpClient(binary, definition.launchArgs(profile), request.cwd, env, this.log, () => running.mcp?.revoke());
 						// A worker must never start an interactive OAuth flow on expiry.
-						const opened = await client.open(request.cwd, sameLogin ? journal.sessionId : undefined, login.mode === "api-key" ? definition.apiKeyMethod : undefined);
+						const opened = await client.open(request.cwd, sameLogin ? journal.sessionId : undefined, login.mode === "api-key" ? definition.apiKeyMethod : undefined, running.mcp ? [running.mcp.server] : []);
 						if (typeof opened.version === "string" && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(opened.version)) advertisedVersion = opened.version;
 						await client.selectModel(opened.session, model.id, publish);
 						running.journal = sameLogin ? journal : { sessionId: opened.sessionId, cwd: request.cwd, modelId: model.id, loginMode: login.mode, loginIdentity: identity, turns: journal?.turns ?? {} };

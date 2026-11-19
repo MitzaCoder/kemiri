@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +10,8 @@ import { createModels, type Message, type TranscriptContext } from "@earendil-wo
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { AntigravityInstaller } from "../src/antigravity-install.ts";
 import { antigravityDefinition } from "../src/official-agents/antigravity.ts";
+import { OfficialAgentMcpBridge, type OfficialAgentMcpGrant } from "../src/official-agents/mcp-bridge.ts";
+import { BRIDGE_URL_ENV, BRIDGE_TOKEN_ENV, OFFICIAL_AGENT_MCP_COMMAND, bridgeCommand } from "../src/official-agents/mcp-bridge-command.ts";
 import { OfficialAgentSessions } from "../src/official-agents/provider.ts";
 import { FileCredentialStore } from "../src/credentials.ts";
 import type { AuthLogin } from "@kemiri/protocol";
@@ -25,7 +27,7 @@ const authEvents = async (dataDir: string) => (await readFile(join(agentDir(data
 const subscriptionProfiles = async (dataDir: string) => (await readdir(agentDir(dataDir))).filter(name => name.startsWith("subscription-"));
 const setCredential = (store: FileCredentialStore) => store.modify(AGY.provider, async () => ({ type: "api_key", key: "synthetic-fixture" }));
 
-async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean; log?: (message: string) => void } = {}) {
+async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean; taskless?: boolean; log?: (message: string) => void } = {}) {
 	const setup = await createSetup({ antigravityCommand: fakeAgent, ...(options.log ? { log: options.log } : {}) });
 	try {
 		await setCredential(setup.credentials);
@@ -40,15 +42,19 @@ async function workerSetup(brief: string, options: { isolated?: boolean; signedO
 		const { runtime } = await setup.server.manager.open(projectId);
 		await runtime.harness.commit(async tx => {
 			const board = await openBoard(tx, runtime.conversation.id);
-			saveTask(board, { task: { title: "Read the fixture", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] }, author: "coordinator", now: new Date().toISOString() });
+			for (const title of ["Read the fixture", "Unrelated task"]) {
+				saveTask(board, { task: { title, description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] }, author: "coordinator", now: new Date().toISOString() });
+			}
 		}, BACKGROUND_CONTEXT);
 		setup.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("worker_spawn", { id: "official", task: brief, taskId: "T1", isolation: options.isolated ? "workspace" : "shared" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("worker_spawn", { id: "official", task: brief, ...(options.taskless ? {} : { taskId: "T1" }), isolation: options.isolated ? "workspace" : "shared" })], { stopReason: "toolUse" }),
 			...Array.from({ length: 16 }, () => (request: TranscriptContext) => {
 				const last = request.messages.at(-1);
 				if (last?.role === "user" && typeof last.content === "string") {
 					if (last.content === "Stop the worker.") return fauxAssistantMessage([fauxToolCall("worker_stop", { id: "official" })], { stopReason: "toolUse" });
+					if (last.content === "Forget the worker.") return fauxAssistantMessage([fauxToolCall("worker_forget", { id: "official" })], { stopReason: "toolUse" });
 					if (last.content.startsWith("Follow up: ")) return fauxAssistantMessage([fauxToolCall("worker_send", { id: "official", message: last.content.slice(11) })], { stopReason: "toolUse" });
+					if (last.content === "Reassign the worker.") return fauxAssistantMessage([fauxToolCall("worker_send", { id: "official", taskId: "T2", message: "EXERCISE_MCP" })], { stopReason: "toolUse" });
 				}
 				return fauxAssistantMessage("Coordinator acknowledged.");
 			}),
@@ -77,7 +83,7 @@ test("official-agent worker receives its brief in its isolated workspace and rep
 		expect(serialized).not.toContain('"type":"toolCall"');
 		expect(serialized).toContain('"totalTokens":18');
 		const events = await fixtureEvents(s.setup.dataDir);
-		expect(events).toContainEqual({ event: "session/new", cwd: worker.workspacePath, actualCwd: worker.workspacePath, mcpServers: [] });
+		expect(events).toContainEqual({ event: "session/new", cwd: worker.workspacePath, actualCwd: worker.workspacePath, mcpServers: ["kemiri"] });
 		expect(events).toContainEqual({ event: "initialize", version: 1, sanitized: true, hasKey: true, args: ["acp", "--gemini-dir", join(s.setup.dataDir, "official-agents", "antigravity", "profile"), "--app-data-dir", "antigravity-acp", "--sandbox"] });
 		expect(events).toContainEqual({ event: "model", model: AGY.modelId });
 		const prompt = events.find(e => e.event === "prompt").text;
@@ -205,15 +211,103 @@ for (const action of ["cancel", "timeout", "save key"] as const) test(`Antigravi
 	} finally { client.close(); await setup.cleanup(); }
 }, 10_000);
 
+async function bridgeStatus(grant: OfficialAgentMcpGrant | undefined, useWrongToken = false) {
+	if (!grant) throw new Error("No fixture bridge was granted");
+	const env = Object.fromEntries(grant.server.env.map(({ name, value }) => [name, value]));
+	const response = await fetch(env[BRIDGE_URL_ENV]!, {
+		method: "POST", headers: { authorization: `Bearer ${useWrongToken ? "0".repeat(64) : env[BRIDGE_TOKEN_ENV]}`, "content-type": "application/json" },
+		body: '{"method":"tools/list"}', signal: AbortSignal.timeout(5000), proxy: "", redirect: "error",
+	});
+	await response.body?.cancel();
+	return response.status;
+}
+
+function observeBridgeGrant() {
+	return spyOn(OfficialAgentMcpBridge.prototype, "grant");
+}
+
+test("official workers can update only their own task and retain only files inside the workspace", async () => {
+	const s = await workerSetup("EXERCISE_MCP", { isolated: true });
+	const grants = observeBridgeGrant();
+	try {
+		await s.submit();
+		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
+		const events = await fixtureEvents(s.setup.dataDir);
+		expect(events).toContainEqual({ event: "mcp-tools", tools: ["artifact_save", "task_progress"] });
+		const calls = Object.fromEntries(events.filter(e => e.event === "mcp-call").map(e => [e.label, e]));
+		for (const label of ["spoof-progress", "unlisted", "outside", "symlink", "spoof-artifact"]) expect(calls[label]?.failed).toBe(true);
+		for (const label of ["outside", "symlink"]) expect(calls[label]?.content[0].text).toContain("must resolve inside");
+		for (const label of ["progress", "artifact", "revision"]) expect(calls[label]?.failed).toBe(false);
+		const { runtime } = await s.setup.server.manager.open(s.projectId);
+		const state = await runtime.board.state();
+		expect(state.tasks[0]?.report.results).toContain("The fixture called the scoped bridge.");
+		expect(state.tasks[1]?.report.results).toBe("");
+		const checkpoint = (await runtime.board.history("T1")).find(entry => entry.label === "Fixture reached the bridge");
+		expect(checkpoint?.by).toMatchObject({ author: "worker", threadId: "main", workerId: "official" });
+		const artifacts = await s.setup.server.artifacts.list(s.projectId);
+		expect(artifacts).toHaveLength(1);
+		expect(artifacts[0]).toMatchObject({ taskId: "T1", threadId: "main", workerId: "official", tags: ["phone", "web", "after"], version: 2 });
+		expect(await readFile(s.setup.server.artifacts.filePath(artifacts[0]!), "utf8")).toBe("Second proof");
+		const grant = grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined;
+		expect(await bridgeStatus(grant, true)).toBe(403);
+		expect(await bridgeStatus(grant)).toBe(200);
+	} finally { grants.mockRestore(); await s.cleanup(); }
+}, 30_000);
+
+test("reassigning an official worker reloads its native session with a grant for the new task", async () => {
+	const s = await workerSetup("Read the fixture.", { isolated: true });
+	const grants = observeBridgeGrant();
+	try {
+		await s.submit();
+		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
+		const original = grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined;
+		expect(await bridgeStatus(original)).toBe(200);
+		await s.submit("Reassign the worker.");
+		await s.view.waitForView(v => v.entries.filter(entry => entryText(entry).startsWith("[worker official reported]")).length === 2);
+		const events = await fixtureEvents(s.setup.dataDir);
+		expect(events.filter(e => e.event === "session/new")).toHaveLength(1);
+		expect(events.filter(e => e.event === "session/load")).toHaveLength(1);
+		expect(await bridgeStatus(original)).toBe(403);
+		const { runtime } = await s.setup.server.manager.open(s.projectId);
+		const { tasks } = await runtime.board.state();
+		expect(tasks.find(task => task.id === "T1")?.report.results).toBe("");
+		expect(tasks.find(task => task.id === "T2")?.report.results).toContain("The fixture called the scoped bridge.");
+		expect(await s.setup.server.artifacts.list(s.projectId)).toMatchObject([{ taskId: "T2" }]);
+	} finally { grants.mockRestore(); await s.cleanup(); }
+}, 30_000);
+
+test("an unassigned official worker only gets artifact_save and loses its grant when forgotten", async () => {
+	const s = await workerSetup("Read the fixture.", { taskless: true });
+	const grants = observeBridgeGrant();
+	try {
+		await s.submit();
+		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
+		expect(await fixtureEvents(s.setup.dataDir)).toContainEqual({ event: "mcp-tools", tools: ["artifact_save"] });
+		const grant = grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined;
+		expect(await bridgeStatus(grant)).toBe(200);
+		await s.submit("Forget the worker.");
+		await s.view.waitForView(v => v.entries.some(entry => entry.kind === "pi.tool-result" && JSON.stringify(entry).includes('Forgot worker')));
+		expect(await bridgeStatus(grant)).toBe(403);
+	} finally { grants.mockRestore(); await s.cleanup(); }
+}, 30_000);
+
+test("the MCP bridge uses the executable directly for a compiled backend", () => {
+	expect(bridgeCommand("/tmp/kemiri", "/$bunfs/root/kemiri")).toEqual({ command: "/tmp/kemiri", args: [OFFICIAL_AGENT_MCP_COMMAND] });
+});
+
 test("worker stop sends ACP cancel and rejects permission requests during teardown", async () => {
 	const s = await workerSetup("HOLD_TURN");
+	const grants = observeBridgeGrant();
 	try {
 		await s.submit();
 		await watchHeld(s);
+		const grant = grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined;
+		expect(await bridgeStatus(grant)).toBe(200);
 		await s.submit("Stop the worker.");
 		await s.view.waitForView(v => v.entries.some(entry => entry.kind === "pi.tool-result" && JSON.stringify(entry).includes('Stopped worker')));
 		expect(await fixtureEvents(s.setup.dataDir)).toContainEqual({ event: "late-permission", selection: { outcome: "cancelled" } });
-	} finally { await s.cleanup(); }
+		expect(await bridgeStatus(grant)).toBe(403);
+	} finally { grants.mockRestore(); await s.cleanup(); }
 }, 30_000);
 
 test("a backend restart reloads the session and sends a continuation, not the original brief", async () => {
@@ -228,8 +322,9 @@ test("a backend restart reloads the session and sends a continuation, not the or
 			await view.start(s.projectId);
 			await view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[Kemiri was interrupted and resumed this turn.]")));
 			const events = await fixtureEvents(s.setup.dataDir);
-			expect(events).toContainEqual({ event: "session/load", cwd: s.setup.projectDir, actualCwd: s.setup.projectDir, sessionId: "fake-acp-session", mcpServers: [] });
+			expect(events).toContainEqual({ event: "session/load", cwd: s.setup.projectDir, actualCwd: s.setup.projectDir, sessionId: "fake-acp-session", mcpServers: ["kemiri"] });
 			const prompts = events.filter(e => e.event === "prompt").map(e => e.text);
+			expect(events.filter(e => e.event === "mcp-tools")).toHaveLength(2);
 			expect(prompts).toHaveLength(2);
 			expect(prompts[0]).toContain("HOLD_TURN");
 			expect(prompts[1]).toMatch(/^Kemiri restarted while you worked\./);
@@ -241,6 +336,7 @@ test("a backend restart reloads the session and sends a continuation, not the or
 
 for (const mode of ["signed-out", "died"] as const) test(`worker reports ${mode} with a readable reason`, async () => {
 	const s = await workerSetup(mode === "died" ? "DIE_DURING_TURN" : "Read the fixture.", { signedOut: mode === "signed-out" });
+	const grants = observeBridgeGrant();
 	try {
 		await s.submit();
 		const expected = mode === "died" ? "agent process died" : "Settings → Accounts and API keys";
@@ -248,7 +344,8 @@ for (const mode of ["signed-out", "died"] as const) test(`worker reports ${mode}
 		const board = await s.client.request({ type: "board.get", projectId: s.projectId });
 		if (board.type !== "board.get") throw new Error(JSON.stringify(board));
 		expect(board.board.tasks.find(task => task.id === "T1")).toMatchObject({ status: "blocked", blockedReason: expect.stringContaining(expected) });
-	} finally { await s.cleanup(); }
+		expect(await bridgeStatus(grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined)).toBe(403);
+	} finally { grants.mockRestore(); await s.cleanup(); }
 }, 30_000);
 
 test("project configuration refuses a worker-only coordinator or report-audit model", async () => {

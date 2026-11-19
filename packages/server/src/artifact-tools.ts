@@ -37,6 +37,23 @@ export const ARTIFACT_TAG_GUIDANCE =
 	"For `path` or `paths`, explicit tags come first, then file-name tags. " +
 	"Give before/after pairs the same tags except `before` and `after`; the app filters and compares by tag.";
 
+export const artifactSaveFields = {
+	path: Type.Optional(Type.String({ minLength: 1, description: "One file to keep; omit when giving paths." })),
+	paths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
+		minItems: 1,
+		maxItems: 50,
+		description: "Files to keep; omit path. List only the files meant to be kept.",
+	})),
+	title: Type.Optional(Type.String({ minLength: 1, description: "What a single file shows; ignored for several files." })),
+	note: Type.Optional(Type.String({ minLength: 1, description: "Longer description, Markdown." })),
+	tags: Type.Optional(
+		Type.Array(Type.String({ minLength: 1 }), {
+			maxItems: 100,
+			description: "Short lowercase words: platform, form factor, theme, before/after. E.g. [\"web\", \"phone\", \"dark\"].",
+		}),
+	),
+};
+
 export type ArtifactToolsOptions = {
 	store: ArtifactStore;
 	project: () => Project;
@@ -173,21 +190,9 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			"Failures are reported per file; other files still save. " +
 			ARTIFACT_TAG_GUIDANCE,
 		parameters: Type.Object({
-			path: Type.Optional(Type.String({ minLength: 1, description: "One file to keep; omit when giving paths." })),
-			paths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
-				minItems: 1,
-				maxItems: 50,
-				description: "Files to keep; omit path. List only the files meant to be kept.",
-			})),
-			title: Type.Optional(Type.String({ minLength: 1, description: "What a single file shows; ignored for several files." })),
-			note: Type.Optional(Type.String({ minLength: 1, description: "Longer description, Markdown." })),
+			...artifactSaveFields,
+			// Board assignment is optional in native tools only. The official-agent bridge binds it at launch.
 			taskId: Type.Optional(Type.String({ minLength: 1, description: "The board task it is evidence for, e.g. T3." })),
-			tags: Type.Optional(
-				Type.Array(Type.String({ minLength: 1 }), {
-					maxItems: 100,
-					description: "Short lowercase words: platform, form factor, theme, before/after. E.g. [\"web\", \"phone\", \"dark\"].",
-				}),
-			),
 		}),
 		// Keep the legacy single-path key for in-flight calls; each batch entry gets its own receipt.
 		replay: "safe",

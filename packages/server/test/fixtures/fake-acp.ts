@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { McpClient, StdioTransport } from "@earendil-works/pi-mcp";
+import type { AcpStdioMcpServer } from "../../src/official-agents/mcp-bridge-command.ts";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 
@@ -36,6 +38,40 @@ const update = (update: object) => send({ method: "session/update", params: { se
 const modelOptions = { configOptions: [{ category: "model", id: "model", currentValue: "other", options: [{ value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" }, { value: "other", name: "Another model" }] }] };
 let promptId: number;
 let hold = false;
+let servers: AcpStdioMcpServer[] = [];
+
+async function callMcp(exercise: boolean) {
+	const server = servers[0];
+	if (!server) return;
+	const client = new McpClient({ name: "fake-acp", version: "1", requestTimeoutMs: 5000 });
+	try {
+		await client.connect(new StdioTransport({ ...server, cwd: process.cwd(), inheritEnv: false, env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])) }));
+		const tools = (await client.listTools()).map(tool => tool.name).sort();
+		record({ event: "mcp-tools", tools });
+		if (!exercise) return;
+		const call = async (label: string, name: string, args: Record<string, unknown>) => {
+			const result = await client.callTool(name, args);
+			record({ event: "mcp-call", label, failed: Boolean(result.isError), content: result.content });
+		};
+		const path = "proof--web-after.txt";
+		writeFileSync(path, "First proof");
+		const outside = join(process.env.HOME!, "outside-fixture.txt");
+		writeFileSync(outside, "Not eligible for retention");
+		symlinkSync(outside, "escape.txt");
+		symlinkSync(path, "allowed-link.txt");
+		await call("spoof-progress", "task_progress", { taskId: "T2", addResult: "Other task." });
+		await call("progress", "task_progress", { now: "Checking the fixture", addResult: "The fixture called the scoped bridge.", milestone: "Fixture reached the bridge" });
+		await call("unlisted", "artifact_read", {});
+		await call("outside", "artifact_save", { path: outside });
+		await call("symlink", "artifact_save", { path: "escape.txt" });
+		await call("spoof-artifact", "artifact_save", { path, taskId: "T2" });
+		await call("artifact", "artifact_save", { path: "allowed-link.txt", tags: ["phone"] });
+		writeFileSync(path, "Second proof");
+		await call("revision", "artifact_save", { path, tags: ["phone"] });
+	} catch {
+		record({ event: "mcp-fixture-error" });
+	} finally { await client.close(); }
+}
 for await (const line of createInterface({ input: process.stdin })) {
 	const frame = JSON.parse(line);
 	const reply = (result: object) => send({ id: frame.id, result });
@@ -51,7 +87,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 			break;
 		case "session/new":
 		case "session/load":
-			record({ event: frame.method, cwd: frame.params.cwd, actualCwd: process.cwd(), sessionId: frame.params.sessionId, mcpServers: frame.params.mcpServers });
+			servers = frame.params.mcpServers;
+			// Record just the names, never the MCP environment or bearer.
+			record({ event: frame.method, cwd: frame.params.cwd, actualCwd: process.cwd(), sessionId: frame.params.sessionId, mcpServers: servers.map(server => server.name) });
 			const isKeyMode = settings.auth.type === "gemini-api-key";
 			const usesSelectedAuth = isKeyMode ? Boolean(process.env.GEMINI_API_KEY) : existsSync(nativeAuth) && !process.env.GEMINI_API_KEY;
 			audit({ event: "open", mode: settings.auth.type, usesSelectedAuth });
@@ -74,6 +112,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const text: string = frame.params.prompt[0].text;
 			record({ event: "prompt", text });
 			const input = text.split("--- User input ---\n").at(-1)!;
+			await callMcp(text.includes("EXERCISE_MCP"));
 			if (input.includes("DIE_DURING_TURN")) process.exit(42);
 			if (input.includes("FAIL_REFRESH")) {
 				send({ id: frame.id, error: { code: -32603, message: `Failed to refresh native credential: ${readFileSync(nativeAuth, "utf8")}` } });

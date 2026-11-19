@@ -1363,7 +1363,7 @@ export class ProjectManager {
 
 		const workers = new WorkerService({
 			taskLive: this.#taskLive,
-			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
+			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents, officialAgentArtifacts: this.artifacts }),
 			browsers: this.browsers,
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,

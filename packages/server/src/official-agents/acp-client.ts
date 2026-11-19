@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import type { AcpStdioMcpServer } from "./mcp-bridge-command.ts";
 
 const ACP_VERSION = 1;
 const SETUP_TIMEOUT_MS = 30_000;
@@ -40,7 +41,7 @@ export class AcpClient {
 	#update?: (update: AcpUpdate) => void;
 	#permission?: (kind: string) => void;
 
-	constructor(command: string, args: readonly string[], cwd: string, env: Record<string, string>, log: (message: string) => void) {
+	constructor(command: string, args: readonly string[], cwd: string, env: Record<string, string>, log: (message: string) => void, readonly onFailure?: () => void) {
 		this.#child = spawn(command, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
 		this.#exited = new Promise(resolve => this.#child.once("close", (code, signal) => {
 			this.#fail(new AcpProcessError("The agent process died."));
@@ -91,13 +92,13 @@ export class AcpClient {
 		await this.#request("logout", { methodId });
 	}
 
-	async open(cwd: string, previousId: string | undefined, authMethod?: string): Promise<{ sessionId: string; session: AcpSession; version?: string }> {
+	async open(cwd: string, previousId: string | undefined, authMethod?: string, mcpServers: AcpStdioMcpServer[] = []): Promise<{ sessionId: string; session: AcpSession; version?: string }> {
 		const initialized = await this.#initialize();
 		if (previousId && initialized.agentCapabilities?.loadSession !== true) throw new AcpProtocolError("The agent cannot reload its saved ACP session.");
 		this.#sessionId = previousId;
 		const setup = () => previousId
-			? this.#request<AcpSession>("session/load", { sessionId: previousId, cwd, mcpServers: [] })
-			: this.#request<AcpSession>("session/new", { cwd, mcpServers: [] });
+			? this.#request<AcpSession>("session/load", { sessionId: previousId, cwd, mcpServers })
+			: this.#request<AcpSession>("session/new", { cwd, mcpServers });
 		let session: AcpSession;
 		try { session = await setup(); }
 		catch (error) {
@@ -170,6 +171,7 @@ export class AcpClient {
 	}
 
 	#fail(error: Error): void {
+		if (!this.#failure) this.onFailure?.();
 		this.#failure ??= error;
 		for (const pending of this.#pending.values()) pending.reject(this.#failure);
 		this.#pending.clear();

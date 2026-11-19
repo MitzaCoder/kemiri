@@ -4,6 +4,7 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { registerLazyBedrockProvider } from "@earendil-works/pi-ai/lazy-bedrock-provider";
 import { packagedResources } from "./packaged-resources.ts";
 import { loadServerEnv, resolvedServerConfig } from "./server-env.ts";
+import { OFFICIAL_AGENT_MCP_COMMAND } from "./official-agents/mcp-bridge-command.ts";
 import { runServerEntry } from "./main.ts";
 import { join } from "node:path";
 
@@ -11,6 +12,7 @@ registerBunOAuthFlows();
 registerLazyBedrockProvider();
 
 export async function runBinaryEntry(args = process.argv.slice(2)): Promise<void> {
+	if (args[0] === OFFICIAL_AGENT_MCP_COMMAND) return runServerEntry(undefined, args);
 	if (args[0] === "--kemiri-version") { console.log(`Kemiri ${packagedResources.release?.name ?? "development"}\nBun ${Bun.version}`); return; }
 	if (installedCliRequested(args)) return runInstalledCli(args);
 	const loaded = loadServerEnv();

@@ -1,13 +1,15 @@
+import { OFFICIAL_AGENT_MCP_COMMAND, runOfficialAgentMcpCommand } from "./official-agents/mcp-bridge-command.ts";
 import { resolveDataDir, resolveHostname, resolvePort } from "./data-dir.ts";
 import { ALLOWED_ORIGINS_ENV } from "./origins.ts";
 import { loadServerEnv, resolvedServerConfig } from "./server-env.ts";
 import { configureServerSettings, serverSettings } from "./server-settings.ts";
 
 export async function runServerEntry(
-	settings: Readonly<Record<string, string | undefined>> = loadServerEnv(),
+	settings: Readonly<Record<string, string | undefined>> | undefined = undefined,
 	args: readonly string[] = process.argv.slice(2),
 ): Promise<void> {
-	configureServerSettings(settings);
+	if (args[0] === OFFICIAL_AGENT_MCP_COMMAND) return runOfficialAgentMcpCommand(serverSettings);
+	configureServerSettings(settings ?? loadServerEnv());
 	if (args.includes("--print-config")) {
 		console.log(JSON.stringify(resolvedServerConfig(), null, 2));
 		return;

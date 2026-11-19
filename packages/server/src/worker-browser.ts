@@ -206,6 +206,11 @@ export class WorkerBrowserService {
 				.catch(error => this.options.log(`agent-browser resume: ${error}`));
 		}
 	}
+	/** A scoped artifact root, not the rest of the browser's private directory. */
+	async proofDirectory(projectId: string, conversationId: number): Promise<string | undefined> {
+		const browser = await this.#read(this.#key(projectId, conversationId));
+		if (browser) return join(await realpath(browser.directory), "proof");
+	}
 	/** Save real-path receipts separately from retained artifact versions, so deletion/pruning cannot undo a save. */
 	async recordSavedProof(projectId: string, conversationId: number, source: string): Promise<void> {
 		const key = this.#key(projectId, conversationId);

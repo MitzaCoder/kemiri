@@ -48,6 +48,7 @@ import { OAuthLoginManager } from "./logins.ts";
 import { MemoryMaintenanceClock, MemoryMaintenanceService, MemoryMaintenanceStore } from "./memory-maintenance.ts";
 import { MemoryStore } from "./memory.ts";
 import { antigravityDefinition } from "./official-agents/antigravity.ts";
+import { OfficialAgentMcpBridge } from "./official-agents/mcp-bridge.ts";
 import { OfficialAgentSessions } from "./official-agents/provider.ts";
 import { createHarnessModels } from "./models.ts";
 import {
@@ -298,7 +299,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const connections = new Set<ClientConnection>();
 	const sockets = new Set<ServerWebSocket<SocketData>>();
 	let pendingHandshakes = 0;
-	const officialAgents = new OfficialAgentSessions(dataDir, credentials, log);
+	const officialAgents = new OfficialAgentSessions(dataDir, credentials, log, new OfficialAgentMcpBridge());
 	const officialAgent: Provider = officialAgents.provider(antigravityDefinition(dataDir, options.antigravityCommand));
 	const unobservedModels = options.models ?? createHarnessModels({ credentials, officialAgent });
 	if (options.models && options.antigravityCommand) {
@@ -1171,6 +1172,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		async stop() {
 			if (stopped) return;
 			stopped = true;
+			officialAgents.beginShutdown();
 			clearInterval(authTimer);
 			scheduleScheduler.stop();
 			scheduleEvents.stop();
@@ -1189,7 +1191,6 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of [...connections]) connection.close();
 			connections.clear();
 			await terminals?.stop().catch(() => undefined);
-			officialAgents.beginShutdown();
 			await manager.closeAll();
 			await officialAgents.close();
 			await mcp.close();

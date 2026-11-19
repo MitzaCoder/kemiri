@@ -1,14 +1,14 @@
 import { workerCommandIntent } from "./worker-command-intent.ts";
-import { LivePlanInputSchema, LivePlanTickSchema } from "./task-live-plan.ts";
 import { appendLiveFact, runningLiveSources } from "./task-live.ts";
-import type { TaskArtifactSave } from "./artifacts.ts";
+import type { ArtifactStore, TaskArtifactSave } from "./artifacts.ts";
+import { officialAgentWorkerTools } from "./official-agents/mcp-worker-tools.ts";
 import { isWorkerOnlyModel, type OfficialAgentSessions } from "./official-agents/provider.ts";
 import { type WorkerBrowserAvailability, type WorkerBrowserService, type UnsavedProof, workerBrowserInstructions, unsavedProofList } from "./worker-browser.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
 import { activityTracking, endActivitySource } from "./task-activity.ts";
 import { noteTaskFact } from "./task-freshness.ts";
-import { taskTextWarnings } from "./task-text-style.ts";
+import { workerTaskProgress, workerTaskProgressTool } from "./worker-task-progress.ts";
 import { stateKind } from "./state-identity.ts";
 /**
  * Workers: background, restart-safe child conversations the project's coordinator delegates work to.
@@ -75,11 +75,7 @@ import {
 	foldTaskLiveIn,
 	type BoardState,
 	HARNESS_WRITER,
-	ReportCheckInputSchema,
 	addTimelineEvent,
-	boardView,
-	describeTaskInFull,
-	normalizeBoard,
 	inProgressMinutes,
  linksOfBoard,
  logLinkChanges,
@@ -93,8 +89,6 @@ import {
 	snapshotStatusChanges,
 	statusesOf,
 	taskTime,
-	workerWriter,
-	writeReportIn,
 } from "./board.ts";
 import { type CoordinatorPlace, Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
@@ -813,9 +807,7 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: options.officialAgent
-				? `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The coordinator updates the board from your final report.`
-				: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
+			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${options.officialAgent ? "" : planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${options.officialAgent ? WRITING_RULE.replace(" and `taskId`", " (the task is assigned automatically)") : WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -837,7 +829,7 @@ The coordinator sent you one brief. Do it, then answer with a report. Verificati
 
 Read files with the read tool, not a bash \`cat\` chain: a \`&&\` chain whose last command fails turns the whole call red even though the useful output already printed. When an AGENTS.md or CLAUDE.md names another path, resolve it against that file's own folder, not the project root. \`grep\`/\`rg\` exit 1 when nothing matches and 2 when a path is missing, so never end an inspection chain with a command that can fail, and never add \`|| true\` to quiet one.
 
-${options.officialAgent ? "Use your own agent tools. No Kemiri tools, board updates, or artifact retention are available from this session." : uiProofParagraph(project, "worker") + CODEMODE_GUIDANCE}
+${options.officialAgent ? "Use your own agent tools. The Kemiri MCP server lets you retain selected files from your workspace with artifact_save. It files them on your assigned task automatically, if you have one." : uiProofParagraph(project, "worker") + CODEMODE_GUIDANCE}
 
 Write your final report in plain words for the coordinator. Keep its paths and revision IDs there, not in the task prose.${options.projectBrief ? `\n\n${options.projectBrief}` : ""}
 
@@ -1122,6 +1114,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 export type WorkerServiceOptions = {
 	taskLive?: boolean;
 	officialAgents?: OfficialAgentSessions;
+	officialAgentArtifacts?: ArtifactStore;
 	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
@@ -1354,8 +1347,29 @@ export class WorkerService {
 					if (!sessions || !last || this.isCoordinator(api.conversationId)) return;
 					const worker = await this.workerOf(api.conversationId, context);
 					if (!worker || worker.record.status === "done" || worker.record.status === "stopped" || !this.isOfficialAgent(worker.record.model)) return;
-					const cwd = worker.record.workspacePath ?? this.coordinators.placeOfThread(worker.threadId)?.checkout ?? this.project.path;
-					sessions.tag(last, { cwd, turnId: String(api.taskId), projectId: this.project.id, conversationId: api.conversationId });
+					const checkout = this.coordinators.placeOfThread(worker.threadId)?.checkout;
+					const cwd = worker.record.workspacePath ?? checkout ?? this.project.path;
+					const conversationId = api.conversationId;
+					const projectId = this.project.id;
+					const { record, threadId } = worker;
+					const coordinatorId = this.coordinators.placeOfThread(threadId)?.conversationId;
+					const artifacts = this.#options.officialAgentArtifacts;
+					const taskId = record.taskId ?? null;
+					sessions.tag(last, { cwd, turnId: String(api.taskId), projectId, conversationId,
+						...(artifacts && coordinatorId !== undefined ? { mcpScope: { taskId, create: async () => officialAgentWorkerTools({
+							projectId, workerId: record.id, threadId, taskId, cwd, artifacts, harness: this.harness, mainId: this.mainId as ConversationId,
+							taskLive: this.#options.taskLive === true,
+							managedWorkspace: record.workspacePath != null || (threadId !== "main" && checkout != null),
+							proofDirectory: await this.#options.browsers?.proofDirectory(projectId, conversationId).catch(() => undefined),
+							onSavedProof: async path => { await this.#options.browsers?.recordSavedProof(projectId, conversationId, path); },
+							isCurrent: async tx => {
+								const state = tx ? await tx.doc(WorkersDoc, coordinatorId as ConversationId) : await this.state(BACKGROUND_CONTEXT, coordinatorId);
+								const current = state.workers[record.id];
+								return current?.conversationId === conversationId && (current.taskId ?? null) === taskId &&
+									current.status !== "done" && current.status !== "stopped";
+							},
+						}) } } : {}),
+					});
 				},
 			})],
 		});
@@ -1771,7 +1785,7 @@ export class WorkerService {
 		const checkout = place?.checkout ?? project.path;
 		const projectBrief = this.#options.memory === undefined ? "" : await readWorkerBrief(this.#options.memory, project.id, (message) => this.log(message));
 		// A transaction may not read tables after its first write, so the document comes first. The board is main's.
-		const doc = await tx.doc(WorkersDoc, coordinatorId);
+		const doc = await tx.doc(WorkersDoc, coordinatorId as ConversationId);
 		const board = input.taskId === null ? undefined : await openBoard(tx, this.mainId as ConversationId);
 		if (board !== undefined && !board.tasks.some((task) => task.id === input.taskId)) {
 			throw new ServerError("unknown_task", `No task "${input.taskId}" on the board`, { taskId: input.taskId });
@@ -2624,73 +2638,19 @@ export function createWorkerWorkspaceExtension(service: {
 /** `task_progress`: optional run phase, Results and checks; Now is automatic. */
 function createWorkerTaskExtension(service: WorkerService, taskLive: boolean): Extension {
 	const progressTool = defineTool({
-		name: "task_progress",
-		description:
-			"Keep the report of the board task you were started for current; the user reads it instead of your conversation. " +
-			"Now is written automatically. Optional `now` is a few-word phase, only when it really changes; `addResult` adds one finished thing to Results, " +
-			"`checks` updates checks by name; `milestone` saves a snapshot of the task. Questions and warnings go in your final report, not here. " +
-			(taskLive ? "Use `plan` to write or replace the run plan and `tick` to mark steps done by number. " : "") +
-			"With no update fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
-		parameters: Type.Object({
-			now: Type.Optional(
-				Type.String({ description: "Optional few-word phase, only when it really changes. Adds a line to this run’s trail. Now is automatic; empty clears the phase." }),
-			),
-			addResult: Type.Optional(
-				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId." }),
-			),
-			checks: Type.Optional(Type.Array(ReportCheckInputSchema, { description: "Checks that ran, with name, result and count if known. Merges by name; other checks stay as they are." })),
-			...(taskLive ? { plan: Type.Optional(LivePlanInputSchema), tick: Type.Optional(LivePlanTickSchema) } : {}),
-			coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Optional: the eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
-			milestone: Type.Optional(
-				Type.String({ minLength: 1, description: 'A few words naming something meaningful that just happened, e.g. "Tests pass". Saves a snapshot.' }),
-			),
-		}),
+		...workerTaskProgressTool(taskLive),
 		execute: async (args, api, context) => {
 			const place = await service.workerOf(api.conversationId, context);
 			const taskId = place?.record.taskId ?? null;
 			if (place === undefined || taskId === null) {
-				return toolText("You were not started for a board task, so there is no report to update. Say it in your final report.", {
-					isError: true,
-				});
+				return toolText("You were not started for a board task, so there is no report to update. Say it in your final report.", { isError: true });
 			}
-			const planUpdate = taskLive && (args.plan !== undefined || args.tick !== undefined) ? { plan: args.plan, tick: args.tick } : undefined;
-			if (args.now === undefined && args.addResult === undefined && !args.checks?.length && !planUpdate) {
-				const stored = await service.harness.snapshot(BoardDoc, service.mainId as ConversationId, context);
-				if (stored === undefined) return toolText("The task no longer exists.", { isError: true });
-				const state = normalizeBoard(JSON.parse(JSON.stringify(stored)) as BoardState);
-				const board = boardView(state, Date.now(), true);
-				const task = board.tasks.find((candidate) => candidate.id === taskId);
-				return task === undefined ? toolText("The task no longer exists.", { isError: true }) : toolText(describeTaskInFull(task, board, []), { details: { taskId } });
-			}
-			try {
-				const at = new Date().toISOString();
-				const task = await api.commit(
-					(tx) =>
-						writeReportIn(
-							tx,
-							service.mainId as ConversationId,
-							{
-								taskId,
-								sections: { now: args.now },
-								mergeChecks: args.checks,
-								planUpdate,
-								addResult: args.addResult,
-								coveredEventSeq: args.coveredEventSeq,
-								by: workerWriter(place.threadId, place.record.id),
-								milestone: args.milestone,
-							},
-							`call:${api.conversationId}:${api.callId}`,
-							at,
-						),
-					context,
-				);
-				const milestone = args.milestone === undefined ? "" : `; milestone "${args.milestone.trim()}" saved`;
-				const warnings = taskTextWarnings({ name: "Results", text: args.addResult });
-				const plan = planUpdate ? " Run plan updated." : "";
-				return toolText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${plan}${warnings}`, { details: { taskId: task.id } });
-			} catch (error) {
-				return toolText(errorMessage(error), { isError: true });
-			}
+			return workerTaskProgress(args, {
+				harness: service.harness, mainId: service.mainId as ConversationId, context, taskLive,
+				scope: { taskId, threadId: place.threadId, workerId: place.record.id },
+				key: `call:${api.conversationId}:${api.callId}`,
+				commit: change => api.commit(change, context),
+			});
 		},
 	});
 
