@@ -13,12 +13,12 @@
 
 <p class="live-pulse" aria-label="Run pulse">
  <span class="live-pulse-dot" aria-hidden="true"></span>
- <span>{pulse.label}{#if pulse.tool}<span class="live-pulse-detail"> · {pulse.tool}</span>{/if}</span>
+ <span>{pulse.label}{#if pulse.tool}<span class="live-pulse-detail">{' · '}{pulse.tool}</span>{/if}</span>
  {#if elapsed}<time class="live-pulse-detail" datetime={pulse.since}>· {elapsed}</time>{/if}
 </p>
 
 <style>
- .live-pulse { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem 0.375rem; font-size: 0.8125rem; }
- .live-pulse-dot { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: currentColor; }
+ .live-pulse { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem 0.375rem; font-size: 0.8125rem; overflow-wrap: anywhere; }
+ .live-pulse-dot { flex: 0 0 0.375rem; height: 0.375rem; border-radius: 50%; background: currentColor; }
  .live-pulse-detail { color: var(--chat-fg-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 </style>

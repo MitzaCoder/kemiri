@@ -2,13 +2,25 @@ import { posix } from "node:path";
 import type { EntryRecord, LiveState } from "@earendil-works/pi-durable";
 import type { BoardLivePulse } from "@kemiri/protocol";
 
+export const COMMAND_INTENT_MAX_CHARS = 60;
+
 const TOOL_LABELS: Readonly<Record<string, string>> = {
  bash: "Running a command", powershell: "Running a command", edit: "Editing a file",
  write: "Writing a file", read: "Reading a file", artifact_save: "Saving files",
  task_progress: "Recording progress", codemode: "Running tools",
 };
 
-/** Never display arguments, output, paths or streamed text. Command classes are fixed strings. */
+/** Only a command's explicit prose intent is eligible; never display its command or output. */
+function commandIntent(name: string, args: Record<string, unknown> | undefined): string | undefined {
+ if (name !== "bash" || typeof args?.intent !== "string") return undefined;
+ const clean = args.intent.replace(/\s+/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, "").trim();
+ // Drop shell assignments altogether, including quoted or multi-word values.
+ if (!clean || /[a-z_][a-z_0-9]*\s*=/i.test(clean)) return undefined;
+ const chars = [...clean];
+ return chars.length > COMMAND_INTENT_MAX_CHARS ? `${chars.slice(0, COMMAND_INTENT_MAX_CHARS - 1).join("")}…` : clean;
+}
+
+/** Never display command arguments here. Command classes are fixed strings. */
 function toolLabel(name: string, args: Record<string, unknown> | undefined): string {
  if (name === "bash" && typeof args?.command === "string" &&
      /^(?:bun|npm|pnpm|yarn) (?:run )?test(?:\s|$)|^(?:cargo test|go test|pytest)(?:\s|$)/.test(args.command.trim())) return "Running tests";
@@ -35,6 +47,8 @@ function nestedArgs(args: string): Record<string, unknown> {
 
 /** One run's transcript projection. Call/result matching ensures failed edits and commands are not counted as changes. */
 export class TaskLiveRun {
+ // Keep sanitized labels only while a direct call can still become the pulse.
+ readonly #pendingIntents = new Map<string, string>();
  readonly #calls = new Map<string, string>();
  #nestedSteps = 0;
  readonly #settledCodemode = new Set<string>();
@@ -55,11 +69,14 @@ export class TaskLiveRun {
    if (message.role === "assistant") for (const call of message.content) {
     if (call.type !== "toolCall" || this.#calls.has(call.id)) continue;
     this.#calls.set(call.id, toolLabel(call.name, call.arguments));
+    const intent = commandIntent(call.name, call.arguments);
+    if (intent) this.#pendingIntents.set(call.id, intent);
     const path = this.#changedPath(call.name, call.arguments);
     if (path) this.#pending.set(call.id, { path });
     if ((call.name === "bash" || call.name === "powershell") && isCommitCommand(call.arguments.command)) this.#pending.set(call.id, "commit");
    }
    if (message.role !== "toolResult") continue;
+   this.#pendingIntents.delete(message.toolCallId);
    const details = message.details;
    if (message.toolName === "codemode" && details && typeof details === "object" && "calls" in details && Array.isArray(details.calls) && !this.#settledCodemode.has(message.toolCallId)) {
     this.#settledCodemode.add(message.toolCallId);
@@ -95,7 +112,10 @@ export class TaskLiveRun {
   const key = slot ? `tool:${slot.taskId}:${slot.callId}` : live?.generation ? writing ? "writing" : "thinking" : undefined;
   if (key === this.#pulseKey) return;
   this.#pulseKey = key;
-  this.pulse = !key ? undefined : slot ? { label: nested ? toolLabel(slot.name, nested.arguments) : this.#calls.get(slot.callId) ?? toolLabel(slot.name, undefined),
+  const label = nested
+   ? commandIntent(nested.name, nested.arguments) ?? toolLabel(nested.name, nested.arguments)
+   : slot && (this.#pendingIntents.get(slot.callId) ?? this.#calls.get(slot.callId) ?? toolLabel(slot.name, undefined));
+  this.pulse = !key ? undefined : slot && label ? { label,
     // Registered names, not call arguments. Some extensions supply arbitrary names; reject those shapes.
     ...(/^[a-z][a-z0-9_-]{0,63}$/.test(slot.name) ? { tool: slot.name } : {}), since: now }
    : { label: writing ? "Writing" : "Thinking", since: now };

@@ -65,6 +65,20 @@ it('renders the pulse and recorded facts with nonzero counters, without repeatin
   const empty = render(TaskLive, { props: { ...props, live: { lines: [], counters: { ...counters, steps: 0, filesSaved: 0 } } } }).body;
   expect(empty).not.toContain('Run counters');
   expect(empty).not.toContain('Run pulse');
+  expect(empty).not.toContain('Plan steps');
+  const withPlan = render(TaskLive, { props: { ...props, live: { lines: [fact], plan: [
+   { text: 'Trace payments', status: 'done' }, { text: 'Add gift cards', status: 'done' },
+   { text: 'Check balances', status: 'done' }, { text: 'Run tests', status: 'doing' },
+   { text: 'Save a receipt', status: 'todo' },
+  ] } } }).body;
+  expect(withPlan).toContain('3 of 5');
+  expect(withPlan).toContain('aria-label="Plan steps"');
+  expect(withPlan.match(/data-status="done"/g)).toHaveLength(3);
+  expect(withPlan.match(/✓/g)).toHaveLength(3);
+  expect(withPlan).toMatch(/<li data-status="doing" class="[^"]*\bcurrent-step\b/);
+  expect(withPlan).toContain('data-status="todo"');
+  expect(withPlan).toContain('Show steps');
+  expect(withPlan.indexOf('Plan steps')).toBeLessThan(withPlan.indexOf('So far'));
  } finally {
   await vite.close();
   await rm(directory, { recursive: true, force: true });

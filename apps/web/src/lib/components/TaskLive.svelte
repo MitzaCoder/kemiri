@@ -5,6 +5,7 @@
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import TaskLivePulse from './TaskLivePulse.svelte';
+	import TaskLivePlan from './TaskLivePlan.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
 
 	let { live, now, backendId, projectId, taskId }: { live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string } = $props();
@@ -49,6 +50,7 @@
 			{#each counters as counter (counter)}<li>{counter}</li>{/each}
 		</ul>
 	{/if}
+	{#if live.plan}<TaskLivePlan plan={live.plan} foldOnPhone />{/if}
 	{#if newestFirst.length}
 		<h3 class="live-heading">So far</h3>
 		<ul role="list" class="live-trail">

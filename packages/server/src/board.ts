@@ -1,3 +1,4 @@
+import { describeLivePlan, type LivePlanUpdate } from "./task-live-plan.ts";
 import { TaskLiveRun } from "./task-live-run.ts";
 import { TaskLiveWatch } from "./task-live-watch.ts";
 import type { TaskArtifactSave } from "./artifacts.ts";
@@ -420,6 +421,7 @@ export type ReportWrite = {
 	};
 	/** Workers replace only the checks they name. */
 	mergeChecks?: ReportCheckInput[] | undefined;
+	planUpdate?: LivePlanUpdate | undefined;
 	/** A line added to the end of `results`, as a bullet. */
 	addResult?: string | undefined;
 	by: BoardWriter;
@@ -437,7 +439,7 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
 	if (task === undefined) throw unknownTask(input.taskId);
 	const { now, results, next, steps, summary, notDone, checks } = input.sections;
 	const { mergeChecks } = input;
-	if (Object.values(input.sections).every(value => value === undefined) && input.addResult === undefined && !mergeChecks?.length) {
+	if (Object.values(input.sections).every(value => value === undefined) && input.addResult === undefined && !mergeChecks?.length && !input.planUpdate) {
 		throw new ServerError("bad_request", "A report write names at least one of now, results, next, steps, summary, notDone and checks");
 	}
 	const report = (task.report ??= emptyReport());
@@ -487,7 +489,7 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
    addedResult = line.replace(/^[-*] /, "");
   }
  }
- if (state.taskActivityEnabled) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey, checksChanged ? recordedChecks : []);
+ if (state.taskActivityEnabled || input.planUpdate) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey, checksChanged ? recordedChecks : [], input.planUpdate);
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
@@ -575,7 +577,7 @@ export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: Boar
   }
  }
  const { lines, counters } = liveRunFacts(taskId, source, run, runSaves);
- const live = { lines: mergeLiveLines(trail?.lines ?? [], lines), ...(counters ? { counters } : {}) };
+ const live = { ...trail, lines: mergeLiveLines(trail?.lines ?? [], lines), ...(counters ? { counters } : {}) };
  delete source.liveChecks;
  delete source.liveCheckWrites;
  delete source.liveCommits;
@@ -1096,7 +1098,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 			const counted = subtasks.map((id) => byId.get(id)).filter((child): child is BoardTask => child !== undefined && child.status !== "dropped");
    const derived = state.taskStateEnabled ? stateFor(task) : undefined;
    const subtaskStates = state.taskPartStatesEnabled && derived && subtasks.length ? counted.map(child => stateFor(child).kind) : undefined;
-   const live = state.taskLiveEnabled && !isSettled(task) ? taskLive(tracking) : undefined;
+   const live = state.taskLiveEnabled && !isSettled(task) ? taskLive(tracking, activity?.actor) : undefined;
    let shown = derived;
    if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
     const done = subtaskStates.filter(kind => kind === "done").length;
@@ -2046,6 +2048,7 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	if (task.eventSeq !== undefined) lines.push(`eventSeq: ${task.eventSeq} (pass as coveredEventSeq after reading this task; only rewritten sections cover it)`);
 	if (report.freshness !== undefined) for (const name of ["results", "next"] as const) lines.push(`${name} freshness: ${JSON.stringify(report.freshness[name])}`);
 	lines.push(`now: ${report.now === "" ? "(empty)" : report.now}`);
+	if (task.live?.plan) lines.push(describeLivePlan(task.live.plan));
 	if (report.steps?.trim()) lines.push(`Your steps:\n${report.steps}`);
 	if (report.summary) lines.push(`summary: ${report.summary}`);
 	lines.push(`results: ${report.results === "" ? "(empty)" : report.results}`);

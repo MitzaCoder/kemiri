@@ -1,4 +1,4 @@
-/** Synthetic Live proof. SIGUSR1 starts a tool on first use and records a check on the next; SIGUSR2 folds. */
+/** Synthetic Live proof. SIGUSR1 ticks a step and starts an intent pulse on first use, then records a check; SIGUSR2 folds. */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { HARNESS_FEATURES } from '@kemiri/protocol';
@@ -50,10 +50,20 @@ await write(21, 'reading the payment flow');
 await write(15, 'building the gift card field', 'The checkout now accepts a gift card code.');
 await write(8, 'checking partial payments', 'A card can cover part of an order.');
 await write(3, 'checking the balance display');
+if (features.includes('task-live')) await runtime.harness.commit(tx => writeReportIn(tx, mainId, {
+ taskId: task.id, sections: {}, by: workerWriter('main', 'fern'),
+ planUpdate: { plan: [
+  { text: 'Trace the checkout payment flow' }, { text: 'Add gift cards to checkout' },
+  { text: 'Check partial payments' }, { text: 'Run the checkout tests' }, { text: 'Capture a checkout receipt' },
+ ], tick: [1, 2] },
+}, `demo:${++serial}`, at(2)), BACKGROUND_CONTEXT);
 let signalCount = 0;
 process.on('SIGUSR1', () => { void runtime.harness.commit(async tx => {
  if (signalCount++ === 0) {
-  const call = fauxToolCall('bash', { command: 'bun test checkout-gift-cards' });
+  if (features.includes('task-live')) await writeReportIn(tx, mainId, {
+   taskId: task.id, sections: {}, by: workerWriter('main', 'fern'), planUpdate: { tick: [3] },
+  }, `demo:${++serial}`, at(0));
+  const call = fauxToolCall('bash', { command: 'bun test checkout-gift-cards', intent: 'Verify gift card payments' });
   await tx.appendEntry(fixture.id, { kind: 'pi.assistant', model: [fauxAssistantMessage([call], { stopReason: 'toolUse' })] });
   (await tx.doc(LiveDoc, fixture.id)).tools = [{ callId: call.id, name: call.name, status: 'running', taskId: 2 as TaskId }];
  } else {

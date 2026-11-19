@@ -1,4 +1,4 @@
-import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState, BoardLiveLine } from "@kemiri/protocol";
+import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState, BoardLiveLine, BoardLivePlanStep } from "@kemiri/protocol";
 
 /** Durable run identities, never worker names alone. Deployment facts have separate typed slots. */
 export type TaskActivitySource = {
@@ -9,6 +9,7 @@ export type TaskActivitySource = {
  liveStartedAt?: string;
  liveFolded?: boolean;
  liveChecks?: number;
+ livePlan?: BoardLivePlanStep[];
  liveCheckWrites?: string[];
  liveCommits?: string[];
  title: string;

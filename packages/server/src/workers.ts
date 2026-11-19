@@ -1,3 +1,5 @@
+import { workerCommandIntent } from "./worker-command-intent.ts";
+import { LivePlanInputSchema, LivePlanTickSchema } from "./task-live-plan.ts";
 import { appendLiveFact, runningLiveSources } from "./task-live.ts";
 import type { TaskArtifactSave } from "./artifacts.ts";
 import { type WorkerBrowserAvailability, type WorkerBrowserService, type UnsavedProof, workerBrowserInstructions, unsavedProofList } from "./worker-browser.ts";
@@ -794,12 +796,16 @@ export function workerInstructions(options: {
 	threadId?: string;
 	/** The board task it was started for; it gets `task_progress` to keep that task's report current. */
 	taskId?: string | null;
+	taskLive?: boolean;
 }): string {
 	const { id, title, project, cwd, isolation } = options;
+	const planInstructions = options.taskLive
+		? " Start substantial work with a plan of three to seven steps in `task_progress`. Tick steps as they finish and rewrite the plan if the work changes. Give commands a short `intent` when their purpose is not obvious."
+		: "";
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
+			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -1104,6 +1110,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 // --- the service -------------------------------------------------------------------------------------------------
 
 export type WorkerServiceOptions = {
+	taskLive?: boolean;
 	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
@@ -1315,7 +1322,7 @@ export class WorkerService {
 	 * coordinators and the workers without a task remove it.
 	 */
 	get taskExtension(): Extension {
-		this.#taskExtension ??= createWorkerTaskExtension(this);
+		this.#taskExtension ??= createWorkerTaskExtension(this, this.#options.taskLive === true);
 		return this.#taskExtension;
 	}
 
@@ -1750,7 +1757,7 @@ export class WorkerService {
 			model: input.model,
 			thinkingLevel: input.thinkingLevel,
 			cwd: input.workspace ?? checkout,
-			extensions: { add: [mcpRoleExtension(input.scheduleId ? "coordinator" : "workers")], remove: [mcpRoleExtension(input.scheduleId ? "workers" : "coordinator"), mcpRoleExtension("background"), this.extension, ...this.removedExtensions, ...(input.taskId === null ? [this.taskExtension] : [])] },
+			extensions: { add: [mcpRoleExtension(input.scheduleId ? "coordinator" : "workers"), ...(this.#options.taskLive ? [workerCommandIntent] : [])], remove: [mcpRoleExtension(input.scheduleId ? "workers" : "coordinator"), mcpRoleExtension("background"), this.extension, ...this.removedExtensions, ...(input.taskId === null ? [this.taskExtension] : [])] },
 			// configure persists this complete text in pi.agent; restart/send never re-render it.
 			instructions: workerInstructions({
 				projectBrief,
@@ -1762,6 +1769,7 @@ export class WorkerService {
 				isolation: input.isolation,
 				workspaceRevision: input.workspaceRevision,
 				taskId: input.taskId,
+				taskLive: this.#options.taskLive === true,
 				...(place === undefined ? {} : { threadId: place.threadId }),
 			}),
 		});
@@ -2574,14 +2582,15 @@ export function createWorkerWorkspaceExtension(service: {
 }
 
 /** `task_progress`: optional run phase, Results and checks; Now is automatic. */
-function createWorkerTaskExtension(service: WorkerService): Extension {
+function createWorkerTaskExtension(service: WorkerService, taskLive: boolean): Extension {
 	const progressTool = defineTool({
 		name: "task_progress",
 		description:
 			"Keep the report of the board task you were started for current; the user reads it instead of your conversation. " +
 			"Now is written automatically. Optional `now` is a few-word phase, only when it really changes; `addResult` adds one finished thing to Results, " +
 			"`checks` updates checks by name; `milestone` saves a snapshot of the task. Questions and warnings go in your final report, not here. " +
-			"With no report fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
+			(taskLive ? "Use `plan` to write or replace the run plan and `tick` to mark steps done by number. " : "") +
+			"With no update fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
 		parameters: Type.Object({
 			now: Type.Optional(
 				Type.String({ description: "Optional few-word phase, only when it really changes. Adds a line to this run’s trail. Now is automatic; empty clears the phase." }),
@@ -2590,6 +2599,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId." }),
 			),
 			checks: Type.Optional(Type.Array(ReportCheckInputSchema, { description: "Checks that ran, with name, result and count if known. Merges by name; other checks stay as they are." })),
+			...(taskLive ? { plan: Type.Optional(LivePlanInputSchema), tick: Type.Optional(LivePlanTickSchema) } : {}),
 			coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Optional: the eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 			milestone: Type.Optional(
 				Type.String({ minLength: 1, description: 'A few words naming something meaningful that just happened, e.g. "Tests pass". Saves a snapshot.' }),
@@ -2603,7 +2613,8 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 					isError: true,
 				});
 			}
-			if (args.now === undefined && args.addResult === undefined && !args.checks?.length) {
+			const planUpdate = taskLive && (args.plan !== undefined || args.tick !== undefined) ? { plan: args.plan, tick: args.tick } : undefined;
+			if (args.now === undefined && args.addResult === undefined && !args.checks?.length && !planUpdate) {
 				const stored = await service.harness.snapshot(BoardDoc, service.mainId as ConversationId, context);
 				if (stored === undefined) return toolText("The task no longer exists.", { isError: true });
 				const state = normalizeBoard(JSON.parse(JSON.stringify(stored)) as BoardState);
@@ -2622,6 +2633,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 								taskId,
 								sections: { now: args.now },
 								mergeChecks: args.checks,
+								planUpdate,
 								addResult: args.addResult,
 								coveredEventSeq: args.coveredEventSeq,
 								by: workerWriter(place.threadId, place.record.id),
@@ -2634,7 +2646,8 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 				);
 				const milestone = args.milestone === undefined ? "" : `; milestone "${args.milestone.trim()}" saved`;
 				const warnings = taskTextWarnings({ name: "Results", text: args.addResult });
-				return toolText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${warnings}`, { details: { taskId: task.id } });
+				const plan = planUpdate ? " Run plan updated." : "";
+				return toolText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${plan}${warnings}`, { details: { taskId: task.id } });
 			} catch (error) {
 				return toolText(errorMessage(error), { isError: true });
 			}

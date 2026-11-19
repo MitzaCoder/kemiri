@@ -1,3 +1,4 @@
+import { workerCommandIntent } from "./worker-command-intent.ts";
 import { WorkerBrowserService } from "./worker-browser.ts";
 import { backgroundJobCounts } from "@kemiri/protocol";
 import type { UserSettingsStore } from "./user-settings.ts";
@@ -1356,6 +1357,7 @@ export class ProjectManager {
 		};
 
 		const workers = new WorkerService({
+			taskLive: this.#taskLive,
 			browsers: this.browsers,
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,
@@ -1399,7 +1401,7 @@ export class ProjectManager {
 			workers,
 			board,
 			threadsDir,
-			removedExtensions: () => [schedules.extension, workers.taskExtension],
+			removedExtensions: () => [schedules.extension, workers.taskExtension, workerCommandIntent],
 			mainActivity: () => mainActivity?.current ?? DEFAULT_ACTIVITY,
 			...(this.#notifications === undefined ? {} : { notifications: this.#notifications }),
 			now: () => this.#clock(),
@@ -1442,6 +1444,7 @@ export class ProjectManager {
 		registry.install(threads.extension);
 		registry.install(threads.finishExtension);
 		registry.install(workers.taskExtension);
+		if (this.#taskLive) registry.install(workerCommandIntent);
 		registry.install(workers.workspaceExtension);
 		registry.install(workers.browserExtension);
 		// The worker a conversation is, and the thread whose worker it is; undefined for a coordinator.
@@ -1564,7 +1567,7 @@ export class ProjectManager {
 					thinkingLevel: project.coordinator.thinkingLevel,
 					cwd: project.path,
 					// Main never finishes: `thread_finish` is for its background threads. `task_progress` is a worker's.
-					extensions: { add: [mcpRoleExtension("coordinator")], remove: [threads.finishExtension, workers.taskExtension, mcpRoleExtension("workers"), mcpRoleExtension("background")] },
+					extensions: { add: [mcpRoleExtension("coordinator")], remove: [threads.finishExtension, workers.taskExtension, workerCommandIntent, mcpRoleExtension("workers"), mcpRoleExtension("background")] },
 				},
 				BACKGROUND_CONTEXT,
 			);

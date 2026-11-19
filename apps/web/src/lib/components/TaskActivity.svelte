@@ -9,6 +9,7 @@
 	import { timelineOrder } from '#lib/timeline-order.svelte.js';
 	import { timelineClock } from '#lib/timeline-groups.js';
 	import TaskSnapshotDetail from './TaskSnapshotDetail.svelte';
+	import TaskLivePlan from './TaskLivePlan.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
 	import { visibleLiveLines } from '#lib/task-live.js';
 
@@ -78,6 +79,7 @@
 										{:else}
 											{#if row.fact && row.fact.endAt !== row.fact.at}<p class="text-xs text-(--chat-fg-muted)">Started {exactTime(row.fact.at)}</p>{/if}
 											{#if row.live}
+														{#if row.live.plan}<TaskLivePlan plan={row.live.plan} />{/if}
 												<ul role="list" class="flex flex-col gap-1">
 													{#each visibleLiveLines(row.live.lines) as line (line.id)}<TaskLiveLine {line} />{/each}
 												</ul>

@@ -4,7 +4,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { activityTracking, endActivitySource, setActivityPhase, taskActivity, type TaskActivitySource } from "../src/task-activity.ts";
-import { BoardDoc, addSnapshot, askQuestion, boardView, changeOwner, coordinatorWriter, emptyBoardState, normalizeBoard, recordFeedback, saveTask, setFeedbackState, settleQuestion, workerWriter, writeReport, writeReportIn, type BoardState } from "../src/board.ts";
+import { BoardDoc, addSnapshot, askQuestion, boardView, changeOwner, coordinatorWriter, emptyBoardState, foldTaskLiveIn, normalizeBoard, recordFeedback, saveTask, setFeedbackState, settleQuestion, workerWriter, writeReport, writeReportIn, type BoardState } from "../src/board.ts";
 import { syncWorkerActivity, syncWorkerActivityRun, WorkersDoc, workerInstructions, coordinatorSection, threadCoordinatorSection, type WorkerRecord } from "../src/workers.ts";
 import { threadInstructions } from "../src/threads.ts";
 import { createSetup, errorOf, TestClient } from "./support.ts";
@@ -398,6 +398,32 @@ it("keeps five report lines in order and folds only the ending source into one w
  expect((await runtime.board.get()).tasks[0]!.live).toBeUndefined();
 }, 15_000);
 
+it("folds a plan without trail lines and leaves report freshness alone", async () => {
+ const { runtime } = await integration();
+ const main = runtime.conversation.id;
+ const worker = source("fern", at(1));
+ await runtime.harness.commit(async tx => { add(await tx.doc(BoardDoc, main), worker); }, BACKGROUND_CONTEXT);
+ const before = (await runtime.board.get()).tasks[0]!;
+ await runtime.harness.commit(tx => writeReportIn(tx, main, {
+  taskId: "T1", sections: {}, by: workerWriter("main", "fern"),
+  planUpdate: { plan: [{ text: "Read the receipt" }, { text: "Check the balance" }, { text: "Report the result" }], tick: [1] },
+ }, "demo-plan", at(2)), BACKGROUND_CONTEXT);
+ const during = (await runtime.board.get()).tasks[0]!;
+ expect(during.live?.lines).toEqual([]);
+ expect(during.eventSeq).toBe(before.eventSeq);
+ expect(during.report).toEqual(before.report);
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, main);
+  endActivitySource(activityTracking(state, "T1"), worker.actor.id, at(60_001));
+  await foldTaskLiveIn(tx, main, state, "T1", worker.actor.id, "reported", at(60_001));
+ }, BACKGROUND_CONTEXT);
+ expect((await runtime.board.get()).tasks[0]?.live).toBeUndefined();
+ expect((await runtime.board.state()).taskActivity?.T1?.sources[worker.actor.id]?.livePlan).toBeUndefined();
+ expect((await runtime.board.timeline("T1", ["worker"], true)).entries[0]).toMatchObject({
+  label: "fern worked 1 minute: 1 of 3 plan steps", live: { plan: during.live!.plan!, lines: [] },
+ });
+});
+
 it("a reused worker's progress goes to its new task and folds when its answer ends", async () => {
  const { setup, runtime } = await integration();
  const main = runtime.conversation.id;
@@ -405,15 +431,43 @@ it("a reused worker's progress goes to its new task and folds when its answer en
  let held!: () => void;
  const gate = new Promise<void>(resolve => { held = resolve; });
  let sampled!: () => void;
+ let commandOutput: string | undefined;
+ let commandSchema: object | undefined;
+ let coordinatorSchema: object | undefined;
+ let shownTask: string | undefined;
+ let planWrites = 0;
  const sample = new Promise<void>(resolve => { sampled = resolve; });
  setup.faux.setResponses(Array.from({ length: 25 }, () => async request => {
   const last = request.messages.findLast(message => message.role !== "system");
   const call = (tool: string, args: Parameters<typeof fauxToolCall>[1]) => fauxAssistantMessage([fauxToolCall(tool, args)], { stopReason: "toolUse" });
   if (last?.role === "user" && last.content === "Start a worker") return call("worker_spawn", { id: "fern", taskId: "T1", title: "Check the card", task: "Check the card", model: { provider: "faux", modelId: "faux-1" } });
   if (last?.role === "user" && typeof last.content === "string" && last.content.startsWith("[worker fern reported]")) return fauxAssistantMessage("Recorded.");
+  const bash = () => request.messages.findLast(message => message.role === "system" && message.toolsAdded?.some(tool => tool.name === "bash"));
+  if (last?.role === "user" && last.content === "Read the run plan") {
+   const system = bash();
+   coordinatorSchema = system?.role === "system" ? system.toolsAdded?.find(tool => tool.name === "bash")?.parameters : undefined;
+   return call("board", { action: "show_task", id: "T2" });
+  }
+  if (last?.role === "toolResult" && last.toolName === "board") {
+   shownTask = last.content.find(part => part.type === "text")?.text;
+   return fauxAssistantMessage("Read the plan.");
+  }
   if (last?.role === "user" && last.content === "Reuse the worker") return call("worker_send", { id: "fern", taskId: "T2", message: "Check the receipt" });
-  if (last?.role === "user" && typeof last.content === "string" && last.content.startsWith("[task T2]")) return call("task_progress", { now: "reading the receipt", addResult: "The receipt includes the balance." });
-  if (last?.role === "toolResult" && last.toolName === "task_progress") { sampled(); await gate; return fauxAssistantMessage("Receipt checked."); }
+  if (last?.role === "user" && typeof last.content === "string" && last.content.startsWith("[task T2]")) return call("task_progress", { now: "reading the receipt", addResult: "The receipt includes the balance.", plan: [{ text: "Read the receipt" }, { text: "Check the balance" }, { text: "Report the result" }] });
+  if (last?.role === "toolResult" && last.toolName === "task_progress") {
+   const text = last.content.find(part => part.type === "text")?.text ?? "";
+   if (text.includes("Run plan updated.")) return call("task_progress", planWrites++ === 0 ? { tick: [1] } : {});
+   if (text.includes("Plan (1 of 3):\n1. [x] Read the receipt\n2. [>] Check the balance")) {
+    const system = bash();
+    commandSchema = system?.role === "system" ? system.toolsAdded?.find(tool => tool.name === "bash")?.parameters : undefined;
+    return call("bash", { command: "printf 'synthetic-receipt'", intent: "Verify the receipt" });
+   }
+   held(); sampled(); throw new Error("Expected task_progress to print the plan");
+  }
+  if (last?.role === "toolResult" && last.toolName === "bash") {
+   commandOutput = last.content.find(part => part.type === "text")?.text;
+   sampled(); await gate; return fauxAssistantMessage("Receipt checked.");
+  }
   return fauxAssistantMessage("Card checked.");
  }));
  const send = async (content: string) => {
@@ -428,10 +482,19 @@ it("a reused worker's progress goes to its new task and folds when its answer en
   await idle.promise;
   await send("Reuse the worker");
   await sample;
+  expect(commandOutput).toContain("synthetic-receipt");
+  expect(commandSchema).toMatchObject({ properties: { intent: { type: "string", maxLength: 60 } }, required: ["command"] });
+  await send("Read the run plan");
+  expect(shownTask).toContain("Plan (1 of 3):\n1. [x] Read the receipt\n2. [>] Check the balance");
+  expect(coordinatorSchema).toBeDefined();
+  expect(coordinatorSchema).not.toHaveProperty("properties.intent");
   const worker = (await runtime.workers.state()).workers.fern!;
   expect(worker.taskId).toBe("T2");
   const tasks = (await runtime.board.get()).tasks;
   expect(tasks.find(task => task.id === "T1")?.live?.lines ?? []).toEqual([]);
+  expect(tasks.find(task => task.id === "T1")?.live?.plan).toBeUndefined();
+  const plan = tasks.find(task => task.id === "T2")?.live?.plan;
+  expect(plan?.map(step => step.status)).toEqual(["done", "doing", "todo"]);
   expect(tasks.find(task => task.id === "T2")?.live?.lines.map(line => line.text)).toEqual(["reading the receipt", "The receipt includes the balance."]);
   const conversation = await runtime.harness.conversation(worker.conversationId as typeof main, BACKGROUND_CONTEXT);
   held();
@@ -439,5 +502,8 @@ it("a reused worker's progress goes to its new task and folds when its answer en
   const workerRows = (await runtime.board.timeline("T2", ["worker"], true)).entries;
   expect(workerRows).toHaveLength(1);
   expect(workerRows[0]!.live?.lines).toHaveLength(2);
+  expect(workerRows[0]!.live?.plan).toEqual(plan as NonNullable<typeof plan>);
+  expect(workerRows[0]!.label).toContain("1 of 3 plan steps");
+  expect((await runtime.board.get()).tasks.find(task => task.id === "T2")?.live?.plan).toBeUndefined();
  } finally { held(); await mainWatch?.stop(); }
 }, 15_000);

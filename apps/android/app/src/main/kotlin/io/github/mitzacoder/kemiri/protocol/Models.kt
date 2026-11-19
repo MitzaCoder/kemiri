@@ -2707,7 +2707,8 @@ data class BoardLiveLine(
 data class BoardTaskLive(
     val `lines`: List<BoardLiveLine>,
     val `pulse`: BoardTaskLivePulse? = null,
-    val `counters`: BoardTaskLiveCounters? = null
+    val `counters`: BoardTaskLiveCounters? = null,
+    val `plan`: List<BoardLivePlanStep>? = null
 )
 
 @Serializable
@@ -2724,6 +2725,12 @@ data class BoardTaskLiveCounters(
     val `filesSaved`: Long,
     val `commits`: Long,
     val `checks`: Long
+)
+
+@Serializable
+data class BoardLivePlanStep(
+    val `text`: String,
+    val `status`: String
 )
 
 @Serializable

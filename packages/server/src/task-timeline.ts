@@ -1,4 +1,4 @@
-import { liveCounterLabels } from "@kemiri/protocol";
+import { liveCounterLabels, livePlanProgress } from "@kemiri/protocol";
 import { createHash } from "node:crypto";
 import type { BoardTaskLive, BoardTask, BoardTimelineEntry, BoardTimelineFact, BoardTimelineGroup, BoardTimelineGroupKind, BoardTimelineKind } from "@kemiri/protocol";
 import type { BoardState, TaskHistoryState } from "./board.ts";
@@ -138,7 +138,7 @@ function liveRunLabel(actorName: string, start: string, end: string, live: Board
   const n = live.lines.filter(line => line.kind === kind).length;
   return n ? `${n} ${label}${n === 1 ? "" : "s"}` : undefined;
  };
- const counts = (live.counters ? liveCounterLabels(live.counters) : [count("phase", "phase"), count("result", "result")].filter(Boolean)).join(", ");
+ const counts = [live.plan && `${livePlanProgress(live.plan)} plan steps`, ...(live.counters ? liveCounterLabels(live.counters) : [count("phase", "phase"), count("result", "result")])].filter(Boolean).join(", ");
  const duration = minutes === 0 ? "less than a minute" : `${minutes} minute${minutes === 1 ? "" : "s"}`;
  return `${actorName} worked ${duration}${counts ? `: ${counts}` : ""}${outcome === "failed" || outcome === "stopped" ? ` · ${outcome}` : ""}`;
 }

@@ -3259,8 +3259,9 @@ lines in Activity, oldest first, like the web. Without the flag the Android shee
 
 The existing `task-live` flag covers optional `pulse` and `counters` and the `fact` line
 kind. Stage A clients ignore the fields and skip the new kind. The pulse follows the
-run behind Now and carries only a registered tool name, a fixed label and an ISO start
-observed by the server. It never includes command text, paths, output or model text.
+run behind Now and carries a registered tool name, a label and an ISO start observed
+by the server. Fixed labels never include command text, paths or output. Stage C can
+supply an explicit prose label instead.
 A project-local watch batches pulse updates on a two-second window, ignoring output
 and token changes that leave the activity unchanged. Web ticks the age locally.
 
@@ -3282,6 +3283,35 @@ The existing run-end fold keeps the facts and nonzero counters with the Activity
 row, never a pulse. A counters-only run leaves its legacy Activity unchanged.
 Web marks facts as Recorded, hides zero counters and omits the phase already shown
 in Now without removing it from the completed trail.
+
+#### Worker plans and command intent (T317, stage C of T305)
+
+With `task-live`, a task worker can replace its run plan in `task_progress`: `plan` is
+three to seven entries with nonblank `text` up to 80 characters and optional `status`
+(`todo`, `doing` or `done`). An entry with no status inherits it when its text matches
+an old entry after folding whitespace and case; new entries start `todo`. At most one
+step is `doing`: an explicit choice takes precedence, then plan order breaks ties.
+`tick` marks distinct 1-based step numbers done (in the replacement plan if supplied).
+If no step is then `doing`, the first remaining `todo` becomes `doing`.
+
+The plan belongs to the worker's running activity source and changes in the existing
+report transaction. Plan-only calls do not change the report revision or freshness, or
+add trail lines. A changed `now` still records a phase. `show_task` and a read-only
+`task_progress` print the checklist and count. `task.live.plan` projects the run behind
+Now. The final checklist leaves Live when the run ends and folds into its Activity row
+even with no trail lines. The row label includes the count, and web opens to the saved
+checklist. In Live, web shows the checklist above So far; on phones, plans longer than
+three steps default to the current step and count, with the rest one tap away.
+
+Worker `bash` takes an optional `intent` of up to 60 characters, without changing shell
+execution. The pulse prefers that prose to its fixed label, folds whitespace, removes
+control characters, rejects assignment-shaped text and clips to 60 characters on
+projection. It is not copied to board storage or retained after the tool call; the
+arguments are already in the transcript. Plan updates and intents need no extra model
+requests. The one optional bash field changes the tool schema and invalidates prompt
+caches once. Coordinators do not get plan tools. No new flag is needed: stage A/B
+clients ignore the optional plan and already render the pulse label as plain text.
+Android DTOs are regenerated; Android rendering remains a separate stage.
 
 ### Report freshness (T121, stage 1 of T120)
 

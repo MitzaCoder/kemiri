@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { ArtifactStore } from "../src/artifacts.ts";
 import { expect, it, mock } from "bun:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { EntryRecord, Harness, LiveState } from "@earendil-works/pi-durable";
+import type { EntryRecord, Harness, LiveState, TaskId } from "@earendil-works/pi-durable";
 import type { Board, BoardActivityActor, BoardLiveCounters } from "@kemiri/protocol";
 import type { BoardState } from "../src/board.ts";
 import type { TaskActivitySource } from "../src/task-activity.ts";
@@ -39,7 +39,7 @@ it("counts calls, distinct successful edits, and only successful direct VCS comm
  expect(facts.lines).toEqual([]);
 });
 
-it("keeps only fixed pulse labels and ignores progress tokens", () => {
+it("falls back to fixed pulse labels and ignores progress tokens", () => {
  const run = new TaskLiveRun();
  for (const command of [`bun test ${"private-argument ".repeat(30)}`, "DEMO_TOKEN=synthetic-private bun test"]) {
   const { call, assistant } = tool("bash", { command });
@@ -53,6 +53,25 @@ it("keeps only fixed pulse labels and ignores progress tokens", () => {
   expect(run.pulse).toBe(pulse);
   run.updatePulse({ tools: [{ ...slot, status: "done" }] }, at);
   expect(run.pulse).toBeUndefined();
+ }
+});
+
+it("prefers clean command intent for direct and nested calls", () => {
+ const run = new TaskLiveRun();
+ const cases = [
+  ["  Verify\n gift card payments ", "Verify gift card payments"],
+  ["Verify with DEMO_TOKEN='synthetic private value'", "Running tests"],
+  ["x".repeat(80), "x".repeat(59) + "…"],
+  ["\t ", "Running tests"],
+ ];
+ for (const [intent, label] of cases) {
+  const args = { command: "bun test", intent: intent! };
+  const { call, assistant } = tool("bash", args);
+  run.add(assistant);
+  run.updatePulse({ tools: [{ callId: call.id, name: "bash", status: "running" }] }, at);
+  expect(run.pulse?.label).toBe(label!);
+  run.updatePulse({ nestedTools: [{ callId: call.id + "-nested", taskId: 2 as TaskId, parentTaskId: 1 as TaskId, parentCallId: call.id, name: "bash", status: "running", arguments: args }] }, at);
+  expect(run.pulse?.label).toBe(label!);
  }
 });
 

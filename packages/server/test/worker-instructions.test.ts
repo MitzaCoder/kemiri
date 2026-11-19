@@ -54,7 +54,7 @@ describe("workerInstructions", () => {
 	});
 
 	it("shares the task prose and evidence rules with both coordinators and task workers", () => {
-		const options = { id: "a", title: "t", project: project(), cwd: "/repo", isolation: "shared", taskId: "T1" } as const;
+		const options = { id: "a", title: "t", project: project(), cwd: "/repo", isolation: "shared", taskId: "T1", taskLive: true } as const;
 		const worker = workerInstructions(options);
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project()), worker]) {
 			expect(text.split("Write task text for a person.")).toHaveLength(2);
@@ -72,6 +72,12 @@ describe("workerInstructions", () => {
 		}
 		expect(worker).toContain("`checks` updates checks by name");
 		expect(worker).toContain("Give the coordinator any questions, warnings, complete steps or full answers in your final report");
+		expect(worker).toContain("Start substantial work with a plan of three to seven steps in `task_progress`.");
+		expect(worker).toContain("Tick steps as they finish and rewrite the plan if the work changes.");
+		expect(worker).toContain("Give commands a short `intent` when their purpose is not obvious.");
+		for (const other of [coordinatorSection(project()), threadCoordinatorSection(project()), workerInstructions({ ...options, taskLive: false }), workerInstructions({ ...options, taskId: null })]) {
+			expect(other).not.toContain("Start substantial work with a plan");
+		}
 		expect(worker).toBe(workerInstructions(options));
 	});
 

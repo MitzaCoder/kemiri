@@ -251,10 +251,25 @@ export const BoardLiveCountersSchema = Type.Object({
  checks: Type.Integer({ minimum: 0 }),
 });
 export type BoardLiveCounters = Static<typeof BoardLiveCountersSchema>;
+export const LIVE_PLAN_MIN_STEPS = 3;
+export const LIVE_PLAN_MAX_STEPS = 7;
+export const LIVE_PLAN_STEP_MAX_CHARS = 80;
+export const BoardLivePlanStatusSchema = Type.Union([Type.Literal("todo"), Type.Literal("doing"), Type.Literal("done")]);
+export const BoardLivePlanStepSchema = Type.Object({
+ text: Type.String({ minLength: 1, maxLength: LIVE_PLAN_STEP_MAX_CHARS }),
+ status: BoardLivePlanStatusSchema,
+});
+export type BoardLivePlanStep = Static<typeof BoardLivePlanStepSchema>;
+
+export function livePlanProgress(plan: readonly BoardLivePlanStep[]): string {
+ return `${plan.filter(step => step.status === "done").length} of ${plan.length}`;
+}
+
 export const BoardTaskLiveSchema = Type.Object({
  lines: Type.Array(BoardLiveLineSchema, { maxItems: 30 }),
  pulse: Type.Optional(BoardLivePulseSchema),
  counters: Type.Optional(BoardLiveCountersSchema),
+ plan: Type.Optional(Type.Array(BoardLivePlanStepSchema, { minItems: LIVE_PLAN_MIN_STEPS, maxItems: LIVE_PLAN_MAX_STEPS })),
 });
 
 export function liveCounterLabels(counters: BoardLiveCounters | undefined): string[] {

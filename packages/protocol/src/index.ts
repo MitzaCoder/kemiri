@@ -530,6 +530,13 @@ import {
  type BoardLivePulse,
  type BoardLiveCounters,
  liveCounterLabels,
+ livePlanProgress,
+ LIVE_PLAN_MIN_STEPS,
+ LIVE_PLAN_MAX_STEPS,
+ LIVE_PLAN_STEP_MAX_CHARS,
+ BoardLivePlanStatusSchema,
+ BoardLivePlanStepSchema,
+ type BoardLivePlanStep,
  type BoardTaskLive,
  BoardTaskLiveSchema,
  type BoardActivityActor,
@@ -1316,6 +1323,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardTaskActivity: BoardTaskActivitySchema,
  BoardLiveLine: BoardLiveLineSchema,
  BoardTaskLive: BoardTaskLiveSchema,
+ BoardLivePlanStep: BoardLivePlanStepSchema,
  BoardActivityActor: BoardActivityActorSchema,
 	BoardReportCheck: BoardReportCheckSchema,
  BoardTaskReport: BoardTaskReportSchema,
@@ -1623,6 +1631,7 @@ export type {
  BoardLiveLine,
  BoardLivePulse,
  BoardLiveCounters,
+ BoardLivePlanStep,
  BoardTaskLive,
  BoardActivityActor,
 	BoardReportCheck,
@@ -1775,4 +1784,4 @@ export * from "./mcp-import.ts";
 
 export { ThreadStateSchema, threadState, backgroundJobCounts, type ThreadState } from "./threads.ts";
 
-export { liveCounterLabels };
+export { liveCounterLabels, livePlanProgress, LIVE_PLAN_MIN_STEPS, LIVE_PLAN_MAX_STEPS, LIVE_PLAN_STEP_MAX_CHARS, BoardLivePlanStatusSchema, BoardLivePlanStepSchema };
