@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.navigation
 
 import io.github.mitzacoder.kemiri.data.*
+import io.github.mitzacoder.kemiri.features.settings.AdvancedGroup
 import io.github.mitzacoder.kemiri.features.settings.GeneralPage
 import io.github.mitzacoder.kemiri.features.settings.ProjectSection
 import kotlinx.serialization.Serializable
@@ -15,7 +16,7 @@ sealed interface Destination {
     /** General settings (web `/settings/...`): a section of this device's settings, a backend's page, or its Accounts; null is the list. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Settings") data class Settings(val page: GeneralPage = GeneralPage()) : Destination
     /** A project's settings (web `.../settings/<section>`); null is the list. [scheduleId] is the schedule a notification named. */
-    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.ProjectSettings") data class ProjectSettings(val chat: Chat, val section: ProjectSection? = null, val scheduleId: String? = null, val unavailableSection: String? = null) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.ProjectSettings") data class ProjectSettings(val chat: Chat, val section: ProjectSection? = null, val scheduleId: String? = null, val unavailableSection: String? = null, val advancedGroup: AdvancedGroup? = null) : Destination
     /** A conversation. [highlight] is a one-shot place to scroll to; screens read it from [ProjectScreenContext.highlight]. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Chat") data class Chat(
         val backendKey: String,

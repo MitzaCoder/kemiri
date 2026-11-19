@@ -27,11 +27,11 @@ import io.github.mitzacoder.kemiri.navigation.LocalNestedBackTargets
 /** A section in the list, with the chip that says a state worth seeing before opening it. */
 internal data class SettingsNavItem(val section: SettingsSectionInfo, val chip: SectionChip? = null)
 
-/** Both settings areas switch from one screen at a time to list and section side by side from this width (the web's 48rem). */
+/** All settings scopes switch from one screen at a time to list and section side by side from this width (the web's 48rem). */
 internal val SETTINGS_SPLIT_WIDTH = 600.dp
 
 /**
- * The frame of both settings areas. From [SETTINGS_SPLIT_WIDTH]: the section list on the left and the chosen section on
+ * The shared frame for all settings scopes. From [SETTINGS_SPLIT_WIDTH]: the section list on the left and the chosen section on
  * the right. Below that, one screen at a time: the list (a card per section with its hint and a chevron), then a section
  * with a named Up control. A retained index ([activeId] is null) stays a list at every width.
  */
@@ -54,10 +54,10 @@ internal fun SettingsShell(
         val up = nestedParent?.back ?: onParent
         val upLabel = nestedParent?.parentLabel ?: parentLabel
         @Composable fun Header() = Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            header()
             if (up != null) TextButton(onClick = up, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 44.dp)) {
                 LucideGlyph(Lucide.ArrowLeft, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Up to ${upLabel ?: "settings"}")
             }
-            header()
         }
         if (split && shown != null) Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).widthIn(max = 1040.dp).align(Alignment.TopCenter), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Header()

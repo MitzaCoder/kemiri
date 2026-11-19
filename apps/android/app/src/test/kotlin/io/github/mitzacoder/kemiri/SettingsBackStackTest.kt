@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri
 
 import io.github.mitzacoder.kemiri.data.wireJson
+import io.github.mitzacoder.kemiri.data.ProjectLocation
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.navigation.*
 import org.junit.Assert.*
@@ -95,7 +96,7 @@ class SettingsBackStackTest {
     @Test fun wideOpenReplacesTheIndexAndPreservesBackCloseAndUp() {
         val appearance = Destination.Settings(GeneralPage(GeneralSection.Appearance))
         val general = index.copy(section = ProjectSection.General)
-        for ((requested, expected) in listOf(settings to appearance, index to general)) {
+        for ((requested, expected) in listOf(settings to appearance, index to general, backend to Destination.Settings(computerPage(chat.backendKey, ComputerSection.Overview)))) {
             val stack = BackStack(listOf(chat)).push(requested).withSettingsDefault(split = true)
             assertStack(stack, chat, expected)
             assertStack(stack.back(), chat)
@@ -109,12 +110,26 @@ class SettingsBackStackTest {
     }
 
     @Test fun wideOpenDoesNotChangeLinksToContentOrUnavailableSections() {
-        for (section in listOf(coordinator, backends, backend, accounts, mcp,
+        for (section in listOf(coordinator, backends, accounts, mcp,
             index.copy(section = ProjectSection.Schedules, scheduleId = "example"),
             index.copy(unavailableSection = "example"), Destination.Settings(GeneralPage(unavailableSection = "example")))) {
             val stack = settingsLinkStack(section)
             assertEquals(stack, stack.withSettingsDefault(split = true))
         }
+    }
+
+    @Test fun switchScopeReplacesOnlyTheCurrentEntryAndKeepsTheOrigin() {
+        val picked = ProjectLocation("https://other.example", "other-project")
+        val otherProject = projectSettings(picked, ProjectSection.Mcp)
+        val stack = BackStack(listOf(chat)).push(index).push(coordinator)
+            .switchSettingsScope(otherProject, split = false)
+            .switchSettingsScope(backend, split = true)
+            .switchSettingsScope(settings, split = true)
+        assertStack(stack, chat, index, Destination.Settings(GeneralPage(GeneralSection.Appearance)))
+        assertEquals(picked, stack.settingsProjectContext())
+        assertStack(stack.back(), chat, index)
+        assertEquals(ProjectLocation(chat.backendKey, chat.projectId), stack.back().settingsProjectContext())
+        assertStack(stack.close(), chat)
     }
 
     @Test fun w2SiblingSectionsReplaceThenCloseDiscardsVisit() {

@@ -1,16 +1,10 @@
 package io.github.mitzacoder.kemiri.features.settings
 
-import io.github.mitzacoder.kemiri.data.HarnessFeature
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
 
-/**
- * Settings, split in two as on the web (`lib/settings.ts`, `docs/DESIGN.md` "Settings"): General settings (this device and
- * its backends) and Project settings (one project). Both are a list of sections; the section ids are the web's URL
- * segments, so a web link maps to the same screen. Pure, so the lists, the parents and the availability rules are tested.
- */
 enum class SettingsIcon { Palette, Server, Bell, Archive, Folder, Cpu, Users, CalendarClock, Ticket, HardDrive, KeyRound, Settings }
 
 /** One entry of a section list: [id] is the last URL segment, [hint] the line under the label on a phone. */
@@ -25,11 +19,23 @@ interface SettingsSectionInfo {
 @Serializable
 enum class GeneralSection(override val id: String, override val label: String, override val hint: String, override val icon: SettingsIcon, override val term: String? = null) : SettingsSectionInfo {
     Appearance("appearance", "Appearance", "Theme, light or dark, time and reading", SettingsIcon.Palette),
-    Backends("backends", "Computers", "The computers running Kemiri, their AI accounts and apps", SettingsIcon.Server, "Backends"),
     Notifications("notifications", "Notifications", "What reaches this device, and when", SettingsIcon.Bell),
+    Backends("backends", "Computers", "The computers this phone connects to", SettingsIcon.Server, "Backends"),
     Archived("archived", "Archived projects", "Bring a project back", SettingsIcon.Archive),
-    About("about", "About and licences", "Kemiri versions and updates, plus licences", SettingsIcon.Settings),
+    About("about", "About and licences", "Kemiri versions and licences", SettingsIcon.Settings),
 }
+
+@Serializable
+enum class ComputerSection(override val id: String, override val label: String, override val hint: String, override val icon: SettingsIcon, override val term: String? = null) : SettingsSectionInfo {
+    Overview("overview", "Overview", "Status and software updates", SettingsIcon.Server),
+    Accounts("accounts", "AI accounts", "Sign in to AI providers or add API keys", SettingsIcon.KeyRound, "Accounts and API keys"),
+    You("you", "You and memory", "Your name and automatic memory cleanup", SettingsIcon.Users),
+    Mcp("mcp", "Connected apps", "Outside tools agents can use", SettingsIcon.Server, "MCP servers"),
+    Devices("devices", "Devices", "Signed-in devices and pairing", SettingsIcon.Users),
+    Advanced("advanced", "Advanced", "Name, address and removal on this device", SettingsIcon.Settings),
+}
+
+fun computerSectionFor(id: String?) = ComputerSection.entries.firstOrNull { it.id == id }
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -49,8 +55,24 @@ enum class ProjectSection(override val id: String, override val label: String, o
 }
 
 fun generalSectionFor(id: String?): GeneralSection? = GeneralSection.entries.firstOrNull { it.id == id }
+@Serializable
+enum class AdvancedGroup { ConversationCache, CodeDelivery, Tickets, Storage }
+
+fun advancedGroupFor(id: String?): AdvancedGroup? = when (id) {
+    "cache" -> AdvancedGroup.ConversationCache
+    "delivery" -> AdvancedGroup.CodeDelivery
+    "tickets" -> AdvancedGroup.Tickets
+    "storage" -> AdvancedGroup.Storage
+    else -> null
+}
+
+internal val ProjectSection.settingsSection get() = when (this) {
+    ProjectSection.Tickets, ProjectSection.Storage -> ProjectSection.Advanced
+    else -> this
+}
+
 fun projectSectionFor(id: String?): ProjectSection? = when (id) {
-    "cache", "delivery" -> ProjectSection.Advanced
+    "cache", "delivery", "tickets", "storage" -> ProjectSection.Advanced
     else -> ProjectSection.entries.firstOrNull { it.id == id }
 }
 
@@ -60,7 +82,7 @@ data class ProjectSectionSupport(
     val links: Boolean,
     val repository: Boolean? = null,
 ) {
-    val showCodingSettings: Boolean get() = !supports(HarnessFeature.PROJECT_REPOSITORY) || repository != false
+    val showCodingSettings: Boolean get() = repository != false
 }
 
 internal fun codeDeliveryAvailable(supports: (String) -> Boolean) = supports("task-changes") || supports("task-deploys")
@@ -72,8 +94,7 @@ fun projectSectionAvailable(section: ProjectSection, has: ProjectSectionSupport)
     ProjectSection.Advanced -> true
     ProjectSection.Workers -> has.supports("projects") && has.supports("models") && has.supports("workers")
     ProjectSection.Schedules -> has.supports("schedules")
-    ProjectSection.Tickets -> has.links && has.showCodingSettings
-    ProjectSection.Storage -> has.supports("storage")
+    ProjectSection.Tickets, ProjectSection.Storage -> false
     ProjectSection.Mcp -> has.supports(MCP_FEATURE)
     ProjectSection.Skills -> has.supports(PROJECT_SKILLS_FEATURE)
 }
@@ -94,18 +115,31 @@ fun generalChips(offline: Int, notificationsOn: Boolean, archived: Int): Map<Gen
 fun projectChips(coordinatorModelSet: Boolean): Map<ProjectSection, SectionChip> =
     if (coordinatorModelSet) emptyMap() else mapOf(ProjectSection.Coordinator to SectionChip("No model", ChipTone.Warn))
 
-/** Where a General settings screen sits: a section (null is the list), a backend's own page, or its Accounts page. */
+/** Keep the old fields readable in saved stacks. New routes write [computerSection]. */
 @Serializable
-data class GeneralPage(val section: GeneralSection? = null, val backendKey: String? = null, val accounts: Boolean = false, val devices: Boolean = false, val mcp: Boolean = false, val unavailableSection: String? = null)
+data class GeneralPage(
+    val section: GeneralSection? = null,
+    val backendKey: String? = null,
+    val accounts: Boolean = false,
+    val devices: Boolean = false,
+    val mcp: Boolean = false,
+    val unavailableSection: String? = null,
+    val computerSection: ComputerSection? = null,
+) {
+    val activeComputerSection: ComputerSection? get() = computerSection ?: when {
+        accounts -> ComputerSection.Accounts
+        devices -> ComputerSection.Devices
+        mcp -> ComputerSection.Mcp
+        else -> null
+    }
+}
 
-/**
- * The screen one step up, for the back button: Accounts to its backend, a backend to the Backends list, a section to the
- * list of sections. Null on the list itself (web `settingsParentHref`).
- */
+internal fun computerPage(backendKey: String, section: ComputerSection? = null, unavailableSection: String? = null) =
+    GeneralPage(GeneralSection.Backends, backendKey, unavailableSection = unavailableSection, computerSection = section)
+
 fun generalParent(page: GeneralPage): GeneralPage? = when {
-    page.unavailableSection != null -> GeneralPage()
-    page.section == null -> null
-    page.backendKey != null && (page.accounts || page.devices || page.mcp) -> GeneralPage(GeneralSection.Backends, page.backendKey)
+    page.backendKey != null && (page.activeComputerSection != null || page.unavailableSection != null) -> computerPage(page.backendKey)
     page.backendKey != null -> GeneralPage(GeneralSection.Backends)
-    else -> GeneralPage()
+    page.section != null || page.unavailableSection != null -> GeneralPage()
+    else -> null
 }

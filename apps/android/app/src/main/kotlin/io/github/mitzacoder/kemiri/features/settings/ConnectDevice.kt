@@ -26,40 +26,30 @@ import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
-/**
- * "Connect another device": choose backends, then a QR code and a link (copy or share) that adds them on the other
- * device after it confirms. The backends ride in the link's fragment, so no server sees them; only HTTPS backends can
- * travel (web `ConnectDevice.svelte`).
- */
+/** Shares addresses only. The selected computer is always included when its address is shareable. */
 @Composable
-internal fun ConnectDeviceGroup(backends: List<BackendConfig>) {
+internal fun AddressShareRow(computer: BackendConfig, otherComputers: List<BackendConfig>) {
     val context = LocalContext.current
-    var excluded by rememberSaveable { mutableStateOf(listOf<String>()) }
-    val shareable = backends.filter { isConnectUrl(it.url) }
-    val unshareable = backends.filterNot { isConnectUrl(it.url) }
-    val chosen = shareable.filter { it.key !in excluded }
-    SettingsGroup(title = "Import computer addresses") {
+    var included by rememberSaveable(computer.key) { mutableStateOf(listOf<String>()) }
+    val shareable = otherComputers.filter { it.key != computer.key && isConnectUrl(it.url) }
+    val chosen = listOf(computer) + shareable.filter { it.key in included }
+    val canShare = isConnectUrl(computer.url)
     SettingsRow(
         "Link or QR code", hint = "Addresses only. Does not grant access or sign in.", control = RowControl.Full,
         learn = { Text("Choose the backends to pass on. The link keeps them in its fragment, so it never reaches a server log; opening it on the other device shows them, and one tap adds them there.") },
     ) {
-        shareable.forEach { backend ->
+        if (canShare) shareable.forEach { backend ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(backend.key !in excluded, { checked -> excluded = if (checked) excluded - backend.key else excluded + backend.key },
+                Checkbox(backend.key in included, { checked -> included = if (checked) included + backend.key else included - backend.key },
                     Modifier.semantics { contentDescription = "Include ${backend.name}" })
                 Column(Modifier.weight(1f)) {
-                    Text(backend.name, style = MaterialTheme.typography.bodyMedium)
-                    Text(backend.url, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = Jarvis.colors.fgMuted)
+                    Text("Include ${backend.name}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
-        if (unshareable.isNotEmpty()) Text(
-            if (unshareable.size == 1) "${unshareable.single().name} stays on this device: a connect link carries only HTTPS origins."
-            else "${unshareable.size} computers stay on this device: a connect link carries only HTTPS origins.",
-            style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted,
-        )
         when {
-            chosen.isEmpty() -> if (unshareable.size < backends.size) Text("Choose at least one computer.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+            !canShare -> Text("This computer’s address cannot be shared in a connect link. Connect links carry only HTTPS origins.",
+                style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
             chosen.size > MAX_CONNECT_BACKENDS -> Text("A link carries at most $MAX_CONNECT_BACKENDS computers. Leave some out and make a second link.",
                 style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
             else -> {
@@ -84,7 +74,6 @@ internal fun ConnectDeviceGroup(backends: List<BackendConfig>) {
                 Text("Scan the code or send the link to the other device, then confirm there.", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted)
             }
         }
-    }
     }
 }
 

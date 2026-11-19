@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
  * own checkout is never touched. Shown only with the `storage` feature (web `StorageSection.svelte`).
  */
 @Composable
-internal fun StorageSection(backend: BackendSession, projectId: String) {
+internal fun StorageGroups(backend: BackendSession, projectId: String) {
     val client = backend.client
     val connection by client.state.collectAsStateWithLifecycle()
     val ready = connection.status == ConnectionStatus.Ready
@@ -53,10 +53,10 @@ internal fun StorageSection(backend: BackendSession, projectId: String) {
     LaunchedEffect(projectId, ready) { if (ready) load() }
     val items = storage?.items.orEmpty()
     val summary = cleanupSummary(items)
-    SettingsSectionPage("Storage", "Finished workspaces and disk use.", SettingsIcon.HardDrive) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         error?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
         notice?.let { ToneBanner(if (it.warning) BannerTone.Warning else null) { Text(it.text, style = MaterialTheme.typography.bodySmall) } }
-        SettingsGroup(title = "Disk use") {
+        SettingsGroup(title = "Storage", description = "Finished workspaces and disk use.") {
             SettingsRow(
                 storage?.let { storageSize(it.totalBytes) } ?: if (loading) "Measuring…" else "Not measured",
                 hint = storage?.let { "in ${if (items.size == 1) "1 workspace" else "${items.size} workspaces"} · measured ${relativeTime(it.measuredAt, rememberNow())}" },

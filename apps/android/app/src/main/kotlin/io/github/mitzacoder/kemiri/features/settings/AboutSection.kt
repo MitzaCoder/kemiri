@@ -16,12 +16,13 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.HarnessRepository
-import io.github.mitzacoder.kemiri.features.status.ReleaseUpdateAbout
+import io.github.mitzacoder.kemiri.features.status.*
+import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.BuildConfig
 
 /** Offline notices remain accessible without any backend or relay account. */
 @Composable
-fun AboutSection(repository: HarnessRepository) {
+internal fun AboutSection(repository: HarnessRepository, navigator: SettingsNavigator) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var document by remember { mutableStateOf<String?>(null) }
@@ -31,7 +32,17 @@ fun AboutSection(repository: HarnessRepository) {
             GroupNote("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             GroupNote("A client for the computers where you run Kemiri.")
         }
-        sessions.forEach { backend -> key(backend.config.key) { ReleaseUpdateAbout(backend) } }
+        if (sessions.isNotEmpty()) SettingsGroup(title = "Computer versions") {
+            sessions.forEach { backend -> key(backend.config.key) {
+                val connection by backend.client.state.collectAsStateWithLifecycle()
+                val status by backend.serverStatus.status.collectAsStateWithLifecycle()
+                val version = "Kemiri ${backendVersion(connection.hello?.server?.version, status) ?: "—"}"
+                val available = connection.supports(RELEASE_UPDATES_FEATURE) && status?.updates?.let { it.schemaVersion == 1L && it.available != null } == true
+                if (available) LinkRow(backend.config.name, version, chip = { StatusChip("Update available", ChipTone.Info) }, onClick = {
+                    navigator.open(Destination.Settings(computerPage(backend.config.key, ComputerSection.Overview)))
+                }) else SettingsRow(backend.config.name, hint = version)
+            } }
+        }
         SettingsGroup(title = "Open-source licences") {
             GroupNote("Sora editor and language-textmate 0.24.6 use LGPL-2.1. Library source and replacement instructions are included with this release.")
             TextButton(onClick = { document = "Sora-NOTICE.txt" }) { Text("Sora notice and source") }

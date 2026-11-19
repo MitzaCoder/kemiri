@@ -123,7 +123,7 @@ fun appLinkFromUri(value: String, backends: List<BackendConfig>): AppLink? {
     // A schedule notification links to `.../settings#schedule-<id>`: the Scheduled tasks section, scrolled to that schedule.
     val scheduleId = fragment.removePrefix("schedule-").takeIf { fragment.startsWith("schedule-") && fragment.length > 9 }
     return AppLink.Open(when {
-        settings -> listOf(chat, Destination.ProjectSettings(chat, settingsSection ?: ProjectSection.Schedules.takeIf { scheduleId != null }, scheduleId, unavailableSection))
+        settings -> listOf(chat, Destination.ProjectSettings(chat, settingsSection ?: ProjectSection.Schedules.takeIf { scheduleId != null }, scheduleId, unavailableSection, advancedGroupFor(rest.getOrNull(1))))
         task != null && workerId == null -> listOf(chat, Destination.Task(chat, task))
         highlight != null -> listOf(chat.copy(highlight = highlight))
         else -> listOf(chat)
@@ -140,7 +140,9 @@ fun generalSettingsLink(parts: List<String>, backends: List<BackendConfig>): App
     val backendSegment = parts.getOrNull(1)
     if (section == GeneralSection.Backends && backendSegment != null) {
         val backend = resolveBackend(backendSegment, backends) ?: return AppLink.UnknownBackend(backendSegment)
-        return AppLink.Open(listOf(Destination.Settings(GeneralPage(section, backend.key, accounts = parts.getOrNull(2) == "accounts", devices = parts.getOrNull(2) == "devices", mcp = parts.getOrNull(2) == "mcp", unavailableSection = parts.getOrNull(2)?.takeUnless { it in listOf("accounts", "devices", "mcp") }))))
+        val segment = parts.getOrNull(2)
+        val computerSection = computerSectionFor(segment)
+        return AppLink.Open(listOf(Destination.Settings(computerPage(backend.key, computerSection, segment?.takeIf { computerSection == null }))))
     }
     return AppLink.Open(listOf(Destination.Settings(GeneralPage(section, unavailableSection = parts.firstOrNull()?.takeIf { section == null }))))
 }

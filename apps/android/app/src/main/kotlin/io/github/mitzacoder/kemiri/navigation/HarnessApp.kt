@@ -118,7 +118,15 @@ private fun HarnessNavigation(
         { next -> updateBackStack { it.replaceSibling(next) } },
         { parent -> updateBackStack { it.up(parent) } },
         { updateBackStack { it.close() } },
+        { next -> updateBackStack { it.switchSettingsScope(next, splitSettings) } },
     )
+    val deviceSettings by repository.settings.collectAsStateWithLifecycle()
+    val projectMcpParent = (stack.getOrNull(stack.lastIndex - 1) as? Destination.ProjectSettings)?.takeIf { it.section == ProjectSection.Mcp }
+    val settingsScopes = if (current.isSettings()) SettingsScopes(rememberScopeComputers(sessions), backStack.settingsProjectContext(), deviceSettings, settingsNavigator, projectMcpParent) else null
+    val openedProject = (current as? Destination.Chat)?.let { ProjectLocation(it.backendKey, it.projectId) }
+    val usedComputer = (current as? Destination.Settings)?.page?.backendKey?.takeIf { key -> sessions.any { it.config.key == key } }
+    LaunchedEffect(openedProject, loaded) { if (loaded && openedProject != null) repository.rememberOpenedProject(openedProject) }
+    LaunchedEffect(usedComputer) { if (usedComputer != null) repository.rememberUsedComputer(usedComputer) }
     io.github.mitzacoder.kemiri.features.chat.ShareConversationDialog(repository, navigate)
     LaunchedEffect(connectPayload) { if (connectPayload != null) navigate(Destination.Settings(GeneralPage(GeneralSection.Backends))) }
     HandleAppLink(pendingLink, loaded, sessions.map { it.config }, navigate, openSettingsLink = { destination ->
@@ -206,8 +214,7 @@ private fun HarnessNavigation(
                         if (terminal == null && !htmlArtifactViewport) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
-                                if (current is Destination.Settings) Text("Settings")
-                                else if (current is Destination.ProjectSettings) Text("Project settings")
+                                if (current.isSettings()) Text("Settings")
                                 else if (context != null) ProjectHeaderTitle(context, chatWidth)
                                 else Text(if (current == Destination.Usage) "Usage" else "Kemiri")
                             },
@@ -229,8 +236,8 @@ private fun HarnessNavigation(
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier, navigate)
-                            is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, navigate, connectPayload, onConnectHandled, modifier)
-                            is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, modifier, current.unavailableSection) else MissingBackend(modifier)
+                            is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, requireNotNull(settingsScopes), navigate, connectPayload, onConnectHandled, modifier)
+                            is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }) else MissingBackend(modifier)
                             is Destination.Terminal -> sessions.firstOrNull { it.config.key == current.backendKey }

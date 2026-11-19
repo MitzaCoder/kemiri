@@ -12,11 +12,11 @@ class SettingsSplitTest {
     @org.junit.After fun restoreClockChoice() { io.github.mitzacoder.kemiri.data.DeviceTimeFormat.current = io.github.mitzacoder.kemiri.data.TimeFormat.Automatic }
 
     @Test fun sectionListsMatchTheWebUrlSegments() {
-        assertEquals(listOf("appearance", "backends", "notifications", "archived", "about"), GeneralSection.entries.map { it.id })
-        assertEquals(listOf("general", "coordinator", "workers", "schedules", "mcp", "skills", "tickets", "storage", "advanced"), ProjectSection.entries.map { it.id })
+        assertEquals(listOf("appearance", "notifications", "backends", "archived", "about"), GeneralSection.entries.map { it.id })
+        assertEquals(listOf("general", "coordinator", "workers", "schedules", "mcp", "skills", "advanced"), ProjectSection.entries.filter { it.settingsSection == it }.map { it.id })
         assertEquals(GeneralSection.Notifications, generalSectionFor("notifications"))
         assertNull(generalSectionFor("nope"))
-        for (id in listOf("cache", "delivery", "advanced")) {
+        for (id in listOf("cache", "delivery", "tickets", "storage", "advanced")) {
             assertEquals(ProjectSection.Advanced, projectSectionFor(id))
         }
         assertNull(projectSectionFor(null))
@@ -28,18 +28,18 @@ class SettingsSplitTest {
         assertEquals(listOf(ProjectSection.General, ProjectSection.Advanced), offered(emptySet()))
         assertEquals(listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Advanced), offered(setOf("projects", "models")))
         assertEquals(
-            listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Workers, ProjectSection.Schedules, ProjectSection.Tickets, ProjectSection.Storage, ProjectSection.Advanced),
+            listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Workers, ProjectSection.Schedules, ProjectSection.Advanced),
             offered(setOf("projects", "models", "workers", "schedules", "storage"), links = true),
         )
     }
 
-    @Test fun codingSettingsHideOnlyWhenTheComputerReportsANonRepository() {
+    @Test fun codingSettingsHideWhenTheProjectReportsANonRepository() {
         val feature = io.github.mitzacoder.kemiri.data.HarnessFeature.PROJECT_REPOSITORY
         for (hasFeature in listOf(false, true)) for (repository in listOf(null, false, true)) {
             val support = ProjectSectionSupport({ hasFeature && it == feature }, links = true, repository = repository)
-            val showCodingSettings = !hasFeature || repository != false
+            val showCodingSettings = repository != false
             assertEquals(showCodingSettings, support.showCodingSettings)
-            assertEquals(showCodingSettings, projectSectionAvailable(ProjectSection.Tickets, support))
+            assertFalse(projectSectionAvailable(ProjectSection.Tickets, support))
             assertTrue(projectSectionAvailable(ProjectSection.Advanced, support))
         }
     }

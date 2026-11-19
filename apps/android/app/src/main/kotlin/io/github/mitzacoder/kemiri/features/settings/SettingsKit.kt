@@ -160,6 +160,7 @@ internal fun SettingsRow(
     onRetry: (() -> Unit)? = null,
     control: RowControl = RowControl.Wide,
     below: (@Composable ColumnScope.() -> Unit)? = null,
+    badge: String? = null,
     controlContent: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     GroupRow(modifier) {
@@ -169,6 +170,7 @@ internal fun SettingsRow(
             @Composable fun labels(m: Modifier) = Column(m, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 SettingsTerm(term)
+                badge?.let { StatusChip(it, dot = false) }
                 hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
                 learn?.let { LearnMore(content = it) }
             }

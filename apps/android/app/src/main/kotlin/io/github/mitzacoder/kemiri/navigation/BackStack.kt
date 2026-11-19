@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.data.ProjectLocation
+import io.github.mitzacoder.kemiri.features.settings.ComputerSection
+import io.github.mitzacoder.kemiri.features.settings.computerPage
 import io.github.mitzacoder.kemiri.features.settings.GeneralPage
 import io.github.mitzacoder.kemiri.features.settings.GeneralSection
 import io.github.mitzacoder.kemiri.features.settings.ProjectSection
@@ -7,7 +10,7 @@ import kotlinx.serialization.Serializable
 
 /** A visit includes cross-tree settings detours, but never stores form fields or credentials. */
 @Serializable
-data class SettingsVisit(val originIndex: Int?, val fallback: Destination)
+data class SettingsVisit(val originIndex: Int?, val fallback: Destination, val projectContext: ProjectLocation? = null)
 
 /** Width-independent navigation. Persist this whole value, not just the visible destination. */
 @Serializable
@@ -24,22 +27,25 @@ data class BackStack(
         val visit = if (child.isSettings()) settingsVisit ?: if (current.isSettings()) {
             SettingsVisit(null, current.settingsFallback())
         } else SettingsVisit(entries.lastIndex, child.settingsFallback()) else null
-        return capped(entries + child, visit)
+        return capped(entries + child, visit?.withProject(child, current))
     }
 
     fun replaceSibling(sibling: Destination): BackStack {
         if (sibling == current) return this
         val visit = if (sibling.isSettings()) settingsVisit ?: SettingsVisit(null, if (current.isSettings()) current.settingsFallback() else sibling.settingsFallback()) else null
-        return copy(entries = entries.dropLast(1) + sibling, settingsVisit = visit)
+        return copy(entries = entries.dropLast(1) + sibling, settingsVisit = visit?.withProject(sibling, current))
     }
 
     /** Resolve only a newly opened index, never an Up, Back or restored entry. */
     fun withSettingsDefault(split: Boolean): BackStack {
         if (!split) return this
         val section = when (val destination = current) {
-            is Destination.Settings -> if (destination.page == GeneralPage()) {
-                Destination.Settings(GeneralPage(GeneralSection.entries.first()))
-            } else return this
+            is Destination.Settings -> when {
+                destination.page == GeneralPage() -> Destination.Settings(GeneralPage(GeneralSection.Appearance))
+                destination.page.backendKey != null && destination.page.activeComputerSection == null && destination.page.unavailableSection == null ->
+                    Destination.Settings(computerPage(destination.page.backendKey, ComputerSection.Overview))
+                else -> return this
+            }
             is Destination.ProjectSettings -> if (destination.section == null && destination.scheduleId == null && destination.unavailableSection == null) {
                 destination.copy(section = ProjectSection.entries.first())
             } else return this
@@ -47,6 +53,17 @@ data class BackStack(
         }
         return replaceSibling(section)
     }
+
+    fun switchSettingsScope(destination: Destination, split: Boolean): BackStack {
+        require(current.isSettings() && destination.isSettings())
+        return replaceSibling(destination).withSettingsDefault(split)
+    }
+
+    /** Old saved visits have no explicit project context. Recover it from their existing entries. */
+    fun settingsProjectContext(): ProjectLocation? = current.settingsProject()
+        ?: settingsVisit?.projectContext
+        ?: entries.dropLast(1).asReversed().firstNotNullOfOrNull { it.settingsProject() }
+        ?: settingsVisit?.originIndex?.let(entries::getOrNull)?.chatRoute()?.location()
 
     fun back(): BackStack = if (canGoBack) trimTo(entries.lastIndex - 1) else this
 
@@ -73,6 +90,11 @@ data class BackStack(
         return BackStack(next.takeLast(30), visit?.copy(originIndex = visit.originIndex?.minus(removed)?.takeIf { it >= 0 }))
     }
 }
+
+private fun Destination.Chat.location() = ProjectLocation(backendKey, projectId)
+private fun Destination.settingsProject() = (this as? Destination.ProjectSettings)?.chat?.location()
+private fun SettingsVisit.withProject(next: Destination, previous: Destination) =
+    copy(projectContext = next.settingsProject() ?: projectContext ?: previous.chatRoute()?.location())
 
 fun Destination.isSettings(): Boolean = this is Destination.Settings || this is Destination.ProjectSettings
 

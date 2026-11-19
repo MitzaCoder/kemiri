@@ -17,11 +17,6 @@ import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.launch
 
-/**
- * General → Backends: the servers this device talks to, each opening its own page (status, rename, accounts and API keys,
- * memory maintenance), then the ways to add one: a published suggestion, a typed address, a link or QR code, and the
- * link or QR code that connects another device.
- */
 @Composable
 internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsNavigator, connectPayload: String?, onConnectHandled: () -> Unit) {
     val settings by repository.settings.collectAsStateWithLifecycle()
@@ -34,14 +29,24 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
     var refresh by remember { mutableIntStateOf(0) }
     var name by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
-    var importValue by rememberSaveable { mutableStateOf("") }
+    var importValue by remember { mutableStateOf("") }
     var previewValue by rememberSaveable { mutableStateOf<String?>(null) }
     var suggestion by remember { mutableStateOf<BackendConfig?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var pairing by remember { mutableStateOf(false) }
-    if (pairing) PairDeviceDialog(repository, onDismiss = { pairing = false })
+    var importError by remember { mutableStateOf<String?>(null) }
+    // Do not put pairing links in saved UI state or route arguments.
+    var pairingLink by remember { mutableStateOf<String?>(null) }
+    if (pairingLink != null) PairDeviceDialog(repository, initialLink = requireNotNull(pairingLink), onDismiss = { pairingLink = null })
     fun preview(value: String) {
-        decodeConnect(value.substringAfter('#', value)).onSuccess { previewValue = value; error = null }.onFailure { error = it.message }
+        val trimmed = value.trim()
+        val fragment = trimmed.substringAfter('#', trimmed)
+        if (fragment.startsWith("pair=") || fragment.startsWith("bootstrap=")) {
+            runCatching { decodeDevicePairingLink(trimmed) }.onSuccess {
+                pairingLink = trimmed; importValue = ""; importError = null
+            }.onFailure { importError = "Could not read the pairing link. Check it or ask for a new one." }
+        } else decodeConnect(fragment).onSuccess {
+            previewValue = fragment; importError = null
+        }.onFailure { importError = it.message }
     }
     val imported = previewValue?.let { decodeConnect(it.substringAfter('#', it)).getOrNull() } ?: suggestion?.let { listOf(it) }
     LaunchedEffect(refresh) { suggestions = fetchPublishedBackends(publishedUrl) }
@@ -49,18 +54,13 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
     val missing = suggestions.filter { row -> settings.backends.none { it.key == row.key } }
 
     SettingsSectionPage(GeneralSection.Backends) {
-        SettingsGroup(title = "Pair a device") {
-            SettingsRow("Sign in with a pairing link", hint = "Full access, after you confirm the computer.") {
-                Button(onClick = { pairing = true }) { Text("Paste pairing link") }
-            }
-        }
         SettingsGroup(title = "Your computers") {
             if (sessions.isEmpty()) GroupNote("No computers yet. Add one below.")
             sessions.forEach { backend -> key(backend.config.key) {
                 val connection by backend.client.state.collectAsStateWithLifecycle()
                 LinkRow(
                     backend.config.name, backend.config.url,
-                    onClick = { navigator.open(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key))) },
+                    onClick = { navigator.open(Destination.Settings(computerPage(backend.config.key))) },
                     leading = { BackendTile() },
                     chip = { ConnectionBadge(connection.status, connection.attempt) },
                 )
@@ -101,6 +101,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                             name = ""; address = ""; error = null
                         }.onFailure { error = it.message } }
                     }) { Text("Add computer") }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }
             SettingsRow(
@@ -111,15 +112,14 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                 TextButton(onClick = { preferences.edit().putString("url", publishedUrl).apply(); refresh++ }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Reload suggestions") }
             }
         }
-        SettingsGroup(title = "Connect with a link or QR") {
-            SettingsRow("Scan or paste", hint = "Preview connections before saving them on this device.", control = RowControl.Full) {
+        SettingsGroup(title = "Connect to a computer") {
+            SettingsRow("Scan or paste a link", hint = "Review the computer before adding it or signing in.", control = RowControl.Full) {
                 ConnectScanner { preview(it) }
-                OutlinedTextField(importValue, { importValue = it }, label = { Text("Connect link") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { preview(importValue) }, enabled = importValue.isNotBlank(), modifier = Modifier.heightIn(min = 44.dp)) { Text("Preview import") }
+                OutlinedTextField(importValue, { importValue = it }, label = { Text("Pairing or connect link") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { preview(importValue) }, enabled = importValue.isNotBlank(), modifier = Modifier.heightIn(min = 44.dp)) { Text("Review link") }
+                importError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         }
-        if (settings.backends.isNotEmpty()) ConnectDeviceGroup(settings.backends)
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
     imported?.let { rows ->
         AlertDialog(onDismissRequest = { previewValue = null; suggestion = null }, title = { Text("Add these computers?") },

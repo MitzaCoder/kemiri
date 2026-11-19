@@ -24,18 +24,18 @@ fun ConnectScanner(onResult: (String) -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     val scan = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) result.data?.getStringExtra("SCAN_RESULT")?.let(onResult)
-        else message = "Scan cancelled. You can paste a connect link below."
+        else message = "Scan cancelled. You can paste a link below."
     }
     fun launchScanner() {
         runCatching {
             val activity = Class.forName("com.journeyapps.barcodescanner.CaptureActivity")
-            scan.launch(Intent(context, activity).putExtra("SCAN_FORMATS", "QR_CODE").putExtra("BEEP_ENABLED", false).putExtra("PROMPT_MESSAGE", "Scan a Kemiri connect QR code"))
-        }.onFailure { message = "QR scanner unavailable in this build. Paste a connect link below." }
+            scan.launch(Intent(context, activity).putExtra("SCAN_FORMATS", "QR_CODE").putExtra("BEEP_ENABLED", false).putExtra("PROMPT_MESSAGE", "Scan a Kemiri QR code"))
+        }.onFailure { message = "QR scanner unavailable in this build. Paste a link below." }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) launchScanner() else message = "Camera permission denied. Paste a connect link instead; no camera is required."
+        if (granted) launchScanner() else message = "Camera permission denied. Paste a link instead; no camera is required."
     }
-    TextButton(onClick = { permission.launch(Manifest.permission.CAMERA) }) { Text("Scan connect QR") }
+    TextButton(onClick = { permission.launch(Manifest.permission.CAMERA) }) { Text("Scan QR code") }
     message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 

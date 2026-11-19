@@ -1,15 +1,22 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import androidx.compose.runtime.*
-import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.data.ProjectSetting
 import io.github.mitzacoder.kemiri.data.configureProject
 import io.github.mitzacoder.kemiri.protocol.ProjectSummary
 import io.github.mitzacoder.kemiri.protocol.ProjectsConfigureRequest
 
 @Composable
-internal fun AdvancedSection(backend: BackendSession, project: ProjectSummary, showCodingSettings: Boolean) {
+internal fun AdvancedSection(context: ProjectScreenContext, project: ProjectSummary, support: ProjectSectionSupport, focus: AdvancedGroup?) {
+    val backend = context.backend
+    val showCodingSettings = support.showCodingSettings
     val uiProofSave = rememberSaveState(project.id)
     val artifactPrivacySave = rememberSaveState(project.id)
     var pendingUiProof by remember(project.id) { mutableStateOf<String?>(null) }
@@ -31,7 +38,7 @@ internal fun AdvancedSection(backend: BackendSession, project: ProjectSummary, s
                 }, "Stop pages from sending data", enabled = artifactPrivacySave.status != SaveStatus.Saving)
             }
         }
-        PromptCacheGroup(backend, project)
+        AdvancedAnchor(focus == AdvancedGroup.ConversationCache) { PromptCacheGroup(backend, project) }
         // An older backend does not send the proof setting, so that group stays out.
         if (showCodingSettings && storedUiProof != null) SettingsGroup(title = "Proof of screen changes", term = "Show UI changes") {
             SettingsRow(
@@ -44,8 +51,40 @@ internal fun AdvancedSection(backend: BackendSession, project: ProjectSummary, s
         }
         ReportAuditSettings(backend, project)
         TaskWatcherSettings(backend, project)
-        if (showCodingSettings) CodeDeliveryGroup(backend, project)
+        if (showCodingSettings || focus == AdvancedGroup.CodeDelivery) AdvancedAnchor(focus == AdvancedGroup.CodeDelivery) {
+            when {
+                !showCodingSettings -> CodingOnlyNote("Code delivery")
+                codeDeliveryAvailable(support.supports) -> CodeDeliveryGroup(backend, project)
+                else -> SettingsGroup(title = "Code delivery") { GroupNote("This computer does not offer this settings group.") }
+            }
+        }
+        if ((showCodingSettings && project.links != null) || focus == AdvancedGroup.Tickets) AdvancedAnchor(focus == AdvancedGroup.Tickets) {
+            when {
+                !showCodingSettings -> CodingOnlyNote("Tickets and pull requests")
+                project.links != null -> TicketsGroup(context, project.links)
+                else -> SettingsGroup(title = "Tickets and pull requests") { GroupNote("This computer does not offer this settings group.") }
+            }
+        }
+        if (support.supports("storage") || focus == AdvancedGroup.Storage) AdvancedAnchor(focus == AdvancedGroup.Storage) {
+            if (support.supports("storage")) StorageGroups(backend, project.id)
+            else SettingsGroup(title = "Storage") { GroupNote("This computer does not offer this settings group.") }
+        }
     }
+}
+
+@Composable
+private fun CodingOnlyNote(title: String) {
+    SettingsGroup(title = title) { GroupNote("This project isn't a code repository, so these settings don't apply.") }
+}
+
+/** Request once after layout, so a legacy link doesn't add a second screen or override manual scrolling. */
+@Composable
+private fun AdvancedAnchor(focused: Boolean, content: @Composable () -> Unit) {
+    if (!focused) { content(); return }
+    val requester = remember { BringIntoViewRequester() }
+    var positioned by remember { mutableStateOf(false) }
+    Box(Modifier.bringIntoViewRequester(requester).onGloballyPositioned { positioned = true }) { content() }
+    LaunchedEffect(positioned) { if (positioned) requester.bringIntoView() }
 }
 
 /** The choices of `uiProof`, in the web's order and words. */

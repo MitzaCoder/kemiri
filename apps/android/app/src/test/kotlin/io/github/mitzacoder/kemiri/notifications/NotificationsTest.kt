@@ -1,5 +1,9 @@
 package io.github.mitzacoder.kemiri.notifications
 
+import io.github.mitzacoder.kemiri.features.settings.AdvancedGroup
+import io.github.mitzacoder.kemiri.features.settings.ComputerSection
+import io.github.mitzacoder.kemiri.features.settings.computerPage
+import io.github.mitzacoder.kemiri.navigation.settingsLinkStack
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.data.BackendConfig
 import io.github.mitzacoder.kemiri.data.DeviceSettings
@@ -90,19 +94,22 @@ class NotificationsTest {
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Schedules, "s1")), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings#schedule-s1"))
         assertEquals(listOf(main, Destination.ProjectSettings(main)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings"))
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Coordinator)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/coordinator"))
-        for (route in listOf("cache", "delivery", "advanced")) {
-            assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Advanced)), open("https://${APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/$route"))
+        for ((route, group) in mapOf("cache" to AdvancedGroup.ConversationCache, "delivery" to AdvancedGroup.CodeDelivery,
+            "tickets" to AdvancedGroup.Tickets, "storage" to AdvancedGroup.Storage, "advanced" to null)) {
+            val destinations = open("https://${APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/$route")
+            assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Advanced, advancedGroup = group)), destinations)
+            assertEquals(main, settingsLinkStack(destinations.last()).back().current)
         }
-        assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Storage)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/storage"))
         assertEquals(listOf(main, Destination.ProjectSettings(main, unavailableSection = "nonsense")), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/nonsense"))
         assertEquals(listOf(Destination.Settings()), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings"))
         assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Notifications))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/notifications"))
         assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Backends))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/backends"))
         assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Backends, pc.key))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/backends/harness-pc"))
-        assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Backends, pc.key, accounts = true))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/backends/harness-pc/accounts"))
+        for (section in ComputerSection.entries) {
+            assertEquals(listOf(Destination.Settings(computerPage(pc.key, section))), open("https://${APP_LINK_HOST}/settings/backends/harness-pc/${section.id}"))
+        }
         assertEquals(AppLink.UnknownBackend("elsewhere"), appLinkFromUri("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/backends/elsewhere/accounts", backends))
         assertEquals(listOf(Destination.Settings(GeneralPage(unavailableSection = "nonsense"))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/nonsense"))
-        assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Backends, pc.key, devices = true))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/backends/harness-pc/devices"))
         assertEquals(listOf(Destination.Settings(GeneralPage(GeneralSection.Notifications))), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/notifications"))
         assertTrue(isProjectLink("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings/archived"))
         assertFalse(isProjectLink("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settingsfoo"))

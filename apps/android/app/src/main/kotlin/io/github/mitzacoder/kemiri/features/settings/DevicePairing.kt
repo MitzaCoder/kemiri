@@ -32,7 +32,7 @@ fun PairDeviceDialog(repository: HarnessRepository, initialLink: String = "", on
     }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(if (comparison != null) "Confirm on your other device" else "Pair this backend") },
+        title = { Text(if (comparison != null) "Confirm on your other device" else "Pair this computer") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (link == null) {
                 OutlinedTextField(input, { input = it; error = null }, label = { Text("Paste pairing link") }, modifier = Modifier.fillMaxWidth())
@@ -40,7 +40,7 @@ fun PairDeviceDialog(repository: HarnessRepository, initialLink: String = "", on
             } else {
                 Text(link!!.origin, fontFamily = FontFamily.Monospace)
                 Text("Backend ID: ${link!!.backendId}", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(name, { if (it.length <= 48) name = it }, label = { Text("Backend name") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { if (it.length <= 48) name = it }, label = { Text("Computer name") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
                 Text("Full access to this computer", style = MaterialTheme.typography.titleMedium)
                 Text("This device can read and change files, run commands and use paid providers. Only pair a computer you trust.")
                 if (link!!.bootstrap) OutlinedTextField(code, { code = it.uppercase().filter { char -> char in 'A'..'Z' || char in '2'..'7' }.take(12) },
@@ -64,7 +64,7 @@ fun PairDeviceDialog(repository: HarnessRepository, initialLink: String = "", on
                 catch (failure: Exception) { error = failure.message ?: "Pairing failed. Try a new link."; comparison = null }
                 finally { busy = false }
             }
-        }) { Text(if (link == null) "Review link" else if (busy) "Pairing…" else "Pair and add backend") } },
+        }) { Text(if (link == null) "Review link" else if (busy) "Pairing…" else "Pair and add computer") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(if (busy) "Close" else "Cancel") } },
     )
 }

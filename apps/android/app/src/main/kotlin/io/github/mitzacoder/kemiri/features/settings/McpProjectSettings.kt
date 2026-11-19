@@ -43,7 +43,7 @@ internal fun McpProjectSection(backend: BackendSession, projectId: String, openB
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!loaded || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         SettingsGroup {
-            LinkRow("Manage apps on this computer", "Add servers, sign in and set tool policies.", onClick = openBackendMcp)
+            LinkRow("Add a connected app on ${backend.config.name}", "Add servers, sign in and set tool policies.", onClick = openBackendMcp)
             if (loaded && servers.isEmpty()) GroupNote("No servers on this computer yet.")
         }
         servers.forEach { server ->

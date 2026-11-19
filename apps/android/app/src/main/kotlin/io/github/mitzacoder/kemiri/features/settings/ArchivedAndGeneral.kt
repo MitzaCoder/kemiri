@@ -76,6 +76,7 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
     val archiveSave = rememberSaveState(project.id)
     var confirming by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
     SettingsSectionPage("General", "What this project is called and where it lives.", SettingsIcon.Folder) {
         SettingsGroup(title = "Project") {
             SettingsRow("Name", hint = "Shown in the drawer and the chat's header.", status = nameSave) {
@@ -90,6 +91,15 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
             }
             SettingsRow("Computer", hint = "Where this project runs.", control = RowControl.Auto) {
                 ConnectionBadge(connection.status, connection.attempt)
+            }
+        }
+        SettingsGroup(title = "Notifications") {
+            val backendKey = context.backend.config.key
+            val muted = deviceSettings.notifications.isMuted(backendKey, project.id)
+            SettingsRow("Mute on this device", badge = "This device only", control = RowControl.Inline) {
+                SettingsSwitch(muted, { next -> scope.launch {
+                    context.repository.setNotifications { it.withMuted(backendKey, project.id, next) }
+                } }, "Mute on this device")
             }
         }
         if (connection.supports("project-archive")) {

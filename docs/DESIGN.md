@@ -6133,22 +6133,25 @@ A section the backend does not offer (`projectSectionAvailable`) is left out of 
 
 ### Android
 
-Built to the same split (`apps/android/.../features/settings/`). The section ids above are the Android route names too:
-`Destination.Settings(GeneralPage(section, backendKey, accounts))`, `Destination.ProjectSettings(chat, section, scheduleId)`
-and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps the web URLs (`/settings`,
-`/settings/<section>`, `/settings/backends/<id>[/accounts]`, `/notifications`, `.../settings[/<section>]`,
-`.../settings#schedule-<id>`) to them; the manifest opens `/settings*` and `/notifications` like `/b/`.
+Android uses one `SettingsShell` for This project, This computer and This device (`apps/android/.../features/settings/`).
+`Destination.Settings` holds the device section or a computer and its section. `Destination.ProjectSettings` holds the
+project, section and optional schedule or Advanced group. `NotificationRoutes` maps `/settings`, `/notifications`,
+`/settings/backends/<id>[/<section>]`, `.../settings[/<section>]` and `.../settings#schedule-<id>` to them.
+Legacy computer flags and project route names remain readable in saved stacks. Tickets and Storage open groups in
+Advanced, as do links to Conversation cache and Code delivery.
 
-- Frame: `SettingsShell` (phone: list, then one section; from 600dp: list and selected section side by side).
-  Named Up is visible at every width; app-bar Back and Close remain distinct. Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
+- The scope switch replaces the current entry without changing the visit origin. DeviceStore remembers the last
+  opened project and last used computer. Named Up, history Back and Close are distinct. A fresh opened index selects
+  its first section at 600dp and up; phones start on the section list. Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
   `RowControl.Wide/Auto/Full/Inline`, `LearnMore`, `SaveStatusLine` + `SaveState`, `StatusChip`, `AutoInput`, `SettingsSwitch`),
   `Combobox.kt` (a bottom sheet with search above 8 options, grouped, with `ThinkingSelect`). Pure logic with JVM tests:
   `SettingsSections.kt`, `ComboboxLogic.kt`, `SaveState.kt`, `WorkerModels.kt`, `SchedulePresentation.kt`
   (`SettingsSplitTest`, `NotificationsTest`).
 - Differences from the web: the sheet is a bottom sheet, not a popover, and there is no keyboard walk; Appearance has
   Device/Light/Dark as well, since Android lets the app override the device; the Schedules panel tab is gone (schedules
-  live only in project settings, as on the web) and a schedule tool card opens Scheduled tasks; Accounts keeps
-  `FLAG_SECURE` (release builds) because it takes keys.
+  live only in project settings, as on the web) and a schedule tool card opens Scheduled tasks. AI accounts keeps
+  `FLAG_SECURE` in release builds and edits current subscription prices through the same requests as Usage → Value.
+  Computers has one Scan or paste a link flow, with separate confirmation for address imports and device sign-in.
 
 ## Layout
 

@@ -13,6 +13,9 @@ enum class ThemePalette { Jarvis, Neutral }
 enum class ThemeMode { System, Light, Dark }
 
 @Serializable
+data class ProjectLocation(val backendKey: String, val projectId: String)
+
+@Serializable
 data class DeviceSettings(
     val backends: List<BackendConfig> = emptyList(),
     val deviceId: String = UUID.randomUUID().toString(),
@@ -45,6 +48,8 @@ data class DeviceSettings(
     val codeWrap: String? = null,
     /** One independent open/closed preference per record row, across tasks on this device. */
     val taskRecordFolds: Map<String, Boolean> = emptyMap(),
+    val lastOpenedProject: ProjectLocation? = null,
+    val lastUsedComputerKey: String? = null,
 )
 private val Context.deviceData by preferencesDataStore(name = "harness-device")
 class DeviceStore(context: Context) {

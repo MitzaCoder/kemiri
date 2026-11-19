@@ -53,7 +53,7 @@ internal fun linksToSave(form: LinksForm): Result<ProjectLinks> {
  * left; "Fill in again" hands all three back (`links: null`). Hidden on a backend whose projects carry no `links`.
  */
 @Composable
-fun TicketsSection(context: ProjectScreenContext, links: ProjectLinkSettings) {
+internal fun TicketsGroup(context: ProjectScreenContext, links: ProjectLinkSettings) {
     val projectId = context.route.projectId
     val form = linksForm(links)
     val siteSave = rememberSaveState(projectId)
@@ -65,28 +65,26 @@ fun TicketsSection(context: ProjectScreenContext, links: ProjectLinkSettings) {
         context.backend.client.configureProject(projectId, ProjectSetting.Links(value))
         context.backend.refreshProjects()
     }
-    SettingsSectionPage("Tickets and pull requests", "Ticket keys and pull request numbers become links.", SettingsIcon.Ticket) {
-        SettingsGroup(title = "Links", actions = { StatusChip(if (links.detected) "Filled in automatically" else "Set by you", if (links.detected) ChipTone.Info else ChipTone.Muted) }) {
-            SettingsRow(
-                "Jira site", hint = "Where ticket keys like EX-1234 open.", status = siteSave,
-                learn = { Text("Keys link in the chat, in task reports and in titles. A task's tickets and pull requests also show where they stand (open, merged, in review) when this backend's machine is signed in to GitHub (gh) and Jira (acli).") },
-            ) { AutoInput(form.jiraSite, siteSave, placeholder = "acme.atlassian.net", mono = true, label = "Jira site") { write(form.copy(jiraSite = it)) } }
-            SettingsRow(
-                "Ticket prefixes", hint = "Keys with these prefixes link everywhere.", status = prefixSave,
-                learn = { Text("Other keys link only inside a task's own tickets, so words like UTF-8 stay plain.") },
-            ) { AutoInput(form.jiraProjects, prefixSave, placeholder = "EX, CORE", mono = true, label = "Ticket prefixes") { write(form.copy(jiraProjects = it)) } }
-            SettingsRow(
-                "GitHub repositories", hint = "owner/name, separated by commas.", status = reposSave,
-                learn = { Text("With one repository, #1234 links to it. With several, write the name before the number, like web#1234.") },
-            ) { AutoInput(form.githubRepos, reposSave, placeholder = "owner/name", mono = true, label = "GitHub repositories") { write(form.copy(githubRepos = it)) } }
-            SettingsRow(
-                "Fill in automatically", hint = "From git remotes, commit messages and the machine's Jira sign-in.", control = RowControl.Auto, status = autoSave,
-                onRetry = { autoSave.launch { context.backend.client.configureProject(projectId, ProjectSetting.Links(null)); context.backend.refreshProjects() } },
-            ) {
-                OutlinedButton(enabled = autoSave.status != SaveStatus.Saving, modifier = Modifier.heightIn(min = 44.dp), onClick = {
-                    autoSave.launch { context.backend.client.configureProject(projectId, ProjectSetting.Links(null)); context.backend.refreshProjects() }
-                }) { Text("Fill in again") }
-            }
+    SettingsGroup(title = "Tickets and pull requests", actions = { StatusChip(if (links.detected) "Filled in automatically" else "Set by you", if (links.detected) ChipTone.Info else ChipTone.Muted) }) {
+        SettingsRow(
+            "Jira site", hint = "Where ticket keys like EX-1234 open.", status = siteSave,
+            learn = { Text("Keys link in the chat, in task reports and in titles. A task's tickets and pull requests also show where they stand (open, merged, in review) when this backend's machine is signed in to GitHub (gh) and Jira (acli).") },
+        ) { AutoInput(form.jiraSite, siteSave, placeholder = "acme.atlassian.net", mono = true, label = "Jira site") { write(form.copy(jiraSite = it)) } }
+        SettingsRow(
+            "Ticket prefixes", hint = "Keys with these prefixes link everywhere.", status = prefixSave,
+            learn = { Text("Other keys link only inside a task's own tickets, so words like UTF-8 stay plain.") },
+        ) { AutoInput(form.jiraProjects, prefixSave, placeholder = "EX, CORE", mono = true, label = "Ticket prefixes") { write(form.copy(jiraProjects = it)) } }
+        SettingsRow(
+            "GitHub repositories", hint = "owner/name, separated by commas.", status = reposSave,
+            learn = { Text("With one repository, #1234 links to it. With several, write the name before the number, like web#1234.") },
+        ) { AutoInput(form.githubRepos, reposSave, placeholder = "owner/name", mono = true, label = "GitHub repositories") { write(form.copy(githubRepos = it)) } }
+        SettingsRow(
+            "Fill in automatically", hint = "From git remotes, commit messages and the machine's Jira sign-in.", control = RowControl.Auto, status = autoSave,
+            onRetry = { autoSave.launch { context.backend.client.configureProject(projectId, ProjectSetting.Links(null)); context.backend.refreshProjects() } },
+        ) {
+            OutlinedButton(enabled = autoSave.status != SaveStatus.Saving, modifier = Modifier.heightIn(min = 44.dp), onClick = {
+                autoSave.launch { context.backend.client.configureProject(projectId, ProjectSetting.Links(null)); context.backend.refreshProjects() }
+            }) { Text("Fill in again") }
         }
     }
 }

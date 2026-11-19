@@ -99,7 +99,7 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
                         }
                         if (provider != null && !provider.configured) Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("${provider.name} has no credential on ${backend.config.name}, so requests will fail.", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.warning)
-                            TextButton(onClick = { navigate(Destination.Settings(GeneralPage(GeneralSection.Backends, backend.config.key, accounts = true))) }) { Text("Add one") }
+                            TextButton(onClick = { navigate(Destination.Settings(computerPage(backend.config.key, ComputerSection.Accounts))) }) { Text("Add one") }
                         }
                     }
                 },

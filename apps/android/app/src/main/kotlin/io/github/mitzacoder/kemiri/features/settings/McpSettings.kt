@@ -28,7 +28,13 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 @Composable
-internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> Unit) {
+internal fun McpServersPage(
+    backend: BackendSession,
+    navigate: (Destination) -> Unit,
+    navigator: SettingsNavigator,
+    visitProject: ScopeProject?,
+    projectMcpParent: Destination.ProjectSettings?,
+) {
     val connection by backend.client.state.collectAsStateWithLifecycle()
     if (!connection.supports(MCP_FEATURE)) { GroupNote("This computer does not support connected apps."); return }
     val session = backend.mcp
@@ -66,6 +72,7 @@ internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> 
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (selected != null) {
             TextButton(onClick = { selectedId = null }) { Text("All MCP servers") }
+            ProjectConnectedAppLinks(backend, navigator, visitProject, projectMcpParent)
             McpServerDetails(backend, selected, busy, presets.firstOrNull { it.id == selected.presetId }, navigate) { selectedId = null }
         } else if (importing) {
             TextButton(onClick = { importing = false }) { Text("All MCP servers") }
@@ -94,8 +101,26 @@ internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> 
                 if (servers.isEmpty()) GroupNote("No MCP servers yet. Add a preset or a remote server URL.")
                 servers.forEach { server ->
                     LinkRow(server.name, "${mcpStatusLabel(server.status)} · ${server.tools.size} tools", onClick = { selectedId = server.id })
+                    ProjectConnectedAppLinks(backend, navigator, visitProject, projectMcpParent)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProjectConnectedAppLinks(backend: BackendSession, navigator: SettingsNavigator, visitProject: ScopeProject?, parent: Destination.ProjectSettings?) {
+    val projects by backend.projects.collectAsStateWithLifecycle()
+    val returnProject = visitProject?.takeIf { it.location.backendKey == backend.config.key }
+    GroupRow {
+        GroupLessNote("Turn it on in a project:")
+        if (returnProject != null) TextButton(onClick = {
+            val actualParent = parent?.takeIf { it.chat.backendKey == returnProject.location.backendKey && it.chat.projectId == returnProject.location.projectId }
+            navigator.up(actualParent ?: projectSettings(returnProject.location, ProjectSection.Mcp))
+        }) { Text("Back to ${returnProject.name}'s connected apps") }
+        else if (projects.unarchived().isEmpty()) GroupLessNote("No projects on this computer yet.")
+        else projects.unarchived().forEach { project ->
+            TextButton(onClick = { navigator.open(projectSettings(ProjectLocation(backend.config.key, project.id), ProjectSection.Mcp)) }) { Text(project.name) }
         }
     }
 }

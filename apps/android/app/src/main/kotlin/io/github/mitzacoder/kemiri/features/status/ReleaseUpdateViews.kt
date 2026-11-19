@@ -32,17 +32,16 @@ private fun ReleaseNotesButton(url: String) {
 }
 
 @Composable
-fun ReleaseUpdateAbout(backend: BackendSession) {
+internal fun ComputerSoftwareUpdates(backend: BackendSession) {
     val connection by backend.client.state.collectAsStateWithLifecycle()
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
     val updates = status?.updates?.takeIf { connection.supports(RELEASE_UPDATES_FEATURE) && it.schemaVersion == 1L }
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    SettingsGroup(title = backend.config.name) {
-        GroupNote("Kemiri ${backendVersion(connection.hello?.server?.version, status) ?: "—"}")
+    SettingsGroup(title = "Software updates") {
         if (updates == null) {
-            GroupNote("Update checks are not available on this backend.")
+            GroupNote("Update checks are not available on this computer.")
             return@SettingsGroup
         }
         GroupNote(updates.installedVersion?.let { "Installed $it · ${updates.channel} channel" } ?: "Source checkout · checks off by default")

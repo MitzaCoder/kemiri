@@ -164,7 +164,7 @@ fun ChatServerBanners(context: ProjectScreenContext, modifier: Modifier = Modifi
     val connection by backend.client.state.collectAsStateWithLifecycle()
     if (!connection.supports(SERVER_STATUS_FEATURE)) return
     LaunchedEffect(backend) { while (true) { delay(SERVER_STATUS_REFRESH_MS); backend.serverStatus.refresh() } }
-    val openStorage = if (connection.supports(HarnessFeature.STORAGE)) { { context.navigate(Destination.ProjectSettings(context.route, io.github.mitzacoder.kemiri.features.settings.ProjectSection.Storage)) } } else null
+    val openStorage = if (connection.supports(HarnessFeature.STORAGE)) { { context.navigate(Destination.ProjectSettings(context.route, io.github.mitzacoder.kemiri.features.settings.ProjectSection.Advanced, advancedGroup = io.github.mitzacoder.kemiri.features.settings.AdvancedGroup.Storage)) } } else null
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         DeployBanner(context.repository, backend)
         DiskBanner(backend, openStorage)
