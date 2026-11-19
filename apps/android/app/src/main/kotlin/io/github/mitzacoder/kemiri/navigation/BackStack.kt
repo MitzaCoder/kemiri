@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.features.settings.GeneralPage
+import io.github.mitzacoder.kemiri.features.settings.GeneralSection
+import io.github.mitzacoder.kemiri.features.settings.ProjectSection
 import kotlinx.serialization.Serializable
 
 /** A visit includes cross-tree settings detours, but never stores form fields or credentials. */
@@ -28,6 +31,21 @@ data class BackStack(
         if (sibling == current) return this
         val visit = if (sibling.isSettings()) settingsVisit ?: SettingsVisit(null, if (current.isSettings()) current.settingsFallback() else sibling.settingsFallback()) else null
         return copy(entries = entries.dropLast(1) + sibling, settingsVisit = visit)
+    }
+
+    /** Resolve only a newly opened index, never an Up, Back or restored entry. */
+    fun withSettingsDefault(split: Boolean): BackStack {
+        if (!split) return this
+        val section = when (val destination = current) {
+            is Destination.Settings -> if (destination.page == GeneralPage()) {
+                Destination.Settings(GeneralPage(GeneralSection.entries.first()))
+            } else return this
+            is Destination.ProjectSettings -> if (destination.section == null && destination.scheduleId == null && destination.unavailableSection == null) {
+                destination.copy(section = ProjectSection.entries.first())
+            } else return this
+            else -> return this
+        }
+        return replaceSibling(section)
     }
 
     fun back(): BackStack = if (canGoBack) trimTo(entries.lastIndex - 1) else this

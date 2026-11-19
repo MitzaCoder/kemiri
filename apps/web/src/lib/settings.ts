@@ -63,7 +63,7 @@ export function isProjectSection(value: unknown): value is ProjectSectionId {
 	return PROJECT_SECTIONS.some((section) => section.id === value);
 }
 
-/** General settings: the section index at every width. */
+/** General settings: the section index, or the entry point for the wide default. */
 export const GENERAL_SETTINGS_HREF = "/settings";
 
 export function generalSettingsHref(section?: GeneralSectionId): string {
@@ -76,10 +76,23 @@ export function backendSettingsHref(backendId: string, sub?: "accounts" | "mcp")
 	return sub === undefined ? base : `${base}/${sub}`;
 }
 
-/** A project's settings: the section index at every width, or one section. */
+/** A project's settings: the section index or one section. */
 export function projectSettingsHref(backendId: string, projectId: string, section?: ProjectSectionId): string {
 	const base = `${projectHref(backendId, projectId)}/settings`;
 	return section === undefined ? base : `${base}/${section}`;
+}
+
+/** Resolve a fresh index entry only. Real sections and content-bearing drill-downs are not indexes. */
+export function settingsEntryRedirect(url: Pick<URL, 'pathname' | 'search' | 'hash'>, split: boolean): string | undefined {
+	const path = url.pathname.replace(/\/$/, '');
+	const location = settingsLocation(path);
+	if (path === GENERAL_SETTINGS_HREF && split) {
+		return generalSettingsHref(GENERAL_SECTIONS[0].id) + url.search + url.hash;
+	}
+	if (location?.scope !== "project" || path !== projectSettingsHref(location.backendId, location.projectId)) return;
+	// Old schedule notification URLs point at the project index with a fragment, even on phones.
+	const section = url.hash.startsWith("#schedule-") ? "schedules" : split ? PROJECT_SECTIONS[0].id : undefined;
+	if (section) return projectSettingsHref(location.backendId, location.projectId, section) + url.search + url.hash;
 }
 
 export type SettingsLocation =

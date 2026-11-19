@@ -51,6 +51,25 @@ fun HarnessApp(
     pendingLink: PendingAppLink? = null,
     onLinkHandled: () -> Unit = {},
 ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Even with the expanded projects sidebar (264dp at 1024dp and up), settings still
+        // has at least SETTINGS_SPLIT_WIDTH. Read width when opening, never from an effect.
+        HarnessNavigation(repository, connectPayload, onConnectHandled, pendingLink, onLinkHandled,
+            splitSettings = maxWidth >= SETTINGS_SPLIT_WIDTH, wide = maxWidth >= 1024.dp)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HarnessNavigation(
+    repository: HarnessRepository,
+    connectPayload: String?,
+    onConnectHandled: () -> Unit,
+    pendingLink: PendingAppLink?,
+    onLinkHandled: () -> Unit,
+    splitSettings: Boolean,
+    wide: Boolean,
+) {
     var savedBackStack by rememberSaveable { mutableStateOf(wireJson.encodeToString(BackStack.serializer(), BackStack())) }
     fun readBackStack() = wireJson.decodeFromString(BackStack.serializer(), savedBackStack)
     fun updateBackStack(update: (BackStack) -> BackStack) {
@@ -71,7 +90,6 @@ fun HarnessApp(
     // Wide screens keep the projects sidebar open beside the chat (web: 64rem and up); its rail state is remembered.
     val navPreferences = LocalContext.current.let { remember(it) { it.getSharedPreferences(PROJECTS_NAV_PREFERENCES, Context.MODE_PRIVATE) } }
     var sidebarCollapsed by remember { mutableStateOf(navPreferences.getBoolean("collapsed", false)) }
-    var wideNav by remember { mutableStateOf(false) }
     // The ID a link named that no backend here has (web: the "Unknown backend" page), shown atop the drawer until it
     // closes, the user dismisses it or goes somewhere.
     var unknownBackend by remember { mutableStateOf<String?>(null) }
@@ -89,7 +107,8 @@ fun HarnessApp(
     val navigate: (Destination) -> Unit = { next ->
         updateBackStack { previous ->
             if (previous.current is Destination.Panel && next is Destination.Panel) previous.replaceSibling(next)
-            else previous.push(next)
+            else if (next != previous.current) previous.push(next).withSettingsDefault(splitSettings)
+            else previous
         }
         unknownBackend = null
         scope.launch { drawer.close() }
@@ -103,7 +122,7 @@ fun HarnessApp(
     io.github.mitzacoder.kemiri.features.chat.ShareConversationDialog(repository, navigate)
     LaunchedEffect(connectPayload) { if (connectPayload != null) navigate(Destination.Settings(GeneralPage(GeneralSection.Backends))) }
     HandleAppLink(pendingLink, loaded, sessions.map { it.config }, navigate, openSettingsLink = { destination ->
-        updateBackStack { settingsLinkStack(destination) }
+        updateBackStack { settingsLinkStack(destination).withSettingsDefault(splitSettings) }
     }, onUnknownBackend = { id ->
         // A phone's panel or a task sheet would cover the drawer: back to their chat first.
         updateBackStack { previous ->
@@ -112,9 +131,9 @@ fun HarnessApp(
             uncovered
         }
         unknownBackend = id
-        if (wideNav) sidebarCollapsed = false else scope.launch { drawer.open() }
+        if (wide) sidebarCollapsed = false else scope.launch { drawer.open() }
     }, onLinkHandled)
-    LaunchedEffect(drawer.targetValue) { if (drawer.targetValue == DrawerValue.Closed && !wideNav) unknownBackend = null }
+    LaunchedEffect(drawer.targetValue) { if (drawer.targetValue == DrawerValue.Closed && !wide) unknownBackend = null }
     PredictiveBackHandler(enabled = drawer.isOpen || nestedBackTargets.isNotEmpty() || backStack.canGoBack) { progress ->
         // Resolve once at gesture start; the app bar uses the same resolver.
         commitCompletedBack(resolvedBack()) { progress.collect { } }
@@ -161,9 +180,6 @@ fun HarnessApp(
     var htmlArtifactViewport by remember(current) { mutableStateOf(false) }
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
     CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-    val wide = maxWidth >= 1024.dp
-    SideEffect { wideNav = wide }
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = !wide || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
         Row(Modifier.fillMaxSize()) {
@@ -256,7 +272,6 @@ fun HarnessApp(
         }
         } }
         }
-    }
     }
     }
 }

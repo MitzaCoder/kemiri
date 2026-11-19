@@ -3,6 +3,7 @@ import {
 	closeAction, inAppBackVisible, localHref, sectionNavigation, settingsSurface, upAction, visitEntry,
 	type NavigationAction, type NavigationEntry,
 } from '../src/lib/settings-navigation.ts';
+import { settingsEntryRedirect } from '../src/lib/settings.ts';
 
 const origin = 'https://example.com';
 const S = '/b/sample/projects/garden/settings';
@@ -69,13 +70,36 @@ describe('settings history policy', () => {
 		h.up(S); h.assert([...start, S, S + '/coordinator'], 2);
 		h.go(-1); h.assert([...start, S, S + '/coordinator'], 1);
 	});
-	test('W2: desktop child pushes, siblings replace, Close pops to the exact launch URL', () => {
+	test('W2: a wide opening uses one entry, so Back and Close return to the exact origin', () => {
+		for (const [index, section] of [['/settings', '/settings/appearance'], [S, S + '/general']] as const) {
+			const h = new BrowserHistory();
+			h.move(settingsEntryRedirect(new URL(index, origin), true) ?? index);
+			h.assert([...start, section]);
+			h.go(-1); h.assert([...start, section], 1);
+			h.go(1); h.assert([...start, section]);
+			h.close(); h.assert([...start, section], 1);
+		}
 		const h = new BrowserHistory();
-		h.move(S); h.assert([...start, S]);
-		h.move(S + '/coordinator'); h.assert([...start, S, S + '/coordinator']);
-		h.move(S + '/workers', true); h.assert([...start, S, S + '/workers']);
-		h.close(); h.assert([...start, S, S + '/workers'], 1);
-		h.go(-1); h.assert([...start, S, S + '/workers'], 0);
+		h.move(settingsEntryRedirect(new URL(S, origin), true) ?? S);
+		h.move(S + '/workers', true); h.assert([...start, S + '/workers']);
+		h.up(S); h.assert([...start, S]);
+		h.go(-1); h.assert([...start, S], 1);
+	});
+	test('fresh indexes respect width and retain query and fragment; subsection links are untouched', () => {
+		for (const path of ['/settings', S, '/settings?example=1']) {
+			expect(settingsEntryRedirect(new URL(path, origin), false)).toBeUndefined();
+		}
+		expect(settingsEntryRedirect(new URL('/settings/?example=1#section', origin), true))
+			.toBe('/settings/appearance?example=1#section');
+		for (const split of [true, false]) {
+			expect(settingsEntryRedirect(new URL(S + '?example=1#schedule-sample', origin), split))
+				.toBe(S + '/schedules?example=1#schedule-sample');
+			for (const path of ['/settings/notifications', '/settings/unknown', '/settings/backends',
+				'/settings/backends/sample', '/settings/backends/sample/accounts', '/settings/backends/sample/mcp',
+				S + '/coordinator', S + '/unknown']) {
+				expect(settingsEntryRedirect(new URL(path, origin), split)).toBeUndefined();
+			}
+		}
 	});
 	test('W3: backend drilldown has real parents at every width', () => {
 		const h = new BrowserHistory();
@@ -104,9 +128,13 @@ describe('settings history policy', () => {
 		h.move('/usage'); h.assert([...start, '/settings', '/usage']);
 		h.close(); h.assert([...start, '/settings', '/usage'], 1);
 	});
-	test('W6: resize does not change the entry or select a section', () => {
-		const h = new BrowserHistory(); h.move(S); h.assert([...start, S]);
-		for (const width of [390, 1440, 390]) { void width; h.assert([...start, S]); }
+	test('W6: a phone index stays in history when a child is opened and the layout widens', () => {
+		const h = new BrowserHistory();
+		h.move(settingsEntryRedirect(new URL(S, origin), false) ?? S);
+		h.move(S + '/coordinator');
+		h.go(-1); h.assert([...start, S, S + '/coordinator'], 2);
+		h.go(1); h.assert([...start, S, S + '/coordinator']);
+		h.up(S); h.assert([...start, S, S + '/coordinator'], 2);
 	});
 	test('MCP detour: selected, catalogue/preset, import and command review are shallow children', () => {
 		const h = new BrowserHistory(); const path = '/settings/backends/sample/mcp';

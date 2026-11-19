@@ -13,7 +13,7 @@
 	import { overlayScroll } from '#lib/scrollbars.js';
 
 	/** One frame at every width. Back follows history, breadcrumbs go Up, Close ends the visit.
-	 * Resizing changes only layout. An index has no selected section and never redirects.
+	 * Resizing changes only layout. A retained index stays a list with no selected section.
 	 */
 	let {
 		items,
@@ -90,7 +90,7 @@
 			{@render header()}
 		</header>
 
-		<div class="md:grid md:grid-cols-[13.5rem_minmax(0,1fr)] md:items-start md:gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10">
+		<div class={atList ? 'md:max-w-md' : 'md:grid md:grid-cols-[13.5rem_minmax(0,1fr)] md:items-start md:gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10'}>
 			<div class="{atList ? '' : 'max-md:hidden'} md:sticky md:top-3">
 				<SettingsNav {items} {activeId} label={navLabel} />
 			</div>

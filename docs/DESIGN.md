@@ -5890,17 +5890,17 @@ shows the optional skillsHeldBack count when positive.
 Every section has a URL; the last segment is the section name, which Android reuses one to one.
 
 ```
-/settings                                   section index (every width)
+/settings                                   section index / wide entry to Appearance
 /settings/appearance | notifications | archived
 /settings/backends                          list
 /settings/backends/<id>                     one backend
 /settings/backends/<id>/accounts            Accounts and API keys
 /settings/backends/<id>/mcp                 MCP servers
-/b/<backend>/projects/<id>/settings         section index (every width)
+/b/<backend>/projects/<id>/settings         section index / wide entry to General
 /b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | tickets | cache | mcp | skills | storage
 ```
 
-- `/notifications` redirects to `/settings/notifications`. The old `.../settings` URL still works: it is the section index at every width.
+- `/notifications` redirects to `/settings/notifications`. An explicit section URL opens that section at any width.
 - A schedule notification links to `.../settings#schedule-<id>` (Android's route parser knows only `.../settings`);
   the project settings index sends that address on to Scheduled tasks with the fragment, and the list scrolls to the
   schedule.
@@ -5924,15 +5924,21 @@ continue the visit. Usage and MCP navigation-level views are entries, not untrac
 is shown only with a known earlier app entry, including installed windows. Unknown sections explain and recover.
 Web stores a visit ID, validated local origin, owned entry index and prior visit entries in per-entry PageState;
 SvelteKit `persistState` preserves them on reload. Only view identifiers enter state, never form values/secrets.
-The settings index remains an index on resize; resizing never selects a default section.
+A fresh opening of a section index on a split layout selects its first section: Appearance for Settings and
+General for project settings. On the web, a cold opening replaces the index; an in-app opening writes the final
+section into the new entry directly. Android replaces the newly opened index in its stack. There is no extra
+index entry for Back or Close to cross. Backends is already a section with real content, as are backend details,
+Accounts, Devices (Android) and MCP, so opening them never picks a backend, account or server automatically.
+Phones still open the index. Width is read only when opening: resize, history traversal and restored entries
+never select a default. Up still pops to an existing parent or replaces with the requested parent list.
 
 Android keeps a saveable, width-independent `BackStack` with a settings-visit origin.
 Back (app bar, system and completed predictive gestures) pops real history; cancelled
 gestures change nothing. Named Up pops to a parent within this visit, or replaces the
 current entry if absent. Close × discards the visit to its exact origin, falling back
 to main project chat or Home when no origin remains. Sibling sections replace; children
-always push, including backend Accounts, Devices and MCP. Wide indexes show an overview,
-not a default section. Cross-tree settings links keep the same visit. External settings
+always push, including backend Accounts, Devices and MCP. Cross-tree settings links keep the same visit.
+External settings
 links build Chat/Home underneath. Transient MCP sub-views register depth-ordered Back/Up
 targets shared with the app bar; dialogs and the drawer take precedence. Secret fields
 remain transient and are never serialized. Predictive Back deliberately has no animation.
@@ -5940,8 +5946,9 @@ remain transient and are never serialized. Predictive Back deliberately has no a
 ### Layout
 
 `SettingsShell` frames both areas: history Back when available, clickable parent breadcrumbs (phone: named Up),
-and Close at every width. From 48rem the section rail sits beside the content; the index shows an overview with
-nothing selected. Below that, the index is a section list. Resizing changes only layout, never the route.
+and Close at every width. From 48rem the section rail sits beside the selected section. A retained index
+(for example after Up or resizing a phone list) shows just the list at any width. Resizing changes only layout,
+never the route.
 Navigation controls have 44px touch targets; `settingsParentHref` supplies the structural parent.
 
 ### Rows, groups and states
@@ -6004,7 +6011,7 @@ and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps t
 `/settings/<section>`, `/settings/backends/<id>[/accounts]`, `/notifications`, `.../settings[/<section>]`,
 `.../settings#schedule-<id>`) to them; the manifest opens `/settings*` and `/notifications` like `/b/`.
 
-- Frame: `SettingsShell` (phone: list, then one section; from 600dp: list and section/overview side by side).
+- Frame: `SettingsShell` (phone: list, then one section; from 600dp: list and selected section side by side).
   Named Up is visible at every width; app-bar Back and Close remain distinct. Kit: `SettingsKit.kt` (`SettingsSectionPage`, `SettingsGroup`, `SettingsRow` with
   `RowControl.Wide/Auto/Full/Inline`, `LearnMore`, `SaveStatusLine` + `SaveState`, `StatusChip`, `AutoInput`, `SettingsSwitch`),
   `Combobox.kt` (a bottom sheet with search above 8 options, grouped, with `ThinkingSelect`). Pure logic with JVM tests:
@@ -6018,8 +6025,9 @@ and `Destination.Home` (the projects home, web `/`). `NotificationRoutes` maps t
 ## Layout
 
 `SettingsShell` frames both areas: history Back when available, clickable parent breadcrumbs (phone: named Up),
-and Close at every width. From 48rem the section rail sits beside the content; the index shows an overview with
-nothing selected. Below that, the index is a section list. Resizing changes only layout, never the route.
+and Close at every width. From 48rem the section rail sits beside the selected section. A retained index
+(for example after Up or resizing a phone list) shows just the list at any width. Resizing changes only layout,
+never the route.
 Navigation controls have 44px touch targets; `settingsParentHref` supplies the structural parent.
 
 ### Rows, groups and states

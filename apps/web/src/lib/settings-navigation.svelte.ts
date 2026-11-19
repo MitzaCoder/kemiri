@@ -1,6 +1,7 @@
 /** SvelteKit adapter; native Back/Forward is deliberately never intercepted. */
 import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 import { page } from '$app/state';
+import { settingsEntryRedirect } from './settings.js';
 import {
 	closeAction, settingsSurface, upAction, visitEntry,
 	type McpNavigationView, type NavigationAction, type NavigationEntry,
@@ -9,6 +10,9 @@ import {
 let performingNavigation = false;
 const href = () => `${page.url.pathname}${page.url.search}${page.url.hash}`;
 const entry = (): NavigationEntry => page.state.navigation ?? { index: 0 };
+
+// Match the SettingsShell rail breakpoint. Read once per opening; never subscribe to resize.
+const splitSettings = () => matchMedia('(min-width: 48rem)').matches;
 
 export function installSettingsNavigation(): void {
 	let nextEntry: NavigationEntry | undefined;
@@ -21,8 +25,13 @@ export function installSettingsNavigation(): void {
 			nextEntry = { index: entry().index + 1 };
 		}
 	});
-	afterNavigate(() => {
+	afterNavigate(navigation => {
 		if (!page.state.navigation) {
+			const redirect = navigation.type === 'enter' && settingsEntryRedirect(page.url, splitSettings());
+			if (redirect) {
+				void navigateSettings(redirect, true);
+				return;
+			}
 			const initial = nextEntry ?? { index: 0 };
 			if (settingsSurface(page.url.pathname)) initial.visit = { id: crypto.randomUUID(), entries: [] };
 			void writeEntryState({ ...page.state, navigation: initial }, true);
@@ -32,11 +41,15 @@ export function installSettingsNavigation(): void {
 }
 
 export async function navigateSettings(to: string, replace = false): Promise<void> {
+	const url = new URL(to, page.url.href);
+	// On an in-app opening, write the final section into the new entry directly (push + replace in one step).
+	// Up and Back use separate paths, so an index they reveal is never resolved again.
+	const target = url.origin === page.url.origin ? settingsEntryRedirect(url, splitSettings()) ?? to : to;
 	const navigation = visitEntry(entry(), href(), page.url.origin, crypto.randomUUID(), replace,
 		settingsSurface(page.url.pathname) || page.state.usage === true);
 	performingNavigation = true;
 	try {
-		await goto(to, { replace, persistState: true, state: { navigation } });
+		await goto(target, { replace, persistState: true, state: { navigation } });
 	} finally { performingNavigation = false; }
 }
 

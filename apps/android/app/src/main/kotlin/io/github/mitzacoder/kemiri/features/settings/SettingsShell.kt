@@ -33,7 +33,7 @@ internal val SETTINGS_SPLIT_WIDTH = 600.dp
 /**
  * The frame of both settings areas. From [SETTINGS_SPLIT_WIDTH]: the section list on the left and the chosen section on
  * the right. Below that, one screen at a time: the list (a card per section with its hint and a chevron), then a section
- * with a named Up control. [activeId] is null on the index at every width. [content] gets the section to draw.
+ * with a named Up control. A retained index ([activeId] is null) stays a list at every width.
  */
 @Composable
 internal fun SettingsShell(
@@ -59,16 +59,12 @@ internal fun SettingsShell(
             }
             header()
         }
-        if (split) Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).widthIn(max = 1040.dp).align(Alignment.TopCenter), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (split && shown != null) Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).widthIn(max = 1040.dp).align(Alignment.TopCenter), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Header()
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                 SettingsNav(items, shown, navLabel, split = true, onSelect, Modifier.width(232.dp).verticalScroll(rememberScrollState()))
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-                    if (shown != null) content(shown) else {
-                        Text("Overview", style = MaterialTheme.typography.titleLarge)
-                        Text("Choose a section to view its settings.", Modifier.padding(vertical = 12.dp))
-                        items.forEach { item -> Text("${item.section.label} — ${item.section.hint}", Modifier.padding(vertical = 8.dp)) }
-                    }
+                    content(shown)
                 }
             }
         } else Column(

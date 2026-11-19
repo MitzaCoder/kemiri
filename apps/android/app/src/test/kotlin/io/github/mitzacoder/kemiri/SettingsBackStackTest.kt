@@ -83,10 +83,38 @@ class SettingsBackStackTest {
         assertEquals(listOf(chat), wide.last())
     }
 
-    @Test fun w1UpPopsPhoneIndexThenBackLeavesSettings() {
-        val stack = BackStack(listOf(chat)).push(index).push(coordinator)
-        assertStack(stack.up(index), chat, index)
-        assertStack(stack.up(index).back(), chat)
+    @Test fun w1UpPopsPhoneIndexThenBackLeavesSettingsEvenAfterWidening() {
+        val stack = BackStack(listOf(chat)).push(index).withSettingsDefault(split = false).push(coordinator)
+        // Width is read only on entry, not on restoring or going up to an existing entry.
+        val restored = wireJson.decodeFromString(BackStack.serializer(), wireJson.encodeToString(BackStack.serializer(), stack))
+        assertStack(restored.back(), chat, index)
+        assertStack(restored.up(index), chat, index)
+        assertStack(restored.up(index).back(), chat)
+    }
+
+    @Test fun wideOpenReplacesTheIndexAndPreservesBackCloseAndUp() {
+        val appearance = Destination.Settings(GeneralPage(GeneralSection.Appearance))
+        val general = index.copy(section = ProjectSection.General)
+        for ((requested, expected) in listOf(settings to appearance, index to general)) {
+            val stack = BackStack(listOf(chat)).push(requested).withSettingsDefault(split = true)
+            assertStack(stack, chat, expected)
+            assertStack(stack.back(), chat)
+            assertStack(stack.close(), chat)
+            assertStack(stack.up(requested), chat, requested)
+            assertStack(stack.up(requested).back(), chat)
+        }
+        val linked = settingsLinkStack(index).withSettingsDefault(split = true)
+        assertStack(linked, chat, general)
+        assertStack(linked.close(), chat)
+    }
+
+    @Test fun wideOpenDoesNotChangeLinksToContentOrUnavailableSections() {
+        for (section in listOf(coordinator, backends, backend, accounts, mcp,
+            index.copy(section = ProjectSection.Schedules, scheduleId = "example"),
+            index.copy(unavailableSection = "example"), Destination.Settings(GeneralPage(unavailableSection = "example")))) {
+            val stack = settingsLinkStack(section)
+            assertEquals(stack, stack.withSettingsDefault(split = true))
+        }
     }
 
     @Test fun w2SiblingSectionsReplaceThenCloseDiscardsVisit() {
