@@ -158,7 +158,7 @@ internal fun AccountsPage(backend: BackendSession) {
             busy = true; error = null
             try { block() }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { error = "Request failed. Refresh to check backend state before retrying." }
+            catch (_: Exception) { error = "Request failed. Refresh to check the computer’s state before retrying." }
             finally { busy = false }
         }
     }
@@ -207,7 +207,7 @@ internal fun AccountsPage(backend: BackendSession) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (provider.officialAgent != null) OfficialAgentFacts(provider)
             subscriptionWarning(provider, canLogin)?.let { SubscriptionWarning(it) }
-            if (provider.configured && canKeys && !stored) Text("Configured outside stored credentials (for example, the backend's environment). Removing a stored key cannot remove environment credentials.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+            if (provider.configured && canKeys && !stored) Text("Configured outside stored credentials (for example, the computer's environment). Removing a stored key cannot remove environment credentials.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
             var showModels by remember { mutableStateOf(false) }
             TextButton(onClick = { showModels = !showModels }, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (showModels) "Hide models" else "Models") }
             if (showModels) catalog?.models?.filter { it.provider == provider.id }?.forEach {
@@ -225,7 +225,7 @@ internal fun AccountsPage(backend: BackendSession) {
                 if (stored) {
                     var confirm by remember { mutableStateOf(false) }
                     TextButton(enabled = !busy, onClick = { confirm = !confirm }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Remove stored credential…") }
-                    if (confirm) TextButton(enabled = !busy, onClick = { confirm = false; act { client.request(CredentialsDeleteRequest(providerId = provider.id)); refresh() } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Confirm removal on backend", color = Jarvis.colors.danger) }
+                    if (confirm) TextButton(enabled = !busy, onClick = { confirm = false; act { client.request(CredentialsDeleteRequest(providerId = provider.id)); refresh() } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Confirm removal on this computer", color = Jarvis.colors.danger) }
                 }
             }
             val login = logins.values.filter { it.providerId == provider.id }.maxByOrNull { it.startedAt }
@@ -249,12 +249,12 @@ internal fun AccountsPage(backend: BackendSession) {
         }
     }
 
-    SettingsSectionPage("Accounts and API keys", "Signed-in accounts and keys for ${backend.config.name}. They stay on that backend.", SettingsIcon.KeyRound, actions = {
+    SettingsSectionPage("AI accounts", "Sign in to AI providers or add API keys so agents can run.", SettingsIcon.KeyRound, term = "Accounts and API keys", actions = {
         if (providers.isNotEmpty()) StatusChip("${configured.size} of ${providers.size} ready", if (configured.isNotEmpty()) ChipTone.Ok else ChipTone.Warn)
     }) {
         error?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (!supported) ToneBanner(BannerTone.Warning) { Text("This backend does not advertise accounts or API keys.", style = MaterialTheme.typography.bodySmall) }
+        if (!supported) ToneBanner(BannerTone.Warning) { Text("This computer does not offer accounts or API keys.", style = MaterialTheme.typography.bodySmall) }
         else if (providers.isEmpty()) Text(if (connection.status == ConnectionStatus.Ready) "Loading providers…" else "Waiting for ${backend.config.name}…", style = MaterialTheme.typography.bodyMedium, color = Jarvis.colors.fgMuted)
         else {
             if (signingIn.isNotEmpty()) SettingsGroup(title = "Signing in") {
@@ -284,7 +284,7 @@ internal fun AccountsPage(backend: BackendSession) {
             if (others.isNotEmpty()) SettingsGroup(title = "Add a provider") {
                 SettingsRow(
                     "Provider", hint = "Pick one, then sign in or paste a key.",
-                    learn = { Text("Subscriptions sign in with OAuth. Open the link, finish signing in in your browser, then paste the code or the final redirect URL back here: the browser cannot reach the backend's localhost callback. A provider whose key is in the backend's environment already shows as ready.") },
+                    learn = { Text("Subscriptions sign in with OAuth. Open the link, finish signing in in your browser, then paste the code or the final redirect URL back here: the browser cannot reach the backend's localhost callback. A provider whose key is in the computer's environment already shows as ready.") },
                     below = addProvider?.let { provider -> ({ panel(provider) }) },
                 ) {
                     Combobox(remember(others) { providerOptions(others) }, adding, { adding = it }, "Provider", placeholder = "Choose a provider…", searchPlaceholder = "Search providers…")

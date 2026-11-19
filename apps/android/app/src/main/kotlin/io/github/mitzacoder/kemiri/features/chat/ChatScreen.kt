@@ -506,7 +506,7 @@ internal fun highlightIndex(rows: List<ChatRow>, target: ChatHighlight): Int = w
     val link = Jarvis.colors.link
     val text = remember(link) {
         androidx.compose.ui.text.buildAnnotatedString {
-            append("This project has no coordinator model. Pick one in the composer, or ")
+            append("This project has no Main chat model. Pick one in the composer, or ")
             withLink(androidx.compose.ui.text.LinkAnnotation.Clickable("settings",androidx.compose.ui.text.TextLinkStyles(androidx.compose.ui.text.SpanStyle(color = link,textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))) { openSettings() }) {
                 append("choose one in settings")
             }

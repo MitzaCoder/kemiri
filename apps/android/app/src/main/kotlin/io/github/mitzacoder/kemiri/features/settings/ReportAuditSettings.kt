@@ -67,7 +67,7 @@ private fun ProjectModelModeSettings(backend: BackendSession, project: ProjectSu
     }
     SettingsGroup(title = title) {
         GroupNote(if (watcher) "Short updates from the work log, marked auto. They stay in Live and do not change the task report."
-            else "A small model checks once an hour whether active tasks' reports missed something, and asks the coordinator to update them", center = false)
+            else "Checks active task reports once an hour and asks the main chat to fill in anything missing.", center = false)
         SettingsRow("Mode", hint = if (watcher) "Automatic picks from recorded tool steps without sending them to a model."
             else "Automatic uses the cheapest small model you're signed in to (Claude Haiku 5.5, else GPT-5 nano)",
             status = modeSave, onRetry = { pickMode(attemptedMode) }) {

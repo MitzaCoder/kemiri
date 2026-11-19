@@ -34,7 +34,10 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
     var refresh by remember(context.route) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val ready = connection.status == ConnectionStatus.Ready
-    val workerEnabled = workerDefaultsEditable(workersLoaded,ready,savingWorker)
+    val projectWorkerDefault = connection.supports(io.github.mitzacoder.kemiri.data.HarnessFeature.WORKER_PICKER_PROJECT_DEFAULT)
+    val firstModel = project?.workerModels?.firstOrNull()
+    val shownWorkers = if (projectWorkerDefault) WorkerDefaults(firstModel?.let { ModelRef(it.provider, it.modelId) }, firstModel?.thinkingLevel) else workers
+    val workerEnabled = workerDefaultsEditable(if (projectWorkerDefault) project != null else workersLoaded, ready, savingWorker)
     val onDefaults by rememberUpdatedState(onWorkerDefaults)
     // Project-wide settings must not silently change from a background job, and its messages carry no worker defaults.
     val onMain = context.route.threadId == null || context.route.threadId == "main"
@@ -48,7 +51,7 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
     LaunchedEffect(connection,context.route,refresh) {
         // A disconnected/stale default cannot be used as the base of a whole-defaults write.
         workersLoaded = false
-        if(onMain && ready && connection.supports("workers")) {
+        if(onMain && ready && !projectWorkerDefault && connection.supports("workers")) {
             val before = revision
             try {
                 val defaults = context.backend.client.request(WorkersListRequest(projectId = context.route.projectId)).defaults
@@ -58,8 +61,11 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
             catch(e: Exception) { if(before == revision) error = "Worker defaults unavailable: ${e.message}" }
         }
     }
-    // Never publish guessed empty defaults before a snapshot/push has arrived.
-    LaunchedEffect(workers,workersLoaded) { if(workersLoaded && onMain) onDefaults(workers) }
+    // New servers resolve the project default at delegation time. Legacy messages still carry the synced override.
+    LaunchedEffect(workers, workersLoaded, projectWorkerDefault) {
+        if (onMain && projectWorkerDefault) onDefaults(WorkerDefaults(null, null))
+        else if (onMain && workersLoaded) onDefaults(workers)
+    }
     fun saveWorker(value: WorkerDefaults) {
         if(!workerEnabled) return
         savingWorker = true
@@ -68,10 +74,11 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
             try {
                 // WorkerDefaults fields are required nullable fields, encoded as explicit nulls.
                 val saved = context.backend.client.request(WorkersDefaultsSetRequest(projectId = context.route.projectId,defaults = value)).defaults
-                if(before == revision) { workers = saved; revision++ }
+                if (projectWorkerDefault) context.backend.refreshProjects()
+                else if(before == revision) { workers = saved; revision++ }
                 error = null
             } catch(e: ClientException) {
-                if(e.code == "unknown_request") {
+                if(!projectWorkerDefault && e.code == "unknown_request") {
                     if(before == revision) { workers = value; revision++ }
                     error = null // Legacy server: next submit carries this explicit override.
                 } else error = e.message
@@ -106,23 +113,23 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
             Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(0.dp),verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 ComposerModelChips(nonWorkerModels(models),providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,onChange = ::changeCoordinator,
                     enabled = ready && project != null && !savingCoordinator,modifier = Modifier.weight(1f,fill = false),compact = true,iconOnlyEffort = true)
-                if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
+                if(ready && connection.supports("workers")) ComposerModelChips(models,providers,shownWorkers.model,shownWorkers.thinkingLevel,
                     onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },
                     enabled = workerEnabled,worker = true,iconOnly = true,compact = true,
-                    projectWorkerModels = project?.workerModels.orEmpty(),onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
+                    projectWorkerModels = project?.workerModels.orEmpty(), projectWorkerDefault = projectWorkerDefault,onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
             }
         } else
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp),verticalArrangement = Arrangement.spacedBy(0.dp)) {
             // The chips size to their text up to their share of the row, and wrap whole.
             ComposerModelChips(nonWorkerModels(models),providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,
                 onChange = ::changeCoordinator,enabled = ready && project != null && !savingCoordinator,modelWidthDp = layout.model,effortWidthDp = layout.effort)
-            if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
+            if(ready && connection.supports("workers")) ComposerModelChips(models,providers,shownWorkers.model,shownWorkers.thinkingLevel,
                 onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },
                 enabled = workerEnabled,worker = true,modelWidthDp = layout.worker,
-                projectWorkerModels = project?.workerModels.orEmpty(),onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
+                projectWorkerModels = project?.workerModels.orEmpty(), projectWorkerDefault = projectWorkerDefault,onWorkerSettings = { context.navigate(io.github.mitzacoder.kemiri.navigation.Destination.ProjectSettings(context.route,io.github.mitzacoder.kemiri.features.settings.ProjectSection.Workers)) })
         }
         }
         error?.let { Text(it,color = MaterialTheme.colorScheme.error,modifier = Modifier.padding(horizontal = 16.dp)) }
-        if(onMain && !workersLoaded && ready && error != null) TextButton(onClick = { refresh++ }) { Text("Retry worker defaults") }
+        if(onMain && !projectWorkerDefault && !workersLoaded && ready && error != null) TextButton(onClick = { refresh++ }) { Text("Retry worker defaults") }
     }
 }

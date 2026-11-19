@@ -47,8 +47,10 @@ internal fun Combobox(
     invalid: Boolean = false,
     selectedContent: (@Composable (ComboOption?) -> Unit)? = null,
     optionLeading: (@Composable (ComboOption) -> Unit)? = null,
+    openRequest: Int = 0,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(openRequest) { if (openRequest > 0) open = true }
     val colors = Jarvis.colors
     val current = options.firstOrNull { it.value == value }
     Surface(

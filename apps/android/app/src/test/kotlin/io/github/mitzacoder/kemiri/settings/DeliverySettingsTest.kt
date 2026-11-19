@@ -34,7 +34,7 @@ class DeliverySettingsTest {
     }
     @Test fun eachFeatureOffersDeliveryIndependently() {
         for (features in listOf(emptySet(), setOf("task-changes"), setOf("task-deploys"), setOf("task-changes", "task-deploys"))) {
-            assertEquals(features.isNotEmpty(), projectSectionAvailable(ProjectSection.Delivery, ProjectSectionSupport(features::contains, false, false)))
+            assertEquals(features.isNotEmpty(), codeDeliveryAvailable(features::contains))
         }
     }
 }

@@ -83,7 +83,7 @@ fun ProjectsHome(repository: HarnessRepository, navigate: (Destination) -> Unit,
                         Text("Main chat: ${modelLabel(project.coordinator.model, models)}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
                         if (project.coordinator.model == null && connection.supports("models")) Box(Modifier.padding(top = 8.dp)) { ToneBanner(BannerTone.Warning) {
                             Text(buildAnnotatedString {
-                                append("No coordinator model yet. ")
+                                append("No Main chat model yet. ")
                                 withLink(LinkAnnotation.Clickable("choose-model") { navigate(Destination.ProjectSettings(route, ProjectSection.Coordinator)) }) {
                                     withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) { append("Choose a model") }
                                 }

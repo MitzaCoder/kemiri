@@ -29,7 +29,7 @@ fun ConnectScanner(onResult: (String) -> Unit) {
     fun launchScanner() {
         runCatching {
             val activity = Class.forName("com.journeyapps.barcodescanner.CaptureActivity")
-            scan.launch(Intent(context, activity).putExtra("SCAN_FORMATS", "QR_CODE").putExtra("BEEP_ENABLED", false).putExtra("PROMPT_MESSAGE", "Scan a Harness connect QR code"))
+            scan.launch(Intent(context, activity).putExtra("SCAN_FORMATS", "QR_CODE").putExtra("BEEP_ENABLED", false).putExtra("PROMPT_MESSAGE", "Scan a Kemiri connect QR code"))
         }.onFailure { message = "QR scanner unavailable in this build. Paste a connect link below." }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

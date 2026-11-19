@@ -84,12 +84,12 @@ private object ChipGlyphs {
  * [iconOnly] / [iconOnlyEffort] turn the worker or thinking chip into an icon whose description says it all. The picker
  * lists every model, grouped by provider, with its ID, image and reasoning marks and context window.
  */
-@Composable internal fun ComposerModelChips(models: List<ModelInfo>, providers: List<ProviderInfo>, model: ModelRef?, thinking: String?, onChange: (ModelRef?, String?) -> Unit, enabled: Boolean, modifier: Modifier = Modifier, worker: Boolean = false, modelWidthDp: Float = 192f, effortWidthDp: Float = 84f, compact: Boolean = false, iconOnly: Boolean = false, iconOnlyEffort: Boolean = false, projectWorkerModels: List<WorkerModel> = emptyList(), onWorkerSettings: () -> Unit = {}) {
+@Composable internal fun ComposerModelChips(models: List<ModelInfo>, providers: List<ProviderInfo>, model: ModelRef?, thinking: String?, onChange: (ModelRef?, String?) -> Unit, enabled: Boolean, modifier: Modifier = Modifier, worker: Boolean = false, modelWidthDp: Float = 192f, effortWidthDp: Float = 84f, compact: Boolean = false, iconOnly: Boolean = false, iconOnlyEffort: Boolean = false, projectWorkerModels: List<WorkerModel> = emptyList(), projectWorkerDefault: Boolean = false, onWorkerSettings: () -> Unit = {}) {
     var open by rememberSaveable { mutableStateOf(false) }
     var effort by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val current = models.find { it.provider == model?.provider && it.modelId == model.modelId }
-    val label = composerModelLabel(model,current?.name,if(worker) "Worker default" else "Choose a model")
+    val label = composerModelLabel(model,current?.name,if (worker && projectWorkerDefault) "No worker model" else if(worker) "Worker default" else "Choose a model")
     val description = composerControlDescription(label,model?.provider,model?.modelId,worker,thinking)
     val icon = if(worker) ChatIcons.Bot else ChipGlyphs.Cpu
     // Amber while the coordinator has no model, since the icon cannot say "Choose a model".
@@ -141,11 +141,13 @@ private object ChipGlyphs {
     }
     if(open) AlertDialog(onDismissRequest = { open = false },title = { Text(if(worker) "Worker model" else "Main chat model") },text = {
         Column(Modifier.heightIn(max = 480.dp)) {
+            if (worker && projectWorkerDefault) Text("Changes this project's default worker model.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
             OutlinedTextField(query,{ query = it },placeholder = { Text(if(worker) "Search models for new workers…" else "Search models…") },singleLine = true,
                 leadingIcon = { LucideGlyph(Lucide.Search,size = 16.dp) },modifier = Modifier.fillMaxWidth())
             Column(Modifier.weight(1f,fill = false).verticalScroll(rememberScrollState()).padding(top = 6.dp)) {
                 if(worker) ProjectWorkerModels(projectWorkerModels,models,thinking,model) { open = false; onWorkerSettings() }
-                if(worker) PickerRow(chosen = model == null,enabled = enabled,onClick = { onChange(null,null); open = false }) {
+                if(worker && !projectWorkerDefault) PickerRow(chosen = model == null,enabled = enabled,onClick = { onChange(null,null); open = false }) {
                     Column(Modifier.weight(1f)) {
                         Text("Worker default",style = MaterialTheme.typography.bodyMedium,fontWeight = FontWeight.Medium,color = Jarvis.colors.fg)
                         Text("Whatever the coordinator names, else the project's worker models",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
@@ -175,7 +177,7 @@ private object ChipGlyphs {
                 Text("THINKING LEVEL",style = MaterialTheme.typography.labelSmall,fontWeight = FontWeight.SemiBold,color = Jarvis.colors.fgSubtle)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     (listOf<String?>(null) + (current?.thinkingLevels ?: THINKING_LEVELS)).distinct().forEach { level ->
-                        FilterChip(selected = thinking == level,onClick = { onChange(model,level); open = false },enabled = enabled,label = { Text(thinkingLabel(level)) })
+                        FilterChip(selected = thinking == level,onClick = { onChange(model,level); open = false },enabled = enabled && (!projectWorkerDefault || model != null),label = { Text(thinkingLabel(level)) })
                     }
                 }
             }

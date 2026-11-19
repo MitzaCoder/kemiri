@@ -187,6 +187,7 @@ fun memoryStatusView(status: MemoryScopeStatus, now: Long): MemoryStatusView {
 
 /** When maintenance runs on a backend: nightly in its timezone, or after N writes. */
 fun memoryMaintenanceSummary(settings: MemoryMaintenanceSettings, timezone: String): String {
+    if (settings.enabled == false) return "Off: automatic cleanup is paused."
     if (settings.model == null) return "Off: maintenance doesn't run without a model."
     val writes = if (settings.afterWrites == 1L) "after 1 write" else "after ${settings.afterWrites} writes"
     return "Nightly at ${io.github.mitzacoder.kemiri.data.displayWallTime(settings.time)} ($timezone), or $writes."

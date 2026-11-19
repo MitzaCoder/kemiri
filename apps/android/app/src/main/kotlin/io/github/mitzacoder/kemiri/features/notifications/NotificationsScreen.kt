@@ -97,17 +97,17 @@ internal fun NotificationsSection(repository: HarnessRepository) {
     }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permitted = canPostNotifications(context)
-        if (granted) turnOn() else message = "Android blocks notifications for Harness. Allow them in the app's system settings, then turn them on again."
+        if (granted) turnOn() else message = "Android blocks notifications for Kemiri. Allow them in the app's system settings, then turn them on again."
     }
     val unavailable = center?.pushUnavailableReason
-    SettingsSectionPage("Notifications", "Each backend tells this device about its own projects. What you choose here applies to every backend.", SettingsIcon.Bell) {
+    SettingsSectionPage(GeneralSection.Notifications) {
         SettingsGroup(title = "This device", actions = { StatusChip(if (settings.enabled) "On" else "Off", if (settings.enabled) ChipTone.Ok else ChipTone.Muted) }) {
             SettingsRow(
                 "Notifications on this device", hint = unavailable ?: "With the app open, a notification waits 15 seconds and is dropped if you use the app.", control = RowControl.Inline,
-                learn = { Text("Push arrives through Firebase Cloud Messaging. Each backend decides what to send and when; this device only chooses which kinds to show. Mutes belong to the backend whose project it is.") },
+                learn = { Text("Push arrives through Firebase Cloud Messaging. Each computer decides what to send and when. This device chooses which kinds to show and which projects to mute.") },
                 below = {
                     if (settings.enabled && !permitted) {
-                        Text("Android blocks notifications for Harness, so nothing is shown.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text("Android blocks notifications for Kemiri, so nothing is shown.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = {
                             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
                         }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Open system settings") }
@@ -124,39 +124,30 @@ internal fun NotificationsSection(repository: HarnessRepository) {
             }
         }
 
-        io.github.mitzacoder.kemiri.features.notifications.relay.RelaySettingsSection(repository)
-
-        SettingsGroup(title = "Backends", description = "Whether each backend can reach this device, and what its last push did.") {
-            if (sessions.isEmpty()) GroupNote("No backends yet.")
-            sessions.forEach { session -> key(session.config.key) {
-                val view = backendPushView(states[session.config.key], settings, center?.appFirebaseProject, unavailable)
-                var testing by remember { mutableStateOf(false) }
-                var result by remember { mutableStateOf<String?>(null) }
-                GroupRow {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(session.config.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        StatusChip(view.label, toneChip(view.tone))
-                    }
-                    Text(view.detail, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
-                    if (view.tone == BackendPushView.Tone.Ok || states[session.config.key]?.device != null) {
-                        OutlinedButton(enabled = !testing && center != null, modifier = Modifier.padding(top = 8.dp).heightIn(min = 44.dp), onClick = {
-                            scope.launch { testing = true; result = center?.sendTest(session.config.key); testing = false }
-                        }) { Text(if (testing) "Sending…" else "Send test notification") }
-                    }
-                    result?.let { Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall) }
-                }
-            } }
-        }
-
-        SettingsGroup(title = "Events", description = kindsSummary(settings.kinds)) {
-            NOTIFICATION_KIND_INFO.forEach { info ->
-                val on = info.kind in settings.kinds
-                SettingsRow(info.label, hint = info.description, control = RowControl.Inline) {
-                    SettingsSwitch(on, { checked -> update { it.copy(kinds = withKind(it.kinds, info.kind, checked)) } }, info.label)
-                }
+        SettingsGroup(title = "What to notify me about", description = kindsSummary(settings.kinds)) {
+            val preset = notificationPreset(settings.kinds)
+            SettingsRow("Alert preset") {
+                Combobox(NOTIFICATION_PRESET_OPTIONS, preset.name, { pick ->
+                    NotificationPreset.valueOf(pick).kinds?.let { kinds -> update { it.copy(kinds = kinds) } }
+                }, "Notification preset", placeholder = NotificationPreset.Custom.label)
             }
-            SettingsRow("Reset to defaults", hint = "Back to the kinds that are on by default.", control = RowControl.Inline) {
-                OutlinedButton(enabled = settings.kinds != DEFAULT_NOTIFICATION_KINDS, modifier = Modifier.heightIn(min = 44.dp), onClick = { update { it.copy(kinds = DEFAULT_NOTIFICATION_KINDS) } }) { Text("Reset") }
+            GroupRow {
+                SettingsFold("Choose individual alerts") {
+                    NOTIFICATION_ALERT_GROUPS.forEach { (label, kinds) ->
+                        SettingsGroup(title = label) {
+                            kinds.mapNotNull(::kindInfo).forEach { info ->
+                                SettingsRow(info.label, hint = info.description, control = RowControl.Inline) {
+                                    SettingsSwitch(info.kind in settings.kinds, { checked ->
+                                        update { it.copy(kinds = withKind(it.kinds, info.kind, checked)) }
+                                    }, info.label)
+                                }
+                            }
+                        }
+                    }
+                    OutlinedButton(enabled = preset != NotificationPreset.Important, onClick = {
+                        update { it.copy(kinds = DEFAULT_NOTIFICATION_KINDS) }
+                    }) { Text("Reset to defaults") }
+                }
             }
         }
 
@@ -172,44 +163,80 @@ internal fun NotificationsSection(repository: HarnessRepository) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(projectName ?: projectId, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text(session?.config?.name ?: "A removed backend", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                            Text(session?.config?.name ?: "A removed computer", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
                         }
                         TextButton(onClick = { update { it.withMuted(backendKey, projectId, false) } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Unmute") }
                     }
                 }
             }
         }
+        SettingsFold("Delivery details") {
+            io.github.mitzacoder.kemiri.features.notifications.relay.RelaySettingsSection(repository)
+
+            SettingsGroup(title = "Computers", description = "Whether each computer can reach this device, and what its last push did.") {
+                if (sessions.isEmpty()) GroupNote("No computers yet.")
+                sessions.forEach { session -> key(session.config.key) {
+                    val view = backendPushView(states[session.config.key], settings, center?.appFirebaseProject, unavailable)
+                    var testing by remember { mutableStateOf(false) }
+                    var result by remember { mutableStateOf<String?>(null) }
+                    GroupRow {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(session.config.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            StatusChip(view.label, toneChip(view.tone))
+                        }
+                        Text(view.detail, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                        if (view.tone == BackendPushView.Tone.Ok || states[session.config.key]?.device != null) {
+                            OutlinedButton(enabled = !testing && center != null, modifier = Modifier.padding(top = 8.dp).heightIn(min = 44.dp), onClick = {
+                                scope.launch { testing = true; result = center?.sendTest(session.config.key); testing = false }
+                            }) { Text(if (testing) "Sending…" else "Send test notification") }
+                        }
+                        result?.let { Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall) }
+                    }
+                } }
+            }
+        }
     }
 }
 
+private val NOTIFICATION_PRESET_OPTIONS = NotificationPreset.entries.filter { it.kinds != null }.map { ComboOption(it.name, it.label) }
+
 @Composable
 private fun QuietHoursGroup(settings: NotificationSettings, update: ((NotificationSettings) -> NotificationSettings) -> Unit) {
-    val timezone = remember { ZoneId.systemDefault().id }
-    val draft = quietHoursDraft(settings, timezone)
-    var start by rememberSaveable(settings.quietHours?.start) { mutableStateOf(draft.start) }
-    var end by rememberSaveable(settings.quietHours?.end) { mutableStateOf(draft.end) }
+    val context = LocalContext.current
+    val timezone = ZoneId.systemDefault().id
     val quiet = settings.quietHours
-    SettingsGroup(title = "Quiet hours", description = "Nothing is pushed between these times, in this device's timezone.", actions = { StatusChip(if (quiet != null) "On" else "Off", if (quiet != null) ChipTone.Ok else ChipTone.Muted) }) {
+    var problem by rememberSaveable(quiet?.start, quiet?.end) { mutableStateOf<String?>(null) }
+    fun pickTime(from: Boolean) {
+        val current = quiet ?: return
+        val time = LocalTime.parse(if (from) current.start else current.end)
+        android.app.TimePickerDialog(context, { _, hour, minute ->
+            val value = String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute)
+            val proposed = if (from) current.copy(start = value, timezone = timezone) else current.copy(end = value, timezone = timezone)
+            problem = quietHoursProblem(proposed)
+            if (problem == null) update { latest ->
+                latest.copy(quietHours = latest.quietHours?.let {
+                    (if (from) it.copy(start = value, timezone = timezone) else it.copy(end = value, timezone = timezone))
+                        .takeIf { changed -> quietHoursProblem(changed) == null } ?: it
+                })
+            }
+        }, time.hour, time.minute, android.text.format.DateFormat.is24HourFormat(context)).show()
+    }
+    SettingsGroup(title = "Quiet hours", description = "Nothing is pushed between these times, in this device's time zone.", actions = { StatusChip(if (quiet != null) "On" else "Off", if (quiet != null) ChipTone.Ok else ChipTone.Muted) }) {
         SettingsRow("Quiet hours", hint = quiet?.let { quietHoursSummary(it) } ?: "Off", control = RowControl.Inline) {
-            SettingsSwitch(quiet != null, { on -> update { it.copy(quietHours = if (on) draft.copy(start = start, end = end, timezone = timezone).takeIf { q -> quietHoursProblem(q) == null } ?: draft else null) } }, "Quiet hours")
+            SettingsSwitch(quiet != null, { on -> update { it.copy(quietHours = if (on) quietHoursDraft(it, timezone) else null) } }, "Quiet hours")
         }
         if (quiet != null) {
-            val edited = quiet.copy(start = start.trim(), end = end.trim(), timezone = timezone)
-            val problem = quietHoursProblem(edited)
-            SettingsRow("From and to", hint = "24-hour times, HH:MM.", control = RowControl.Full, below = {
+            SettingsRow("From", control = RowControl.Inline) {
+                OutlinedButton(onClick = { pickTime(true) }) { Text(io.github.mitzacoder.kemiri.data.displayWallTime(quiet.start)) }
+            }
+            SettingsRow("To", control = RowControl.Inline, below = {
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (quiet.timezone != timezone) Text("Set in ${quiet.timezone}; this device is now in $timezone. Save to use it.", style = MaterialTheme.typography.bodySmall)
-                val now = LocalTime.now(runCatching { ZoneId.of(quiet.timezone) }.getOrDefault(ZoneId.systemDefault()))
-                if (quietHoursActive(quiet, now.hour * 60 + now.minute)) Text("Quiet now.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                if (quiet.timezone != timezone) Text("Set in ${quiet.timezone}; choosing a time uses $timezone.", style = MaterialTheme.typography.bodySmall)
             }) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(start, { start = it }, label = { Text("From") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(end, { end = it }, label = { Text("To") }, singleLine = true, modifier = Modifier.weight(1f))
-                }
-                if (problem == null && edited != quiet) Button(onClick = { update { it.copy(quietHours = edited) } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Save quiet hours") }
+                OutlinedButton(onClick = { pickTime(false) }) { Text(io.github.mitzacoder.kemiri.data.displayWallTime(quiet.end)) }
             }
             SettingsRow("Still notify failures", hint = "Failed workers, schedules, deploys, compactions, maintenance, background jobs and low disk still come through.", control = RowControl.Inline) {
-                SettingsSwitch(quiet.allowFailures, { on -> update { it.copy(quietHours = quiet.copy(allowFailures = on)) } }, "Still notify failures")
+                SettingsSwitch(quiet.allowFailures, { on -> update { it.copy(quietHours = it.quietHours?.copy(allowFailures = on)) } }, "Still notify failures")
             }
         }
     }

@@ -46,7 +46,7 @@ fun GeneralSettingsScreen(
     val parentLabel = when {
         parent == null -> null
         parent.section == null -> "Settings"
-        parent.backendKey == null -> "Backends"
+        parent.backendKey == null -> GeneralSection.Backends.label
         else -> sessions.firstOrNull { it.config.key == parent.backendKey }?.config?.name ?: "Back"
     }
     SettingsShell(
@@ -56,7 +56,7 @@ fun GeneralSettingsScreen(
         modifier = modifier,
         header = {
             Text("Settings", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("This device and its backends.", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodyMedium, color = Jarvis.colors.fgMuted)
+            Text("This device and its computers.", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodyMedium, color = Jarvis.colors.fgMuted)
         },
     ) { active ->
         if (page.unavailableSection != null) {
@@ -72,7 +72,7 @@ fun GeneralSettingsScreen(
                 val backend = page.backendKey?.let { key -> sessions.firstOrNull { it.config.key == key } }
                 when {
                     page.backendKey == null -> BackendsSection(repository, navigator, connectPayload, onConnectHandled)
-                    backend == null -> NotFound("Unknown backend", "This device has no backend with that address. Add it under Backends.")
+                    backend == null -> NotFound("Unknown computer", "This device has no computer with that address. Add it under Computers.")
                     page.accounts -> AccountsPage(backend)
                     page.devices -> DevicesPage(repository, backend)
                     page.mcp -> McpServersPage(backend, navigate)
@@ -105,7 +105,8 @@ private fun ProjectSettingsContent(context: ProjectScreenContext, section: Proje
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val project = projects.firstOrNull { it.id == context.route.projectId }
-    val offered = ProjectSection.entries.filter { projectSectionAvailable(it, ProjectSectionSupport(connection::supports, project?.links != null, project?.longPromptCache != null)) }
+    val support = ProjectSectionSupport(connection::supports, project?.links != null, project?.longPromptCache != null, project?.repository)
+    val offered = ProjectSection.entries.filter { projectSectionAvailable(it, support) }
     val chips = projectChips(project?.coordinator?.model != null)
     val items = offered.map { SettingsNavItem(it, chips[it]) }
     val effective = section?.takeIf { it in offered }
@@ -126,9 +127,15 @@ private fun ProjectSettingsContent(context: ProjectScreenContext, section: Proje
                 }
             },
         ) { active ->
+            if (section == ProjectSection.Tickets && !support.showCodingSettings) {
+                SettingsSectionPage(ProjectSection.Tickets) {
+                    SettingsGroup { GroupNote("This project isn't a code repository, so these settings don't apply.") }
+                }
+                return@SettingsShell
+            }
             if (unavailableSection != null || (section != null && effective == null)) {
                 SettingsGroup {
-                    GroupNote("This backend does not offer this settings section.")
+                    GroupNote("This computer does not offer this settings section.")
                     TextButton(onClick = { navigator.up(Destination.ProjectSettings(context.route)) }) { Text("Up to project settings") }
                 }
                 return@SettingsShell
@@ -142,7 +149,7 @@ private fun ProjectSettingsContent(context: ProjectScreenContext, section: Proje
                 when (projectSectionFor(active) ?: ProjectSection.General) {
                     ProjectSection.General -> ProjectGeneralSection(context, project)
                     ProjectSection.Coordinator -> CoordinatorSection(context, project, context.navigate)
-                    ProjectSection.Delivery -> DeliverySection(context.backend, project)
+                    ProjectSection.Advanced -> AdvancedSection(context.backend, project, showCodingSettings = support.showCodingSettings)
                     ProjectSection.Workers -> WorkersSection(context, project)
                     ProjectSection.Schedules -> SchedulesSection(context, scheduleId)
                     ProjectSection.Tickets -> project.links?.let { TicketsSection(context, it) }

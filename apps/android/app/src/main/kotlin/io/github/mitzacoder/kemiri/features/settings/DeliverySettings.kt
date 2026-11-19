@@ -27,7 +27,7 @@ fun deliverySettingPatch(projectId: String, field: String, value: String?): Deli
 }
 
 @Composable
-internal fun DeliverySection(backend: BackendSession, project: ProjectSummary) {
+internal fun CodeDeliveryGroup(backend: BackendSession, project: ProjectSummary) {
     val connection by backend.client.state.collectAsStateWithLifecycle()
     val integrationSave = rememberSaveState(project.id, "integration")
     val feedSave = rememberSaveState(project.id, "deploy-feed")
@@ -37,35 +37,34 @@ internal fun DeliverySection(backend: BackendSession, project: ProjectSummary) {
         val patch = deliverySettingPatch(project.id, field, value)
         backend.configure(patch.request, patch.explicitNulls)
     }
-    SettingsSectionPage("Delivery", "Where commits land and how deploy results reach tasks.", SettingsIcon.Server) {
-        SettingsGroup(title = "Delivery") {
-            if (connection.supports("task-changes")) {
-                SettingsRow("Integration branch", hint = "Commits with a Kemiri-Task: T12 line that land here are shown on their tasks.", status = integrationSave) {
-                    Combobox(listOf(ComboOption("auto", "Automatic (main or master)"), ComboOption("custom", "Custom ref"), ComboOption("off", "Off")), branchMode, { mode ->
-                        branchMode = mode
-                        integrationSave.reset()
-                        if (mode != "custom") integrationSave.launch { persist("integrationRef", if (mode == "auto") "auto" else null) }
-                    }, "Integration branch mode", enabled = integrationSave.status != SaveStatus.Saving, invalid = integrationSave.status == SaveStatus.Failed)
-                }
-                if (branchMode == "custom") SettingsRow("Custom ref", status = integrationSave) {
-                    AutoInput(project.integrationRef?.takeUnless { it == "auto" }.orEmpty(), integrationSave, placeholder = "refs/heads/trunk", mono = true, label = "Custom integration ref", enabled = integrationSave.status != SaveStatus.Saving) {
-                        persist("integrationRef", integrationBranchRef(it))
-                    }
+    if (!codeDeliveryAvailable(connection::supports)) return
+    SettingsGroup(title = "Code delivery", term = "Integration branch, deploy feed") {
+        if (connection.supports("task-changes")) {
+            SettingsRow("Integration branch", hint = "Commits with a Kemiri-Task: T12 line that land here are shown on their tasks.", status = integrationSave) {
+                Combobox(listOf(ComboOption("auto", "Automatic (main or master)"), ComboOption("custom", "Custom ref"), ComboOption("off", "Off")), branchMode, { mode ->
+                    branchMode = mode
+                    integrationSave.reset()
+                    if (mode != "custom") integrationSave.launch { persist("integrationRef", if (mode == "auto") "auto" else null) }
+                }, "Integration branch mode", enabled = integrationSave.status != SaveStatus.Saving, invalid = integrationSave.status == SaveStatus.Failed)
+            }
+            if (branchMode == "custom") SettingsRow("Custom ref", status = integrationSave) {
+                AutoInput(project.integrationRef?.takeUnless { it == "auto" }.orEmpty(), integrationSave, placeholder = "refs/heads/trunk", mono = true, label = "Custom integration ref", enabled = integrationSave.status != SaveStatus.Saving) {
+                    persist("integrationRef", integrationBranchRef(it))
                 }
             }
-            if (connection.supports("task-deploys")) {
-                SettingsRow("Deploy status feed", hint = "A JSON journal your deploy scripts write; deploy results then appear on every task they shipped. The harness only reads it.", status = feedSave) {
-                    Combobox(listOf(ComboOption("off", "Off"), ComboOption("file", "File path")), feedMode, { mode ->
-                        feedMode = mode
-                        feedSave.reset()
-                        if (mode == "off") feedSave.launch { persist("deployFeed", null) }
-                    }, "Deploy status feed mode", enabled = feedSave.status != SaveStatus.Saving, invalid = feedSave.status == SaveStatus.Failed)
-                }
-                if (feedMode == "file") SettingsRow("File path", status = feedSave) {
-                    AutoInput(project.deployFeed.orEmpty(), feedSave, placeholder = "/tmp/demo/deploy-journal.json", mono = true, label = "Deploy feed file path", enabled = feedSave.status != SaveStatus.Saving) {
-                        require(it.isNotBlank()) { "Enter an absolute file path." }
-                        persist("deployFeed", it)
-                    }
+        }
+        if (connection.supports("task-deploys")) {
+            SettingsRow("Deploy status feed", hint = "A JSON journal your deploy scripts write; deploy results then appear on every task they shipped. Kemiri only reads it.", status = feedSave) {
+                Combobox(listOf(ComboOption("off", "Off"), ComboOption("file", "File path")), feedMode, { mode ->
+                    feedMode = mode
+                    feedSave.reset()
+                    if (mode == "off") feedSave.launch { persist("deployFeed", null) }
+                }, "Deploy status feed mode", enabled = feedSave.status != SaveStatus.Saving, invalid = feedSave.status == SaveStatus.Failed)
+            }
+            if (feedMode == "file") SettingsRow("File path", status = feedSave) {
+                AutoInput(project.deployFeed.orEmpty(), feedSave, placeholder = "/tmp/demo/deploy-journal.json", mono = true, label = "Deploy feed file path", enabled = feedSave.status != SaveStatus.Saving) {
+                    require(it.isNotBlank()) { "Enter an absolute file path." }
+                    persist("deployFeed", it)
                 }
             }
         }

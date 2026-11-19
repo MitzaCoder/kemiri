@@ -30,7 +30,7 @@ import java.util.UUID
 @Composable
 internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> Unit) {
     val connection by backend.client.state.collectAsStateWithLifecycle()
-    if (!connection.supports(MCP_FEATURE)) { GroupNote("This backend does not support MCP servers."); return }
+    if (!connection.supports(MCP_FEATURE)) { GroupNote("This computer does not support connected apps."); return }
     val session = backend.mcp
     val servers by session.servers.collectAsStateWithLifecycle()
     val presets by session.presets.collectAsStateWithLifecycle()
@@ -61,7 +61,7 @@ internal fun McpServersPage(backend: BackendSession, navigate: (Destination) -> 
         }
     }
     NestedBackHandler(selectedId != null || importing || commandForm || adding, depth = 1, parentLabel = if (commandForm && commandPreset != null) "MCP catalogue" else "MCP servers", onBack = ::backToServers)
-    SettingsSectionPage("MCP servers", "Remote tools on this backend. Enable them separately in each project's MCP settings.", SettingsIcon.Server) {
+    SettingsSectionPage("Connected apps", "Outside tools agents can use, such as issue trackers or docs.", SettingsIcon.Server, term = "MCP servers") {
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (selected != null) {
@@ -172,7 +172,7 @@ private fun McpServerDetails(backend: BackendSession, server: McpOAuthCompleteRe
         Text("${mcpStatusLabel(server.status)} · ${server.tools.size} tools", style = MaterialTheme.typography.titleMedium)
         Text(server.command?.let { "${it.command} ${it.args}" } ?: server.url, style = MaterialTheme.typography.bodySmall)
         if (server.command != null) {
-            Text("Working directory: ${server.command.cwd ?: "(backend default)"}\nEnvironment: ${server.envNames.orEmpty().joinToString()}")
+            Text("Working directory: ${server.command.cwd ?: "(computer default)"}\nEnvironment: ${server.envNames.orEmpty().joinToString()}")
             OutlinedButton(onClick = { editingCommand = !editingCommand }, enabled = !busy) { Text("Edit command") }
             server.stderrTail?.takeIf { it.isNotBlank() }?.let { Text("Redacted stderr tail:\n$it", style = MaterialTheme.typography.bodySmall) }
         }
@@ -193,7 +193,7 @@ private fun McpServerDetails(backend: BackendSession, server: McpOAuthCompleteRe
                 if (server.hasOAuthClient == true) Text("App saved. Leave fields empty to reuse it, or enter a new client ID to replace it.")
                 OutlinedTextField(clientId, { clientId = it }, label = { Text("Client ID (write-only)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(clientSecret, { clientSecret = it }, label = { Text("Client secret (optional, write-only)") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false), modifier = Modifier.fillMaxWidth())
-                Text("Stored only as a backend credential, never shown again.", style = MaterialTheme.typography.bodySmall)
+                Text("Stored only as a credential on this computer, never shown again.", style = MaterialTheme.typography.bodySmall)
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -232,7 +232,7 @@ private fun McpServerDetails(backend: BackendSession, server: McpOAuthCompleteRe
                 scope.launch { session.complete(url) }
             }, enabled = !busy && callbackUrl.isNotBlank()) { Text("Complete sign-in") }
         }
-        if (server.command == null) Text("Sign-in returns through ${session.redirectUri}. If this backend does not allow the configured web origin, its operator must configure that origin. After signing in, paste the callback URL here if the browser does not return to Kemiri.", style = MaterialTheme.typography.bodySmall)
+        if (server.command == null) Text("Sign-in returns through ${session.redirectUri}. If this computer does not allow the configured web origin, its operator must configure that origin. After signing in, paste the callback URL here if the browser does not return to Kemiri.", style = MaterialTheme.typography.bodySmall)
     } }
     NestedBackHandler(editingCommand, depth = 2, parentLabel = "server details") { editingCommand = false }
     if (editingCommand) McpCommandForm(busy, server) { entry -> change {
@@ -259,7 +259,7 @@ private fun McpServerDetails(backend: BackendSession, server: McpOAuthCompleteRe
         callbackDialog = false; scope.launch { session.complete(callback) }
     }
     if (confirmRemove) AlertDialog(onDismissRequest = { confirmRemove = false }, title = { Text("Remove ${server.name}?") },
-        text = { Text("Removes this server, its credentials and project enablement from the backend.") },
+        text = { Text("Removes this server, its credentials and project enablement from this computer.") },
         confirmButton = { TextButton(onClick = { confirmRemove = false; change { client.request(McpRemoveRequest(serverId = server.id)); removed() } }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Keep server") } })
 }

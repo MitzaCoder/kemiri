@@ -42,7 +42,7 @@ internal fun PromptCacheSection(backend: BackendSession, project: ProjectSummary
             finally { pending = null }
         }
     }
-    SettingsSectionPage("Prompt cache", "How long Claude keeps a conversation it has already read.", SettingsIcon.DatabaseZap) {
+    SettingsSectionPage(ProjectSection.Cache) {
         SettingsGroup(title = "One-hour cache") {
             SettingsRow(
                 "Keep the cache for an hour for", hint = "Costs more per write, saves paying for the whole conversation again after a long wait.",

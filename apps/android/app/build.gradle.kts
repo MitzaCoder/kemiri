@@ -144,6 +144,7 @@ tasks.withType<Test>().configureEach {
     inputs.file(rootProject.file("../../packages/protocol/test-vectors/push-relay-v1.json"))
         .withPropertyName("pushRelayVectors")
     inputs.file(rootProject.file("test-vectors/task-graph-bubble-v1.json")).withPropertyName("taskGraphBubbleVectors")
+    inputs.file(rootProject.file("../../packages/protocol/src/notifications.ts")).withPropertyName("notificationPresetKinds")
 }
 
 /** Asserts the shell-only delivery component can never be exported by a release APK. */

@@ -90,6 +90,9 @@ class NotificationsTest {
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Schedules, "s1")), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings#schedule-s1"))
         assertEquals(listOf(main, Destination.ProjectSettings(main)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings"))
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Coordinator)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/coordinator"))
+        for (route in listOf("delivery", "advanced")) {
+            assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Advanced)), open("https://${APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/$route"))
+        }
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Storage)), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/storage"))
         assertEquals(listOf(main, Destination.ProjectSettings(main, unavailableSection = "nonsense")), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/b/harness-pc/projects/proj-1/settings/nonsense"))
         assertEquals(listOf(Destination.Settings()), open("https://${io.github.mitzacoder.kemiri.features.notifications.APP_LINK_HOST}/settings"))

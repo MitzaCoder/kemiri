@@ -29,7 +29,7 @@ fun AboutSection(repository: HarnessRepository) {
         SettingsGroup(title = "About Kemiri") {
             Image(painterResource(R.drawable.ic_brand), contentDescription = "Kemiri candlenut", modifier = Modifier.fillMaxWidth().height(88.dp).padding(top = 16.dp))
             GroupNote("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-            GroupNote("A client for your own Kemiri backend. The pilot has no phone push notifications.")
+            GroupNote("A client for the computers where you run Kemiri.")
         }
         sessions.forEach { backend -> key(backend.config.key) { ReleaseUpdateAbout(backend) } }
         SettingsGroup(title = "Open-source licences") {

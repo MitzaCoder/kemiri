@@ -66,6 +66,15 @@ internal fun SectionIconTile(icon: SettingsIcon, size: Dp = 44.dp, modifier: Mod
     ) { LucideGlyph(settingsIconGlyph(icon), size = size * 0.45f, tint = colors.accent2) }
 }
 
+@Composable
+internal fun SettingsTerm(term: String?) {
+    term?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
+}
+
+@Composable
+internal fun SettingsSectionPage(section: SettingsSectionInfo, content: @Composable ColumnScope.() -> Unit) =
+    SettingsSectionPage(section.label, section.hint, section.icon, term = section.term, content = content)
+
 /** What every section starts with: its icon, a title, one line saying what it is for, and its groups below. */
 @Composable
 internal fun SettingsSectionPage(
@@ -74,6 +83,7 @@ internal fun SettingsSectionPage(
     icon: SettingsIcon,
     modifier: Modifier = Modifier,
     actions: (@Composable () -> Unit)? = null,
+    term: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -81,6 +91,7 @@ internal fun SettingsSectionPage(
             SectionIconTile(icon)
             Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                SettingsTerm(term)
                 description?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Jarvis.colors.fgMuted) }
             }
             actions?.invoke()
@@ -100,6 +111,7 @@ internal fun SettingsGroup(
     description: String? = null,
     danger: Boolean = false,
     actions: (@Composable () -> Unit)? = null,
+    term: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = Jarvis.colors
@@ -107,6 +119,7 @@ internal fun SettingsGroup(
         if (title != null || actions != null) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = if (actions != null) Alignment.CenterVertically else Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 title?.let { Text(it.uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = colors.fgSubtle, letterSpacing = 0.6.sp) }
+                SettingsTerm(term)
                 description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted) }
             }
             actions?.invoke()
@@ -141,6 +154,7 @@ internal fun SettingsRow(
     label: String,
     modifier: Modifier = Modifier,
     hint: String? = null,
+    term: String? = null,
     learn: (@Composable () -> Unit)? = null,
     status: SaveState? = null,
     onRetry: (() -> Unit)? = null,
@@ -154,6 +168,7 @@ internal fun SettingsRow(
             val wide = inline || (maxWidth >= ROW_SIDE_BY_SIDE_WIDTH && control != RowControl.Full)
             @Composable fun labels(m: Modifier) = Column(m, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                SettingsTerm(term)
                 hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
                 learn?.let { LearnMore(content = it) }
             }
@@ -175,6 +190,23 @@ internal fun SettingsRow(
             }
         }
         below?.let { Column(Modifier.fillMaxWidth().padding(top = 10.dp), content = it) }
+    }
+}
+
+/** A settings disclosure whose contents can hold full-width rows and groups. */
+@Composable
+internal fun SettingsFold(label: String, content: @Composable () -> Unit) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+            onClick = { open = !open },
+            modifier = Modifier.heightIn(min = 48.dp).semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+        ) {
+            LucideGlyph(Lucide.ChevronRight, Modifier.rotate(if (open) 90f else 0f), size = 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(label)
+        }
+        if (open) content()
     }
 }
 
@@ -334,12 +366,13 @@ internal fun GroupNote(text: String, modifier: Modifier = Modifier, center: Bool
 
 /** A row that opens another screen: icon or nothing, a label and hint, an optional chip and a chevron. */
 @Composable
-internal fun LinkRow(label: String, hint: String?, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@Composable () -> Unit)? = null, chip: (@Composable () -> Unit)? = null) {
+internal fun LinkRow(label: String, hint: String?, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@Composable () -> Unit)? = null, chip: (@Composable () -> Unit)? = null, term: String? = null) {
     GroupRow(modifier.heightIn(min = 56.dp).semantics { role = Role.Button }, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             leading?.invoke()
             Column(Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                SettingsTerm(term)
                 hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             chip?.invoke()
@@ -351,7 +384,7 @@ internal fun LinkRow(label: String, hint: String?, onClick: () -> Unit, modifier
 /** Usage's empty state: nothing to show until a subscription provider is signed in on a backend. */
 @Composable
 fun UsageEmptyNote() {
-    SettingsGroup { GroupNote("No subscription usage. Sign in to a subscription provider under Settings → Backends → Accounts and API keys. API-key billing is not shown here.") }
+    SettingsGroup { GroupNote("No subscription usage. Sign in to a subscription provider under Settings → Computers → AI accounts. API-key billing is not shown here.") }
 }
 
 /** Makes a full-screen dialog's status and navigation bar icons readable on the theme's background (a dialog window has its own). */

@@ -8,7 +8,7 @@ package io.github.mitzacoder.kemiri.features.notifications
 data class NotificationKindInfo(val kind: String, val label: String, val description: String, val failure: Boolean)
 
 val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
-    NotificationKindInfo("reply", "Coordinator replies", "An answer finished while you were away.", false),
+    NotificationKindInfo("reply", "Main chat replies", "An answer finished while you were away.", false),
     NotificationKindInfo("worker_report", "Worker reports", "A worker finished its task and reported. Off by default: Work finished covers a long run.", false),
     NotificationKindInfo("worker_failed", "Worker failures", "A worker failed or stopped without reporting.", true),
     NotificationKindInfo("schedule_done", "Scheduled runs", "A scheduled task started or finished.", false),
@@ -21,7 +21,7 @@ val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
     NotificationKindInfo("thread_finished", "Background work finished", "A background job finished; opens its card in Main chat.", false),
     NotificationKindInfo("thread_failed", "Background work failed", "A background job failed; opens its card in Main chat.", true),
     NotificationKindInfo("work_finished", "Work finished", "One notification when a project goes quiet.", false),
-    NotificationKindInfo("disk_low", "Low disk space", "A backend's disk is running low.", true),
+    NotificationKindInfo("disk_low", "Low disk space", "A computer's disk is running low.", true),
     NotificationKindInfo("task_review", "Tasks ready for review", "A task is ready for you to look at; opens the task.", false),
 )
 
@@ -71,4 +71,22 @@ fun kindsSummary(kinds: List<String>): String = when (kinds.size) {
     0 -> "No events"
     NOTIFICATION_KINDS.size -> "Every event"
     else -> "${kinds.size} of ${NOTIFICATION_KINDS.size} events"
+}
+
+internal val NOTIFICATION_ALERT_GROUPS = linkedMapOf(
+    "Needs you" to listOf("login_prompt", "board_question", "task_review"),
+    "Work finished" to listOf("reply", "worker_report", "work_finished", "thread_finished", "schedule_done"),
+    "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "disk_low", "compaction_failed", "maintenance_failed"),
+)
+
+internal enum class NotificationPreset(val label: String, val kinds: List<String>?) {
+    Important("Important", DEFAULT_NOTIFICATION_KINDS),
+    Needed("Only when I'm needed", NOTIFICATION_KINDS.filter { it in NOTIFICATION_ALERT_GROUPS.getValue("Needs you") || isNotificationFailure(it) }),
+    Everything("Everything", NOTIFICATION_KINDS),
+    Custom("Custom", null),
+}
+
+internal fun notificationPreset(kinds: List<String>): NotificationPreset {
+    val set = kinds.toSet()
+    return NotificationPreset.entries.firstOrNull { it.kinds?.toSet() == set } ?: NotificationPreset.Custom
 }

@@ -144,6 +144,9 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun setWorkDayStart(start: String) = update { it.copy(workDayStart = normalizeWorkDayStart(start)) }
     suspend fun setTimeFormat(format: TimeFormat) = update { it.copy(timeFormat = format) }
     suspend fun setTheme(palette: ThemePalette, mode: ThemeMode) = update { it.copy(palette = palette, mode = mode) }
+    suspend fun resetReadingChoices() = update {
+        it.copy(codeWrap = null, timelineNewestFirst = true, mediaSeparate = false, taskRecordFolds = emptyMap())
+    }
     suspend fun setCodeWrap(stored: String) = update { it.copy(codeWrap = stored) }
     suspend fun setTimelineNewestFirst(newestFirst: Boolean) = update { it.copy(timelineNewestFirst = newestFirst) }
     internal suspend fun setTaskRecordFold(row: io.github.mitzacoder.kemiri.features.tasks.TaskRecordRow, expanded: Boolean) = update {

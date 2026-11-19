@@ -45,7 +45,7 @@ internal fun AppearanceSection(repository: HarnessRepository) {
     val settings by repository.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    SettingsSectionPage("Appearance", "How the app looks on this device.", SettingsIcon.Palette) {
+    SettingsSectionPage(GeneralSection.Appearance) {
         SettingsGroup(title = "Theme") {
             GroupRow {
                 Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -83,7 +83,7 @@ internal fun AppearanceSection(repository: HarnessRepository) {
             }
         }
         SettingsGroup(title = "Waiting tasks") {
-            SettingsRow("Work day starts at", hint = "Return dates use this device’s local time zone. Saved on this device.") {
+            SettingsRow("Waiting tasks come back at", term = "Work day start", hint = "A task waiting until a date returns at this time, in this device's time zone.") {
                 TextButton(onClick = {
                     val time = java.time.LocalTime.parse(io.github.mitzacoder.kemiri.data.normalizeWorkDayStart(settings.workDayStart))
                     android.app.TimePickerDialog(context, { _, hour, minute ->
@@ -92,7 +92,20 @@ internal fun AppearanceSection(repository: HarnessRepository) {
                 }) { Text(displayWallTime(settings.workDayStart)) }
             }
         }
-        Text("The theme is kept on this device, not on a backend.", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
+        SettingsGroup(title = "Reading") {
+            SettingsRow("Wrap code", hint = when (settings.codeWrap) {
+                "wrap" -> "Wrap lines"
+                "scroll" -> "Scroll sideways"
+                else -> "Use each view's default"
+            })
+            SettingsRow("Timeline order", hint = if (settings.timelineNewestFirst) "Newest first" else "Oldest first")
+            SettingsRow("Before and after images", hint = if (settings.mediaSeparate) "Show separately" else "Compare side by side")
+            SettingsRow("Task record folds", hint = if (settings.taskRecordFolds.isEmpty()) "Use each row's default" else "Remember your open and closed rows")
+            GroupRow {
+                OutlinedButton(onClick = { scope.launch { repository.resetReadingChoices() } }) { Text("Reset reading choices") }
+            }
+        }
+        Text("These choices are saved on this device.", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
     }
 }
 

@@ -48,14 +48,14 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
     LaunchedEffect(connectPayload) { connectPayload?.let { preview(it); onConnectHandled() } }
     val missing = suggestions.filter { row -> settings.backends.none { it.key == row.key } }
 
-    SettingsSectionPage("Backends", "The servers this device talks to. Each keeps its own projects, agents and tools.", SettingsIcon.Server) {
+    SettingsSectionPage(GeneralSection.Backends) {
         SettingsGroup(title = "Pair a device") {
             SettingsRow("Sign in with a pairing link", hint = "Full access, after you confirm the computer.") {
                 Button(onClick = { pairing = true }) { Text("Paste pairing link") }
             }
         }
-        SettingsGroup(title = "Your backends") {
-            if (sessions.isEmpty()) GroupNote("No backends yet. Add one below.")
+        SettingsGroup(title = "Your computers") {
+            if (sessions.isEmpty()) GroupNote("No computers yet. Add one below.")
             sessions.forEach { backend -> key(backend.config.key) {
                 val connection by backend.client.state.collectAsStateWithLifecycle()
                 LinkRow(
@@ -71,7 +71,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                 }
             } }
         }
-        if (missing.isNotEmpty()) SettingsGroup(title = "Suggested backends", description = "Published beside the app. One tap adds one and connects.") {
+        if (missing.isNotEmpty()) SettingsGroup(title = "Suggested computers", description = "Published beside the app. One tap adds one and connects.") {
             missing.forEach { row ->
                 GroupRow {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -84,9 +84,9 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                 }
             }
         }
-        SettingsGroup(title = "Add a backend") {
+        SettingsGroup(title = "Add a computer") {
             SettingsRow(
-                "Name and address", hint = "A bare name like harness-pc expands to the published domain.", control = RowControl.Full,
+                "Name and address", hint = "A bare name like studio-pc expands to the published domain.", control = RowControl.Full,
                 learn = { Text("A backend is a harness server reached over HTTPS: the app opens wss://<address>/ws and keeps one connection per backend. The list is stored on this device.") },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,7 +100,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
                             repository.addBackends(listOf(resolveBackend(address, name, suggestions, publishedUrl)))
                             name = ""; address = ""; error = null
                         }.onFailure { error = it.message } }
-                    }) { Text("Add backend") }
+                    }) { Text("Add computer") }
                 }
             }
             SettingsRow(
@@ -122,7 +122,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
     imported?.let { rows ->
-        AlertDialog(onDismissRequest = { previewValue = null; suggestion = null }, title = { Text("Add these backends?") },
+        AlertDialog(onDismissRequest = { previewValue = null; suggestion = null }, title = { Text("Add these computers?") },
             text = { Column {
                 Text(rows.joinToString("\n\n") { "${it.name}\n${it.url}" })
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

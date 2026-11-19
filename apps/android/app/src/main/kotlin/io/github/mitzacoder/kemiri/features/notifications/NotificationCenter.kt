@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.*
  * `notifications.presence`. A visible app makes each backend hold its pushes for 15 s unless the user interacts.
  */
 data class AppPresence(val visible: Boolean = false, val backendKey: String? = null, val projectId: String? = null) {
-    /** The project this backend's connection reports: only the backend on screen sees one. */
+    /** The project this computer's connection reports: only the backend on screen sees one. */
     fun projectOn(backendKey: String): String? = projectId.takeIf { this.backendKey == backendKey }
 }
 
@@ -152,7 +152,7 @@ class NotificationCenter(
 
     /** Push a test to this device from one backend and say what FCM answered (web `testNotificationText`). */
     suspend fun sendTest(backendKey: String): String {
-        val session = repository.session(backendKey) ?: return "This backend is not connected."
+        val session = repository.session(backendKey) ?: return "This computer is not connected."
         return try {
             val result = session.client.request(NotificationsTestRequest(deviceId = notificationDeviceId(backendKey)))
             refresh(session)
@@ -211,7 +211,7 @@ class NotificationCenter(
         }
     }
 
-    /** Read this backend's config and registration and bring the registration in line with the settings. */
+    /** Read this computer's config and registration and bring the registration in line with the settings. */
     private suspend fun sync(session: BackendSession) {
         val key = session.config.key
         val client = session.client
@@ -247,19 +247,19 @@ class NotificationCenter(
 data class BackendPushView(val label: String, val detail: String, val tone: Tone) { enum class Tone { Ok, Warn, Err, Muted } }
 
 fun backendPushView(state: BackendPushState?, settings: NotificationSettings, appProject: String?, unavailable: String?): BackendPushView = when {
-    state == null || !state.connected -> BackendPushView("Not connected", "Registers as soon as this backend is reachable.", BackendPushView.Tone.Muted)
-    !state.supportsNotifications -> BackendPushView("No notifications", "This backend runs a release without notifications.", BackendPushView.Tone.Muted)
+    state == null || !state.connected -> BackendPushView("Not connected", "Registers as soon as this computer is reachable.", BackendPushView.Tone.Muted)
+    !state.supportsNotifications -> BackendPushView("No notifications", "This computer runs a release without notifications.", BackendPushView.Tone.Muted)
     settings.relayEnabled && state.supportsRelay -> when {
         state.error != null -> BackendPushView("Needs a refresh", "Reopen the relay settings to try again.", BackendPushView.Tone.Warn)
-        state.device == null -> BackendPushView("Setting up", "Waiting for this backend and phone to finish setup.", BackendPushView.Tone.Muted)
+        state.device == null -> BackendPushView("Setting up", "Waiting for this computer and phone to finish setup.", BackendPushView.Tone.Muted)
         else -> BackendPushView("Working", relayLastAttemptText(state.device), BackendPushView.Tone.Ok)
     }
-    !state.supportsFcm -> BackendPushView("No Android push", "This backend runs a release that cannot push to the Android app yet.", BackendPushView.Tone.Muted)
+    !state.supportsFcm -> BackendPushView("No Android push", "This computer runs a release that cannot push to the Android app yet.", BackendPushView.Tone.Muted)
     state.error != null -> BackendPushView("Failed", state.error, BackendPushView.Tone.Err)
     unavailable != null -> BackendPushView("Unavailable", unavailable, BackendPushView.Tone.Muted)
-    !settings.enabled -> BackendPushView("Off", "Notifications are off on this device. Turn them on to be told about this backend.", BackendPushView.Tone.Muted)
-    state.configRead && state.fcmProjectId == null -> BackendPushView("FCM off", "This backend has no Firebase service-account key, so it cannot push to Android. Put the key in its data directory (notifications/fcm-service-account.json) and restart it.", BackendPushView.Tone.Warn)
-    state.fcmProjectId != null && appProject != null && state.fcmProjectId != appProject -> BackendPushView("Project mismatch", "This backend sends through Firebase project ${state.fcmProjectId}, but this app belongs to $appProject.", BackendPushView.Tone.Err)
+    !settings.enabled -> BackendPushView("Off", "Notifications are off on this device. Turn them on to be told about this computer.", BackendPushView.Tone.Muted)
+    state.configRead && state.fcmProjectId == null -> BackendPushView("FCM off", "This computer has no Firebase service-account key, so it cannot push to Android. Put the key in its data directory (notifications/fcm-service-account.json) and restart it.", BackendPushView.Tone.Warn)
+    state.fcmProjectId != null && appProject != null && state.fcmProjectId != appProject -> BackendPushView("Project mismatch", "This computer sends through Firebase project ${state.fcmProjectId}, but this app belongs to $appProject.", BackendPushView.Tone.Err)
     settings.fcmToken == null -> BackendPushView("Waiting for a token", "Firebase has not given this device a token yet.", BackendPushView.Tone.Warn)
     state.device == null -> BackendPushView("Not registered", "This device is not registered here yet.", BackendPushView.Tone.Warn)
     else -> BackendPushView("Registered", lastDeliveryText(state.device), BackendPushView.Tone.Ok)

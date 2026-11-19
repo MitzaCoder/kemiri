@@ -8,7 +8,8 @@ import org.junit.Test
 class SidebarAttentionTest {
     private val empty = ProjectAttention(0, 0, 0, 0, null, 0, 0, 0, null, null, null, null, null)
     private fun project(id: String, attention: ProjectAttention? = null) = ProjectSummary(
-        id, id, "/test", WorkerDefaults(ModelRef("faux", "faux-1"), null), emptyList(), ProjectCheckIns(true, 10),
+        id = id, name = id, path = "/test", coordinator = WorkerDefaults(ModelRef("faux", "faux-1"), null),
+        workerModels = emptyList(), checkIns = ProjectCheckIns(true, 10),
         state = "open", activity = ProjectActivity("idle", 0, null, null), attention = attention,
     )
 

@@ -13,22 +13,36 @@ class SettingsSplitTest {
 
     @Test fun sectionListsMatchTheWebUrlSegments() {
         assertEquals(listOf("appearance", "backends", "notifications", "archived", "about"), GeneralSection.entries.map { it.id })
-        assertEquals(listOf("general", "coordinator", "delivery", "workers", "schedules", "tickets", "cache", "storage", "mcp", "skills"), ProjectSection.entries.map { it.id })
+        assertEquals(listOf("general", "coordinator", "workers", "schedules", "mcp", "skills", "tickets", "cache", "storage", "advanced"), ProjectSection.entries.map { it.id })
         assertEquals(GeneralSection.Notifications, generalSectionFor("notifications"))
         assertNull(generalSectionFor("nope"))
         assertEquals(ProjectSection.Cache, projectSectionFor("cache"))
+        assertEquals(ProjectSection.Advanced, projectSectionFor("delivery"))
+        assertEquals(ProjectSection.Advanced, projectSectionFor("advanced"))
+        assertEquals(ProjectSection.Advanced, io.github.mitzacoder.kemiri.data.wireJson.decodeFromString(ProjectSection.serializer(), "\"Delivery\""))
         assertNull(projectSectionFor(null))
     }
 
     @Test fun aSectionTheBackendDoesNotOfferIsLeftOut() {
         fun offered(features: Set<String>, links: Boolean = false, cache: Boolean = false) =
             ProjectSection.entries.filter { projectSectionAvailable(it, ProjectSectionSupport({ f -> f in features }, links, cache)) }
-        assertEquals(listOf(ProjectSection.General), offered(emptySet()))
-        assertEquals(listOf(ProjectSection.General, ProjectSection.Coordinator), offered(setOf("projects", "models")))
+        assertEquals(listOf(ProjectSection.General, ProjectSection.Advanced), offered(emptySet()))
+        assertEquals(listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Advanced), offered(setOf("projects", "models")))
         assertEquals(
-            listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Workers, ProjectSection.Schedules, ProjectSection.Tickets, ProjectSection.Cache, ProjectSection.Storage),
+            listOf(ProjectSection.General, ProjectSection.Coordinator, ProjectSection.Workers, ProjectSection.Schedules, ProjectSection.Tickets, ProjectSection.Cache, ProjectSection.Storage, ProjectSection.Advanced),
             offered(setOf("projects", "models", "workers", "schedules", "storage"), links = true, cache = true),
         )
+    }
+
+    @Test fun codingSettingsHideOnlyWhenTheComputerReportsANonRepository() {
+        val feature = io.github.mitzacoder.kemiri.data.HarnessFeature.PROJECT_REPOSITORY
+        for (hasFeature in listOf(false, true)) for (repository in listOf(null, false, true)) {
+            val support = ProjectSectionSupport({ hasFeature && it == feature }, true, false, repository)
+            val showCodingSettings = !hasFeature || repository != false
+            assertEquals(showCodingSettings, support.showCodingSettings)
+            assertEquals(showCodingSettings, projectSectionAvailable(ProjectSection.Tickets, support))
+            assertTrue(projectSectionAvailable(ProjectSection.Advanced, support))
+        }
     }
 
     @Test fun backGoesOneScreenUp() {
@@ -226,7 +240,7 @@ class SettingsSplitTest {
     }
 
     @Test fun maintenanceSummarySaysOffUntilAModelIsChosen() {
-        val off = MemoryMaintenanceSettings(null, null, "03:00", 20)
+        val off = MemoryMaintenanceSettings(model = null, thinkingLevel = null, time = "03:00", afterWrites = 20)
         assertTrue(maintenanceSummary(off, "UTC").startsWith("Off"))
         val on = off.copy(model = ModelRef("p", "m"))
         assertEquals("Runs nightly at 03:00 (UTC) and after 20 new writes to a scope.", maintenanceSummary(on, "UTC"))

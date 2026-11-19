@@ -46,7 +46,7 @@ private fun workersLabel(count: Long) = if (count == 1L) "1 worker" else "$count
 fun projectStatus(project: ProjectSummary, now: Long): ProjectStatus {
     if (project.state == "failed") return ProjectStatus(ProjectStatusTone.Error, "Open failed", title = project.failure ?: "The project failed to open.")
     if (project.coordinator.model == null) {
-        return ProjectStatus(ProjectStatusTone.Warn, "No model", title = "No coordinator model is chosen; this project cannot answer until it has one.")
+        return ProjectStatus(ProjectStatusTone.Warn, "No model", title = "No Main chat model is chosen; this project cannot answer until it has one.")
     }
     val activity = project.activity ?: return if (project.state == "open") {
         ProjectStatus(ProjectStatusTone.Ok, "Open", title = "The project is open. This backend does not report activity.")

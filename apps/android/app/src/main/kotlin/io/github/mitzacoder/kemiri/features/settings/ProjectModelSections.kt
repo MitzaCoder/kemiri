@@ -51,11 +51,6 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
     var pendingThinking by remember(project.id) { mutableStateOf<ThinkingPick?>(null) }
     val modelSave = rememberSaveState(project.id)
     val thinkingSave = rememberSaveState(project.id)
-    val uiProofSave = rememberSaveState(project.id)
-    val artifactPrivacySave = rememberSaveState(project.id)
-    var pendingUiProof by remember(project.id) { mutableStateOf<String?>(null) }
-    val storedUiProof = project.uiProof
-    val uiProofValue = pendingUiProof ?: storedUiProof ?: "screenshots-and-videos"
     val modelValue = pendingModel ?: storedModel
     val thinkingValue = pendingThinking?.let { it.level } ?: if (pendingThinking != null) null else storedThinking
     // The coordinator never runs on an official agent: those models are for workers only.
@@ -84,23 +79,15 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
         }
     }
 
-    fun pickUiProof(next: String) {
-        pendingUiProof = next
-        uiProofSave.launch {
-            try { backend.client.configureProject(project.id, ProjectSetting.UiProof(next)); backend.refreshProjects() }
-            finally { pendingUiProof = null }
-        }
-    }
-
-    SettingsSectionPage("Main chat", "The model Main chat runs on.", SettingsIcon.Cpu) {
+    SettingsSectionPage(ProjectSection.Coordinator) {
         if (project.coordinator.model == null && pendingModel == null) ToneBanner(BannerTone.Warning) {
-            Text("This project has no coordinator model, so it cannot start a conversation. Choose one below.", style = MaterialTheme.typography.bodySmall)
+            Text("This project has no Main chat model, so it cannot start a conversation. Choose one below.", style = MaterialTheme.typography.bodySmall)
         }
         SettingsGroup(title = "Model") {
             SettingsRow(
-                "Main chat model", hint = "Type to search every model this backend offers.", status = modelSave,
+                "Main chat model", hint = "Type to search every model this computer offers.", status = modelSave,
                 onRetry = { pickModel(pendingModel ?: modelValue) },
-                learn = { Text("There are no model defaults: every project names its own coordinator. Workers and background jobs pick their own models; see Workers.") },
+                learn = { Text("There are no model defaults: every project names its own Main chat model. Workers and background jobs pick their own models; see Workers.") },
                 below = {
                     if (info != null) {
                         @OptIn(ExperimentalLayoutApi::class)
@@ -126,39 +113,13 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
             SettingsRow(
                 "Thinking level", hint = if (info == null) "Choose a model to see its levels." else "How much the model reasons before it answers.",
                 status = thinkingSave, onRetry = { pickThinking(thinkingValue) },
-                learn = { Text("“Model default” leaves the level to the model. A higher level reasons longer: better on hard work, slower and dearer. The composer can still change it for one conversation.") },
+                learn = { Text("“Model default” leaves the level to the model. A higher level reasons longer: better on hard work, slower and dearer. The composer's picker changes this same setting for the whole project.") },
             ) {
                 ThinkingSelect(info?.thinkingLevels.orEmpty(), thinkingValue, ::pickThinking, enabled = info != null)
             }
         }
-        if (project.blockArtifactRequests != null) SettingsGroup(title = "Artifact pages") {
-            SettingsRow("Block artifact pages from sending data", hint = "Blocks connections and forms. Allowed images, media, CDN files and links can still send requests.", status = artifactPrivacySave) {
-                SettingsSwitch(project.blockArtifactRequests, { on ->
-                    artifactPrivacySave.launch { backend.configure(ProjectsConfigureRequest(projectId = project.id, blockArtifactRequests = on)) }
-                }, "Block artifact pages from sending data")
-            }
-        }
-        // An older backend does not send the setting, so the group stays out.
-        if (storedUiProof != null) SettingsGroup(title = "Show UI changes") {
-            SettingsRow(
-                "Prove UI work with", hint = "Agents show web and app changes before review; backends and terminals are never recorded.",
-                status = uiProofSave, onRetry = { pickUiProof(uiProofValue) },
-                learn = { Text("Any change a user can see in a web page or an app screen is shown before it goes to review: a bug before and after, using the real UI in a headless browser, emulator or device. The agent saves the pictures (and the recording) on the task. The coordinator works out how to demo this project once and keeps the recipe in memory. A change reaches the coordinator on its next turn and workers started after it.") },
-            ) {
-                Combobox(UI_PROOF_OPTIONS, uiProofValue, ::pickUiProof, "Show UI changes", invalid = uiProofSave.status == SaveStatus.Failed)
-            }
-        }
-        ReportAuditSettings(backend, project)
-        TaskWatcherSettings(backend, project)
     }
 }
-
-/** The choices of `uiProof`, in the web's order and words. */
-private val UI_PROOF_OPTIONS = listOf(
-    ComboOption("screenshots-and-videos", "Screenshots and videos", description = "Before/after screenshots and a short recording. The default."),
-    ComboOption("screenshots", "Screenshots", description = "Before/after screenshots only."),
-    ComboOption("off", "Off", description = "Agents are not asked to show UI changes."),
-)
 
 /**
  * Project → Workers: the ordered list of default worker models (each with the thinking level workers get on it) and the
@@ -172,6 +133,8 @@ internal fun WorkersSection(context: ProjectScreenContext, project: ProjectSumma
     val catalog by backend.modelCatalog.collectAsStateWithLifecycle()
     val providers = catalog?.providers.orEmpty()
     val scope = rememberCoroutineScope()
+    val connection by backend.client.state.collectAsStateWithLifecycle()
+    val projectDefault = connection.supports(HarnessFeature.WORKER_PICKER_PROJECT_DEFAULT)
     val stored = project.workerModels
     var draft by remember(project.id, workerModelsSignature(stored)) { mutableStateOf(stored) }
     val modelsSave = rememberSaveState(project.id)
@@ -195,8 +158,12 @@ internal fun WorkersSection(context: ProjectScreenContext, project: ProjectSumma
     val minutesSave = rememberSaveState(project.id)
     val resetSave = rememberSaveState(project.id)
     val checkIns = project.checkIns
-    SettingsSectionPage("Workers", "Which models workers run on, and when the coordinator checks on them.", SettingsIcon.Users) {
-        SettingsGroup(title = "Default worker models", description = "Tried in this order when nothing else names a model.") {
+    SettingsSectionPage(ProjectSection.Workers) {
+        SettingsGroup(
+            title = if (projectDefault) "Worker models" else "Default worker models",
+            description = if (projectDefault) "The first one is used unless the main chat names another. The composer's worker picker changes the first one."
+            else "Tried in this order when nothing else names a model.",
+        ) {
             if (draft.isEmpty()) GroupNote("None yet. The coordinator then has to name a model when it delegates, or you pick one in the composer.")
             draft.forEachIndexed { index, model -> key(modelKey(model.provider, model.modelId)) {
                 val name = modelLabel(ModelRef(model.provider, model.modelId), models)
@@ -223,7 +190,8 @@ internal fun WorkersSection(context: ProjectScreenContext, project: ProjectSumma
             } }
             SettingsRow(
                 "Add a model", hint = "Pick one to put it at the end of the list.", status = modelsSave, onRetry = { persist(draft) },
-                learn = { Text("New workers run on the model the coordinator names when it delegates, else the one picked in the composer, else the first of these that this backend offers. A model's thinking level applies unless the coordinator or the composer names one; “Model default” leaves it to the model.") },
+                learn = { Text(if (projectDefault) "The main chat can name a different model or thinking level when it delegates. Otherwise new workers use the first model and its thinking level. “Model default” leaves the level to the model."
+                    else "New workers run on the model the main chat names when it delegates, else the one picked in the composer, else the first of these that this computer offers. A model's thinking level applies unless the main chat or the composer names one; “Model default” leaves it to the model.") },
             ) {
                 Combobox(
                     addable, "", { key ->
@@ -252,7 +220,7 @@ internal fun WorkersSection(context: ProjectScreenContext, project: ProjectSumma
                     backend.configure(ProjectsConfigureRequest(projectId = project.id, checkIns = checkIns.copy(intervalMinutes = minutes)))
                 }
             }
-            SettingsRow("Defaults", hint = "Back to the backend's own check-in settings.", control = RowControl.Auto, status = resetSave) {
+            SettingsRow("Defaults", hint = "Back to this computer's default check-ins.", control = RowControl.Auto, status = resetSave) {
                 OutlinedButton(modifier = Modifier.heightIn(min = 44.dp), onClick = {
                     resetSave.launch { backend.configure(ProjectsConfigureRequest(projectId = project.id), setOf("checkIns")) }
                 }) { Text("Reset check-ins") }

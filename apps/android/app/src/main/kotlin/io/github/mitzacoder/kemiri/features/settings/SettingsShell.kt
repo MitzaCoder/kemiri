@@ -91,7 +91,7 @@ private fun SettingsNav(items: List<SettingsNavItem>, activeId: String?, label: 
                 color = when { active -> colors.surface2; split -> androidx.compose.ui.graphics.Color.Transparent; else -> cardColor(colors) },
                 border = if (!split) BorderStroke(1.dp, colors.border) else if (active) BorderStroke(1.dp, colors.borderStrong) else null,
                 shadowElevation = if (split) 0.dp else 1.dp,
-                modifier = Modifier.fillMaxWidth().semantics { selected = active; contentDescription = "${item.section.label}. ${item.section.hint}" },
+                modifier = Modifier.fillMaxWidth().semantics { selected = active; contentDescription = listOfNotNull(item.section.label, item.section.term, item.section.hint).joinToString(". ") },
             ) {
                 Row(
                     Modifier.heightIn(min = if (split) 44.dp else 60.dp).padding(horizontal = if (split) 10.dp else 12.dp, vertical = 8.dp),
@@ -101,7 +101,8 @@ private fun SettingsNav(items: List<SettingsNavItem>, activeId: String?, label: 
                     Column(Modifier.weight(1f)) {
                         Text(item.section.label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                             color = if (active || !split) colors.fg else colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (!split) Text(item.section.hint, style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        SettingsTerm(item.section.term)
+                        if (!split) Text(item.section.hint, style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
                     }
                     item.chip?.let { StatusChip(it.label, it.tone) }
                     if (!split) LucideGlyph(Lucide.ChevronRight, size = 16.dp, tint = colors.fgSubtle)

@@ -2948,8 +2948,8 @@ validation failures stay inline beside the field. ProjectSummary carries only th
 not feed health/last-attempt status, so the UI does not invent an observer-status line. Existing
 task-activity clients display the canonical Now line; legacy clients get its existing mirror and at
 most one milestone per attempt.
-Android Project settings includes a Delivery section when either `task-changes` or `task-deploys`
-is offered. Each control is independently feature-gated: Integration branch offers Automatic (main or master),
+Android Project settings → Advanced shows Code delivery for repository projects when either `task-changes`
+or `task-deploys` is offered. Each control is independently feature-gated: Integration branch offers Automatic (main or master),
 Custom ref (bare branch names become `refs/heads/<name>`), and Off; Deploy status feed offers Off or
 an absolute file path. Picks save immediately and text saves on blur/Done, matching neighbouring settings,
 with per-field server errors inline. The summary currently carries no feed-health status, so none is invented.
@@ -3685,7 +3685,7 @@ the server's effective model and token use on one muted line, then last-run time
 on a second; the browser never predicts the
 automatic choice. Ages tick locally. A missing advertised feature hides the group, even before hello.
 
-Android Project settings → Coordinator includes a feature-gated Report check group beside Show UI changes.
+Android Project settings → Advanced includes the feature-gated Report check group after Proof of screen changes.
 Mode offers Automatic, Off, or Choose a model using the searchable model picker. The daily token budget
 saves on leaving the field (default 65,000). Two muted status lines show effective model/provider and
 UTC-day token use, then last run and state or reason. Missing `report-audit` hides the group.
@@ -6005,11 +6005,19 @@ Back (app bar, system and completed predictive gestures) pops real history; canc
 gestures change nothing. Named Up pops to a parent within this visit, or replaces the
 current entry if absent. Close × discards the visit to its exact origin, falling back
 to main project chat or Home when no origin remains. Sibling sections replace; children
-always push, including backend Accounts, Devices and MCP. Cross-tree settings links keep the same visit.
-External settings
-links build Chat/Home underneath. Transient MCP sub-views register depth-ordered Back/Up
+always push, including a computer's AI accounts, Devices and Connected apps. Cross-tree settings links keep the same visit.
+External settings links build Chat/Home underneath. The old `delivery` link and a saved `Delivery` destination
+open Advanced. A Tickets link to a non-repository opens the section with a note instead of redirecting. Transient MCP sub-views register depth-ordered Back/Up
 targets shared with the app bar; dialogs and the drawer take precedence. Secret fields
 remain transient and are never serialized. Predictive Back deliberately has no animation.
+
+On Android, Appearance summarizes the device-wide code wrap, task timeline order, image comparison and
+record fold choices. Reset reading choices restores those defaults without changing individual projects' views.
+Notifications uses native time pickers that save each valid change, and folds away FCM registration status,
+test notifications and relay setup under Delivery details. Notification presets match the protocol kind sets.
+Automatic memory cleanup uses a switch on computers that advertise `memory-maintenance-enabled`;
+turning it off retains the chosen model. The composer reads the project's first worker model on computers
+with `worker-picker-project-default`; older computers keep the legacy composer override.
 
 ### Layout
 

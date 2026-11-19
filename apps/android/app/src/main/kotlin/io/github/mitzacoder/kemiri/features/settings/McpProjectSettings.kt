@@ -39,12 +39,12 @@ internal fun McpProjectSection(backend: BackendSession, projectId: String, openB
         catch (e: Exception) { error = e.message }
         finally { busy = false }
     } }
-    SettingsSectionPage("MCP", "Choose remote tools for this project. Servers and roles start off; tool policies still apply.", SettingsIcon.Server) {
+    SettingsSectionPage(ProjectSection.Mcp) {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!loaded || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         SettingsGroup {
-            LinkRow("Manage backend MCP servers", "Add servers, sign in and set tool policies.", onClick = openBackendMcp)
-            if (loaded && servers.isEmpty()) GroupNote("No servers on this backend yet.")
+            LinkRow("Manage apps on this computer", "Add servers, sign in and set tool policies.", onClick = openBackendMcp)
+            if (loaded && servers.isEmpty()) GroupNote("No servers on this computer yet.")
         }
         servers.forEach { server ->
             val choice = choices.firstOrNull { it.serverId == server.id } ?: McpProjectGetResponseServersItem(serverId = server.id, enabled = false, roles = emptyList())

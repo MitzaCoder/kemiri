@@ -38,7 +38,7 @@ internal fun ConnectDeviceGroup(backends: List<BackendConfig>) {
     val shareable = backends.filter { isConnectUrl(it.url) }
     val unshareable = backends.filterNot { isConnectUrl(it.url) }
     val chosen = shareable.filter { it.key !in excluded }
-    SettingsGroup(title = "Import backend addresses") {
+    SettingsGroup(title = "Import computer addresses") {
     SettingsRow(
         "Link or QR code", hint = "Addresses only. Does not grant access or sign in.", control = RowControl.Full,
         learn = { Text("Choose the backends to pass on. The link keeps them in its fragment, so it never reaches a server log; opening it on the other device shows them, and one tap adds them there.") },
@@ -55,12 +55,12 @@ internal fun ConnectDeviceGroup(backends: List<BackendConfig>) {
         }
         if (unshareable.isNotEmpty()) Text(
             if (unshareable.size == 1) "${unshareable.single().name} stays on this device: a connect link carries only HTTPS origins."
-            else "${unshareable.size} backends stay on this device: a connect link carries only HTTPS origins.",
+            else "${unshareable.size} computers stay on this device: a connect link carries only HTTPS origins.",
             style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted,
         )
         when {
-            chosen.isEmpty() -> if (unshareable.size < backends.size) Text("Choose at least one backend.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
-            chosen.size > MAX_CONNECT_BACKENDS -> Text("A link carries at most $MAX_CONNECT_BACKENDS backends. Leave some out and make a second link.",
+            chosen.isEmpty() -> if (unshareable.size < backends.size) Text("Choose at least one computer.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+            chosen.size > MAX_CONNECT_BACKENDS -> Text("A link carries at most $MAX_CONNECT_BACKENDS computers. Leave some out and make a second link.",
                 style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
             else -> {
                 val href = remember(chosen) { connectHref(CONNECT_APP_ORIGIN, chosen.map { BackendConfig(shareableName(it.name), it.url) }) }
@@ -77,7 +77,7 @@ internal fun ConnectDeviceGroup(backends: List<BackendConfig>) {
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Connect link", href))
                     }) { LucideGlyph(Lucide.Copy, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Copy link") }
                     Button(onClick = {
-                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, href).putExtra(Intent.EXTRA_SUBJECT, "Harness backends")
+                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, href).putExtra(Intent.EXTRA_SUBJECT, "Kemiri computers")
                         context.startActivity(Intent.createChooser(send, "Share connect link"))
                     }) { LucideGlyph(StatusGlyphs.Share, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Share") }
                 }

@@ -88,7 +88,7 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
             SettingsRow("Folder", hint = "On ${context.backend.config.name}. The folder cannot be changed here.", control = RowControl.Auto) {
                 CopyableValue(project.path, "Copy the folder path")
             }
-            SettingsRow("Backend", hint = "The server that runs this project.", control = RowControl.Auto) {
+            SettingsRow("Computer", hint = "Where this project runs.", control = RowControl.Auto) {
                 ConnectionBadge(connection.status, connection.attempt)
             }
         }
