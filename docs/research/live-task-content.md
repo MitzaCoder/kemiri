@@ -284,9 +284,17 @@ The quality gate did not pass: 147/195 baseline and 88/123 tuned lines were righ
 wrong. Qwen 3.8 Flash was similar (58/78) on a partial comparison that stopped on a provider error at
 218 passes. It averaged 1,281 input and 29 output tokens, about $0.075 per project day on that slice.
 
-A valid evidence ID did not mean the evidence supported every clause. Keep the watcher offline. Use
-Haiku and the tuned cadence for the next test, but narrow the line to one directly evidenced action
-and check its support before any live trial. No auto line can enter outcome sections or Needs you.
+A valid evidence ID did not mean the evidence supported every clause.
+
+The second replay used 13 fresh runs (12.71 active hours) at the same tuned cadence. Haiku with
+citable worker words scored 98/105 not wrong. The constrained verb-and-object draft scored 95/103.
+A separate Haiku entailment check raised the latter to 40/41, but removed 43 right lines and left
+only 3.2 lines per active hour. It added about $0.004 per project day. On its partial run, Sonnet 4.6
+with the same check scored 34/37 at about $1.50 per project day. Neither variant with 100 graded
+lines reached 95%, and neither verified variant produced 100 lines. Retest constrained Haiku with
+a less aggressive check on attempts before considering live use.
+
+Keep the watcher offline. No auto line can enter outcome sections or Needs you.
 
 ## Risks
 

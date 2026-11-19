@@ -3680,8 +3680,16 @@ per-task throttle and an end-of-run flush of pending steps. The no-tools prompt 
 untrusted. The answer check accepts only one JSON verdict with in-pass evidence IDs, rejects likely
 outcome claims and near-duplicates, and does not establish factual support on its own.
 
+`task-watcher.ts` also supports two draft forms. One accepts a purpose only if the quoted words are
+in a cited worker thinking or assistant step. The other renders a bounded verb and object with a
+word from a cited tool step. A separate no-tools entailment prompt sees only the proposed line and
+its citations. Only an exact affirmative JSON verdict keeps the line; a rejection or invalid answer
+cannot publish it. Neither a matching word nor a model's verdict is a recorded fact.
+
 `watcher-replay.ts` exercises the policy from explicitly named read-only inputs, with credential
 mutations refused and a shared input-token budget. It writes private evidence and usage to `/tmp`.
+Its paired verifier replay keeps the generator's original page history, so the measured effect is
+what the extra call drops, not what the generator might have written with different history.
 No server path calls the watcher. If wired later, any line is marked **auto** and stays in the live
 block. It cannot update What you get, Not done, Next or Needs you.
 
