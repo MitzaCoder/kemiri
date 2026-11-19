@@ -1917,17 +1917,32 @@ older release therefore keeps working with its own log. Requests logged during a
 
 ### Usage analysis (T78 web prototype)
 
-The Usage modal has Overview, By role, By model, Projects & tasks, and Waste tabs. A shared Today / 7 days /
-30 days picker applies to recorded requests, not to the provider's live subscription windows. Today starts at local
-midnight; the other ranges are rolling. Tab arrows, Home and End move focus and selection. Old backends keep the
-subscription overview and existing cache report; `usage-breakdown` advertises the additive `cache.stats.usage` field.
-Android keeps its existing usage screen in this phase; generated DTOs include the optional analysis for a later UI.
+The Usage modal has Overview, By role, By model, Projects & tasks, and Waste tabs. Value appears second when a backend
+advertises `subscription-value`. A shared Today / 7 days / 30 days picker applies to recorded requests, not to the
+provider's live subscription windows. Today starts at local midnight; the other ranges are rolling. Tab arrows, Home
+and End move focus and selection among the visible tabs. Old backends keep the subscription overview and existing cache
+report; `usage-breakdown` advertises the additive `cache.stats.usage` field. Android keeps its existing usage screen in
+this phase; generated DTOs include the optional analysis for a later UI.
+
+Value replaces the period picker with a calendar month and sends the browser's UTC offset at the start of that month.
+It reads only supporting backends and groups results by backend. Each measured subscription shows work at API rates
+against its monthly price and, when supported by evidence, an estimated full-use value on the same scale. The binding
+window supplies plan use, a full-window estimate with range, and the share used elsewhere. Estimated amounts and range
+endpoints round to whole dollars from $10 up. Models show their recorded API value and a separate estimate only for a
+measured scoped limit. Top tasks open their project task sheets and include subtask totals. Coordinator work is not
+spread across tasks. Keys are listed separately at API prices, with no ratio.
+Subscriptions without limits show recorded value and a realised ratio only when a price exists. The notes distinguish
+estimates, assumed billing on old rows and requests missing a catalog price.
+
+Default prices disclose their checked date and source. The owner can enter a monthly USD price in the current month or
+reset it to the default with `null`. Changes apply from now; older months are read-only. A missing price shows
+“Add what you pay” in the current month without suppressing the usage estimates.
 
 Usage totals count input, cache read, cache write and output separately, including keep-warm calls. Groups rank by
 catalog-price equivalent, not cache-miss cost: caller role (scheduled runs take precedence over worker/thread),
 provider/model × role, project, board task and conversation. All shares use the same recorded total. These are not
 subscription percentages or invoices: providers do not expose a per-request conversion into subscription allowance,
-and other clients can consume the same subscription. The analysis does not use the billing and limit ledger yet.
+and other clients can consume the same subscription. The period-based analysis does not use the billing and limit ledger.
 
 Existing request rows already identify coordinator/worker/thread, schedule, board task and keep-warm. New recording
 adds an optional internal purpose for coordinator compaction, memory extraction and backend memory maintenance,

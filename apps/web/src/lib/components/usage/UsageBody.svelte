@@ -1,16 +1,21 @@
 <script lang="ts">
 	import { overlayScroll } from '#lib/scrollbars.js';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import GaugeIcon from '@lucide/svelte/icons/gauge';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import type { SubscriptionUsage } from '@kemiri/protocol';
 	import Banner from '#lib/components/Banner.svelte';
 	import Orb from '#lib/components/Orb.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import UsageAnalysis from '#lib/components/usage/UsageAnalysis.svelte';
-	import { USAGE_TABS, usageTabAfterKey, usageTabKey, type UsageTab } from '#lib/usage-analysis.js';
+	import BackendSubscriptionValue from './BackendSubscriptionValue.svelte';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import { localValueMonth, moveValueMonth } from '#lib/subscription-value.js';
+	import { supportsSubscriptionValue, usageTabs, usageTabAfterKey, usageTabKey, type UsageTab } from '#lib/usage-analysis.js';
 	import SubscriptionCard from '#lib/components/usage/SubscriptionCard.svelte';
 	import UsageSkeleton from '#lib/components/usage/UsageSkeleton.svelte';
 	import { backendSettingsHref, generalSettingsHref } from '#lib/settings.js';
@@ -41,22 +46,47 @@
 		harness.backends.filter((backend) => backend.supports('cache-stats')).map((backend) => cacheStatsBoard.for(backend))
 	);
 
+	const valueBackends = $derived(harness.backends.filter((backend) => supportsSubscriptionValue(backend.features)));
+	const tabs = $derived(usageTabs(valueBackends.length > 0));
+
 	/** The clock every countdown, pace and "updated" reads; ticks so they age on their own. */
 	let now = $state(Date.now());
 	let tab = $state<UsageTab>('Overview');
 	let period = $state<1 | 7 | 30>(30);
 	let panel = $state<HTMLDivElement | null>(null);
+	let tablist = $state<HTMLDivElement | null>(null);
+	let pickedMonth = $state<string>();
+	let valueRefreshCount = $state(0);
+	const currentMonth = $derived(localValueMonth(new Date(now)));
+	const valueMonth = $derived(pickedMonth ?? currentMonth);
+
+	function selectMonth(month: string): void {
+		if (!/^[1-9][0-9]{3}-(0[1-9]|1[0-2])$/.test(month) || month > currentMonth) return;
+		pickedMonth = month === currentMonth ? undefined : month;
+		if (panel) panel.scrollTop = 0;
+	}
+
+	$effect(() => {
+		if (tab !== 'Value' || tabs.includes(tab)) return;
+		const restoreFocus = tablist?.contains(document.activeElement) || panel?.contains(document.activeElement)
+			|| document.activeElement === document.body;
+		selectTab('Overview');
+		if (restoreFocus) void tick().then(() => focusTab('Overview'));
+	});
+
+	function focusTab(label: UsageTab): void {
+		tablist?.querySelector<HTMLButtonElement>(`#usage-tab-${usageTabKey(label)}`)?.focus();
+	}
 	function selectTab(next: UsageTab): void {
 		tab = next;
 		if (panel) panel.scrollTop = 0;
 	}
 	function tabKeydown(event: KeyboardEvent): void {
-		const next = usageTabAfterKey(tab, event.key);
+		const next = usageTabAfterKey(tab, event.key, tabs);
 		if (!next) return;
 		event.preventDefault();
 		selectTab(next);
-		const parent = (event.currentTarget as HTMLElement).parentElement;
-		parent?.querySelector<HTMLButtonElement>(`#usage-tab-${usageTabKey(next)}`)?.focus();
+		focusTab(next);
 	}
 
 	onMount(() => {
@@ -95,6 +125,7 @@
 
 	async function refresh(): Promise<void> {
 		now = Date.now();
+		if (tab === 'Value') { valueRefreshCount += 1; return; }
 		await Promise.allSettled([...usages.map((usage) => usage.load(true)), ...caches.map((cache) => cache.load())]);
 		now = Date.now();
 	}
@@ -110,7 +141,7 @@
 >
 	<div class="flex items-center gap-2">
 		<Dialog.Title class="min-w-0 flex-1 text-xl leading-tight font-bold tracking-tight">Usage</Dialog.Title>
-		{#if newestUpdate}
+		{#if newestUpdate && tab !== 'Value'}
 			<span class="text-xs whitespace-nowrap text-(--chat-fg-subtle) tabular-nums"
 				>{updatedLabel(newestUpdate, now)}</span
 			>
@@ -119,12 +150,12 @@
 			variant="outline"
 			size="sm"
 			onclick={refresh}
-			disabled={refreshing || usages.every((usage) => !usage.backend.ready)}
-			aria-label="Read every provider now"
-			title="Read every provider now"
+			disabled={tab === 'Value' ? valueBackends.every((backend) => !backend.ready) : refreshing || usages.every((usage) => !usage.backend.ready)}
+			aria-label={tab === 'Value' ? 'Refresh subscription value' : 'Read every provider now'}
+			title={tab === 'Value' ? 'Refresh subscription value' : 'Read every provider now'}
 		>
-			<RefreshCwIcon class="size-4 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" />
-			<span class="max-sm:sr-only">{refreshing ? 'Refreshing…' : 'Refresh'}</span>
+			<RefreshCwIcon class="size-4 {tab !== 'Value' && refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" />
+			<span class="max-sm:sr-only">{tab !== 'Value' && refreshing ? 'Refreshing…' : 'Refresh'}</span>
 		</Button>
 		{#if inAppBackVisible(page.state.navigation)}<Button variant="ghost" class="h-11 min-w-11" onclick={() => history.back()}>Back</Button>{/if}
 		<Dialog.Close>
@@ -142,8 +173,8 @@
 </Dialog.Header>
 
 <div class="shrink-0 border-b border-(--chat-border) px-4 py-3 sm:px-6">
-	<div role="tablist" aria-label="Usage views" class="flex flex-wrap gap-1">
-		{#each USAGE_TABS as label (label)}
+	<div bind:this={tablist} role="tablist" aria-label="Usage views" class="flex flex-wrap gap-1">
+		{#each tabs as label (label)}
 			<button
 				type="button"
 				role="tab"
@@ -160,20 +191,32 @@
 			>
 		{/each}
 	</div>
-	<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-		<span class="text-(--chat-fg-muted)">Recorded period</span>
-		<div class="flex gap-1 rounded-lg border border-(--chat-border) p-0.5" role="group" aria-label="Recorded period">
-			{#each [1, 7, 30] as days (days)}<button
-					type="button"
-					aria-pressed={period === days}
-					onclick={() => (period = days as 1 | 7 | 30)}
-					class="rounded-md px-2.5 py-1 {period === days
-						? 'bg-(--chat-surface-2) font-semibold'
-						: 'text-(--chat-fg-muted)'}">{days === 1 ? 'Today' : `${days} days`}</button
-				>{/each}
+	{#if tab === 'Value'}
+		<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+			<label for="usage-value-month" class="text-(--chat-fg-muted)">Calendar month</label>
+			<div class="flex items-center gap-1">
+				<Button variant="ghost" size="icon" onclick={() => selectMonth(moveValueMonth(valueMonth, -1))} aria-label="Previous month"><ChevronLeftIcon /></Button>
+				<Input id="usage-value-month" type="month" value={valueMonth} min="1000-01" max={currentMonth} class="w-auto"
+					onchange={(event) => { const field = event.currentTarget; selectMonth(field.value); field.value = pickedMonth ?? currentMonth; }} />
+				<Button variant="ghost" size="icon" onclick={() => selectMonth(moveValueMonth(valueMonth, 1))} disabled={valueMonth >= currentMonth} aria-label="Next month"><ChevronRightIcon /></Button>
+			</div>
 		</div>
-		<span class="text-(--chat-fg-subtle)">Live subscription windows stay unchanged.</span>
-	</div>
+	{:else}
+		<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+			<span class="text-(--chat-fg-muted)">Recorded period</span>
+			<div class="flex gap-1 rounded-lg border border-(--chat-border) p-0.5" role="group" aria-label="Recorded period">
+				{#each [1, 7, 30] as days (days)}<button
+						type="button"
+						aria-pressed={period === days}
+						onclick={() => (period = days as 1 | 7 | 30)}
+						class="rounded-md px-2.5 py-1 {period === days
+							? 'bg-(--chat-surface-2) font-semibold'
+							: 'text-(--chat-fg-muted)'}">{days === 1 ? 'Today' : `${days} days`}</button
+					>{/each}
+			</div>
+			<span class="text-(--chat-fg-subtle)">Live subscription windows stay unchanged.</span>
+		</div>
+	{/if}
 </div>
 
 <!-- The scrollbars live in this wrapper, not in the scroller: inside, they scroll with the content and jump. -->
@@ -290,16 +333,24 @@
 			{/if}
 		{/if}
 
-		{#if caches.length === 0 && tab !== 'Overview'}<p class="text-sm text-(--chat-fg-muted)">
-				No backend reports recorded usage yet.
-			</p>{/if}
-		{#each caches as cache (cache.backend.id)}
-			<section class="flex flex-col gap-3" aria-label="Recorded usage on {cache.backend.name}">
-				{#if caches.length > 1 || tab !== 'Overview' || reporting.length === 0}
-					<h2 class="px-1 text-sm font-semibold tracking-tight">{cache.backend.name}</h2>
-				{/if}
-				<UsageAnalysis {cache} {tab} />
-			</section>
-		{/each}
+		{#if tab === 'Value'}
+			{#each valueBackends as backend (backend.id)}
+				{#key valueMonth}
+					<BackendSubscriptionValue {backend} month={valueMonth} {currentMonth} refreshCount={valueRefreshCount} />
+				{/key}
+			{/each}
+		{:else}
+			{#if caches.length === 0 && tab !== 'Overview'}<p class="text-sm text-(--chat-fg-muted)">
+					No backend reports recorded usage yet.
+				</p>{/if}
+			{#each caches as cache (cache.backend.id)}
+				<section class="flex flex-col gap-3" aria-label="Recorded usage on {cache.backend.name}">
+					{#if caches.length > 1 || tab !== 'Overview' || reporting.length === 0}
+						<h2 class="px-1 text-sm font-semibold tracking-tight">{cache.backend.name}</h2>
+					{/if}
+					<UsageAnalysis {cache} {tab} />
+				</section>
+			{/each}
+		{/if}
 	</div>
 </div>
