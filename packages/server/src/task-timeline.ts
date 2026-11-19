@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { BoardTask, BoardTimelineEntry, BoardTimelineFact, BoardTimelineGroup, BoardTimelineGroupKind, BoardTimelineKind } from "@kemiri/protocol";
+import type { BoardTaskLive, BoardTask, BoardTimelineEntry, BoardTimelineFact, BoardTimelineGroup, BoardTimelineGroupKind, BoardTimelineKind } from "@kemiri/protocol";
 import type { BoardState, TaskHistoryState } from "./board.ts";
 
 /** Hash source keys, not labels/timestamps that change as work advances. */
@@ -131,20 +131,35 @@ export function timelineGroupLabel(group: BoardTimelineGroup): string {
  return [workers ? `${workers} worker${workers === 1 ? "" : "s"} reported` : "", outcome].filter(Boolean).join("; ") || clean(latest[0]!.label);
 }
 
+function liveRunLabel(actorName: string, start: string, end: string, live: BoardTaskLive, outcome: string): string {
+ const minutes = Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 60_000));
+ const count = (kind: "phase" | "result", label: string) => {
+  const n = live.lines.filter(line => line.kind === kind).length;
+  return n ? `${n} ${label}${n === 1 ? "" : "s"}` : undefined;
+ };
+ const counts = [count("phase", "phase"), count("result", "result")].filter(Boolean).join(", ");
+ const duration = minutes === 0 ? "less than a minute" : `${minutes} minute${minutes === 1 ? "" : "s"}`;
+ return `${actorName} worked ${duration}${counts ? `: ${counts}` : ""}${outcome === "failed" || outcome === "stopped" ? ` · ${outcome}` : ""}`;
+}
+
 /** Lifecycle-only projection; phase/check-in/report rewrites never call this reducer. */
-export function recordTimelineRun(history: TaskHistoryState, task: BoardTask, actor: import("@kemiri/protocol").BoardActivityActor, outcome: string, at: string, detail: string): void {
- if (actor.kind === "coordinator") return;
+export function recordTimelineRun(history: TaskHistoryState, task: BoardTask, actor: import("@kemiri/protocol").BoardActivityActor, outcome: string, at: string, detail: string, trail?: BoardTaskLive, startedAt?: string): void {
+ if (actor.kind === "coordinator" && !trail) return;
  const previous = [...(history.timelineEntries ?? [])].reverse().find(entry => entry.source === actor.kind && entry.actor?.conversationId === actor.conversationId && entry.actor.threadId === actor.threadId);
  const exact = history.timelineEntries?.find(entry => entry.actor?.id === actor.id);
  const claim = actor.kind === "thread" && outcome === "running" && !exact ? [...(history.timelineEntries ?? [])].reverse().find(entry => entry.source === "ownership" && entry.label === `Claimed by ${actor.name}`) : undefined;
- const continuing = previous && (previous.outcome === "running" || outcome !== "running");
- const entry = actor.kind === "thread" ? exact ?? claim : continuing ? previous : undefined;
- if (entry?.outcome === outcome && entry.detail === detail) return;
+ const continuing = previous && !previous.live && (previous.outcome === "running" || (!trail && outcome !== "running"));
+ const entry = actor.kind === "worker" ? (exact?.live ? exact : continuing ? previous : exact) : exact ?? claim;
+ const live = trail ?? entry?.live;
+ // An afterRun fold is final; the report may add terminal detail, but not reopen or extend the run's duration.
+ if (entry?.live && outcome === "running") return;
+ if (!trail && entry?.outcome === outcome && entry.detail === detail) return;
  const legacyStart = !entry && outcome !== "running" && actor.kind === "worker" ? [...(history.events ?? [])].reverse().find(event => event.kind === "worker" && event.ref === actor.name && /started/.test(event.label) && event.at <= at && (!event.by?.threadId || event.by.threadId === actor.threadId)) : undefined;
  const legacyKey = legacyStart ? `legacy-worker:${legacyStart.by?.threadId ?? "main"}:${actor.name}:${legacyStart.at}` : undefined;
  const id = entry?.id ?? timelineId(task.id, legacyKey ?? `run:${actor.threadId}:${actor.conversationId}:${actor.runId}`);
  if (legacyStart) upsertTimelineFact(history, task, { ...legacyStart, id, endAt: legacyStart.at, group: "work", source: "worker", outcome: "running", actor });
- upsertTimelineFact(history, task, { id, at: entry?.at ?? legacyStart?.at ?? at, endAt: at, kind: "worker", group: "work", source: actor.kind, outcome,
-  label: `${actor.kind === "worker" ? "Worker" : "Thread"} ${actor.name} ${outcome}`, detail, ref: actor.name, actor: entry?.actor ?? actor,
+ upsertTimelineFact(history, task, { id, at: entry?.at ?? legacyStart?.at ?? startedAt ?? at, endAt: at, kind: "worker", group: "work", source: actor.kind, outcome,
+  label: live ? liveRunLabel(actor.name, entry?.at ?? legacyStart?.at ?? startedAt ?? at, entry?.live?.lines ? entry.endAtForLive ?? entry.endAt : at, live, outcome) : `${actor.kind === "worker" ? "Worker" : "Thread"} ${actor.name} ${outcome}`,
+  detail, ref: actor.name, actor: live ? actor : entry?.actor ?? actor, ...(live ? { live, endAtForLive: entry?.endAtForLive ?? at } : {}),
   by: { author: "harness", threadId: actor.threadId === "main" ? null : actor.threadId, workerId: actor.kind === "worker" ? actor.name : null } });
 }

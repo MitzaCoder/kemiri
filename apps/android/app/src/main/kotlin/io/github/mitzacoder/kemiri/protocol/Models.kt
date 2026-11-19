@@ -2415,6 +2415,7 @@ data class RefDetailsJiraParent(
 
 @Serializable
 data class BoardTask(
+    val `live`: BoardTaskLive? = null,
     val `state`: BoardTaskState? = null,
     val `activity`: BoardTaskActivity? = null,
     val `eventSeq`: Long? = null,
@@ -2694,6 +2695,20 @@ data class BoardTaskActivity(
 )
 
 @Serializable
+data class BoardLiveLine(
+    val `id`: String,
+    val `at`: String,
+    val `kind`: String,
+    val `text`: String,
+    val `actor`: BoardActivityActor
+)
+
+@Serializable
+data class BoardTaskLive(
+    val `lines`: List<BoardLiveLine>
+)
+
+@Serializable
 data class BoardActivityActor(
     val `id`: String,
     val `kind`: String,
@@ -2834,6 +2849,7 @@ data class BoardTaskBrief(
 
 @Serializable
 data class BoardTimelineFact(
+    val `live`: BoardTaskLive? = null,
     val `at`: String,
     val `kind`: String,
     val `label`: String,
@@ -2843,6 +2859,7 @@ data class BoardTimelineFact(
     val `by`: BoardWriter? = null,
     val `id`: String,
     val `endAt`: String,
+    val `endAtForLive`: String? = null,
     val `revision`: Long,
     val `group`: String,
     val `outcome`: String,
@@ -2871,6 +2888,7 @@ data class BoardTimelineGroupRange(
 
 @Serializable
 data class BoardTimelineEntry(
+    val `live`: BoardTaskLive? = null,
     val `at`: String,
     val `kind`: String,
     val `label`: String,

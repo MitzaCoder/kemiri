@@ -228,7 +228,20 @@ export const BoardTaskStateSchema = Type.Object({
 });
 export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 
+/** task-live: chronological, oldest first. Clients skip line kinds they do not recognize. */
+export const BoardLiveLineSchema = Type.Object({
+ id: Type.String(),
+ at: Type.String({ description: "ISO time of the report write." }),
+ kind: Type.String({ description: "Phase or result (wire values: phase, result). More kinds may be added." }),
+ text: Type.String(),
+ actor: BoardActivityActorSchema,
+});
+export type BoardLiveLine = Static<typeof BoardLiveLineSchema>;
+export const BoardTaskLiveSchema = Type.Object({ lines: Type.Array(BoardLiveLineSchema, { maxItems: 30 }) });
+export type BoardTaskLive = Static<typeof BoardTaskLiveSchema>;
+
 export const BoardTaskSchema = Type.Object({
+ live: Type.Optional(BoardTaskLiveSchema),
  state: Type.Optional(BoardTaskStateSchema),
  activity: Type.Optional(BoardTaskActivitySchema),
 	eventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "Persisted per-task sequence of meaningful facts. Pass the value read by show_task as coveredEventSeq when rewriting; never use a newer unread value." })),
@@ -419,6 +432,7 @@ export type BoardTimelineKind = Static<typeof BoardTimelineKindSchema>;
  * `ref` is what the entry is about: a feedback ID, a question ID, a decision ID, a worker ID or a task ID (link).
  */
 export const BoardTimelineEntrySchema = Type.Object({
+ live: Type.Optional(BoardTaskLiveSchema),
 	at: Type.String(),
 	kind: BoardTimelineKindSchema,
 	label: Type.String(),
@@ -436,6 +450,7 @@ export const BoardTimelineFactSchema = Type.Object({
  ...BoardTimelineEntrySchema.properties,
  id: Type.String(),
  endAt: Type.String(),
+ endAtForLive: Type.Optional(Type.String({ description: "Run end before any later report delivery." })),
  revision: Type.Integer({ minimum: 1 }),
  group: BoardTimelineGroupKindSchema,
  outcome: Type.String({ description: "Latest source outcome, e.g. running, reported, failed, open, answered, addressed, ok." }),

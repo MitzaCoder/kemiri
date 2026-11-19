@@ -4,7 +4,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { activityTracking, endActivitySource, setActivityPhase, taskActivity, type TaskActivitySource } from "../src/task-activity.ts";
-import { BoardDoc, addSnapshot, askQuestion, boardView, changeOwner, coordinatorWriter, emptyBoardState, normalizeBoard, recordFeedback, saveTask, setFeedbackState, settleQuestion, workerWriter, writeReport, type BoardState } from "../src/board.ts";
+import { BoardDoc, addSnapshot, askQuestion, boardView, changeOwner, coordinatorWriter, emptyBoardState, normalizeBoard, recordFeedback, saveTask, setFeedbackState, settleQuestion, workerWriter, writeReport, writeReportIn, type BoardState } from "../src/board.ts";
 import { syncWorkerActivity, syncWorkerActivityRun, WorkersDoc, workerInstructions, coordinatorSection, threadCoordinatorSection, type WorkerRecord } from "../src/workers.ts";
 import { threadInstructions } from "../src/threads.ts";
 import { createSetup, errorOf, TestClient } from "./support.ts";
@@ -138,8 +138,9 @@ it("ownership alone is not activity, and release leaves another source working",
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
-async function integration() {
- const setup = await createSetup({ now: () => START, boardEditDebounceMs: 60_000 }); cleanups.push(setup.cleanup);
+async function integration(taskLiveEnabled = true) {
+ const features = HARNESS_FEATURES.filter(feature => taskLiveEnabled || feature !== "task-live");
+ const setup = await createSetup({ features, now: () => START, boardEditDebounceMs: 60_000 }); cleanups.push(setup.cleanup);
  const client = await TestClient.open(setup.server); cleanups.push(async () => client.close()); await client.hello();
  const added = await client.request({ type: "projects.add", path: setup.projectDir }); if (added.type !== "projects.add") throw errorOf(added);
  const configured = await client.request({ type: "projects.configure", projectId: added.project.id, coordinatorModel: { provider: "faux", modelId: "faux-1" } }); if (configured.type !== "projects.configure") throw errorOf(configured);
@@ -183,8 +184,8 @@ it("worker retries use thread/conversation/run identity; phases expire and anoth
  expect((await runtime.board.get()).tasks[0]!.activity).toMatchObject({ kind: "failure", actor: { conversationId: 10 } });
 }, 15_000);
 
-it("a coordinator focuses one owned task, legacy Now becomes a turn phase, then expires with no timeline rows", async () => {
- const { setup, runtime } = await integration();
+it.each([false, true])("legacy coordinator Now is a turn phase and folds only with task-live=%s", async taskLiveEnabled => {
+ const { setup, runtime } = await integration(taskLiveEnabled);
  await runtime.board.saveTask({ task: { ...fixture().tasks[0]!, title: "Other task" } }, "coordinator");
  const samples: BoardTask[][] = [];
  const call = (action: string, fields: Record<string, unknown> = {}) => fauxAssistantMessage([fauxToolCall("board", { action, ...fields })], { stopReason: "toolUse" });
@@ -194,15 +195,27 @@ it("a coordinator focuses one owned task, legacy Now becomes a turn phase, then 
   async () => { samples.push((await runtime.board.get()).tasks); return call("write_report", { id: "T1", now: "testing the card view" }); },
   async () => { samples.push((await runtime.board.get()).tasks); return fauxAssistantMessage("Finished."); },
  ]);
- const before = await runtime.board.timeline("T1");
+ const before = await runtime.board.timeline("T1", ["worker"], true);
  const submission = await runtime.conversation.submit({ type: "input", content: "Test focused work", requestId: "focus-test" }, BACKGROUND_CONTEXT);
  await submission.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT); await runtime.board.reconcileActivity();
  expect(samples[0]![0]!.activity!.kind).toBe("idle"); expect(samples[0]![1]!.activity!.kind).toBe("idle");
  expect(samples[1]![0]!.activity!.kind).toBe("working"); expect(samples[1]![1]!.activity!.kind).toBe("idle");
  expect(samples[2]![0]!.activity!.text).toBe("Coordinator is testing the card view");
  expect(samples[2]![0]!.report.updatedAt).toBe(samples[1]![0]!.report.updatedAt);
- expect((await runtime.board.get()).tasks[0]!.activity!.kind).toBe("idle");
- expect(await runtime.board.timeline("T1")).toEqual(before);
+ const ended = (await runtime.board.get()).tasks[0]!;
+ const timeline = await runtime.board.timeline("T1", ["worker"], true);
+ expect(ended.activity!.kind).toBe("idle");
+ expect(ended.live).toBeUndefined();
+ if (taskLiveEnabled) {
+  const lines = samples[2]![0]!.live!.lines;
+  expect(lines).toEqual([expect.objectContaining({ kind: "phase", text: "testing the card view", actor: expect.objectContaining({ kind: "coordinator" }) })]);
+  expect(timeline.entries).toEqual([expect.objectContaining({ live: { lines } })]);
+  expect(timeline.groups?.flatMap(group => group.entries)).toEqual([expect.objectContaining({ group: "work", live: { lines } })]);
+ } else {
+  expect(samples[2]![0]!.live).toBeUndefined();
+  expect(timeline.entries).toEqual(before.entries);
+  expect(timeline.groups).toEqual(before.groups);
+ }
  expect((await runtime.board.state()).tasks[0]!.report.results).toBe("Synthetic checks pass");
 }, 15_000);
 
@@ -337,4 +350,94 @@ it("spawning and sending task workers infer coordinator focus in the existing ac
   await sampled; await submission.wait(BACKGROUND_CONTEXT); await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
   expect(coordinatorSources).toEqual([true, true]);
  } finally { releaseWorker(); }
+}, 15_000);
+
+
+it("keeps five report lines in order and folds only the ending source into one work row", async () => {
+ const { runtime } = await integration();
+ const main = runtime.conversation.id;
+ const initialWorker: WorkerRecord = { id: "moss", title: "Card view", conversationId: 10, activityRunId: "run-1", isolation: "shared", workspacePath: null, model: { provider: "faux", modelId: "faux-1" }, thinkingLevel: null, status: "running", taskId: "T1", spawnedByCallId: null, createdAt: at(), updatedAt: at(), lastReport: null, failure: null, anchorTaskId: 1 };
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, main);
+  state.taskLiveEnabled = true;
+  await syncWorkerActivity(tx, runtime.workers, { ...initialWorker }, main);
+  add(state, source("fern", at(), "main", 11));
+ }, BACKGROUND_CONTEXT);
+ const read = () => runtime.board.timeline("T1", ["worker"], true);
+ const write = (n: number, now?: string, addResult?: string, writer = "moss") => runtime.harness.commit(tx => writeReportIn(tx, main, { taskId: "T1", sections: { now }, addResult, by: workerWriter("main", writer) }, `call:${n}`, at(n)), BACKGROUND_CONTEXT);
+ const before = await read();
+ const factsBefore = await runtime.board.state();
+ const snapshotsBefore = await runtime.board.history("T1");
+ await write(1, "reading the inputs");
+ await write(2, "  reading   the inputs  ");
+ await write(3, "building the form", "The form accepts a card.");
+ await write(4, "checking the balance");
+ await write(5, undefined, "Partial payment works.");
+ const working = (await runtime.board.get()).tasks[0]!;
+ const lines = working.live!.lines;
+ expect(lines.map(line => [line.kind, line.text, line.at])).toEqual([
+  ["phase", "reading the inputs", at(1)], ["phase", "building the form", at(3)], ["result", "The form accepts a card.", at(3)],
+  ["phase", "checking the balance", at(4)], ["result", "Partial payment works.", at(5)],
+ ]);
+ expect(new Set(lines.map(line => line.id)).size).toBe(5);
+ expect(lines.every(line => line.actor.name === "moss")).toBe(true);
+ expect(await read()).toEqual(before);
+ expect(await runtime.board.history("T1")).toEqual(snapshotsBefore);
+ expect(working.eventSeq).toBe(factsBefore.tasks[0]!.eventSeq);
+ expect((await runtime.board.state()).pausedNotices).toEqual(factsBefore.pausedNotices);
+ await write(6, "checking the labels", undefined, "fern");
+ await runtime.harness.commit(tx => syncWorkerActivity(tx, runtime.workers, { ...initialWorker, status: "stopped", updatedAt: at(23 * 60_000) }, main), BACKGROUND_CONTEXT);
+ const finished = await read();
+ expect(finished.entries).toHaveLength(1);
+ expect(finished.entries[0]).toMatchObject({ label: "moss worked 23 minutes: 3 phases, 2 results · stopped", live: { lines } });
+ expect(finished.groups?.flatMap(group => group.entries)).toEqual([expect.objectContaining({ group: "work", live: { lines } })]);
+ expect((await runtime.board.get()).tasks[0]!.live?.lines.map(line => line.actor.name)).toEqual(["fern"]);
+ for (let n = 7; n < 45; n++) await write(n, `checking sample ${n}`, undefined, "fern");
+ expect((await runtime.board.get()).tasks[0]!.live?.lines.map(line => line.text)).toEqual(Array.from({ length: 30 }, (_, n) => `checking sample ${15 + n}`));
+ await runtime.board.reconcileActivity();
+ expect((await runtime.board.get()).tasks[0]!.live).toBeUndefined();
+}, 15_000);
+
+it("a reused worker's progress goes to its new task and folds when its answer ends", async () => {
+ const { setup, runtime } = await integration();
+ const main = runtime.conversation.id;
+ await runtime.board.saveTask({ task: { title: "Check the receipt", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] } }, "user");
+ let held!: () => void;
+ const gate = new Promise<void>(resolve => { held = resolve; });
+ let sampled!: () => void;
+ const sample = new Promise<void>(resolve => { sampled = resolve; });
+ setup.faux.setResponses(Array.from({ length: 25 }, () => async request => {
+  const last = request.messages.findLast(message => message.role !== "system");
+  const call = (tool: string, args: Parameters<typeof fauxToolCall>[1]) => fauxAssistantMessage([fauxToolCall(tool, args)], { stopReason: "toolUse" });
+  if (last?.role === "user" && last.content === "Start a worker") return call("worker_spawn", { id: "fern", taskId: "T1", title: "Check the card", task: "Check the card", model: { provider: "faux", modelId: "faux-1" } });
+  if (last?.role === "user" && typeof last.content === "string" && last.content.startsWith("[worker fern reported]")) return fauxAssistantMessage("Recorded.");
+  if (last?.role === "user" && last.content === "Reuse the worker") return call("worker_send", { id: "fern", taskId: "T2", message: "Check the receipt" });
+  if (last?.role === "user" && typeof last.content === "string" && last.content.startsWith("[task T2]")) return call("task_progress", { now: "reading the receipt", addResult: "The receipt includes the balance." });
+  if (last?.role === "toolResult" && last.toolName === "task_progress") { sampled(); await gate; return fauxAssistantMessage("Receipt checked."); }
+  return fauxAssistantMessage("Card checked.");
+ }));
+ const send = async (content: string) => {
+  const submission = await runtime.conversation.submit({ type: "input", content, requestId: content }, BACKGROUND_CONTEXT);
+  await submission.wait(BACKGROUND_CONTEXT);
+ };
+ const mainWatch = await runtime.harness.watchDoc(WorkersDoc, main, BACKGROUND_CONTEXT);
+ const idle = Promise.withResolvers<void>();
+ mainWatch!.start(async call => { if (call.kind !== "failed" && call.value?.workers.fern?.status === "idle") idle.resolve(); });
+ try {
+  await send("Start a worker");
+  await idle.promise;
+  await send("Reuse the worker");
+  await sample;
+  const worker = (await runtime.workers.state()).workers.fern!;
+  expect(worker.taskId).toBe("T2");
+  const tasks = (await runtime.board.get()).tasks;
+  expect(tasks.find(task => task.id === "T1")?.live?.lines ?? []).toEqual([]);
+  expect(tasks.find(task => task.id === "T2")?.live?.lines.map(line => line.text)).toEqual(["reading the receipt", "The receipt includes the balance."]);
+  const conversation = await runtime.harness.conversation(worker.conversationId as typeof main, BACKGROUND_CONTEXT);
+  held();
+  await conversation!.waitForIdle(BACKGROUND_CONTEXT);
+  const workerRows = (await runtime.board.timeline("T2", ["worker"], true)).entries;
+  expect(workerRows).toHaveLength(1);
+  expect(workerRows[0]!.live?.lines).toHaveLength(2);
+ } finally { held(); await mainWatch?.stop(); }
 }, 15_000);

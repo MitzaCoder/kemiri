@@ -3,6 +3,7 @@
 	import { drillIntoTask } from "#lib/task-navigation.js";
 	import { timelineGroupsSupported } from '#lib/timeline-groups.js';
 	import TaskActivity from './TaskActivity.svelte';
+	import TaskLive from './TaskLive.svelte';
 	import TaskDelivery from './TaskDelivery.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { taskDecided } from '#lib/task-record.js';
@@ -188,6 +189,9 @@
 			!(delivery && (activity.kind === 'deploy' || activity.refs.some(ref => ref.startsWith('deploy:'))))
 			? { text: activity.text, at: activity.since, activity } : undefined
 		: task.report.now.trim() ? { text: task.report.now, at: task.report.updatedAt ?? task.updatedAt } : undefined));
+	const taskLiveEnabled = $derived(backend.supports('task-live'));
+	const liveNow = $derived(taskLiveEnabled && task?.live && task.state?.kind === 'working'
+		? task.state.sentence ?? activity : undefined);
 	const supportsDelivery = $derived(backend.supports('task-delivery'));
 	const supportsLinks = $derived(backend.supports('task-links'));
 	const staleReport = $derived(Boolean(task && reportFreshnessEnabled(backend.supports('task-freshness'), task) &&
@@ -426,6 +430,12 @@
 											</section>
 									{/if}
 
+									{#if requestedId !== null && task.live && liveNow}
+										{#key JSON.stringify([backend.id, projectId, task.id])}
+											<TaskLive live={task.live} now={liveNow} backendId={backend.id} {projectId} taskId={task.id} />
+										{/key}
+									{/if}
+
 									<section class="task-reading-section" aria-label="What you get">
 										<h2 class="task-detail-heading">What you get</h2>
 										{#if fields?.summary}<p class="text-[1.0625rem] font-medium">{fields.summary}</p>{/if}
@@ -525,7 +535,7 @@
 										{#if supportsLinks || task.snapshots || taskWorkers.length || now}
 											<TaskRecordFold row="activity" title="Activity">
 												<TaskActivity {board} {task} {writerName} loading={supportsLinks && timelineEntries === undefined} error={timelineError}
-													sources={{ entries: timelineEntries, groups: timelineGroups, questions, decisions: decided, feedback: feedbackEntries, workers: taskWorkers, now, deliveryShown: !!delivery }}
+													sources={{ entries: timelineEntries, groups: timelineGroups, questions, decisions: decided, feedback: feedbackEntries, workers: taskWorkers, now: liveNow ? undefined : now, taskLiveEnabled, deliveryShown: !!delivery }}
 													workerHref={(id) => { const worker = workers.find(entry => entry.id === id); return worker ? workerHref(worker) : undefined; }}
 													taskHref={(id) => withTask(page.url, id)} />
 											</TaskRecordFold>

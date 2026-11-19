@@ -88,6 +88,7 @@ describe("workerInstructions", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report.");
 			expect(text).toContain("Queue only a separate next task.");
+			expect(text).toContain("wait for it to finish and pass taskId with the new title");
 			expect(text).toContain("When a report repeats one already handled or adds nothing new, end the turn without a chat reply; do not acknowledge it, just as with uneventful check-ins.");
 		}
 		const text = workerInstructions({ id: "a", title: "t", project: project(), cwd: "/repo", isolation: "shared" });

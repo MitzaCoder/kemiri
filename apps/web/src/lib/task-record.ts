@@ -1,4 +1,4 @@
-import { markdownText, type BoardDecision, type BoardFeedback, type BoardQuestion, type BoardTaskActivity, type BoardTaskSnapshot, type BoardTimelineEntry, type BoardTimelineFact, type BoardTimelineGroup, type WorkerSummary } from '@kemiri/protocol';
+import { markdownText, type BoardDecision, type BoardFeedback, type BoardQuestion, type BoardTaskActivity, type BoardTaskLive, type BoardTaskSnapshot, type BoardTimelineEntry, type BoardTimelineFact, type BoardTimelineGroup, type WorkerSummary } from '@kemiri/protocol';
 import { timelineDay, type TimelineOrder } from './task-timeline.js';
 
 function answeredQuestionId(text: string | null): string | undefined {
@@ -56,6 +56,7 @@ export type ActivityRow = {
 	workerId?: string;
 	taskId?: string;
 	fact?: BoardTimelineFact;
+	live?: BoardTaskLive;
 	snapshot?: BoardTaskSnapshot;
 	now?: boolean;
 };
@@ -70,6 +71,7 @@ type ActivitySources = {
 	workers: readonly { id: string; worker?: WorkerSummary }[];
 	now?: { text: string; at: string; activity?: BoardTaskActivity };
 	deliveryShown: boolean;
+	taskLiveEnabled?: boolean;
 };
 
 function questionRef(entry: BoardTimelineEntry): string | undefined {
@@ -105,13 +107,13 @@ export function taskActivityRows(sources: ActivitySources): ActivityRow[] {
 		if (entry.kind === 'feedback' && feedbackIds.has(entry.ref ?? /^(?:Feedback )?(F\d+)\b/i.exec(entry.label)?.[1] ?? '')) continue;
 		if (snapshotKeys.has(JSON.stringify([entry.ref, entry.at, entry.label]))) continue;
 		if (sources.deliveryShown && isDeliveryMilestone(entry, fact)) continue;
-		const id = fact?.id ?? JSON.stringify([entry.kind, entry.ref, entry.at, entry.label]);
+		const id = fact?.id ?? (sources.taskLiveEnabled && entry.live?.lines[0] ? `live-run:${entry.live.lines[0].id}` : undefined) ?? JSON.stringify([entry.kind, entry.ref, entry.at, entry.label]);
 		if (seen.has(id)) continue;
 		seen.add(id);
 
 		const worker = entry.kind === 'worker' ? workerId(entry, fact) : undefined;
 		const at = fact?.endAt ?? entry.at;
-		const row: ActivityRow = { id, at, label: entry.kind === 'status' ? activityStatus(entry.label) : entry.label, detail: entry.detail, workerId: worker, fact,
+		const row: ActivityRow = { id, at, label: entry.kind === 'status' ? activityStatus(entry.label) : entry.label, detail: entry.detail, workerId: worker, fact, live: sources.taskLiveEnabled ? entry.live : undefined,
 			taskId: entry.kind === 'link' ? entry.ref : undefined };
 		if (worker) {
 			representedWorkers.add(worker);

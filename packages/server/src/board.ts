@@ -1,6 +1,7 @@
+import { foldedLiveEntries, recordLiveReport, takeLiveTrail, taskLive } from "./task-live.ts";
 import { buildTimelineGroups, recordTimelineRun, timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { deploySummary, type TaskDeployFact } from "./task-deploys.ts";
-import { activityTracking, taskActivity, endActivitySource, setActivityPhase, type TaskActivityTracking, DELIVERY_ACTIVITY_MS, taskState, taskQuietSince, TASK_PAUSED_MS, openTaskBlockers, pauseEpisode } from "./task-activity.ts";
+import { activityTracking, taskActivity, endActivitySource, type TaskActivityTracking, DELIVERY_ACTIVITY_MS, taskState, taskQuietSince, TASK_PAUSED_MS, openTaskBlockers, pauseEpisode } from "./task-activity.ts";
 import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
@@ -92,6 +93,7 @@ export type BoardState = {
  taskActivityEnabled?: boolean;
  taskStateEnabled?: boolean;
  taskPartStatesEnabled?: boolean;
+ taskLiveEnabled?: boolean;
  taskStateMigrated?: boolean;
  pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
@@ -427,7 +429,7 @@ export type ReportWrite = {
  * Rewrite the named sections of a task's report. Bumps only the report's revision, never the task's, so the user's edits
  * of the task do not conflict with it.
  */
-export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
+export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?: string): BoardTask {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
 	const { now, results, next, steps, summary, notDone, checks } = input.sections;
@@ -439,14 +441,7 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 	initializeTaskFreshness(state, task);
 	const previous = { results: report.results, next: report.next, steps: report.steps, summary: report.summary, notDone: report.notDone };
 	let checksChanged = false;
-	if (now !== undefined) {
-  if (!state.taskActivityEnabled) report.now = now.trim();
-  else {
-   const tracking = activityTracking(state, task.id);
-   const source = Object.values(tracking.sources).find(source => source.state === "running" && source.actor.threadId === input.by.threadId && (input.by.author === "worker" ? source.actor.name === input.by.workerId : source.actor.kind !== "worker"));
-   if (source) setActivityPhase(tracking, source.actor.id, now, input.now);
-  }
- }
+ if (now !== undefined && !state.taskActivityEnabled) report.now = now.trim();
 	if (results !== undefined) report.results = results.trim();
 	if (next !== undefined) report.next = next.trim();
 	if (steps !== undefined) {
@@ -477,13 +472,17 @@ export function writeReport(state: BoardState, input: ReportWrite): BoardTask {
 		if (!nextChecks.length) delete report.checks;
 		else if (checksChanged) report.checks = nextChecks;
 	}
-	if (input.addResult !== undefined) {
-		const line = input.addResult.trim();
-		const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
-		// The same line twice in a row is a rerun after a restart, not two results.
-		if (report.results === "") report.results = bullet;
-		else if (report.results.split("\n").pop() !== bullet) report.results = `${report.results}\n${bullet}`;
-	}
+ let addedResult: string | undefined;
+ if (input.addResult !== undefined) {
+  const line = input.addResult.trim();
+  const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
+  // The same line twice in a row is a rerun after a restart, not two results.
+  if (report.results.split("\n").pop() !== bullet) {
+   report.results = report.results ? `${report.results}\n${bullet}` : bullet;
+   addedResult = line.replace(/^[-*] /, "");
+  }
+ }
+ if (state.taskActivityEnabled) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey);
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
@@ -537,10 +536,22 @@ export async function writeReportIn(
 		noteTaskFact(state, input.taskId, { actor: input.by.author, writer: input.by, kind: "milestone", reason: input.milestone, at, sections: unchanged });
 		if (coverage === before) coverage += 1; // The writer authored this fact, but cannot cover an earlier unseen gap.
 	}
-	const written = writeReport(state, { ...input, coveredEventSeq: coverage, now: at });
+	const written = writeReport(state, { ...input, coveredEventSeq: coverage, now: at }, key);
 	const label = input.milestone?.trim() ?? "";
 	if (label === "") return written;
 	return snapshotMilestone(tx, mainId, state, { taskId: input.taskId, label, by: input.by, at, key });
+}
+
+/** Fold only as part of a run's existing lifecycle commit. No history document is opened for an empty trail. */
+export async function foldTaskLiveIn(tx: Tx, mainId: ConversationId, state: BoardState, taskId: string, sourceId: string, outcome: string, at: string, detail = ""): Promise<boolean> {
+ const tracking = state.taskActivity?.[taskId];
+ const source = tracking?.sources[sourceId];
+ const task = state.tasks.find(task => task.id === taskId);
+ if (!tracking || !source || !task) return false;
+ const live = takeLiveTrail(tracking, source);
+ if (!live) return false;
+ recordTimelineRun(await openTaskHistory(tx, mainId, taskId), task, source.actor, outcome, at, detail, live, source.liveStartedAt);
+ return true;
 }
 
 /** Snapshot a task under `label` because a report write named a milestone; opens its history in the commit. */
@@ -929,7 +940,7 @@ export function buildTimeline(
 			by: snapshot.by,
 		});
 	}
-	entries.push(...(history?.events ?? []));
+	entries.push(...(state.taskLiveEnabled ? foldedLiveEntries(history) : history?.events ?? []));
 	for (const question of state.questions.filter((candidate) => candidate.taskId === task.id)) {
 		for (const exchange of question.exchanges ?? []) entries.push({ at: exchange.at, kind: "question", label: `${question.id}${exchange.author.author === "user" ? ": you asked back" : exchange.previousWording ? " revised" : " clarified"}`, detail: exchange.text, ref: question.id, by: exchange.author });
   const word = question.kind === "warning" ? "Warning" : "Question";
@@ -1055,6 +1066,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 			const counted = subtasks.map((id) => byId.get(id)).filter((child): child is BoardTask => child !== undefined && child.status !== "dropped");
    const derived = state.taskStateEnabled ? stateFor(task) : undefined;
    const subtaskStates = state.taskPartStatesEnabled && derived && subtasks.length ? counted.map(child => stateFor(child).kind) : undefined;
+   const live = state.taskLiveEnabled && !isSettled(task) ? taskLive(tracking) : undefined;
    let shown = derived;
    if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
     const done = subtaskStates.filter(kind => kind === "done").length;
@@ -1068,6 +1080,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 				report: { ...(task.report ?? emptyReport()), ...(activity ? { now: activity.text } : {}) },
     ...(activity ? { activity } : {}),
     ...(shown ? { state: shown } : {}),
+    ...(live ? { live } : {}),
     ...(subtaskStates ? { subtaskStates } : {}),
 				snapshots: task.snapshots ?? 0,
 				refs: task.refs ?? [],
@@ -2180,6 +2193,7 @@ export type BoardServiceOptions = {
  taskActivity?: boolean;
  taskState?: boolean;
  taskPartStates?: boolean;
+ taskLive?: boolean;
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
  threadTitle?: (threadId: string) => Promise<string | undefined>;
@@ -2484,6 +2498,7 @@ export class BoardService {
    state.taskActivityEnabled = this.#options.taskActivity !== false;
    state.taskStateEnabled = this.#options.taskState !== false;
    state.taskPartStatesEnabled = this.#options.taskPartStates !== false;
+   state.taskLiveEnabled = this.#options.taskLive !== false;
    await this.#change(tx, HARNESS_WRITER, "task-state-migration", (doc, now) => {
     const notices = migrateTaskStates(doc, now);
     if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
@@ -2852,10 +2867,15 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
  async #syncThreadTimeline(tx: Tx, state: BoardState, before: ReadonlyMap<string, string>): Promise<void> {
   for (const task of state.tasks) {
-   const sources = Object.values(state.taskActivity?.[task.id]?.sources ?? {}).filter(source => source.actor.kind === "thread" && source.state !== "unknown" && before.get(`${task.id}:${source.actor.id}`) !== source.state);
+   const sources = Object.values(state.taskActivity?.[task.id]?.sources ?? {}).filter(source => source.state !== "running" || source.actor.kind === "thread").filter(source => before.get(`${task.id}:${source.actor.id}`) !== source.state);
    if (!sources.length) continue;
-   const history = await openTaskHistory(tx, this.#mainId, task.id);
-   for (const source of sources) recordTimelineRun(history, task, source.actor, source.state, source.since, source.failure ?? source.title);
+   for (const source of sources) {
+    if (source.state === "ended" || source.state === "failed") {
+     const folded = await foldTaskLiveIn(tx, this.#mainId, state, task.id, source.actor.id, source.state, source.since, source.failure);
+     if (folded) continue;
+    }
+    if (source.actor.kind === "thread" && source.state !== "unknown") recordTimelineRun(await openTaskHistory(tx, this.#mainId, task.id), task, source.actor, source.state, source.since, source.failure ?? source.title);
+   }
   }
  }
 

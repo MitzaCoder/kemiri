@@ -1,4 +1,4 @@
-import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState } from "@kemiri/protocol";
+import type { BoardTask, BoardTaskActivity, BoardActivityActor, BoardQuestion, BoardTaskState, BoardLiveLine } from "@kemiri/protocol";
 
 /** Durable run identities, never worker names alone. Deployment facts have separate typed slots. */
 export type TaskActivitySource = {
@@ -6,11 +6,13 @@ export type TaskActivitySource = {
  state: "running" | "failed" | "ended" | "unknown";
  since: string;
  phase?: string;
+ liveStartedAt?: string;
  title: string;
  failure?: string;
 };
 export type TaskActivityTracking = {
  sources: Record<string, TaskActivitySource>;
+ liveLines?: BoardLiveLine[];
  pauseNudgedEpisode?: string;
  lastEndedAt?: string;
  status?: BoardTask["status"];
@@ -78,13 +80,14 @@ export function endActivitySource(tracking: TaskActivityTracking, id: string, at
  tracking.lastEndedAt = at;
 }
 
-export function setActivityPhase(tracking: TaskActivityTracking, id: string, phase: string, at: string): void {
+export function setActivityPhase(tracking: TaskActivityTracking, id: string, phase: string, at: string): string | undefined {
  const source = tracking.sources[id];
  const short = phase.replace(/\s+/g, " ").trim().slice(0, 160);
  if (!source || source.state !== "running" || (source.phase ?? "") === short) return;
  if (short) source.phase = short;
  else delete source.phase;
  source.since = at;
+ return short || undefined;
 }
 
 export const TASK_PAUSED_MS = 15 * 60 * 1000;

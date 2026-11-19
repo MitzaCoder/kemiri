@@ -67,6 +67,7 @@ import { Type } from "typebox";
 import { mkdir } from "node:fs/promises";
 import {
 	BoardDoc,
+	foldTaskLiveIn,
 	type BoardState,
 	HARNESS_WRITER,
 	ReportCheckInputSchema,
@@ -151,12 +152,17 @@ export async function syncWorkerActivity(tx: Tx, service: WorkerService, worker:
   for (const source of Object.values(tracking.sources)) if (source.actor.kind === "worker" && source.actor.threadId === threadId && source.actor.name === worker.id && source.actor.id !== id) {
    if (source.state === "failed" && source.actor.conversationId === worker.conversationId) source.state = "ended"; // Retry of this conversation, not reuse of a worker name.
    endActivitySource(tracking, source.actor.id, worker.updatedAt);
+   await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, source.actor.id, "reported", worker.updatedAt);
   }
   if (tracking.sources[id]?.state !== "running") tracking.sources[id] = { actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "running", title: worker.title, since: worker.updatedAt };
  } else if (worker.status === "failed") {
+  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, "failed", worker.updatedAt, worker.failure ?? "no reason given");
   tracking.sources[id] = { actor: { id, kind: "worker", name: worker.id, threadId, conversationId: worker.conversationId, runId }, state: "failed", title: worker.title, since: worker.updatedAt, failure: worker.failure ?? "no reason given" };
   tracking.lastEndedAt = worker.updatedAt;
- } else endActivitySource(tracking, id, worker.updatedAt);
+ } else {
+  endActivitySource(tracking, id, worker.updatedAt);
+  await foldTaskLiveIn(tx, service.mainId as ConversationId, board, worker.taskId, id, worker.status === "stopped" ? "stopped" : "reported", worker.updatedAt);
+ }
  const task = board.tasks.find(task => task.id === worker.taskId);
  if (task) {
   const history = await openTaskHistory(tx, service.mainId as ConversationId, task.id);
@@ -693,7 +699,7 @@ function checkInsParagraph(project: Project): string {
 }
 
 /** Shared by main and background coordinators. */
-const WORKER_MESSAGE_RULES = "To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report. Queue only a separate next task. When a report repeats one already handled or adds nothing new, end the turn without a chat reply; do not acknowledge it, just as with uneventful check-ins.";
+const WORKER_MESSAGE_RULES = "To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report. Queue only a separate next task. To move a task-linked worker to another board task, wait for it to finish and pass taskId with the new title. When a report repeats one already handled or adds nothing new, end the turn without a chat reply; do not acknowledge it, just as with uneventful check-ins.";
 
 /** What the coordinator is told once, in its system prompt. */
 export function coordinatorSection(project: Project): string {
@@ -789,7 +795,7 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYou were started for the board task ${options.taskId}. The user reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
+			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run. Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -2213,6 +2219,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 			interrupt: Type.Optional(
 				Type.Boolean({ description: "Steer the running answer instead of queueing after it. Default false." }),
 			),
+   taskId: Type.Optional(Type.String({ minLength: 1, description: "Move this task-linked worker to a different board task after it finishes its current answer." })),
 			title: Type.Optional(
 				Type.String({ minLength: 1, description: "A new title for the worker list, when this message gives it a new task." }),
 			),
@@ -2235,10 +2242,36 @@ function createWorkerExtension(service: WorkerService): Extension {
 				);
 			}
 			const checkIn = await service.checkInNeeded(context, api.conversationId);
-			await api.commit(async (tx) => {
+			try { await api.commit(async (tx) => {
 				const doc = await tx.doc(WorkersDoc, api.conversationId);
 				const worker = doc.workers[args.id];
-				if (worker !== undefined) {
+    if (!worker || worker.conversationId !== record.conversationId || worker.status === "done") throw new ServerError("bad_request", "The worker is no longer available.");
+    const reassigned = args.taskId !== undefined && args.taskId !== worker.taskId;
+    if (reassigned) {
+     if (!worker.taskId || worker.scheduleId || worker.status === "running") throw new ServerError("bad_request", "Reassignment needs a task-linked, non-scheduled worker that has finished its current answer.");
+     const mainId = service.mainId as ConversationId;
+     const board = await openBoard(tx, mainId);
+     const task = board.tasks.find(task => task.id === args.taskId);
+     if (!task) throw new ServerError("unknown_task", `No task "${args.taskId}" on the board.`);
+     const threadId = service.coordinators.threadIdOf(api.conversationId) ?? "main";
+     if (task.ownerThreadId && task.ownerThreadId !== threadId) throw new ServerError("board_conflict", `Task ${task.id} belongs to another thread.`);
+     const now = new Date().toISOString();
+     const previousTaskId = worker.taskId;
+     const tracking = activityTracking(board, previousTaskId);
+     for (const source of Object.values(tracking.sources)) if (source.actor.kind === "worker" && source.actor.conversationId === worker.conversationId && source.actor.threadId === threadId) {
+      endActivitySource(tracking, source.actor.id, now);
+      await foldTaskLiveIn(tx, mainId, board, previousTaskId, source.actor.id, "reported", now);
+     }
+     const statuses = statusesOf(board);
+     const links = linksOfBoard(board);
+     moveTaskForWorker(board, { key: `worker-send:${api.callId}`, taskId: task.id, move: { kind: "spawned", workerId: worker.id }, now });
+     await snapshotStatusChanges(tx, mainId, board, statuses, { by: HARNESS_WRITER, at: now, key: `worker-send:${api.callId}` });
+     await logLinkChanges(tx, mainId, board, links, { by: HARNESS_WRITER, at: now });
+     worker.taskId = task.id;
+     worker.title = (args.title ?? task.title).slice(0, 120);
+     worker.workspaceReused = true;
+    }
+    {
 					if (worker.status !== "running" && worker.taskId != null) {
 						const board = await openBoard(tx, service.mainId as ConversationId);
 						noteTaskFact(board, worker.taskId, { actor: "coordinator", kind: "worker_resume", reason: "worker resumed", at: new Date().toISOString() });
@@ -2259,7 +2292,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 						workerId: args.id,
 						conversationId: record.conversationId,
 						callId: api.callId,
-						message: args.message,
+						message: args.taskId === undefined ? args.message : `[task ${args.taskId}] ${args.message}`,
 						followUp: args.interrupt !== true,
 					},
 					{
@@ -2269,7 +2302,9 @@ function createWorkerExtension(service: WorkerService): Extension {
 					},
 				);
 				await service.startCheckIn(tx, doc, api.conversationId, checkIn);
-			}, context);
+			}, context); } catch (error) {
+				return toolText(errorMessage(error), { isError: true });
+			}
 			await api.details({ workerId: args.id, conversationId: record.conversationId }, context);
 			return toolText(`Sent to worker "${args.id}". Its report arrives as a message.`, {
 				details: { workerId: args.id, conversationId: record.conversationId },
@@ -2537,7 +2572,7 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
 			"With no report fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
 		parameters: Type.Object({
 			now: Type.Optional(
-				Type.String({ description: "Optional few-word phase, only when it really changes. Expires with this run. Now is automatic; empty clears the phase." }),
+				Type.String({ description: "Optional few-word phase, only when it really changes. Adds a line to this run’s trail. Now is automatic; empty clears the phase." }),
 			),
 			addResult: Type.Optional(
 				Type.String({ minLength: 1, description: "One finished outcome in a whole sentence, added as a bullet. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId." }),
@@ -2605,9 +2640,13 @@ function createWorkerTaskExtension(service: WorkerService): Extension {
    if (!place?.record.taskId) return undefined;
    await service.harness.commit(async tx => {
     const state = await openBoard(tx, service.mainId as ConversationId);
-    const tracking = activityTracking(state, place.record.taskId!);
     const id = `${place.threadId}:${api.conversationId}:${run.first}`;
-    endActivitySource(tracking, id, new Date().toISOString());
+    const at = new Date().toISOString();
+    for (const [taskId, tracking] of Object.entries(state.taskActivity ?? {})) {
+     if (!tracking.sources[id]) continue;
+     endActivitySource(tracking, id, at);
+     await foldTaskLiveIn(tx, service.mainId as ConversationId, state, taskId, id, "reported", at);
+    }
    }, context);
    return undefined;
   },

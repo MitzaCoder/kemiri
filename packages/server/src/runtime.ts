@@ -235,6 +235,7 @@ export type ProjectManagerOptions = {
  taskActivity?: boolean;
  taskState?: boolean;
  taskPartStates?: boolean;
+ taskLive?: boolean;
 	reportAudit?: boolean;
 	/**
 	 * The backend's memory scopes. Default: one over the store's data directory, without change notifications, which only
@@ -324,6 +325,7 @@ export class ProjectManager {
  readonly #taskActivity: boolean;
  readonly #taskState: boolean;
  readonly #taskPartStates: boolean;
+ readonly #taskLive: boolean;
 	readonly #reportAudit: boolean;
 	/** Shared across project summaries; pending auth checks are coalesced too. */
 	readonly #auditModelCache = new Map<string, { expiresAt: number; model: ReturnType<typeof chooseAuditModel> }>();
@@ -387,6 +389,7 @@ export class ProjectManager {
   this.#taskActivity = options.taskActivity !== false;
   this.#taskState = options.taskState !== false;
   this.#taskPartStates = options.taskPartStates !== false;
+  this.#taskLive = options.taskLive !== false;
 		this.#reportAudit = options.reportAudit !== false;
 		this.#now = options.now;
 		this.#setTimer = options.setTimer;
@@ -1289,6 +1292,7 @@ export class ProjectManager {
    taskActivity: this.#taskActivity,
    taskState: this.#taskState,
    taskPartStates: this.#taskPartStates,
+   taskLive: this.#taskLive,
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
 			threadTitle: async (id) => (await threads.record(id))?.title,

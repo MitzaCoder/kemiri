@@ -3217,6 +3217,31 @@ changes add no timeline rows, snapshots, freshness facts, nudges or model calls.
 board document transitions push immediately; clients tick ages without polling writes.
 The scheduled-report path still records Results and review state; it cannot leave prose Now.
 
+#### Live run trail (T312, stage A of T305)
+
+`task-live` adds optional `task.live: { lines }` for tasks with a running activity source.
+Each chronological line has an opaque `id`, ISO `at`, `kind`, plain `text`, and the existing
+activity `actor`. Stage A writes only `phase` and `result`; clients skip unknown kinds.
+The board retains the newest 30 lines across running sources on each task. `writeReportIn`
+adds a non-empty phase only when it changes; only a worker's appended Results bullet adds
+a result line. Legacy coordinator Now can add a phase on the coordinator's own source.
+There are no extra commits, per-line timeline rows, snapshots, freshness facts, nudges or
+model requests. Checks and explicit milestones keep their separate existing behavior.
+
+When a source ends, fails, stops or is forgotten, its retained lines leave the Live block
+and become optional `live` details on one existing or new Work timeline fact. Flat Activity
+projects that same run row in place of its legacy worker events; runs without lines are unchanged.
+`worker_send` can reassign a task-linked, non-scheduled worker with `taskId` after its current
+answer finishes. Its next report and Live trail go to the new task, not the original brief.
+
+On web, a working task shows Live below Needs you and above What you get. Now appears only
+once, followed by So far in newest-first order, with all but three folded under Earlier.
+The shared minute clock supplies local ages. A device-local checkpoint per backend, project
+and task advances only while the sheet is open and the document is visible. The divider
+remembers where that visit started; new arrivals highlight once unless reduced motion is set.
+No notifications are sent. The same lines can be opened from the completed Activity row.
+Backends without the flag retain the previous view; Android rendering is a separate stage.
+
 ### Report freshness (T121, stage 1 of T120)
 
 The web Report section shows section-local ages (ticking locally every 30 seconds), uncovered event

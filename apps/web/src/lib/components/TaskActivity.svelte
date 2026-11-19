@@ -9,6 +9,8 @@
 	import { timelineOrder } from '#lib/timeline-order.svelte.js';
 	import { timelineClock } from '#lib/timeline-groups.js';
 	import TaskSnapshotDetail from './TaskSnapshotDetail.svelte';
+	import TaskLiveLine from './TaskLiveLine.svelte';
+	import { visibleLiveLines } from '#lib/task-live.js';
 
 	let { board, task, sources, loading, error, writerName, workerHref, taskHref }: {
 		board: ProjectBoard | undefined;
@@ -45,7 +47,7 @@
 
 {#snippet activityLine(row: ActivityRow)}
 	{#if row.at}<time class="activity-time" datetime={row.at} title={exactTime(row.at)}>{timelineClock(row.at)}</time>{:else}<span class="activity-time" aria-hidden="true">—</span>{/if}
-	<span class="min-w-0 truncate" title={activityText(row.label)}>{#if row.now}<span class="font-semibold">Now · </span>{/if}{activityText(row.label)}</span>
+	<span class="min-w-0 {row.live ? '[overflow-wrap:anywhere]' : 'truncate'}" title={activityText(row.label)}>{#if row.now}<span class="font-semibold">Now · </span>{/if}{activityText(row.label)}</span>
 {/snippet}
 
 <div class="flex flex-col gap-2" data-task-activity>
@@ -65,7 +67,7 @@
 						{@const worker = row.workerId ? workerHref(row.workerId) : undefined}
 						{@const href = row.taskId ? taskHref(row.taskId) : worker}
 						<li>
-							{#if row.snapshot || row.detail || (row.fact && row.fact.endAt !== row.fact.at) || row.label.length > 42}
+							{#if row.live || row.snapshot || row.detail || (row.fact && row.fact.endAt !== row.fact.at) || row.label.length > 42}
 								<details>
 									<summary class="activity-line cursor-pointer">
 										{@render activityLine(row)}<ChevronRightIcon class="activity-chevron ml-auto size-4 shrink-0" aria-hidden="true" />
@@ -75,7 +77,12 @@
 											<TaskSnapshotDetail {task} snapshot={row.snapshot} before={previousSnapshot.get(row.snapshot.seq)} {writerName} />
 										{:else}
 											{#if row.fact && row.fact.endAt !== row.fact.at}<p class="text-xs text-(--chat-fg-muted)">Started {exactTime(row.fact.at)}</p>{/if}
-											<p>{activityText(row.detail || row.label)}</p>
+											{#if row.live}
+												<ul role="list" class="flex flex-col gap-1">
+													{#each visibleLiveLines(row.live.lines) as line (line.id)}<TaskLiveLine {line} />{/each}
+												</ul>
+											{/if}
+											{#if row.detail || !row.live}<p>{activityText(row.detail || row.label)}</p>{/if}
 										{/if}
 										{#if href}<a {href} class="underline">{worker ? 'Open worker' : 'Open linked task'}</a>{/if}
 									</div>

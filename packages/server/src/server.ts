@@ -566,6 +566,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskActivity: features.includes("task-activity"),
   taskState: features.includes("task-state"),
   taskPartStates: features.includes("task-part-states"),
+  taskLive: features.includes("task-live"),
 		reportAudit: features.includes("report-audit"),
 		diskWarnings: () => diskMonitor?.warnings() ?? [],
 		store,
