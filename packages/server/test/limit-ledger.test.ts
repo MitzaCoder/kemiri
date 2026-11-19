@@ -107,7 +107,7 @@ it("opens a period before any request and binds requests to the longest unscoped
 	f.read(20);
 	f.read(30, { id: "metered", windowMinutes: 12_000, scope: "Synthetic model", label: "Synthetic limit" });
 	expect(f.periods()).toMatchObject([
-		{ id: 1, requests: 0, scope: null }, { id: 2, requests: 0, kemiri_points: null, elsewhere_points: null },
+		{ id: 1, requests: 0, scope: null }, { id: 2, requests: 0, kemiri_points: 0, elsewhere_points: 20 },
 		{ id: 3, requests: 0, scope: "Synthetic model", window_minutes: 12_000, label: "Synthetic limit" },
 	]);
 	f.advance(MINUTE);
@@ -158,6 +158,58 @@ it("migrates schema 2 and seeds the roll-up for retained rows exactly once", () 
 			expect(sql.query("SELECT * FROM subscription_terms").all()).toEqual([]);
 		} finally { reopened.close(); }
 	}
-	sql.exec("UPDATE meta SET value = '4' WHERE key = 'schema_version'");
-	expect(() => RequestLogStore.open(path)).toThrow("schema 4 is newer");
+	sql.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
+	expect(() => RequestLogStore.open(path)).toThrow("schema 5 is newer");
+});
+
+it.each([
+	{ label: "a request ends inside", duration: 5 * MINUTE, kemiri: 10, elsewhere: 0, apiValue: 0.125 },
+	{ label: "a request ends two minutes before", duration: MINUTE, kemiri: 10, elsewhere: 0, apiValue: 0 },
+	{ label: "the jump is after a quiet stretch", duration: MINUTE - 1, kemiri: 0, elsewhere: 10, apiValue: 0 },
+	{ label: "a request is still running", duration: 9 * MINUTE, kemiri: 0, elsewhere: 10, apiValue: 0 },
+	{ label: "the first reading starts above zero", duration: 5 * MINUTE, kemiri: 10, elsewhere: 7, apiValue: 0.125 },
+])("splits a period when $label", ({ duration, kemiri, elsewhere, apiValue }) => {
+	const f = fixture();
+	const first = elsewhere === 7 ? 7 : 0;
+	f.advance(3 * MINUTE);
+	f.read(first);
+	f.advance(4 * MINUTE);
+	f.read(first + 10);
+	// Headers can enter the ledger before the completed response reaches the log.
+	f.store.insert(request({ at: START, durationMs: duration }));
+	expect(f.periods()).toMatchObject([{ kemiri_points: kemiri, elsewhere_points: elsewhere, observed_api_value: apiValue }]);
+	f.advance(MINUTE);
+	f.read(0);
+	f.store.insert(request({ at: START, durationMs: 5 * MINUTE }));
+	expect(f.periods()).toMatchObject([{ kemiri_points: kemiri, elsewhere_points: elsewhere, observed_api_value: apiValue },
+		{ kemiri_points: 0, elsewhere_points: 0 }]);
+});
+
+it("upgrades schema 3, leaving only already-pruned UTC days approximate at local month boundaries", () => {
+	const dir = mkdtempSync(join(tmpdir(), "value-migration-"));
+	cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "test.sqlite");
+	const midnight = Date.parse("2026-02-01T00:00:00Z");
+	const store = RequestLogStore.open(path, { now: START });
+	store.insertMany([request({ at: midnight - 2 * 60 * MINUTE }), request({ at: midnight - MINUTE }), request({ at: midnight + MINUTE })]);
+	store.close();
+	using sql = new Database(path);
+	// Turn the synthetic rows into the schema-3 equivalents, including one request already pruned.
+	sql.exec(`DROP INDEX usage_rollup_group;
+		ALTER TABLE usage_rollup DROP COLUMN minute;
+		UPDATE usage_rollup SET requests = 2, cost = 0.25 WHERE rowid = 1;
+		DELETE FROM usage_rollup WHERE rowid = 2;
+		CREATE UNIQUE INDEX usage_rollup_group ON usage_rollup (day, project_id, coalesce(task_id, 0),
+			coalesce(worker_id, 0), coalesce(thread_id, 0), role, provider, model, coalesce(billing, 0), coalesce(period_id, ''));
+		DELETE FROM requests WHERE id = 1;
+		ALTER TABLE limit_periods DROP COLUMN observed_api_value;
+		ALTER TABLE limit_periods DROP COLUMN measured_through;
+		ALTER TABLE subscription_terms DROP COLUMN login_since;
+		UPDATE meta SET value = '3' WHERE key = 'schema_version'`);
+	const reopened = RequestLogStore.open(path);
+	cleanups.push(() => reopened.close());
+	const feb = (offset: number) => reopened.monthlyUsage(midnight - offset, midnight + 28 * DAY - offset);
+	expect(feb(0)).toMatchObject({ groups: [{ cost: 0.125 }], approximate: false });
+	expect(feb(60 * MINUTE)).toMatchObject({ groups: [{ cost: 0.25 }], approximate: true });
+	expect(sql.query("SELECT sum(cost) AS cost, sum(requests) AS requests FROM usage_rollup").get()).toEqual({ cost: 0.375, requests: 3 });
 });

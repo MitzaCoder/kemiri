@@ -6,6 +6,10 @@ import { API_KEY_PLAN_PROVIDERS } from "./subscription-usage.ts";
 export async function requestBilling(credentials: CredentialStore, models: Models, provider: string): Promise<RequestBilling | null> {
 	const stored = (await credentials.list()).find((credential) => credential.providerId === provider);
 	const type = stored?.type ?? (await models.checkAuth(provider))?.type;
+	return credentialBilling(provider, type);
+}
+
+export function credentialBilling(provider: string, type: string | undefined): RequestBilling | null {
 	if (type === "oauth") return "subscription";
 	if (type === "api_key") return API_KEY_PLAN_PROVIDERS.has(provider) ? "plan_key" : "api_key";
 	return null;

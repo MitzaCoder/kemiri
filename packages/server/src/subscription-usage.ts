@@ -22,6 +22,7 @@ import { Value } from "typebox/value";
 import { CLAUDE_USAGE_USER_AGENT, consumeReset, discoverResets, type ResetTransport } from "./subscription-resets.ts";
 import type { SubscriptionResets, SubscriptionsResetRequest } from "@kemiri/protocol";
 import { errorMessage } from "./errors.ts";
+import type { SubscriptionTerms } from "./subscription-terms.ts";
 import { RESET_TOLERANCE_MS, type LimitLedger, type LimitReading } from "./limit-ledger.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 
@@ -71,6 +72,7 @@ export type SubscriptionUsageOptions = {
 	credentials: CredentialStore;
 	dataDir: string;
 	ledger?: Pick<LimitLedger, "reading" | "manualReset">;
+	terms?: SubscriptionTerms;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
 	fetch?: typeof fetch;
 	now?: () => number;
@@ -128,6 +130,9 @@ export class SubscriptionUsageService {
 	readonly #minReadGapMs: number;
 	readonly #log: (message: string) => void;
 	readonly #ledger: SubscriptionUsageOptions["ledger"];
+	readonly #terms: SubscriptionTerms | undefined;
+	readonly #replacedCredentials = new Set<string>();
+	readonly #storedCredentialTypes = new Map<string, string>();
 	readonly #readers: Record<string, UsageReader>;
 	readonly #states = new Map<string, ProviderState>();
 	readonly #resetAttempts = new Map<string, { signature: string; answer: Promise<{ ok: boolean; code: string }> }>();
@@ -155,6 +160,7 @@ export class SubscriptionUsageService {
 		this.#minReadGapMs = options.minReadGapMs ?? DEFAULT_MIN_READ_GAP_MS;
 		this.#log = options.log ?? (() => {});
 		this.#ledger = options.ledger;
+		this.#terms = options.terms;
 		this.#readers = {
 			anthropic: (auth, state) => this.#readClaude(auth.apiKey, state),
 			"openai-codex": (auth) => this.#readChatGpt(auth.apiKey),
@@ -242,8 +248,18 @@ export class SubscriptionUsageService {
 	}
 
 	/** A login or logout changed the credentials: pick up the new set and read the new ones. */
-	credentialsChanged(): void {
+	credentialsChanged(providerId?: string): void {
+		if (providerId !== undefined) {
+			this.#replacedCredentials.add(providerId);
+			const state = this.#states.get(providerId);
+			if (state?.afterTurnTimer !== undefined) clearTimeout(state.afterTurnTimer);
+			this.#states.delete(providerId);
+		}
 		void this.#poll();
+	}
+
+	label(providerId: string): string {
+		return PROVIDER_LABELS[providerId] ?? this.#models.getProvider(providerId)?.name ?? providerId;
 	}
 
 	/**
@@ -350,7 +366,7 @@ export class SubscriptionUsageService {
 					reading.manualResets = (transport ? await discoverResets(transport) : null) ?? reading.manualResets ?? null;
 					state.resetsReadAt = this.#now();
 				}
-				this.#apply(providerId, reading);
+				if (this.#states.get(providerId) === state) this.#apply(providerId, reading);
 			} catch (error) {
 				const message = this.#describeFailure(state, error);
 				if (this.#states.get(providerId) === state) state.usage = { ...state.usage, error: message };
@@ -477,8 +493,23 @@ export class SubscriptionUsageService {
 				)
 				.map((credential) => credential.providerId),
 		);
-		const stored = new Set(credentials.map((credential) => credential.providerId));
+		const stored = new Map(credentials.map(credential => [credential.providerId, credential.type]));
 		let changed = false;
+		for (const providerId of new Set([...stored.keys(), ...this.#storedCredentialTypes.keys(), ...this.#replacedCredentials])) {
+			const type = stored.get(providerId);
+			const previousType = this.#storedCredentialTypes.get(providerId);
+			const replaced = this.#replacedCredentials.delete(providerId);
+			const loginChanged = replaced || (previousType !== undefined && previousType !== type);
+			if (loginChanged) {
+				const state = this.#states.get(providerId);
+				if (state?.afterTurnTimer !== undefined) clearTimeout(state.afterTurnTimer);
+				this.#states.delete(providerId);
+				changed = true;
+			}
+			if (type === undefined) this.#storedCredentialTypes.delete(providerId);
+			else this.#storedCredentialTypes.set(providerId, type);
+			this.#observeTerms(providerId, this.#states.get(providerId)?.usage.plan ?? null, this.#now(), loginChanged);
+		}
 		for (const [providerId, state] of this.#states) {
 			// A plain API key has no plan limits; it stays only while headers give it windows.
 			const keep = oauth.has(providerId) || (stored.has(providerId) && state.usage.windows.length > 0);
@@ -504,7 +535,9 @@ export class SubscriptionUsageService {
 			await this.#load();
 			if (!this.#states.has(providerId)) {
 				const credentials = await this.#credentials.list();
-				if (!credentials.some((credential) => credential.providerId === providerId)) return;
+				const credential = credentials.find((credential) => credential.providerId === providerId);
+				if (!credential || this.#replacedCredentials.has(providerId)) return;
+				this.#storedCredentialTypes.set(providerId, credential.type);
 				this.#states.set(providerId, this.#newState(this.#emptyUsage(providerId)));
 			}
 			this.#apply(providerId, reading, source);
@@ -519,11 +552,21 @@ export class SubscriptionUsageService {
 		const state = this.#states.get(providerId);
 		if (state === undefined) return;
 		const at = this.#now();
+		const plan = reading.plan === undefined ? state.usage.plan : reading.plan;
+		this.#observeTerms(providerId, plan, at);
 		for (const window of reading.windows) {
 			try { this.#ledger?.reading(providerId, { ...window, source }, at); }
 			catch (error) { this.#log(`limit ledger: could not record a reading: ${errorMessage(error)}`); }
 		}
 		state.usage = applyReading(state.usage, reading, new Date(at).toISOString());
+	}
+
+	#observeTerms(providerId: string, plan: string | null, at: number, loginChanged = false): void {
+		const type = this.#storedCredentialTypes.get(providerId);
+		const billing = type === "oauth" ? "subscription" : type === "api_key"
+			? (API_KEY_PLAN_PROVIDERS.has(providerId) ? "plan_key" : "api_key") : null;
+		try { this.#terms?.observe(providerId, billing === "api_key" ? null : plan, billing, at, loginChanged); }
+		catch (error) { this.#log(`subscription usage: could not record terms: ${errorMessage(error)}`); }
 	}
 
 	#newState(usage: SubscriptionUsage): ProviderState {
@@ -542,7 +585,7 @@ export class SubscriptionUsageService {
 	#emptyUsage(providerId: string): SubscriptionUsage {
 		return {
 			providerId,
-			label: PROVIDER_LABELS[providerId] ?? this.#models.getProvider(providerId)?.name ?? providerId,
+			label: this.label(providerId),
 			plan: null,
 			account: null,
 			windows: [],
@@ -631,7 +674,7 @@ export function applyReading(usage: SubscriptionUsage, reading: UsageReading, at
 		updatedAt: at,
 		error: null,
 		...(reading.manualResets === undefined ? {} : { manualResets: reading.manualResets }),
-		...(reading.plan == null ? {} : { plan: reading.plan }),
+		...(reading.plan === undefined ? {} : { plan: reading.plan }),
 		...(reading.account == null ? {} : { account: reading.account }),
 	};
 }
@@ -828,6 +871,7 @@ export function parseClaudeUsage(body: unknown): WindowReading[] {
 }
 
 const CLAUDE_TIERS: [RegExp, string][] = [
+	[/ultra/, "Ultra"],
 	[/max_20x/, "Max 20x"],
 	[/max_5x/, "Max 5x"],
 	[/max/, "Max"],
@@ -885,7 +929,11 @@ export function parseOpenCodeGoUsage(body: unknown): UsageReading {
 	if (windows.length === 0) {
 		throw new Error("The OpenCode Go usage endpoint reported no limits; does this key have a Go plan?");
 	}
-	return { source: "usage_api", windows };
+	// The plan key identifies the Go family, not the tier. A bare usage response does not confirm base Go.
+	const rawPlan = isRecord(body) ? body.plan_type ?? body.plan : undefined;
+	const plan = typeof rawPlan === "string" && rawPlan.trim() !== ""
+		? rawPlan.trim().toLowerCase().split(/[_\s-]+/).map(capitalize).join(" ") : null;
+	return { source: "usage_api", windows, plan };
 }
 
 /** Minutes in the calendar month ending at `iso` (UTC), e.g. 5 Nov to 5 Dec is 30 days. */
@@ -1047,7 +1095,7 @@ export function parseCodexRateLimitEvent(data: unknown): UsageReading | undefine
 		});
 	}
 	if (windows.length === 0) return undefined;
-	return { source: "response_headers", windows, plan: codexPlanLabel(data.plan_type) };
+	return { source: "response_headers", windows, ...(data.plan_type === undefined ? {} : { plan: codexPlanLabel(data.plan_type) }) };
 }
 
 function lowerCaseKeys(headers: Record<string, string>): Record<string, string> {

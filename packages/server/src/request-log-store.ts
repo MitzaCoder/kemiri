@@ -15,12 +15,13 @@ import {
 	type WakeReason,
 } from "@kemiri/protocol";
 import type { PromptFingerprint } from "./prompt-fingerprint.ts";
-import { createLimitLedgerTables, LimitLedger } from "./limit-ledger.ts";
+import { createLimitLedgerTables, createRequestEndIndex, LimitLedger } from "./limit-ledger.ts";
+import { SubscriptionTerms } from "./subscription-terms.ts";
 import { usageRole } from "./usage-analysis.ts";
 
 export const REQUEST_LOG_FILE = "request-log.sqlite";
 export const REQUEST_LOG_KEEP_DAYS = 90;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Which conversation sent a request. */
@@ -235,41 +236,51 @@ function fromDb(row: DbRow): RequestRow {
 function createUsageRollup(db: Database): void {
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS usage_rollup (
-			day TEXT NOT NULL, project_id TEXT NOT NULL, task_id TEXT, worker_id TEXT, thread_id TEXT,
+			day TEXT NOT NULL, minute INTEGER, project_id TEXT NOT NULL, task_id TEXT, worker_id TEXT, thread_id TEXT,
 			role TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, billing TEXT, period_id INTEGER,
 			requests INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 			output INTEGER NOT NULL, cost REAL NOT NULL, unpriced_requests INTEGER NOT NULL
 		) STRICT;
 		CREATE UNIQUE INDEX IF NOT EXISTS usage_rollup_group ON usage_rollup (
-			day, project_id, coalesce(task_id, 0), coalesce(worker_id, 0), coalesce(thread_id, 0),
+			day, coalesce(minute, ''), project_id, coalesce(task_id, 0), coalesce(worker_id, 0), coalesce(thread_id, 0),
 			role, provider, model, coalesce(billing, 0), coalesce(period_id, '')
 		);
 	`);
 }
 
-function addToUsageRollup(db: Database, row: RequestRow): void {
+function addToUsageRollup(db: Database, row: RequestRow, legacy = false): void {
+	const sign = legacy ? -1 : 1;
 	// The grouping index treats missing dimensions as equal, using a different SQLite type from each column.
-	db.query(`INSERT INTO usage_rollup (day, project_id, task_id, worker_id, thread_id, role, provider, model, billing, period_id,
+	db.query(`INSERT INTO usage_rollup (day, minute, project_id, task_id, worker_id, thread_id, role, provider, model, billing, period_id,
 		requests, input, cache_read, cache_write, output, cost, unpriced_requests)
-		VALUES (date(? / 1000.0, 'unixepoch'), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO UPDATE SET requests = requests + 1, input = input + excluded.input,
+		VALUES (date(? / 1000.0, 'unixepoch'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET requests = requests + excluded.requests, input = input + excluded.input,
 		cache_read = cache_read + excluded.cache_read, cache_write = cache_write + excluded.cache_write,
 		output = output + excluded.output, cost = cost + excluded.cost, unpriced_requests = unpriced_requests + excluded.unpriced_requests`
-	).run(row.at, row.projectId, row.taskId, row.workerId, row.threadId, usageRole(row), row.provider, row.model,
-		row.billing ?? null, row.periodId ?? null, row.input, row.cacheRead, row.cacheWrite, row.output, row.cost, Number(row.priced === false));
+	).run(row.at, legacy ? null : Math.floor(row.at / 60_000), row.projectId, row.taskId, row.workerId,
+		row.threadId, usageRole(row), row.provider, row.model, row.billing ?? null, row.periodId ?? null,
+		sign, sign * row.input, sign * row.cacheRead, sign * row.cacheWrite, sign * row.output, sign * row.cost,
+		sign * Number(row.priced === false));
 }
+
+export type MonthlyUsageGroup = {
+	provider: string; model: string; billing: RequestBilling | null; project_id: string; task_id: string | null;
+	cost: number; unpriced: number;
+};
 
 export type BackfillRecord = { projectId: string; doneAt: number; rows: number; error: string | null };
 
 export class RequestLogStore {
 	readonly #db: Database;
 	readonly ledger: LimitLedger;
+	readonly subscriptionTerms: SubscriptionTerms;
 	readonly #warmListeners = new Set<() => void>();
 	readonly #insert: ReturnType<Database["prepare"]>;
 
 	private constructor(db: Database) {
 		this.#db = db;
 		this.ledger = new LimitLedger(db);
+		this.subscriptionTerms = new SubscriptionTerms(db, this.ledger);
 		const knownColumns = new Set(db.query<{ name: string }, []>("PRAGMA table_info(requests)").all().map(column => column.name));
 		const columns = COLUMNS.filter(column => knownColumns.has(column));
 		this.#insert = db.prepare(
@@ -358,9 +369,26 @@ export class RequestLogStore {
 					if (!columns.has(name)) db.exec(`ALTER TABLE requests ADD COLUMN ${name} ${type}`);
 				}
 				createLimitLedgerTables(db);
+				const upgradeDailyRollups = Number(schema?.value) === 3;
+				if (upgradeDailyRollups) {
+					db.exec(`ALTER TABLE usage_rollup ADD COLUMN minute INTEGER;
+						DROP INDEX usage_rollup_group;
+						ALTER TABLE limit_periods ADD COLUMN observed_api_value REAL;
+						ALTER TABLE limit_periods ADD COLUMN measured_through INTEGER;
+						ALTER TABLE subscription_terms ADD COLUMN login_since INTEGER`);
+				}
 				createUsageRollup(db);
-				// Seed retained rows before startup pruning. The schema stamp and totals commit together.
-				for (const row of db.query<DbRow, []>("SELECT * FROM requests").iterate()) addToUsageRollup(db, fromDb(row));
+				createRequestEndIndex(db);
+				// Upgrade retained rows to minute precision. Only already-pruned schema-3 rows stay daily.
+				for (const stored of db.query<DbRow, []>("SELECT * FROM requests").iterate()) {
+					const row = fromDb(stored);
+					if (upgradeDailyRollups) addToUsageRollup(db, row, true);
+					addToUsageRollup(db, row);
+				}
+				if (upgradeDailyRollups) {
+					db.exec("DELETE FROM usage_rollup WHERE requests = 0");
+					new LimitLedger(db).backfillMeasurements();
+				}
 				db.query("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
 			}).immediate();
 		} catch (error) {
@@ -403,6 +431,9 @@ export class RequestLogStore {
 		}
 		this.#insert.run(toDb(row) as never);
 		addToUsageRollup(this.#db, row);
+		if (row.billing === "subscription" || row.billing === "plan_key") {
+			this.ledger.requestEnded(row.provider, row.at + (row.durationMs ?? 0));
+		}
 		if (row.periodId != null) {
 			this.#db.query("UPDATE limit_periods SET api_value = api_value + ?, requests = requests + 1 WHERE id = ?")
 				.run(row.cost, row.periodId);
@@ -496,10 +527,29 @@ export class RequestLogStore {
 		const cutoff = now - keepDays * DAY_MS;
 		this.#db.query("DELETE FROM cache_warm_snapshots WHERE json_extract(snapshot, '$.request.row.at') < ?").run(now - 8 * 3_600_000);
 		this.#db.query("DELETE FROM cache_warm_stretches WHERE at < ?").run(cutoff);
+		this.ledger.closeExpired(now, cutoff);
 		const removed = this.#db.query("DELETE FROM requests WHERE at < ?").run(cutoff).changes;
 		this.#db.query("DELETE FROM prompt_state WHERE updated_at < ?").run(cutoff);
 		this.#db.query("DELETE FROM limit_samples WHERE at < ?").run(cutoff);
 		return removed;
+	}
+
+	/** Exact for minute roll-ups. Assign an older daily total to the local month containing UTC noon. */
+	monthlyUsage(from: number, to: number): { groups: MonthlyUsageGroup[]; approximate: boolean } {
+		const firstDay = new Date(from).toISOString().slice(0, 10);
+		const lastDay = new Date(to - 1).toISOString().slice(0, 10);
+		const groups = this.#db.query<MonthlyUsageGroup, Record<string, string | number>>(`
+			SELECT provider, model, billing, project_id, CASE WHEN role = 'coordinator' THEN NULL ELSE task_id END AS task_id, sum(cost) AS cost, sum(unpriced_requests) AS unpriced
+			FROM usage_rollup WHERE day BETWEEN $firstDay AND $lastDay
+			AND coalesce(minute, unixepoch(day, '12 hours') / 60) >= $from
+			AND coalesce(minute, unixepoch(day, '12 hours') / 60) < $to
+			GROUP BY provider, model, billing, project_id, CASE WHEN role = 'coordinator' THEN NULL ELSE task_id END
+		`).all({ firstDay, lastDay, from: from / 60_000, to: to / 60_000 });
+		const approximate = this.#db.query<{ found: number }, [string, string, number, number]>(`
+			SELECT EXISTS (SELECT 1 FROM usage_rollup WHERE minute IS NULL
+			AND ((day = ?1 AND ?3 % 86400 != 0) OR (day = ?2 AND ?4 % 86400 != 0))) AS found
+		`).get(firstDay, lastDay, from / 1000, to / 1000);
+		return { groups, approximate: approximate?.found === 1 };
 	}
 
 	/** Rows in `[from, to)`, oldest first; one project's when `projectId` is given. */

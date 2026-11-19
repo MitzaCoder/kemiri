@@ -56,6 +56,9 @@ import { completeDirectory, listDirectory } from "./directory-listing.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import type { OAuthLoginManager } from "./logins.ts";
 import { officialAgentAccounts } from "./official-agents/auth.ts";
+import { credentialBilling, requestBilling } from "./request-billing.ts";
+import { subscriptionBilling } from "./subscription-terms.ts";
+import { readSubscriptionValue, valueMonth } from "./subscription-value.ts";
 import type { SubscriptionUsageService } from "./subscription-usage.ts";
 import { readCacheStats } from "./cache-stats.ts";
 import type { RequestLog } from "./request-log.ts";
@@ -683,6 +686,35 @@ export class ClientConnection {
 							? []
 							: await this.#subscriptionUsage.usage({ refresh: request.refresh === true });
 					this.#respond({ type: "subscriptions.usage", id: request.id, subscriptions });
+					return;
+				}
+				case "usage.value": {
+					if (!this.#features.includes("subscription-value")) return this.#unknownRequest(request);
+					if (!this.#requestLog || !this.#subscriptionUsage) throw new ServerError("bad_request", "Subscription value is unavailable");
+					const usage = this.#subscriptionUsage;
+					await usage.usage(); // Sync plan and credential metadata without polling the providers.
+					const currentBilling = new Map((await this.#credentials.list()).map(({ providerId, type }) => [providerId, credentialBilling(providerId, type)]));
+					const projects = new Set((await this.#manager.store.list()).map(project => project.id));
+					const answer = await readSubscriptionValue({
+						store: this.#requestLog.store, month: valueMonth(request, Date.now()), currentBilling,
+						billingFor: providerId => requestBilling(this.#credentials, this.#manager.models, providerId),
+						label: providerId => usage.label(providerId),
+						boardTasks: async projectId => projects.has(projectId) ? (await this.#manager.board(projectId, true)).tasks : [],
+					});
+					this.#respond({ type: "usage.value", id: request.id, ...answer });
+					return;
+				}
+				case "subscriptions.price.set": {
+					if (!this.#features.includes("subscription-value")) return this.#unknownRequest(request);
+					if (!this.#requestLog || !this.#subscriptionUsage) throw new ServerError("bad_request", "Subscription value is unavailable");
+					const { providerId, monthlyPrice } = request;
+					await this.#subscriptionUsage.usage();
+					const now = Date.now();
+					const terms = this.#requestLog.store.subscriptionTerms;
+					if (!subscriptionBilling(terms.at(providerId, now)?.credential_type ?? null)) {
+						throw new ServerError("bad_request", "There is no subscription for this provider");
+					}
+					this.#respond({ type: "subscriptions.price.set", id: request.id, providerId, price: terms.setPrice(providerId, monthlyPrice, now) });
 					return;
 				}
 				case "cache.stats": {
@@ -1379,7 +1411,7 @@ export class ClientConnection {
 		const accounts = officialAgentAccounts.get(provider);
 		if (accounts) await accounts.setApiKey(key);
 		else await this.#credentials.modify(providerId, async () => ({ type: "api_key", key }));
-		this.#subscriptionUsage?.credentialsChanged();
+		this.#subscriptionUsage?.credentialsChanged(providerId);
 		this.#respond({
 			type: "credentials.set",
 			id,
@@ -1397,7 +1429,7 @@ export class ClientConnection {
 			existed = (await this.#credentials.list()).some(credential => credential.providerId === providerId);
 			await this.#credentials.delete(providerId);
 		}
-		this.#subscriptionUsage?.credentialsChanged();
+		if (existed) this.#subscriptionUsage?.credentialsChanged(providerId);
 		this.#respond({ type: "credentials.delete", id, deleted: existed });
 	}
 

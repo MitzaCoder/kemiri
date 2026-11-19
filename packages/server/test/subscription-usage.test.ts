@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createLimitLedgerTables, LimitLedger } from "../src/limit-ledger.ts";
+import { RequestLogStore } from "../src/request-log-store.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,12 +191,18 @@ function byProvider(list: SubscriptionUsage[], providerId: string): Subscription
 	return usage;
 }
 
+async function ledgerFixture() {
+	const dir = await mkdtemp(join(tmpdir(), "subscription-ledger-"));
+	const path = join(dir, "requests.sqlite");
+	const store = RequestLogStore.open(path);
+	const db = new Database(path, { readonly: true });
+	cleanups.push(async () => { db.close(); store.close(); await rm(dir, { recursive: true, force: true }); });
+	return { db, ledger: store.ledger };
+}
+
 describe("saved subscription resets (fake HTTP only)", () => {
 	it("caches reset discovery separately, discovers without a marker and refreshes after explicit spend", async () => {
-		const db = new Database(":memory:");
-		cleanups.push(() => db.close());
-		createLimitLedgerTables(db);
-		const ledger = new LimitLedger(db);
+		const { db, ledger } = await ledgerFixture();
 		let discoveries = 0, posts = 0, windows = 0;
 		const headers: string[] = [];
 		const test = await setupService({ ledger, fetch: (async (input, init) => {
@@ -455,10 +461,8 @@ describe("subscription usage parsing", () => {
 
 describe("SubscriptionUsageService", () => {
 	it("feeds endpoint, header and stream readings to the ledger before live samples collapse", async () => {
-		const db = new Database(":memory:");
-		cleanups.push(() => db.close());
-		createLimitLedgerTables(db);
-		const test = await setupService({ ledger: new LimitLedger(db) });
+		const { db, ledger } = await ledgerFixture();
+		const test = await setupService({ ledger });
 		await test.service.usage({ refresh: true });
 		const samples = () => db.query("SELECT at, used_percent, source FROM limit_samples WHERE window_id = 'primary' ORDER BY at").all();
 		test.advance(1_000);
@@ -654,6 +658,10 @@ describe("SubscriptionUsageService", () => {
 });
 
 describe("OpenCode Go usage", () => {
+	it.each([[undefined, null], ["go", "Go"], ["go_plus", "Go Plus"]])("does not assume the base plan from the key (%s)", (plan_type, plan) => {
+		expect(parseOpenCodeGoUsage({ plan_type, usage: { rolling: { percent: 5 } } }).plan).toBe(plan);
+	});
+
 	it("parses the three windows, with the month as long as the calendar month before its reset", () => {
 		const reading = parseOpenCodeGoUsage({
 			usage: {
@@ -768,5 +776,16 @@ describe("subscriptions.usage over the protocol", () => {
 		);
 		if (event.type !== "subscriptions.usage.changed") throw new Error("unreachable");
 		expect(event.subscriptions[0]?.plan).toBe("Max 20x");
+
+		expect(hello.type === "hello" ? hello.features : []).toContain("subscription-value");
+		const before = await client.request({ type: "usage.value", utcOffsetMinutes: 0 });
+		expect(before).toMatchObject({ type: "usage.value", subscriptions: [
+			{ plan: "Max 20x", price: { kind: "default", monthlyPrice: 200 }, realisedRatio: 0 },
+		] });
+		const changed = await client.request({ type: "subscriptions.price.set", providerId: "anthropic", monthlyPrice: 170 });
+		expect(changed).toMatchObject({ type: "subscriptions.price.set", price: { kind: "owner", monthlyPrice: 170 } });
+		const cleared = await client.request({ type: "subscriptions.price.set", providerId: "anthropic", monthlyPrice: null });
+		expect(cleared).toMatchObject({ type: "subscriptions.price.set", price: { kind: "default", monthlyPrice: 200 } });
+
 	});
 });

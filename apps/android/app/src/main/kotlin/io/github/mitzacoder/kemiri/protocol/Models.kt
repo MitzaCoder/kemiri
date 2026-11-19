@@ -2036,6 +2036,116 @@ data class SubscriptionsResetResponse(
 )
 
 @Serializable
+data class SubscriptionPrice(
+    val `kind`: String,
+    val `monthlyPrice`: Double?,
+    val `checkedOn`: String?,
+    val `source`: String?
+)
+
+@Serializable
+data class ValueRange(
+    val `estimate`: Double,
+    val `low`: Double,
+    val `high`: Double?
+)
+
+@Serializable
+data class WindowValue(
+    val `windowId`: String,
+    val `label`: String,
+    val `scope`: String?,
+    val `windowMinutes`: Double?,
+    val `binding`: Boolean,
+    val `windowsPerMonth`: Double?,
+    val `kemiriPoints`: Double,
+    val `elsewherePoints`: Double,
+    val `elsewhereShare`: Double?,
+    val `periods`: Long,
+    val `excludedNoisyPeriods`: Long,
+    val `valuePerPoint`: ValueRange?,
+    val `fullWindowValue`: ValueRange?
+)
+
+@Serializable
+data class ModelValue(
+    val `model`: String,
+    val `apiValue`: Double,
+    val `scopedWindowId`: String?,
+    val `valuePerPoint`: ValueRange?
+)
+
+@Serializable
+data class TopTaskValue(
+    val `projectId`: String,
+    val `taskId`: String,
+    val `title`: String,
+    val `apiValue`: Double
+)
+
+@Serializable
+data class SubscriptionValue(
+    val `providerId`: String,
+    val `label`: String,
+    val `plan`: String?,
+    val `billing`: String,
+    val `price`: SubscriptionPrice,
+    val `apiValue`: Double,
+    val `realisedRatio`: Double?,
+    val `fullUseRatio`: Double?,
+    val `planUsed`: Double?,
+    val `windows`: List<WindowValue>,
+    val `models`: List<ModelValue>,
+    val `topTasks`: List<TopTaskValue>,
+    val `assumed`: Boolean
+)
+
+@Serializable
+data class PayAsYouGoValue(
+    val `providerId`: String,
+    val `label`: String,
+    val `cost`: Double,
+    val `assumed`: Boolean
+)
+
+@Serializable
+data class UsageValueRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.value",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `month`: String? = null,
+    val `utcOffsetMinutes`: Long
+)
+
+@Serializable
+data class UsageValueResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.value",
+    val `id`: String,
+    val `month`: String,
+    val `subscriptions`: List<SubscriptionValue>,
+    val `payAsYouGo`: List<PayAsYouGoValue>,
+    val `unpricedRequests`: Long,
+    val `assumed`: Boolean,
+    val `approximateMonth`: Boolean,
+    val `ledgerSince`: String?
+)
+
+@Serializable
+data class SubscriptionsPriceSetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "subscriptions.price.set",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `providerId`: String,
+    val `monthlyPrice`: Double?
+)
+
+@Serializable
+data class SubscriptionsPriceSetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "subscriptions.price.set",
+    val `id`: String,
+    val `providerId`: String,
+    val `price`: SubscriptionPrice
+)
+
+@Serializable
 data class SubscriptionUsage(
     val `manualResets`: SubscriptionResets? = null,
     val `providerId`: String,

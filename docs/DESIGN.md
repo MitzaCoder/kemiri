@@ -1860,10 +1860,11 @@ misses can be analysed with real numbers rather than per-conversation totals.
   type at write time: OAuth is `subscription`, plan keys are `plan_key`, and other API keys are `api_key`. `agent`
   is reserved for later. Unknown and historical billing stays null. `priced = 0` means there is no catalog price,
   not that the response was free. Existing rows keep unknown price status rather than guessing from zero cost.
-- `usage_rollup` keeps request, token, catalog-cost and unpriced-request totals by UTC day, project, task, worker,
+- `usage_rollup` keeps request, token, catalog-cost and unpriced-request totals by UTC minute, project, task, worker,
   thread, usage role, provider, model, billing and period. Inserts and their roll-ups commit together, including
-  transcript read-back. The schema migration seeds totals from retained rows once, before the first prune. The
-  90-day prune leaves roll-ups intact. The request log has no project-deletion hook.
+  transcript read-back. Schema 4 upgrades retained rows from daily to minute precision. Older pruned rows keep
+  their daily totals, assigned to the local month containing UTC noon. The response flags an approximate month
+  if those rows straddle its boundary. The 90-day prune leaves roll-ups intact. There is no project-deletion hook.
 - Live capture (`request-log.ts`), off the request's path: the `aiki.request-log` extension (hooks only, no section or
   tool, so no prompt changes; workers and threads keep it) has a `beforeRequest` hook on pi-durable's generation task
   that tags the last message object with the project and conversation. The server's `Models` is wrapped (after the
@@ -5428,10 +5429,27 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   the reset by more than five minutes, or when use drops. A recent credit spend confirmed through Kemiri marks a
   drop on the affected period as a manual reset, unless the scheduled reset has already passed.
 - Subscription and plan-key requests bind to the longest observed unscoped window's period at request start, with
-  no binding before the first reading or in a reset gap. The log counts their requests and catalog value for that
-  period, including rows written after it closed. Periods and the reserved `subscription_terms` table are not
-  pruned. The split between Kemiri's points and use elsewhere, price history, and value reporting are later stages.
-  The live JSON and the wire response are unchanged.
+  no binding before the first reading or in a reset gap. The raw binding-period totals can still grow when late
+  rows arrive. The value estimate instead uses request ends (`start + duration`) in observed reading intervals.
+  Attribute a rise to Kemiri if a request ended in the interval or within two minutes before it. The first level and
+  quiet rises count as elsewhere. Open periods refresh as readings and request rows arrive. Their measured points
+  and observed API value freeze at close and survive pruning. Overage beyond 100% is not measured.
+- `subscription_terms` keeps changes to the detected plan, credential and the owner's monthly USD price from the time
+  observed. Setting the price to null clears the override. A known plan can then use the shipped list price, labelled
+  “default price” with its source and check date. Unknown or ambiguous plans have no default. Plan or login changes
+  close open windows. Terms and periods are not pruned, and `subscriptions.usage` keeps its existing shape.
+- The `subscription-value` feature exposes `usage.value { month?, utcOffsetMinutes }` and
+  `subscriptions.price.set { providerId, monthlyPrice | null }`. The headline is the local calendar month's catalog
+  value divided by the price effective at month end, or now for the current month. It does not prorate price changes.
+  Unclassified legacy rows use the current credential type if known and mark the month assumed. Pay-as-you-go costs
+  are separate and never enter a ratio.
+- Window estimates pool observed use through that month on the same plan and login. Below five pooled Kemiri points,
+  there is no estimate. The range allows `max(1, 0.6 × √n)` points of rounding error for `n` pooled periods. Periods
+  with more than 10% used elsewhere are left out only when at least three cleaner periods contribute. The longest
+  unscoped window sets the full-use ratio using 30.44 days per month. Scoped model or family windows can supply direct
+  estimates. Other models have their measured API value only.
+- The response ranks up to five root tasks per subscription. It counts archived subtasks through current `parent`
+  links only. Coordinator requests stay in their project's usage and are not spread across tasks.
 
 ## Scope
 

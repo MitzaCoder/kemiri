@@ -1,4 +1,18 @@
 export * from "./user-settings.ts";
+export * from "./subscription-value.ts";
+import {
+	SubscriptionPriceSchema,
+	ValueRangeSchema,
+	WindowValueSchema,
+	ModelValueSchema,
+	TopTaskValueSchema,
+	SubscriptionValueSchema,
+	PayAsYouGoValueSchema,
+	UsageValueRequestSchema,
+	UsageValueResponseSchema,
+	SubscriptionsPriceSetRequestSchema,
+	SubscriptionsPriceSetResponseSchema,
+} from "./subscription-value.ts";
 import { UserSettingsSchema, UserSettingsGetRequestSchema, UserSettingsSetRequestSchema, UserSettingsGetResponseSchema, UserSettingsSetResponseSchema, UserSettingsChangedEventSchema } from "./user-settings.ts";
 import { McpOAuthStartRequestSchema, McpOAuthStartResponseSchema, McpOAuthCompleteRequestSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelRequestSchema, McpOAuthCancelResponseSchema, McpOAuthChangedEventSchema, McpOAuthFlowSchema } from "./mcp.ts";
 export * from "./mcp.ts";
@@ -839,6 +853,8 @@ export const ClientMessageSchema = Type.Union([
 	BoardReportStaleRequestSchema,
 	BoardTaskTimelineRequestSchema,
 	BoardFeedbackSetRequestSchema,
+	UsageValueRequestSchema,
+	SubscriptionsPriceSetRequestSchema,
 	SubscriptionsUsageRequestSchema,
 	SubscriptionsResetRequestSchema,
 	CacheStatsRequestSchema,
@@ -960,6 +976,8 @@ export const ResponseSchema = Type.Union([
 	BoardReportStaleResponseSchema,
 	BoardTaskTimelineResponseSchema,
 	BoardFeedbackSetResponseSchema,
+	UsageValueResponseSchema,
+	SubscriptionsPriceSetResponseSchema,
 	SubscriptionsUsageResponseSchema,
 	SubscriptionsResetResponseSchema,
 	CacheStatsResponseSchema,
@@ -1267,6 +1285,17 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	SubscriptionResets: SubscriptionResetsSchema,
 	SubscriptionsResetRequest: SubscriptionsResetRequestSchema,
 	SubscriptionsResetResponse: SubscriptionsResetResponseSchema,
+	SubscriptionPrice: SubscriptionPriceSchema,
+	ValueRange: ValueRangeSchema,
+	WindowValue: WindowValueSchema,
+	ModelValue: ModelValueSchema,
+	TopTaskValue: TopTaskValueSchema,
+	SubscriptionValue: SubscriptionValueSchema,
+	PayAsYouGoValue: PayAsYouGoValueSchema,
+	UsageValueRequest: UsageValueRequestSchema,
+	UsageValueResponse: UsageValueResponseSchema,
+	SubscriptionsPriceSetRequest: SubscriptionsPriceSetRequestSchema,
+	SubscriptionsPriceSetResponse: SubscriptionsPriceSetResponseSchema,
 	SubscriptionUsage: SubscriptionUsageSchema,
 	SubscriptionsUsageRequest: SubscriptionsUsageRequestSchema,
 	SubscriptionsUsageResponse: SubscriptionsUsageResponseSchema,

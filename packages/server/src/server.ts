@@ -320,7 +320,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
 	const subscriptionUsage = new SubscriptionUsageService({
-		...(requestLog === undefined ? {} : { ledger: requestLog.store.ledger }),
+		...(requestLog === undefined ? {} : { ledger: requestLog.store.ledger, terms: requestLog.store.subscriptionTerms }),
 		models: unobservedModels,
 		credentials,
 		dataDir,
@@ -355,7 +355,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const relayEndpoint = relaySetting ? validatePushRelayEndpoint(relaySetting) : undefined;
 	const features = (options.features ?? HARNESS_FEATURES).filter(
 		(feature) =>
-			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown") ||
+			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value") ||
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "fcm-relay-v1" || (relayEndpoint !== undefined &&
@@ -472,7 +472,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.logins?.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.logins.idleTimeoutMs }),
 		onChange: (login) => {
 			for (const connection of connections) connection.notifyLogin(login);
-			if (login.status === "succeeded") subscriptionUsage.credentialsChanged();
+			if (login.status === "succeeded") subscriptionUsage.credentialsChanged(login.providerId);
 		},
 		onPrompt: (login) => {
 			const event = loginPromptNotification(login);
