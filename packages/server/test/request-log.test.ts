@@ -295,7 +295,7 @@ describe("observing requests", () => {
 		const observed = log.observeModels(models);
 		const request = async (tagged: boolean, provider = "synthetic", cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }) => {
 			const messages = [{ role: "user", content: "Hi", timestamp: 1 }];
-			if (tagged) beforeRequest({ messages }, { conversationId: 1 });
+			if (tagged) await beforeRequest({ messages }, { conversationId: 1 });
 			const stream = (observed.streamSimple as unknown as (...args: unknown[]) => { result(): Promise<unknown> })({ provider, cost }, { messages }, {
 				onPayload: (payload: unknown) => {
 					sent.push(payload);

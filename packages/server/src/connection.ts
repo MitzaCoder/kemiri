@@ -59,6 +59,7 @@ import { officialAgentAccounts } from "./official-agents/auth.ts";
 import { credentialBilling, requestBilling } from "./request-billing.ts";
 import { subscriptionBilling } from "./subscription-terms.ts";
 import { readSubscriptionValue, valueMonth } from "./subscription-value.ts";
+import { readTaskUsage } from "./task-usage.ts";
 import type { SubscriptionUsageService } from "./subscription-usage.ts";
 import { readCacheStats } from "./cache-stats.ts";
 import type { RequestLog } from "./request-log.ts";
@@ -705,6 +706,21 @@ export class ClientConnection {
 						boardTasks: async projectId => projects.has(projectId) ? (await this.#manager.board(projectId, true)).tasks : [],
 					});
 					this.#respond({ type: "usage.value", id: request.id, ...answer });
+					return;
+				}
+				case "usage.task": {
+					if (!this.#features.includes("task-usage")) return this.#unknownRequest(request);
+					if (!this.#requestLog || !this.#subscriptionUsage) throw new ServerError("bad_request", "Task usage is unavailable");
+					const { projectId, taskId } = request;
+					const usage = this.#subscriptionUsage;
+					const answer = await readTaskUsage({
+						store: this.#requestLog.store, projectId, taskId,
+						tasks: (await this.#manager.board(projectId, true)).tasks,
+						billingFor: providerId => requestBilling(this.#credentials, this.#manager.models, providerId),
+						label: providerId => usage.label(providerId), now: Date.now(),
+						threadNames: async () => new Map((await this.#manager.threads(projectId, true)).map(thread => [thread.id, thread.title])),
+					});
+					this.#respond({ type: "usage.task", id: request.id, ...answer });
 					return;
 				}
 				case "subscriptions.price.set": {

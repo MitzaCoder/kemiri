@@ -31,6 +31,7 @@
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import TaskReply from '#lib/components/TaskReply.svelte';
 	import { formatMinutes } from '@kemiri/client';
+	import TaskUsage from './TaskUsage.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import TaskFiles from '#lib/components/artifacts/TaskFiles.svelte';
@@ -454,6 +455,7 @@
 										{:else if !fields?.summary && !failedChecks}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
 										{#if failedChecks}<p class="text-(--chat-danger)">{failedChecks}</p>{/if}
 										{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
+										{#if requestedId !== null && backend.supports('task-usage')}<TaskUsage client={backend.client} {projectId} taskId={task.id} />{/if}
 									</section>
 
 									{#if artifacts.length > 0}

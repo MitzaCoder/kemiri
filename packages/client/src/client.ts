@@ -118,6 +118,7 @@ import type {
 	ProjectsStorageResponse,
 	SubscriptionUsage,
 	SubscriptionsUsageResponse,
+	UsageTaskResponse,
 	CacheStats,
 	CacheStatsResponse,
 	ProjectLinks,
@@ -1171,6 +1172,11 @@ export class HarnessClient {
 			...(options.refresh === undefined ? {} : { refresh: options.refresh }),
 		});
 		return response.subscriptions;
+	}
+
+	/** Lifetime usage for a task and its current subtasks. Needs `task-usage`. */
+	async readTaskUsage(projectId: string, taskId: string): Promise<UsageTaskResponse> {
+		return this.#call<UsageTaskResponse>({ type: "usage.task", projectId, taskId });
 	}
 
 	/**

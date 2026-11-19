@@ -6,7 +6,7 @@ import { subscriptionBilling, type PlanBilling } from "./subscription-terms.ts";
 const MINUTE_MS = 60_000;
 const MONTH_MINUTES = 30.44 * 24 * 60;
 const TOP_TASKS_LIMIT = 5;
-type TaskLink = Pick<BoardTask, "id" | "title" | "parent">;
+export type TaskLink = Pick<BoardTask, "id" | "title" | "parent">;
 
 export function valueMonth(input: Pick<UsageValueRequest, "month" | "utcOffsetMinutes">, now: number) {
 	const offset = input.utcOffsetMinutes * MINUTE_MS;
@@ -22,7 +22,7 @@ function elsewhereShare(kemiri: number, elsewhere: number): number | null {
 	return kemiri + elsewhere > 0 ? elsewhere / (kemiri + elsewhere) : null;
 }
 
-function windowValue(periods: MeasuredLimitPeriod[], asOf: number): WindowValue {
+export function windowValue(periods: MeasuredLimitPeriod[], asOf: number): WindowValue {
 	const latest = periods.at(-1)!;
 	const observed = periods.filter(period => period.measured_through != null && period.measured_through <= asOf);
 	// Periods without activity can describe outside use, but supply no independent evidence for the rate.
@@ -63,6 +63,11 @@ function windowsFor(periods: MeasuredLimitPeriod[], asOf: number): WindowValue[]
 	return windows;
 }
 
+/** Both usage views follow only real parent links, never provenance links. */
+export function parentTask(task: TaskLink, tasks: ReadonlyMap<string, TaskLink>): TaskLink | undefined {
+	return task.parent ? tasks.get(task.parent) : undefined;
+}
+
 /** Only roots get a line. A descendant's usage is counted once, regardless of other links on the board. */
 function topTaskTotals(rows: MonthlyUsageGroup[], boards: ReadonlyMap<string, ReadonlyMap<string, TaskLink>>): TopTaskValue[] {
 	const totals = new Map<string, Map<string, TopTaskValue>>();
@@ -74,7 +79,7 @@ function topTaskTotals(rows: MonthlyUsageGroup[], boards: ReadonlyMap<string, Re
 		let task: TaskLink = ownTask;
 		const visited = new Set([task.id]);
 		while (task.parent) {
-			const parent = tasks?.get(task.parent);
+			const parent = tasks && parentTask(task, tasks);
 			if (!parent || visited.has(parent.id)) break;
 			visited.add(parent.id);
 			task = parent;

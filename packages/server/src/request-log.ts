@@ -194,7 +194,7 @@ export class ConversationRequests {
 	}
 }
 
-type RequestTag = { projectId: string; conversationId: number; prefixRevision?: string };
+type RequestTag = { projectId: string; conversationId: number; identity: ConversationIdentity; prefixRevision?: string };
 
 type PendingRequest = {
 	warm: Omit<WarmRequest, "row" | "payload">;
@@ -264,7 +264,7 @@ export class RequestLog {
 	/** The last message object of each request the hook saw, to the conversation that sends it. */
 	readonly #tags = new WeakMap<object, RequestTag>();
 	readonly #identify = new Map<string, (conversationId: number) => Promise<ConversationIdentity>>();
-	readonly #identities = new Map<string, ConversationIdentity>();
+	readonly #identities = new Map<string, Promise<ConversationIdentity>>();
 	readonly #conversations = new Map<string, LiveConversation>();
 	/** Each project's read-back from its transcripts; live rows wait for it so they go on from its last row. */
 	readonly #backfills = new Map<string, Promise<unknown>>();
@@ -296,10 +296,14 @@ export class RequestLog {
 						try {
 							const last = request.messages.at(-1);
 							if (typeof last === "object" && last !== null) {
-								this.#tags.set(last, { projectId, conversationId: Number(api.conversationId) });
-								this.warming.invalidate(projectId, "Conversation resumed", Number(api.conversationId));
-								const prefixRevision = await this.warming.prefixRevision(projectId, Number(api.conversationId));
-								if (prefixRevision !== undefined) this.#tags.set(last, { projectId, conversationId: Number(api.conversationId), prefixRevision });
+								const conversationId = Number(api.conversationId);
+								this.warming.invalidate(projectId, "Conversation resumed", conversationId);
+								// Capture attribution before the request, not when the write queue reaches it.
+								const identity = await this.#identity(projectId, conversationId);
+								const tag = { projectId, conversationId, identity };
+								this.#tags.set(last, tag);
+								const prefixRevision = await this.warming.prefixRevision(projectId, conversationId);
+								if (prefixRevision !== undefined) this.#tags.set(last, { ...tag, prefixRevision });
 							}
 						} catch {
 							// Never in the way of the request.
@@ -453,21 +457,25 @@ export class RequestLog {
 		});
 	}
 
+	/** Call when a conversation changes board tasks; prompt and cache history still belong to it. */
+	invalidateIdentity(projectId: string, conversationId: number): void {
+		this.#identities.delete(`${projectId}:${conversationId}`);
+	}
+
 	async #identity(projectId: string, conversationId: number): Promise<ConversationIdentity> {
 		const key = `${projectId}:${conversationId}`;
 		const known = this.#identities.get(key);
 		if (known !== undefined) return known;
 		const identify = this.#identify.get(projectId);
-		let identity = UNKNOWN_IDENTITY;
-		if (identify !== undefined) {
-			try {
-				identity = await identify(conversationId);
-			} catch (error) {
-				this.#log(`request log: could not tell which conversation ${projectId}/${conversationId} is: ${errorMessage(error)}`);
-			}
-		}
+		if (!identify) return UNKNOWN_IDENTITY;
+		const pending = identify(conversationId).catch(error => {
+			this.#log(`request log: could not tell which conversation ${projectId}/${conversationId} is: ${errorMessage(error)}`);
+			return UNKNOWN_IDENTITY;
+		});
+		this.#identities.set(key, pending);
+		const identity = await pending;
 		// A worker not yet in the list right after its spawn reads as unknown; ask again next time.
-		if (identity.kind !== "other") this.#identities.set(key, identity);
+		if (identity.kind === "other" && this.#identities.get(key) === pending) this.#identities.delete(key);
 		return identity;
 	}
 
@@ -499,9 +507,8 @@ export class RequestLog {
 	}
 
 	async #record(request: PendingRequest): Promise<void> {
-		const { projectId, conversationId } = request.tag;
+		const { projectId, conversationId, identity } = request.tag;
 		await this.#backfills.get(projectId);
-		const identity = await this.#identity(projectId, conversationId);
 		const live = this.#conversation(projectId, conversationId, identity);
 		const fingerprint = fingerprintRequest(request.messages, request.payload);
 		const previous = live.fingerprint;

@@ -62,6 +62,8 @@ type OpenPeriod = {
 	window_minutes: number | null;
 };
 export type MeasuredLimitPeriod = {
+	id: number;
+	started_at: number;
 	window_id: string;
 	label: string;
 	window_minutes: number | null;
@@ -244,6 +246,14 @@ export class LimitLedger {
 			AND (t.since IS NULL OR t.credential_type = ?) AND t.plan IS ?
 			ORDER BY p.started_at, p.id
 		`).all(provider, at, loginSince, loginSince, billing, plan);
+	}
+
+	/** The unscoped periods recorded on these requests, irrespective of later plan changes. */
+	taskPeriods(provider: string, periodIds: readonly number[]): MeasuredLimitPeriod[] {
+		return this.#db.query<MeasuredLimitPeriod, [string, string]>(`
+			SELECT * FROM limit_periods WHERE provider = ? AND scope IS NULL
+			AND id IN (SELECT value FROM json_each(?)) ORDER BY started_at, id
+		`).all(provider, JSON.stringify(periodIds));
 	}
 
 	startedAt(): number | null {

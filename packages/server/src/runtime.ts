@@ -1385,6 +1385,7 @@ export class ProjectManager {
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,
 			project: () => entry.project,
+			invalidateRequestIdentity: conversationId => this.#requestLog?.invalidateIdentity(project.id, conversationId),
 			taskChanges,
    taskArtifactSaves: () => board.taskArtifactSaves(),
 			harness,

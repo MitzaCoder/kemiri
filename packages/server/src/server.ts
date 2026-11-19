@@ -355,7 +355,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const relayEndpoint = relaySetting ? validatePushRelayEndpoint(relaySetting) : undefined;
 	const features = (options.features ?? HARNESS_FEATURES).filter(
 		(feature) =>
-			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value") ||
+			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
    (feature !== "task-live-watcher" || (options.features ?? HARNESS_FEATURES).includes("task-live")) &&

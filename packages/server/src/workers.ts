@@ -1135,6 +1135,7 @@ export type WorkerServiceOptions = {
 	workspacesDir: string;
 	/** Records base/tip provenance before workspace cleanup. */
  taskArtifactSaves?: () => Promise<readonly TaskArtifactSave[]>;
+	invalidateRequestIdentity?: (conversationId: number) => void;
 	taskChanges?: Pick<TaskChangeObserver, "rememberWorkspace" | "recordWorkspace" | "forgetWorkspace">;
 	/**
 	 * Extensions a worker removes besides the worker tools: the coordinator's memory, compaction, history and schedule
@@ -1210,6 +1211,7 @@ type CreateWorkerInput = {
  * One project's workers: the durable list, the model defaults, workspace bookkeeping and the tools the coordinator calls.
  */
 export class WorkerService {
+	invalidateRequestIdentity(conversationId: number): void { this.#options.invalidateRequestIdentity?.(conversationId); }
  taskArtifactSaves(): Promise<readonly TaskArtifactSave[]> { return this.#options.taskArtifactSaves?.() ?? Promise.resolve([]); }
 
 	readonly #options: WorkerServiceOptions;
@@ -2335,6 +2337,8 @@ function createWorkerExtension(service: WorkerService): Extension {
      await snapshotStatusChanges(tx, mainId, board, statuses, { by: HARNESS_WRITER, at: now, key: `worker-send:${api.callId}` });
      await logLinkChanges(tx, mainId, board, links, { by: HARNESS_WRITER, at: now });
      worker.taskId = task.id;
+     // Invalidate before the durable reporter can begin the next request.
+     service.invalidateRequestIdentity(worker.conversationId);
      worker.title = (args.title ?? task.title).slice(0, 120);
      worker.workspaceReused = true;
     }

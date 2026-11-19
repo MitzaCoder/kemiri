@@ -275,6 +275,10 @@ export type MonthlyUsageGroup = {
 	cost: number; unpriced: number;
 };
 
+export type TaskUsageGroup = Omit<MonthlyUsageGroup, "task_id" | "project_id"> & {
+	task_id: string; worker_id: string | null; thread_id: string | null; period_id: number | null; requests: number;
+};
+
 export type BackfillRecord = { projectId: string; doneAt: number; rows: number; error: string | null };
 
 export class RequestLogStore {
@@ -420,6 +424,7 @@ export class RequestLogStore {
 			db.close();
 			throw error;
 		}
+		db.exec("CREATE INDEX IF NOT EXISTS usage_rollup_by_task ON usage_rollup (project_id, task_id) WHERE task_id IS NOT NULL");
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('internal_since', ?)").run(String(options.now ?? Date.now()));
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('live_since', ?)").run(String(options.now ?? Date.now()));
 		return new RequestLogStore(db);
@@ -575,6 +580,17 @@ export class RequestLogStore {
 			AND ((day = ?1 AND ?3 % 86400 != 0) OR (day = ?2 AND ?4 % 86400 != 0))) AS found
 		`).get(firstDay, lastDay, from / 1000, to / 1000);
 		return { groups, approximate: approximate?.found === 1 };
+	}
+
+	/** Lifetime totals, including usage that has aged out of the request log. */
+	taskUsage(projectId: string, taskIds: readonly string[]): TaskUsageGroup[] {
+		return this.#db.query<TaskUsageGroup, [string, string]>(`
+			SELECT task_id, worker_id, thread_id, provider, model, billing, period_id,
+				sum(cost) AS cost, sum(requests) AS requests, sum(unpriced_requests) AS unpriced
+			FROM usage_rollup WHERE project_id = ? AND task_id IS NOT NULL
+			AND task_id IN (SELECT value FROM json_each(?)) AND role NOT IN ('coordinator', 'keep_warm')
+			GROUP BY task_id, worker_id, thread_id, provider, model, billing, period_id
+		`).all(projectId, JSON.stringify(taskIds));
 	}
 
 	/** Rows in `[from, to)`, oldest first; one project's when `projectId` is given. */

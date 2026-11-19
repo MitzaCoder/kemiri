@@ -228,7 +228,8 @@ column: headline, the bars, the three facts, models, top tasks. The task sheet g
 
 ### Wire
 
-Feature `subscription-value`. Clients without it keep today's screens.
+Feature `subscription-value` for the Value tab and price overrides. `task-usage` separately advertises the task sheet
+breakdown, so a backend can support the Value tab without serving per-task usage.
 
 - `usage.value { month?, utcOffsetMinutes }` answers one entry per subscription (label, plan, billing, price, API value,
   realised ratio, per window the pooled value per point with its range and evidence, plan used, used elsewhere, models,

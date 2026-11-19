@@ -47,3 +47,24 @@ it("round-trips a value report and the effective price", () => {
 		expect(decoded).toEqual(response);
 	}
 });
+
+it("round-trips task usage with a parent-linked tree and separate billing", () => {
+	expect(HARNESS_FEATURES).toContain("task-usage");
+	expect(LEGACY_HARNESS_FEATURES).not.toContain("task-usage");
+	const request = { type: "usage.task", id: "usage", projectId: "orchard", taskId: "T1" };
+	const decodedRequest: unknown = JSON.parse(JSON.stringify(request));
+	expect(Value.Check(ClientMessageSchema, decodedRequest)).toBe(true);
+	expect(decodedRequest).toEqual(request);
+	const response = { type: "usage.task", id: "usage", own: { requests: 1, apiValue: 4 }, total: { requests: 3, apiValue: 9 },
+		parts: [{ taskId: "T2", parentTaskId: "T1", title: "Label the trees", total: { requests: 2, apiValue: 5 } },
+			{ taskId: "T3", parentTaskId: "T2", title: "Count the trees", total: { requests: 1, apiValue: 1 } }],
+		subscriptions: [{ providerId: "synthetic", billing: "subscription", label: "Spruce", apiValue: 8, assumed: false,
+			bindingWindow: { label: "Weekly limit", windowMinutes: 10_080, share: 0.07 } }],
+		payAsYouGo: [{ providerId: "key", label: "A key", cost: 1, assumed: false }],
+		conversations: [{ kind: "thread", workerId: null, threadId: "trees", name: "Trees", model: "small", providerId: "synthetic", apiValue: 8 }],
+		notes: { unpricedRequests: 0, missingLimitShare: [] },
+	};
+	const decodedResponse: unknown = JSON.parse(JSON.stringify(response));
+	expect(Value.Check(ServerMessageSchema, decodedResponse)).toBe(true);
+	expect(decodedResponse).toEqual(response);
+});

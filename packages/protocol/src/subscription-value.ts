@@ -95,6 +95,69 @@ export const UsageValueResponseSchema = Type.Object({
 });
 export type UsageValueResponse = Static<typeof UsageValueResponseSchema>;
 
+export const TaskUsageAmountSchema = Type.Object({
+	requests: Type.Integer({ minimum: 0 }),
+	apiValue: Type.Number({ description: "Catalog value of all requests, including pay-as-you-go." }),
+});
+export type TaskUsageAmount = Static<typeof TaskUsageAmountSchema>;
+
+export const TaskUsagePartSchema = Type.Object({
+	taskId: Type.String(),
+	parentTaskId: Type.String(),
+	title: Type.String(),
+	total: TaskUsageAmountSchema,
+});
+export type TaskUsagePart = Static<typeof TaskUsagePartSchema>;
+
+export const TaskSubscriptionUsageSchema = Type.Object({
+	providerId: Type.String(),
+	label: Type.String(),
+	billing: SubscriptionBilling,
+	apiValue: Type.Number(),
+	bindingWindow: Type.Union([Type.Object({
+		label: Type.String(),
+		windowMinutes: NullableNumber,
+		share: Type.Number({ description: "Estimated fraction of one binding window; can exceed 1." }),
+	}), Type.Null()]),
+	assumed: Type.Boolean(),
+});
+export type TaskSubscriptionUsage = Static<typeof TaskSubscriptionUsageSchema>;
+
+export const TaskConversationUsageSchema = Type.Object({
+	kind: Type.Union([Type.Literal("worker"), Type.Literal("thread")]),
+	threadId: NullableString,
+	workerId: NullableString,
+	name: Type.String(),
+	providerId: Type.String(),
+	model: Type.String(),
+	apiValue: Type.Number(),
+});
+export type TaskConversationUsage = Static<typeof TaskConversationUsageSchema>;
+
+export const TaskUsageNotesSchema = Type.Object({
+	unpricedRequests: Type.Integer({ minimum: 0 }),
+	missingLimitShare: Type.Array(Type.String()),
+});
+
+export const UsageTaskRequestSchema = Type.Object({
+	type: Type.Literal("usage.task"),
+	id: RequestIdSchema,
+	projectId: Type.String({ minLength: 1 }),
+	taskId: Type.String({ minLength: 1 }),
+});
+export const UsageTaskResponseSchema = Type.Object({
+	type: Type.Literal("usage.task"),
+	id: RequestIdSchema,
+	own: TaskUsageAmountSchema,
+	total: TaskUsageAmountSchema,
+	parts: Type.Array(TaskUsagePartSchema, { description: "Descendants in board order within each parent, depth first." }),
+	subscriptions: Type.Array(TaskSubscriptionUsageSchema),
+	payAsYouGo: Type.Array(PayAsYouGoValueSchema),
+	conversations: Type.Array(TaskConversationUsageSchema),
+	notes: TaskUsageNotesSchema,
+});
+export type UsageTaskResponse = Static<typeof UsageTaskResponseSchema>;
+
 export const SubscriptionsPriceSetRequestSchema = Type.Object({
 	type: Type.Literal("subscriptions.price.set"),
 	id: RequestIdSchema,

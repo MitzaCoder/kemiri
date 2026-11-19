@@ -2130,6 +2130,75 @@ data class PayAsYouGoValue(
 )
 
 @Serializable
+data class UsageTaskRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.task",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `taskId`: String
+)
+
+@Serializable
+data class UsageTaskResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.task",
+    val `id`: String,
+    val `own`: TaskUsageAmount,
+    val `total`: TaskUsageAmount,
+    val `parts`: List<TaskUsagePart>,
+    val `subscriptions`: List<TaskSubscriptionUsage>,
+    val `payAsYouGo`: List<PayAsYouGoValue>,
+    val `conversations`: List<TaskConversationUsage>,
+    val `notes`: TaskUsageNotes
+)
+
+@Serializable
+data class TaskUsageAmount(
+    val `requests`: Long,
+    val `apiValue`: Double
+)
+
+@Serializable
+data class TaskUsagePart(
+    val `taskId`: String,
+    val `parentTaskId`: String,
+    val `title`: String,
+    val `total`: TaskUsageAmount
+)
+
+@Serializable
+data class TaskSubscriptionUsage(
+    val `providerId`: String,
+    val `label`: String,
+    val `billing`: String,
+    val `apiValue`: Double,
+    val `bindingWindow`: TaskSubscriptionUsageBindingWindow?,
+    val `assumed`: Boolean
+)
+
+@Serializable
+data class TaskSubscriptionUsageBindingWindow(
+    val `label`: String,
+    val `windowMinutes`: Double?,
+    val `share`: Double
+)
+
+@Serializable
+data class TaskConversationUsage(
+    val `kind`: String,
+    val `threadId`: String?,
+    val `workerId`: String?,
+    val `name`: String,
+    val `providerId`: String,
+    val `model`: String,
+    val `apiValue`: Double
+)
+
+@Serializable
+data class TaskUsageNotes(
+    val `unpricedRequests`: Long,
+    val `missingLimitShare`: List<String>
+)
+
+@Serializable
 data class UsageValueRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "usage.value",
     val `id`: String = java.util.UUID.randomUUID().toString(),

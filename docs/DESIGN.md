@@ -1877,7 +1877,16 @@ older release therefore keeps working with its own log. Requests logged during a
   any failure is logged (the first five, then every hundredth) and dropped, and a log that will not open leaves the
   server without it and without the `cache-stats` feature.
 - Conversations are told apart by `identify` in `ProjectManager.#openRuntime` (coordinators, the thread records, every
-  coordinator's worker list), cached once known.
+  coordinator's worker list), cached once known. Each model request captures its identity before it runs, so a queued
+  log write keeps its original task. `worker_send` drops the identity when it reassigns the worker, before the next
+  request can run. Thread task links are set at creation and are not reassigned by `thread_send`.
+- `task-usage` advertises `usage.task { projectId, taskId }`. It reads lifetime request counts and catalog value from
+  `usage_rollup`. `own` is the task alone and `total` follows the current board's `parent` links, including archived
+  subtasks but not `ledTo` work. `parts` lists each descendant with its parent ID and total, depth first in board order.
+  Coordinator requests stay at project level. The reply separates pay-as-you-go cost, subscription value and worker
+  or thread totals by model. A subscription's estimated share adds the task value in each binding period divided by
+  that period's API value per point. Below five Kemiri points it uses the pooled rate for that window and login where
+  available. Missing share and unpriced requests are noted rather than guessed.
 - What woke the agent (`wakeOf`) comes from what arrived since the previous answer: tool results are the turn going on
   (`continue`); nothing new, or the same messages again, is a `retry`; otherwise the last user message's prefix
   (`[check-in]`, `[worker `, `[thread `, `[from `, `[board]`), a worker's or thread's first message (`brief`, or
@@ -5694,6 +5703,11 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   before. Next shows the agents' plan unless it is already in the review check. A working task's automatic Now
   appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
   stale report gets one line with the existing request-update action.
+- **Task usage (D108 / T328).** On web, the task sheet reads lifetime usage on open, not on board pushes. When the
+  task or its subtasks have requests, a line below the report summarizes the API-priced value, the main available
+  limit estimate and worker, thread and subtask counts. Opening it shows own and subtask costs, the subtask tree,
+  subscription shares, separate API-key payments, worker and thread costs by model, and estimation notes. Old
+  backends show no line. Board cards are unchanged.
 - **Your notes.** Feedback stays in the scrollable body, with the stored answer under each entry as Markdown.
   Addressed and dismissed entries start folded and can be reopened; active entries can be dismissed.
 - **Files.** On web and Android, tasks with artifacts have a section directly after What you get, outside
