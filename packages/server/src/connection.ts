@@ -55,6 +55,7 @@ import { createDirectory, deleteDirectory, renameDirectory } from "./directory-e
 import { completeDirectory, listDirectory } from "./directory-listing.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import type { OAuthLoginManager } from "./logins.ts";
+import { officialAgentAccounts } from "./official-agents/auth.ts";
 import type { SubscriptionUsageService } from "./subscription-usage.ts";
 import { readCacheStats } from "./cache-stats.ts";
 import type { RequestLog } from "./request-log.ts";
@@ -1367,14 +1368,17 @@ export class ClientConnection {
 	}
 
 	async #setCredential(id: string, providerId: string, apiKey: string): Promise<void> {
-		if (this.#manager.models.getProvider(providerId) === undefined) {
+		const provider = this.#manager.models.getProvider(providerId);
+		if (provider === undefined) {
 			throw new ServerError("unknown_provider", `Unknown provider "${providerId}"`);
 		}
 		const key = apiKey.trim();
 		if (key.length === 0) throw new ServerError("bad_request", "apiKey must not be empty");
 		// A pending OAuth login would overwrite this key when it completes, so it gives way to the explicit choice.
 		this.#logins.cancelProvider(providerId);
-		await this.#credentials.modify(providerId, async () => ({ type: "api_key", key }));
+		const accounts = officialAgentAccounts.get(provider);
+		if (accounts) await accounts.setApiKey(key);
+		else await this.#credentials.modify(providerId, async () => ({ type: "api_key", key }));
 		this.#subscriptionUsage?.credentialsChanged();
 		this.#respond({
 			type: "credentials.set",
@@ -1384,10 +1388,15 @@ export class ClientConnection {
 	}
 
 	async #deleteCredential(id: string, providerId: string): Promise<void> {
-		const before = await this.#credentials.list();
-		const existed = before.some((credential) => credential.providerId === providerId);
 		this.#logins.cancelProvider(providerId);
-		await this.#credentials.delete(providerId);
+		const provider = this.#manager.models.getProvider(providerId);
+		const accounts = provider && officialAgentAccounts.get(provider);
+		let existed: boolean;
+		if (accounts) existed = await accounts.logout();
+		else {
+			existed = (await this.#credentials.list()).some(credential => credential.providerId === providerId);
+			await this.#credentials.delete(providerId);
+		}
 		this.#subscriptionUsage?.credentialsChanged();
 		this.#respond({ type: "credentials.delete", id, deleted: existed });
 	}

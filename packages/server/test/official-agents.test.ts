@@ -12,6 +12,7 @@ import { AntigravityInstaller } from "../src/antigravity-install.ts";
 import { antigravityDefinition } from "../src/official-agents/antigravity.ts";
 import { OfficialAgentSessions } from "../src/official-agents/provider.ts";
 import { FileCredentialStore } from "../src/credentials.ts";
+import type { AuthLogin } from "@kemiri/protocol";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
 const AGY = { provider: "antigravity", modelId: "gemini-3.8-flash" };
@@ -19,10 +20,13 @@ const FAUX = { provider: "faux", modelId: "faux-1" };
 const fakeAgent = new URL("./fixtures/fake-acp.ts", import.meta.url).pathname;
 const eventFile = (dataDir: string) => join(dataDir, "official-agents", "antigravity", "profile", "fake-events.jsonl");
 const fixtureEvents = async (dataDir: string) => (await readFile(eventFile(dataDir), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+const agentDir = (dataDir: string) => join(dataDir, "official-agents", AGY.provider);
+const authEvents = async (dataDir: string) => (await readFile(join(agentDir(dataDir), "fake-auth-events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+const subscriptionProfiles = async (dataDir: string) => (await readdir(agentDir(dataDir))).filter(name => name.startsWith("subscription-"));
 const setCredential = (store: FileCredentialStore) => store.modify(AGY.provider, async () => ({ type: "api_key", key: "synthetic-fixture" }));
 
-async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean } = {}) {
-	const setup = await createSetup({ antigravityCommand: fakeAgent });
+async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean; log?: (message: string) => void } = {}) {
+	const setup = await createSetup({ antigravityCommand: fakeAgent, ...(options.log ? { log: options.log } : {}) });
 	try {
 		await setCredential(setup.credentials);
 		if (options.signedOut) await writeFile(join(setup.projectDir, "signed-out"), "");
@@ -42,9 +46,11 @@ async function workerSetup(brief: string, options: { isolated?: boolean; signedO
 			fauxAssistantMessage([fauxToolCall("worker_spawn", { id: "official", task: brief, taskId: "T1", isolation: options.isolated ? "workspace" : "shared" })], { stopReason: "toolUse" }),
 			...Array.from({ length: 16 }, () => (request: TranscriptContext) => {
 				const last = request.messages.at(-1);
-				return last?.role === "user" && typeof last.content === "string" && last.content === "Stop the worker."
-					? fauxAssistantMessage([fauxToolCall("worker_stop", { id: "official" })], { stopReason: "toolUse" })
-					: fauxAssistantMessage("Coordinator acknowledged.");
+				if (last?.role === "user" && typeof last.content === "string") {
+					if (last.content === "Stop the worker.") return fauxAssistantMessage([fauxToolCall("worker_stop", { id: "official" })], { stopReason: "toolUse" });
+					if (last.content.startsWith("Follow up: ")) return fauxAssistantMessage([fauxToolCall("worker_send", { id: "official", message: last.content.slice(11) })], { stopReason: "toolUse" });
+				}
+				return fauxAssistantMessage("Coordinator acknowledged.");
 			}),
 		]);
 		const view = new ViewClient(client);
@@ -92,6 +98,112 @@ async function watchHeld(s: Awaited<ReturnType<typeof workerSetup>>) {
 	await transcript.start(s.projectId, { workerId: "official" });
 	await transcript.waitForView(v => JSON.stringify(v).includes("Permission: approved"));
 }
+
+async function waitForLogin(client: TestClient, loginId: string, status: AuthLogin["status"]): Promise<AuthLogin> {
+	const event = await client.waitFor(m => m.type === "credentials.login" && m.login.id === loginId && m.login.status === status);
+	if (event.type !== "credentials.login") throw new Error("Expected an OAuth login event");
+	return event.login;
+}
+
+async function startSubscription(client: TestClient) {
+	const start = await client.request({ type: "credentials.loginStart", providerId: AGY.provider });
+	if (start.type !== "credentials.loginStart") throw new Error("Expected Antigravity to offer OAuth");
+	return waitForLogin(client, start.login.id, "prompt");
+}
+
+async function signInWithFakeCode(client: TestClient) {
+	const login = await startSubscription(client);
+	const link = login.events.find(event => event.type === "auth_url");
+	if (!link || !login.prompt) throw new Error("Expected a browser link and code prompt");
+	expect(login.prompt.type).toBe("manual_code");
+	const value = `synthetic-${new URL(link.url).searchParams.get("state")}`;
+	expect((await client.request({ type: "credentials.loginAnswer", loginId: login.id, promptId: login.prompt.id, value })).type).toBe("credentials.loginAnswer");
+	const completed = await waitForLogin(client, login.id, "succeeded");
+	expect(completed.events.some(event => event.type === "auth_url")).toBe(false);
+	return { value, url: link.url };
+}
+
+async function authType(client: TestClient) {
+	const result = await client.request({ type: "models.list" });
+	if (result.type !== "models.list") throw new Error("Expected a model catalog");
+	const provider = result.providers.find(p => p.id === AGY.provider);
+	expect(provider?.oauth).toMatchObject({ name: "Google AI subscription", isSubscription: true });
+	return provider?.authType;
+}
+
+test("switching Antigravity sign-in cancels the old process and the same worker uses the newly selected account", async () => {
+	const logs: string[] = [];
+	const s = await workerSetup("HOLD_TURN", { log: message => logs.push(message) });
+	try {
+		expect(await authType(s.client)).toBe("api_key");
+		await s.submit();
+		await watchHeld(s);
+		const { value, url } = await signInWithFakeCode(s.client);
+		expect(await authType(s.client)).toBe("oauth");
+		expect(await fixtureEvents(s.setup.dataDir)).toContainEqual({ event: "cancel" });
+		const profiles = await subscriptionProfiles(s.setup.dataDir);
+		expect(profiles).toHaveLength(1);
+		const profile = join(agentDir(s.setup.dataDir), profiles[0]!);
+		const privateToken = await readFile(join(profile, "fake-native-auth"), "utf8");
+		expect(JSON.parse(await readFile(s.setup.credentials.path, "utf8"))).toEqual({ [AGY.provider]: {
+			type: "oauth", access: "", refresh: "", expires: Number.MAX_SAFE_INTEGER, nativeProfile: profiles[0]!.slice(13),
+		} });
+		expect((await stat(profile)).mode & 0o777).toBe(0o700);
+		await s.view.waitForView(v => v.entries.some(e => entryText(e).startsWith("[worker official failed:")));
+		await s.submit("Follow up: FAIL_REFRESH");
+		await s.view.waitForView(v => v.entries.some(e => entryText(e).includes("Sign in again under Settings")));
+		const apiKey = `synthetic-${crypto.randomUUID()}`;
+		expect((await s.client.request({ type: "credentials.set", providerId: AGY.provider, apiKey })).type).toBe("credentials.set");
+		expect(await authType(s.client)).toBe("api_key");
+		expect(await subscriptionProfiles(s.setup.dataDir)).toHaveLength(0);
+		await s.submit("Follow up: Report with the API key.");
+		await s.view.waitForView(v => v.entries.some(e => entryText(e).startsWith("[worker official reported]")));
+		const events = await authEvents(s.setup.dataDir);
+		expect(events.filter(e => e.event === "open")).toEqual([
+			{ event: "open", mode: "gemini-api-key", usesSelectedAuth: true },
+			{ event: "open", mode: "oauth-personal", usesSelectedAuth: true },
+			{ event: "open", mode: "gemini-api-key", usesSelectedAuth: true },
+		]);
+		expect(events).toContainEqual({ event: "logout", method: "oauth-personal", hadNativeAuth: true });
+		expect(events.some(e => e.event === "authenticate")).toBe(false);
+		const retained = [JSON.stringify(logs), JSON.stringify(s.view.view?.entries), JSON.stringify(events), JSON.stringify(await fixtureEvents(s.setup.dataDir))].join("\n");
+		for (const secret of [value, url, privateToken, apiKey]) expect(retained.includes(secret)).toBe(false);
+	} finally { await s.cleanup(); }
+}, 30_000);
+
+test("Antigravity sign-out calls native logout and removes the profile and marker", async () => {
+	const setup = await createSetup({ antigravityCommand: fakeAgent });
+	const client = await TestClient.open(setup.server);
+	try {
+		await client.hello();
+		await signInWithFakeCode(client);
+		expect(await client.request({ type: "credentials.delete", providerId: AGY.provider })).toMatchObject({ type: "credentials.delete", deleted: true });
+		expect(await setup.credentials.read(AGY.provider)).toBeUndefined();
+		expect(await authType(client)).toBeUndefined();
+		expect(await subscriptionProfiles(setup.dataDir)).toHaveLength(0);
+		expect(await authEvents(setup.dataDir)).toContainEqual({ event: "logout", method: "oauth-personal", hadNativeAuth: true });
+	} finally { client.close(); await setup.cleanup(); }
+});
+
+for (const action of ["cancel", "timeout", "save key"] as const) test(`Antigravity ${action} ends an unanswered native login without saving a marker`, async () => {
+	const setup = await createSetup({ antigravityCommand: fakeAgent, ...(action === "timeout" ? { logins: { idleTimeoutMs: 1_500 } } : {}) });
+	const client = await TestClient.open(setup.server);
+	try {
+		await client.hello();
+		const login = await startSubscription(client);
+		const pid = (await authEvents(setup.dataDir)).find(event => event.event === "login-started").pid as number;
+		if (action === "cancel") expect((await client.request({ type: "credentials.loginCancel", loginId: login.id })).type).toBe("credentials.loginCancel");
+		if (action === "save key") expect((await client.request({ type: "credentials.set", providerId: AGY.provider, apiKey: `synthetic-${crypto.randomUUID()}` })).type).toBe("credentials.set");
+		const finished = await waitForLogin(client, login.id, action === "timeout" ? "failed" : "cancelled");
+		if (action === "timeout") expect(finished.error).toContain("timed out");
+		expect(finished.events.some(event => event.type === "auth_url")).toBe(false);
+		expect(await authType(client)).toBe(action === "save key" ? "api_key" : undefined);
+		// Deletion is serialized behind the native process cleanup, even after the UI has seen cancel.
+		expect((await client.request({ type: "credentials.delete", providerId: AGY.provider })).type).toBe("credentials.delete");
+		expect(await subscriptionProfiles(setup.dataDir)).toHaveLength(0);
+		expect(() => process.kill(pid, 0)).toThrow();
+	} finally { client.close(); await setup.cleanup(); }
+}, 10_000);
 
 test("worker stop sends ACP cancel and rejects permission requests during teardown", async () => {
 	const s = await workerSetup("HOLD_TURN");
@@ -154,7 +266,7 @@ test("a journal replays done and failed turns without prompting twice", async ()
 	const definition = antigravityDefinition(dataDir, fakeAgent);
 	await setCredential(credentials);
 	async function turn(sessionId: string, text: string) {
-		const sessions = new OfficialAgentSessions(dataDir);
+		const sessions = new OfficialAgentSessions(dataDir, credentials);
 		try {
 			const models = createModels({ credentials });
 			models.setProvider(sessions.provider(definition));

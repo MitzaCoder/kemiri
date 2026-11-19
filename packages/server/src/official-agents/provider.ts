@@ -2,17 +2,19 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { contentText, createAssistantMessageEventStream, getCurrentSystemPrompt, type AssistantMessage, type Models, type Provider, type StreamOptions, type TranscriptContext, type Model, type Usage } from "@earendil-works/pi-ai";
+import { contentText, createAssistantMessageEventStream, getCurrentSystemPrompt, type AssistantMessage, type CredentialStore, type Models, type Provider, type StreamOptions, type TranscriptContext, type Model, type Usage } from "@earendil-works/pi-ai";
 import type { ProviderInfo } from "@kemiri/protocol";
-import { childEnvironment } from "../child-environment.ts";
+import { OfficialAgentAccounts, officialAgentAccounts, officialAgentEnvironment } from "./auth.ts";
 import { readJsonFile, writeJsonFile } from "../fs-json.ts";
 import { AcpClient, AcpProcessError, AcpProtocolError, AcpRpcError, type AcpUpdate } from "./acp-client.ts";
 import { OFFICIAL_AGENT_API, type OfficialAgentDefinition, type OfficialAgentLogin, type OfficialAgentModel } from "./definition.ts";
 
 export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string };
 type Turn = { state: "sent" } | { state: "done"; text: string; usage: Usage } | { state: "failed"; error: string };
-type SessionJournal = { sessionId: string; cwd: string; modelId: string; loginMode: OfficialAgentLogin["mode"]; turns: Record<string, Turn> };
+type SessionJournal = { sessionId: string; cwd: string; modelId: string; loginMode: OfficialAgentLogin["mode"]; loginIdentity?: string; turns: Record<string, Turn> };
 type AgentSession = {
+	providerId: string;
+	turnFinished?: Promise<void>;
 	request: OfficialAgentRequest;
 	stop: AbortController;
 	busy: boolean;
@@ -21,7 +23,6 @@ type AgentSession = {
 	scratch?: string;
 	journal?: SessionJournal;
 	closing?: Promise<void>;
-	authFingerprint?: string;
 };
 
 const IDLE_MS = 10 * 60_000;
@@ -50,7 +51,7 @@ function failure(definition: OfficialAgentDefinition, error: unknown): string {
 	if (error instanceof AcpProcessError || error instanceof AcpProtocolError) return `${definition.name}: ${error.message}`;
 	if (error instanceof AcpRpcError) {
 		if (error.code === 429 || /quota|rate.limit|resource.exhausted|too many requests/i.test(error.message)) return `${definition.name}: quota exhausted or rate limited.`;
-		if ((error.code === -32000 && error.method !== "session/prompt") || /not authenticated|auth.*required|unauthenticated|sign.in|log.in|api.key.*invalid/i.test(error.message)) return definition.signInRequired;
+		if ((error.code === -32000 && error.method !== "session/prompt") || error.code === 401 || /not authenticated|auth.*required|unauthenticated|sign.in|log.in|api.key.*invalid|invalid.grant|(?:token|credential).*(?:expired|revoked)|(?:refresh|renew).*(?:failed|failure|token)|(?:failed|unable).*(?:refresh|renew)/i.test(error.message)) return definition.signInRequired;
 		return `${definition.name}: ACP ${error.method} failed (code ${error.code}).`;
 	}
 	return `${definition.name}: could not prepare or save the agent session.`;
@@ -60,9 +61,10 @@ function failure(definition: OfficialAgentDefinition, error: unknown): string {
 export class OfficialAgentSessions {
 	readonly #requests = new WeakMap<object, OfficialAgentRequest>();
 	readonly #sessions = new Map<string, AgentSession>();
+	readonly #accounts = new Set<OfficialAgentAccounts>();
 	#shuttingDown = false;
 
-	constructor(readonly dataDir: string, readonly log: (message: string) => void = () => {}) {}
+	constructor(readonly dataDir: string, readonly credentials: CredentialStore, readonly log: (message: string) => void = () => {}) {}
 
 	tag(message: object, request: OfficialAgentRequest): void { this.#requests.set(message, request); }
 
@@ -75,6 +77,7 @@ export class OfficialAgentSessions {
 	async close(): Promise<void> {
 		this.beginShutdown();
 		await Promise.all([...this.#sessions].map(([key, session]) => this.#close(key, session)));
+		await Promise.all([...this.#accounts].map(accounts => accounts.drain()));
 	}
 
 	#close(key: string, session: AgentSession): Promise<void> {
@@ -89,8 +92,19 @@ export class OfficialAgentSessions {
 	}
 
 	provider(definition: OfficialAgentDefinition): Provider {
-		const profile = join(this.dataDir, "official-agents", definition.id, "profile");
-		const catalogPath = join(this.dataDir, "official-agents", definition.id, "models.json");
+		const directory = join(this.dataDir, "official-agents", definition.id);
+		const accounts = new OfficialAgentAccounts({
+			directory, definition, credentials: this.credentials, log: this.log,
+			stopWorkers: async () => {
+				await Promise.all([...this.#sessions].filter(([, session]) => session.providerId === definition.id).map(async ([key, session]) => {
+					await this.#close(key, session);
+					await session.turnFinished;
+				}));
+			},
+		});
+		this.#accounts.add(accounts);
+		const signInChanging = () => new AcpProtocolError("Antigravity sign-in is changing. Try the next turn after it finishes.");
+		const catalogPath = join(directory, "models.json");
 		const models = new Map(definition.models.map(model => [model.id, model]));
 		const updateCatalog = (reported: unknown): boolean => {
 			let changed = false;
@@ -148,16 +162,20 @@ export class OfficialAgentSessions {
 				const key = digest(`${definition.id}:${sessionId}`);
 				const journalPath = join(this.dataDir, "official-agents", definition.id, `${key}.json`);
 				if (signal?.aborted || this.#shuttingDown) throw new AcpProcessError("The agent turn was cancelled.");
+				if (accounts.changing) throw signInChanging();
 				let session = this.#sessions.get(key);
 				if (session?.busy) throw new AcpProtocolError("The worker already has an agent turn in progress.");
 				if (!session || session.closing || (session.client && !session.client.alive)) {
 					if (session) await this.#close(key, session);
-					session = { request, stop: new AbortController(), busy: false };
+					if (accounts.changing) throw signInChanging();
+					session = { providerId: definition.id, request, stop: new AbortController(), busy: false };
 					this.#sessions.set(key, session);
 				}
 				const running = session;
 				if (request.cwd !== running.request.cwd || request.projectId !== running.request.projectId || request.conversationId !== running.request.conversationId) throw new AcpProtocolError("The agent workspace changed.");
 				running.busy = true;
+				const finished = Promise.withResolvers<void>();
+				running.turnFinished = finished.promise;
 				clearTimeout(running.idle);
 				const stop = () => { void this.#close(key, running); };
 				signal?.addEventListener("abort", stop, { once: true });
@@ -178,12 +196,12 @@ export class OfficialAgentSessions {
 						delta("text", previous.text);
 						return;
 					}
-					const apiKey = options?.apiKey;
-					if (!apiKey) throw new AcpProcessError(definition.signInRequired);
-					const login: OfficialAgentLogin = { mode: "api-key", key: apiKey };
-					if (journal && journal.loginMode !== login.mode) throw new AcpProtocolError("The saved agent session uses a different login mode.");
-					const authFingerprint = digest(apiKey);
-					if (running.client && running.authFingerprint !== authFingerprint) throw new AcpProtocolError("The agent credential changed; start a new worker.");
+					const account = await accounts.workerLogin(running.stop.signal);
+					checkCancelled();
+					if (!account) throw new AcpProcessError(definition.signInRequired);
+					const { login, profile, identity } = account;
+					const sameLogin = journal && (journal.loginIdentity ?? journal.loginMode) === identity;
+					if (!sameLogin && previous?.state === "sent") throw new AcpProtocolError("Sign-in changed while a turn was interrupted. Inspect its workspace before sending a follow-up.");
 					if (!running.client) {
 						const binary = await definition.install().catch(error => {
 							// Installer errors are generated by Kemiri, but arbitrary OS/network diagnostics stay private.
@@ -197,25 +215,26 @@ export class OfficialAgentSessions {
 						const scratch = await mkdtemp(join(profile, "tmp-"));
 						if (cancelled()) { await rm(scratch, { recursive: true, force: true }); checkCancelled(); }
 						running.scratch = scratch;
-						const env = { PATH: childEnvironment().PATH ?? "/usr/bin:/bin", HOME: profile, LANG: "C.UTF-8", TMPDIR: scratch, ...definition.environment(profile, login) };
+						const env = { ...officialAgentEnvironment(profile, scratch), ...definition.environment(profile, login) };
 						const client = running.client = new AcpClient(binary, definition.launchArgs(profile), request.cwd, env, this.log);
-						const opened = await client.open(request.cwd, journal?.sessionId, definition.apiKeyMethod);
+						// A worker must never start an interactive OAuth flow on expiry.
+						const opened = await client.open(request.cwd, sameLogin ? journal.sessionId : undefined, login.mode === "api-key" ? definition.apiKeyMethod : undefined);
 						if (typeof opened.version === "string" && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(opened.version)) advertisedVersion = opened.version;
 						await client.selectModel(opened.session, model.id, publish);
-						running.authFingerprint = authFingerprint;
-						running.journal = journal ?? { sessionId: opened.sessionId, cwd: request.cwd, modelId: model.id, loginMode: login.mode, turns: {} };
+						running.journal = sameLogin ? journal : { sessionId: opened.sessionId, cwd: request.cwd, modelId: model.id, loginMode: login.mode, loginIdentity: identity, turns: journal?.turns ?? {} };
 					}
 					const sessionJournal = running.journal!;
 					const resumed = previous?.state === "sent";
 					// The retry sees the same generation task ID, even if pi-durable kept an aborted assistant partial.
 					const boundary = context.messages.findLastIndex(message => message.role === "assistant" && message.stopReason !== "aborted");
-					const userMessages = context.messages.slice(boundary + 1).filter(message => message.role === "user");
+					// A new account never receives the previous account's unanswered inputs.
+					const userMessages = (journal && !sameLogin ? context.messages.slice(-1) : context.messages.slice(boundary + 1)).filter(message => message.role === "user");
 					if (!resumed && (!userMessages.length || userMessages.some(message => typeof message.content !== "string" && message.content.some(block => block.type !== "text")))) {
 						throw new AcpProtocolError("Official-agent workers need a text user input for this turn.");
 					}
 					const input = userMessages.map(message => contentText(message.content)).join("\n\n");
 					const instructions = getCurrentSystemPrompt(context.messages);
-					const prompt = resumed ? RESUME_PROMPT : Object.keys(sessionJournal.turns).length === 0
+					const prompt = resumed ? RESUME_PROMPT : !sameLogin || Object.keys(sessionJournal.turns).length === 0
 						? `--- Worker instructions ---\n${instructions}\n--- End worker instructions ---\n\n--- User input ---\n${input}\n--- End user input ---` : input;
 					checkCancelled();
 					sessionJournal.turns[turnId] = { state: "sent" };
@@ -252,6 +271,7 @@ export class OfficialAgentSessions {
 				} finally {
 					signal?.removeEventListener("abort", stop);
 					running.busy = false;
+					finished.resolve();
 					if (running.closing) this.#sessions.delete(key);
 					else running.idle = setTimeout(() => { void this.#close(key, running); }, IDLE_MS).unref();
 				}
@@ -272,8 +292,15 @@ export class OfficialAgentSessions {
 			auth: { apiKey: {
 				name: definition.apiKeyName,
 				check: async ({ credential }) => credential?.key ? { type: "api_key" } : undefined,
-				// The adapter owns the unconfigured error and can replay a stored answer without a credential.
-				resolve: async ({ credential }) => ({ auth: credential?.key ? { apiKey: credential.key } : {} }),
+				// Resolve the selected account inside the worker, after registering it for teardown.
+				resolve: async () => ({ auth: {} }),
+			}, oauth: {
+				name: definition.subscriptionName,
+				loginLabel: "Sign in with Google",
+				isSubscription: true,
+				login: interaction => accounts.login(interaction),
+				refresh: async marker => marker,
+				toAuth: async () => ({}),
 			} },
 			getModels: () => [...models.values()].map(({ id, name }) => ({
 				id, name, api: OFFICIAL_AGENT_API, provider: definition.id, baseUrl: "", input: ["text"], reasoning: false,
@@ -282,6 +309,7 @@ export class OfficialAgentSessions {
 			streamSimple: stream,
 			stream: stream,
 		};
+		officialAgentAccounts.set(provider, accounts);
 		providerMetadata.set(provider, async () => ({
 			transport: definition.transport, pinnedVersion: definition.pinnedVersion,
 			installedVersion: advertisedVersion ?? await definition.installedVersion(), subscriptionWarning: definition.subscriptionWarning,

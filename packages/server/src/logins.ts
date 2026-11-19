@@ -16,6 +16,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { AuthEvent, AuthLogin, AuthPrompt, AuthPromptOption } from "@kemiri/protocol";
 import { ServerError, errorMessage } from "./errors.ts";
+import { officialAgentAccounts } from "./official-agents/auth.ts";
 
 /** How many notifications a login keeps for a client that reloads late. */
 const EVENT_HISTORY_LIMIT = 30;
@@ -49,6 +50,7 @@ type PendingPrompt = {
 };
 
 type Session = {
+	officialAgent: boolean;
 	login: AuthLogin;
 	controller: AbortController;
 	prompt?: PendingPrompt;
@@ -161,6 +163,7 @@ export class OAuthLoginManager {
 		const now = this.#now();
 		const id = `login-${++this.#loginSequence}`;
 		const session: Session = {
+			officialAgent: officialAgentAccounts.has(provider),
 			controller: new AbortController(),
 			login: {
 				id,
@@ -227,20 +230,22 @@ export class OAuthLoginManager {
 
 	async #run(session: Session): Promise<void> {
 		try {
-			const deviceId = this.#deviceId === undefined ? undefined : await this.#deviceId();
-			await this.#models.login(
-				session.login.providerId,
-				"oauth",
-				{
-					signal: session.controller.signal,
-					prompt: (prompt) => this.#ask(session, prompt),
-					notify: (event) => this.#notify(session, event),
-				},
-				{
+			const interaction = {
+				signal: session.controller.signal,
+				prompt: (prompt: ProviderAuthPrompt) => this.#ask(session, prompt),
+				notify: (event: ProviderAuthEvent) => this.#notify(session, event),
+			};
+			const provider = this.#models.getProvider(session.login.providerId);
+			if (session.officialAgent && provider?.auth.oauth) {
+				// The official agent owns activation as well as sign-in. Do not write the marker a second time.
+				await provider.auth.oauth.login(interaction);
+			} else {
+				const deviceId = this.#deviceId === undefined ? undefined : await this.#deviceId();
+				await this.#models.login(session.login.providerId, "oauth", interaction, {
 					...(deviceId === undefined ? {} : { getDeviceId: () => deviceId }),
 					...(this.#agentName === undefined ? {} : { agentName: this.#agentName }),
-				},
-			);
+				});
+			}
 			this.#finish(session, "succeeded");
 		} catch (error) {
 			if (session.controller.signal.aborted) {
@@ -323,6 +328,7 @@ export class OAuthLoginManager {
 		// Settle the provider's prompt so the flow unwinds instead of hanging on a login that is over.
 		prompt?.reject(new Error(error ?? "Login cancelled"));
 		session.login.status = status;
+		if (session.officialAgent) session.login.events = session.login.events.filter(event => event.type !== "auth_url");
 		if (error !== undefined) session.login.error = error;
 		this.#log(`login ${session.login.id}: ${status}${error === undefined ? "" : `: ${error}`}`);
 		if (options.silent !== true) this.#emit(session);

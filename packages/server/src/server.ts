@@ -298,7 +298,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const connections = new Set<ClientConnection>();
 	const sockets = new Set<ServerWebSocket<SocketData>>();
 	let pendingHandshakes = 0;
-	const officialAgents = new OfficialAgentSessions(dataDir, log);
+	const officialAgents = new OfficialAgentSessions(dataDir, credentials, log);
 	const officialAgent: Provider = officialAgents.provider(antigravityDefinition(dataDir, options.antigravityCommand));
 	const unobservedModels = options.models ?? createHarnessModels({ credentials, officialAgent });
 	if (options.models && options.antigravityCommand) {

@@ -22,7 +22,7 @@ type AcpSession = {
 type AcpInitialize = {
 	protocolVersion?: number;
 	agentInfo?: { version?: string };
-	agentCapabilities?: { loadSession?: boolean };
+	agentCapabilities?: { loadSession?: boolean; auth?: { logout?: boolean } };
 	authMethods?: { id: string }[];
 };
 
@@ -79,9 +79,20 @@ export class AcpClient {
 
 	get alive(): boolean { return !this.#failure && !this.#closing; }
 
-	async open(cwd: string, previousId: string | undefined, authMethod: string): Promise<{ sessionId: string; session: AcpSession; version?: string }> {
+	async #initialize(): Promise<AcpInitialize> {
 		const initialized = await this.#request<AcpInitialize>("initialize", { protocolVersion: ACP_VERSION, clientCapabilities: {}, clientInfo: { name: "kemiri", version: "1" } });
 		if (initialized?.protocolVersion !== ACP_VERSION) throw new AcpProtocolError("The agent did not negotiate a supported ACP version.");
+		return initialized;
+	}
+
+	async logout(methodId: string): Promise<void> {
+		const initialized = await this.#initialize();
+		if (initialized.agentCapabilities?.auth?.logout !== true) throw new AcpProtocolError("The agent did not advertise logout.");
+		await this.#request("logout", { methodId });
+	}
+
+	async open(cwd: string, previousId: string | undefined, authMethod?: string): Promise<{ sessionId: string; session: AcpSession; version?: string }> {
+		const initialized = await this.#initialize();
 		if (previousId && initialized.agentCapabilities?.loadSession !== true) throw new AcpProtocolError("The agent cannot reload its saved ACP session.");
 		this.#sessionId = previousId;
 		const setup = () => previousId
@@ -90,7 +101,7 @@ export class AcpClient {
 		let session: AcpSession;
 		try { session = await setup(); }
 		catch (error) {
-			if (!(error instanceof AcpRpcError) || error.code !== -32000 || !initialized.authMethods?.some(method => method.id === authMethod)) throw error;
+			if (!authMethod || !(error instanceof AcpRpcError) || error.code !== -32000 || !initialized.authMethods?.some(method => method.id === authMethod)) throw error;
 			await this.#request("authenticate", { methodId: authMethod });
 			session = await setup();
 		}

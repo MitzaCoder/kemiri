@@ -2233,8 +2233,13 @@ closes the official agent before removing the workspace. Server shutdown and ten
 process; the next turn uses `session/load`. Amendments reach the official agent at a prompt boundary, not mid-turn.
 
 **Models and accounting:** a bootstrap list is refreshed with choices reported by a session. Use the model config
-option or ACP's advertised model list and setter; fail when the chosen model is not advertised. Effort is off in
-Kemiri; the agent decides its own reasoning. Show reported per-turn tokens, or zeros when absent. Zero cost means
+option or ACP's advertised model list and setter; fail when the chosen model is not advertised. Bootstrap IDs come
+from the pinned binary and [Google's model matrix](https://antigravity.google/docs/models/). Flash 3.8 is listed for
+Free and Plus. Paid Pro adds Neon, Argon, Hydrogen, Neon and Argon Orchestrators, and Claude Sonnet and Opus 5.5.
+Eligible premium-device Pro trials also list Neon, Argon and their Orchestrators. Ultra adds Carbon. The binary did
+not confirm a Carbon Orchestrator ID. Flash 3.7, Flash 3.6 and 3.1 Pro are listed for Enterprise. Catalog entries
+are not promises of subscription or API-key entitlement. Effort is off in Kemiri; model IDs with effort baked in
+are selected like any other advertised model. Show reported per-turn tokens, or zeros when absent. Zero cost means
 unknown, not free. Model metadata is marked worker-only. Coordinator selection (including background threads), report
 audits and memory jobs refuse it. Cache keep-warm already admits only native Anthropic coordinator requests.
 Disable pi-durable compaction for these workers: the ACP agent manages its own context and must never receive a
@@ -2244,12 +2249,25 @@ Kemiri summary prompt. Ungated calls, including internal model jobs without a wo
 extracting just the regular executable, then publish a private staging directory by atomic rename. Use
 `bun scripts/pin-antigravity.ts <version>` against Google's release manifests to advance the pin.
 `KEMIRI_ANTIGRAVITY_COMMAND` substitutes a trusted executable. The profile lives under the backend's data directory.
-A Gemini API key comes from Kemiri's credential store and goes only into agy's environment. T307 can add the native
-subscription login using the existing Accounts and API keys OAuth interaction: relay agy's sign-in link and use the
-manual-code prompt to relay the pasted code to agy. The CLI exchanges and stores tokens in its profile; Kemiri saves
-only a login marker. Verify headless code entry, keyring availability, refresh and logout before enabling that path.
-Google does not support consumer-plan delegation and warns of suspension; the official ACP transport does not change
-that policy. Prefer an approved Gemini API key. See [the research](research/official-cli-harnesses.md).
+Start with the Google AI subscription and show the warning in Accounts and API keys. Google does not support
+consumer subscription delegation and may suspend Antigravity or Gemini CLI access. A Gemini API key is also available
+and avoids that risk. See [the research](research/official-cli-harnesses.md).
+
+Subscription sign-in starts the pinned `agy acp --login` in a private profile with no browser or terminal. The signed-out
+CLI prints a Google sign-in link and waits on standard input. Kemiri shows the link and a manual-code prompt. Open
+the link in a local browser, copy the authorization code from Google's callback page, and paste the code (not its URL)
+into Kemiri. There is no loopback listener or callback replay. Kemiri pipes the code to agy; only agy performs
+the exchange and stores and refreshes its tokens, using forced file storage in the private profile. The credential
+store holds only a non-secret profile marker. A login is limited to five minutes, and cancel or timeout kills the
+process group. The link is only held in memory for the active login, and raw output and answers are not logged.
+
+Saving a login replaces the previous one. An API key is stored by Kemiri and goes only into agy's environment, with
+`gemini-api-key` selected in its settings. Changing or removing a login cancels and closes running agent processes.
+The next turn uses the new login and creates a fresh native session when switching profiles. An interrupted turn is
+not replayed against a different profile. If agy reports expired or failed refresh credentials, the turn says to sign
+in again; a worker never starts an interactive login or switches accounts automatically. Sign-out and API-key
+replacement try ACP `logout` and remove the old subscription profile without opening its files. Sign-out also deletes
+the Kemiri credential. The signed-out probe verifies the code prompt, not persistence or refresh after Google consent.
 
 **Signed-out Linux x64 probe:** the pinned archive verified against Google's manifest. `agy acp` negotiated ACP 1.
 It advertised `loadSession`, session load/resume/list/close and additional directories, logout, image prompts and
