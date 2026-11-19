@@ -1,3 +1,4 @@
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 /** A bounded, no-tools second opinion. Durable admission precedes every paid request. */
 import { createHash } from "node:crypto";
 import type { BoardTask, ReportAuditSettings, ReportAuditStatus } from "@kemiri/protocol";
@@ -26,7 +27,7 @@ export async function chooseAuditModel(models: Models, settings: ReportAuditSett
 	const available = async (provider: string): Promise<boolean> => {
 		try { return await models.checkAuth(provider) !== undefined; } catch { return false; }
 	};
-	if (settings.mode === "model") return settings.model && await available(settings.model.provider) ? models.getModel(settings.model.provider, settings.model.modelId) : undefined;
+	if (settings.mode === "model") return settings.model && !isWorkerOnlyModel(models, settings.model) && await available(settings.model.provider) ? models.getModel(settings.model.provider, settings.model.modelId) : undefined;
 	for (const provider of ["anthropic", "opencode-go", "openai"]) {
 		const id = provider === "openai" ? "gpt-5-nano" : "claude-haiku-5-5";
 		const model = models.getModel(provider, id);

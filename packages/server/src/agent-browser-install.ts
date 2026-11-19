@@ -13,6 +13,10 @@ const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest(
 
 /** Read one regular member, never extracting names/links from an archive into the filesystem. */
 export function agentBrowserBinaryFromTarball(tarball: Uint8Array): Buffer {
+	return regularTarMember(tarball, "package/bin/agent-browser");
+}
+
+export function regularTarMember(tarball: Uint8Array, member: string): Buffer {
 	const tar = gunzipSync(tarball, { maxOutputLength: 256 * 1024 * 1024 });
 	let binary: Buffer | undefined;
 	for (let offset = 0; offset + 512 <= tar.length;) {
@@ -24,13 +28,13 @@ export function agentBrowserBinaryFromTarball(tarball: Uint8Array): Buffer {
 		if (!/^[0-7]+$/.test(sizeText)) throw new Error("Invalid tar member size");
 		const size = Number.parseInt(sizeText, 8);
 		if (offset + 512 + size > tar.length) throw new Error("Truncated tar member");
-		if (name === "package/bin/agent-browser" && !prefix) {
-			if (binary || (header[156] !== 0 && header[156] !== 48) || size === 0) throw new Error("Invalid agent-browser tar member");
+		if (name === member && !prefix) {
+			if (binary || (header[156] !== 0 && header[156] !== 48) || size === 0) throw new Error(`Invalid ${member} tar member`);
 			binary = tar.subarray(offset + 512, offset + 512 + size);
 		}
 		offset += 512 + Math.ceil(size / 512) * 512;
 	}
-	if (!binary) throw new Error("Missing package/bin/agent-browser in tarball");
+	if (!binary) throw new Error(`Missing ${member} in tarball`);
 	return binary;
 }
 

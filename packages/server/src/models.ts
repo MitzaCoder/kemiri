@@ -10,11 +10,13 @@ import {
 	createModels,
 	type Models,
 	type Model,
+	type Provider,
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
+import { describeOfficialAgent, isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { withModelCatalogExtensions } from "./model-catalog-extensions.ts";
 import {
 	THINKING_LEVELS,
@@ -34,7 +36,7 @@ export const HARNESS_PROVIDERS = ["opencode-go", "anthropic", "openai", "openai-
 /** Claude Code version sent with Anthropic requests; kept aligned with pi-ai's OAuth identity (1.5.2: 2.1.322). */
 export const CLAUDE_CODE_VERSION = "2.1.322";
 
-export function createHarnessModels(options: { credentials: CredentialStore }): Models {
+export function createHarnessModels(options: { credentials: CredentialStore; officialAgent?: Provider }): Models {
 	const models = createModels({ credentials: options.credentials });
 	// Side-effect free factories: their API SDKs load lazily on the first request.
 	models.setProvider(opencodeGoProvider());
@@ -54,6 +56,7 @@ export function createHarnessModels(options: { credentials: CredentialStore }): 
 	});
 	models.setProvider(withModelCatalogExtensions(openaiProvider()));
 	models.setProvider(withModelCatalogExtensions(openaiCodexProvider()));
+	if (options.officialAgent) models.setProvider(options.officialAgent);
 	return models;
 }
 
@@ -82,13 +85,15 @@ export async function describeModels(models: Models): Promise<ModelCatalog> {
 		}),
 	);
 
-	const providerInfos: ProviderInfo[] = providers.map((provider) => {
+	const providerInfos: ProviderInfo[] = await Promise.all(providers.map(async (provider) => {
 		const check = auth.get(provider.id);
 		const oauth = provider.auth.oauth;
+		const officialAgent = await describeOfficialAgent(provider);
 		return {
 			id: provider.id,
 			name: provider.name,
 			configured: check !== undefined,
+			...(officialAgent === undefined ? {} : { officialAgent }),
 			...(check === undefined ? {} : { authType: check.type }),
 			...(oauth === undefined
 				? {}
@@ -100,7 +105,7 @@ export async function describeModels(models: Models): Promise<ModelCatalog> {
 						},
 					}),
 		};
-	});
+	}));
 
 	const modelInfos: ModelInfo[] = [];
 	for (const provider of providers) {
@@ -117,6 +122,7 @@ export async function describeModels(models: Models): Promise<ModelCatalog> {
 				reasoning: model.reasoning,
 				thinkingLevels: thinkingLevelsOf(model),
 				configured,
+				...(isWorkerOnlyModel(models, { provider: provider.id, modelId: model.id }) ? { workerOnly: true } : {}),
 			});
 		}
 	}

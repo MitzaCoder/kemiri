@@ -1,3 +1,4 @@
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 /**
  * The memory work a model does on its own: the tool loop both the extraction after a compaction and the maintenance run
  * use, and the editor that turns their writes into one commit per scope.
@@ -127,6 +128,7 @@ export type MemoryAgentRun = {
  * A provider failure is thrown, so the caller can record it as the run's outcome; nothing here retries.
  */
 export async function runMemoryAgent(run: MemoryAgentRun): Promise<string> {
+	if (isWorkerOnlyModel(run.models, run.model)) throw new ServerError("bad_request", "Official-agent models cannot run memory jobs.");
 	const model = run.models.getModel(run.model.provider, run.model.modelId);
 	if (model === undefined) {
 		throw new ServerError("unknown_model", `Unknown model ${run.model.provider}/${run.model.modelId}`);

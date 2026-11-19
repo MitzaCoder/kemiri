@@ -527,10 +527,17 @@ export const ProviderInfoSchema = Type.Object({
 		Type.Union([Type.Literal("api_key"), Type.Literal("oauth")], { description: "How the provider is configured." }),
 	),
 	oauth: Type.Optional(ProviderOAuthInfoSchema),
+	officialAgent: Type.Optional(Type.Object({
+		transport: Type.Literal("acp"),
+		pinnedVersion: Type.String(),
+		installedVersion: Type.Union([Type.String(), Type.Null()]),
+		subscriptionWarning: Type.String(),
+	})),
 });
 export type ProviderInfo = Static<typeof ProviderInfoSchema>;
 
 export const ModelInfoSchema = Type.Object({
+	workerOnly: Type.Optional(Type.Boolean()),
 	api: Type.Optional(Type.String()),
 	provider: Type.String(),
 	modelId: Type.String(),

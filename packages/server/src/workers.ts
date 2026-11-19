@@ -2,6 +2,7 @@ import { workerCommandIntent } from "./worker-command-intent.ts";
 import { LivePlanInputSchema, LivePlanTickSchema } from "./task-live-plan.ts";
 import { appendLiveFact, runningLiveSources } from "./task-live.ts";
 import type { TaskArtifactSave } from "./artifacts.ts";
+import { isWorkerOnlyModel, type OfficialAgentSessions } from "./official-agents/provider.ts";
 import { type WorkerBrowserAvailability, type WorkerBrowserService, type UnsavedProof, workerBrowserInstructions, unsavedProofList } from "./worker-browser.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { recordTimelineRun } from "./task-timeline.ts";
@@ -358,6 +359,9 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				if (settled.status === "unanswered") {
 					// A stop is the coordinator's own decision: it already knows, and nothing should be posted back.
 					const stopped = settled.reason === "aborted";
+					const worker = await service.workerOf(conversationId, context);
+					const live = settled.reason === "model_error" && worker && service.isOfficialAgent(worker.record.model)
+						? await runtime.snapshot(LiveDoc, conversationId as ConversationId, context) : undefined;
 					await runtime.commit(
 						() => ({
 							status: "running",
@@ -365,7 +369,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 								phase: "report",
 								text: null,
 								status: stopped ? "stopped" : "failed",
-								failure: stopped ? null : settled.reason,
+								failure: stopped ? null : live?.runFailure?.detail ?? settled.reason,
 							},
 						}),
 						context,
@@ -438,7 +442,10 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				const { workerId, callId, schedule, conversationId } = reporter.input;
 				const { text, status, failure } = reporter.state.checkpoint;
 				// Bounded cleanup never delays the durable report or notifications.
-				if (status !== "idle" || schedule?.isolation === "shared") void service.cleanupBrowser(conversationId, schedule?.isolation === "shared");
+				if (status !== "idle" || schedule?.isolation === "shared") {
+					void service.cleanupBrowser(conversationId, schedule?.isolation === "shared");
+					void service.closeOfficialAgent(conversationId);
+				}
 				const owner = (await service.coordinators.conversation(runtime.conversationId)) ?? service.coordinator;
 				const body = text === null ? failureReport(workerId, failure) : reportText(workerId, text);
 				const report = body === null ? null : body + (reporter.state.checkpoint.proofSuffix ?? "");
@@ -785,6 +792,7 @@ export function workerInstructions(options: {
 	/** Already rendered at creation; persisted by configure in the conversation's AgentDoc. */
 	projectBrief?: string;
 	browserInstructions?: string;
+	officialAgent?: boolean;
 	id: string;
 	title: string;
 	project: Project;
@@ -805,7 +813,9 @@ export function workerInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
+			: options.officialAgent
+				? `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The coordinator updates the board from your final report.`
+				: `\n\nYour first board task is ${options.taskId}. If reassigned, use the board task named in the new brief. The owner reads that task, not this conversation. Keep its report current with task_progress: Now is written automatically. Use optional \`now\` only for a few-word phase when the phase really changes, not a running commentary; \`addResult\` adds one finished outcome; \`checks\` updates checks by name; pass a \`milestone\` (a few words) only when something meaningful just happened. Phases and results make a short trail for this run.${planInstructions} Nothing made up. Give the coordinator any questions, warnings, complete steps or full answers in your final report so they can put those on the board.\n\n${WRITING_RULE}`;
 	const thread = options.threadId === undefined || options.threadId === "main" ? undefined : options.threadId;
 	const shared =
 		thread === undefined
@@ -827,7 +837,7 @@ The coordinator sent you one brief. Do it, then answer with a report. Verificati
 
 Read files with the read tool, not a bash \`cat\` chain: a \`&&\` chain whose last command fails turns the whole call red even though the useful output already printed. When an AGENTS.md or CLAUDE.md names another path, resolve it against that file's own folder, not the project root. \`grep\`/\`rg\` exit 1 when nothing matches and 2 when a path is missing, so never end an inspection chain with a command that can fail, and never add \`|| true\` to quiet one.
 
-${uiProofParagraph(project, "worker")}${CODEMODE_GUIDANCE}
+${options.officialAgent ? "Use your own agent tools. No Kemiri tools, board updates, or artifact retention are available from this session." : uiProofParagraph(project, "worker") + CODEMODE_GUIDANCE}
 
 Write your final report in plain words for the coordinator. Keep its paths and revision IDs there, not in the task prose.${options.projectBrief ? `\n\n${options.projectBrief}` : ""}
 
@@ -1111,6 +1121,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 
 export type WorkerServiceOptions = {
 	taskLive?: boolean;
+	officialAgents?: OfficialAgentSessions;
 	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
@@ -1213,6 +1224,7 @@ export class WorkerService {
 
 	readonly #coordinators: Coordinators;
 	#extension: Extension | undefined;
+	#officialAgentExtension: Extension | undefined;
 	#taskExtension: Extension | undefined;
 	#workspaceExtension: Extension | undefined;
 	#browserExtension: Extension | undefined;
@@ -1330,6 +1342,29 @@ export class WorkerService {
 	get workspaceExtension(): Extension {
 		this.#workspaceExtension ??= createWorkerWorkspaceExtension(this);
 		return this.#workspaceExtension;
+	}
+
+	get officialAgentExtension(): Extension {
+		return this.#officialAgentExtension ??= defineExtension({
+			name: "official-agent-worker",
+			hooks: [hook(GenerationTask, {
+				beforeRequest: async (request, api, context) => {
+					const sessions = this.#options.officialAgents;
+					const last = request.messages.at(-1);
+					if (!sessions || !last || this.isCoordinator(api.conversationId)) return;
+					const worker = await this.workerOf(api.conversationId, context);
+					if (!worker || worker.record.status === "done" || worker.record.status === "stopped" || !this.isOfficialAgent(worker.record.model)) return;
+					const cwd = worker.record.workspacePath ?? this.coordinators.placeOfThread(worker.threadId)?.checkout ?? this.project.path;
+					sessions.tag(last, { cwd, turnId: String(api.taskId), projectId: this.project.id, conversationId: api.conversationId });
+				},
+			})],
+		});
+	}
+
+	isOfficialAgent(model: ModelRef): boolean { return isWorkerOnlyModel(this.#options.models, model); }
+
+	async closeOfficialAgent(conversationId: number): Promise<void> {
+		await this.#options.officialAgents?.stopWorker(this.project.id, conversationId);
 	}
 
 	/** The worker a conversation is, with the thread whose worker it is; undefined for a coordinator. */
@@ -1752,16 +1787,19 @@ export class WorkerService {
 		};
 		const anchor = await tx.createTask(WorkerAnchor, null, background);
 		const conversation = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
-		const browser = await this.#options.browsers?.prepare(project.id, conversation.id, input.browserAvailability, `${coordinatorId}:${input.callId}`);
+		const officialAgent = this.isOfficialAgent(input.model);
+		const browser = officialAgent ? undefined : await this.#options.browsers?.prepare(project.id, conversation.id, input.browserAvailability, `${coordinatorId}:${input.callId}`);
 		await configure(tx, conversation.id, {
 			model: input.model,
-			thinkingLevel: input.thinkingLevel,
+			thinkingLevel: officialAgent ? "off" : input.thinkingLevel,
+			...(officialAgent ? { compaction: { enabled: false }, modelTools: [] } : {}),
 			cwd: input.workspace ?? checkout,
 			extensions: { add: [mcpRoleExtension(input.scheduleId ? "coordinator" : "workers"), ...(this.#options.taskLive ? [workerCommandIntent] : [])], remove: [mcpRoleExtension(input.scheduleId ? "workers" : "coordinator"), mcpRoleExtension("background"), this.extension, ...this.removedExtensions, ...(input.taskId === null ? [this.taskExtension] : [])] },
 			// configure persists this complete text in pi.agent; restart/send never re-render it.
 			instructions: workerInstructions({
 				projectBrief,
-				browserInstructions: workerBrowserInstructions(browser ?? "browser service not configured."),
+				officialAgent,
+				browserInstructions: officialAgent ? "" : workerBrowserInstructions(browser ?? "browser service not configured."),
 				id: input.id,
 				title: input.title,
 				project,
@@ -1893,7 +1931,7 @@ export class WorkerService {
 		}
 		// A `record` run must not wake the coordinator, and a check-in would.
 		const checkIn = run.onReport === "review" ? await this.checkInNeeded() : false;
-		const browserAvailability = await this.ensureBrowserReady();
+		const browserAvailability = this.isOfficialAgent(model) ? "Official-agent worker" : await this.ensureBrowserReady();
 		const conversationId = await this.harness.commit(
 			(tx) =>
 				this.createWorkerIn(tx, this.coordinator.id, {
@@ -2180,7 +2218,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 			const title = args.title ?? args.task.split("\n")[0]?.slice(0, 120) ?? args.task.slice(0, 120);
 			const checkIn = await service.checkInNeeded(context, api.conversationId);
-			const browserAvailability = await service.ensureBrowserReady();
+			const browserAvailability = service.isOfficialAgent(model) ? "Official-agent worker" : await service.ensureBrowserReady();
 			const created = await api.commit(async (tx) => {
     const boardNotices: string[] = [];
     const conversationId = await service.createWorkerIn(tx, api.conversationId, {
@@ -2358,6 +2396,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 			const worker = await api.conversation(record.conversationId as ConversationId, context);
 			await worker?.abort(context);
 			void service.cleanupBrowser(record.conversationId);
+			await service.closeOfficialAgent(record.conversationId);
 			await api.commit(async (tx) => {
 				const doc = await tx.doc(WorkersDoc, api.conversationId);
 				const current = doc.workers[args.id];
@@ -2488,6 +2527,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 				pruneDone(doc);
 			}, context));
 			void service.cleanupBrowser(record.conversationId, true);
+			await service.closeOfficialAgent(record.conversationId);
 			let cleanup = "";
 			if (remove && record.isolation === "workspace" && path !== null) {
 				try {

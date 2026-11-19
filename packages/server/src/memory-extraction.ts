@@ -1,3 +1,4 @@
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 /**
  * Extracting memories after a coordinator compaction.
  *
@@ -432,6 +433,7 @@ export class MemoryExtractionService {
 		this.#noModelLogged = false;
 		const compacted = await this.compactedEntries(entry);
 		if (compacted.length === 0) return;
+		if (isWorkerOnlyModel(this.#options.models, agent.model)) return undefined;
 		const model = this.#options.models.getModel(agent.model.provider, agent.model.modelId);
 		const serialized = chunkCompactedPart(compacted, model?.contextWindow);
 		if (serialized.omittedEntries > 0) {

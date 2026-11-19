@@ -1080,6 +1080,7 @@ data class ModelsListResponse(
 
 @Serializable
 data class ModelInfo(
+    val `workerOnly`: Boolean? = null,
     val `api`: String? = null,
     val `provider`: String,
     val `modelId`: String,
@@ -1098,7 +1099,16 @@ data class ProviderInfo(
     val `name`: String,
     val `configured`: Boolean,
     val `authType`: String? = null,
-    val `oauth`: ProviderOAuthInfo? = null
+    val `oauth`: ProviderOAuthInfo? = null,
+    val `officialAgent`: ProviderInfoOfficialAgent? = null
+)
+
+@Serializable
+data class ProviderInfoOfficialAgent(
+    @kotlinx.serialization.EncodeDefault val `transport`: String = "acp",
+    val `pinnedVersion`: String,
+    val `installedVersion`: String?,
+    val `subscriptionWarning`: String
 )
 
 @Serializable

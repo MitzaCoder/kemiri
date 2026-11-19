@@ -14,7 +14,7 @@ import { DeviceAuth, DeviceAuthError, type AuthOptions, type Identity } from "./
 import { authFailure, authJson, handleAuthHttp, bearer } from "./device-auth-http.ts";
 import { startAuthControl } from "./device-auth-cli.ts";
 import { assertDataDirNotOwned } from "./data-dir-owner.ts";
-import type { CredentialStore, Models } from "@earendil-works/pi-ai";
+import type { CredentialStore, Models, Provider } from "@earendil-works/pi-ai";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import { HARNESS_FEATURES, SERVER_NAME } from "@kemiri/protocol";
@@ -47,6 +47,8 @@ import { errorMessage } from "./errors.ts";
 import { OAuthLoginManager } from "./logins.ts";
 import { MemoryMaintenanceClock, MemoryMaintenanceService, MemoryMaintenanceStore } from "./memory-maintenance.ts";
 import { MemoryStore } from "./memory.ts";
+import { antigravityDefinition } from "./official-agents/antigravity.ts";
+import { OfficialAgentSessions } from "./official-agents/provider.ts";
 import { createHarnessModels } from "./models.ts";
 import {
 	type Notifier,
@@ -85,6 +87,8 @@ import { TerminalHost, type TerminalHostOptions, terminalsEnabled } from "./term
 import { resolveToolCallCapMs } from "./tool-caps.ts";
 
 export type StartServerOptions = {
+	/** Explicit executable override for isolated tests; production uses KEMIRI_ANTIGRAVITY_COMMAND. */
+	antigravityCommand?: string;
 	browsers?: WorkerBrowserService;
 	updates?: Omit<ReleaseUpdateOptions, "file" | "onChange">;
 	/** Usually `resolveDataDir()`; tests use a temp directory. */
@@ -294,7 +298,14 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const connections = new Set<ClientConnection>();
 	const sockets = new Set<ServerWebSocket<SocketData>>();
 	let pendingHandshakes = 0;
-	const unobservedModels = options.models ?? createHarnessModels({ credentials });
+	const officialAgents = new OfficialAgentSessions(dataDir, log);
+	const officialAgent: Provider = officialAgents.provider(antigravityDefinition(dataDir, options.antigravityCommand));
+	const unobservedModels = options.models ?? createHarnessModels({ credentials, officialAgent });
+	if (options.models && options.antigravityCommand) {
+		// Test setups supply a mutable catalog to retain their scripted coordinator provider.
+		if (!("setProvider" in options.models) || typeof options.models.setProvider !== "function") throw new Error("An injected Antigravity command requires mutable models");
+		options.models.setProvider(officialAgent);
+	}
 	const subscriptionUsage = new SubscriptionUsageService({
 		models: unobservedModels,
 		credentials,
@@ -557,6 +568,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	await userSettings.open();
 	const manager = new ProjectManager({
+		officialAgents,
 		browsers: options.browsers,
 		userSettings,
 		mcp,
@@ -1177,7 +1189,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of [...connections]) connection.close();
 			connections.clear();
 			await terminals?.stop().catch(() => undefined);
+			officialAgents.beginShutdown();
 			await manager.closeAll();
+			await officialAgents.close();
 			await mcp.close();
 			if (pruneTimer !== undefined) clearInterval(pruneTimer);
 			await requestLogBackfill;

@@ -32,6 +32,7 @@ export type TestSetup = {
 };
 
 export async function createSetup(options?: {
+	antigravityCommand?: string;
 	updates?: StartServerOptions["updates"];
 	/** Register extra providers, for example a fake OAuth provider, on the setup's models. */
 	configureModels?: (models: MutableModels) => void;
@@ -101,6 +102,7 @@ export async function createSetup(options?: {
 			port: 0,
 			models,
 			credentials,
+			...(options?.antigravityCommand === undefined ? {} : { antigravityCommand: options.antigravityCommand }),
 			images: null,
 			agentDir,
 			configDir,

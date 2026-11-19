@@ -41,6 +41,7 @@ import {
 	memoryScopesOnDisk,
 	scopeKey,
 } from "./memory.ts";
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { findModel } from "./models.ts";
 import { WorkerLessonStore, workerLessonBatch } from "./worker-lessons.ts";
 import { instantOf, zonedParts } from "./schedules.ts";
@@ -363,6 +364,7 @@ export class MemoryMaintenanceService {
 
 	/** Save the backend's maintenance settings; the clock is woken by the caller so a new time applies at once. */
 	async setSettings(input: MemoryMaintenanceSettings): Promise<MemoryMaintenanceSettings> {
+		if (input.model !== null && isWorkerOnlyModel(this.#models, input.model)) throw new ServerError("bad_request", "Official-agent models cannot run memory maintenance.");
 		if (input.model !== null && findModel(this.#models, input.model) === undefined) {
 			throw new ServerError("unknown_model", `Unknown model ${input.model.provider}/${input.model.modelId}`);
 		}

@@ -1,3 +1,4 @@
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { stateKind } from "./state-identity.ts";
@@ -863,6 +864,7 @@ export class ThreadService {
 		if (model === null) {
 			return { ok: false, message: "No model for the thread: name one, or set the project's coordinator model." };
 		}
+		if (isWorkerOnlyModel(this.#options.models, model)) return { ok: false, message: "Official-agent models run only in worker conversations, not coordinator threads." };
 		if (this.#options.models.getModel(model.provider, model.modelId) === undefined) {
 			return { ok: false, message: `Unknown model ${model.provider}/${model.modelId}.` };
 		}

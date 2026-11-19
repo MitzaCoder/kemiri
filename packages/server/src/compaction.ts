@@ -1,3 +1,4 @@
+import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 /**
  * Compaction of the coordinator.
  *
@@ -422,6 +423,7 @@ export class CompactionService {
 		const agent = await conversation.agent(context);
 		const ref = agent.model;
 		if (ref === undefined) return undefined;
+		if (isWorkerOnlyModel(this.#models, ref)) return undefined;
 		const model = this.#models.getModel(ref.provider, ref.modelId);
 		if (model === undefined) return undefined;
 		const now = Date.now();

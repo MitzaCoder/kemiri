@@ -83,6 +83,7 @@ import { MemoryExtractionService, MemoryExtractionStore } from "./memory-extract
 import type { MemoryMaintenanceService } from "./memory-maintenance.ts";
 import { MemoryStore } from "./memory.ts";
 import { MemoryService } from "./memory-tools.ts";
+import { isWorkerOnlyModel, type OfficialAgentSessions } from "./official-agents/provider.ts";
 import { describeModels, findModel, type ModelCatalog } from "./models.ts";
 import {
 	type Notifier,
@@ -185,6 +186,7 @@ type RuntimeEntry = {
 };
 
 export type ProjectManagerOptions = {
+	officialAgents?: OfficialAgentSessions;
 	browsers?: WorkerBrowserService;
 	userSettings?: UserSettingsStore;
  mcp?: McpService;
@@ -306,6 +308,7 @@ function projectSummary(
 }
 
 export class ProjectManager {
+	readonly #officialAgents: OfficialAgentSessions | undefined;
 	readonly #userSettings: UserSettingsStore | undefined;
 	readonly store: ProjectStore;
  readonly mcp: McpService | undefined;
@@ -370,6 +373,7 @@ export class ProjectManager {
 	#imagesPromise: Promise<ImageProcessor | null> | undefined;
 
 	constructor(options: ProjectManagerOptions) {
+		this.#officialAgents = options.officialAgents;
 		this.#userSettings = options.userSettings;
 		this.store = options.store;
 		this.files = new ChatFileStore(options.store.dataDir);
@@ -1178,16 +1182,17 @@ export class ProjectManager {
 
 	#validateModels(change: ProjectChange): void {
 		if (change.coordinatorModel !== undefined && change.coordinatorModel !== null) {
-			this.#requireModel(change.coordinatorModel);
+			this.#requireModel(change.coordinatorModel, false);
 		}
 		for (const ref of change.workerModels ?? []) this.#requireModel(ref);
 		if (change.reportAudit?.mode === "model") {
 			if (!change.reportAudit.model) throw new ServerError("bad_request", "Report audit model mode requires a model");
-			this.#requireModel(change.reportAudit.model);
+			this.#requireModel(change.reportAudit.model, false);
 		}
 	}
 
-	#requireModel(ref: ModelRef): void {
+	#requireModel(ref: ModelRef, allowWorkerOnly = true): void {
+		if (!allowWorkerOnly && isWorkerOnlyModel(this.models, ref)) throw new ServerError("bad_request", "Official-agent models run only in worker conversations.");
 		if (findModel(this.models, ref) === undefined) {
 			throw new ServerError("unknown_model", `Unknown model ${ref.provider}/${ref.modelId}`);
 		}
@@ -1358,6 +1363,7 @@ export class ProjectManager {
 
 		const workers = new WorkerService({
 			taskLive: this.#taskLive,
+			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
 			browsers: this.browsers,
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,
@@ -1446,6 +1452,7 @@ export class ProjectManager {
 		registry.install(workers.taskExtension);
 		if (this.#taskLive) registry.install(workerCommandIntent);
 		registry.install(workers.workspaceExtension);
+		registry.install(workers.officialAgentExtension);
 		registry.install(workers.browserExtension);
 		// The worker a conversation is, and the thread whose worker it is; undefined for a coordinator.
 		const workerOf = async (conversationId: number): Promise<{ workerId: string; threadId: string; scheduleId: string | null } | undefined> => {

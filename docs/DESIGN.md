@@ -2199,6 +2199,72 @@ Status: backend, protocol, client and web UI done (milestone 2).
 - Candidate, not decided (`docs/research/dsh.md`): named worker presets, a bundle of tools, prompt sections and
   skills that `worker_spawn` selects, instead of only replacing a worker's instructions as text.
 
+## Official-agent workers (T304 / D106)
+
+Antigravity is a worker-only pi-ai provider. The coordinator delegates the same task, title, workspace and brief as for
+any worker. A generation hook tags its request with the worker's resolved cwd and durable generation task ID. The
+adapter owns one native process and session per pi-durable conversation session ID. The first ACP prompt carries the
+persisted worker instructions and brief as separately delimited text; later prompts carry only user input after the
+last assistant answer. A shared worker uses its coordinator's checkout; an isolated worker uses its own jj workspace.
+
+The agent owns its history, tools and tool loop. It receives no Kemiri tools, browser launcher, or MCP servers in this
+version. Agent text streams into the worker transcript. Thoughts, plans, tool status changes and permission decisions
+appear as thinking, not pi-ai tool calls, so they are visible to worker peek and check-ins without triggering Kemiri
+execution. The usual reporter takes the final text to the coordinator and associates it with the board task. Explicit
+agent failures block a linked task with a readable reason. No account, model or native-provider fallback is performed.
+
+**First approval policy:** run unattended like native workers. Approve an ACP allow option, preferring allow once.
+Cancel when there is no allow option or the turn is stopping. Workspace separation is the guard against accidental
+edits to the coordinator's checkout; a jj workspace by itself is not a security sandbox. Antigravity also receives
+`--sandbox`, never `--dangerously-skip-permissions`. Use a trusted executable and project. The process gets an explicit
+PATH, locale, private temporary directory and tool-owned HOME, with only the selected credential added. Raw stderr is
+never logged; only a capped byte count is kept. Prompt text travels by stdio, not argv.
+
+**Interrupts and recovery:** a private atomic journal ties the ACP session and its workspace/model to the durable
+conversation session ID. A generation task ID identifies the same turn across retries, even if pi-durable preserves an
+aborted partial. Record `sent` before prompting, `done` with final text and usage after success, and `failed` after an
+observed post-send error. Replay `done` and `failed` locally. If the backend stopped with a turn still `sent`, load the
+session (only when advertised), ask the agent to inspect its work and finish rather than repeat the original brief,
+and annotate the final report. A crashed pi-durable request uses its normal retry budget; no remaining retry means no
+continuation. A pre-prompt failure can be retried because no prompt ran. This is not exactly-once execution of native
+tools: an abrupt host crash may not stop every descendant before the next process opens the session. Stop sends
+`session/cancel`, rejects new permission requests, waits up to ten seconds, then kills the process group. Forget
+closes the official agent before removing the workspace. Server shutdown and ten minutes of idle time also close the
+process; the next turn uses `session/load`. Amendments reach the official agent at a prompt boundary, not mid-turn.
+
+**Models and accounting:** a bootstrap list is refreshed with choices reported by a session. Use the model config
+option or ACP's advertised model list and setter; fail when the chosen model is not advertised. Effort is off in
+Kemiri; the agent decides its own reasoning. Show reported per-turn tokens, or zeros when absent. Zero cost means
+unknown, not free. Model metadata is marked worker-only. Coordinator selection (including background threads), report
+audits and memory jobs refuse it. Cache keep-warm already admits only native Anthropic coordinator requests.
+Disable pi-durable compaction for these workers: the ACP agent manages its own context and must never receive a
+Kemiri summary prompt. Ungated calls, including internal model jobs without a worker generation tag, are rejected.
+
+**Install and sign-in:** install Antigravity 1.5.12 on first use from the Google platform pin. Check SHA-512 before
+extracting just the regular executable, then publish a private staging directory by atomic rename. Use
+`bun scripts/pin-antigravity.ts <version>` against Google's release manifests to advance the pin.
+`KEMIRI_ANTIGRAVITY_COMMAND` substitutes a trusted executable. The profile lives under the backend's data directory.
+A Gemini API key comes from Kemiri's credential store and goes only into agy's environment. T307 can add the native
+subscription login using the existing Accounts and API keys OAuth interaction: relay agy's sign-in link and use the
+manual-code prompt to relay the pasted code to agy. The CLI exchanges and stores tokens in its profile; Kemiri saves
+only a login marker. Verify headless code entry, keyring availability, refresh and logout before enabling that path.
+Google does not support consumer-plan delegation and warns of suspension; the official ACP transport does not change
+that policy. Prefer an approved Gemini API key. See [the research](research/official-cli-harnesses.md).
+
+**Signed-out Linux x64 probe:** the pinned archive verified against Google's manifest. `agy acp` negotiated ACP 1.
+It advertised `loadSession`, session load/resume/list/close and additional directories, logout, image prompts and
+embedded context but not audio. It did not advertise `mcpCapabilities` (neither HTTP nor SSE). It listed personal
+Google OAuth, Gemini Enterprise OAuth, Gemini API key and Gemini Enterprise Agent Platform as auth methods.
+`session/new` returned JSON-RPC error `-32000` with an authentication-required message and no data field. No model
+list appeared in the handshake, and `agy models` exited 1 while signed out. No account, consent flow or real prompt
+was used. T308 should expose only scoped `task_progress` and `artifact_save` through MCP once a compatible transport
+is verified; do not infer HTTP or SSE support from the CLI documentation alone.
+
+The provider boundary is separate from board and worker lifecycle logic. Codex app-server or the Claude Agent SDK can
+add a sibling transport behind the same kind of definition: adapt its native session identity, model selection,
+progress, usage and cancellation, while keeping the same journal, worker gate and reporter. Neither transport is
+implemented here.
+
 ## Threads
 
 D89 / T222: user-facing names are **Main chat** and **background job**; code, tools
