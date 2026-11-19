@@ -102,8 +102,8 @@ internal class LoginSnapshots {
 
 /** How a configured provider got its credential (web `how`). */
 internal fun providerHow(provider: ProviderInfo, credentials: List<CredentialInfo>): Pair<String, ChipTone> = when (credentials.firstOrNull { it.providerId == provider.id }?.type) {
-    "oauth" -> "Signed in" to ChipTone.Ok
-    "api_key" -> "API key" to ChipTone.Ok
+    "oauth" -> (if (provider.officialAgent != null) officialAgentLogin(provider) else "Signed in") to ChipTone.Ok
+    "api_key" -> (if (provider.officialAgent != null) officialAgentLogin(provider) else "API key") to ChipTone.Ok
     else -> "From environment" to ChipTone.Info
 }
 
@@ -112,8 +112,8 @@ internal fun providerOptions(providers: List<ProviderInfo>): List<ComboOption> =
     ComboOption(
         value = provider.id, label = provider.name,
         description = provider.oauth?.let { "${provider.id} · ${it.name}" } ?: provider.id,
-        keywords = provider.oauth?.name.orEmpty(),
-        badge = "subscription".takeIf { provider.oauth?.isSubscription == true },
+        keywords = provider.oauth?.name.orEmpty() + if (provider.officialAgent != null) " $OFFICIAL_AGENT_LABEL" else "",
+        badge = if (provider.officialAgent != null) OFFICIAL_AGENT_LABEL else "subscription".takeIf { provider.oauth?.isSubscription == true },
     )
 }
 
@@ -205,16 +205,18 @@ internal fun AccountsPage(backend: BackendSession) {
     @Composable fun panel(provider: ProviderInfo) {
         val stored = credentials.any { it.providerId == provider.id }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (provider.officialAgent != null) OfficialAgentFacts(provider)
+            subscriptionWarning(provider, canLogin)?.let { SubscriptionWarning(it) }
             if (provider.configured && canKeys && !stored) Text("Configured outside stored credentials (for example, the backend's environment). Removing a stored key cannot remove environment credentials.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
             var showModels by remember { mutableStateOf(false) }
             TextButton(onClick = { showModels = !showModels }, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (showModels) "Hide models" else "Models") }
             if (showModels) catalog?.models?.filter { it.provider == provider.id }?.forEach {
-                Text("${it.name} (${it.modelId}) · ${if (it.configured) "configured" else "not configured"}", style = MaterialTheme.typography.bodySmall)
+                Text("${it.name} (${it.modelId}) · ${if (it.configured) "configured" else "not configured"}${if (isWorkerOnly(it)) " · $OFFICIAL_AGENT_LABEL" else ""}", style = MaterialTheme.typography.bodySmall)
             }
             if (canKeys) {
                 var apiKey by remember(provider.id) { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SecretField(apiKey, { apiKey = it }, if (stored) "Replace stored key" else "API key", Modifier.weight(1f))
+                    SecretField(apiKey, { apiKey = it }, officialAgentKeyLabel(provider, stored), Modifier.weight(1f))
                     SettingsAction("Save API key", Lucide.Check, enabled = !busy && apiKey.isNotBlank(), onClick = {
                         val value = apiKey.trim(); apiKey = ""
                         act { client.request(CredentialsSetRequest(providerId = provider.id, apiKey = value)); refresh() }
@@ -264,9 +266,11 @@ internal fun AccountsPage(backend: BackendSession) {
                 configured.forEach { provider -> key(provider.id) {
                     val (howLabel, howTone) = providerHow(provider, credentials)
                     val open = provider.id in expanded || inProgress(provider)
+                    // The subscription's ban risk stays on screen while it is in use, even with the row closed.
+                    val warning = subscriptionWarning(provider, canLogin).takeIf { usesSubscription(provider) }
                     SettingsRow(
-                        provider.name, hint = provider.oauth?.let { "${provider.id} · ${it.name}" } ?: provider.id, control = RowControl.Auto,
-                        below = if (open) ({ panel(provider) }) else null,
+                        provider.name, hint = officialAgentHint(provider) ?: provider.oauth?.let { "${provider.id} · ${it.name}" } ?: provider.id, control = RowControl.Auto,
+                        below = if (open) ({ panel(provider) }) else warning?.let { text -> ({ SubscriptionWarning(text) }) },
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusChip(howLabel, howTone)
@@ -287,6 +291,25 @@ internal fun AccountsPage(backend: BackendSession) {
                 }
             }
         }
+    }
+}
+
+/** The facts about an official agent's login: which one is in use and which agent version runs (or will be installed). */
+@Composable
+private fun OfficialAgentFacts(provider: ProviderInfo) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("$OFFICIAL_AGENT_LABEL · runs only as a worker", style = MaterialTheme.typography.labelMedium, color = Jarvis.colors.fgMuted)
+        Text("Login in use: ${officialAgentLogin(provider)}", style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+        officialAgentVersion(provider)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
+    }
+}
+
+/** The ban-risk warning exactly as the server words it, in the app's warning card. */
+@Composable
+private fun SubscriptionWarning(text: String) {
+    ToneBanner(BannerTone.Warning) {
+        Text("Subscription risk", style = MaterialTheme.typography.labelLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = Jarvis.colors.warning)
+        Text(text, style = MaterialTheme.typography.bodySmall)
     }
 }
 

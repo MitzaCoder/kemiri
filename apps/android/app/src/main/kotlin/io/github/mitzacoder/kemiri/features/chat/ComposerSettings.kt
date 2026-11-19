@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
+import io.github.mitzacoder.kemiri.features.settings.nonWorkerModels
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -103,7 +104,7 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
             // One row on a phone: the model chip's name or, without room for all of it, its icon; the thinking and worker chips
             // are icons (their full text is their description).
             Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(0.dp),verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                ComposerModelChips(models,providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,onChange = ::changeCoordinator,
+                ComposerModelChips(nonWorkerModels(models),providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,onChange = ::changeCoordinator,
                     enabled = ready && project != null && !savingCoordinator,modifier = Modifier.weight(1f,fill = false),compact = true,iconOnlyEffort = true)
                 if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
                     onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },
@@ -113,7 +114,7 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
         } else
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp),verticalArrangement = Arrangement.spacedBy(0.dp)) {
             // The chips size to their text up to their share of the row, and wrap whole.
-            ComposerModelChips(models,providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,
+            ComposerModelChips(nonWorkerModels(models),providers,project?.coordinator?.model,project?.coordinator?.thinkingLevel,
                 onChange = ::changeCoordinator,enabled = ready && project != null && !savingCoordinator,modelWidthDp = layout.model,effortWidthDp = layout.effort)
             if(ready && connection.supports("workers")) ComposerModelChips(models,providers,workers.model,workers.thinkingLevel,
                 onChange = { model,effort -> saveWorker(WorkerDefaults(model,effort)) },

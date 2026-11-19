@@ -83,7 +83,7 @@ fun modelOptions(models: List<ModelInfo>, providers: List<ProviderInfo>): List<C
         ComboOption(
             value = modelKey(model),
             label = model.name,
-            description = "${model.modelId} · ${contextSize(model.contextWindow)} context",
+            description = "${model.modelId} · ${contextSize(model.contextWindow)} context" + if (isWorkerOnly(model)) " · $OFFICIAL_AGENT_LABEL" else "",
             group = model.provider,
             groupLabel = providerName(providers, model.provider),
             keywords = model.provider,

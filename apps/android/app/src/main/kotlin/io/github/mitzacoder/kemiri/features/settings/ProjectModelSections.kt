@@ -58,7 +58,8 @@ internal fun CoordinatorSection(context: ProjectScreenContext, project: ProjectS
     val uiProofValue = pendingUiProof ?: storedUiProof ?: "screenshots-and-videos"
     val modelValue = pendingModel ?: storedModel
     val thinkingValue = pendingThinking?.let { it.level } ?: if (pendingThinking != null) null else storedThinking
-    val options = remember(models, providers) { modelOptions(models, providers) }
+    // The coordinator never runs on an official agent: those models are for workers only.
+    val options = remember(models, providers) { modelOptions(nonWorkerModels(models), providers) }
     val info = models.firstOrNull { modelKey(it) == modelValue }
     val provider = info?.let { found -> providers.firstOrNull { it.id == found.provider } }
 

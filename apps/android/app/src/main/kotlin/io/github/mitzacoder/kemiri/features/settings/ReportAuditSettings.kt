@@ -18,7 +18,7 @@ internal fun ReportAuditSettings(backend: BackendSession, project: ProjectSummar
     val models by backend.models.collectAsStateWithLifecycle()
     val catalog by backend.modelCatalog.collectAsStateWithLifecycle()
     val providers = catalog?.providers.orEmpty()
-    val options = remember(models, providers) { modelOptions(models, providers) }
+    val options = remember(models, providers) { modelOptions(nonWorkerModels(models), providers) }
     val stored = project.reportAudit ?: DEFAULT_REPORT_AUDIT_SETTINGS
     var latest by remember(project.id, stored) { mutableStateOf(stored) }
     var choosing by remember(project.id, stored.mode) { mutableStateOf(false) }

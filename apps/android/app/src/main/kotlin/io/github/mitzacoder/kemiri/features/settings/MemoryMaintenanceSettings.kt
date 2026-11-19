@@ -58,7 +58,7 @@ internal fun MemoryMaintenanceGroup(backend: BackendSession) {
     ) {
         if (current == null) GroupNote(readError ?: "Reading the maintenance settings…")
         else {
-            val options = remember(models, catalog) { listOf(ComboOption("", "No model (off)", "Maintenance does not run")) + modelOptions(models, catalog?.providers.orEmpty()) }
+            val options = remember(models, catalog) { listOf(ComboOption("", "No model (off)", "Maintenance does not run")) + modelOptions(nonWorkerModels(models), catalog?.providers.orEmpty()) }
             val levels = models.firstOrNull { it.provider == current.model?.provider && it.modelId == current.model?.modelId }?.thinkingLevels.orEmpty()
             SettingsRow(
                 "Model", hint = "Pick a model to turn maintenance on.", status = modelSave,

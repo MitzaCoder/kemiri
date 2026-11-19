@@ -7,10 +7,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.features.settings.OFFICIAL_AGENT_LABEL
+import io.github.mitzacoder.kemiri.features.settings.isWorkerOnly
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
-internal data class ProjectWorkerModelRow(val order: Int, val name: String, val provider: String, val role: String, val thinking: String?)
+internal data class ProjectWorkerModelRow(val order: Int, val name: String, val provider: String, val role: String, val thinking: String?, val officialAgent: Boolean = false)
 
 /** Same availability rule as the server: catalog membership, not credential status. */
 internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: List<ModelInfo>, thinkingOverride: String?): List<ProjectWorkerModelRow> {
@@ -19,7 +21,7 @@ internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: L
         val model = catalog.find { it.provider == ref.provider && it.modelId == ref.modelId }
         val role = if(model == null) "Unavailable" else if(foundDefault) "Fallback" else "Default"
         if(model != null) foundDefault = true
-        ProjectWorkerModelRow(index + 1,model?.name ?: ref.modelId,ref.provider,role,thinkingOverride ?: ref.thinkingLevel)
+        ProjectWorkerModelRow(index + 1,model?.name ?: ref.modelId,ref.provider,role,thinkingOverride ?: ref.thinkingLevel,model?.let(::isWorkerOnly) == true)
     }
 }
 
@@ -37,7 +39,7 @@ internal fun projectWorkerModelRows(projectModels: List<WorkerModel>, catalog: L
                     Text("${row.order}.",style = MaterialTheme.typography.bodySmall,color = Jarvis.colors.fgSubtle)
                     Column(Modifier.weight(1f)) {
                         Text(row.name,style = MaterialTheme.typography.bodySmall,fontWeight = FontWeight.Medium)
-                        Text("${row.provider} · ${thinkingLabel(row.thinking)}",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
+                        Text("${row.provider} · ${thinkingLabel(row.thinking)}${if(row.officialAgent) " · $OFFICIAL_AGENT_LABEL" else ""}",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
                     }
                     Text(row.role,style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
                 }

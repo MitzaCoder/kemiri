@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.features.settings.OFFICIAL_AGENT_LABEL
+import io.github.mitzacoder.kemiri.features.settings.isWorkerOnly
 import io.github.mitzacoder.kemiri.features.settings.validThinking
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
@@ -158,6 +160,7 @@ private object ChipGlyphs {
                             Column(Modifier.weight(1f)) {
                                 Text(item.name + if(item.configured) "" else " (no credential)",style = MaterialTheme.typography.bodyMedium,fontWeight = FontWeight.Medium,color = Jarvis.colors.fg,maxLines = 1,overflow = TextOverflow.Ellipsis)
                                 Text(item.modelId,style = MaterialTheme.typography.labelSmall,fontFamily = FontFamily.Monospace,color = Jarvis.colors.fgSubtle,maxLines = 1,overflow = TextOverflow.Ellipsis)
+                                if(worker && isWorkerOnly(item)) Text(OFFICIAL_AGENT_LABEL,style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.accent2)
                             }
                             if("image" in item.input) LucideGlyph(Lucide.Image,size = 14.dp,tint = Jarvis.colors.fgSubtle,contentDescription = "Accepts images")
                             if(item.reasoning) LucideGlyph(Lucide.Brain,size = 14.dp,tint = Jarvis.colors.fgSubtle,contentDescription = "Reasons")

@@ -2306,6 +2306,16 @@ sandbox. If agy rejects the ACP entry, the fallback is to write the same stdio d
 agent profile at launch and remove it at teardown, without putting the bearer in the shared sign-in profile. This
 fallback is not enabled speculatively; it needs the trial to confirm the native config and sandbox behavior.
 
+**Android (T310):** Accounts and API keys marks an official agent in Ready to use and Add a provider. Its panel names the
+login in use (Google subscription, Gemini API key, Not signed in) and the agent version ("agy 1.5.12", or "Installs agy
+1.5.12 on first use"). The server's `subscriptionWarning` shows as a warning card while the subscription is in use, even
+with the row closed, and above the subscription sign-in button before signing in. The sign-in flow is unchanged.
+`ModelInfo.workerOnly` models are left out of every non-worker picker: the composer's Main chat model chip, Project →
+Coordinator, memory maintenance, the report-audit model and a schedule that starts a background job. Worker pickers (the
+composer's worker chip, Project → Workers, a worker schedule) keep them with an "Official agent" hint. Pure logic and
+tests: `OfficialAgents.kt`, `OfficialAgentsTest`. `packages/server/scripts/official-agent-android-demo.ts` serves the
+three login states over the fake agent fixture for emulator proof.
+
 The provider boundary is separate from board and worker lifecycle logic. Codex app-server or the Claude Agent SDK can
 add a sibling transport behind the same kind of definition: adapt its native session identity, model selection,
 progress, usage and cancellation, while keeping the same journal, worker gate and reporter. Neither transport is

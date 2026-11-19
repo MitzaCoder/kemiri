@@ -291,7 +291,11 @@ internal fun ScheduleEditor(
                             Combobox(
                                 listOfNotNull(ComboOption("worker", "Run one worker", "The report goes to the coordinator"),
                                     ComboOption("thread", "Start a background job", "Its summary goes to Main chat").takeIf { allowThreads || schedule?.kind == "thread" }),
-                                targetKind, { targetKind = it }, "Each run",
+                                targetKind, {
+                                    targetKind = it
+                                    // A background job runs on a coordinator model, which an official agent never is.
+                                    if (it == "thread" && chosenModel?.let(::isWorkerOnly) == true) { model = ""; thinking = null }
+                                }, "Each run",
                             )
                         }
                         SettingsRow(if (targetKind == "thread") "Prompt" else "Brief", hint = if (targetKind == "thread") "What the job starts from." else "The worker's task, self-contained.", control = RowControl.Full) {
@@ -340,7 +344,7 @@ internal fun ScheduleEditor(
                     }
                     SettingsGroup(title = "Model") {
                         SettingsRow("Model", hint = "Worker default: the composer's pick, then the project's worker models.") {
-                            Combobox(listOf(ComboOption("", "Worker default", "The composer's pick, then the project's worker models")) + modelOptions(models, providers), model, {
+                            Combobox(listOf(ComboOption("", "Worker default", "The composer's pick, then the project's worker models")) + modelOptions(modelsForPicker(models, workerPicker = targetKind != "thread"), providers), model, {
                                 model = it; if (it.isEmpty() || validThinking(thinking, models.firstOrNull { m -> modelKey(m) == it }) == null) thinking = null
                             }, "Model", placeholder = "Worker default", searchPlaceholder = "Search models or providers…")
                         }
