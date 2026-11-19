@@ -1,4 +1,8 @@
 <script lang="ts">
+ import { page } from '$app/state';
+ import { tick } from 'svelte';
+ import TicketsGroup from './TicketsGroup.svelte';
+ import StorageGroup from './StorageGroup.svelte';
  import ConversationCacheGroup from './ConversationCacheGroup.svelte';
  import ReportAuditGroup from './ReportAuditGroup.svelte';
  import DeliveryGroup from './DeliveryGroup.svelte';
@@ -9,13 +13,20 @@
  import Switch from './Switch.svelte';
  import type { BackendConnection } from '#lib/harness.svelte.js';
  import { SaveState } from '#lib/save-state.svelte.js';
- import { projectHasCodingSettings, projectSection } from '#lib/settings.js';
+ import { projectAdvancedGroupNote, projectHasCodingSettings, projectSection, ADVANCED_GROUPS } from '#lib/settings.js';
  import { DEFAULT_UI_PROOF, type UiProof } from '@kemiri/protocol';
 
  let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
  const project = $derived(backend.projects.find((entry) => entry.id === projectId));
  const section = projectSection('advanced');
- const coding = $derived(projectHasCodingSettings(backend.supports('project-repository') ? project?.repository : undefined));
+ const repository = $derived(project?.repository);
+ const coding = $derived(projectHasCodingSettings(repository));
+ const note = $derived(projectAdvancedGroupNote(page.url.hash, repository));
+ $effect(() => {
+	const anchor = page.url.hash.slice(1);
+	if (![...Object.values(ADVANCED_GROUPS), 'ui-proof'].some(id => id === anchor)) return;
+	void tick().then(() => document.getElementById(anchor)?.scrollIntoView());
+ });
  let pendingUiProof = $state<UiProof | undefined>(undefined);
  const uiProofSave = new SaveState();
  const artifactPrivacySave = new SaveState();
@@ -45,7 +56,7 @@
 		<ConversationCacheGroup {backend} {projectId} />
 	{/if}
 	{#if coding && project?.uiProof !== undefined}
-		<SettingsGroup title="Proof of screen changes" term="Show UI changes">
+		<SettingsGroup id="ui-proof" title="Proof of screen changes" term="Show UI changes">
 			<SettingsRow
 				label="Prove UI work with"
 				hint="Agents show web and app changes before review; backends and terminals are never recorded."
@@ -72,5 +83,14 @@
 	{/if}
 	<ReportAuditGroup {backend} {projectId} />
 	<ReportAuditGroup {backend} {projectId} watcher />
-	{#if coding}<DeliveryGroup {backend} {projectId} />{/if}
+	{#if coding}
+		<div id={ADVANCED_GROUPS.delivery}><DeliveryGroup {backend} {projectId} /></div>
+		<TicketsGroup {backend} {projectId} />
+	{/if}
+	{#if note}
+		<SettingsGroup id={page.url.hash.slice(1)} title={page.url.hash === '#tickets' ? 'Tickets and pull requests' : page.url.hash === '#ui-proof' ? 'Proof of screen changes' : 'Code delivery'}>
+			<p class="p-4 text-sm text-muted-foreground">{note}</p>
+		</SettingsGroup>
+	{/if}
+	{#if backend.supports('storage')}<StorageGroup {backend} {projectId} />{/if}
 </SettingsSection>

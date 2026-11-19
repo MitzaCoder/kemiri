@@ -69,15 +69,13 @@ export const SETTINGS_SCOPES = [
 ] as const;
 
 export const PROJECT_SECTIONS = [
-	{ id: "general", label: "General", hint: "Name, folder, archive", icon: "folder" },
+	{ id: "general", label: "General", hint: "Name, folder, notifications and archive", icon: "folder" },
 	{ id: "coordinator", label: "Main chat", term: "Coordinator", hint: "The model the main chat runs on", icon: "cpu" },
 	{ id: "workers", label: "Workers", hint: "Worker models and check-ins", icon: "users" },
 	{ id: "schedules", label: "Scheduled tasks", hint: "Clocks and event triggers", icon: "calendar-clock" },
 	{ id: "mcp", label: "Connected apps", term: "MCP", hint: "Which outside tools this project's agents may use", icon: "server" },
 	{ id: "skills", label: "Skills", hint: "What this project's agents know how to do", icon: "key-round" },
-	{ id: "tickets", label: "Tickets and pull requests", hint: "Turn ticket keys and PR numbers into links", icon: "ticket" },
-	{ id: "storage", label: "Storage", hint: "Finished workspaces and disk use", icon: "hard-drive" },
-	{ id: "advanced", label: "Advanced", hint: "Page privacy, conversation cache, proof of screen changes, report checks, live lines, code delivery", icon: "settings" },
+	{ id: "advanced", label: "Advanced", hint: "Page privacy, conversation cache, proof of screen changes, report checks, live lines, code delivery, tickets and storage", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
 
 export function projectSection(id: ProjectSectionId): SettingsSectionInfo<ProjectSectionId> {
@@ -113,15 +111,23 @@ export function projectSettingsHref(backendId: string, projectId: string, sectio
 	return section === undefined ? base : `${base}/${section}`;
 }
 
-export const CONVERSATION_CACHE_GROUP_ID = "conversation-cache";
+export const ADVANCED_GROUPS = {
+	cache: 'conversation-cache', delivery: 'code-delivery', tickets: 'tickets', storage: 'storage',
+} as const;
+export const CONVERSATION_CACHE_GROUP_ID = ADVANCED_GROUPS.cache;
+
+export function projectAdvancedHref(backendId: string, projectId: string, group: keyof typeof ADVANCED_GROUPS, search = ''): string {
+	return `${projectSettingsHref(backendId, projectId, 'advanced')}${search}#${ADVANCED_GROUPS[group]}`;
+}
 
 /** Resolve legacy section URLs independently of viewport width and entry history. */
 export function settingsAliasRedirect(url: Pick<URL, 'pathname' | 'search'>): string | undefined {
 	const location = settingsLocation(url.pathname);
 	if (location?.scope !== "project") return;
 	const index = projectSettingsHref(location.backendId, location.projectId);
-	if (url.pathname.replace(/\/$/, '') === `${index}/cache`) {
-		return `${index}/advanced${url.search}#${CONVERSATION_CACHE_GROUP_ID}`;
+	const path = url.pathname.replace(/\/$/, '');
+	for (const group of Object.keys(ADVANCED_GROUPS) as (keyof typeof ADVANCED_GROUPS)[]) {
+		if (path === `${index}/${group}`) return projectAdvancedHref(location.backendId, location.projectId, group, url.search);
 	}
 }
 
@@ -206,9 +212,9 @@ export function projectHasCodingSettings(repository?: boolean): boolean {
 	return repository !== false;
 }
 
-/** A hidden coding-only page is still a valid settings destination. */
-export function projectSectionNote(section: ProjectSectionId, repository?: boolean): string | undefined {
-	if (section === 'tickets' && !projectHasCodingSettings(repository)) {
+/** A direct link to a hidden group still explains why its controls do not apply. */
+export function projectAdvancedGroupNote(hash: string, repository?: boolean): string | undefined {
+	if ([`#${ADVANCED_GROUPS.tickets}`, `#${ADVANCED_GROUPS.delivery}`, '#ui-proof'].includes(hash) && !projectHasCodingSettings(repository)) {
 		return "This project isn't a code repository, so these settings don't apply.";
 	}
 }
@@ -222,21 +228,17 @@ export function projectSectionAvailable(
 		case "general":
 			return true;
 		case "advanced":
-			return has.pagePrivacy === true || has.longPromptCache || has.supports("report-audit") || has.supports("task-live-watcher") ||
-				(projectHasCodingSettings(has.repository) && ["ui-proof", "task-changes", "task-deploys"].some((feature) => has.supports(feature)));
+			return has.pagePrivacy === true || has.longPromptCache || has.supports("report-audit") || has.supports("task-live-watcher") || has.supports("storage") ||
+				(projectHasCodingSettings(has.repository) && (has.links || ["ui-proof", "task-changes", "task-deploys"].some((feature) => has.supports(feature))));
 		case "coordinator":
 			return has.supports("projects") && has.supports("models");
 		case "workers":
 			return has.supports("projects") && has.supports("models") && has.supports("workers");
 		case "schedules":
 			return has.supports("schedules");
-		case "tickets":
-			return has.links && projectHasCodingSettings(has.repository);
 		case "mcp":
 			return has.supports("mcp-servers");
 		case "skills":
 			return has.supports("project-skills");
-		case "storage":
-			return has.supports("storage");
 	}
 }

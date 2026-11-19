@@ -6,14 +6,12 @@
 	import NotFoundNote from '#lib/components/settings/NotFoundNote.svelte';
 	import ProjectGeneralSection from '#lib/components/settings/ProjectGeneralSection.svelte';
 	import { settingsUp } from '#lib/settings-navigation.svelte.js';
-	import TicketsSection from '#lib/components/settings/TicketsSection.svelte';
 	import ProjectSkillsSection from '#lib/components/settings/ProjectSkillsSection.svelte';
 	import ProjectMcpSection from '#lib/components/settings/ProjectMcpSection.svelte';
 	import WorkersSection from '#lib/components/settings/WorkersSection.svelte';
 	import SchedulesSection from '#lib/components/SchedulesSection.svelte';
-	import StorageSection from '#lib/components/StorageSection.svelte';
 	import { harness } from '#lib/harness.svelte.js';
-	import { PROJECT_SECTIONS, isProjectSection, projectSectionAvailable, projectSectionNote, projectSettingsHref } from '#lib/settings.js';
+	import { PROJECT_SECTIONS, isProjectSection, projectSectionAvailable, projectAdvancedGroupNote, projectSettingsHref } from '#lib/settings.js';
 
 	/** One section of a project's settings, by the last URL segment. */
 	const backend = $derived(harness.backend(page.params.backend ?? ''));
@@ -21,8 +19,8 @@
 	const section = $derived(page.params.section ?? '');
 	const project = $derived(backend?.projects.find((entry) => entry.id === projectId));
 	const known = $derived(isProjectSection(section) ? section : undefined);
-	const repository = $derived(backend?.supports('project-repository') ? project?.repository : undefined);
-	const note = $derived(known === undefined ? undefined : projectSectionNote(known, repository));
+	const repository = $derived(project?.repository);
+	const note = $derived(known === 'advanced' ? projectAdvancedGroupNote(page.url.hash, repository) : undefined);
 	const available = $derived(
 		backend !== undefined &&
 			PROJECT_SECTIONS.some(
@@ -52,22 +50,18 @@
 			</a>
 		</NotFoundNote>
 	{:else if section === 'general'}
-		<ProjectGeneralSection {backend} {projectId} />
+		{#key `${backend.id}:${projectId}`}<ProjectGeneralSection {backend} {projectId} />{/key}
 	{:else if section === 'coordinator'}
 		<CoordinatorSection {backend} {projectId} />
 	{:else if section === 'workers'}
 		<WorkersSection {backend} {projectId} />
 	{:else if section === 'schedules'}
 		<SchedulesSection {backend} {projectId} />
-	{:else if section === 'tickets'}
-		<TicketsSection {backend} {projectId} {note} />
 	{:else if section === 'mcp'}
 		{#key `${backend.id}:${projectId}`}<ProjectMcpSection {backend} {projectId} />{/key}
 	{:else if section === 'skills'}
 		{#key `${backend.id}:${projectId}`}<ProjectSkillsSection {backend} {projectId} />{/key}
 	{:else if section === 'advanced'}
-		<AdvancedSection {backend} {projectId} />
-	{:else if section === 'storage'}
-		<StorageSection {backend} {projectId} />
+		{#key `${backend.id}:${projectId}`}<AdvancedSection {backend} {projectId} />{/key}
 	{/if}
 {/if}

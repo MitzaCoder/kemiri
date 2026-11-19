@@ -52,7 +52,9 @@
   {#if !backend.supports('mcp-servers')}<Banner tone="warning">This computer does not offer connected apps.</Banner>
   {:else}
     <p class="text-sm text-muted-foreground">Servers and roles start off. Enabling a server grants only its selected roles access, subject to each tool's computer-wide Off / Ask / Allow policy.</p>
-    <a href={backendSettingsHref(backend.id, 'mcp')} class="self-start text-sm font-medium underline">Manage apps on this computer</a>
+    <SettingsGroup>
+      <a href={backendSettingsHref(backend.id, 'mcp')} class="flex min-h-11 items-center px-4 py-2 text-sm font-medium underline underline-offset-4 sm:px-5">Add a connected app on {backend.name}</a>
+    </SettingsGroup>
     {#if error}<Banner tone="error">{error} <button class="underline" onclick={() => void load()}>Try again</button></Banner>
     {:else if !loaded}<p role="status" class="text-sm text-muted-foreground">Loading MCP settings…</p>
     {:else}

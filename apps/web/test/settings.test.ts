@@ -6,7 +6,7 @@ import {
 	backendSettingsHref,
 	generalSettingsHref,
 	projectSectionAvailable,
-	projectSectionNote,
+	projectAdvancedGroupNote,
 	projectHasCodingSettings,
 	projectSettingsHref,
 	settingsAliasRedirect,
@@ -37,8 +37,7 @@ describe("settings routes", () => {
 		]);
 		expect(PROJECT_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
 			["general", "General"], ["coordinator", "Main chat"], ["workers", "Workers"], ["schedules", "Scheduled tasks"],
-			["mcp", "Connected apps"], ["skills", "Skills"], ["tickets", "Tickets and pull requests"],
-			["storage", "Storage"], ["advanced", "Advanced"],
+			["mcp", "Connected apps"], ["skills", "Skills"], ["advanced", "Advanced"],
 		]);
 		const advanced = projectSettingsHref("pc", "demo", "advanced");
 		expect(settingsLocation(advanced)?.section).toBe("advanced");
@@ -48,6 +47,10 @@ describe("settings routes", () => {
 	test("legacy cache links resolve to the Conversation cache group in Advanced", () => {
 		const legacy = new URL("https://example.com/b/a%2Fb/projects/c%20d/settings/cache/?example=1");
 		expect(settingsAliasRedirect(legacy)).toBe("/b/a%2Fb/projects/c%20d/settings/advanced?example=1#conversation-cache");
+		for (const [section, anchor] of [['tickets', 'tickets'], ['storage', 'storage'], ['delivery', 'code-delivery']]) {
+			legacy.pathname = `/b/pc/projects/demo/settings/${section}`;
+			expect(settingsAliasRedirect(legacy)).toBe(`/b/pc/projects/demo/settings/advanced?example=1#${anchor}`);
+		}
 		legacy.pathname = "/b/pc/projects/demo/settings/cache/unknown";
 		expect(settingsAliasRedirect(legacy)).toBeUndefined();
 		legacy.pathname = "/b/pc/projects/demo/settings/advanced";
@@ -92,7 +95,7 @@ describe("settings routes", () => {
 		expect(settingsParentHref("/settings/backends/pc")).toBe("/settings/backends");
 		expect(settingsParentHref("/settings/backends/pc/accounts")).toBe("/settings/backends/pc");
 		expect(settingsParentHref("/b/pc/projects/demo/settings")).toBeUndefined();
-		expect(settingsParentHref("/b/pc/projects/demo/settings/storage")).toBe("/b/pc/projects/demo/settings");
+		expect(settingsParentHref("/b/pc/projects/demo/settings/advanced")).toBe("/b/pc/projects/demo/settings");
 		expect(settingsParentHref("/b/pc/projects/demo")).toBeUndefined();
 	});
 
@@ -100,14 +103,12 @@ describe("settings routes", () => {
 		const supported = { supports: () => true, links: true, longPromptCache: true };
 		for (const repository of [undefined, true]) {
 			expect(projectHasCodingSettings(repository)).toBe(true);
-			expect(projectSectionAvailable("tickets", { ...supported, repository })).toBe(true);
-			expect(projectSectionNote("tickets", repository)).toBeUndefined();
+			expect(projectAdvancedGroupNote("#tickets", repository)).toBeUndefined();
 		}
 		expect(projectHasCodingSettings(false)).toBe(false);
-		expect(projectSectionAvailable("tickets", { ...supported, repository: false })).toBe(false);
 		expect(projectSectionAvailable("advanced", { ...supported, repository: false })).toBe(true);
-		expect(projectSectionNote("advanced", false)).toBeUndefined();
-		expect(projectSectionNote("tickets", false)).toBe("This project isn't a code repository, so these settings don't apply.");
+		expect(projectAdvancedGroupNote("#storage", false)).toBeUndefined();
+		expect(projectAdvancedGroupNote("#tickets", false)).toBe("This project isn't a code repository, so these settings don't apply.");
 	});
 
 	test("a project's sections follow what the backend offers", () => {
@@ -116,7 +117,8 @@ describe("settings routes", () => {
 		const bare = { supports: () => false, links: false, longPromptCache: false };
 		expect(PROJECT_SECTIONS.filter((s) => projectSectionAvailable(s.id, bare)).map((s) => s.id)).toEqual(["general"]);
 		const noStorage = { ...all, supports: (feature: string) => feature !== "storage" };
-		expect(projectSectionAvailable("storage", noStorage)).toBe(false);
+		expect(projectSectionAvailable("advanced", noStorage)).toBe(true);
+		expect(projectSectionAvailable("advanced", { ...bare, supports: feature => feature === "storage" })).toBe(true);
 	});
 
 	test("cache support alone makes Advanced available, even for non-repository projects", () => {

@@ -6,11 +6,15 @@
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
 	import SettingsSection from '#lib/components/settings/SettingsSection.svelte';
 	import AutoInput from '#lib/components/settings/AutoInput.svelte';
-	import type { BackendConnection } from '#lib/harness.svelte.js';
+	import Switch from './Switch.svelte';
+	import { notifications } from '#lib/notifications.svelte.js';
+	import { SaveState } from '#lib/save-state.svelte.js';
+	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
 
 	/** Project → General: its name (saved when you leave the field or press Enter), where it lives, and archiving. */
 	let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
 
+	const muteSave = new SaveState();
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
 	async function commitName(next: string): Promise<void> {
 		if (next.length === 0) throw new Error('A project needs a name.');
@@ -32,6 +36,9 @@
 			</SettingsRow>
 			<SettingsRow label="Computer" term="Backend" hint="The computer that runs this project." control="auto">
 				<ConnectionBadge {backend} />
+			</SettingsRow>
+			<SettingsRow label="Mute on this device" hint="Stop notifications from this project in this browser." chip="This device only" for="mute-project" control="auto" status={muteSave}>
+				<Switch id="mute-project" checked={notifications.isMuted(backend.id, projectId)} disabled={muteSave.status === 'saving'} onchange={(muted) => void muteSave.run(() => notifications.setProjectMuted(harness.backends, backend.id, projectId, muted))} />
 			</SettingsRow>
 		</SettingsGroup>
 

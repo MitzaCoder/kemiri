@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { COMPUTER_APPS } from "#lib/settings.js";
+  import { COMPUTER_APPS, projectSettingsHref, settingsLocation } from "#lib/settings.js";
+  import { activeProjects, currentProject } from '#lib/projects.js';
   import { page } from '$app/state';
-  import { pushMcpView, replaceMcpView, popMcpView, mcpListUp } from '#lib/settings-navigation.svelte.js';
+  import { pushMcpView, replaceMcpView, popMcpView, mcpListUp, settingsUp } from '#lib/settings-navigation.svelte.js';
   import { MCP_PRESET_GROUPS, parseMcpImport, mcpImportId, type McpImportRow, type McpListResponse, type McpPolicy, type McpServer } from '@kemiri/protocol';
   import type { BackendConnection } from '#lib/harness.svelte.js';
   import { filterMcpTools, mcpServerId, mcpStatus } from '#lib/mcp.js';
@@ -49,6 +50,17 @@
   const selected = $derived(servers.find(server => server.id === selectedId));
   const tools = $derived(filterMcpTools(selected?.tools ?? [], filter));
   const supported = $derived(backend.supports('mcp-servers'));
+  const launchProject = $derived.by(() => {
+    const visit = page.state.navigation?.visit;
+    const previous = visit?.entries.findLast(entry => {
+      const route = settingsLocation(entry.href.split(/[?#]/)[0]!);
+      return route?.scope === 'project' && route.backendId === backend.id && route.section === 'mcp';
+    });
+    const context = currentProject((previous?.href ?? visit?.originHref ?? '').split(/[?#]/)[0]!);
+    const project = context?.backendId === backend.id ? backend.projects.find(project => project.id === context.projectId) : undefined;
+    return project ? { project, previous } : undefined;
+  });
+  const projects = $derived(activeProjects(backend.projects));
   $effect(() => {
     const view = page.state.mcp;
     // Reading the entry makes traversal between identical URLs observable.
@@ -173,6 +185,24 @@
   }
 </script>
 
+{#snippet projectLinks()}
+  <div class="flex flex-wrap items-center gap-x-2 px-4 pb-3 text-sm sm:px-5">
+    {#if launchProject}
+      {@const target = projectSettingsHref(backend.id, launchProject.project.id, 'mcp')}
+      <a class="inline-flex min-h-11 items-center font-medium underline underline-offset-4" href={target}
+        onclick={event => {
+          if (!launchProject?.previous || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault(); settingsUp(target);
+        }}>Back to {launchProject.project.name}'s connected apps</a>
+    {:else}
+      <span class="text-muted-foreground">Turn it on in a project:</span>
+      {#each projects as project (project.id)}
+        <a class="inline-flex min-h-11 items-center font-medium underline underline-offset-4" href={projectSettingsHref(backend.id, project.id, 'mcp')}>{project.name}</a>
+      {:else}<span class="text-muted-foreground">No projects yet.</span>{/each}
+    {/if}
+  </div>
+{/snippet}
+
 <div class="min-w-0 [overflow-wrap:anywhere]">
 <SettingsSection title={COMPUTER_APPS.label} term={COMPUTER_APPS.term} description={COMPUTER_APPS.hint} icon="server">
   {#if !supported}
@@ -219,6 +249,7 @@
           <p class="text-xs text-muted-foreground">Write-only. Never sent back to this browser; cleared when submitted. Disconnect keeps the credential. Remove deletes it.</p>
         </SettingsRow>
         {/if}
+        {@render projectLinks()}
       </SettingsGroup>
       <SettingsGroup title="Tools">
         <SettingsRow label="Filter tools" for="mcp-tool-filter" hint="Names, descriptions and server hints." control="full">
@@ -241,10 +272,13 @@
       <SettingsGroup title="Servers">
         {#each servers as server (server.id)}
           {@const status = mcpStatus(server)}
+          <div>
           <button class="flex min-h-16 w-full flex-wrap items-center gap-3 px-4 py-4 text-left hover:bg-(--chat-surface-2)/50" onclick={() => open(server)} disabled={busy}>
             <span class="min-w-0 flex-1"><span class="block font-semibold break-all">{server.name}</span><span class="block text-xs break-all text-muted-foreground">{server.command ? JSON.stringify([server.command.command, ...server.command.args]) : server.url}</span>{#if server.lastError}<span class="block text-xs break-words text-destructive">{server.lastError}</span>{/if}</span>
             <span class="flex flex-wrap items-center gap-2"><StatusChip tone={status.tone}>{status.label}</StatusChip><span class="text-xs">{server.tools.length} tools</span></span>
           </button>
+          {@render projectLinks()}
+          </div>
         {:else}<p class="p-5 text-sm text-muted-foreground">{loaded ? 'No MCP servers yet. Add a preset or a remote URL.' : 'Loading servers…'}</p>{/each}
       </SettingsGroup>
     {/if}

@@ -5949,15 +5949,13 @@ The shared section order and route names (a quiet technical term follows the pla
 | This computer | Connected apps (MCP servers) | `mcp` | Outside tools and their computer-wide policies |
 | This computer | Devices | `devices` | Signed-in devices, add a device and pending pairings |
 | This computer | Advanced | `advanced` | Name on this device, address and removal |
-| Project | General | `general` | Name, folder, archive |
-| Project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
-| Project | Workers | `workers` | Ordered worker models and check-ins, including reset |
-| Project | Scheduled tasks | `schedules` | Clocks and event triggers |
-| Project | Connected apps (MCP) | `mcp` | Outside tools and agent roles |
-| Project | Skills | `skills` | Skills offered to project agents |
-| Project | Tickets and pull requests | `tickets` | Turn ticket keys and PR numbers into links |
-| Project | Storage | `storage` | Finished workspaces and disk use |
-| Project | Advanced | `advanced` | Page privacy, conversation cache, proof of screen changes, report checks, live lines and code delivery |
+| This project | General | `general` | Name, folder, device-only mute and archive |
+| This project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
+| This project | Workers | `workers` | Ordered worker models and check-ins, including reset |
+| This project | Scheduled tasks | `schedules` | Clocks and event triggers |
+| This project | Connected apps (MCP) | `mcp` | Outside tools and agent roles, with a link to the computer’s catalogue |
+| This project | Skills | `skills` | Skills offered to project agents |
+| This project | Advanced | `advanced` | Page privacy, conversation cache, proof of screen changes, report checks, live lines, code delivery, tickets and pull requests, and storage |
 
 With `memory-maintenance-enabled`, turning cleanup off keeps the model. Turning it on without a model opens
 its model picker. Older computers use the No model option. Software updates belong to the computer. About
@@ -5969,11 +5967,11 @@ option shares HTTPS computer addresses, not sign-in. On computers without sign-i
 This device → Computers accepts either invitation and hands off to its existing confirmation flow.
 
 Advanced holds Page privacy (Artifact pages) as a switch, Conversation cache (Prompt cache), Proof of screen changes
-(Show UI changes), Report check, Live news lines, then Code delivery (Integration branch, deploy feed).
+(Show UI changes), Report check, Live news lines, Code delivery (Integration branch, deploy feed), Tickets and
+pull requests, then Storage.
 Conversation cache controls one-hour reuse and idle keep-warm for Claude, and is not limited to code repositories.
 On `project-repository` computers, a project reporting `repository: false` hides Tickets and pull requests, Proof of
-screen changes and Code delivery. A Tickets deep link still opens the section and explains why the settings don't
-apply. An absent repository field hides nothing.
+screen changes and Code delivery. A direct link to a hidden group opens Advanced with a note explaining why the settings don't apply. An absent repository field hides nothing.
 
 Web Appearance saves Device, Light or Dark before first paint. Reading shows the local code wrap, timeline order and
 media comparison choices with a single reset; the controls stay inline. Notifications derives Important, Only when
@@ -6009,18 +6007,21 @@ Every section has a URL; the last segment is the section name, which Android reu
 /settings/backends/<id>                     section index / wide entry to Overview
 /settings/backends/<id>/overview | accounts | you | mcp | devices | advanced
 /b/<backend>/projects/<id>/settings         section index / wide entry to General
-/b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | mcp | skills | tickets | storage | advanced
+/b/<backend>/projects/<id>/settings/general | coordinator | workers | schedules | mcp | skills | advanced
 ```
 
 - `/notifications` redirects to `/settings/notifications`. An explicit section URL opens that section at any width.
   Android’s old `cache` and `delivery` routes open Advanced.
-- The old web `.../settings/cache` URL opens `.../settings/advanced#conversation-cache` and scrolls to that group
-  when it is available. A cold link replaces the URL, and an in-app link writes only the Advanced destination.
+- Old project `cache`, `delivery`, `tickets` and `storage` URLs open the matching Advanced group. A cold link
+  replaces the URL, and an in-app link writes only the Advanced destination.
 - A schedule notification links to `.../settings#schedule-<id>` (Android's route parser knows only `.../settings`);
   the project settings index sends that address on to Scheduled tasks with the fragment, and the list scrolls to the
   schedule.
-- Links go to the section they mean: the disk banner to `.../settings/storage`, the missing main chat model banner to
+- Links go to the section they mean: the disk banner to `.../settings/advanced#storage`, the missing main chat model banner to
   `.../settings/coordinator`, the Usage modal's sign-in link to `/settings/backends/<id>/accounts`.
+
+- The project's Connected apps link pushes the computer's Connected apps in the same visit, so Back returns.
+  The computer links each server to projects where it can be enabled, or back to the project it came from.
 
 ### Navigation contract
 
@@ -6054,8 +6055,7 @@ current entry if absent. Close × discards the visit to its exact origin, fallin
 to main project chat or Home when no origin remains. Sibling sections replace; children
 always push, including a computer's AI accounts, Devices and Connected apps. Cross-tree settings links keep the same visit.
 External settings links build Chat/Home underneath. Old `cache` and `delivery` links and saved `Cache` and
-`Delivery` destinations open Advanced. A Tickets link to a non-repository opens the section with a note instead
-of redirecting. Transient MCP sub-views register depth-ordered Back/Up targets shared with the app bar;
+`Delivery` destinations open Advanced. A Tickets link to a non-repository opens Advanced with a note. Transient MCP sub-views register depth-ordered Back/Up targets shared with the app bar;
 dialogs and the drawer take precedence. Secret fields
 remain transient and are never serialized. Predictive Back deliberately has no animation.
 

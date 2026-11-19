@@ -6,7 +6,7 @@
 	import Banner from '#lib/components/Banner.svelte';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
 	import SettingsRow from '#lib/components/settings/SettingsRow.svelte';
-	import SettingsSection from '#lib/components/settings/SettingsSection.svelte';
+	import { ADVANCED_GROUPS } from '#lib/settings.js';
 	import StatusChip from '#lib/components/settings/StatusChip.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -84,13 +84,13 @@
 	}
 </script>
 
-<SettingsSection title="Storage" description="What this project's workspaces take on disk." icon="hard-drive">
+<div id={ADVANCED_GROUPS.storage} class="flex flex-col gap-4">
 	{#if error}<Banner tone="error">{error}</Banner>{/if}
 	{#if notice}
 		<Banner tone={notice.tone}><p data-storage-notice>{notice.text}</p></Banner>
 	{/if}
 
-	<SettingsGroup title="Disk use">
+	<SettingsGroup title="Storage" description="What this project’s workspaces take on disk.">
 		<SettingsRow
 			label={storage ? storageSize(storage.totalBytes) : loading ? 'Measuring…' : 'Not measured'}
 			hint={storage
@@ -144,7 +144,7 @@
 			{/each}
 		</SettingsGroup>
 	{/if}
-</SettingsSection>
+</div>
 
 <Dialog.Root bind:open={confirmOpen}>
 	<Dialog.Content class="sm:max-w-sm">

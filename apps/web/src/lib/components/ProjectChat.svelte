@@ -50,7 +50,7 @@
 	import { boardTaskLinks, provideTaskLinks } from '#lib/task-links.svelte.js';
 	import { ProjectRefStatus, provideRefLinks } from '#lib/ref-links.svelte.js';
 	import { projectHref, threadHref, workerHref } from '#lib/backends.js';
-	import { projectSettingsHref } from '#lib/settings.js';
+	import { projectAdvancedHref, projectSettingsHref } from '#lib/settings.js';
 	import { terminalHref } from '#lib/terminal.js';
 	import {
 		harness,
@@ -994,7 +994,7 @@
 							/>
 							<DiskBanner
 								status={backend.status}
-								settingsHref={backend.supports('storage') ? projectSettingsHref(backend.id, projectId, 'storage') : undefined}
+								settingsHref={backend.supports('storage') ? projectAdvancedHref(backend.id, projectId, 'storage') : undefined}
 							/>
 						{/if}
 
