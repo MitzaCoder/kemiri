@@ -2855,11 +2855,12 @@ is where they talk.
 
 - **Every subject is a task.** The coordinator creates a board task for each subject the user brings up, before
   replying, and says which task it filed the message under. No exceptions for now; we will see if it is too much.
-- **A report per task, rewritten in place.** The Markdown fields are `now` (automatic), `results`, `next` and
-  `steps`, with optional `summary` and `notDone`. A write replaces the sections it names. Write one fact per
-  line, about 20 words, in whole sentences with verbs and small words, without semicolons. Use names instead of
-  IDs and say each thing once. Leave hashes, change IDs, test counts, paths and worker names to the record: tie
-  commits to the task with `Kemiri-Task` trailers and files with `artifact_save` and `taskId`.
+- **A report per task, rewritten in place.** Now is automatic. Prefer typed blocks for new reports, with one fact
+  per block. A short Next or a long numbered procedure can still be plain Markdown. Lead with what changed for
+  the reader. Write whole sentences with verbs and small words, about 20 words per prose line, without semicolon
+  chains. Use names instead of bare IDs. Don't repeat status, decisions, questions or files. Leave hashes, change
+  IDs, check counts, paths and worker names to the record: tie commits to the task with `Kemiri-Task` trailers
+  and files with `artifact_save` and `taskId`.
 - **Typed report blocks (T356).** `hello.features` includes `task-report-blocks`; the legacy feature set does
   not assume it. `board.write_report.blocks` replaces each named section's ordered list; omission preserves it
   and `[]` clears it. A string write removes blocks from just that section. Sending both forms for one section
@@ -2908,14 +2909,15 @@ is where they talk.
   small quote at the top of the user's bubble.
 - **The chat stays short.** Worker reports, check-ins, thread results and board changes show as one line each with a
   link to their task. Main and background coordinators put anything the user will need again on the task first.
-  Steps the user must do by hand go in Your steps. Agents' next actions stay separate in Next, in one or two
-  sentences. Choices go in `ask`: open with the question a choice can answer, then give at most three short lines
-  needed to choose. Put the answer in each choice's label and what happens in its effect. Mark at most one
-  choice as recommended and say why in the question context.
-  Findings go in Results in full, once. Detail longer than a screen goes in a file saved with `artifact_save` and
-  the task's `taskId`. Answers to task messages go in the feedback note itself: short status answers stay there,
-  longer answers also update the report. The rules limit each line, not the number of lines: steps and answers
-  stay complete. The chat reply names the task in a line or two and may repeat what is on it.
+  Manual actions go in Your steps: one numbered, verb-led step per action, with exact values and commands in
+  `copyText` for typed steps. Agents' next actions stay separate in Next, in one or two sentences. Choices go
+  in `ask`: open with the question a choice can answer, then give at most three short lines needed to choose.
+  Put the answer in each choice's label and what happens in its effect. Mark at most one choice as recommended
+  and say why in the question context.
+  Title each finding in Results and say what held or didn't. Put conditions in setup, caption proof with what
+  it shows, and put gaps in Not done. Save a table or diagram as a task file, but keep the conclusions in the
+  report. Put complete answers in the feedback note: short status answers stay there, longer answers also update
+  the report. Keep steps and answers complete. The chat reply can briefly point to the task.
 - **Across tasks.** With `task-state`, list groups are Needs you (Failed, Answer needed, Ready for review),
   In progress (Working, Paused), Waiting (task blockers or an outside wait), To do and Recently closed (folded).
   Kind then oldest `since` sorts attention/work; Waiting is oldest first, To do priority, Closed newest first.
@@ -4469,16 +4471,17 @@ its own list, and a timeline; the description stays the original ask and the rep
   refer to the entry; older readers take the task ID up to the comma.
   - State: `open` → `handling` → `addressed`, or `dismissed` ("not needed"). An addressed entry needs a note with
     the answer itself or what changed. Each change is kept with who made it (`changes`).
-  - The `board` tool saves feedback notes and `write_report` Your steps, Results and Next even if they point to the chat for
-    detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
-    Style warnings also follow a successful save: for Summary, Results, Not done, Your steps, Next, ask text,
-    options and choice effects, descriptions, acceptance and feedback notes, the tool flags lines over 30 words
-    and likely revision IDs in prose. It also flags questions that do not open with a question or list choices in
-    the question text. Code blocks are skipped; inline code and URLs are not scanned for IDs. Report sections also
-    get a section-specific split hint for paragraphs and list passages over 60 prose words, even when softly wrapped.
-    Headings, tables, code and URLs do not count toward that limit. The paragraph hint replaces line-length hints
-    within the passage, not revision-ID hints. Native and official-agent MCP `task_progress.addResult` use the same
-    Results checks. Style warnings quote the affected text, at most three per reply, and do not change or reject it.
+  - Report prose and feedback notes that point to chat for details still save, but get a separate warning to
+    write the detail on the task. Ordinary mentions of chat do not warn.
+    Style warnings flag lines over 30 words and likely revision IDs in report prose, ask text, options and choice
+    effects, descriptions, acceptance and feedback notes. They also flag questions that don't start with the ask
+    or list choices in the question text. Legacy report paragraphs and list passages over 60 prose words get a
+    hint to use blocks instead, even when softly wrapped. Headings, tables, code and URLs don't count toward that
+    limit. Typed reports are checked on their submitted titles, text and metric context, not JSON or Markdown
+    mirrors. A body over 50 prose words or with an apparent list of facts gets a split hint. Inline code and URLs
+    are masked; exact copy text, setup values and metric values aren't prose. `write_report` and native, code-mode
+    and official-agent MCP `task_progress` use the same report warnings. Each passage gets one style diagnostic
+    with any revision-ID hint included, up to three per reply. Warnings never change or reject a save.
     The end-of-turn only-in-chat check reads each Markdown mirror once; write metering credits submitted
     block prose and exact step text, not labels, artifact references, JSON or empty clears.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`

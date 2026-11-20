@@ -1,8 +1,13 @@
-type TaskTextField = { name: string; text?: string | null; question?: boolean; paragraphs?: boolean };
+import { REPORT_BLOCK_SECTIONS, type ReportBlocksInput, type ReportBlockSection } from "@kemiri/protocol";
+import { CHAT_POINTER_WARNING, pointsAtChat } from "./task-chat-pointer.ts";
+
+type TaskTextField = { name: string; text?: string | null; question?: boolean; paragraphs?: boolean; blockProse?: "title" | "body" };
 type ProseLine = { text: string; quoteDepth: number; listContentIndent?: number; indent: number };
 
 const LINE_WORD_LIMIT = 30;
 const PARAGRAPH_WORD_LIMIT = 60;
+// Two short sentences plus a little context still fit; a block should be tighter than a legacy paragraph.
+const BLOCK_WORD_LIMIT = 50;
 const WARNING_LIMIT = 3;
 const listMarker = /^\s*(?:[-+*]|\d+[.)])\s+/;
 const skippedLine: ProseLine = { text: "", quoteDepth: 0, indent: 0 };
@@ -63,6 +68,8 @@ const atxHeading = /^#{1,6}(?:\s|$)/;
 const thematicBreak = /^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/;
 const tablePipe = /(?<!\\)\|/;
 const tableDelimiter = /^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$/;
+const proseWordCount = (text: string) => text.replaceAll("◊", " ").match(/[\p{L}\p{N}][^\s]*/gu)?.length ?? 0;
+const lineWordCount = (text: string) => text.match(/[\p{L}\p{N}◊][^\s]*/gu)?.length ?? 0;
 
 // Find passages before warning on lines, so a wrapped paragraph gets one split hint.
 function longParagraphs(lines: ProseLine[], maskedLines: string[]): Map<number, { end: number; words: number }> {
@@ -101,20 +108,33 @@ function longParagraphs(lines: ProseLine[], maskedLines: string[]): Map<number, 
 			continue;
 		}
 		start ??= line;
-		words += prose.replaceAll("◊", " ").match(/[\p{L}\p{N}][^\s]*/gu)?.length ?? 0;
+		words += proseWordCount(prose);
 	}
 	finish(lines.length);
 	return paragraphs;
 }
 
-function paragraphHint(name: string): string {
-	switch (name) {
-		case "Summary": return "Give the main outcome in one or two short sentences.";
-		case "Not done": return "Put one gap on each line.";
-		case "Next": return "Give one or two short actions.";
-		case "Your steps": return "Use one numbered step per action and keep the exact values.";
-		default: return "Lead with the outcome, then give each finding, setting and proof its own line.";
+function blockSplitHint(section: string): string {
+	switch (section) {
+		case "Summary": return "Use one or two short outcome blocks.";
+		case "Not done": return "Use one risk block per gap.";
+		case "Next": return "Use one nextAction block per action.";
+		case "Your steps": return "Use one step block per action and keep exact values in copyText.";
+		default: return "Give each fact its own block: a finding, setup, proof or other Results block.";
 	}
+}
+
+function blockBodyHint(text: string, section: string): string | undefined {
+	const words = proseWordCount(text);
+	if (section === "Results" && [...text.matchAll(/(?<![\p{L}\p{N}_-])[\p{L}][\p{L}\p{N}_-]{0,30}[*_]{0,2}:[*_]{0,2}\s+\S/gu)].length >= 3) {
+		return "Move conditions to a setup block and give other facts their own blocks.";
+	}
+	if (words > BLOCK_WORD_LIMIT) return `Split this ${words}-word block: ${blockSplitHint(section)}`;
+	const bullets = [...text.matchAll(/(?:^|\s)(?:[-+*•]|\d+[.)])\s+(?=\S)/g)].length;
+	// Three substantive sentences can be separate findings. Short fragments and dotted values on their own aren't.
+	const sentences = text.split(/[.!?]["'”’)*_\]~]*\s+(?=["'“‘(*_]*\p{Lu})/u).filter(sentence => proseWordCount(sentence) >= 4).length;
+	if (bullets >= 2 || sentences >= 3) return `Split this list of facts: ${blockSplitHint(section)}`;
+	return undefined;
 }
 
 function hasRevisionId(line: string): boolean {
@@ -160,12 +180,23 @@ export function taskTextWarnings(...fields: TaskTextField[]): string {
 	const warnings: string[] = [];
 	for (const field of fields) {
 		if (!field.text?.trim()) continue;
+		const warn = (text: string, fix: string) => warnings.push(`${field.name}, ${lineOpening(text)}: ${fix}`);
+		if (field.blockProse) {
+			const text = field.text.trim();
+			const masked = maskNonProse(text);
+			const split = field.blockProse === "body" ? blockBodyHint(masked, field.name) : undefined;
+			const shorten = lineWordCount(masked) > LINE_WORD_LIMIT
+				? `Shorten this ${field.blockProse}; it has over 30 words.` : undefined;
+			const fix = proseFix(split ?? shorten, masked);
+			if (fix) warn(text, fix);
+			if (warnings.length >= WARNING_LIMIT) break;
+			continue;
+		}
 		const prose = proseLines(field.text);
 		const lines = prose.map(line => line.text);
 		const masked = maskNonProse(lines.join("\n"));
 		const maskedLines = masked.split("\n");
 		const paragraphs = field.paragraphs ? longParagraphs(prose, maskedLines) : undefined;
-		const warn = (text: string, fix: string) => warnings.push(`${field.name}, ${lineOpening(text)}: ${fix}`);
 		if (field.question) {
 			const firstLine = lines.findIndex(Boolean);
 			if (firstLine >= 0 && !firstSentenceIsQuestion(masked)) warn(lines[firstLine]!, "Put the question in the first sentence.");
@@ -176,14 +207,43 @@ export function taskTextWarnings(...fields: TaskTextField[]): string {
 		for (const [line, prose] of maskedLines.entries()) {
 			const paragraph = paragraphs?.get(line);
 			if (paragraph) {
-				warn(lines.slice(line, paragraph.end).join(" "), `Split this ${paragraph.words}-word paragraph: ${paragraphHint(field.name)}`);
+				const passage = maskedLines.slice(line, paragraph.end).join("\n");
+				warn(lines.slice(line, paragraph.end).join(" "), proseFix(`Split this ${paragraph.words}-word paragraph: ${blockSplitHint(field.name)}`, passage)!);
 				warnedParagraphEnd = paragraph.end;
+			} else if (line >= warnedParagraphEnd) {
+				const longLine = lineWordCount(prose) > LINE_WORD_LIMIT ? "Split this line; it has over 30 words." : undefined;
+				const fix = proseFix(longLine, prose);
+				if (fix) warn(lines[line]!, fix);
 			}
-			if (line >= warnedParagraphEnd && (prose.match(/[\p{L}\p{N}◊][^\s]*/gu)?.length ?? 0) > LINE_WORD_LIMIT) warn(lines[line]!, "Split this line; it has over 30 words.");
-			if (hasRevisionId(prose)) warn(lines[line]!, "Leave commit hashes and change IDs out of prose.");
 			if (warnings.length >= WARNING_LIMIT) break;
 		}
 		if (warnings.length >= WARNING_LIMIT) break;
 	}
 	return warnings.slice(0, WARNING_LIMIT).map(warning => `\n${warning}`).join("");
+}
+
+function proseFix(style: string | undefined, masked: string): string | undefined {
+	if (!hasRevisionId(masked)) return style;
+	const revision = "Leave commit hashes and change IDs out of prose.";
+	return style ? `${style} ${revision}` : revision;
+}
+
+const reportSectionNames: Record<ReportBlockSection, string> = {
+	summary: "Summary", results: "Results", notDone: "Not done", next: "Next", steps: "Your steps",
+};
+
+/** Inspect only what this call submitted, never the report's mirrors or older blocks. */
+export function reportTextWarnings(sections: Partial<Record<ReportBlockSection, string | undefined>>, blocks?: ReportBlocksInput): string {
+	const fields: TaskTextField[] = [];
+	for (const section of REPORT_BLOCK_SECTIONS) {
+		const name = reportSectionNames[section];
+		fields.push({ name, text: sections[section], paragraphs: true });
+		for (const block of blocks?.[section] ?? []) {
+			if ("title" in block) fields.push({ name, text: block.title, blockProse: "title" });
+			if ("text" in block) fields.push({ name, text: block.text, blockProse: "body" });
+			if (block.kind === "metric") fields.push({ name, text: block.context, blockProse: "body" });
+		}
+	}
+	const chat = fields.some(({ text, blockProse }) => pointsAtChat(blockProse && text ? maskNonProse(text) : text ?? undefined));
+	return (chat ? CHAT_POINTER_WARNING : "") + taskTextWarnings(...fields);
 }

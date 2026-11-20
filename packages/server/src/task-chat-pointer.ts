@@ -1,3 +1,5 @@
+export const CHAT_POINTER_WARNING = "\nThis points at the chat. The user reads the task: write the answer or detail here.";
+
 // End the reference at "chat" or a direction like "above", not at "chat composer" or "chat list".
 const referenceEnd = String.raw`\b(?=\s*(?:$|[.,!?:;)\]>*_\x60]|(?:above|below|for)\b))`;
 const chatDestination = String.raw`(?:(?:the|this|main|the main)\s+)?chat${referenceEnd}`;

@@ -5,7 +5,7 @@ import { Check } from "typebox/value";
 import type { ArtifactStore } from "./artifacts.ts";
 import { ServerError } from "./errors.ts";
 
-export const ReportResultAppendSchema = Type.Array(ResultBlockSchema, { minItems: 1, maxItems: 8, description: "Append 1–8 ordered Results blocks (up to 32 KiB). Do not also send addResult. Cite saved task artifacts by ID and optional retained version." });
+export const ReportResultAppendSchema = Type.Array(ResultBlockSchema, { minItems: 1, maxItems: 8, description: "Append 1–8 ordered Results blocks (up to 32 KiB), one fact each. Title findings, put conditions in setup and caption proof with what it shows. Cite saved task artifacts by ID and optional retained version. Do not also send addResult." });
 const MAX_BLOCK_BYTES = 32 * 1024;
 const markdown = new Marked({ gfm: true });
 const signedArtifactUrl = /(?:\/|%2f)artifacts(?:\/|%2f)[^\s]*?(?:\?|%3f)[^\s]*?\btoken(?:=|%3d)/i;

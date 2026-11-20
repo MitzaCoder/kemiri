@@ -224,16 +224,17 @@ it("all project prompts ask for Results/Next, automatic Now, and changed phases 
  const { runtime } = await integration(); const project = { ...runtime.project, name: "Synthetic project", path: "." };
  const main = coordinatorSection(project), thread = threadCoordinatorSection(project);
  for (const prompt of [main, thread]) {
-  expect(prompt).toContain("Now is written automatically.");
+  expect(prompt).toContain("Now is automatic;");
   expect(prompt).not.toContain("board action `focus`");
-  expect(prompt).toContain("Keep `results`"); expect(prompt).toContain("`next`");
+  expect(prompt).toContain("Keep Results and Next current with `board.write_report`.");
   expect(prompt).not.toContain("keeps the task's `now` current");
  }
  const worker = workerInstructions({ id: "fern", title: "Card view", project, cwd: ".", isolation: "shared", taskId: "T1" });
- expect(worker).toContain("Use optional `now` only for a few-word phase when the phase really changes");
+ expect(worker).toContain("use `now` only when the phase changes");
  expect(worker).not.toContain("is what you are doing at this moment");
  const instructions = threadInstructions({ id: "thread-a", title: "Card view", project, checkout: ".", checkoutKind: "directory", startedBy: "main", taskId: "T1" });
  expect(instructions).toContain("keep Results and Next current"); expect(instructions).toContain("Now is automatic");
+ expect(instructions).toContain("The user reads that task, not this conversation: keep Results and Next current");
 }, 15_000);
 
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { taskTextWarnings } from "../src/task-text-style.ts";
+import { reportTextWarnings, taskTextWarnings } from "../src/task-text-style.ts";
+import { crowdedResults, crowdedResultsWarnings } from "./fixtures/report-block-warnings.ts";
 import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 
 const prose = (text: string) => taskTextWarnings({ name: "Results", text });
@@ -25,7 +26,7 @@ describe("task text warnings", () => {
 		expect(report(singleLine)).toBe(warning);
 		expect(report(wrapped)).toBe(warning);
 		expect(prose(wrapped)).toBe("");
-		expect(report(`${fortyWords}\n${fortyWords}`)).toBe("\nResults, “This line has fifteen words…”: Split this 80-word paragraph: Lead with the outcome, then give each finding, setting and proof its own line.");
+		expect(report(`${fortyWords}\n${fortyWords}`)).toBe("\nResults, “This line has fifteen words…”: Split this 80-word paragraph: Give each fact its own block: a finding, setup, proof or other Results block.");
 	});
 
 	it("counts only prose and starts a new passage at a blank line", () => {
@@ -45,7 +46,7 @@ describe("task text warnings", () => {
 		}
 		const list = `- Open the main door.\n- ${lines.join("\n  ")}\n- Close the waiting area.`;
 		expect(report(list)).toBe(`\n${resultsParagraphWarning}`);
-		expect(report(list, "Your steps")).toEndWith("Use one numbered step per action and keep the exact values.");
+		expect(report(list, "Your steps")).toEndWith("Use one step block per action and keep exact values in copyText.");
 	});
 
 	it("skips fenced and indented exact copy text, including a quoted fence", () => {
@@ -70,11 +71,10 @@ describe("task text warnings", () => {
 	it("retains revision-ID warnings and tailors the split hint to the report section", () => {
 		const warnings = report(`${wrappedReportParagraph}\nThe change ID is a1b2c3d.`, "Not done");
 		expect(warnings.trim().split("\n")).toEqual([
-			"Not done, “The morning team checked the…”: Split this 75-word paragraph: Put one gap on each line.",
-			`Not done, “The change ID is a1b2c3d.”: ${revisionWarning}`,
+			`Not done, “The morning team checked the…”: Split this 75-word paragraph: Use one risk block per gap. ${revisionWarning}`,
 		]);
-		expect(report(wrappedReportParagraph, "Next")).toEndWith("Give one or two short actions.");
-		expect(report(wrappedReportParagraph, "Summary")).toEndWith("Give the main outcome in one or two short sentences.");
+		expect(report(wrappedReportParagraph, "Next")).toEndWith("Use one nextAction block per action.");
+		expect(report(wrappedReportParagraph, "Summary")).toEndWith("Use one or two short outcome blocks.");
 	});
 
 	it("looks for mixed hex hashes and ID-like jj tokens, not words or parts of identifiers", () => {
@@ -120,5 +120,45 @@ describe("task text warnings", () => {
 		expect(warnings).toContain("Next, “Inspect mzzpmqrm.”:");
 		expect(warnings).toContain("Done when, “This line has fifteen words…”:");
 		expect(warnings).not.toContain("a1b2c3d");
+	});
+});
+
+
+describe("typed report warnings", () => {
+	it("gives one split hint per overlong or crowded finding", () => {
+		expect(reportTextWarnings({}, { results: crowdedResults })).toBe(`\n${crowdedResultsWarnings.join("\n")}`);
+	});
+
+	it("detects inline bullets and separate findings even on short lines", () => {
+		for (const text of ["The front desk opened. The queue moved quickly. The morning team recorded totals.", "At opening: • Signs went up • Doors opened"]) {
+			expect(reportTextWarnings({}, { results: [{ kind: "finding", title: "Opening", text }] })).toContain("Split this list of facts:");
+		}
+	});
+
+	it("accepts clean blocks and ignores 200 words of copy text and exact values", () => {
+		const copyText = "See chat for a1b2c3d. " + "sample ".repeat(196);
+		expect(reportTextWarnings({}, {
+			summary: [{ kind: "outcome", text: "The desk handled the morning queue." }],
+			results: [
+				{ kind: "finding", title: "The limit held", text: "The desk opened at 9 a.m. Overflow went to the waiting list." },
+				{ kind: "setup", title: "Morning rehearsal", facts: [{ label: "Exact note", value: copyText }] },
+				{ kind: "metric", label: "Open desks", value: 1, context: "The count includes the main desk only." },
+			],
+			steps: [{ kind: "step", text: "Paste the note.", copyText }],
+		})).toBe("");
+	});
+
+	it("checks prose titles and metric context for IDs but masks commands and URLs", () => {
+		const warnings = reportTextWarnings({}, { results: [
+			{ kind: "setup", title: "Setup for a1b2c3d", facts: [{ label: "Revision", value: "d4e5f6a" }] },
+			{ kind: "metric", label: "Open desks", value: 1, context: "Recorded in d4e5f6a." },
+			{ kind: "finding", title: "Morning count", text: "See [the count](https://example.com/a1b2c3d) or run `lookup a1b2c3d`." },
+		] });
+		expect(warnings).toBe(`\nResults, “Setup for a1b2c3d”: ${revisionWarning}\nResults, “Recorded in d4e5f6a.”: ${revisionWarning}`);
+	});
+
+	it("caps style warnings at three without losing the separate chat pointer warning", () => {
+		const warnings = reportTextWarnings({}, { results: [...crowdedResults, ...crowdedResults], steps: [{ kind: "step", text: "See chat for the commands." }] });
+		expect(warnings.trim().split("\n")).toEqual([expect.stringContaining("This points at the chat."), ...crowdedResultsWarnings, crowdedResultsWarnings[0]]);
 	});
 });

@@ -228,7 +228,7 @@ export function threadInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYou were started for the board task ${options.taskId} and hold it. The user reads that task, not this conversation: keep Results and Next current with the \`board\` action \`write_report\` (Now is automatic), and move it to review when it is ready for them.`;
+			: `\n\nYou were started for the board task ${options.taskId} and hold it. The user reads that task, not this conversation: keep Results and Next current with \`board.write_report\`, giving each result its own block. Now is automatic. Move the task to review when it is ready for the owner.`;
 	const workspace =
 		checkoutKind === "jj"
 			? `Your workspace is ${checkout}, a jj workspace of the project's repository, started from main's working copy. Do your work and merge your workers' changes there, and commit it; name the change IDs in your summary. Add an \`Kemiri-Task: T…\` trailer to commit descriptions.`

@@ -15,8 +15,8 @@ import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
 import { initializeTaskFreshness, coverReportSection, reportSectionFacts, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
-import { pointsAtChat } from "./task-chat-pointer.ts";
-import { taskTextWarnings } from "./task-text-style.ts";
+import { CHAT_POINTER_WARNING, pointsAtChat } from "./task-chat-pointer.ts";
+import { reportTextWarnings, taskTextWarnings } from "./task-text-style.ts";
 import { countChatDetailTurn, detectMissingChatDetail, missingChatDetailLabel, type ChatDetailCounts } from "./task-chat-detail.ts";
 import { splitTaskReference } from "./queued-inputs.ts";
 import { OWNER_CHAT_ENTRY } from "./wire.ts";
@@ -3718,12 +3718,12 @@ const BoardToolParameters = Type.Object({
 	coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "write_report: optional eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
-	blocks: Type.Optional(ReportBlocksInputSchema),
+	blocks: Type.Optional({ ...ReportBlocksInputSchema, description: "write_report: prefer typed blocks for new reports, one fact per block. Use findings for observations, setup for conditions and proof for what a saved file shows. Replace each named section in order. Omit to preserve; [] clears. Do not also send a string for the same section. Up to 32 KiB per write." }),
 	summary: Type.Optional(Type.String({ description: "write_report: start with what came out in one or two whole sentences. Shown above Results; empty clears it." })),
 	results: Type.Optional(Type.String({ description: "write_report: what changed, rewritten whole. Use one plain, whole sentence per fact. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId instead of repeating the record." })),
 	notDone: Type.Optional(Type.String({ description: "write_report: Markdown, one item per line about what is missing or left out. Empty clears it." })),
 	checks: Type.Optional(Type.Array(ReportCheckInputSchema, { description: "write_report: checks that ran, with name, result and count if known. Replaces the whole list; [] clears it." })),
-	next: Type.Optional(Type.String({ description: "write_report: agents' next actions in one or two whole sentences. Use names, not IDs. Rewrite the whole section; keep manual actions in steps instead." })),
+	next: Type.Optional(Type.String({ description: "write_report: a plain section is fine for one or two short actions agents will take. Use names, not IDs. Rewrite the whole section; keep manual actions in steps instead." })),
 	steps: Type.Optional(Type.String({ description: "write_report Your steps: a full numbered Markdown list for actions the user must do by hand. Start each step with a verb. Give exact values and copyable commands. Rewrite the whole list; Next rewrites leave it alone. Clear with an empty string when done." })),
 	milestone: Type.Optional(
 		Type.String({ minLength: 1, description: 'write_report: a few words naming something meaningful that just happened, e.g. "First version merged". Saves a snapshot of the task.' }),
@@ -3766,7 +3766,6 @@ const BoardToolParameters = Type.Object({
 
 type BoardToolArguments = Static<typeof BoardToolParameters>;
 
-const CHAT_POINTER_WARNING = "\nThis points at the chat. The user reads the task: write the answer or detail here.";
 
 function onlyUserCloses(status: "done" | "dropped"): string {
 	return `Only the user closes a task: you cannot set it ${status}. Move it to review (status review) instead, and write in its report's next what the user should check. The user marks it ${status} when they agree.`;
@@ -3984,15 +3983,8 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						const chatWarning = [input.summary, input.results, input.notDone, input.next, input.steps, ...submittedBlockText(input.blocks)].some(pointsAtChat) ? CHAT_POINTER_WARNING : "";
-						const styleWarnings = taskTextWarnings(
-							{ name: "Summary", text: input.summary, paragraphs: true },
-							{ name: "Results", text: input.results, paragraphs: true },
-							{ name: "Not done", text: input.notDone, paragraphs: true },
-							{ name: "Next", text: input.next, paragraphs: true },
-							{ name: "Your steps", text: input.steps, paragraphs: true },
-						);
-						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${chatWarning}${styleWarnings}`, {
+						const warnings = reportTextWarnings(input, input.blocks);
+						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${warnings}`, {
 							details: { taskId: task.id },
 						});
 					}

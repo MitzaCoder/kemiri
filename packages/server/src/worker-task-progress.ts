@@ -5,13 +5,13 @@ import type { ConversationId, Harness, Tx } from "@earendil-works/pi-durable";
 import { BoardDoc, type BoardState, ReportCheckInputSchema, boardView, describeTaskInFull, normalizeBoard, workerWriter, writeReportIn } from "./board.ts";
 import { errorMessage } from "./errors.ts";
 import { LivePlanInputSchema, LivePlanTickSchema } from "./task-live-plan.ts";
-import { taskTextWarnings } from "./task-text-style.ts";
+import { reportTextWarnings } from "./task-text-style.ts";
 
 export const workerTaskProgressTool = (taskLive: boolean) => ({
 	name: "task_progress",
 	description:
 		"Keep the report of your assigned board task current; the board report is the record of your work. " +
-		"Now is written automatically. Optional `now` is a few-word phase, only when it really changes; `addResultBlocks` appends typed Results, or use `addResult` for one legacy bullet, " +
+		"Now is written automatically. Optional `now` is a few-word phase, only when it really changes; prefer `addResultBlocks` for finished Results, one fact per block. " +
 		"`checks` updates checks by name; `milestone` saves a snapshot of the task. Questions and warnings go in your final report, not here. " +
 		(taskLive ? "Use `plan` to write or replace the run plan and `tick` to mark steps done by number. " : "") +
 		"With no update fields, reads the task and its eventSeq. You can pass that as coveredEventSeq when writing later, so anything that happened since stays marked.",
@@ -80,7 +80,7 @@ export async function workerTaskProgress(args: WorkerTaskProgressArgs, options: 
 			milestone: args.milestone,
 		}, key, at, options.artifactScope));
 		const milestone = args.milestone === undefined ? "" : `; milestone "${args.milestone.trim()}" saved`;
-		const warnings = taskTextWarnings({ name: "Results", text: args.addResult, paragraphs: true });
+		const warnings = reportTextWarnings({ results: args.addResult }, { results: args.addResultBlocks });
 		const plan = planUpdate ? " Run plan updated." : "";
 		return progressText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${plan}${warnings}`, task.id);
 	} catch (error) {

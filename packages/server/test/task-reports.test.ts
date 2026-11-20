@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { JsonObject } from "@earendil-works/pi-durable";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { LEGACY_HARNESS_FEATURES, type BoardTask, type BoardReportCheck, type BoardQuestionChoice, type BoardTaskSnapshot, type ModelRef } from "@kemiri/protocol";
+import { LEGACY_HARNESS_FEATURES, type BoardTask, type BoardReportCheck, type BoardQuestionChoice, type BoardTaskSnapshot, type ModelRef, type ReportBlocksInput } from "@kemiri/protocol";
 import {
 	type BoardState,
 	HARNESS_WRITER,
@@ -24,6 +24,7 @@ import {
 	withTaskReference,
 	writeReport,
 } from "../src/board.ts";
+import { crowdedResults, crowdedResultsWarnings } from "./fixtures/report-block-warnings.ts";
 import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
@@ -241,16 +242,15 @@ async function toolsOf(client: TestClient, projectId: string, workerId?: string)
 describe("reports through the tools", () => {
 	it.each(["native", "code-mode"] as const)("appends the same typed Results via %s worker tools", async mode => {
 		const { test, client, projectId } = await start();
-		const addResultBlocks: JsonObject[] = [
-			{ kind: "outcome", text: "The desk opened." },
-			{ kind: "finding", title: "The limit held", text: "The desk sent overflow to the waiting list." },
-		];
+		const addResultBlocks = crowdedResults;
+		let reply = "";
 		const saved = await client.request({ type: "board.task.save", projectId, task: { title: "Rehearse bookings", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] } });
 		if (saved.type !== "board.task.save") throw errorOf(saved);
 		const factory = (request: TranscriptContext) => {
 			const { text } = lastOf(request);
 			if (text === "Start the rehearsal.") return call("worker_spawn", { id: "reader", task: BRIEF, taskId: saved.task.id });
 			if (text === BRIEF) return mode === "native" ? call("task_progress", { addResultBlocks }) : call("codemode", { code: `return await tools.task_progress(${JSON.stringify({ addResultBlocks })});` });
+			if (systemOf(request).includes('You are the worker "') && lastOf(request).role === "toolResult") reply = text;
 			return fauxAssistantMessage("Noted.");
 		};
 		test.faux.setResponses(Array.from({ length: 30 }, () => factory));
@@ -265,7 +265,30 @@ describe("reports through the tools", () => {
 		await view.waitForView(value => value.entries.some(entry => entryText(entry).includes("[worker reader reported]")));
 		const board = await client.request({ type: "board.get", projectId });
 		if (board.type !== "board.get") throw errorOf(board);
-		expect(board.board.tasks[0]!.report).toMatchObject({ blocks: { results: addResultBlocks }, results: "- The desk opened.\n\n- **The limit held**: The desk sent overflow to the waiting list." });
+		expect(board.board.tasks[0]!.report.blocks?.results).toEqual(addResultBlocks);
+		for (const warning of crowdedResultsWarnings) expect(reply.split(warning)).toHaveLength(2);
+	}, 15_000);
+
+	it("warns on submitted block prose without changing the saved report", async () => {
+		const { test, client, projectId } = await start();
+		const saved = await client.request({ type: "board.task.save", projectId, task: { title: "Rehearse bookings", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] } });
+		if (saved.type !== "board.task.save") throw errorOf(saved);
+		const blocks = { results: crowdedResults, steps: [{ kind: "step", text: "See chat for the commands." }] } satisfies ReportBlocksInput;
+		let reply = "";
+		const factory = (request: TranscriptContext) => {
+			const { role, text } = lastOf(request);
+			if (text === "File the rehearsal.") return call("board", { action: "write_report", id: saved.task.id, blocks });
+			if (role === "toolResult") reply = text;
+			return fauxAssistantMessage("Filed.");
+		};
+		test.faux.setResponses(Array.from({ length: 10 }, () => factory));
+		const sent = await client.request({ type: "conversation.submit", projectId, requestId: "typed-style", content: "File the rehearsal." });
+		if (sent.type !== "conversation.submit") throw errorOf(sent);
+		await until(() => reply !== "");
+		expect(reply.split("\n")).toEqual([expect.stringContaining("Rewrote the report"), expect.stringContaining("This points at the chat."), ...crowdedResultsWarnings]);
+		const board = await client.request({ type: "board.get", projectId });
+		if (board.type !== "board.get") throw errorOf(board);
+		expect(board.board.tasks[0]!.report.blocks).toEqual(blocks);
 	}, 15_000);
 
 	it("keeps manual steps on the task and in history, and negotiates the new state kind", async () => {

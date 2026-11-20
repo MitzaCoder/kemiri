@@ -9,6 +9,7 @@ import { coordinatorWriter, describeBoard, describeTaskInFull, emptyBoardState, 
 import { officialAgentWorkerTools } from "../src/official-agents/mcp-worker-tools.ts";
 import { diffReportSections, reportMarkdown } from "../src/report-blocks.ts";
 import { noteTaskFact } from "../src/task-freshness.ts";
+import { crowdedResults, crowdedResultsWarnings } from "./fixtures/report-block-warnings.ts";
 import { createSetup } from "./support.ts";
 
 const at = "2026-11-05T12:00:00.000Z";
@@ -156,10 +157,12 @@ test("the official bridge shares the writer, honors scope and refuses stale runs
 	let current = true;
 	const bridge = await officialAgentWorkerTools({ projectId: project.id, workerId: "fixture", threadId: "main", taskId: "T1", taskLive: true, cwd: setup.projectDir, managedWorkspace: false, harness: runtime.harness, mainId: runtime.conversation.id, artifacts: setup.server.artifacts, isCurrent: async () => current });
 	const call = (args: unknown, key: string) => bridge.call("task_progress", args, key, new AbortController().signal);
-	const addResultBlocks: ResultBlock[] = [outcome, finding];
+	const addResultBlocks: ResultBlock[] = crowdedResults;
 	expect(await call({ taskId: "T2", addResultBlocks }, "spoof")).toMatchObject({ isError: true });
 	expect(await call({ addResultBlocks, addResult: "Mixed formats." }, "mixed")).toMatchObject({ isError: true });
-	expect(await call({ addResultBlocks }, "bridge-write")).not.toHaveProperty("isError");
+	const reply = await call({ addResultBlocks }, "bridge-write");
+	expect(reply).not.toHaveProperty("isError");
+	expect(reply.content).toEqual([{ type: "text", text: `Updated the report of T1 (report r1).\n${crowdedResultsWarnings.join("\n")}` }]);
 	current = false;
 	expect(await call({ addResultBlocks: [{ kind: "outcome", text: "Inactive worker." }] }, "inactive")).toMatchObject({ isError: true });
 	const task = (await runtime.board.get(true)).tasks[0]!;

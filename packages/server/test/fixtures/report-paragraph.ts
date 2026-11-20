@@ -8,4 +8,4 @@ export const wrappedReportParagraph = [
 	"The crew removed the signs after the last guest left.",
 ].join("\n");
 
-export const resultsParagraphWarning = "Results, “The morning team checked the…”: Split this 70-word paragraph: Lead with the outcome, then give each finding, setting and proof its own line.";
+export const resultsParagraphWarning = "Results, “The morning team checked the…”: Split this 70-word paragraph: Give each fact its own block: a finding, setup, proof or other Results block.";
