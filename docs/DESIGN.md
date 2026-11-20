@@ -2935,6 +2935,21 @@ use its derived task fields, actions and shared timeline read rather than fetchi
 `TaskViewDesignMenu` in the header, render the supplied `editor` snippet when `model.editing` is true, and
 register the quotable region and reply focus target with the model.
 
+### Route task view (T367)
+
+Route fills the web window. At 1,000 CSS pixels of sheet width it shows Doors: one raised platform and two
+short, usable summaries. Below that it shows Calm: the scrollable line, live card, Your stop, Arrived and Ahead
+stack in reading order. The owner can answer a question without opening Your stop. The initial door is Your stop
+if something needs attention, otherwise Arrived. A manual choice stays with the open task view, not the URL.
+
+The line uses the active run plan first, then ordered subtasks, then the stored task state. It marks the owner's
+interchange from open questions, warnings, steps, review and blockers, never by guessing from a plan step's name.
+The live card reveals counters and recent lines under So far. The record opens in place with the request first.
+Reply opens the existing task composer from the corner or from the review controls.
+
+Route's five report sections go through `RouteReportSection.svelte`. It renders Markdown now and uses bounded
+excerpts for closed doors. Swap the two render modes there when the typed report renderer and glance helpers land.
+
 ### Task changes and integration refs (T124)
 
 The backend observes repositories, not agent chat. `task-changes.json` beside `project.json` is an atomic,

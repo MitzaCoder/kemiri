@@ -48,7 +48,7 @@
 			props.onquote?.(pendingQuote);
 			pendingQuote = undefined;
 		}}
-		class="top-0 left-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 {sheetClass ?? ''}"
+		class="top-0 left-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 sm:max-w-none {sheetClass ?? ''}"
 	>
 		<Dialog.Description class="sr-only">A task: its report, questions, workers and history.</Dialog.Description>
 		{#if task === undefined}

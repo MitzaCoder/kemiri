@@ -24,9 +24,12 @@ beforeAll(async () => {
 	const bundle = await Bun.build({
 		entrypoints: [entry], target: 'browser', tsconfig: join(root, 'tsconfig.json'),
 		plugins: [{ name: 'task-view-test', setup(build) {
-			// Exercise the actual registry and reactive preference without unrelated Classic UI dependencies.
+			// Exercise the actual registry and reactive preference without the full application component tree.
 			build.onResolve({ filter: /^#lib\/components\/task-view\/ClassicTaskView\.svelte$/ }, () => ({
 				path: join(root, 'test/fixtures/task-view/ClassicFixture.svelte'),
+			}));
+			build.onResolve({ filter: /^#lib\/components\/task-view\/RouteTaskView\.svelte$/ }, () => ({
+				path: join(root, 'test/fixtures/task-view/SecondDesign.svelte'),
 			}));
 			build.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
 				contents: compile(await Bun.file(filename).text(), { filename, generate: 'client' }).js.code, loader: 'js',
@@ -48,6 +51,7 @@ afterAll(async () => { if (directory) await rm(directory, { recursive: true, for
 
 test('Classic is registered and missing or unknown IDs fall back to it', () => {
 	expect(result.registered).toContain('classic: Classic');
+	expect(result.registered).toContain('route: Route');
 	expect(result.fallbacks).toEqual(['classic', 'classic']);
 	expect(result.initial).toBe('Classic: An example task');
 });

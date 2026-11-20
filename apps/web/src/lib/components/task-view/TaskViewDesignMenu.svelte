@@ -8,15 +8,16 @@
 	import { taskViewDesignPreference } from '#lib/task-view/preference.svelte.js';
 
 	let trigger = $state<HTMLButtonElement | null>(null);
+	const sheet = $derived(trigger?.closest<HTMLElement>('[data-task-sheet]'));
 
 	async function selectDesign(id: string): Promise<void> {
 		const changed = id !== taskViewDesignPreference.current.id;
-		const sheet = trigger?.closest<HTMLElement>('[data-task-sheet]');
+		const openedSheet = sheet;
 		taskViewDesignPreference.set(id);
-		if (changed && sheet) {
+		if (changed && openedSheet) {
 			// The old trigger unmounts with the design. Restore focus in the new one.
 			await tick();
-			(sheet.querySelector<HTMLElement>('[data-task-view-design-trigger]') ?? sheet).focus();
+			(openedSheet.querySelector<HTMLElement>('[data-task-view-design-trigger]') ?? openedSheet).focus();
 		}
 	}
 </script>
@@ -26,7 +27,7 @@
 		aria-label="More" title="More" data-task-view-design-trigger>
 		<EllipsisIcon />
 	</DropdownMenu.Trigger>
-	<DropdownMenu.Portal>
+	<DropdownMenu.Portal to={sheet ?? undefined}>
 		<DropdownMenu.Content sideOffset={6} align="end" class="z-[100] max-h-[70dvh] w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-(--chat-border) bg-(--chat-surface) p-1 text-(--chat-fg) shadow-xl">
 			<DropdownMenu.RadioGroup aria-label="Task view" value={taskViewDesignPreference.current.id} onValueChange={selectDesign}>
 				<DropdownMenu.GroupHeading class="px-2.5 py-1.5 text-xs font-semibold text-(--chat-fg-muted)">Task view</DropdownMenu.GroupHeading>

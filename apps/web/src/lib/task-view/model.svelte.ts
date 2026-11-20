@@ -35,6 +35,7 @@ import type {
 export type TaskViewInputs = {
 	backend: BackendConnection;
 	projectId: string;
+	projectName?: string;
 	board: ProjectBoard | undefined;
 	workers: readonly WorkerSummary[];
 	threads?: readonly ThreadSummary[];
@@ -45,7 +46,7 @@ export type TaskViewInputs = {
 
 /** One reactive model per sheet, kept alive when the rendered design changes. */
 export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () => HTMLElement | null) {
-	const { backend, projectId, board, workers, threads = [], workerHref, onshowlinked } = $derived(inputs());
+	const { backend, projectId, projectName, board, workers, threads = [], workerHref, onshowlinked } = $derived(inputs());
 	const refLinks = useRefLinks();
 
 	const requestedId = $derived(taskFromUrl(page.url));
@@ -277,6 +278,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 	return {
 		get backend() { return backend; },
 		get projectId() { return projectId; },
+		get projectName() { return projectName; },
 		get board() { return board; },
 		get requestedId() { return requestedId; },
 		get previousTask() { return previousTask; },

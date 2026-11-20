@@ -1172,7 +1172,7 @@
 
 	{#if supportsTasks}
 		<TaskCloseDialog {board} />
-		<TaskSheet {backend} {projectId} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
+		<TaskSheet {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
 <style>
