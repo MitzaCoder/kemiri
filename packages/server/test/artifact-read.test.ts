@@ -55,7 +55,7 @@ test("artifact_read selects latest, pinned and explicit versions and describes e
 		expect(result.text).toContain("Kind/MIME: text / text/html; size:");
 		expect(result.text).toContain("Scope: task T31");
 		expect(result.text).toContain("Saved by thread review-thread, worker author, at 2026-01-01T00:00:00.000Z");
-		expect(result.text).toEndWith('Publish a revision with artifact_save using the edited file named "report.html" and taskId "T31" to create the next version of this artifact.');
+		expect(result.text).toEndWith(`From any task or chat, save the next version with artifact_save using artifactId: ${first.id}, the edited file, and your own taskId if any.`);
 	}
 	const original = await read(`${first.id}~1`);
 	expect(original.text).toContain(`Artifact ${first.id}~1: Readiness`);
@@ -128,7 +128,7 @@ test("rejects conflicting, invalid, pruned and never-saved versions with retaine
 	}
 });
 
-test("legacy metadata reads as version 1 and conversation-scoped revisions explain their boundary", async () => {
+test("legacy metadata reads as version 1 and conversation-scoped revisions can be continued by ID", async () => {
 	const { root, store, input, read } = await fixture();
 	const legacy = { ...input, id: "legacy", name: "report.html", kind: "text", mimeType: "text/html", size: 6, durationSeconds: null, sourcePath: input.sourcePath, createdAt: "2026-01-01T00:00:00.000Z", taskId: null };
 	const directory = join(store.dir("p"), "legacy");
@@ -139,8 +139,6 @@ test("legacy metadata reads as version 1 and conversation-scoped revisions expla
 	expect(result.isError).toBe(false);
 	expect(result.text).toContain("Version 1; latest: 1; retained versions (1): 1");
 	expect(result.text).toContain("Scope: conversation (thread review-thread, worker author)");
-	expect(result.text).toContain('file named "report.html" and omit taskId');
-	expect(result.text).toContain("Only the same conversation");
-	expect(result.text).toContain("saving from another conversation creates a new artifact");
+	expect(result.text).toContain("artifactId: legacy, the edited file, and your own taskId if any.");
 	expect(result.path).not.toContain(root);
 });

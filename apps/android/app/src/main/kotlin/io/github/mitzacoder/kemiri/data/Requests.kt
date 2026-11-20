@@ -236,6 +236,14 @@ suspend fun HarnessClient.request(value: ArtifactsUpdateRequest, explicitNulls: 
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ArtifactsUpdateRequest.serializer(), value).jsonObject, explicitNulls), ArtifactsUpdateResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: ArtifactsLibraryRequest, explicitNulls: Set<String> = emptySet()): ArtifactsLibraryResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ArtifactsLibraryRequest.serializer(), value).jsonObject, explicitNulls), ArtifactsLibraryResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: ArtifactsTrailRequest, explicitNulls: Set<String> = emptySet()): ArtifactsTrailResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ArtifactsTrailRequest.serializer(), value).jsonObject, explicitNulls), ArtifactsTrailResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: ThreadsListRequest, explicitNulls: Set<String> = emptySet()): ThreadsListResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsListRequest.serializer(), value).jsonObject, explicitNulls), ThreadsListResponse.serializer()
 )

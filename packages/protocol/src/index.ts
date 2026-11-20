@@ -1867,6 +1867,7 @@ export {
 } from "./notifications.ts";
 export { BOARD_PREFIX, TASK_REFERENCE_PREFIX, BoardQuestionChoiceSchema, BoardReportCheckSchema, BoardTaskGoalSchema } from "./board.ts";
 export {
+	ARTIFACT_LIVING_VERSION_LIMIT,
 	ARTIFACT_MAX_TAG_LENGTH,
 	ARTIFACT_MAX_TAGS,
 	SUGGESTED_ARTIFACT_TAGS,

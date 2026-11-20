@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatReviewRegressionTest {
-    private fun artifact(id: String) = Artifact(id,"p",id,null,null,"text","text/plain",1,null,"main",null,null,"/tmp/a",null,"2026-01-01T00:00:00Z")
+    private fun artifact(id: String) = Artifact(id,"p",id,null,null,"text","text/plain",1,null,"main",null,null,sourcePath = "/tmp/a",createdAt = "2026-01-01T00:00:00Z")
     @Test fun olderArtifactOutsideFiveHundredWindowStillAllowsIdBasedAccess() {
         val recent = (1..500).map { artifact("a$it") }
         val old = artifactForViewing("p","a0",recent)

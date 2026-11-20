@@ -795,14 +795,24 @@ export class ClientConnection {
 					});
 					return;
 				}
+				case "artifacts.library": {
+					if (!this.#features.includes("artifact-library")) return this.#unknownRequest(request);
+					const page = await this.#manager.artifactLibrary(request);
+					if (!this.#authorized()) return;
+					this.#respond({ type: "artifacts.library", id: request.id, ...page });
+					return;
+				}
+				case "artifacts.trail": {
+					if (!this.#features.includes("artifact-library")) return this.#unknownRequest(request);
+					const trail = await this.#manager.artifactTrail(request.projectId, request.artifactId);
+					if (!this.#authorized()) return;
+					this.#respond({ type: "artifacts.trail", id: request.id, ...trail });
+					return;
+				}
 				case "artifacts.update": {
 					await this.#manager.requireProject(request.projectId);
 					if (!this.#authorized()) return;
-					const artifact = await this.#manager.artifacts.updateTags(
-						request.projectId,
-						request.artifactId,
-						request.tags,
-					);
+					const artifact = await this.#manager.artifacts.update(request.projectId, request.artifactId, request);
 					this.#respond({ type: "artifacts.update", id: request.id, artifact });
 					return;
 				}

@@ -10,7 +10,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 
 /** Same absent-hello-features fallback as packages/client. An explicit empty list stays empty. */
-val DEFAULT_HARNESS_FEATURES: Set<String> = setOf("projects", "filesystem", "models", "credentials", "logins", "conversation", "workers", "context", "server-status", "release-updates", "memory", "schedules", "memory-maintenance", "notifications", "board", "subscription-usage", "threads", "artifacts", "storage", "drain", "task-reports", "cache-stats", "usage-breakdown", "subscription-resets", "ref-status", "board-moves", "ref-details", "fcm-push", "schedule-events", "project-archive", "filesystem-complete", "filesystem-edit", "artifact-tags", "terminal", "queued-inputs", "chat-drafts", "notification-hold", "ui-proof", "task-links", "task-waiting", "sidebar-attention", "cache-keep-warm")
+val DEFAULT_HARNESS_FEATURES: Set<String> = setOf("projects", "filesystem", "models", "credentials", "logins", "conversation", "workers", "context", "server-status", "release-updates", "memory", "schedules", "memory-maintenance", "notifications", "board", "subscription-usage", "threads", "artifacts", "storage", "drain", "task-reports", "cache-stats", "usage-breakdown", "subscription-resets", "ref-status", "board-moves", "ref-details", "fcm-push", "schedule-events", "project-archive", "filesystem-complete", "filesystem-edit", "artifact-tags", "artifact-library", "terminal", "queued-inputs", "chat-drafts", "notification-hold", "ui-proof", "task-links", "task-waiting", "sidebar-attention", "cache-keep-warm")
 
 /** The most refs one `refs.status` reads. */
 const val MAX_REF_STATUS_REFS: Int = 200
@@ -1588,12 +1588,15 @@ data class Artifact(
     val `threadId`: String,
     val `workerId`: String?,
     val `taskId`: String?,
+    val `madeForTaskId`: String? = null,
     val `sourcePath`: String,
     val `tags`: List<String>? = null,
     val `createdAt`: String,
     val `version`: Long? = null,
     val `versionCount`: Long? = null,
-    val `versions`: List<ArtifactVersion>? = null
+    val `versions`: List<ArtifactVersion>? = null,
+    val `laterTaskIds`: List<String>? = null,
+    val `living`: ArtifactLiving? = null
 )
 
 @Serializable
@@ -1610,6 +1613,7 @@ data class ArtifactVersion(
     val `threadId`: String,
     val `workerId`: String?,
     val `taskId`: String?,
+    val `madeForTaskId`: String? = null,
     val `sourcePath`: String,
     val `tags`: List<String>? = null,
     val `createdAt`: String,
@@ -1652,7 +1656,8 @@ data class ArtifactsUpdateRequest(
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `artifactId`: String,
-    val `tags`: List<String>
+    val `tags`: List<String>? = null,
+    val `living`: Boolean? = null
 )
 
 @Serializable
@@ -1690,6 +1695,96 @@ data class ArtifactsChangedEvent(
     val `artifact`: Artifact,
     val `deleted`: Boolean
 ) : ProtocolEvent
+
+@Serializable
+data class ArtifactLiving(
+    val `since`: String
+)
+
+@Serializable
+data class ArtifactsLibraryRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.library",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectIds`: List<String>? = null,
+    val `before`: String? = null,
+    val `limit`: Long? = null
+)
+
+@Serializable
+data class ArtifactsTrailRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.trail",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `artifactId`: String
+)
+
+@Serializable
+data class ArtifactTaskFacts(
+    val `projectId`: String,
+    val `id`: String,
+    val `title`: String,
+    val `status`: String,
+    val `archived`: Boolean,
+    val `settledAt`: String?,
+    val `summary`: String? = null
+)
+
+@Serializable
+data class ArtifactTaskFolder(
+    val `projectId`: String,
+    val `id`: String,
+    val `title`: String,
+    val `status`: String,
+    val `archived`: Boolean,
+    val `settledAt`: String?,
+    val `summary`: String? = null,
+    val `decisions`: List<ArtifactTaskFolderDecisionsItem>
+)
+
+@Serializable
+data class ArtifactTaskFolderDecisionsItem(
+    val `id`: String,
+    val `text`: String,
+    val `why`: String?,
+    val `at`: String
+)
+
+@Serializable
+data class ArtifactComment(
+    val `taskId`: String,
+    val `feedbackId`: String,
+    val `version`: Long?,
+    val `text`: String,
+    val `at`: String,
+    val `state`: String,
+    val `note`: String?
+)
+
+@Serializable
+data class ArtifactLibraryProject(
+    val `id`: String,
+    val `name`: String,
+    val `archived`: Boolean
+)
+
+@Serializable
+data class ArtifactsLibraryResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.library",
+    val `id`: String,
+    val `artifacts`: List<Artifact>,
+    val `tasks`: List<ArtifactTaskFacts>,
+    val `projects`: List<ArtifactLibraryProject>,
+    val `nextBefore`: String?
+)
+
+@Serializable
+data class ArtifactsTrailResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.trail",
+    val `id`: String,
+    val `artifact`: Artifact,
+    val `tasks`: List<ArtifactTaskFolder>,
+    val `comments`: List<ArtifactComment>
+)
 
 @Serializable
 data class ThreadSummary(

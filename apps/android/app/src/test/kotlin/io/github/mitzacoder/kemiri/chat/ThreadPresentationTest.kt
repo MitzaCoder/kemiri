@@ -38,7 +38,7 @@ class ThreadPresentationTest {
         assertTrue(threadCallLabel(start.copy(status = "interrupted")).endsWith("interrupted"))
     }
     @Test fun finishesOnlyShowArtifactsSavedByThatMessage() {
-        fun artifact(id: String, thread: String, at: String) = Artifact(id,"p",id,null,null,"text","text/plain",10,null,thread,null,null,"/tmp/a",null,at)
+        fun artifact(id: String, thread: String, at: String) = Artifact(id,"p",id,null,null,"text","text/plain",10,null,thread,null,null,sourcePath = "/tmp/a",createdAt = at)
         val items = listOf(artifact("before","poster","2026-01-01T00:00:00Z"),artifact("later","poster","2026-01-02T00:00:00Z"),artifact("other","main","2026-01-01T00:00:00Z"))
         assertEquals(listOf("before"),finishArtifacts(items,"poster",java.time.Instant.parse("2026-01-01T00:00:00Z").toEpochMilli()).map { it.id })
         assertEquals(2,finishArtifacts(items,"poster",null).size)

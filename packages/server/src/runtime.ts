@@ -1,3 +1,5 @@
+import type { ArtifactsLibraryRequest } from "@kemiri/protocol";
+import { artifactLibrary, artifactTrail } from "./artifact-library.ts";
 import { DEFAULT_TASK_WATCHER, type TaskWatcherStatus } from "@kemiri/protocol";
 import { watcherStatus } from "./task-watcher-live.ts";
 import { workerCommandIntent } from "./worker-command-intent.ts";
@@ -756,6 +758,14 @@ export class ProjectManager {
 		if (defaults.model !== null) this.#requireModel(defaults.model);
 		const { runtime } = await this.conversation(projectId);
 		return runtime.workers.setDefaults(defaults);
+	}
+
+	artifactLibrary(request: ArtifactsLibraryRequest) {
+		return artifactLibrary(this.store, this.artifacts, request, this.#clock());
+	}
+
+	artifactTrail(projectId: string, artifactId: string) {
+		return artifactTrail(this.store, this.artifacts, projectId, artifactId, this.#clock());
 	}
 
 	/** The project's board; archived tasks only when asked for. */

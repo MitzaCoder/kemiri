@@ -581,10 +581,11 @@ isolation remains the primary boundary, whether CSP is on or off. The pinned lib
 
 ## Artifact versions (T166 / D74)
 
-Identity is project + scope + sanitized file basename (case-sensitive). A task ID is the scope when supplied,
-otherwise the conversation (thread ID + worker ID). Workers on one task can update the same artifact. Titles and
-source directories are not identity. Omitting/changing taskId changes scope. Re-saving appends a snapshot of bytes and all metadata,
-including saver thread/worker and saved time (`createdAt`), and replaces the card under its stable artifact ID.
+Identity is the stable artifact ID within a project. Without `artifactId`, a save looks up the case-sensitive
+sanitized basename and scope: the home task, or the original conversation (thread ID + worker ID) for a taskless
+artifact. Later tasks may also match; see the artifact library below. Titles and source directories are not lookup keys.
+Re-saving appends a snapshot of bytes and metadata, including saver thread/worker and saved time (`createdAt`),
+and replaces the card under its stable artifact ID.
 `artifacts.list` includes retained version metadata; optional `artifactId` finds one outside the recent-list window.
 `artifactId~version` addresses a snapshot with the existing signed URL API. A bare ID follows latest, including board references. URL minting pins even latest to a version so an already
 issued capability cannot change content. HMAC binds the full version address; all existing auth and sandbox rules stay.
@@ -595,16 +596,40 @@ new snapshots use `<artifactId>.versions/<number>/<name>` (a sibling cannot coll
 A project write queue serializes copy/index publication; replay receipts keep a durable tool rerun from creating
 another version. Batch `artifact_save` calls use one memoized receipt per input index, so each file versions independently;
 single-`path` calls retain the original `artifactId` memo key for in-flight replay compatibility. Keep the most recent 20 snapshots
-(`ARTIFACT_VERSION_LIMIT`), with monotonic numbers even after pruning. Publish the index before pruning old bytes;
+(`ARTIFACT_VERSION_LIMIT`), or 60 when living, with monotonic numbers even after pruning. Publish the index before pruning old bytes;
 a crash can leave extra bytes but never references missing bytes. Deleting the artifact deletes all versions.
 Web and Android artifact dialogs and full-screen media viewers select retained metadata and fetch its version address;
 cards show the total saves. Old servers still show a single snapshot without controls. Editing tags targets latest,
 not an older snapshot. Bare-ID web preview leases refresh on the version push; Android poster and image-cache keys
 include the version so a new card thumbnail cannot reuse old pixels. Source diff is deferred.
 
-The tool API is unchanged. Re-saving answers `Saved version 3 of report.html`; the description's added sentence is
-66 UTF-8 bytes, +13 cl100k_base / +14 o200k_base tokens (measured with js-tiktoken; descriptions 194 → 207 / 208).
-No tokenizer is added to the app or tool.
+Re-saving answers `Saved version 3 of report.html`.
+
+## Artifact library and living artifacts (T371)
+
+The `artifact-library` hello feature adds a backend-wide library and a trail for each artifact. `artifact_save`
+with `artifactId` and exactly one file appends to that project-local identity from any task or chat, even if the
+filename changes. The home `taskId` stays fixed (including null). A save for a different task records
+`madeForTaskId` on its version, and the artifact keeps all such `laterTaskIds` in first-use order, even after
+pruning. An implicit save from a later task matches the latest basename; a home-task match wins. Task Files lists
+include both home and later tasks. Task live activity credits the task that saved the file. When continuing by ID,
+omitted title, note and tags carry forward, and the version name always comes from the new file.
+
+The owner can set `living` and/or replace `tags` with `artifacts.update`. The living mark keeps its first `since`
+while on, raises retention from 20 to 60, and is not copied onto snapshots. Turning it off trims history on the next
+save, not on update. An empty update is `bad_request`. Updates push `artifacts.changed` without moving the save time.
+
+`artifacts.library` returns the latest artifact rows plus retained version metadata across this backend, including
+archived projects. It includes project names and archive state and facts for home and later tasks that still exist
+(status, archive state, settlement time and report summary). Rows sort by latest save, newest first; filter with
+`projectIds` and page with a strict `before` timestamp (default 300 rows, with ties kept together at the boundary).
+`artifacts.trail` ignores a version suffix and returns the root row, home and later task folders with their decisions,
+and feedback from any task mentioning the artifact. Comments run oldest first and retain their referenced version,
+state and note. Neither request starts project agents.
+
+For feedback about an artifact whose task is done, the coordinator answers plain questions in chat without a task.
+For a change it adds a small follow-up with `foundWhile` pointing to the original task and has its worker save the
+revision by `artifactId`, then says in chat what changed. An explicit request to reopen or only answer takes priority.
 
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)
 
@@ -2617,7 +2642,7 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   extension and the first bytes (the bytes win, except a media extension on a container that holds video or audio:
   `.mkv`, `.weba`, `.ogv`); kind from the MIME; `durationSeconds` from `ffprobe` when it is on PATH. One file may
   have `AIKI_ARTIFACT_MAX_BYTES` (default 2 GiB); a project's total is unbounded.
-- `artifact_save { path?, paths?, title?, note?, taskId?, tags? }` (T249): every conversation, including workers and
+- `artifact_save { path?, paths?, artifactId?, title?, note?, taskId?, tags? }` (T249): every conversation, including workers and
   code mode. Exactly one of `path` or `paths` is required; `paths` holds 1–50 nonempty file paths. List only the files
   meant to be kept, never whole frame folders. `taskId`, `note` and explicit `tags` apply to every file; `title` applies
   only when the call contains one file (including one-element `paths`). Multiple files are untitled; no derived title
@@ -2631,16 +2656,15 @@ Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); 
   `files: [{ path, artifactId, version } | { path, error }]` plus the first saved `artifactId` for existing chat cards;
   any failure marks the call as an error, including partial
   success. One-file success retains `{ artifactId }` details and the short legacy text; single-`path` failures retain
-  the legacy absence of details. Same-filename-and-scope
-  versioning is unchanged per file. Existing web/Android chat cards still render a single artifact preview on success
+  the legacy absence of details. Without `artifactId`, filename-and-scope versioning applies per file. Existing web/Android chat cards still render a single artifact preview on success
   (the first for a batch); task/project artifact lists receive every saved file through the existing pushes. Partial
   failures expose the complete saved/failed text in the card's error disclosure; no protocol change is needed.
 - `artifact_read { artifactId, version? }` (T215): every conversation, including code mode, can open a retained
   snapshot within its project. Bare ID reads latest; `id~N` and `version` must agree when both are supplied.
   Returns snapshot metadata, retained/latest numbers, and an editable exact-byte copy in a private system-temp
   directory (0700; file 0600), never the store path. Copies are keyed by store/project/artifact/version and replaced
-  on repeat reads. Unknown/foreign IDs and unretained versions return clear errors. The output names the file and
-  taskId to use with `artifact_save` for the next version; conversation scope can only be extended by that conversation.
+  on repeat reads. Unknown/foreign IDs and unretained versions return clear errors. The output gives the stable `artifactId` to
+  pass to `artifact_save` with the edited file and the caller's own taskId, if any.
 - Protocol: `artifacts.list` / `artifacts.url` / `artifacts.delete` in `connection.ts`; `artifacts.changed` to every
   connection on each save and delete.
 - HTTP: signed `GET|HEAD|OPTIONS /artifacts/<projectId>/<artifactId>?token=…`; session-bound v2 capabilities and
@@ -2697,13 +2721,14 @@ later from this section.
   No `--` means no inferred tags. Split on `-`, lowercase, discard empty/invalid words: each must be 1–24 ASCII letters
   or digits (no punctuation, spaces or repaired characters). Explicit tags come first, then inferred tags; the store's
   existing normalisation deduplicates and enforces the 12-tag limit on the combined list. Invalid explicit tags still
-  follow the ordinary store rules above. The exported `artifactTagsFromFileName` in `artifact-file-tags.ts` is reusable
+  follow the ordinary store rules above. Continuations by ID with omitted `tags` inherit the existing tags instead.
+  The exported `artifactTagsFromFileName` in `artifact-file-tags.ts` is reusable
   independently of tool execution. Its fixed description text (`ARTIFACT_TAG_GUIDANCE`) explains the naming convention,
   `paths`, explicit-first order and matching before/after pairs, keeping prompts byte-stable.
 - **Changing tags from the app.** `artifacts.update { projectId, artifactId, tags }` replaces the tags with the normalised
   list (an empty list clears them) and answers `artifacts.update { artifact }` with the stored row; the server also pushes
-  `artifacts.changed` (`deleted: false`) to every connection, which the live lists already take in as a replacement. Only
-  tags can change. Errors: `unknown_artifact`. The app offers tag editing only when the hello's features hold
+  `artifacts.changed` (`deleted: false`) to every connection, which the live lists already take in as a replacement.
+  Errors: `unknown_artifact`. The app offers tag editing only when the hello's features hold
   `artifact-tags`; on older backends it still shows no tags (there are none).
 - **Gallery titles and pages (T234).** Titles sit above each grid tile/preview and above each image/video carousel
   slide, including peeking neighbours. Long grid/slide titles wrap to two lines; page rows show the full title.

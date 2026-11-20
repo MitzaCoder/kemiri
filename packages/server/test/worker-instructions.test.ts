@@ -27,7 +27,10 @@ describe("workerInstructions", () => {
 			expect(text).toContain('Comments on "…" with an (artifact <id>~<n>, <file>) line');
 			expect(text).toContain("Clarify: answer it; if it came as task feedback, put the answer in the feedback note.");
 			expect(text).toContain("Change / Show differently / Cut: artifact_read that version");
-			expect(text).toContain("artifact_save with the same file name and taskId");
+			expect(text).toContain("artifact_save with artifactId");
+			expect(text).toContain("answer plain questions in chat without a task");
+			expect(text).toContain("follow-up with foundWhile pointing to the old task");
+			expect(text).toContain("If the owner asks to reopen the old task or only answer, follow that.");
 			expect(text).toContain("Keep: leave that part unchanged");
 			expect(text).toContain("mark it handling when you act and addressed when done, naming the new version if you made one.");
 		}

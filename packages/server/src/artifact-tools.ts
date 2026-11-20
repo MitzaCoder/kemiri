@@ -37,7 +37,10 @@ export const ARTIFACT_TAG_GUIDANCE =
 	"For `path` or `paths`, explicit tags come first, then file-name tags. " +
 	"Give before/after pairs the same tags except `before` and `after`; the app filters and compares by tag.";
 
+export const ARTIFACT_CONTINUATION_GUIDANCE = "Pass artifactId with one file to continue an existing artifact.";
+
 export const artifactSaveFields = {
+	artifactId: Type.Optional(Type.String({ minLength: 1, description: "Stable ID of the artifact to continue." })),
 	path: Type.Optional(Type.String({ minLength: 1, description: "One file to keep; omit when giving paths." })),
 	paths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
 		minItems: 1,
@@ -172,6 +175,11 @@ async function copyArtifactForReading(store: ArtifactStore, artifact: Artifact):
 	}
 }
 
+/** A continuation with no explicit tags inherits its tags, even when the next filename changes. */
+export function artifactSaveTags(args: { artifactId?: string | undefined; tags?: string[] | undefined }, path: string): { tags?: string[] } {
+	return args.artifactId !== undefined && args.tags === undefined ? {} : { tags: [...(args.tags ?? []), ...artifactTagsFromFileName(path)] };
+}
+
 type ArtifactSaveFileResult = { path: string } & (
 	{ artifactId: string; version: number } | { error: string }
 );
@@ -188,7 +196,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			"`taskId`, `note` and `tags` apply to every file; `title` only to a single file (otherwise untitled). " +
 			"Give `taskId` for board evidence. Same filename and taskId (else conversation) saves a new version. " +
 			"Failures are reported per file; other files still save. " +
-			ARTIFACT_TAG_GUIDANCE,
+			ARTIFACT_CONTINUATION_GUIDANCE + " " + ARTIFACT_TAG_GUIDANCE,
 		parameters: Type.Object({
 			...artifactSaveFields,
 			// Board assignment is optional in native tools only. The official-agent bridge binds it at launch.
@@ -202,6 +210,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			}
 			const paths = args.paths ?? [args.path!];
 			if (paths.length < 1 || paths.length > 50) return toolText("paths must contain 1–50 files.", true);
+			if (args.artifactId !== undefined && paths.length !== 1) return toolText("artifactId requires exactly one file.", true);
 			const project = options.project();
 			const liveRun = args.taskId ? await options.liveRunOf?.(api.conversationId) : undefined;
 			const files: ArtifactSaveFileResult[] = [];
@@ -221,12 +230,13 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 					const artifact = await options.store.save({
 						projectId: project.id,
 						sourcePath: source.path,
-						title: paths.length === 1 ? args.title ?? null : null,
-						note: args.note ?? null,
+						...(paths.length === 1 && args.title !== undefined ? { title: args.title } : {}),
+						...(args.note === undefined ? {} : { note: args.note }),
 						threadId: await threadIdOf(api.conversationId),
 						workerId: await options.workerIdOf(api.conversationId),
 						taskId: args.taskId ?? null,
-						tags: [...(args.tags ?? []), ...artifactTagsFromFileName(source.path)],
+						...artifactSaveTags(args, source.path),
+						...(args.artifactId === undefined ? {} : { continueArtifactId: args.artifactId }),
 						artifactId,
 						...(liveRun ? { liveRun } : {}),
 					});
@@ -281,9 +291,7 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 				if (artifact === undefined) return toolText(`Version ${version} of artifact "${rootId}" is not retained (pruned or never saved). Retained versions: ${retained}; latest: ${latest.version ?? 1}.`, true);
 				const path = await copyArtifactForReading(options.store, artifact);
 				const scope = artifact.taskId === null ? `conversation (thread ${artifact.threadId}, worker ${artifact.workerId ?? "coordinator"})` : `task ${artifact.taskId}`;
-				const revision = artifact.taskId === null
-					? `Publish a revision with artifact_save using the edited file named ${JSON.stringify(artifact.name)} and omit taskId. Only the same conversation (thread ${artifact.threadId}, worker ${artifact.workerId ?? "coordinator"}) can add versions; saving from another conversation creates a new artifact.`
-					: `Publish a revision with artifact_save using the edited file named ${JSON.stringify(artifact.name)} and taskId ${JSON.stringify(artifact.taskId)} to create the next version of this artifact.`;
+				const revision = `From any task or chat, save the next version with artifact_save using artifactId: ${rootId}, the edited file, and your own taskId if any.`;
 				return toolText([
 					`Artifact ${rootId}~${version}: ${artifact.title ?? "(untitled)"}`,
 					`File: ${artifact.name}`,

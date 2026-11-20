@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ArtifactNavigationTest {
-    private val old = Artifact("filtered-old", "project", "proof.png", "Older proof", "Complete filtered metadata", "image", "image/png", 2456, 12.0, "research", "worker-1", "T9", "/scratch/proof.png", null, "2026-11-01T00:00:00Z")
+    private val old = Artifact("filtered-old", "project", "proof.png", "Older proof", "Complete filtered metadata", "image", "image/png", 2456, 12.0, "research", "worker-1", "T9", sourcePath = "/scratch/proof.png", createdAt = "2026-11-01T00:00:00Z")
 
     @Test fun filteredTileStagesFullMetadataBeyondSameOwnerRecentWindow() {
         val route = Destination.Chat("tile-window", "project", null, null)

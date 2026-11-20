@@ -19,7 +19,7 @@ import { constants, createReadStream, createWriteStream, fstatSync } from "node:
 import { pipeline } from "node:stream/promises";
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { type Artifact, type ArtifactKind, type ArtifactsChangedEvent, normalizeTags } from "@kemiri/protocol";
+import { ARTIFACT_LIVING_VERSION_LIMIT, type Artifact, type ArtifactKind, type ArtifactsChangedEvent, normalizeTags } from "@kemiri/protocol";
 import { ServerError, errorMessage } from "./errors.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 import { isOriginAllowed, normalizeOrigin } from "./origins.ts";
@@ -194,15 +194,17 @@ export async function probeDurationSeconds(path: string): Promise<number | null>
 // --- the store -----------------------------------------------------------------------------------------------------
 
 export type TaskArtifactSave = { id: string; taskId: string; conversationId: number; runId: string; at: string };
-type ArtifactIndex = { version: 1; artifacts: Artifact[]; receipts?: Record<string, string>; taskSaves?: TaskArtifactSave[] };
+type ArtifactIndex = { version: 1; artifacts: Artifact[]; receipts?: Record<string, string>; taskSaves?: TaskArtifactSave[]; conversationScopes?: Record<string, ConversationScope> };
+type ConversationScope = Pick<Artifact, "threadId" | "workerId">;
 /** Most recent snapshots retained per artifact; numbering never resets. */
 export const ARTIFACT_VERSION_LIMIT = 20;
 
 function snapshots(artifact: Artifact): NonNullable<Artifact["versions"]> {
-	return artifact.versions ?? [{ ...artifact, id: `${artifact.id}~1`, version: 1, versionCount: 1 }];
+	const { versions, living: _living, laterTaskIds: _laterTaskIds, ...snapshot } = artifact;
+	return versions ?? [{ ...snapshot, id: `${artifact.id}~1`, version: 1, versionCount: 1 }];
 }
 
-function withVersions(artifact: Artifact): Artifact {
+export function withVersions(artifact: Artifact): Artifact {
 	return { ...artifact, version: artifact.version ?? 1, versionCount: artifact.versionCount ?? 1, versions: snapshots(artifact) };
 }
 
@@ -213,8 +215,8 @@ export type ArtifactSaveInput = {
 	/** A scoped caller keeps its checked descriptor open through the save; do not reopen its path. */
 	sourceFd?: number;
 	signal?: AbortSignal;
-	title: string | null;
-	note: string | null;
+	title?: string | null;
+	note?: string | null;
 	threadId: string;
 	workerId: string | null;
 	taskId: string | null;
@@ -222,6 +224,8 @@ export type ArtifactSaveInput = {
 	tags?: readonly string[];
 	/** Memoized save-operation ID: a durable replay finds its snapshot instead of appending another version. */
 	artifactId?: string;
+	/** Stable ID to continue, separate from the durable save receipt. */
+	continueArtifactId?: string;
 	liveRun?: Pick<TaskArtifactSave, "conversationId" | "runId">;
 };
 
@@ -311,14 +315,31 @@ export class ArtifactStore {
 			// Legacy tool calls used the stable artifact ID as their memoized receipt.
 			const legacyReplay = index.artifacts.find((row) => row.id === id);
 			if (legacyReplay !== undefined) return withVersions(legacyReplay);
+			const name = artifactFileName(input.sourcePath);
+			let previous: Artifact | undefined;
+			if (input.continueArtifactId !== undefined) {
+				previous = index.artifacts.find((row) => row.id === input.continueArtifactId);
+				if (previous === undefined) throw new ServerError("unknown_artifact", `No artifact "${input.continueArtifactId}" in this project`, { artifactId: input.continueArtifactId });
+			} else {
+				const named = index.artifacts.filter((row) => row.name === name);
+				previous = named.findLast((row) => {
+					if (row.taskId !== input.taskId) return false;
+					if (input.taskId !== null) return true;
+					const scope = index.conversationScopes?.[row.id] ?? row;
+					return scope.threadId === input.threadId && scope.workerId === input.workerId;
+				});
+				const taskId = input.taskId;
+				if (taskId !== null) previous ??= named.findLast((row) => row.laterTaskIds?.includes(taskId));
+			}
 			input.signal?.throwIfAborted();
 			const source = input.sourceFd === undefined ? await stat(input.sourcePath) : fstatSync(input.sourceFd);
 			if (!source.isFile()) throw new ServerError("bad_request", `${input.sourcePath} is not a regular file`);
 			this.#refuseSize(source.size, input.sourcePath);
 
-			const name = artifactFileName(input.sourcePath);
-			const previous = [...index.artifacts].reverse().find((row) => row.name === name &&
-				(input.taskId !== null ? row.taskId === input.taskId : row.taskId === null && row.threadId === input.threadId && row.workerId === input.workerId));
+			const homeTaskId = previous === undefined ? input.taskId : previous.taskId;
+			const madeForTaskId = input.taskId !== null && input.taskId !== homeTaskId ? input.taskId : undefined;
+			const priorMetadata = input.continueArtifactId === undefined ? undefined : previous;
+			const tags = normalizeTags(input.tags ?? priorMetadata?.tags);
 			const rootId = previous?.id ?? id;
 			const version = (previous?.version ?? (previous === undefined ? 0 : 1)) + 1;
 			const dir = this.dir(input.projectId);
@@ -347,17 +368,18 @@ export class ArtifactStore {
 					versionCount: version,
 					projectId: input.projectId,
 					name,
-					title: input.title,
-					note: input.note,
+					title: input.title === undefined ? priorMetadata?.title ?? null : input.title,
+					note: input.note === undefined ? priorMetadata?.note ?? null : input.note,
 					kind,
 					mimeType,
 					size,
 					durationSeconds,
 					threadId: input.threadId,
 					workerId: input.workerId,
-					taskId: input.taskId,
+					taskId: homeTaskId,
+					...(madeForTaskId === undefined ? {} : { madeForTaskId }),
 					sourcePath: input.sourcePath,
-					...(normalizeTags(input.tags).length === 0 ? {} : { tags: normalizeTags(input.tags) }),
+					...(tags.length === 0 ? {} : { tags }),
 					createdAt: new Date(this.#now()).toISOString(),
 				};
 				await mkdir(join(final, ".."), { recursive: true, mode: 0o700 });
@@ -369,8 +391,16 @@ export class ArtifactStore {
 				throw error;
 			}
 			const retained = [...(previous === undefined ? [] : snapshots(previous)), { ...artifact, id: `${rootId}~${version}` }];
-			pruned.push(...retained.slice(0, -ARTIFACT_VERSION_LIMIT));
-			artifact.versions = retained.slice(-ARTIFACT_VERSION_LIMIT);
+			if (previous?.living !== undefined) artifact.living = previous.living;
+			const laterTaskIds = previous?.laterTaskIds ?? [];
+			if (madeForTaskId !== undefined && !laterTaskIds.includes(madeForTaskId)) artifact.laterTaskIds = [...laterTaskIds, madeForTaskId];
+			else if (laterTaskIds.length > 0) artifact.laterTaskIds = laterTaskIds;
+			if (previous?.taskId === null && (previous.threadId !== input.threadId || previous.workerId !== input.workerId)) {
+				(index.conversationScopes ??= {})[rootId] ??= { threadId: previous.threadId, workerId: previous.workerId };
+			}
+			const versionLimit = artifact.living === undefined ? ARTIFACT_VERSION_LIMIT : ARTIFACT_LIVING_VERSION_LIMIT;
+			pruned.push(...retained.slice(0, -versionLimit));
+			artifact.versions = retained.slice(-versionLimit);
 			if (previous !== undefined) index.artifacts.splice(index.artifacts.indexOf(previous), 1);
 			index.artifacts.push(artifact);
 			(index.receipts ??= {})[id] = `${rootId}~${version}`;
@@ -418,11 +448,16 @@ export class ArtifactStore {
 					(filter.artifactId === undefined || artifact.id === filter.artifactId) &&
 					(filter.threadId === undefined || artifact.threadId === filter.threadId) &&
 					(filter.workerId === undefined || artifact.workerId === filter.workerId) &&
-					(filter.taskId === undefined || artifact.taskId === filter.taskId),
+					(filter.taskId === undefined || artifact.taskId === filter.taskId || artifact.laterTaskIds?.includes(filter.taskId)),
 			)
 			.reverse()
 			.slice(0, limit)
 			.map(withVersions);
+	}
+
+	/** Uncapped latest rows for cross-project paging. Only hydrate version metadata on the page. */
+	async libraryRows(projectId: string): Promise<Artifact[]> {
+		return (await this.#read(projectId)).artifacts;
 	}
 
 	async get(projectId: string, artifactId: string): Promise<Artifact | undefined> {
@@ -440,24 +475,22 @@ export class ArtifactStore {
 		return artifact;
 	}
 
-	/**
-	 * Replace an artifact's tags with the normalised `tags` (an empty list clears them) and push the change. Rows saved
-	 * before tags existed have none; a row with no tags keeps no `tags` key.
-	 */
-	async updateTags(projectId: string, artifactId: string, tags: readonly string[]): Promise<Artifact> {
-		const normal = normalizeTags(tags);
+	/** Replace tags and/or change the living mark. Neither updates the latest-save time. */
+	async update(projectId: string, artifactId: string, changes: { tags?: readonly string[] | undefined; living?: boolean | undefined }): Promise<Artifact> {
+		if (changes.tags === undefined && changes.living === undefined) throw new ServerError("bad_request", "Give tags or living to update an artifact.");
 		const artifact = await this.#write(projectId, (index) => {
 			const row = index.artifacts.find((candidate) => candidate.id === artifactId);
-			if (row === undefined) {
-				throw new ServerError("unknown_artifact", `No artifact "${artifactId}" in this project`, { artifactId });
+			if (row === undefined) throw new ServerError("unknown_artifact", `No artifact "${artifactId}" in this project`, { artifactId });
+			if (changes.tags !== undefined) {
+				const tags = normalizeTags(changes.tags);
+				const latest = row.versions?.at(-1);
+				for (const snapshot of latest === undefined ? [row] : [row, latest]) {
+					if (tags.length === 0) delete snapshot.tags;
+					else snapshot.tags = tags;
+				}
 			}
-			if (normal.length === 0) delete row.tags;
-			else row.tags = normal;
-			const latest = row.versions?.at(-1);
-			if (latest !== undefined) {
-				if (normal.length === 0) delete latest.tags;
-				else latest.tags = normal;
-			}
+			if (changes.living === true) row.living ??= { since: new Date(this.#now()).toISOString() };
+			else if (changes.living === false) delete row.living;
 			return withVersions(row);
 		});
 		this.#emit({ type: "artifacts.changed", projectId, artifact, deleted: false });
@@ -474,6 +507,7 @@ export class ArtifactStore {
 			for (const [receipt, address] of Object.entries(index.receipts ?? {})) {
 				if (address.split("~")[0] === artifactId) delete index.receipts![receipt];
 			}
+			if (index.conversationScopes !== undefined) delete index.conversationScopes[artifactId];
 			return index.artifacts.splice(at, 1)[0] as Artifact;
 		});
 		for (const directory of [artifact.id, `${artifact.id}.versions`]) {

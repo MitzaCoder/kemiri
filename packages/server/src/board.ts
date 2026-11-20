@@ -1103,7 +1103,7 @@ function isSettled(task: BoardTask): boolean {
 	return SETTLED.has(task.status);
 }
 
-function isArchivedAt(task: BoardTask, now: number): boolean {
+export function isArchivedAt(task: BoardTask, now: number): boolean {
 	return task.settledAt !== null && isSettled(task) && Date.parse(task.settledAt) + ARCHIVE_AFTER_MS <= now;
 }
 

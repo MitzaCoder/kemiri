@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ARTIFACT_TAG_GUIDANCE, createArtifactExtension, resolveArtifactSource } from "../src/artifact-tools.ts";
+import { ARTIFACT_CONTINUATION_GUIDANCE, ARTIFACT_TAG_GUIDANCE, createArtifactExtension, resolveArtifactSource } from "../src/artifact-tools.ts";
 import { ArtifactStore, ArtifactUrlSigner, detectMimeType, parseRange, serveArtifact } from "../src/artifacts.ts";
 import { createSetup, errorOf, TestClient, type TestSetup } from "./support.ts";
 import { authSecret } from "../src/device-auth.ts";
@@ -94,7 +94,7 @@ async function saveThroughTool(
 				return fauxAssistantMessage("Saved.");
 			},
 		]);
-		const submitted = await client.request({ type: "conversation.submit", projectId, requestId: `save-${index}`, content: "Keep it." });
+		const submitted = await client.request({ type: "conversation.submit", projectId, requestId: crypto.randomUUID(), content: "Keep it." });
 		if (submitted.type !== "conversation.submit") throw errorOf(submitted);
 		await until(() => results.length === index + 1);
 	}
@@ -386,6 +386,23 @@ describe("temporary paths and text transport", () => {
 	});
 });
 
+it("validates artifactId and continues one renamed file on a later task", async () => {
+	const { test, client, projectId } = await start();
+	await writeFile(join(test.projectDir, "report.md"), "Original");
+	await writeFile(join(test.projectDir, "revised--phone.md"), "Revised");
+	await saveThroughTool(test, client, projectId, [{ path: "report.md", taskId: "T1", title: "Report", tags: ["web"] }]);
+	const [first] = await list(client, projectId);
+	const results = await saveThroughTool(test, client, projectId, [
+		{ artifactId: first!.id, paths: ["report.md", "revised--phone.md"] },
+		{ artifactId: "unknown-id", path: "report.md" },
+		{ artifactId: first!.id, paths: ["revised--phone.md"], taskId: "T2" },
+	]);
+	expect(results[0]).toContain("artifactId requires exactly one file");
+	expect(results[1]).toContain('No artifact "unknown-id" in this project');
+	expect(results[2]).toContain("Saved version 2 of revised--phone.md");
+	expect(await list(client, projectId)).toMatchObject([{ id: first!.id, taskId: "T1", madeForTaskId: "T2", title: "Report", tags: ["web"] }]);
+}, 30_000);
+
 describe("the store", () => {
 	it("refuses a file over the size cap and leaves nothing behind", async () => {
 		const root = await mkdtemp(join(tmpdir(), "artifact-store-"));
@@ -668,9 +685,10 @@ describe("tags", () => {
 			workerIdOf: async () => null,
 		});
 		const tool = extension.tools?.find((candidate) => candidate.name === "artifact_save");
-		expect(tool?.description).toContain(ARTIFACT_TAG_GUIDANCE);
+		expect(tool?.description).toContain(`${ARTIFACT_CONTINUATION_GUIDANCE} ${ARTIFACT_TAG_GUIDANCE}`);
 		expect(tool?.description).toContain("`task-board--web-phone-dark-after.png`");
 		expect(tool?.description).toContain("list only the files you mean to keep");
+		expect(JSON.stringify(tool?.parameters)).toContain('"artifactId"');
 		expect(JSON.stringify(tool?.parameters)).toContain('"paths"');
 		expect(JSON.stringify(tool?.parameters)).toContain('"tags"');
 	});
@@ -708,7 +726,7 @@ describe("tags", () => {
 		await writeFile(join(root, "a.txt"), "x");
 		const base = { projectId: "p", sourcePath: join(root, "a.txt"), title: null, note: null, threadId: "main", workerId: null, taskId: null };
 		const saved = await store.save({ ...base, tags: ["Android", "tablet"] });
-		await store.updateTags("p", saved.id, ["android", "dark"]);
+		await store.update("p", saved.id, { tags: ["android", "dark"] });
 		expect((await new ArtifactStore({ dataDir: root }).get("p", saved.id))?.tags).toEqual(["android", "dark"]);
 	});
 });

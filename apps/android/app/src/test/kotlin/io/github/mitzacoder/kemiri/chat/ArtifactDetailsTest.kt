@@ -35,7 +35,7 @@ class ArtifactDetailsTest {
         assertThrows(IllegalArgumentException::class.java) { artifactPreviewText(ByteArray(ARTIFACT_TEXT_LIMIT + 1)) }
     }
     @Test fun factsReadLikeTheWebDialog() {
-        val item = io.github.mitzacoder.kemiri.protocol.Artifact("a", "p", "log.txt", null, null, "text", "text/plain", 34, null, "research", "worker-1", "T1", "/scratch/log.txt", null, "")
+        val item = io.github.mitzacoder.kemiri.protocol.Artifact("a", "p", "log.txt", null, null, "text", "text/plain", 34, null, "research", "worker-1", "T1", sourcePath = "/scratch/log.txt", createdAt = "")
         assertEquals("Text · 34 B · Worker worker-1 of background job research · for T1", artifactDetailFacts(item))
         assertEquals("Text · Main chat", artifactDetailFacts(item.copy(size = -1, threadId = "main", workerId = null, taskId = null)))
         val video = item.copy(kind = "video", size = 306_826, durationSeconds = 20.0, threadId = "main", workerId = null, taskId = "T2", createdAt = "2026-11-07T02:08:00Z")
