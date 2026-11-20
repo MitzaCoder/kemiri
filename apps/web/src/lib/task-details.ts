@@ -1,21 +1,24 @@
 import type { BoardQuestion, BoardReportCheck, BoardTask } from '@kemiri/protocol';
+import { hasReportSection, hasTypedNext, type TaskReportSections } from './report-sections.js';
 import { isSettled, isWarning, waitingOn } from './tasks.js';
 
-export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason'> & { report?: Pick<BoardTask['report'], 'steps'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
+export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason'> & { report?: Pick<BoardTask['report'], 'steps' | 'blocks'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
 	const open = waitingOn(questions, task.id);
 	const ownerQuestions = open.filter(question => question.waitingOn !== 'agent');
 	const questionsForAgent = open.filter(question => question.waitingOn === 'agent');
 	const review = task.status === 'review';
 	const blocked = task.status === 'blocked' && (Boolean(task.blockedReason?.trim()) || hasBlockers);
-	const steps = stepsSupported && !isSettled(task.status) ? task.report?.steps : undefined;
+	const showSteps = stepsSupported && !isSettled(task.status);
+	const steps = showSteps ? task.report?.steps : undefined;
 	const stepsMarkdown = steps?.trim() ? steps : undefined;
-	return { ownerQuestions, questionsForAgent, review, blocked, stepsMarkdown, show: ownerQuestions.length > 0 || review || blocked || stepsMarkdown !== undefined };
+	const hasSteps = showSteps && task.report !== undefined && hasReportSection(task.report, 'steps');
+	return { ownerQuestions, questionsForAgent, review, blocked, stepsMarkdown, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
 }
 
 export function taskDetailState(status: BoardTask['status'], needsYou: ReturnType<typeof taskNeedsYou>, kind?: NonNullable<BoardTask['state']>['kind']): string {
-	if (needsYou.stepsMarkdown && kind === 'steps_needed') return 'Your steps to do';
+	if (needsYou.hasSteps && kind === 'steps_needed') return 'Your steps to do';
 	if (needsYou.ownerQuestions.some(question => !isWarning(question))) return 'Needs your answer';
-	if (needsYou.stepsMarkdown) {
+	if (needsYou.hasSteps) {
 		if (kind === 'failed' && status !== 'blocked') return 'Failed';
 		if (kind === undefined && !needsYou.blocked) return 'Your steps to do';
 	}
@@ -28,12 +31,18 @@ export function taskDetailState(status: BoardTask['status'], needsYou: ReturnTyp
 export function taskDetailFields(task: Pick<BoardTask, 'goal' | 'report'>, taskFieldsEnabled: boolean) {
 	return {
 		goal: taskFieldsEnabled ? task.goal?.trim() || undefined : undefined,
+		// Route still reads Markdown mirrors until it adopts the report renderer.
 		summary: taskFieldsEnabled ? task.report.summary?.trim() || undefined : undefined,
-		// Route still reads the normalized Markdown until it adopts the report renderer.
 		notDoneMarkdown: taskFieldsEnabled ? notDoneMarkdown(task.report.notDone) : undefined,
-		notDone: taskFieldsEnabled && task.report.notDone?.trim() ? task.report.notDone : undefined,
+		hasSummary: taskFieldsEnabled && hasReportSection(task.report, 'summary'),
+		hasNotDone: taskFieldsEnabled && hasReportSection(task.report, 'notDone'),
 		checks: taskFieldsEnabled ? task.report.checks ?? [] : []
 	};
+}
+
+/** In review, only a legacy Next can be shown as instructions for the owner. */
+export function taskNextPlacement(report: TaskReportSections, review: boolean): 'review' | 'next' | undefined {
+	if (hasReportSection(report, 'next')) return review && !hasTypedNext(report) ? 'review' : 'next';
 }
 
 /** Not done is one item per line, with or without Markdown list markers. */

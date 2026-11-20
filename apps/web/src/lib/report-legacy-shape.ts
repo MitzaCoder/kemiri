@@ -1,6 +1,7 @@
 import { Lexer, type Token, type Tokens } from 'marked';
+import type { ReportBlockSection } from '@kemiri/protocol';
 
-export type LegacyReportSection = 'results' | 'notDone' | 'next';
+export type LegacyReportSection = ReportBlockSection;
 type LabeledRow = { label: string; value: string };
 export type LegacyReportSegment =
 	| { kind: 'markdown'; source: string }
@@ -57,6 +58,7 @@ function shapeBlock(token: Token, plainNotDone: boolean): LegacyReportSegment | 
 export function shapeLegacyReport(section: LegacyReportSection, source: string): LegacyReportSegment[] {
 	if (!source.trim()) return [];
 	const markdown: LegacyReportSegment[] = [{ kind: 'markdown', source }];
+	if (section === 'summary' || section === 'steps') return markdown;
 	const normalized = source.replace(/\r\n?/g, '\n');
 	const tokens = Lexer.lex(normalized, { gfm: true });
 	// Reference definitions can be used by other blocks. Never separate them from their users.

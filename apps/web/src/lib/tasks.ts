@@ -1,6 +1,8 @@
 import { questionNeedsAnswer } from "./question-clarify.js";
 import { compareTaskStates, taskStateLabel, taskStateStatus } from "./task-state.js";
 import { markdownText } from "@kemiri/protocol";
+import { readReportSection, type TaskReportSections } from "./report-sections.js";
+import { markdownReportFacts, reportBlockFacts, reportStructureChanges, unmatchedReportFacts, type ReportStructureChanges } from "./report-history.js";
 /**
  * How tasks read in the app once agents keep a report on each: the Tasks view's sections by what a task needs, the
  * `?task=` link that opens a task's sheet, a report's lines for a row, and what changed between two snapshots. Pure
@@ -14,6 +16,7 @@ import {
 	type BoardTaskStatus,
 	type BoardWriter,
 	type ProjectLinks,
+	type ReportBlockSection,
 	type ThreadSummary,
 	resolveRef,
 } from "@kemiri/protocol";
@@ -402,24 +405,27 @@ export function foldUnchanged(lines: readonly DiffLine[]): FoldedDiffLine[] {
 	return folded;
 }
 
-export type ReportSectionKey = "now" | "results" | "next";
+export type ReportSectionKey = "now" | ReportBlockSection;
 export const REPORT_SECTIONS: readonly { key: ReportSectionKey; label: string }[] = [
 	{ key: "now", label: "Now" },
+	{ key: "summary", label: "Summary" },
 	{ key: "results", label: "Results" },
+	{ key: "notDone", label: "Not done" },
 	{ key: "next", label: "Next" },
+	{ key: "steps", label: "Your steps" },
 ];
 
 /** What a snapshot or the current task says: enough to compare two of them. */
 export type TaskState = {
 	title: string;
 	status: BoardTaskStatus;
-	report: { now: string; results: string; next: string };
+	report: TaskReportSections & { now: string };
 };
 
 export type TaskChanges = {
 	title?: { from: string; to: string };
 	status?: { from: BoardTaskStatus; to: BoardTaskStatus };
-	sections: { key: ReportSectionKey; label: string; lines: FoldedDiffLine[] }[];
+	sections: { key: ReportSectionKey; label: string; lines: FoldedDiffLine[]; structure?: ReportStructureChanges }[];
 };
 
 /**
@@ -431,11 +437,33 @@ export function taskChanges(from: TaskState | undefined, to: TaskState): TaskCha
 	if (from !== undefined && from.title !== to.title) changes.title = { from: from.title, to: to.title };
 	if (from !== undefined && from.status !== to.status) changes.status = { from: from.status, to: to.status };
 	for (const { key, label } of REPORT_SECTIONS) {
-		const lines = diffLines(from?.report[key] ?? "", to.report[key]);
-		if (lines.every((line) => line.kind === "same")) continue;
-		changes.sections.push({ key, label, lines: foldUnchanged(lines) });
+		const before = from?.report[key] ?? "";
+		const after = to.report[key] ?? "";
+		const beforeSection = key === "now" ? undefined : readReportSection(from?.report ?? {}, key);
+		const afterSection = key === "now" ? undefined : readReportSection(to.report, key);
+		const beforeBlocks = beforeSection?.kind === "blocks" ? beforeSection.blocks : undefined;
+		const afterBlocks = afterSection?.kind === "blocks" ? afterSection.blocks : undefined;
+		const structure = beforeBlocks || afterBlocks ? reportStructureChanges(beforeBlocks ?? [], afterBlocks ?? []) : undefined;
+		const structureChanged = structure && (structure.added > 0 || structure.removed > 0 || structure.reordered);
+		let lines: FoldedDiffLine[] = [];
+		if (beforeBlocks || afterBlocks) {
+			if (beforeBlocks && afterBlocks) {
+				const beforeFacts = beforeBlocks.flatMap(reportBlockFacts);
+				const afterFacts = afterBlocks.flatMap(reportBlockFacts);
+				lines = [
+					...unmatchedReportFacts(beforeFacts, afterFacts).map(text => ({ kind: "removed" as const, text })),
+					...unmatchedReportFacts(afterFacts, beforeFacts).map(text => ({ kind: "added" as const, text })),
+				];
+			} else if (markdownReportFacts(before) !== markdownReportFacts(after)) lines = changedReportLines(before, after);
+		} else lines = changedReportLines(before, after);
+		if (structureChanged || lines.length) changes.sections.push({ key, label, lines, ...(structureChanged ? { structure } : {}) });
 	}
 	return changes;
+}
+
+function changedReportLines(before: string, after: string): FoldedDiffLine[] {
+	const lines = diffLines(before, after);
+	return lines.every(line => line.kind === "same") ? [] : foldUnchanged(lines);
 }
 
 export function hasChanges(changes: TaskChanges): boolean {

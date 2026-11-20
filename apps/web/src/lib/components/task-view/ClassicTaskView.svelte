@@ -14,18 +14,20 @@
 	import TaskWaitingForm from '#lib/components/TaskWaitingForm.svelte';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
-	import ReportSectionBody from '#lib/components/ReportSectionBody.svelte';
+	import ReportSection from '#lib/components/ReportSection.svelte';
 	import TaskFeedback from '#lib/components/TaskFeedback.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
 	import TaskRefs from '#lib/components/TaskRefs.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
+	import { automaticReportProof, hasReportSection } from '#lib/report-sections.js';
 	import { emptyFinishedResults } from '#lib/report-freshness.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import XIcon from '@lucide/svelte/icons/x';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { openFeedbackCount } from '#lib/task-relations.js';
-	import { acceptanceMarkdown, taskDetailState } from '#lib/task-details.js';
+	import { acceptanceMarkdown, taskDetailState, taskNextPlacement } from '#lib/task-details.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import { formatMinutes } from '@kemiri/client';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -41,10 +43,13 @@
 	let { model, editor }: TaskViewDesignProps = $props();
 	const {
 		task, backend, projectId, board, tasks, previousTask, requestedId, editing, waitingForm, confirmDrop, closing, problem,
-		needsYou, taskFieldsEnabled, fields, blockers, liveNow, news, staleReport, failedChecks, proof, artifacts,
+		needsYou, taskFieldsEnabled, fields, blockers, liveNow, news, staleReport, failedChecks, artifacts,
 		supportsLinks, feedbackEntries, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
 		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks,
 	} = $derived(model);
+	const nextPlacement = $derived(task && taskNextPlacement(task.report, task.status === 'review'));
+	const proof = $derived(task ? automaticReportProof(task.report, artifacts) : []);
+	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts') }));
 	const registerQuoteScope = $derived(model.registerQuoteScope);
 	let reply = $state<{ focus(): void }>();
 	$effect(() => reply && model.registerReply(reply));
@@ -111,16 +116,16 @@
 								<section class="task-needs-you" aria-label="Needs you" data-needs-you>
 									<h2 class="task-detail-heading">Needs you</h2>
 									{#each needsYou.ownerQuestions as question (question.id)}{@render questionCard(question)}{/each}
-									{#if needsYou.stepsMarkdown}
+									{#if needsYou.hasSteps}
 									<div class="flex flex-col gap-3" data-task-steps>
 										<h3 class="font-semibold">Your steps</h3>
-										<Markdown source={needsYou.stepsMarkdown} class="task-detail-markdown task-report-prose" />
+										<ReportSection {task} section="steps" />
 									</div>
 								{/if}
 								{#if needsYou.review}
 										<div class="flex flex-col gap-3">
 											<h3 class="font-semibold">Check the work</h3>
-											{#if task.report.next.trim()}<ReportSectionBody section="next" markdown={task.report.next} />{/if}
+											{#if nextPlacement === 'review'}<ReportSection {task} section="next" />{/if}
 											<div class="flex flex-wrap gap-2">
 												<Button class="min-h-11" disabled={closing} onclick={model.completeReview}>It works: close the task</Button>
 												<Button class="min-h-11" variant="outline" onclick={model.focusReply}>Something is off…</Button>
@@ -149,12 +154,12 @@
 
 							<section class="task-reading-section" aria-label="What you get">
 								<h2 class="task-detail-heading">What you get</h2>
-								{#if fields?.summary}<p class="task-report-prose text-[1.0625rem] font-medium">{fields.summary}</p>{/if}
+								{#if fields?.hasSummary}<ReportSection {task} section="summary" class="text-[1.0625rem] font-medium" />{/if}
 								{#if staleReport}
 									<div class="task-stale-report flex min-h-11 flex-wrap items-center gap-x-1 text-(--chat-fg-muted)"><span>Report may be out of date.</span><ReportStaleAction {backend} {projectId} taskId={task.id} /></div>
 								{/if}
-								{#if task.report.results.trim()}<ReportSectionBody section="results" markdown={task.report.results} />
-								{:else if !fields?.summary && !failedChecks}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
+								{#if hasReportSection(task.report, 'results')}<ReportSection {task} section="results" />
+								{:else if !fields?.hasSummary && !failedChecks}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
 								{#if failedChecks}<p class="text-(--chat-danger)">{failedChecks}</p>{/if}
 								{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
 								{#if requestedId !== null && model.supportsUsage}<TaskUsage client={backend.client} {projectId} taskId={task.id} />{/if}
@@ -167,17 +172,17 @@
 								</section>
 							{/if}
 
-							{#if fields?.notDone}
+							{#if fields?.hasNotDone}
 								<section class="task-reading-section" aria-label="Not done">
 									<h2 class="task-detail-heading">Not done</h2>
-									<ReportSectionBody section="notDone" markdown={fields.notDone} />
+									<ReportSection {task} section="notDone" />
 								</section>
 							{/if}
 
-							{#if !needsYou?.review && task.report.next.trim()}
+							{#if nextPlacement === 'next'}
 								<section class="task-reading-section" aria-label="Next">
 									<h2 class="task-detail-heading">Next</h2>
-									<ReportSectionBody section="next" markdown={task.report.next} />
+									<ReportSection {task} section="next" />
 								</section>
 							{/if}
 							{#if needsYou?.questionsForAgent.length}

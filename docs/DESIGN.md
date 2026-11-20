@@ -2869,6 +2869,7 @@ is where they talk.
   Each section holds up to 64 blocks, each write submits at most 32 KiB of typed data, and setup has at most eight
   label/value pairs. Proof stores only a saved artifact ID and optional retained version for this project and task.
   The same transaction writes deterministic Markdown mirrors; older readers and Android read those fields.
+  Web validates each section independently and renders either its complete typed sequence or its Markdown mirror.
   Android keeps blocks as opaque JSON so an unknown kind or malformed section cannot break board/history decoding.
   `show_task` and worker reads use the readable mirrors without fetching artifact bytes. The compact list is unchanged.
 - **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
@@ -5850,24 +5851,28 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   background. All colours come from the app's theme tokens.
 - **Needs you.** Open questions and warnings that wait for the reader keep the shared `BoardQuestionCard`
   controls (choices, free text, Ask back, or Got it for a warning). Questions waiting on an agent stay readable
-  outside the tint. Review uses today's Next Markdown as its check steps; “It works: close the task” uses the
+  outside the tint. Review uses legacy Next Markdown, if present, as its check steps; “It works: close the task” uses the
   normal Done flow, including the open-parts choice, and “Something is off…” focuses the task reply. A blocked task
   puts its reason and unresolved blockers here. On `task-steps` backends, non-empty Your steps (T278) is shown as
-  numbered Markdown for open tasks, before the review check. When steps take priority, the header says “Your steps
+  a numbered procedure for open tasks, before the review check. The Copy button on a typed step copies the whole
+  exact snippet and briefly shows the result in its label. When steps take priority, the header says “Your steps
   to do” and the task appears in Needs you with a checklist icon, including in the graph and part progress. Web opts
   in through `hello.client.features`; Android keeps the server's review fallback until it opts in separately.
 - **Question choices (T296).** When `hello.features` includes `task-fields`, shared question cards in the task
   sheet, Needs you lists and chat show choices as buttons with the label, optional effect and recommendation.
   Clicking sends only the label. One-line previews stay label-only, and questions without choices keep their chips.
-- **What you get, Not done and Next.** Results stays Markdown, with at most three clickable image/video proof
-  thumbnails from the task artifact feed. On `task-fields` backends, a non-empty summary leads What you get and
-  failed checks are named there. A non-empty Not done section follows. On web, the report body shapes legacy
-  Markdown on read, without changing stored text: flat bullets become spaced rows and runs of short, unambiguous
-  `Label: value` lines or bullets become aligned pairs that stack on narrow screens. Plain Not done lines become
-  rows, but structured Markdown stays intact, as do paragraphs, nested lists, numbered steps and other Markdown
-  blocks. Report prose is limited to about 70 characters across. Android follows the same legacy shaping fixtures,
-  with stacked label/value pairs and the existing native Markdown renderer for unshaped text.
-  Next shows the agents' plan unless it is already in the review check. A working task's automatic Now
+- **What you get, Not done and Next.** On `task-fields` backends, a non-empty Summary leads What you get and
+  failed checks are named there. A non-empty Not done section follows. On web, the standalone `ReportSection`
+  owns the bodies of Summary, Results, Not done, Next and Your steps. Typed sections show findings with headings,
+  setup pairs that stack on narrow screens, wrapping metrics, captioned proof and quiet cleanup rows.
+  Adjacent risks use the same spacing as findings. Results labels each risk “Caveat”; Not done needs no row label.
+  A cited artifact replaces its automatic image/video thumbnail, including when a pinned version is unavailable.
+  The caption remains readable and Files stays the full inventory. At most three uncited automatic thumbnails show.
+  The Markdown fallback shapes flat bullets, plain Not done lines and short, unambiguous `Label: value` runs on
+  read. It keeps paragraphs, nested lists, numbered steps and other structured Markdown intact. Report prose is
+  limited to about 70 characters across. Android follows the same legacy shaping fixtures,
+  with stacked label/value pairs and the existing native Markdown renderer for unshaped text. Typed Next is for agents and stays outside the review check. Legacy Next
+  appears once, inside the review check during review and under Next otherwise. A working task's automatic Now
   appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
   stale report gets one line with the existing request-update action.
 - **Task usage (D108 / T328).** On web, the task sheet reads lifetime usage on open, not on board pushes. When the
@@ -5887,9 +5892,10 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. Checks, Decided,
   and Activity start closed. Each row's open choice is stored independently in this browser. Activity contains timeline
   events (including worker events) and snapshot history. Snapshots retain typed blocks alongside their mirrors,
-  including proof versions. The server's history comparison separates structural changes from changed facts;
-  `show_task` calls out block changes even when the facts are unchanged. The timeline keeps its kind filters,
-  bounded event viewport, keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
+  including proof versions. Web history reports additions, removals and reordering of blocks separately from text.
+  Reordering a fact does not show it as newly added. “As it was” uses the same section renderer for old and typed
+  snapshots. The server's `show_task` also calls out block changes separately from facts. The timeline keeps its
+  kind filters, bounded event viewport, keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
   `aiki.timeline-order.v1`.
 - **About this task.** Shows available delivery and status facts, owner thread, titled task links with small IDs,
   parts progress, full files (including the existing media viewer and tag controls), workers and task times.

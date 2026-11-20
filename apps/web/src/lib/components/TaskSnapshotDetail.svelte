@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ReportSection from './ReportSection.svelte';
+	import { hasReportSection } from '#lib/report-sections.js';
 	import TaskDetailText from './TaskDetailText.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
@@ -75,24 +77,35 @@
 				{#each changes.sections as section (section.key)}
 					<div>
 						<p class="mb-1 text-xs font-semibold text-(--chat-fg)">{section.label}</p>
-						<ul class="overflow-hidden rounded-lg border border-(--chat-border) text-xs leading-5">
-							{#each section.lines as line, position (position)}
-								{#if line.kind === 'unchanged'}
-									<li class="px-2 py-0.5 text-(--chat-fg-subtle) italic">{line.count} unchanged {line.count === 1 ? 'line' : 'lines'}</li>
-								{:else}
-									<li
-										class="flex gap-2 px-2 py-0.5 break-words {line.kind === 'added'
-											? 'diff-added text-(--chat-fg)'
-											: 'diff-removed text-(--chat-fg-muted)'}"
-										data-diff={line.kind}
-									>
-										<span class="w-3 shrink-0 text-center select-none" aria-hidden="true">{line.kind === 'added' ? '+' : '−'}</span>
-										<span class="min-w-0 flex-1 whitespace-pre-wrap"><TaskDetailText text={line.text} /></span>
-										<span class="sr-only">{line.kind === 'added' ? 'added' : 'removed'}</span>
-									</li>
-								{/if}
-							{/each}
-						</ul>
+						{#if section.structure}
+							<p class="mb-1 text-xs text-(--chat-fg-muted)">
+								Report blocks: {[
+									section.structure.added && `${section.structure.added} added`,
+									section.structure.removed && `${section.structure.removed} removed`,
+									section.structure.reordered && 'reordered',
+								].filter(Boolean).join(' · ')}
+							</p>
+						{/if}
+						{#if section.lines.length > 0}
+							<ul class="overflow-hidden rounded-lg border border-(--chat-border) text-xs leading-5">
+								{#each section.lines as line, position (position)}
+									{#if line.kind === 'unchanged'}
+										<li class="px-2 py-0.5 text-(--chat-fg-subtle) italic">{line.count} unchanged {line.count === 1 ? 'line' : 'lines'}</li>
+									{:else}
+										<li
+											class="flex gap-2 px-2 py-0.5 break-words {line.kind === 'added'
+												? 'diff-added text-(--chat-fg)'
+												: 'diff-removed text-(--chat-fg-muted)'}"
+											data-diff={line.kind}
+										>
+											<span class="w-3 shrink-0 text-center select-none" aria-hidden="true">{line.kind === 'added' ? '+' : '−'}</span>
+											<span class="min-w-0 flex-1 whitespace-pre-wrap"><TaskDetailText text={line.text} /></span>
+											<span class="sr-only">{line.kind === 'added' ? 'added' : 'removed'}</span>
+										</li>
+									{/if}
+								{/each}
+							</ul>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -104,10 +117,11 @@
 				<TaskStatusBadge status={snapshot.status} />
 			</div>
 			{#each REPORT_SECTIONS as section (section.key)}
-				{#if snapshot.report[section.key].trim().length > 0}
+				{#if section.key === 'now' ? snapshot.report.now.trim() : hasReportSection(snapshot.report, section.key)}
 					<div>
 						<p class="mb-0.5 text-xs font-semibold text-(--chat-fg-muted)">{section.label}</p>
-						<Markdown source={snapshot.report[section.key]} class="report-md" />
+						{#if section.key === 'now'}<Markdown source={snapshot.report.now} class="report-md" />
+						{:else}<ReportSection task={{ id: task.id, report: snapshot.report }} section={section.key} class="text-(length:--text-task)" />{/if}
 					</div>
 				{/if}
 			{/each}
