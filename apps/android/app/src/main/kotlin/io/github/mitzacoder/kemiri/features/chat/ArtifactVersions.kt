@@ -11,7 +11,7 @@ internal fun artifactVersions(artifact: Artifact): List<Artifact> = artifact.ver
     Artifact(id = snapshot.id, projectId = snapshot.projectId, name = snapshot.name, title = snapshot.title,
         note = snapshot.note, kind = snapshot.kind, mimeType = snapshot.mimeType, size = snapshot.size,
         durationSeconds = snapshot.durationSeconds, threadId = snapshot.threadId, workerId = snapshot.workerId,
-        taskId = snapshot.taskId, sourcePath = snapshot.sourcePath, tags = snapshot.tags, createdAt = snapshot.createdAt,
+        taskId = snapshot.taskId, madeForTaskId = snapshot.madeForTaskId, sourcePath = snapshot.sourcePath, tags = snapshot.tags, createdAt = snapshot.createdAt,
         version = snapshot.version, versionCount = artifact.versionCount ?: artifact.version ?: 1)
 }?.takeIf { it.isNotEmpty() } ?: listOf(artifact)
 

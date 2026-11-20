@@ -29,7 +29,14 @@ import java.time.Instant
 
 /** Signed URLs exist only in this composition. No disk/image cache, logging or saved-state tokens. */
 @Composable
-fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onFullHeightChange: (Boolean) -> Unit = {}) {
+fun ArtifactScreen(
+    context: ProjectScreenContext,
+    artifactId: String,
+    modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
+    onFullHeightChange: (Boolean) -> Unit = {},
+    belowViewer: (@Composable (root: Artifact, viewed: Artifact, selectVersion: (Long) -> Unit) -> Unit)? = null,
+) {
     var latestArtifact by remember(context.route,artifactId) { mutableStateOf<Artifact?>(null) }
     var selectedVersion by rememberSaveable(context.route,artifactId) { mutableStateOf<Long?>(null) }
     val artifact = latestArtifact?.let { selectedArtifactVersion(it, selectedVersion) }
@@ -68,7 +75,14 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
     LaunchedEffect(context.backend.client,artifactId) {
         context.backend.client.events.collect { event ->
             if(event is ArtifactsChangedEvent && event.projectId == context.route.projectId && event.artifact.id == artifactId) {
-                if(event.deleted) { discard() } else if(!deleted) { ChatArtifactMetadata.keep(context.backend.config.key,event.artifact); latestArtifact = event.artifact; refresh++ }
+                if (event.deleted) discard()
+                else if (!deleted) {
+                    val previous = latestArtifact
+                    ChatArtifactMetadata.keep(context.backend.config.key, event.artifact)
+                    latestArtifact = event.artifact
+                    // A living mark or a tag change does not change the viewed bytes.
+                    if (previous == null || previous.version != event.artifact.version || previous.versions != event.artifact.versions) refresh++
+                }
             }
         }
     }
@@ -165,10 +179,10 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
                 }
             }) { Text(if(deletion == ArtifactDeleteState.Sending) "Deleting…" else "Delete", color = MaterialTheme.colorScheme.error) } })
     }
-    val fullHeight = !deleted && artifact?.let { artifactUsesFullHeight(it.kind, it.name, it.mimeType) } == true
+    val fullHeight = belowViewer == null && !deleted && artifact?.let { artifactUsesFullHeight(it.kind, it.name, it.mimeType) } == true
     SideEffect { onFullHeightChange(fullHeight) }
     // HTML is a document viewport, not media inside a scrolling details sheet. The caller supplies system insets.
-    if (!deleted && artifact?.let { artifactUsesFullHeight(it.kind, it.name, it.mimeType) } == true) {
+    if (fullHeight) {
         Column(modifier.fillMaxSize()) {
             if (connection.status != ConnectionStatus.Ready) Text("Offline · reconnect to refresh or delete this artifact.",
                 Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.bodySmall)
@@ -199,7 +213,7 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
     }
     // Other media keep the scrolling details sheet and its fixed download footer.
     Column(modifier.fillMaxSize()) {
-            if (!deleted && versions.size > 1 && artifact != null) {
+            if (belowViewer == null && !deleted && versions.size > 1 && artifact != null) {
                 val index = versions.indexOfFirst { it.id == artifact.id }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center) {
@@ -252,18 +266,26 @@ fun ArtifactScreen(context: ProjectScreenContext, artifactId: String, modifier: 
                     ArtifactTextPreview(artifact?.name ?: "Text", loaded, markdown = markdown, html = html, truncated = textTruncated,
                         size = artifact?.size ?: -1, blockRequests = blockArtifactRequests, copy = { copy(loaded) },
                         onReviewSelection = review?.let { state -> { selection -> state.comment(selection) } },
-                        reviewCount = review?.review?.comments?.size ?: 0, onReviewTray = { review?.showTray() })
+                        reviewCount = review?.review?.comments?.size ?: 0,
+                        reviewComments = review?.review?.comments.orEmpty(), onReviewPin = { review?.preview(it) },
+                        onReviewTray = { review?.showTray() })
                 } ?: Text("Loading text…")
                 else -> artifact?.let { ArtifactFileRow(it) }
             } else if(error == null) CircularProgressIndicator()
             if(artifact?.size == -1L) Text("Metadata is outside the recent list. You can still save this artifact by its ID.",style = MaterialTheme.typography.bodySmall)
-            artifact?.let { item ->
+            artifact?.takeIf { belowViewer == null || it.kind == "video" }?.let { item ->
                 // A video's note links its times ("at 1:05") to the player.
                 val linkers = LocalTextLinkers.current
                 val noteStyles = noteTimeLinkStyles()
                 val noteLinker = remember(videoDuration, noteStyles) { NoteTimeLinker(videoDuration, noteStyles) { seeks.tryEmit(it) } }
                 if (item.kind == "video") CompositionLocalProvider(LocalTextLinkers provides listOf(noteLinker) + linkers) { ArtifactDetails(item, ::copy) }
                 else ArtifactDetails(item, ::copy)
+            }
+            val root = latestArtifact
+            if (belowViewer != null && root != null && artifact != null) {
+                belowViewer(root, artifact) { version ->
+                    if (version != (artifact.version ?: 1)) { signed = null; text = null; selectedVersion = version }
+                }
             }
             actionStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }

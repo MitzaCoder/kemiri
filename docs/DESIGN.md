@@ -665,6 +665,19 @@ attaches it to the instruction to continue there. Only answer sends its instruct
 coordinator follow-up created after the message, if it exists. Status writes use the board's current revisions and the
 same owner moves as Tasks. The server's existing artifact-reference prompt and feedback indexing need no change.
 
+### Android library and Studio
+
+Artifacts in the projects drawer opens the library across saved backends. It pages `artifacts.library` where
+available, or reads the artifact list and board for each project on older backends. Artifact changes and reconnects
+refresh the library. Projects, tasks and versions remain scoped to their backend. Project and tag filters and search
+apply to every lens. Task shelves stay after completion. Horizontal shelves move visible objects on lens changes,
+use the capped page thumbnails, and keep the living ring still when Android animations are off.
+
+Studio opens on the same back stack. Back and its toolbar arrow return to the library with its filters and scroll
+position. The existing artifact viewers and review controls sit above the filmstrip, task context and history.
+Version markers show saves before and after task completion. The trail supplies task decisions and addressed notes.
+The owner can switch Keep alive on or off on supported backends. Discuss hooks remain unbound until T374 integration.
+
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)
 
 Add server offers a searchable catalogue grouped by issue tracking, code, docs,

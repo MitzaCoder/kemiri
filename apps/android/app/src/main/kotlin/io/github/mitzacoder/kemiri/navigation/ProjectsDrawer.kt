@@ -137,6 +137,11 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
     val attentionLinks = needsYouLinks(attentionProjects)
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = if (rail) Alignment.CenterHorizontally else Alignment.Start) {
         if (!rail && attentionLinks.isNotEmpty()) item(key = "needs-you") { NeedsYou(attentionLinks, navigate) }
+        item(key = "artifacts") {
+            Column(Modifier.fillMaxWidth()) {
+                FooterItem(Lucide.FileText, "Artifacts", "Saved across projects", "Artifacts", current == Destination.ArtifactLibrary || current is Destination.ArtifactStudio, rail) { navigate(Destination.ArtifactLibrary) }
+            }
+        }
         sessions.forEach { backend ->
             item(key = backend.config.key) {
                 val connection by backend.client.state.collectAsStateWithLifecycle()

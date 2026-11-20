@@ -13,6 +13,8 @@ sealed interface Destination {
     /** The projects home (web `/`): every backend's projects, Add a project, and the first-run backend form. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Home") data object Home : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Usage") data object Usage : Destination
+    @Serializable data object ArtifactLibrary : Destination
+    @Serializable data class ArtifactStudio(val chat: Chat, val artifactId: String) : Destination
     /** General settings (web `/settings/...`): a section of this device's settings, a backend's page, or its Accounts; null is the list. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Settings") data class Settings(val page: GeneralPage = GeneralPage()) : Destination
     /** A project's settings (web `.../settings/<section>`); null is the list. [scheduleId] is the schedule a notification named. */
@@ -53,9 +55,10 @@ fun Destination.chatRoute(): Destination.Chat? = when (this) {
     is Destination.Chat -> copy(highlight = null)
     is Destination.Panel -> chat.copy(highlight = null)
     is Destination.Artifact -> chat.copy(highlight = null)
+    is Destination.ArtifactStudio -> chat.copy(highlight = null)
     is Destination.ProjectSettings -> chat.copy(highlight = null)
     is Destination.Task -> chat.copy(highlight = null)
-    Destination.Home, Destination.Usage, is Destination.Settings, is Destination.Terminal -> null
+    Destination.Home, Destination.Usage, Destination.ArtifactLibrary, is Destination.Settings, is Destination.Terminal -> null
 }
 /** Keep the same panel window behind a chain of linked task sheets, including when Back returns to a parent. */
 fun panelBehindTask(previous: List<Destination>, task: Destination.Task): Destination.Panel? =

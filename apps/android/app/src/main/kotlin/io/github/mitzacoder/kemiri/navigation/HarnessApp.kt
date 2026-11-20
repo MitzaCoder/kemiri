@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.features.artifacts.ArtifactLibraryScreen
+import io.github.mitzacoder.kemiri.features.artifacts.ArtifactStudioScreen
+import io.github.mitzacoder.kemiri.features.artifacts.LibraryRead
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -87,6 +90,8 @@ private fun HarnessNavigation(
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val loaded by repository.loaded.collectAsStateWithLifecycle()
+    val artifactLibraryReads = remember(repository) { mutableStateMapOf<String, LibraryRead>() }
+    LaunchedEffect(sessions) { artifactLibraryReads.keys.retainAll(sessions.map { it.config.key }.toSet()) }
     // Wide screens keep the projects sidebar open beside the chat (web: 64rem and up); its rail state is remembered.
     val navPreferences = LocalContext.current.let { remember(it) { it.getSharedPreferences(PROJECTS_NAV_PREFERENCES, Context.MODE_PRIVATE) } }
     var sidebarCollapsed by remember { mutableStateOf(navPreferences.getBoolean("collapsed", false)) }
@@ -189,9 +194,9 @@ private fun HarnessNavigation(
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
     CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = !wide || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
         Row(Modifier.fillMaxSize()) {
-        if (wide && !htmlArtifactViewport) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
+        if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
             sidebarCollapsed = !sidebarCollapsed
             navPreferences.edit { putBoolean("collapsed", sidebarCollapsed) }
         }, unknownBackend = unknownBackend, dismissUnknownBackend = { unknownBackend = null })
@@ -211,12 +216,16 @@ private fun HarnessNavigation(
                     modifier = Modifier.weight(1f),
                     topBar = {
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
-                        if (terminal == null && !htmlArtifactViewport) TopAppBar(
+                        if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
                                 if (current.isSettings()) Text("Settings")
                                 else if (context != null) ProjectHeaderTitle(context, chatWidth)
-                                else Text(if (current == Destination.Usage) "Usage" else "Kemiri")
+                                else Text(when (current) {
+                                    Destination.Usage -> "Usage"
+                                    Destination.ArtifactLibrary -> "Artifacts"
+                                    else -> "Kemiri"
+                                })
                             },
                             navigationIcon = {
                                 if (!wide) JarvisIconButton(Lucide.Menu, "Open projects", onClick = { scope.launch { drawer.open() } })
@@ -230,12 +239,14 @@ private fun HarnessNavigation(
                         )
                     },
                 ) { padding ->
-                    val modifier = Modifier.fillMaxSize().padding(padding)
+                    val modifier = if (current is Destination.ArtifactStudio) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(padding)
                     if (!loaded) Box(modifier) { CircularProgressIndicator() }
                     else screenState.SaveableStateProvider(current.screenStateKey()) {
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier, navigate)
+                            Destination.ArtifactLibrary -> ArtifactLibraryScreen(repository, sessions, artifactLibraryReads, modifier, navigate)
+                            is Destination.ArtifactStudio -> if (context != null) ArtifactStudioScreen(context, current.artifactId, ::pop, modifier) else MissingBackend(modifier)
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, requireNotNull(settingsScopes), navigate, connectPayload, onConnectHandled, modifier)
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
