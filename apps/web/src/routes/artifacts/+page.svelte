@@ -13,7 +13,7 @@
 	import ArtifactTaskState from '#lib/components/artifacts/ArtifactTaskState.svelte';
 	import CompareSlider from '#lib/components/artifacts/CompareSlider.svelte';
 	import { artifactLibrary } from '#lib/artifact-library.svelte.js';
-	import { filterLibrary, libraryDate, libraryKind, libraryLenses, libraryPairs, libraryShelves, objectShape, type LibraryArtifact, type LibraryLens } from '#lib/artifact-library.js';
+	import { filterLibrary, libraryDate, libraryKind, libraryLenses, libraryPairs, libraryPairTitle, libraryShelves, objectShape, type LibraryArtifact, type LibraryLens } from '#lib/artifact-library.js';
 	import { artifactTitle, kindLabel } from '#lib/artifacts.js';
 	import { flyShelfObjects, shelfObjectPositions } from '#lib/artifact-shelf-motion.js';
 	import { harness } from '#lib/harness.svelte.js';
@@ -71,7 +71,7 @@
 		<div class="library-heading">
 			<ProjectsMenuButton />
 			<div class="library-title">
-				<h1>Artifacts <span class="vitrine">Vitrine</span></h1>
+				<h1>Artifacts</h1>
 				<p>{artifactLibrary.entries.length} kept across {projects.length} {projects.length === 1 ? 'project' : 'projects'}.{livingCount ? ` ${livingCount} ${livingCount === 1 ? 'is' : 'are'} living.` : ''} Done tasks keep their shelf.</p>
 			</div>
 			<label class="library-search"><SearchIcon size={15} /><input type="search" aria-label="Find artifacts" placeholder="Find by name, task, kind or tag" bind:value={search} /></label>
@@ -114,7 +114,7 @@
 						{@const backend = harness.backend(after.backendId)}
 						{#if backend}
 							<section class="compare-shelf" data-shelf-object={after.key}>
-								<div class="compare-heading"><h2>{artifactTitle(after.artifact)}</h2><span>{after.task?.title ?? after.project.name}</span></div>
+								<div class="compare-heading"><h2>{libraryPairTitle(before.artifact, after.artifact)}</h2><span>{after.task?.title ?? after.project.name}</span></div>
 								<div class="compare-view" use:inView={() => nearPairs[after.key] = true}>
 									<CompareSlider before={before.artifact} after={after.artifact} client={backend.client} near={nearPairs[after.key] === true} />
 								</div>
@@ -181,7 +181,6 @@
 	.library-heading { display:flex; align-items:center; gap:12px; }
 	.library-title { flex:1; min-width:0; }
 	h1 { display:flex; align-items:center; gap:10px; margin:0; font-size:clamp(1.55rem,2.3vw,2rem); font-weight:740; letter-spacing:-.04em; }
-	.vitrine { border-radius:20px; padding:2px 8px; background:linear-gradient(100deg,#22d3ee,#7770eb,#df6eda,#f79e57); color:#151326; font-size:.62rem; font-weight:800; letter-spacing:.03em; text-transform:uppercase; }
 	.library-title p,.library-empty p { margin:2px 0 0; color:var(--chat-fg-muted); font-size:.82rem; }
 	.library-search { display:flex; align-items:center; gap:9px; width:min(300px,32%); padding:7px 11px; border:1px solid var(--chat-border); border-radius:10px; color:var(--chat-fg-subtle); background:var(--chat-bg); }
 	.library-search input { width:100%; font-size:.79rem; color:var(--chat-fg); outline:none; }
@@ -218,7 +217,7 @@
 	.living-shelves .shelf-card { width:180px; }
 	.living-shelves .shelf-card[data-shape='phone'] { width:128px; }
 	.living-shelves .shelf-card[data-shape='screen'],.living-shelves .shelf-card[data-shape='picture'],.living-shelves .shelf-card[data-shape='recording'] { width:240px; }
-	.compare-shelves { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),570px)); gap:24px; }
+	.compare-shelves { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:24px; }
 	.compare-shelf { transform-origin:top left; }
 	.compare-heading span { color:var(--chat-fg-muted); }
 	.compare-view { position:relative; aspect-ratio:16/10; overflow:hidden; border:1px solid var(--chat-border); border-radius:11px; background:var(--chat-surface-2); }

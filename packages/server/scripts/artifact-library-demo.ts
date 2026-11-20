@@ -19,9 +19,9 @@ try {
 	await client.hello();
 	setup.faux.setResponses(Array.from({ length: 30 }, () => fauxAssistantMessage("This is a synthetic demo. The seasonal guide is ready to read.")));
 	const projectSpecs = [
-		{ name: "Fern Street Library", path: setup.projectDir, archived: false },
-		{ name: "Harbor Garden", path: join(setup.root, "garden"), archived: false },
-		{ name: "Paper Lantern Archive", path: join(setup.root, "archive"), archived: true },
+		{ name: "Fern Street Library", path: setup.projectDir, archived: false, home: "Publish the seasonal guide", later: "Clarify the meeting point", review: "Check the next seasonal update", guide: "Seasonal guide", notes: "Print notes", pair: "Wayfinding" },
+		{ name: "Harbor Garden", path: join(setup.root, "garden"), archived: false, home: "Plan the spring garden", later: "Move the seedling beds", review: "Review the watering plan", guide: "Spring garden plan", notes: "Planting notes", pair: "Garden layout" },
+		{ name: "Paper Lantern Archive", path: join(setup.root, "archive"), archived: true, home: "Share the autumn reading list", later: "Update the reading room signs", review: "Check the next reading list", guide: "Autumn reading list", notes: "Reading notes", pair: "Reading room signs" },
 	];
 	const projects = [];
 	for (const spec of projectSpecs) {
@@ -35,7 +35,7 @@ try {
 		const addTask = (title: string, status: BoardTaskInput["status"], foundWhile: string | null = null) => runtime.board.saveTask({
 			task: { title, status, foundWhile, description: "An invented task for the artifact library demo.", acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [] },
 		}, "user");
-		const home = await addTask("Publish the seasonal guide", "done");
+		const home = await addTask(spec.home, "done");
 		await runtime.board.writeReport(change => runtime.harness.commit(change, BACKGROUND_CONTEXT), {
 			taskId: home.id, sections: { summary: "Published a short seasonal guide with routes and accessible meeting points." },
 			by: { author: "coordinator", threadId: null, workerId: null },
@@ -48,17 +48,21 @@ try {
 			return store.save({ projectId, taskId: home.id, sourcePath, threadId: "main", workerId: null, ...changes });
 		};
 		const comment = (taskId: string, text: string) => runtime.board.recordFeedback({ taskId, text, images: 0, threadId: "main", requestId: text });
-		const guide = await save("seasonal-guide.html", guidePage(spec.name, 1), {
-			title: "Seasonal guide", note: "A guide carried forward by successive tasks.", tags: ["web", "guide"],
+		// The first edition predates settlement so Studio has a boundary to show.
+		const settledClock = now;
+		now -= 86400000;
+		const guide = await save("seasonal-guide.html", guidePage(spec.name, 1, spec.guide), {
+			title: spec.guide, note: "A document carried forward by successive tasks.", tags: ["web", "guide"],
 		});
+		now = settledClock + 1;
 		await store.update(projectId, guide.id, { living: true });
 		const feedback = await comment(home.id, `Could the meeting point be easier to find?\n\n(artifact ${guide.id}~1, seasonal-guide.html)`);
 		const oldClock = now;
 		now = Date.now() - 86400000;
-		const followUp = await addTask("Clarify the meeting point", "done", home.id);
-		const review = await addTask("Check the next seasonal update", "review", followUp.id);
+		const followUp = await addTask(spec.later, "done", home.id);
+		const review = await addTask(spec.review, "review", followUp.id);
 		for (let version = 2; version <= (projects.length === 0 ? 28 : 4); version++) {
-			await save("seasonal-guide.html", guidePage(spec.name, version), {
+			await save("seasonal-guide.html", guidePage(spec.name, version, spec.guide), {
 				continueArtifactId: guide.id, taskId: version < 5 ? followUp.id : review.id,
 			});
 		}
@@ -73,10 +77,10 @@ try {
 			board.counters.decision = 2;
 		}, BACKGROUND_CONTEXT);
 		for (const state of ["before", "after"] as const) await save(`wayfinding--web-phone-light-${state}.png`, wayfinding(state === "after"), {
-			title: state === "before" ? "Wayfinding before" : "Wayfinding after",
+			title: `${spec.pair} ${state}`,
 			tags: ["web", "phone", "light", state], taskId: followUp.id,
 		});
-		await save("print-notes.md", "# Print notes\n\nUse large type and leave room for the route changes.\n", { title: "Print notes" });
+		await save("print-notes.md", "# Print notes\n\nUse large type and leave room for the route changes.\n", { title: spec.notes });
 		if (spec.archived) {
 			const archived = await client.request({ type: "projects.configure", projectId, archived: true });
 			if (archived.type !== "projects.configure") throw errorOf(archived);
@@ -100,10 +104,10 @@ try {
 	await setup.cleanup();
 }
 
-function guidePage(name: string, version: number): string {
-	return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Seasonal guide</title>
+function guidePage(name: string, version: number, title: string): string {
+	return `<!doctype html><html lang="en"><meta charset="utf-8"><title>${title}</title>
 <style>body{font:18px/1.6 system-ui;margin:3rem auto;max-width:38em;padding:0 1.5rem}h1{font-family:Georgia,serif}</style>
-<p>${name} · Edition ${version}</p><h1>Seasonal guide</h1>
+<p>${name} · Edition ${version}</p><h1>${title}</h1>
 <h2>Meeting point</h2><p>${version === 1 ? "Meet by the gate." : "Meet beside the east gate, near the blue sign."}</p>
 <h2>Routes</h2><ul><li>Courtyard loop · 15 minutes</li><li>Riverside walk · 35 minutes</li></ul></html>`;
 }

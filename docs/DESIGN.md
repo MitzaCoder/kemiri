@@ -640,13 +640,15 @@ work. Changes and reconnects refresh the results. The old backend still has a St
 server comment trail.
 
 Vitrine's task, kind, time, before-and-after and living lenses share project, tag and search filters. A done task
-keeps its shelf. The compare lens uses the task gallery's image matching and wipe control. Shelves look like objects
+keeps its shelf. Matched before pictures come before their after pictures. The compare lens uses the task gallery's
+image matching and wipe control, and titles pairs by their subject. Shelves look like objects
 rather than file rows, and rearrange with FLIP unless motion is reduced. On narrow screens shelves scroll sideways.
 HTML thumbnails share the existing sandbox and four live-frame slots.
 
 Studio keeps the shelves mounted so closing it preserves the browsing position and filters. The existing artifact
 viewers still offer review on text and pages. An immutable version filmstrip marks the boundary at task settlement
-and labels versions made for a later task. The trail fills in task context, decisions and comments; the owner can
+and labels versions made for a later task. The trail shows comment text without its artifact reference line or review
+header. The owner can
 switch Keep alive on or off in the header. Discuss belongs on an object and in the Studio header (T374).
 
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)

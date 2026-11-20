@@ -77,7 +77,7 @@ function timeShelf(at: string, now: Date) {
 }
 
 /** Input comes newest first from mergeLibraries; the first entry fixes the shelf's place. */
-export function libraryShelves(entries: LibraryArtifact[], lens: Exclude<LibraryLens, 'pairs'>, now = new Date()): LibraryShelf[] {
+function groupLibraryShelves(entries: LibraryArtifact[], lens: Exclude<LibraryLens, 'pairs'>, now = new Date()): LibraryShelf[] {
 	const shelves = new Map<string, LibraryShelf>();
 	for (const entry of entries) {
 		const { artifact, project, task } = entry;
@@ -99,7 +99,7 @@ export function libraryShelves(entries: LibraryArtifact[], lens: Exclude<Library
 /** Use the gallery's exact matching rule, within the gallery's task (or chat) scope. */
 export function libraryPairs(entries: LibraryArtifact[]) {
 	const pairs = new Map<string, { before: LibraryArtifact; after: LibraryArtifact }>();
-	for (const shelf of libraryShelves(entries, 'task')) {
+	for (const shelf of groupLibraryShelves(entries, 'task', new Date())) {
 		const byId = new Map(shelf.entries.map(entry => [entry.artifact.id, entry]));
 		for (const pair of new Set(comparePairs(shelf.entries.map(entry => entry.artifact)).values())) {
 			const before = byId.get(pair.before.id)!;
@@ -108,6 +108,49 @@ export function libraryPairs(entries: LibraryArtifact[]) {
 		}
 	}
 	return entries.flatMap(entry => pairs.get(entry.key) ?? []);
+}
+
+/** Put a matched before image first without reordering unrelated objects or changing shelf activity order. */
+export function libraryShelves(entries: LibraryArtifact[], lens: Exclude<LibraryLens, 'pairs'>, now = new Date()): LibraryShelf[] {
+	const shelves = groupLibraryShelves(entries, lens, now);
+	for (const shelf of shelves) {
+		const positions = new Map(shelf.entries.map((entry, index) => [entry.key, index]));
+		for (const { before, after } of libraryPairs(shelf.entries)) {
+			const beforeIndex = positions.get(before.key)!;
+			const afterIndex = positions.get(after.key)!;
+			if (beforeIndex > afterIndex) {
+				shelf.entries[afterIndex] = before;
+				shelf.entries[beforeIndex] = after;
+			}
+		}
+	}
+	return shelves;
+}
+
+function withoutCompareState(title: string): string {
+	return title.trim().replace(/^(?:before|after)(?:[\s:–—_-]+|$)/i, '').replace(/(?:[\s:–—_-]+|^)(?:before|after)$/i, '').trim();
+}
+
+export function libraryPairTitle(before: Artifact, after: Artifact): string {
+	for (const artifact of [after, before]) {
+		const subject = withoutCompareState(artifact.title ?? '');
+		if (subject) return subject;
+	}
+	for (const artifact of [after, before]) {
+		const stem = artifact.name.replace(/\.[^.]+$/, '');
+		const tagsStart = stem.lastIndexOf('--');
+		const subject = withoutCompareState((tagsStart < 0 ? stem : stem.slice(0, tagsStart)).replace(/[-_]+/g, ' '));
+		if (subject) return subject[0]!.toUpperCase() + subject.slice(1);
+	}
+	return 'Before and after';
+}
+
+/** Hide review transport metadata without rewriting the numbered comments or their Markdown. */
+export function studioCommentText(text: string): string {
+	return text.trimStart()
+		.replace(/^Comments on "[^"\r\n]*"[^\S\r\n]*(?:\r?\n|$)/, '')
+		.replace(/^\(artifact [A-Za-z0-9_-]+(?:~\d+)?(?:, [^\r\n]*)?\)[^\S\r\n]*(?:\r?\n|$)/gm, '')
+		.trim();
 }
 
 /** Equal timestamps count as saved by the time the task settled. Only a visible split gets a filmstrip marker. */

@@ -4,7 +4,7 @@
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import type { ArtifactComment, ArtifactTaskFolder } from '@kemiri/protocol';
-	import { artifactHistory, boardTaskFolders, libraryDate, taskDoneSplit, type LibraryArtifact } from '#lib/artifact-library.js';
+	import { artifactHistory, boardTaskFolders, libraryDate, studioCommentText, taskDoneSplit, type LibraryArtifact } from '#lib/artifact-library.js';
 	import { artifactLibrary, supportsArtifactLibrary } from '#lib/artifact-library.svelte.js';
 	import { isHtmlArtifact } from '#lib/artifact-preview.js';
 	import { artifactVersions, selectedArtifactVersion } from '#lib/artifact-versions.js';
@@ -168,9 +168,10 @@
 							{:else if event.kind === 'done'}<li class="history-done">Task done · {libraryDate(event.at)}</li>
 							{:else if event.kind === 'living'}<li class="history-living">The artifact lives on · {libraryDate(event.at)}</li>
 							{:else if event.kind === 'comment'}
+								{@const commentText = studioCommentText(event.comment.text)}
 								<li class="history-comment">
 									<p class="comment-facts">Owner · {libraryDate(event.at)}{#if event.comment.version !== null} · {#if hasVersion(event.comment.version)}<button type="button" onclick={() => selectedVersion = event.comment.version ?? undefined}>Version {event.comment.version}</button>{:else}Version {event.comment.version}{/if}{/if}</p>
-									<Markdown source={event.comment.text} />
+									{#if commentText}<Markdown source={commentText} />{/if}
 									{#if event.comment.state === 'addressed'}<p class="comment-addressed">Addressed{event.comment.note ? ` · ${event.comment.note}` : ''}</p>{/if}
 								</li>
 							{/if}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { Artifact, ArtifactTaskFacts, Board } from '@kemiri/protocol';
-import { artifactHistory, fallbackLibrary, filterLibrary, libraryPairs, libraryShelves, mergeLibraries, objectShape, taskDoneSplit } from '../src/lib/artifact-library.ts';
+import { artifactHistory, fallbackLibrary, filterLibrary, libraryPairs, libraryPairTitle, libraryShelves, mergeLibraries, objectShape, studioCommentText, taskDoneSplit } from '../src/lib/artifact-library.ts';
 
 const at = (day: number) => new Date(2026, 10, day, 12).toISOString();
 const project = { id: 'bakery', name: 'Juniper Bakery', archived: false };
@@ -62,6 +62,29 @@ describe('artifact library', () => {
 			artifact('dark', { tags: ['after', 'web', 'phone', 'dark'] }), artifact('other-task', { taskId: 'T2', tags: ['before', 'web', 'phone'] }),
 			artifact('other-project', { projectId: otherProject.id, tags: ['after', 'web', 'phone'] }));
 		expect(libraryPairs(rows).map(pair => [pair.before.artifact.id, pair.after.artifact.id])).toEqual([['before', 'after']]);
+	});
+
+	it('puts before in the earlier slot without moving unrelated objects', () => {
+		const rows = entries(artifact('before', { tags: ['before'], createdAt: at(18) }), artifact('other', { createdAt: at(19) }), artifact('after', { tags: ['after'] }));
+		for (const lens of ['task', 'kind', 'time'] as const) {
+			expect(libraryShelves(rows, lens, new Date(at(20)))[0]?.entries.map(entry => entry.artifact.id)).toEqual(['before', 'other', 'after']);
+		}
+	});
+
+	it('titles pairs by subject and falls back to the filename before its tags', () => {
+		const before = artifact('before', { title: 'Before: Wayfinding' });
+		expect(libraryPairTitle(before, artifact('after', { title: 'Wayfinding after' }))).toBe('Wayfinding');
+		expect(libraryPairTitle(before, artifact('after', { title: 'After' }))).toBe('Wayfinding');
+		expect(libraryPairTitle(artifact('before'), artifact('after', { name: 'garden-layout--web-phone-after.png' }))).toBe('Garden layout');
+		expect(libraryPairTitle(before, artifact('after', { title: 'Aftercare plan' }))).toBe('Aftercare plan');
+	});
+
+	it('hides only the standalone review metadata and keeps numbered comments', () => {
+		const numbered = '1. Change · Meeting point\n> The east gate.\n\n2. Note\n> Keep this.';
+		expect(studioCommentText(`Comments on "Guide"\r\n(artifact m-123~2, seasonal-guide.html)\r\n\r\n${numbered}`)).toBe(numbered);
+		expect(studioCommentText('Keep this note.\n\n(artifact m-123)')).toBe('Keep this note.');
+		expect(studioCommentText('(artifact m-123~2)')).toBe('');
+		expect(studioCommentText('Show this inline (artifact m-123).')).toBe('Show this inline (artifact m-123).');
 	});
 
 	it('marks the split and groups consecutive saves without crossing comments, completion, or later tasks', () => {
