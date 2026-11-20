@@ -49,7 +49,7 @@
 	} = $derived(model);
 	const nextPlacement = $derived(task && taskNextPlacement(task.report, task.status === 'review'));
 	const proof = $derived(task ? automaticReportProof(task.report, artifacts) : []);
-	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts') }));
+	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts'), reportSectionViews: backend.supports('task-report-section-views') }));
 	const registerQuoteScope = $derived(model.registerQuoteScope);
 	let reply = $state<{ focus(): void }>();
 	$effect(() => reply && model.registerReply(reply));

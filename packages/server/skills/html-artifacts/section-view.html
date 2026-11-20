@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reservation window comparison</title>
+<style>
+:where(body) { margin: 0; background: var(--tone-bg, Canvas); color: var(--tone-fg, CanvasText); font: var(--text-task, 1rem)/1.5 var(--font-sans, system-ui); color-scheme: light dark; }
+[data-theme="light"] body { color-scheme: light; }
+[data-theme="dark"] body { color-scheme: dark; }
+main { max-inline-size: 48rem; margin-inline: auto; padding: clamp(.75rem, 3vw, 1.5rem); }
+h1 { font-size: 1.35rem; line-height: 1.2; margin: 0 0 .3rem; }
+p { margin: 0 0 1rem; color: var(--tone-fg-muted, CanvasText); }
+table { inline-size: 100%; border-collapse: collapse; }
+caption { text-align: start; font-weight: bold; margin-block-end: .35rem; }
+th, td { padding: .45rem; text-align: start; vertical-align: top; border-block-end: 1px solid var(--tone-border, GrayText); overflow-wrap: anywhere; }
+thead { background: var(--tone-surface-2, Canvas); }
+figure { margin: 1rem 0 0; }
+svg { inline-size: 3rem; vertical-align: middle; color: var(--tone-fg-muted, CanvasText); }
+@media print {
+  body, thead { color: black; background: white; }
+  main { max-inline-size: none; padding: 0; }
+  th, td { border-color: black; }
+  tr, figure { break-inside: avoid; }
+  p, svg { color: black; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1 id="reservation-windows">Reservation window comparison</h1>
+  <p>Morning rehearsal at Linden Hall.</p>
+  <table>
+    <caption>Rehearsal arrivals by window</caption>
+    <thead><tr><th scope="col">Window</th><th scope="col">Arrivals</th><th scope="col">Desk response</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">First</th><td>10</td><td>Accept reservations</td></tr>
+      <tr><th scope="row">Overflow</th><td>1</td><td>Keep the slip number and add it to the waiting list</td></tr>
+    </tbody>
+  </table>
+  <figure>
+    <svg viewBox="0 0 48 20" role="img" aria-label="An arrow connects the desk to the waiting list">
+      <rect x="1" y="5" width="10" height="10" rx="2" fill="none" stroke="currentColor" />
+      <path d="M14 10h17m-4-4 4 4-4 4M34 5h13M34 10h13M34 15h13" fill="none" stroke="currentColor" />
+    </svg>
+    <figcaption>At capacity, the desk hands the next arrival to the waiting list.</figcaption>
+  </figure>
+</main>
+</body>
+</html>

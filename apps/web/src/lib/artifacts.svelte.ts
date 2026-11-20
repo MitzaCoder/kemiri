@@ -322,7 +322,7 @@ export async function downloadArtifact(client: HarnessClient, artifact: Pick<Art
 // --- the scope a screen offers ------------------------------------------------------------------------------------
 
 /** What artifact components below a screen need: the backend's client, the project, and whether it has artifacts. */
-export type ArtifactScope = { client: HarnessClient; projectId: string; available: boolean };
+export type ArtifactScope = { client: HarnessClient; projectId: string; available: boolean; reportSectionViews?: boolean };
 
 const SCOPE_KEY = Symbol("artifact-scope");
 

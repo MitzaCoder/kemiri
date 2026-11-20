@@ -30,6 +30,7 @@ internal data class TaskSheetState(
     val threads: List<ThreadSummary>,
     val workers: List<WorkerSummary>,
     val artifacts: List<Artifact>,
+    val sectionViewsSupported: Boolean,
     val artifactsProblem: String?,
     val onRetryArtifacts: () -> Unit,
     val onUpdateArtifactTags: (suspend (Artifact, List<String>) -> Artifact?)?,
@@ -209,6 +210,7 @@ internal fun rememberTaskSheetState(
         previousTaskId = previousTaskId, previousTaskTitle = view.task(previousTaskId.orEmpty())?.title,
         wide = wide, bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
         threads = threads, workers = workers, artifacts = artifactFeed?.value.orEmpty(),
+        sectionViewsSupported = connection.supports("task-report-section-views"),
         artifactsProblem = artifactFeed?.error, onRetryArtifacts = { artifactFeed?.refresh?.trySend(Unit) },
         onUpdateArtifactTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
             context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact

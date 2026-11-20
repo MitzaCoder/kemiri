@@ -8,6 +8,8 @@ Use HTML for visual comparisons, interactive charts, dashboards or slides; Markd
 
 Copy and fill a sibling template: `report.html` (verdict, findings, evidence), `proof-index.html` (tagged before/after media, checks), `dashboard.html` (metrics, CSS chart, table), `deck.html` (keyboard slides). Read only the template needed. Keep its inline CSS; replace synthetic content, labels and numbers, not just the title. One focal heading, restrained accent, generous space, readable lines under 80ch. Simple charts use CSS/SVG, not a library.
 
+Use `section-view.html` for a supplemental table or diagram in `write_report.sectionViews`; keep conclusions in the native report, because scripts and CDN features do not work in a section view.
+
 Theme defaults are in `tokens.css` and already inline in every template. Use the app's `--tone-bg`, `--tone-surface`, `--tone-surface-2`, `--tone-border`, `--tone-border-strong`, `--tone-fg`, `--tone-fg-muted`, `--tone-primary`, `--tone-primary-fg`, `--tone-success`, `--tone-warning`, `--tone-danger`, `--tone-ring`, `--tone-radius`; type `--font-sans`, `--font-mono`, `--text-task` (15px), `--text-task-sm` (13px), spacing `--spacing` (4px). Light: background #fbfaff, text #1a1830, primary #6366f1; dark: #09090f, #ecebf5, #818cf8. Templates support `prefers-color-scheme` and explicit `[data-theme="light|dark"]`; the viewer injects current app defaults. Keep fallbacks in the low-priority CSS layer so injection wins; custom author colours may override it.
 
 Give each section a heading and a stable `id`; keep those ids across versions so comments can point to the same place.

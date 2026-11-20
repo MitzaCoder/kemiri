@@ -113,7 +113,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                     TaskReadingSection("What you get") {
                         if (fields.showSummary) ReportSection(task, ReportSectionKind.Summary)
                         if (sheet.staleReport) StaleTaskReport(context, task.id)
-                        if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts)
+                        if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts, sheet.sectionViewsSupported)
                         else if (!fields.showSummary && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                         failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                         TaskUsageDisclosure(sheet.usage, taskId)
@@ -126,7 +126,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                     }
                 }
                 if (fields.showNotDone) item(key = "not-done") {
-                    TaskReadingSection("Not done") { ReportSection(task, ReportSectionKind.NotDone) }
+                    TaskReadingSection("Not done") { ReportSection(task, ReportSectionKind.NotDone, context, artifacts, sheet.sectionViewsSupported) }
                 }
                 if (sheet.showNow || showNext) item(key = "next") {
                     TaskReadingSection("Next") {

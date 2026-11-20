@@ -2,7 +2,7 @@
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux';
-import type { BoardTaskInput } from '@kemiri/protocol';
+import type { BoardTaskInput, ReportSectionView } from '@kemiri/protocol';
 import { coordinatorWriter, openBoard, writeReportIn, type ReportWrite } from '../src/board.ts';
 import { createSetup, TestClient } from '../test/support.ts';
 
@@ -69,9 +69,9 @@ const manual = await seedTask('Prepare the pickup desk', 'Make it clear where vi
 await runtime.board.markReportStale(manual, ['next'], 'The venue changed the evening door schedule.');
 const empty = await seedTask('Plan the next hall open day', 'Keep a place for the next open day plan.', 'todo');
 
-async function seedBlocks(taskId: string, blocks: NonNullable<ReportWrite['blocks']>, milestone: string) {
+async function seedBlocks(taskId: string, blocks: NonNullable<ReportWrite['blocks']>, milestone: string, sectionViews?: ReportWrite['sectionViews']) {
 	await runtime.harness.commit(tx => writeReportIn(tx, runtime.conversation.id, {
-		taskId, sections: {}, blocks, milestone, by: coordinatorWriter('main'),
+		taskId, sections: {}, blocks, milestone, sectionViews, by: coordinatorWriter('main'),
 	}, `report-demo:${taskId}:${milestone}`, new Date().toISOString(), { store: setup.server.artifacts, projectId }), BACKGROUND_CONTEXT);
 }
 
@@ -88,7 +88,31 @@ const rehearsalBlocks: NonNullable<NonNullable<ReportWrite['blocks']>['results']
 ];
 const rehearsalSummary = [{ kind: 'outcome', text: 'The booking desk can handle the expected morning queue.' }] satisfies NonNullable<NonNullable<ReportWrite['blocks']>['summary']>;
 await seedBlocks(rehearsal, { summary: rehearsalSummary, results: [rehearsalBlocks[2]!, rehearsalBlocks[0]!, rehearsalBlocks[1]!, ...rehearsalBlocks.slice(3)] }, 'Rehearsal recorded');
-await seedBlocks(rehearsal, { results: rehearsalBlocks }, 'Findings moved before setup');
+const sectionTemplate = await Bun.file(new URL('../skills/html-artifacts/section-view.html', import.meta.url)).text();
+async function saveSectionView(taskId: string, name: string, label: string, html: string): Promise<ReportSectionView> {
+	const sourcePath = join(setup.projectDir, name);
+	await Bun.write(sourcePath, html);
+	const artifact = await setup.server.artifacts.save({ projectId, sourcePath, title: label, note: '', threadId: 'main', workerId: null, taskId });
+	return { artifactId: artifact.id.split('~')[0]!, version: artifact.version ?? 1, label };
+}
+const comparison = await saveSectionView(rehearsal, 'reservation-windows.html', 'Open comparison table', sectionTemplate);
+await seedBlocks(rehearsal, { results: rehearsalBlocks }, 'Findings moved before setup', { results: comparison });
+
+const unavailable = await seedTask('Check the next reservation window', 'Review the queue before opening the next window.', 'in_progress');
+const removed = await saveSectionView(unavailable, 'removed-comparison.html', 'Open removed comparison', sectionTemplate);
+await seedBlocks(unavailable, { notDone: [{ kind: 'risk', title: 'Second window untested', text: 'The entrance team still needs to rehearse the second window.' }] }, 'Window gap recorded', { notDone: removed });
+await setup.server.artifacts.delete(projectId, removed.artifactId);
+
+const hostile = await seedTask('Check the static preview', 'Confirm that the supplemental comparison stays static.', 'in_progress');
+const hostileView = await saveSectionView(hostile, 'static-preview.html', 'Open static preview test', `<!doctype html>
+<h1 id="preview-check">Static preview check</h1>
+<p id="script-effect">Script did not run.</p>
+<script>document.getElementById('script-effect').textContent = 'Script ran';</script>
+<img src="https://example.test/section-image.png" alt="External image blocked">
+<form action="https://example.test/section-form"><button>Send form</button></form>
+<p><a href="https://example.test/section-link">External link is inactive</a></p>
+<p><a href="#preview-check">Back to heading</a></p>`);
+await seedBlocks(hostile, { results: [{ kind: 'finding', title: 'Native report stays visible', text: 'The supplemental file is only a preview fixture.' }] }, 'Static preview fixture recorded', { results: hostileView });
 
 const visitors = await seedTask('Make the reading room easier to find', 'Help visitors find the reading room without interrupting the desk.', 'review');
 await seedBlocks(visitors, {
@@ -136,7 +160,7 @@ await runtime.harness.commit(async tx => {
 }, BACKGROUND_CONTEXT);
 
 const backends = [{ id: 'report-demo', name: 'Report demo', url: setup.server.url }];
-const routes = Object.fromEntries(Object.entries({ capacity, rows, manual, empty, rehearsal, visitors, signs, timing, newer }).map(([example, taskId]) =>
+const routes = Object.fromEntries(Object.entries({ capacity, rows, manual, empty, rehearsal, visitors, signs, timing, newer, unavailable, hostile }).map(([example, taskId]) =>
 	[example, `/b/report-demo/projects/${encodeURIComponent(projectId)}?task=${encodeURIComponent(taskId)}`]));
 if (process.env.DEMO_OUTPUT) await Bun.write(process.env.DEMO_OUTPUT, JSON.stringify({ backends, routes, pid: process.pid }));
 console.log(`Synthetic report backend: ${setup.server.url}`);

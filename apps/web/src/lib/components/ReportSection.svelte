@@ -4,11 +4,14 @@
 	project artifact context if provided; the report and captions do not require it.
 -->
 <script lang="ts">
+	import type { ReportSectionViews } from '@kemiri/protocol';
 	import type { Artifact, ReportBlock, ReportBlockSection } from '@kemiri/protocol';
 	import { artifactScope, useArtifactFeed } from '#lib/artifacts.svelte.js';
 	import { artifactTitle } from '#lib/artifacts.js';
 	import { isMedia } from '#lib/media-gallery.js';
 	import { readReportSection, reportBlockGroups, reportProofArtifact, type TaskReportSections } from '#lib/report-sections.js';
+	import { isReportSectionView } from '#lib/report-section-view.js';
+	import ReportSectionView from './ReportSectionView.svelte';
 	import ReportSectionBody from './ReportSectionBody.svelte';
 	import ArtifactDialog from './artifacts/ArtifactDialog.svelte';
 	import ArtifactThumb from './artifacts/ArtifactThumb.svelte';
@@ -16,13 +19,14 @@
 	import ReportStepCopy from './ReportStepCopy.svelte';
 
 	let { task, section, class: className = '' }: {
-		task: { id: string; report: TaskReportSections };
+		task: { id: string; report: TaskReportSections & { sectionViews?: ReportSectionViews } };
 		section: ReportBlockSection;
 		class?: string;
 	} = $props();
 	const content = $derived(readReportSection(task.report, section));
 	const scope = artifactScope();
 	const artifactConnection = $derived(scope?.());
+	const view = $derived(section === 'results' || section === 'notDone' ? task.report.sectionViews?.[section] : undefined);
 	const proofFeed = useArtifactFeed(() => artifactConnection?.available && content.kind === 'blocks' &&
 		content.blocks.some(block => block.kind === 'proof')
 		? { client: artifactConnection.client, projectId: artifactConnection.projectId, filter: { taskId: task.id } }
@@ -104,6 +108,16 @@
 	{/if}
 {:else}
 	<ReportSectionBody {section} markdown={content.markdown} class={className} />
+{/if}
+
+{#if artifactConnection?.reportSectionViews && view !== undefined}
+	{#if artifactConnection.available && isReportSectionView(view)}
+		{#key JSON.stringify([artifactConnection.projectId, task.id, section, view.artifactId, view.version, view.label])}
+			<ReportSectionView client={artifactConnection.client} projectId={artifactConnection.projectId} {view} />
+		{/key}
+	{:else}
+		<p class="report-label">View unavailable</p>
+	{/if}
 {/if}
 
 <style>

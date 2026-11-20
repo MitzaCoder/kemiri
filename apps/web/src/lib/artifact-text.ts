@@ -28,13 +28,21 @@ export async function readArtifactText(
 	signal: AbortSignal,
 	fetcher: typeof fetch = fetch,
 	limit = TEXT_PREVIEW_BYTES,
+	strictHtml = false,
 ): Promise<{ content: string; truncated: boolean }> {
 	const response = await fetcher(url, {
 		...(size >= 0 && size <= limit ? {} : { headers: { Range: `bytes=0-${limit}` } }),
 		signal,
 	});
 	if (!response.ok) throw new ArtifactReadError(response.status);
-	const total = Number(/\/(\d+)$/.exec(response.headers.get('content-range') ?? '')?.[1] ?? size);
+	const range = response.headers.get('content-range') ?? '';
+	const total = Number(/\/(\d+)$/.exec(range)?.[1] ?? size);
+	if (strictHtml && (response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'text/html' ||
+		(response.status !== 200 && (response.status !== 206 || !/^bytes 0-\d+\/\d+$/.test(range) || range !== `bytes 0-${total - 1}/${total}`)) ||
+		total > limit)) {
+		await response.body?.cancel().catch(() => {});
+		throw new Error('Unsupported or incomplete HTML');
+	}
 	const reader = response.body?.getReader();
 	if (!reader) return { content: '', truncated: false };
 	const chunks: Uint8Array[] = [];
@@ -54,5 +62,5 @@ export async function readArtifactText(
 	const bytes = new Uint8Array(length);
 	let offset = 0;
 	for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-	return { content: new TextDecoder().decode(bytes.subarray(0, limit)), truncated: length > limit || length < total || (!done && total < 0) };
+	return { content: new TextDecoder('utf-8', { fatal: strictHtml }).decode(bytes.subarray(0, limit)), truncated: length > limit || length < total || (!done && total < 0) };
 }

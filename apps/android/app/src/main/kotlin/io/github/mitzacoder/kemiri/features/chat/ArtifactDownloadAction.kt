@@ -4,8 +4,7 @@ import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.*
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -23,7 +22,9 @@ import okhttp3.OkHttpClient
 private val downloadHttp = OkHttpClient.Builder().build()
 
 /** SAF is an explicit user save: only file contents reach the selected document, never its signed URL. */
-@Composable internal fun ArtifactDownloadAction(context: ProjectScreenContext, artifact: Artifact?, viewerArtifactId: String, canSave: Boolean, menuItem: Boolean = false) {
+@Composable internal fun ArtifactDownloadAction(context: ProjectScreenContext, artifact: Artifact?, viewerArtifactId: String, canSave: Boolean, menuItem: Boolean = false,
+    fileEntryLabel: String? = null, onFileUnavailable: () -> Unit = {},
+) {
     val resolver = LocalContext.current.contentResolver
     val scope = rememberCoroutineScope()
     var targetBackend by rememberSaveable { mutableStateOf<String?>(null) }
@@ -42,13 +43,17 @@ private val downloadHttp = OkHttpClient.Builder().build()
             saving = true
             scope.launch {
                 var completed = false
+                var unavailable = false
                 try {
                     check(artifactSaveTargetMatches(backend, project, id, context.backend.config.key, context.route.projectId, viewerArtifactId, canSave))
                     checkNotNull(project)
                     checkNotNull(id)
                     // Mint only after destination confirmation: expiry during the picker cannot break the save.
                     val count = saveArtifactWithRemint(downloadHttp, mint = {
-                        context.backend.client.request(ArtifactsUrlRequest(projectId = project, artifactId = id, download = true)).url
+                        try {
+                            context.backend.client.request(ArtifactsUrlRequest(projectId = project, artifactId = id, download = true)).url
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { unavailable = true; throw e }
                     }) {
                         checkNotNull(resolver.openOutputStream(uri,"wt")) { "Destination unavailable" }
                     }
@@ -62,6 +67,7 @@ private val downloadHttp = OkHttpClient.Builder().build()
                         runCatching { DocumentsContract.deleteDocument(resolver,uri) }
                     }
                     saving = false
+                    if (unavailable && fileEntryLabel != null) onFileUnavailable()
                 }
             }
         }
@@ -74,7 +80,16 @@ private val downloadHttp = OkHttpClient.Builder().build()
         }
     }
     val enabled = canSave && artifact != null && !saving && !selecting
-    if (menuItem) DropdownMenuItem(text = { Text(if (saving) "Saving…" else "Save a copy…") }, enabled = enabled, onClick = startSave)
+    if (fileEntryLabel != null) OutlinedButton(enabled = enabled, onClick = startSave,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        LucideGlyph(Lucide.ArrowDown)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(fileEntryLabel)
+            Text(if (saving) "Saving…" else "HTML view", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    else if (menuItem) DropdownMenuItem(text = { Text(if (saving) "Saving…" else "Save a copy…") }, enabled = enabled, onClick = startSave)
     else OutlinedButton(enabled = enabled, onClick = startSave) {
         LucideGlyph(Lucide.ArrowDown); Spacer(Modifier.width(6.dp)); Text(if(saving) "Saving…" else "Save a copy…")
     }

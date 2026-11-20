@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.mitzacoder.kemiri.features.chat.ArtifactDownloadAction
 import io.github.mitzacoder.kemiri.features.chat.ArtifactThumb
 import io.github.mitzacoder.kemiri.features.chat.ChatArtifactMetadata
 import io.github.mitzacoder.kemiri.features.chat.MarkdownContent
@@ -51,6 +52,7 @@ internal fun ReportSection(
     section: ReportSectionKind,
     context: ProjectScreenContext? = null,
     artifacts: List<Artifact> = emptyList(),
+    sectionViewsSupported: Boolean = false,
 ) {
     val content = remember(task.report, section) { readReportSection(task.report, section) }
     when (content) {
@@ -82,6 +84,26 @@ internal fun ReportSection(
             }
         }
     }
+    if (context != null) {
+        val entry = remember(sectionViewsSupported, task.report.sectionViews, section, context.route.projectId, task.id, artifacts) {
+            reportSectionViewEntry(sectionViewsSupported, task.report.sectionViews, section, context.route.projectId, task.id, artifacts)
+        }
+        when (entry) {
+            ReportSectionViewEntry.Hidden -> Unit
+            ReportSectionViewEntry.Unavailable -> ReportViewUnavailable()
+            is ReportSectionViewEntry.File -> key(context.backend.config.key, context.route.projectId, entry.artifact.id) {
+                var unavailable by remember { mutableStateOf(false) }
+                if (unavailable) ReportViewUnavailable()
+                else ArtifactDownloadAction(context, entry.artifact, entry.artifact.id, canSave = true,
+                    fileEntryLabel = entry.label, onFileUnavailable = { unavailable = true })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportViewUnavailable() {
+    Text("View unavailable", color = Jarvis.colors.fgMuted, style = TaskType.xs)
 }
 
 @Composable

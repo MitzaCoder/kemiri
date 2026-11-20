@@ -2880,7 +2880,12 @@ is where they talk.
   a section rewrite or a worker append detaches only the changed section unless a replacement is supplied.
   Workers cannot attach views. Files and normal retention are unchanged. `show_task` and worker reads show the
   label and pin without reading HTML. A missing pin stays stored and is reported unavailable; clients resolve the
-  exact `id~version` with `artifacts.url` and never substitute latest. Android decodes the field as opaque JSON.
+  exact `id~version` with `artifacts.url` and never substitute latest. On web the native blocks come first, then
+  a labeled button opens a bounded inline preview or a larger dialog. The preview takes only complete UTF-8 HTML,
+  with allowlisted markup and CSS, bounded elements, depth and raster dimensions, and app theme defaults. Both
+  sizes use an opaque-origin `srcdoc` frame with an empty sandbox, no referrer, and a first-in-head CSP that denies
+  network access. The general Files viewer keeps its own policy. Android decodes the field as opaque JSON and offers
+  a labeled file download for retained HTML pins, not a WebView. Unavailable views leave the native report intact.
 - **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
   and null clears it. `write_report` sets `summary` (one or two sentences above Results), `notDone` (Markdown,
   one item per line) and `checks` (name, passed or failed, optional count and note, and a timestamp that defaults
