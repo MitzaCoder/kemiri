@@ -45,6 +45,11 @@
 	import { draftChannel } from '#lib/draft-channel.js';
 	import EmptyState from '#lib/components/chat/EmptyState.svelte';
 	import TranscriptColumn from '#lib/components/chat/TranscriptColumn.svelte';
+	import { setContext, tick as afterRender } from 'svelte';
+	import { artifactLibrary } from '#lib/artifact-library.svelte.js';
+	import { claimDiscussionNavigation, discussionNavigation } from '#lib/artifact-discuss.svelte.js';
+	import { settledDiscussionTask } from '#lib/artifact-discuss.js';
+	import { DISCUSSION_CHAT, type DiscussionChat } from '#lib/discussion-chat.js';
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { taskOptions } from '#lib/task-chat.js';
 	import { boardTaskLinks, provideTaskLinks } from '#lib/task-links.svelte.js';
@@ -133,7 +138,25 @@
 	let sendError = $state<string | undefined>(undefined);
 	let modelError = $state<string | undefined>(undefined);
 	let transcript = $state<TranscriptHandle | undefined>(undefined);
-	let composer = $state<{ addQuote(quote: string): void; restore(text: string, taskId?: string, images?: HeldImage[], files?: ChatFile[]): void } | undefined>(undefined);
+	let composer = $state<{ focus(): void; addQuote(quote: string): void; restore(text: string, taskId?: string, images?: HeldImage[], files?: ChatFile[]): void } | undefined>(undefined);
+	setContext<() => DiscussionChat | undefined>(DISCUSSION_CHAT, () => isThread ? undefined : {
+		backend, projectId,
+		relevant(taskId, at) {
+			const task = board?.tasks.find(task => task.id === taskId) ?? artifactLibrary.entries.find(entry => entry.backendId === backend.id && entry.project.id === projectId && entry.task?.id === taskId)?.task;
+			return settledDiscussionTask(task) && (!task?.settledAt || Date.parse(task.settledAt) <= at);
+		}
+	});
+	let discussionNotice = $state<string>();
+	$effect(() => {
+		if (discussionNavigation.path !== page.url.pathname || isThread || !claimDiscussionNavigation(discussionNavigation.sequence)) return;
+		const name = discussionNavigation.projectName;
+		discussionNotice = name ? `Opened main chat in ${name}.` : undefined;
+		sidebarOpen = false;
+		void afterRender().then(() => composer?.focus());
+		const timeout = setTimeout(() => { discussionNotice = undefined; }, 4500);
+		return () => clearTimeout(timeout);
+	});
+
 	/** The right sidebar: open, which tab, and whether it fills the chat area. */
 	let sidebarOpen = $state(false);
 	let sidebarTab = $state<SidebarTab>('info');
@@ -1060,10 +1083,12 @@
 					{#if backend.supports('conversation')}
 						<!-- Keyed by chat: the page stays mounted when the route changes to another project or thread. -->
 						{#key draftKey(backend.id, projectId, threadId)}
+						{#if discussionNotice}<p role="status" class="px-3 pb-2 text-xs text-(--chat-fg-muted)">{discussionNotice}</p>{/if}
 						<Composer
 							bind:this={composer}
 							draftKey={draftKey(backend.id, projectId, threadId)}
 							draftChannel={draftChannel(backend, projectId, threadId)}
+							discussionChat={isThread ? undefined : { backend, projectId }}
 							models={backend.models}
 							providers={backend.providers}
 							model={project?.coordinator.model ?? null}

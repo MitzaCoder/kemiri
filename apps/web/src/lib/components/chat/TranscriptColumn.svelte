@@ -258,6 +258,7 @@
 						{#if item.kind === 'user'}
 							<UserMessage
 								text={item.text}
+								messageKey={item.key}
 								images={item.images}
 								imageCount={item.imageCount}
 								timestamp={item.timestamp}

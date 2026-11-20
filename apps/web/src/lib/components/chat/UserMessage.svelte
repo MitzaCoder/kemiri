@@ -1,4 +1,10 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import { DISCUSSION_CHAT, type DiscussionChat } from '#lib/discussion-chat.js';
+	import { discussionReference } from '#lib/artifact-discuss.js';
+	import { useArtifactFeed } from '#lib/artifacts.svelte.js';
+	import DiscussionChip from '#lib/components/artifacts/DiscussionChip.svelte';
+	import DiscussionOverrule from '#lib/components/artifacts/DiscussionOverrule.svelte';
 	import { parseTaskReference } from '@kemiri/client';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import { clockTime, fullTime } from '#lib/chat/time.js';
@@ -22,6 +28,7 @@
 	 */
 	let {
 		text: raw,
+		messageKey,
 		images = [],
 		imageCount,
 		timestamp,
@@ -32,6 +39,7 @@
 		onretry
 	}: {
 		text: string;
+		messageKey?: string;
 		images?: TranscriptImage[];
 		/** Images that cannot be drawn (a waiting message from another device): shown as a count. */
 		imageCount?: number;
@@ -70,7 +78,12 @@
 	const attachedFiles = $derived(splitFileMessage(raw));
 	const reference = $derived(parseTaskReference(attachedFiles.text));
 	const text = $derived(reference.text);
-	const parts = $derived(splitQuotes(text));
+	const getChat = getContext<(() => DiscussionChat | undefined) | undefined>(DISCUSSION_CHAT);
+	const chat = $derived(getChat?.());
+	const discussion = $derived(chat ? discussionReference(text) : undefined);
+	const parts = $derived(splitQuotes(discussion?.body ?? text));
+	const feed = useArtifactFeed(() => chat && discussion ? { client: chat.backend.client, projectId: chat.projectId, filter: { artifactId: discussion.artifactId } } : undefined);
+	const homeTaskId = $derived(feed.current?.artifacts.find(row => row.id === discussion?.artifactId)?.taskId ?? reference.taskId);
 </script>
 
 <div
@@ -109,7 +122,11 @@
 			{#if parts.text}
 				<Markdown source={parts.text} userMessage />
 			{/if}
+			{#if discussion && chat}<DiscussionChip {discussion} backend={chat.backend} projectId={chat.projectId} />{/if}
 		</div>
+	{/if}
+	{#if discussion && chat && waiting === undefined && messageKey && timestamp && homeTaskId}
+		{#key messageKey}<DiscussionOverrule {chat} {homeTaskId} artifactTitle={discussion.title} {messageKey} sentAt={timestamp} />{/key}
 	{/if}
 	{#if status !== undefined && waiting !== undefined}
 		<div

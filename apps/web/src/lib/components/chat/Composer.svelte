@@ -3,6 +3,11 @@
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import { discussionReference, discussionText } from '#lib/artifact-discuss.js';
+	import { discussArtifact, hasArtifactDrag, takeArtifactDrag } from '#lib/artifact-discuss.svelte.js';
+	import type { BackendConnection } from '#lib/harness.svelte.js';
+	import DiscussionChip from '#lib/components/artifacts/DiscussionChip.svelte';
+	import DiscussionFolder from '#lib/components/artifacts/DiscussionFolder.svelte';
 	import { appendReviewDraft, REVIEW_DRAFT_EVENT, type ReviewDraftAppend } from '#lib/artifact-review-draft.js';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { ModelInfo, ModelRef, ProviderInfo, ThinkingLevel, WorkerModel } from '@kemiri/protocol';
@@ -58,6 +63,7 @@
 		tasks,
 		draftKey,
 		draftChannel,
+		discussionChat,
 		busy = false,
 		disabled = false,
 		placeholder,
@@ -100,6 +106,7 @@
 		draftKey?: string;
 		/** The backend's draft store for this chat (see `draft-channel.ts`); without it the draft stays on this device. */
 		draftChannel?: DraftChannel;
+		discussionChat?: { backend: BackendConnection; projectId: string };
 		/** The coordinator is working: the button becomes stop. */
 		busy?: boolean;
 		/** No conversation, no model, or a backend that is not connected. */
@@ -121,6 +128,25 @@
 	const restored = cached?.draft;
 
 	let text = $state(restored?.text ?? '');
+	const discussion = $derived(discussionChat ? discussionReference(text) : undefined);
+	const messageBody = $derived(discussion?.body ?? text);
+	function setMessageBody(value: string) { text = discussion ? discussionText(discussion.header, value) : value; }
+	function removeDiscussion() { text = messageBody; taskId = undefined; requestAnimationFrame(() => { autosize(); textarea?.focus(); }); }
+	let artifactOver = $state(false);
+	function overArtifact(event: DragEvent) {
+		if (!hasArtifactDrag(event)) return;
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+		artifactOver = true;
+	}
+	function dropArtifact(event: DragEvent) {
+		artifactOver = false;
+		const drag = takeArtifactDrag(event);
+		if (!drag) return;
+		event.preventDefault();
+		void discussArtifact(drag.client, drag.artifact).catch(error => { fileError = error instanceof Error ? error.message : String(error); });
+	}
+
 	let sending = $state(false);
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 
@@ -168,7 +194,7 @@
 					persist: (local, synced) => saveDraftState(localStorage, chatKey, local, synced),
 					apply: (draft, entry) => {
 						// Where the caret was: still at the end if it was at the end, else the same place as far as the new text goes.
-						const caret = focused ? { start: textarea?.selectionStart ?? 0, end: textarea?.selectionEnd ?? 0, atEnd: (textarea?.selectionEnd ?? 0) >= text.length } : undefined;
+						const caret = focused ? { start: textarea?.selectionStart ?? 0, end: textarea?.selectionEnd ?? 0, atEnd: (textarea?.selectionEnd ?? 0) >= messageBody.length } : undefined;
 						text = draft.text;
 						taskId = draft.taskId;
 						quotes = draft.quotes;
@@ -178,7 +204,7 @@
 						requestAnimationFrame(() => {
 							autosize();
 							if (caret !== undefined) {
-								textarea?.setSelectionRange(caret.atEnd ? text.length : Math.min(caret.start, text.length), caret.atEnd ? text.length : Math.min(caret.end, text.length));
+								textarea?.setSelectionRange(caret.atEnd ? messageBody.length : Math.min(caret.start, messageBody.length), caret.atEnd ? messageBody.length : Math.min(caret.end, messageBody.length));
 							}
 						});
 					}
@@ -188,7 +214,7 @@
 		const appendReview = (event: Event) => {
 			const request = (event as CustomEvent<ReviewDraftAppend>).detail;
 			if (request.key !== chatKey || request.handled) return;
-			const appended = appendReviewDraft(currentDraft(), request.text, request.taskId);
+			const appended = appendReviewDraft(currentDraft(), request.text, request.taskId, request.discussion);
 			text = appended.text;
 			taskId = appended.taskId;
 			request.handled = true;
@@ -238,9 +264,9 @@
 
 	const coarse = new MediaQuery('pointer: coarse');
 	const attached = $derived(taskId === undefined || tasks === undefined ? undefined : (tasks.find((task) => task.id === taskId) ?? { id: taskId, title: '', status: 'todo' as const }));
-	const pickerOpen = $derived(tasks !== undefined && (listOpen || trigger !== undefined));
+	const pickerOpen = $derived(!discussion && tasks !== undefined && (listOpen || trigger !== undefined));
 	const choices = $derived(tasks === undefined ? [] : pickerChoices(tasks, trigger?.query ?? ''));
-	const canSend = $derived(!sending && !disabled && uploading === 0 && files.length + images.count <= INPUT_MAX_FILES && images.ready && (text.trim().length > 0 || quotes.length > 0 || images.count > 0 || files.length > 0));
+	const canSend = $derived(!sending && !disabled && uploading === 0 && files.length + images.count <= INPUT_MAX_FILES && images.ready && (messageBody.trim().length > 0 || quotes.length > 0 || images.count > 0 || files.length > 0));
 	/** The coordinator's model, when it is known not to read images: the pictures would reach it as a placeholder. */
 	const blindModel = $derived.by(() => {
 		if (!showModelPicker || model === null || images.count === 0) return false;
@@ -295,7 +321,7 @@
 	}
 
 	function syncTrigger(): void {
-		const found = tasks === undefined || textarea == null ? undefined : hashTrigger(text, textarea.selectionStart);
+		const found = discussion || tasks === undefined || textarea == null ? undefined : hashTrigger(messageBody, textarea.selectionStart);
 		if (found === undefined) dismissedAt = undefined;
 		const next = found !== undefined && found.start !== dismissedAt ? found : undefined;
 		if (next?.query !== trigger?.query || next?.start !== trigger?.start) active = 0;
@@ -347,7 +373,8 @@
 		if (!canSend) return;
 		sending = true;
 		const sent = text;
-		const sentTask = attached?.id;
+		const sentTask = discussion ? taskId : attached?.id;
+		const sentDiscussion = discussion;
 		const sentQuotes = quotes;
 		const sentImages = images.held();
 		const sentFiles = files;
@@ -365,7 +392,7 @@
 		sync?.flush();
 		try {
 			// On success the draft is already gone: emptying the fields above saved an empty draft.
-			if (!(await onsend(messageWithQuotes(sentQuotes, sent), sentTask, sentImages, sentFiles))) {
+			if (!(await onsend(sentDiscussion ? discussionText(sentDiscussion.header, messageWithQuotes(sentQuotes, sentDiscussion.body)) : messageWithQuotes(sentQuotes, sent), sentTask, sentImages, sentFiles))) {
 				// This composer may be gone (the user went to another chat): put the message back in its chat's draft, unless
 				// something newer was typed there since.
 				if (chatKey !== undefined && isEmptyDraft(loadDraft(localStorage, chatKey))) {
@@ -426,11 +453,14 @@
 <svelte:document onvisibilitychange={() => document.visibilityState === 'hidden' && sync?.flush()} />
 
 <form
-	class="composer relative rounded-[1.75rem] border border-(--chat-border) shadow-(--chat-shadow) glass transition-colors {dragging
+	class="composer relative rounded-[1.75rem] border border-(--chat-border) shadow-(--chat-shadow) glass transition-colors {dragging || artifactOver
 		? 'border-(--accent-2) ring-2 ring-(--accent-2)/40'
 		: ''}"
 	use:imageDrop={{ images, disabled: disabled || sending || uploading > 0, onfiles: uploadFile ? addFiles : undefined, onover: (over) => (dragging = over) }}
-	data-drop-target={dragging ? 'over' : undefined}
+	ondragover={overArtifact}
+	ondragleave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) artifactOver = false; }}
+	ondrop={dropArtifact}
+	data-drop-target={dragging || artifactOver ? 'over' : undefined}
 	onsubmit={(event) => {
 		event.preventDefault();
 		void send();
@@ -439,7 +469,12 @@
 	{#if pickerOpen}
 		<TaskPicker {choices} {active} searching={trigger !== undefined && trigger.query.length > 0} onpick={pick} onhover={(index) => (active = index)} />
 	{/if}
-	{#if attached}
+	{#if discussion && discussionChat}
+		<div class="grid gap-1.5 px-4 pt-3">
+			<DiscussionChip {discussion} {...discussionChat} onremove={removeDiscussion} />
+			{#key discussion.artifactId}<DiscussionFolder {...discussionChat} artifactId={discussion.artifactId} {taskId} ontoggle={id => taskId = id} />{/key}
+		</div>
+	{:else if attached}
 		<div class="flex min-w-0 items-center gap-1.5 px-4 pt-3" data-task-attached={attached.id}>
 			<span class="shrink-0 text-xs text-(--chat-fg-subtle)">About</span>
 			<TaskChip taskId={attached.id} title={attached.title} onremove={() => { taskId = undefined; textarea?.focus(); }} />
@@ -468,7 +503,7 @@
 	{#if uploading > 0}<p role="status" class="px-4 pt-2 text-sm text-(--chat-fg-subtle)">Uploading attachment…</p>{/if}
 	{#if fileError}<p role="alert" class="px-4 pt-2 text-sm text-(--chat-warning)">{fileError}</p>{/if}
 	{#if images.count > 0}
-		<div class="px-4 {attached || quotes.length > 0 ? 'pt-2' : 'pt-3'}" data-composer-images>
+		<div class="px-4 {discussion || attached || quotes.length > 0 ? 'pt-2' : 'pt-3'}" data-composer-images>
 			<ImageStrip
 				images={images.items.map((item) => ({ key: item.id, src: item.url, label: item.name ?? 'Image', status: item.status }))}
 				onremove={(id) => {
@@ -480,8 +515,9 @@
 	{/if}
 	<textarea
 		bind:this={textarea}
-		bind:value={text}
-		oninput={() => {
+		value={messageBody}
+		oninput={(event) => {
+			setMessageBody(event.currentTarget.value);
 			autosize();
 			syncTrigger();
 		}}
@@ -497,7 +533,7 @@
 		{onkeydown}
 		rows="1"
 		placeholder={hint}
-		class="block max-h-[40dvh] w-full resize-none bg-transparent px-5 {attached || quotes.length > 0 ? 'pt-2' : images.count > 0 ? 'pt-2' : 'pt-4'} pb-2 text-base leading-relaxed outline-none placeholder:text-(--chat-fg-subtle)"
+		class="block max-h-[40dvh] w-full resize-none bg-transparent px-5 {discussion || attached || quotes.length > 0 ? 'pt-2' : images.count > 0 ? 'pt-2' : 'pt-4'} pb-2 text-base leading-relaxed outline-none placeholder:text-(--chat-fg-subtle)"
 		aria-label="Message"
 		enterkeyhint={coarse.current ? 'enter' : 'send'}
 	></textarea>
@@ -539,7 +575,7 @@
 
 		<div class="ml-auto flex shrink-0 items-center gap-1.5">
 			<AttachButton {images} disabled={disabled || sending || uploading > 0} onfiles={uploadFile ? addFiles : undefined} />
-			{#if tasks !== undefined}
+			{#if tasks !== undefined && !discussion}
 				<button
 					type="button"
 					class="grid size-9 place-items-center rounded-full transition-colors active:scale-95 {attached || pickerOpen

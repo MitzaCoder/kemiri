@@ -649,7 +649,21 @@ Studio keeps the shelves mounted so closing it preserves the browsing position a
 viewers still offer review on text and pages. An immutable version filmstrip marks the boundary at task settlement
 and labels versions made for a later task. The trail shows comment text without its artifact reference line or review
 header. The owner can
-switch Keep alive on or off in the header. Discuss belongs on an object and in the Studio header (T374).
+switch Keep alive on or off in the header.
+
+#### Discuss (T374 / D122)
+
+Discuss opens the artifact's project main chat from shelves and viewers. Dragging an artifact card to the composer
+uses the same path. The chat says when it switches projects. Discuss extends the existing review draft append event and
+sync: the draft's plain text starts with `Discuss "<title>"` and `(artifact <id>~<version>, <file>)`, followed by the
+message. The composer hides those two lines behind a version chip. Old clients can still edit and send the draft as text.
+The task-folder checkbox changes the draft's `taskId`; it starts checked when the artifact has a home task. The artifact
+trail supplies the home task, decision count, and count of earlier comments.
+
+A sent Discuss about settled work offers two confirmed owner actions. Reopen moves the home task to In progress and
+attaches it to the instruction to continue there. Only answer sends its instruction without a task. Both drop the newest
+coordinator follow-up created after the message, if it exists. Status writes use the board's current revisions and the
+same owner moves as Tasks. The server's existing artifact-reference prompt and feedback indexing need no change.
 
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)
 

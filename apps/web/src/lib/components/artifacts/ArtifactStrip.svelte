@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { startArtifactDrag, endArtifactDrag } from '#lib/artifact-discuss.svelte.js';
 	import type { ArtifactFilter } from '@kemiri/client';
 	import type { Artifact } from '@kemiri/protocol';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
@@ -75,6 +76,7 @@
 					dialogOpen = true;
 				}}
 				data-artifact={artifact.id}
+				draggable="true" ondragstart={event => target && startArtifactDrag(event, target.client, artifact)} ondragend={endArtifactDrag}
 			>
 				<ArtifactThumb {artifact} client={target.client} class="h-9 w-13" duration={false} />
 			</button>

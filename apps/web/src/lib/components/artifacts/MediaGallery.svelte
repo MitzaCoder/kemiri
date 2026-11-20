@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { startArtifactDrag, endArtifactDrag } from '#lib/artifact-discuss.svelte.js';
+	import DiscussButton from './DiscussButton.svelte';
 	import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
 	import ExpandIcon from '@lucide/svelte/icons/maximize-2';
 	import type { HarnessClient } from '@kemiri/client';
@@ -187,8 +189,8 @@
 				{@const pair = pairs.get(item.id)}
 				{@const near = loadsFull(at - index)}
 				<div class="flex h-full min-h-0 flex-col gap-2">
-				<h4 class="line-clamp-2 shrink-0 text-sm leading-snug font-semibold break-words" title={artifactTitle(item)}>{artifactTitle(item)}</h4>
-				<div class="stage" data-slide-stage>
+				<div class="flex items-center justify-between gap-2"><h4 class="line-clamp-2 text-sm leading-snug font-semibold break-words" title={artifactTitle(item)}>{artifactTitle(item)}</h4>{#if active}<DiscussButton artifact={item} {client} compact />{/if}</div>
+				<div class="stage" role="group" aria-label="Artifact preview" data-slide-stage draggable="true" ondragstart={event => startArtifactDrag(event, client, item)} ondragend={endArtifactDrag}>
 					{#if item.kind === 'video'}
 						<MediaVideoSlide bind:this={videoSlides[at]} artifact={item} {client} {active} {near} />
 					{:else if pair !== undefined && comparing.has(item.id) && near}

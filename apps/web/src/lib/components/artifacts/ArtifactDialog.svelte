@@ -5,6 +5,8 @@
 
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
+	import DiscussButton from './DiscussButton.svelte';
+	import { discussArtifact } from '#lib/artifact-discuss.svelte.js';
 	import ArtifactText from './ArtifactText.svelte';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import DownloadIcon from '@lucide/svelte/icons/download';
@@ -236,6 +238,7 @@
 							<DropdownMenu.Item disabled={versionIndex >= versions.length - 1} onSelect={() => selectedVersion = versions[versionIndex + 1]?.version}>Next version</DropdownMenu.Item>
 							<div class="px-3 py-1 text-xs text-(--chat-fg-muted)" aria-live="polite">v{artifact.version ?? 1} of {latestArtifact?.versionCount ?? versions.length}</div>
 						{/if}
+						<DropdownMenu.Item onSelect={() => void discussArtifact(client, artifact, () => open = false).catch(error => { problem = String(error); })}>Discuss</DropdownMenu.Item>
 						<DropdownMenu.Item disabled={busy === 'download'} onSelect={() => void download()}>Download</DropdownMenu.Item>
 						<DropdownMenu.Item onSelect={() => confirming = true}>Delete…</DropdownMenu.Item>
 						<DropdownMenu.Item onSelect={() => open = false}>Close</DropdownMenu.Item>
@@ -250,6 +253,7 @@
 				<Dialog.Title class="text-base font-semibold">{artifactTitle(artifact)}</Dialog.Title>
 				<Dialog.Description class="flex flex-wrap gap-2 text-xs text-(--chat-fg-muted)">{@render factsLine(artifact)}</Dialog.Description>
 				{@render versionControls()}
+				<DiscussButton {artifact} {client} onclose={() => open = false} />
 				{#if artifact.note || artifact.sourcePath || problem}<details class="mt-2 text-xs"><summary>Details</summary><div class="flex flex-col gap-2 pt-2">{@render extras(artifact)}</div></details>{/if}
 			</header>
 			<ArtifactText {artifact} {client} roomy onclose={() => open = false} />
@@ -281,6 +285,7 @@
 					{/if}
 				</Dialog.Header>
 				{@render versionControls()}
+				<DiscussButton {artifact} {client} onclose={() => open = false} />
 				<Button size="sm" variant="ghost" class={details ? "bg-(--chat-fg)/8" : ""} onclick={toggleDetails} aria-pressed={details} aria-controls="artifact-details" data-details-toggle>
 					{#if details}<PanelRightCloseIcon class="size-3.5" />{:else}<PanelRightOpenIcon class="size-3.5" />{/if}
 					Details
@@ -345,6 +350,7 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2 border-t border-(--chat-border) px-4 py-3 sm:px-5" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom))">
+					<DiscussButton {artifact} {client} onclose={() => open = false} />
 					{@render deletion(artifact, true)}
 				</div>
 			{/if}

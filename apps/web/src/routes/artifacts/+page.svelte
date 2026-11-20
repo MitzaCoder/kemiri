@@ -8,6 +8,7 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import ProjectsMenuButton from '#lib/components/ProjectsMenuButton.svelte';
+	import DiscussButton from '#lib/components/artifacts/DiscussButton.svelte';
 	import ArtifactShelfObject from '#lib/components/artifacts/ArtifactShelfObject.svelte';
 	import ArtifactStudio from '#lib/components/artifacts/ArtifactStudio.svelte';
 	import ArtifactTaskState from '#lib/components/artifacts/ArtifactTaskState.svelte';
@@ -138,8 +139,8 @@
 									{@const backend = harness.backend(entry.backendId)}
 									{@const artifact = entry.artifact}
 									{#if backend}
-										<!-- T374: Discuss can sit beside this button, not inside the object opener. -->
-										<button type="button" class="shelf-card" data-shelf-object={entry.key} data-shape={objectShape(artifact)} onclick={event => openStudio(entry, event)}>
+										<div class="shelf-object-actions" data-shelf-object={entry.key}>
+										<button type="button" class="shelf-card" data-shape={objectShape(artifact)} onclick={event => openStudio(entry, event)}>
 											<ArtifactShelfObject {artifact} client={backend.client} />
 											<span class="shelf-ledge"></span>
 											<span class="shelf-caption"><strong>{artifactTitle(artifact)}</strong>
@@ -147,6 +148,8 @@
 												{#if artifact.living}<span class="living-label">● Living</span>{/if}
 											</span>
 										</button>
+										<DiscussButton {artifact} client={backend.client} compact />
+										</div>
 									{/if}
 								{/each}
 							</div>
@@ -204,6 +207,7 @@
 	.shelf-heading h2,.compare-heading h2 { font-weight:680; font-size:1rem; line-height:1.25; }
 	.shelf-project,.compare-heading span { font-size:.71rem; }
 	.shelf-objects { display:flex; flex-wrap:wrap; row-gap:11px; }
+	.shelf-object-actions { transform-origin:top left; }
 	.shelf-card { width:143px; text-align:left; padding:0; display:flex; flex-direction:column; transform-origin:top left; }
 	.shelf-card[data-shape='phone'] { width:105px; }
 	.shelf-card[data-shape='screen'],.shelf-card[data-shape='recording'],.shelf-card[data-shape='picture'] { width:183px; }
@@ -237,6 +241,6 @@
 		.shelves { display:grid; gap:22px; }
 		.shelf-heading { margin-left:1px; }
 		.shelf-objects { flex-wrap:nowrap; overflow:auto; padding:4px 3px 7px; scroll-snap-type:x proximity; scrollbar-width:thin; }
-		.shelf-card { flex:none; scroll-snap-align:start; }
+		.shelf-object-actions { flex:none; scroll-snap-align:start; }
 	}
 </style>
