@@ -209,6 +209,22 @@ class ProtocolRegressionTest {
         assertEquals(task.report.blocks, snapshot.blocks)
     }
 
+    @Test fun reportSectionViewsCannotBreakBoardOrSnapshotDecoding() {
+        val futureViews = """{"results":{"artifactId":"comparison","version":1,"label":"Open table","future":true},"notDone":{"version":{}},"summary":[]} """
+        for (views in listOf(futureViews, "[]")) {
+            val report = """{"now":"","results":"- The desk opened.","next":"","revision":1,"updatedAt":null,"updatedBy":null,"sectionViews":$views}"""
+            val board = """{"tasks":[{"id":"T1","revision":1,"title":"Booking rehearsal","description":"","acceptance":null,"status":"todo","blockedBy":[],
+                "blockedReason":null,"writeScopes":[],"workerIds":[],"scheduleId":null,"order":1,"createdBy":"user","updatedBy":"user",
+                "createdAt":"a","updatedAt":"b","settledAt":null,"archived":false,"report":$report}],"questions":[],"decisions":[],"updatedAt":null}"""
+            val task = wireJson.decodeFromString(Board.serializer(), board).tasks.single()
+            assertEquals("- The desk opened.", task.report.results)
+            assertEquals(wireJson.parseToJsonElement(views), task.report.sectionViews)
+            val snapshot = wireJson.decodeFromString(BoardTaskSnapshotReport.serializer(), report)
+            assertEquals(task.report.results, snapshot.results)
+            assertEquals(task.report.sectionViews, snapshot.sectionViews)
+        }
+    }
+
     @Test fun projectBoardLoadsOnConnectTakesPushesAndReportsConflicts() = runBlocking {
         fun board(id: String) = """{"tasks":[{"id":"$id","revision":1,"title":"$id","description":"","acceptance":null,"status":"todo","blockedBy":[],
             "blockedReason":null,"writeScopes":[],"workerIds":[],"scheduleId":null,"order":1,"createdBy":"user","updatedBy":"user",

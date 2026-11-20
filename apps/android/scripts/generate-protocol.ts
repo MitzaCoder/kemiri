@@ -77,9 +77,9 @@ function emit(name: string, s: Schema, union?: { name: string; by: string }) {
     output.set(name, "");
     const required = new Set(s.required ?? []);
     const fields = Object.entries(s.properties as Record<string, Schema>).map(([p, v]) => {
-        // Android renders the mirrors until it can decode each typed section independently.
-        const opaqueReportBlocks = p === "blocks" && (name === "BoardTaskReport" || name === "BoardTaskSnapshotReport");
-        let t = opaqueReportBlocks ? "JsonElement" : type(v, name + cap(p));
+        // Decode optional report sections at the presentation boundary, not as part of the board.
+        const opaqueReportPayload = (p === "blocks" || p === "sectionViews") && (name === "BoardTaskReport" || name === "BoardTaskSnapshotReport");
+        let t = opaqueReportPayload ? "JsonElement" : type(v, name + cap(p));
         let fallback = "";
         if (v.const !== undefined) fallback = " = " + (typeof v.const === "number" ? v.const + (t === "Long" ? "L" : "") : JSON.stringify(v.const));
         else if (p === "id" && name.endsWith("Request")) fallback = " = java.util.UUID.randomUUID().toString()";

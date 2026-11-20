@@ -763,6 +763,39 @@ it("code-mode typed steps cover exact commands and only submitted prose contribu
  expect(await detailNudges(runtime)).toContainEqual(expect.stringContaining("only in chat: long detail"));
 }, 15_000);
 
+it("an attachment-only tool write keeps coverage stale and does not file detail from HTML", async () => {
+ const test = await integration();
+ const { setup, runtime, projectId } = test;
+ const sourcePath = `${setup.projectDir}/comparison.html`;
+ await Bun.write(sourcePath, `<table><tr><td>${longDetail}</td></tr></table>`);
+ const artifact = await setup.server.artifacts.save({ projectId, taskId: "T1", sourcePath, title: null, note: null, threadId: "main", workerId: null });
+ const view = { artifactId: artifact.id, version: 1, label: "Open comparison table" };
+ await runtime.board.writeReport(change => runtime.harness.commit(change, BACKGROUND_CONTEXT), {
+  taskId: "T1", sections: { next: "Plan the evening rehearsal." }, blocks: { results: [{ kind: "outcome", text: "The desk opened." }] }, by,
+ }, "rehearsal-report");
+ const before = await runtime.board.markReportStale("T1", ["results", "next"], "A new rehearsal ended");
+ setup.faux.setResponses([
+  toolReply({ action: "write_report", id: "T1", sectionViews: { results: view }, coveredEventSeq: before.eventSeq!, milestone: "Comparison attached" }),
+  toolReply({ action: "show_task", id: "T1" }), fauxAssistantMessage(longDetail), fauxAssistantMessage("Noted."),
+ ]);
+ await submitOwnerChat(test, "Explain the observations on T1.", "comparison-attachment", "T1");
+ const state = await runtime.board.state();
+ const after = state.tasks[0]!;
+ expect(after.report.revision).toBe(before.report.revision + 1);
+ expect(after.report.sectionViews).toEqual({ results: view });
+ for (const section of ["results", "next"] as const) {
+  const { version, writtenAt, coveredEventSeq } = before.report.freshness![section];
+  expect(after.report.freshness![section]).toMatchObject({ version, writtenAt, coveredEventSeq, stale: true });
+ }
+ expect(state.chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
+ expect(await detailNudges(runtime)).toContainEqual(expect.stringContaining("only in chat: long detail"));
+ expect((await runtime.board.history("T1")).at(-1)).toMatchObject({ label: "Comparison attached", report: { sectionViews: { results: view } } });
+ const entries = (await runtime.conversation.entries({}, 100, undefined, BACKGROUND_CONTEXT)).items;
+ const shown = entries.flatMap(entry => entry.model ?? []).filter(message => message.role === "toolResult" && message.toolName === "board").map(message => JSON.stringify(message.content));
+ expect(shown.some(text => text.includes(view.label) && text.includes(`${artifact.id}~1`))).toBe(true);
+ expect(shown.some(text => text.includes(longDetail))).toBe(false);
+}, 15_000);
+
 it("a reply-only task reference routes a missing inline command; a long linked ask counts as filed", async () => {
  const test = await integration();
  const { setup, runtime } = test;

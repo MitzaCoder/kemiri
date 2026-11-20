@@ -2873,6 +2873,14 @@ is where they talk.
   Android keeps blocks as opaque JSON on the wire and decodes them at the presentation boundary, so an unknown kind
   or malformed section cannot break board/history decoding.
   `show_task` and worker reads use the readable mirrors without fetching artifact bytes. The compact list is unchanged.
+- **Pinned report section views (T356).** `task-report-section-views` advertises optional `report.sectionViews`
+  for Results and Not done. A coordinator can attach one saved HTML artifact per section in `board.write_report`,
+  by task-scoped ID, exact retained version and a short button label (up to 80 characters). The source limit is
+  256 KiB and the section must have meaningful typed blocks. Keep required facts in the blocks. Null detaches;
+  a section rewrite or a worker append detaches only the changed section unless a replacement is supplied.
+  Workers cannot attach views. Files and normal retention are unchanged. `show_task` and worker reads show the
+  label and pin without reading HTML. A missing pin stays stored and is reported unavailable; clients resolve the
+  exact `id~version` with `artifacts.url` and never substitute latest. Android decodes the field as opaque JSON.
 - **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
   and null clears it. `write_report` sets `summary` (one or two sentences above Results), `notDone` (Markdown,
   one item per line) and `checks` (name, passed or failed, optional count and note, and a timestamp that defaults
@@ -3691,6 +3699,8 @@ Both milestone invalidation and section coverage compare ordered readable facts,
 numbers and exact commands, not generated Markdown decoration or proof identifiers. A no-op or an equivalent
 legacy-to-block conversion covers nothing, whether coverage is omitted or explicit. A substantive rewrite
 bumps only that section's version and date; the same facts do not clear staleness or rearm nudges.
+An attachment-only edit can advance the report revision and save a named snapshot, but does not cover Results
+or Next and is not credited as filed detail by the only-in-chat check.
 A covered rewrite clears its stale causes and rearms that section. An uncovered rewrite retains its
 pending admission or delivered suppression, rather than creating a nag loop. Milestones are authored
 facts: non-coordinator milestones invalidate only sections not substantively rewritten with the milestone,
@@ -5900,7 +5910,8 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   events (including worker events) and snapshot history. Snapshots retain typed blocks alongside their mirrors,
   including proof versions. Web history reports additions, removals and reordering of blocks separately from text.
   Reordering a fact does not show it as newly added. “As it was” uses the same section renderer for old and typed
-  snapshots. The server's `show_task` also calls out block changes separately from facts. The timeline keeps its
+  snapshots. Snapshots keep each section view's pinned reference, not a copy of its HTML. The server's `show_task`
+  calls out block changes and view attachments, replacements and detachments separately from facts. The timeline keeps its
   kind filters, bounded event viewport, keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
   `aiki.timeline-order.v1`.
 - **About this task.** Shows available delivery and status facts, owner thread, titled task links with small IDs,

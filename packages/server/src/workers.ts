@@ -671,6 +671,7 @@ Would the owner need this again? Put it on the task first:
 - Your steps is for manual actions: one numbered step block per action, starting with a verb. Keep exact values and commands in \`copyText\`. Clear Your steps when done; rewriting Next leaves it alone. Next is for one or two actions agents will take.
 - A choice → \`ask\`. The first sentence is the question, and a choice can answer it. Give only what is needed to choose, in at most three short lines after the question; don't retell the task. Use \`choices\` with a short \`label\` and an \`effect\` saying what happens if picked. Set \`recommended\` on at most one choice and say why in a line. Use \`ask\` for other questions too, and kind \`warning\` for warnings.
 - Detail longer than a screen, a table or a diagram → a file on the task (\`artifact_save\` with \`taskId\`). Keep the conclusions in the report.
+- Attach a \`sectionViews\` view only for a real table, diagram or visual comparison, after the conclusions are in blocks. Never put required facts only in the view.
 - An answer to a task message → the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.
 A chat reply is a line or two naming the task; it may repeat what is on the task. Never leave required facts only in chat or a file.
 

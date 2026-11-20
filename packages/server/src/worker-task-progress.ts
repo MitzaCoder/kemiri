@@ -1,4 +1,5 @@
 import { ReportResultAppendSchema, type ReportArtifactScope } from "./report-blocks.ts";
+import { describeReportSectionViews } from "./report-section-views.ts";
 import { Type, type Static } from "typebox";
 import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId, Harness, Tx } from "@earendil-works/pi-durable";
@@ -64,7 +65,8 @@ export async function workerTaskProgress(args: WorkerTaskProgressArgs, options: 
 		const board = boardView(state, Date.now(), true);
 		const task = board.tasks.find((candidate) => candidate.id === taskId);
 		if (task === undefined) return progressText("The task no longer exists.");
-		return progressText(describeTaskInFull(task, options.assignedTaskOnly ? { ...board, tasks: [task] } : board, []), taskId);
+		const sectionViews = await describeReportSectionViews(task.id, task.report, options.artifactScope);
+		return progressText(describeTaskInFull(task, options.assignedTaskOnly ? { ...board, tasks: [task] } : board, [], undefined, sectionViews), taskId);
 	}
 	try {
 		const at = new Date().toISOString();

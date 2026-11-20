@@ -137,6 +137,21 @@ export const ReportBlocksSchema = Type.Object({
 }, { description: "Authoritative typed sections, with Markdown mirrors in the sibling string fields." });
 export type ReportBlocks = Static<typeof ReportBlocksSchema>;
 
+export const REPORT_SECTION_VIEW_SECTIONS = ["results", "notDone"] as const;
+export type ReportSectionViewSection = (typeof REPORT_SECTION_VIEW_SECTIONS)[number];
+
+export const ReportSectionViewSchema = Type.Object({
+	artifactId: Type.String({ pattern: "^[A-Za-z0-9_-]+$", description: "Saved artifact ID on this task, without a version suffix." }),
+	version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Exact retained version, never latest." }),
+	label: Type.String({ pattern: "^(?=.*\\S)[^\\x00-\\x1f\\x7f\\u2028\\u2029]+$", maxLength: 80, description: "Short, plain-text button label." }),
+}, { additionalProperties: false });
+export type ReportSectionView = Static<typeof ReportSectionViewSchema>;
+export const ReportSectionViewsSchema = Type.Object({
+	results: Type.Optional(ReportSectionViewSchema),
+	notDone: Type.Optional(ReportSectionViewSchema),
+}, { description: "Pinned supplemental HTML views. The report blocks hold the required facts." });
+export type ReportSectionViews = Static<typeof ReportSectionViewsSchema>;
+
 const BoardReportStepsSchema = Type.Optional(Type.String({ description: "task-steps: Your steps, a numbered Markdown list of manual actions with exact values and copyable commands. Absent when cleared." }));
 
 export const BoardReportCheckSchema = Type.Object({
@@ -150,6 +165,7 @@ export type BoardReportCheck = Static<typeof BoardReportCheckSchema>;
 
 const BoardReportOutcomeSchema = {
 	blocks: Type.Optional(ReportBlocksSchema),
+	sectionViews: Type.Optional(ReportSectionViewsSchema),
 	summary: Type.Optional(Type.String({ description: "One or two sentences about what came out of the task, above Results." })),
 	notDone: Type.Optional(Type.String({ description: "Markdown, one item per line, about what is missing or left out." })),
 	checks: Type.Optional(Type.Array(BoardReportCheckSchema)),

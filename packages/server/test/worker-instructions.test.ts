@@ -119,6 +119,7 @@ describe("workerInstructions", () => {
 			const stale = text.indexOf('A message starting with "[reports]" names stale sections or detail that is only in chat.');
 			expect(report).toBeGreaterThanOrEqual(0);
 			expect(stale).toBeGreaterThan(report);
+			expect(text).toContain("Attach a `sectionViews` view only for a real table, diagram or visual comparison, after the conclusions are in blocks. Never put required facts only in the view.");
 			expect(stale).toBeLessThan(text.indexOf("Only the user closes a task."));
 			expect(text).toContain("Rewrite only stale sections; file missing detail using the routes above, not in another chat reply.");
 			expect(text).toContain("pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked");
