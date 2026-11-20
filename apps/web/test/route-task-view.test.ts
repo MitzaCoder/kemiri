@@ -1,8 +1,9 @@
-import { expect, test } from 'bun:test';
+import { beforeAll, expect, test } from 'bun:test';
 import type { BoardQuestion, BoardTask } from '@kemiri/protocol';
+import { JSDOM } from 'jsdom';
 import { taskNeedsYou } from '../src/lib/task-details.js';
 import { defaultRouteDoor, routeAttention, routeParts, routeStops } from '../src/lib/task-view/route/route.js';
-import { reportExcerptLines } from '../src/lib/task-view/route/report.js';
+import { loadSvelteSsr } from './svelte-ssr.js';
 
 const at = '2026-01-04T12:00:00Z';
 const task = (fields: Partial<BoardTask> = {}) => ({
@@ -61,8 +62,54 @@ test('Arrived is the default unless something waits for the owner', () => {
 	expect(defaultRouteDoor(attentionFor(task({ report: { ...current.report, steps: '1. Try the page.' } })).count)).toBe('you');
 });
 
-test('closed doors show bounded excerpts without Markdown markers or code fences', () => {
-	expect(reportExcerptLines('# Rehearsal\n\n- **Slot limit held.**\n- [Receipt](https://example.test) arrived.\n```sh\nprintf hello\n```\n- Queue moved.\n- Fourth result.', 3)).toEqual(['Slot limit held.', 'Receipt arrived.', 'Queue moved.']);
-	expect(reportExcerptLines('1. Check the receipt.\n2. Review the slot picker.', 1)).toEqual(['Check the receipt.']);
-	expect(reportExcerptLines('', 3)).toEqual([]);
+const legacy: BoardTask['report'] = {
+	now: '', revision: 0, updatedAt: null, updatedBy: null,
+	results: 'The **legacy** paragraph stays intact.', notDone: '- The covered queue was not tested.', next: 'Check the receipt.',
+};
+const typed: BoardTask['report'] = { ...legacy, blocks: {
+	summary: [{ kind: 'outcome', text: 'The desk is **ready**.' }],
+	results: [{ kind: 'finding', title: 'The limit held', text: 'The clerk accepted ten reservations.' }],
+	notDone: [{ kind: 'risk', title: 'Rainy-day queue', text: 'The covered queue still needs a test.' }],
+	next: [{ kind: 'nextAction', text: 'The team will return.' }, { kind: 'nextAction', text: 'The team will reopen.' }],
+} };
+let ssr: typeof import('./fixtures/route-report-ssr.js');
+beforeAll(async () => {
+	const dom = new JSDOM('');
+	const window = Object.getOwnPropertyDescriptor(globalThis, 'window');
+	Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+	try {
+		ssr = await loadSvelteSsr(import.meta.dir + '/fixtures/route-report-ssr.ts') as typeof ssr;
+	} finally {
+		if (window) Object.defineProperty(globalThis, 'window', window);
+		else Reflect.deleteProperty(globalThis, 'window');
+	}
+}, 15_000);
+
+test('Route renders titled blocks or the Markdown fallback, never both', () => {
+	const renderResults = (report: BoardTask['report']) => ssr.render(ssr.RouteReportSection, { props: { task: task({ report }), section: 'results' } }).body;
+	const blocks = renderResults(typed);
+	expect(blocks).toMatch(/<h3[^>]*>The limit held<\/h3>/);
+	expect(blocks).toContain('The clerk accepted ten reservations.');
+	expect(blocks).not.toContain('legacy');
+	const markdown = renderResults(legacy);
+	expect(markdown).toContain('The <strong>legacy</strong> paragraph stays intact.');
+	expect(markdown).not.toContain('The limit held');
+});
+
+test('Route closed doors use typed glance facts and legacy fallbacks', () => {
+	const renderGlance = (report: BoardTask['report'], door: 'arrived' | 'ahead', showNext = true) =>
+		ssr.render(ssr.RouteReportGlance, { props: { task: task({ report }), door, taskFieldsEnabled: true, showNext } }).body;
+	const arrived = renderGlance(typed, 'arrived');
+	expect(arrived).toContain('The desk is ready.');
+	expect(arrived).toContain('The limit held');
+	expect(arrived).not.toContain('accepted ten');
+	const ahead = renderGlance(typed, 'ahead');
+	expect(ahead).toContain('Rainy-day queue');
+	expect(ahead).toContain('The team will return.');
+	expect(ahead).not.toContain('The team will reopen.');
+	expect(ahead).not.toContain('Check the receipt.');
+	expect(renderGlance(legacy, 'arrived')).toContain('The legacy paragraph stays intact.');
+	expect(renderGlance(legacy, 'ahead')).toContain('The covered queue was not tested.');
+	expect(renderGlance(legacy, 'ahead')).toContain('Check the receipt.');
+	expect(renderGlance(legacy, 'ahead', false)).not.toContain('Check the receipt.');
 });

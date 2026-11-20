@@ -12,6 +12,7 @@ internal data class ReportGlance(
     val findingTitles: List<String>,
     val riskTitles: List<String>,
     val firstNextAction: String?,
+    val legacyNotDone: String? = null,
 )
 
 /** Use the first readable paragraph, heading or list item, not a code fence or table. */
@@ -33,16 +34,17 @@ private inline fun <reified Block : ReportBlock> ReportSectionContent.firstLine(
 }
 
 /** Short reader-facing facts for alternate layouts. Markdown never implies a finding, risk or metric. */
-internal fun reportGlance(report: BoardTaskReport): ReportGlance {
-    val summary = readReportSection(report, ReportSectionKind.Summary)
+internal fun reportGlance(report: BoardTaskReport, includeSummary: Boolean = true, includeNotDone: Boolean = true): ReportGlance {
+    val summary = if (includeSummary) readReportSection(report, ReportSectionKind.Summary) else null
     val results = readReportSection(report, ReportSectionKind.Results)
-    val notDone = readReportSection(report, ReportSectionKind.NotDone)
+    val notDone = if (includeNotDone) readReportSection(report, ReportSectionKind.NotDone) else null
     val next = readReportSection(report, ReportSectionKind.Next)
     return ReportGlance(
-        firstOutcome = summary.firstLine(ReportBlock.Outcome::text) ?: results.firstLine(ReportBlock.Outcome::text),
+        firstOutcome = summary?.firstLine(ReportBlock.Outcome::text) ?: results.firstLine(ReportBlock.Outcome::text),
         metrics = results.blocksOfKind<ReportBlock.Metric>().map { it.copy(context = it.context?.let(::markdownText)) },
         findingTitles = results.blocksOfKind<ReportBlock.Finding>().map { it.title },
-        riskTitles = (results.blocksOfKind<ReportBlock.Risk>() + notDone.blocksOfKind<ReportBlock.Risk>()).map { it.title },
+        riskTitles = (results.blocksOfKind<ReportBlock.Risk>() + notDone?.blocksOfKind<ReportBlock.Risk>().orEmpty()).map { it.title },
         firstNextAction = next.firstLine(ReportBlock.NextAction::text),
+        legacyNotDone = (notDone as? ReportSectionContent.Mirror)?.let { firstLegacyLine(it.markdown) },
     )
 }

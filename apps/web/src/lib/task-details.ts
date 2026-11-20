@@ -9,10 +9,8 @@ export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedRea
 	const review = task.status === 'review';
 	const blocked = task.status === 'blocked' && (Boolean(task.blockedReason?.trim()) || hasBlockers);
 	const showSteps = stepsSupported && !isSettled(task.status);
-	const steps = showSteps ? task.report?.steps : undefined;
-	const stepsMarkdown = steps?.trim() ? steps : undefined;
 	const hasSteps = showSteps && task.report !== undefined && hasReportSection(task.report, 'steps');
-	return { ownerQuestions, questionsForAgent, review, blocked, stepsMarkdown, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
+	return { ownerQuestions, questionsForAgent, review, blocked, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
 }
 
 export function taskDetailState(status: BoardTask['status'], needsYou: ReturnType<typeof taskNeedsYou>, kind?: NonNullable<BoardTask['state']>['kind']): string {
@@ -31,9 +29,6 @@ export function taskDetailState(status: BoardTask['status'], needsYou: ReturnTyp
 export function taskDetailFields(task: Pick<BoardTask, 'goal' | 'report'>, taskFieldsEnabled: boolean) {
 	return {
 		goal: taskFieldsEnabled ? task.goal?.trim() || undefined : undefined,
-		// Route still reads Markdown mirrors until it adopts the report renderer.
-		summary: taskFieldsEnabled ? task.report.summary?.trim() || undefined : undefined,
-		notDoneMarkdown: taskFieldsEnabled ? notDoneMarkdown(task.report.notDone) : undefined,
 		hasSummary: taskFieldsEnabled && hasReportSection(task.report, 'summary'),
 		hasNotDone: taskFieldsEnabled && hasReportSection(task.report, 'notDone'),
 		checks: taskFieldsEnabled ? task.report.checks ?? [] : []
@@ -43,14 +38,6 @@ export function taskDetailFields(task: Pick<BoardTask, 'goal' | 'report'>, taskF
 /** In review, only a legacy Next can be shown as instructions for the owner. */
 export function taskNextPlacement(report: TaskReportSections, review: boolean): 'review' | 'next' | undefined {
 	if (hasReportSection(report, 'next')) return review && !hasTypedNext(report) ? 'review' : 'next';
-}
-
-/** Not done is one item per line, with or without Markdown list markers. */
-function notDoneMarkdown(notDone: string | undefined): string | undefined {
-	return notDone?.split(/\r?\n/)
-		.map(line => line.trim().replace(/^(?:[-+*]|\d+[.)])(?:\s+|$)/, ''))
-		.filter(Boolean)
-		.map(item => `- ${item}`).join('\n') || undefined;
 }
 
 export function failedCheckLine(checks: readonly BoardReportCheck[]): string | undefined {

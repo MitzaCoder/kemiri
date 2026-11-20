@@ -13,7 +13,6 @@ internal data class TaskNeedsYou(
     val review: Boolean,
     val blocked: Boolean,
     val showSteps: Boolean = false,
-    val stepsMarkdown: String? = null,
 ) {
     val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps
 }
@@ -23,9 +22,8 @@ internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBl
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
     val stepsEnabled = stepsSupported && !isSettled(task.status)
     val showSteps = stepsEnabled && readReportSection(task.report, ReportSectionKind.Steps).hasContent
-    val stepsMarkdown = if (stepsEnabled) task.report.steps?.takeIf { it.isNotBlank() } else null
     return TaskNeedsYou(ownerQuestions, questionsForAgent, task.status == "review",
-        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, stepsMarkdown)
+        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps)
 }
 
 internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: String? = null): String = when {
@@ -45,9 +43,6 @@ internal data class TaskDetailFields(
     val showSummary: Boolean = false,
     val showNotDone: Boolean = false,
     val checks: List<BoardReportCheck> = emptyList(),
-    // Route still reads Markdown mirrors until it adopts the report renderer.
-    val summary: String? = null,
-    val notDoneMarkdown: String? = null,
 )
 
 internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): TaskDetailFields {
@@ -57,19 +52,8 @@ internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): Task
         showSummary = readReportSection(task.report, ReportSectionKind.Summary).hasContent,
         showNotDone = readReportSection(task.report, ReportSectionKind.NotDone).hasContent,
         checks = task.report.checks.orEmpty(),
-        summary = task.report.summary?.trim()?.takeIf { it.isNotEmpty() },
-        notDoneMarkdown = notDoneMarkdown(task.report.notDone),
     )
 }
-
-private val listMarker = Regex("""^(?:[-+*]|\d+[.)])(?:\s+|$)""")
-
-/** Not done is one item per line, with or without Markdown list markers. */
-private fun notDoneMarkdown(notDone: String?): String? = notDone?.lineSequence()
-    ?.map { it.trim().replaceFirst(listMarker, "") }
-    ?.filter { it.isNotEmpty() }
-    ?.joinToString("\n") { "- $it" }
-    ?.takeIf { it.isNotEmpty() }
 
 internal fun failedCheckLine(checks: List<BoardReportCheck>): String? {
     val failed = checks.filter { it.result == "failed" }.map { it.name }

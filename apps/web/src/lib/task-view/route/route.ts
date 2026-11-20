@@ -12,7 +12,7 @@ export function routeAttention(task: BoardTask, needsYou: Attention | undefined)
 	const warnings = (needsYou?.ownerQuestions.length ?? 0) - questions;
 	const review = task.status === 'review';
 	const blocked = task.status === 'blocked';
-	const steps = Boolean(needsYou?.stepsMarkdown);
+	const steps = needsYou?.hasSteps ?? false;
 	const count = questions + warnings + Number(review) + Number(steps) + Number(blocked);
 	const label = questions ? questions === 1 ? 'One answer needed' : `${questions} answers needed`
 		: warnings ? warnings === 1 ? 'One heads-up' : `${warnings} heads-ups`

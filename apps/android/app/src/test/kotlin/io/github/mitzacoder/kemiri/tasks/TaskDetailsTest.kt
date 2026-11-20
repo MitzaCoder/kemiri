@@ -88,10 +88,9 @@ class TaskDetailsTest {
         assertEquals(TaskDetailFields(), taskDetailFields(populated, false))
         assertEquals(TaskDetailFields(), taskDetailFields(task.copy(report = legacy), true))
         assertEquals(TaskDetailFields(), taskDetailFields(task.copy(goal = null, report = legacy.copy(summary = " ", notDone = "\n \t \n", checks = emptyList())), true))
-        assertEquals(TaskDetailFields("Reserve books.", true, true, listOf(passed, failed),
-            summary = "The form is ready.", notDoneMarkdown = "- No reminders yet.\n- **Staff edits** are not ready.\n- No email."),
+        assertEquals(TaskDetailFields("Reserve books.", true, true, listOf(passed, failed)),
             taskDetailFields(populated, true))
-        assertEquals(TaskDetailFields(showNotDone = true, notDoneMarkdown = "- Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
+        assertEquals(TaskDetailFields(showNotDone = true), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
         assertEquals(legacy.results, populated.report.results)
         assertEquals(legacy.next, populated.report.next)
     }

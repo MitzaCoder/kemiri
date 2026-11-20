@@ -9,7 +9,6 @@ import { automaticTaskActivity, taskActivitySupported } from '#lib/task-activity
 import { reportFreshnessEnabled } from '#lib/report-freshness.js';
 import { failedCheckLine, taskDetailFields, taskNeedsYou } from '#lib/task-details.js';
 import { threadHref } from '#lib/backends.js';
-import { splitMedia } from '#lib/media-gallery.js';
 import { useRefLinks } from '#lib/ref-links.svelte.js';
 import { useArtifactFeed } from '#lib/artifacts.svelte.js';
 import { blockersOf, draftFromTask, draftToInput } from '#lib/board.js';
@@ -219,7 +218,6 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 			: undefined
 	);
 	const artifacts = $derived(artifactFeed.current?.artifacts ?? []);
-	const proof = $derived(splitMedia(artifacts).media.slice(0, 3));
 
 	async function updateArtifactTags(artifact: Artifact, tags: string[]): Promise<void> {
 		const row = await backend.client.updateArtifactTags(projectId, artifact.id, tags);
@@ -326,7 +324,6 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		get feedbackBusy() { return feedbackBusy; },
 		get feedbackProblem() { return feedbackProblem; },
 		get artifacts() { return artifacts; },
-		get proof() { return proof; },
 		get showLinked() { return onshowlinked === undefined ? undefined : showLinked; },
 		showEditor: () => { editing = true; },
 		hideEditor: () => { editing = false; },

@@ -16,22 +16,24 @@ function firstLegacyLine(markdown: string): string | undefined {
 }
 
 /** Short reader-facing facts. Legacy prose can supply a lead or action, but does not imply typed metrics or titles. */
-export function reportGlance({ report }: { report: TaskReportSections }): {
+export function reportGlance({ report }: { report: TaskReportSections }, taskFieldsEnabled = true): {
 	firstOutcome?: string;
 	metrics: Metric[];
 	findingTitles: string[];
 	riskTitles: string[];
+	legacyNotDone?: string;
 	firstNextAction?: string;
 } {
-	const summary = readReportSection(report, 'summary');
+	const summary = readReportSection(taskFieldsEnabled ? report : {}, 'summary');
 	const results = readReportSection(report, 'results');
-	const notDone = readReportSection(report, 'notDone');
+	const notDone = readReportSection(taskFieldsEnabled ? report : {}, 'notDone');
 	const next = readReportSection(report, 'next');
 	const firstOutcome = (summary.kind === 'blocks' ? summary.blocks.find(block => block.kind === 'outcome')?.text : firstLegacyLine(summary.markdown))
 		?? (results.kind === 'blocks' ? results.blocks.find(block => block.kind === 'outcome')?.text : firstLegacyLine(results.markdown));
 	const firstNextAction = next.kind === 'blocks' ? next.blocks.find(block => block.kind === 'nextAction')?.text : firstLegacyLine(next.markdown);
 	const resultBlocks = results.kind === 'blocks' ? results.blocks : [];
 	const riskBlocks = notDone.kind === 'blocks' ? notDone.blocks : [];
+	const legacyNotDone = notDone.kind === 'mirror' ? firstLegacyLine(notDone.markdown) : undefined;
 	return {
 		firstOutcome: firstOutcome && markdownText(firstOutcome),
 		metrics: resultBlocks.flatMap(block => block.kind === 'metric' ? [{
@@ -40,6 +42,7 @@ export function reportGlance({ report }: { report: TaskReportSections }): {
 		}] : []),
 		findingTitles: resultBlocks.flatMap(block => block.kind === 'finding' ? [block.title] : []),
 		riskTitles: [...resultBlocks, ...riskBlocks].flatMap(block => block.kind === 'risk' ? [block.title] : []),
+		...(legacyNotDone ? { legacyNotDone } : {}),
 		firstNextAction: firstNextAction && markdownText(firstNextAction),
 	};
 }

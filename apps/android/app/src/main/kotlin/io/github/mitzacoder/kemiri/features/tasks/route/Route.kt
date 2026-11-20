@@ -28,7 +28,7 @@ internal data class RouteAttention(
 internal fun routeAttention(task: BoardTask, needsYou: TaskNeedsYou): RouteAttention {
     val warnings = needsYou.ownerQuestions.count(::isWarning)
     return RouteAttention(needsYou.ownerQuestions.size - warnings, warnings, task.status == "review",
-        task.status == "blocked", needsYou.stepsMarkdown != null)
+        task.status == "blocked", needsYou.showSteps)
 }
 
 internal fun defaultRouteDoor(attentionCount: Int): RouteDoor = if (attentionCount > 0) RouteDoor.You else RouteDoor.Got

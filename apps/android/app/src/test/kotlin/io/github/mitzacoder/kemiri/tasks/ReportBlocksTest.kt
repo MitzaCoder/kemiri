@@ -109,7 +109,7 @@ class ReportBlocksTest {
     @Test fun legacyGlanceSkipsCodeAndDoesNotInventMetricsOrTitles() {
         val legacy = mirrors.copy(summary = " ", results = "```\nNot the lead\n```\n\n- **Ready** at the east doors.\n- Another fact.",
             next = "### Check the desk\n\nDetails below.")
-        assertEquals(ReportGlance("Ready at the east doors.", emptyList(), emptyList(), emptyList(), "Check the desk"), reportGlance(legacy))
+        assertEquals(ReportGlance("Ready at the east doors.", emptyList(), emptyList(), emptyList(), "Check the desk", "Not done mirror"), reportGlance(legacy))
         val typedOutcome = report("""{"results":[{"kind":"outcome","text":"The east doors are open."}]}""").copy(summary = "")
         assertEquals("The east doors are open.", reportGlance(typedOutcome).firstOutcome)
     }

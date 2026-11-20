@@ -1,11 +1,12 @@
 package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.features.tasks.route.*
-import io.github.mitzacoder.kemiri.features.tasks.taskNeedsYou
+import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.protocol.BoardLivePlanStep
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskLive
+import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -64,10 +65,35 @@ class RouteTest {
         assertEquals("One heads-up", attention(task, listOf(ownerQuestion.copy(kind = "warning"))).label)
     }
 
-    @Test fun excerptsOmitMarkdownFencesAndHeadingLinesAndStayBounded() {
-        assertEquals(listOf("Slot limit held.", "Receipt arrived.", "Queue moved."), reportExcerptLines(
-            "# Rehearsal\n\n- **Slot limit held.**\n- [Receipt](https://example.test) arrived.\n```sh\nprintf hello\n```\n- Queue moved.\n- Fourth result.", 3))
-        assertEquals(listOf("Check the receipt."), reportExcerptLines("1. Check the receipt.\n2. Review the slot picker.", 1))
-        assertTrue(reportExcerptLines("", 3).isEmpty())
+    @Test fun routeSelectsTypedResultsOrTheWholeMarkdownFallback() {
+        val legacy = task("T1").report.copy(results = "The **legacy** paragraph stays intact.")
+        val blocks = Json.parseToJsonElement("""{"results":[{"kind":"finding","title":"The limit held","text":"The clerk accepted ten reservations."}]}""")
+        assertEquals(ReportSectionContent.Blocks(listOf(ReportBlock.Finding("The limit held", "The clerk accepted ten reservations."))),
+            routeResults(legacy.copy(blocks = blocks)))
+        assertEquals(ReportSectionContent.Mirror(legacy.results), routeResults(legacy))
+        assertEquals(ReportSectionContent.Mirror(legacy.results), routeResults(legacy.copy(blocks =
+            Json.parseToJsonElement("""{"results":[{"kind":"future"}]}"""))))
+    }
+
+    @Test fun routeDoorGlancesUseTypedFactsWithLegacyFallbacks() {
+        val legacy = task("T1").report.copy(results = "- The **desk** is ready.", notDone = "- The covered queue was not tested.", next = "Check the receipt.")
+        val blocks = Json.parseToJsonElement("""{
+            "summary":[{"kind":"outcome","text":"The **morning** queue is ready."}],
+            "results":[{"kind":"finding","title":"The limit held","text":"The clerk accepted ten reservations."}],
+            "notDone":[{"kind":"risk","title":"Rainy-day queue","text":"The covered queue still needs a test."}],
+            "next":[{"kind":"nextAction","text":"The team will return."},{"kind":"nextAction","text":"The team will reopen."}]
+        }""")
+        val fields = TaskDetailFields(showSummary = true, showNotDone = true)
+        val typedGlance = routeReportGlance(legacy.copy(blocks = blocks), fields)
+        assertEquals("The morning queue is ready.", typedGlance.firstOutcome)
+        assertEquals(listOf("The limit held"), typedGlance.findingTitles)
+        assertEquals(listOf("Rainy-day queue"), typedGlance.riskTitles)
+        assertNull(typedGlance.legacyNotDone)
+        assertEquals("The team will return.", typedGlance.firstNextAction)
+        val legacyGlance = routeReportGlance(legacy, fields)
+        assertEquals("The desk is ready.", legacyGlance.firstOutcome)
+        assertEquals("The covered queue was not tested.", legacyGlance.legacyNotDone)
+        assertEquals("Check the receipt.", legacyGlance.firstNextAction)
+        assertNull(routeReportGlance(legacy, TaskDetailFields()).legacyNotDone)
     }
 }

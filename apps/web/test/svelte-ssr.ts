@@ -15,6 +15,12 @@ export async function loadSvelteSsr(entrypoint: string): Promise<unknown> {
    plugins: [{
     name: 'svelte-ssr',
     setup(build) {
+     // Route's report includes an artifact dialog; its client-side router is not used under SSR.
+     build.onResolve({ filter: /^\$app\/(state|navigation)$/ }, ({ path }) => ({ path, namespace: 'kit-ssr' }));
+     build.onLoad({ filter: /.*/, namespace: 'kit-ssr' }, ({ path }) => ({
+      contents: path === '$app/state' ? 'export const page = {};' : 'export function goto() { throw new Error("No client navigation during SSR"); }',
+      loader: 'js',
+     }));
      build.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
       contents: compile(await Bun.file(filename).text(), {
        filename,

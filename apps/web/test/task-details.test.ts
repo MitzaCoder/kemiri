@@ -34,7 +34,7 @@ describe('Needs you', () => {
 		const steps = '1. Open Settings.\n2. Set the code to `30`.';
 		const withSteps = { ...task('in_progress'), report: { steps } };
 		const needs = taskNeedsYou(withSteps, [], false, true);
-		expect(needs).toMatchObject({ show: true, hasSteps: true, stepsMarkdown: steps, review: false });
+		expect(needs).toMatchObject({ show: true, hasSteps: true, review: false });
 		expect(taskDetailState(withSteps.status, needs, 'steps_needed')).toBe('Your steps to do');
 		expect(taskDetailState(withSteps.status, needs, 'failed')).toBe('Failed');
 		expect(taskDetailState(withSteps.status, taskNeedsYou(withSteps, [question], false, true), 'answer_needed')).toBe('Needs your answer');
@@ -56,7 +56,7 @@ describe('Needs you', () => {
 
 describe('structured task fields', () => {
 	const report: BoardTask['report'] = { now: '', results: '- Legacy result', next: '**Legacy plan**', revision: 0, updatedAt: null, updatedBy: null };
-	const hidden = { goal: undefined, hasSummary: false, hasNotDone: false, summary: undefined, notDoneMarkdown: undefined, checks: [] };
+	const hidden = { goal: undefined, hasSummary: false, hasNotDone: false, checks: [] };
 	const passed: BoardReportCheck = { name: 'Tests', result: 'passed', count: 0, at: question.askedAt };
 	const failed: BoardReportCheck = { name: 'Typecheck', result: 'failed', at: question.askedAt };
 
@@ -66,11 +66,11 @@ describe('structured task fields', () => {
 		expect(taskDetailFields({ report }, true)).toEqual(hidden);
 		expect(taskDetailFields({ goal: null, report: { ...report, summary: '  ', notDone: '\n \n', checks: [] } }, true)).toEqual(hidden);
 		expect(taskDetailFields(task, true)).toEqual({
-			goal: 'Reserve books.', hasSummary: true, summary: 'The form is ready.',
-			hasNotDone: true, notDoneMarkdown: '- No reminders yet.\n- **Staff edits** are not ready.\n- No email.', checks: [passed, failed]
+			goal: 'Reserve books.', hasSummary: true,
+			hasNotDone: true, checks: [passed, failed]
 		});
 		expect(taskDetailFields({ goal: ' ', report: { ...report, notDone: 'Just one item.' } }, true))
-			.toEqual({ ...hidden, hasNotDone: true, notDoneMarkdown: '- Just one item.' });
+			.toEqual({ ...hidden, hasNotDone: true });
 		expect(task.report).toMatchObject({ results: '- Legacy result', next: '**Legacy plan**' });
 	});
 

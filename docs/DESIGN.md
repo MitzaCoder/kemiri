@@ -2978,14 +2978,18 @@ interchange from open questions, warnings, steps, review and blockers, never by 
 The live card reveals counters and recent lines under So far. The record opens in place with the request first.
 Reply opens the existing task composer from the corner or from the review controls.
 
-Route's five report sections go through `RouteReportSection.svelte`. It renders Markdown now and uses bounded
-excerpts for closed doors. Swap the two render modes there when the typed report renderer and glance helpers land.
+Route uses the same report section renderer as Classic on web and Android. Arrived shows Summary and Results;
+Ahead shows Not done and agent Next. Both keep the shaped Markdown fallback and pinned section views.
+Closed doors use the shared glance facts: Arrived leads with the first outcome and finding titles, and Ahead
+shows risk titles and the first next action, with brief Markdown fallbacks. Your stop shows manual instructions
+from Your steps, or legacy Next under Check the work in review. Typed Next never becomes a review instruction.
+A Results proof block replaces its automatic thumbnail without removing the file from Files.
 
 **Android Route (T368).** The owner selects Route from Task view, without changing Classic or its default.
 Route fills the task window. Calm keeps the current stop in view on a horizontal line above the reading sections.
 At 840dp, Doors opens one rounded platform beside two flat summaries. The first question remains answerable
 in a closed Your stop door. Door widths animate only with motion enabled. Both layouts share the existing
-task actions and reply composer. `RouteReportSection.kt` is the seam for full reports and closed-door excerpts.
+task actions and reply composer. `RouteReportSection.kt` delegates report bodies to the shared native renderer.
 
 ### Task changes and integration refs (T124)
 

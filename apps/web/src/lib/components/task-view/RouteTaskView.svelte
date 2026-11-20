@@ -29,7 +29,10 @@
 	import TaskUsage from '#lib/components/TaskUsage.svelte';
 	import TaskWaitingForm from '#lib/components/TaskWaitingForm.svelte';
 	import type { TaskViewDesignProps } from '#lib/task-view/designs.js';
-	import { acceptanceMarkdown } from '#lib/task-details.js';
+	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
+	import { emptyFinishedResults } from '#lib/report-freshness.js';
+	import { automaticReportProof, hasReportSection } from '#lib/report-sections.js';
+	import { acceptanceMarkdown, taskNextPlacement } from '#lib/task-details.js';
 	import { isWarning, taskDisplayWords, taskRefs, taskStatusWords } from '#lib/tasks.js';
 	import { taskUsesPartsSentence } from '#lib/task-parts.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
@@ -41,11 +44,16 @@
 	import TaskViewDesignMenu from './TaskViewDesignMenu.svelte';
 	import RouteProof from './route/RouteProof.svelte';
 	import RouteRail from './route/RouteRail.svelte';
+	import RouteReportGlance from './route/RouteReportGlance.svelte';
 	import RouteReportSection from './route/RouteReportSection.svelte';
 	import './route/route.css';
 
 	let { model, editor }: TaskViewDesignProps = $props();
 	const { task, projectId, backend, fields, needsYou, supportsLinks, requestedId, taskFieldsEnabled } = $derived(model);
+	const hasResults = $derived(task && hasReportSection(task.report, 'results'));
+	const nextPlacement = $derived(task && taskNextPlacement(task.report, needsYou?.review ?? false));
+	const proof = $derived(task ? automaticReportProof(task.report, model.artifacts) : []);
+	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts'), reportSectionViews: backend.supports('task-report-section-views') }));
 	const registerQuoteScope = $derived(model.registerQuoteScope);
 	const id = $props.id();
 	const doors = [
@@ -197,7 +205,7 @@
 														{#if attention.steps}{@render disclosure('Your steps', wide, ownerSteps)}{/if}
 														{#if attention.review}
 															<div class="route-flow"><h3>Check the work</h3>
-																<RouteReportSection {task} section="next" {taskFieldsEnabled} />
+																{#if nextPlacement === 'review'}<RouteReportSection {task} section="next" />{/if}
 																<div class="flex flex-wrap gap-2"><Button class="min-h-11" disabled={model.closing} onclick={model.completeReview}>It works: close the task</Button><Button class="min-h-11" variant="outline" onclick={model.focusReply}>Something is off…</Button></div>
 															</div>
 														{/if}
@@ -216,15 +224,22 @@
 										{:else if door.id === 'got'}
 											<div class="route-arrived" class:route-arrived-columns={wide && open && (fields?.checks.length || model.artifacts.length || model.delivery)}>
 												<div class="route-flow route-story">
-													<RouteReportSection {task} section="summary" {taskFieldsEnabled} />
-													{#if open && model.staleReport}<p class="route-quiet route-stale">Report may be out of date. <ReportStaleAction {backend} {projectId} taskId={task.id} /></p>{/if}
-													<RouteReportSection {task} section="results" {taskFieldsEnabled} mode={open ? 'full' : 'glance'} showEmpty={!fields?.summary && !model.failedChecks} />
+													{#if open}
+														{#if fields?.hasSummary}<RouteReportSection {task} section="summary" />{/if}
+														{#if model.staleReport}<p class="route-quiet route-stale">Report may be out of date. <ReportStaleAction {backend} {projectId} taskId={task.id} /></p>{/if}
+														{#if hasResults}<RouteReportSection {task} section="results" />{/if}
+													{:else}
+														<RouteReportGlance {task} door="arrived" {taskFieldsEnabled} />
+													{/if}
+													{#if !hasResults && !fields?.hasSummary && !model.failedChecks}
+														<p class="route-quiet">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>
+													{/if}
 													{#if !open && model.failedChecks}<p class="route-failed">{model.failedChecks}</p>{/if}
 													{#if open && requestedId !== null && model.supportsUsage}<TaskUsage client={backend.client} {projectId} taskId={task.id} />{/if}
 												</div>
 												{#if open && (fields?.checks.length || model.artifacts.length || model.delivery)}
 													<div class="route-flow route-evidence">
-														{#if model.proof.length}<h3>Proof</h3><RouteProof media={model.proof} client={backend.client} />{/if}
+														{#if proof.length}<h3>Proof</h3><RouteProof media={proof} client={backend.client} />{/if}
 														{#if fields?.checks.length}{@render checks(wide)}{/if}
 														{#if model.artifacts.length}<h3>Files ({model.artifacts.length})</h3><TaskFiles artifacts={model.artifacts} client={backend.client} {projectId} onupdatetags={model.supportsArtifactTags ? model.updateArtifactTags : undefined} />{/if}
 														{#if model.delivery}{@render disclosure('Delivery', wide, deliveryDetails)}{/if}
@@ -233,12 +248,14 @@
 											</div>
 										{:else}
 											<div class="route-flow">
-												{#if fields?.notDoneMarkdown}
-													{#if open}<h3>Not done</h3>{/if}
-													<RouteReportSection {task} section="notDone" {taskFieldsEnabled} mode={open ? 'full' : 'glance'} />
+												{#if open}
+													{#if fields?.hasNotDone}<h3>Not done</h3><RouteReportSection {task} section="notDone" />{/if}
+													{#if nextPlacement === 'next'}<h3>Next</h3><RouteReportSection {task} section="next" />{/if}
+												{:else}
+													<RouteReportGlance {task} door="ahead" {taskFieldsEnabled} showNext={nextPlacement === 'next'} />
 												{/if}
-												{#if !needsYou?.review}
-													<RouteReportSection {task} section="next" {taskFieldsEnabled} mode={open ? 'full' : 'glance'} showEmpty={!fields?.notDoneMarkdown && !haveConnections && !needsYou?.questionsForAgent.length} />
+												{#if nextPlacement === undefined && !fields?.hasNotDone && !haveConnections && !needsYou?.questionsForAgent.length}
+													<p class="route-quiet">No next action written.</p>
 												{/if}
 												{#if open && needsYou?.questionsForAgent.length}
 													<h3>Waiting for an agent reply</h3>
@@ -285,7 +302,7 @@
 {/snippet}
 
 {#snippet ownerSteps()}
-	{#if task}<RouteReportSection {task} section="steps" {taskFieldsEnabled} />{/if}
+	{#if task}<RouteReportSection {task} section="steps" />{/if}
 {/snippet}
 
 {#snippet taskNotes()}

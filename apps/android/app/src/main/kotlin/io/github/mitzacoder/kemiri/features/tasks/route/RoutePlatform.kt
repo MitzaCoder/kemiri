@@ -32,9 +32,10 @@ import io.github.mitzacoder.kemiri.features.chat.ChatArtifactMetadata
 import io.github.mitzacoder.kemiri.features.chat.artifactTitle
 import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
-import io.github.mitzacoder.kemiri.features.tasks.media.splitMedia
+import io.github.mitzacoder.kemiri.features.tasks.media.automaticReportProof
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.navigation.PanelTab
+import io.github.mitzacoder.kemiri.protocol.Artifact
 import io.github.mitzacoder.kemiri.protocol.BoardReportCheck
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -101,9 +102,11 @@ private fun RouteYourStop(sheet: TaskSheetState, attention: RouteAttention, open
                     QuestionCard(sheet.context, warning, askedBy = questionAskedBy(warning, sheet.threads), compact = true, plain = true)
                 } }
             }
-            if (attention.steps) RouteDisclosure("Your steps", inline = true) { RouteReportSection(sheet, RouteReport.Steps) }
+            if (attention.steps) RouteDisclosure("Your steps", inline = true) { RouteReportSection(sheet, ReportSectionKind.Steps) }
             if (attention.review) {
-                RouteDisclosure("Check the work", inline = true) { RouteReportSection(sheet, RouteReport.Next) }
+                RouteDisclosure("Check the work", inline = true) {
+                    if (sheet.nextPlacement == ReportNextPlacement.Review) RouteReportSection(sheet, ReportSectionKind.Next)
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { sheet.status.onSet("done", null, null) }, enabled = !sheet.status.saving) { Text("It works: close the task") }
                     OutlinedButton(onClick = onReply) { Text("Something is off…") }
@@ -133,11 +136,26 @@ private fun RouteYourStop(sheet: TaskSheetState, attention: RouteAttention, open
 @Composable
 private fun RouteArrived(sheet: TaskSheetState, open: Boolean, wide: Boolean) {
     val colors = Jarvis.colors
+    val report = sheet.task.report
+    val resultsContent = remember(report) { routeResults(report) }
+    val proof = remember(resultsContent, sheet.artifacts) { automaticReportProof(resultsContent, sheet.artifacts) }
     val results: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            RouteReportSection(sheet, RouteReport.Summary, if (open) null else 1)
-            if (open && sheet.staleReport) StaleTaskReport(sheet.context, sheet.task.id)
-            RouteReportSection(sheet, RouteReport.Results, if (open) null else 3)
+            if (open) {
+                if (sheet.fields.showSummary) RouteReportSection(sheet, ReportSectionKind.Summary)
+                if (sheet.staleReport) StaleTaskReport(sheet.context, sheet.task.id)
+                if (resultsContent.hasContent) RouteReportSection(sheet, ReportSectionKind.Results)
+            } else {
+                val glance = remember(report, sheet.fields) { routeReportGlance(report, sheet.fields) }
+                glance.firstOutcome?.let {
+                    Text(it, style = TextStyles.base.copy(fontWeight = FontWeight.Bold), color = colors.fg,
+                        maxLines = 4, overflow = TextOverflow.Ellipsis)
+                }
+                glance.findingTitles.take(3).forEach { RouteQuiet(it, maxLines = 3) }
+            }
+            if (!resultsContent.hasContent && !sheet.fields.showSummary) {
+                RouteQuiet(if (emptyFinishedResults(sheet.task.status, report.results)) "No results yet · work finished" else "Nothing written yet.")
+            }
             if (open) TaskUsageDisclosure(sheet.usage, sheet.task.id)
             else failedCheckLine(sheet.fields.checks)?.let { Text(it, style = TaskType.xs, color = colors.danger) }
         }
@@ -148,7 +166,7 @@ private fun RouteArrived(sheet: TaskSheetState, open: Boolean, wide: Boolean) {
                 Text("Could not read files: $problem", style = TaskType.xs, color = colors.danger)
                 RouteSmallButton("Retry files", sheet.onRetryArtifacts)
             }
-            RouteProof(sheet)
+            RouteProof(sheet, proof)
             RouteChecks(sheet.fields.checks, wide)
             if (sheet.artifacts.isNotEmpty()) {
                 TaskHeading("Files (${sheet.artifacts.size})")
@@ -169,8 +187,7 @@ private fun RouteArrived(sheet: TaskSheetState, open: Boolean, wide: Boolean) {
 }
 
 @Composable
-private fun RouteProof(sheet: TaskSheetState) {
-    val proof = remember(sheet.artifacts) { splitMedia(sheet.artifacts).media.take(3) }
+private fun RouteProof(sheet: TaskSheetState, proof: List<Artifact>) {
     if (proof.isEmpty()) return
     val shape = RoundedCornerShape(8.dp)
     TaskHeading("Proof")
@@ -219,15 +236,26 @@ private fun RouteChecks(checks: List<BoardReportCheck>, wide: Boolean) {
 private fun RouteAhead(sheet: TaskSheetState, parts: List<BoardTask>, open: Boolean, wide: Boolean) {
     val task = sheet.task
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (sheet.fields.notDoneMarkdown != null) {
-            if (open) TaskHeading("Not done")
-            RouteReportSection(sheet, RouteReport.NotDone, if (open) null else 3)
+        val showNext = sheet.nextPlacement == ReportNextPlacement.Next
+        val showNotDone = sheet.fields.showNotDone
+        if (open) {
+            if (showNotDone) {
+                TaskHeading("Not done")
+                RouteReportSection(sheet, ReportSectionKind.NotDone)
+            }
+            if (showNext) {
+                TaskHeading("Next")
+                RouteReportSection(sheet, ReportSectionKind.Next)
+            }
+        } else {
+            val glance = remember(task.report, sheet.fields) { routeReportGlance(task.report, sheet.fields) }
+            (glance.riskTitles + listOfNotNull(glance.legacyNotDone)).take(3).forEach { RouteQuiet(it, maxLines = 3) }
+            if (showNext) glance.firstNextAction?.let {
+                TaskHeading("Next")
+                RouteQuiet(it, maxLines = 3)
+            }
         }
-        if (!sheet.needsYou.review && (task.report.next.isNotBlank() || sheet.fields.notDoneMarkdown == null)) {
-            if (task.report.next.isNotBlank()) TaskHeading("Next")
-            if (task.report.next.isNotBlank()) RouteReportSection(sheet, RouteReport.Next, if (open) null else 2)
-            else RouteQuiet("Nothing written yet.")
-        }
+        if (sheet.nextPlacement == null && !showNotDone) RouteQuiet("Nothing written yet.")
         if (open && sheet.needsYou.questionsForAgent.isNotEmpty()) RouteDisclosure("Waiting for an agent reply", inline = wide) {
             sheet.needsYou.questionsForAgent.forEach { question -> key(question.id) {
                 QuestionCard(sheet.context, question, askedBy = questionAskedBy(question, sheet.threads), compact = true, plain = true)
