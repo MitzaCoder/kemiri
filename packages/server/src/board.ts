@@ -1,3 +1,5 @@
+import { REPORT_BLOCK_SECTIONS, ReportBlocksInputSchema, type ReportBlocksInput, type ResultBlock } from "@kemiri/protocol";
+import { diffReportSections, legacyBullet, legacyResultBlock, reportAppendHasCapacity, reportBlockStructure, reportMarkdown, renderedReportText, sameAppendedBlocks, submittedBlockText, validateReportBlocks, validateReportProofs, type ReportArtifactScope } from "./report-blocks.ts";
 import { DEFAULT_TASK_WATCHER, type TaskWatcherSettings, type TaskWatcherStatus } from "@kemiri/protocol";
 import { evaluateWatcherRun, markWatcherLineWrong, publishWatcherAnswer, TaskWatcherLiveService, TaskWatcherRun, watcherCanPublish, type WatcherJob, type WatcherPublication } from "./task-watcher-live.ts";
 import { describeLivePlan, type LivePlanUpdate } from "./task-live-plan.ts";
@@ -11,7 +13,7 @@ import { activityTracking, taskActivity, endActivitySource, type TaskActivityTra
 import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
-import { initializeTaskFreshness, coverReportSection, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
+import { initializeTaskFreshness, coverReportSection, reportSectionFacts, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
 import { pointsAtChat } from "./task-chat-pointer.ts";
 import { taskTextWarnings } from "./task-text-style.ts";
@@ -292,6 +294,7 @@ export function addSnapshot(
 		...(task.waiting === undefined ? {} : { waiting: plain(task.waiting) }),
 		report: {
 			now: task.report.now, results: task.report.results, next: task.report.next,
+			...(task.report.blocks === undefined ? {} : { blocks: plain(task.report.blocks) }),
 			...(task.report.steps ? { steps: task.report.steps } : {}),
 			...(task.report.summary === undefined ? {} : { summary: task.report.summary }),
 			...(task.report.notDone === undefined ? {} : { notDone: task.report.notDone }),
@@ -430,48 +433,101 @@ export type ReportWrite = {
 	planUpdate?: LivePlanUpdate | undefined;
 	/** A line added to the end of `results`, as a bullet. */
 	addResult?: string | undefined;
+	addResultBlocks?: ResultBlock[] | undefined;
+	blocks?: ReportBlocksInput | undefined;
 	by: BoardWriter;
 	now: string;
 	coveredEventSeq?: number | undefined;
 	waitsOn?: string[] | undefined;
+	milestone?: string | undefined;
 };
 
-/**
- * Rewrite the named sections of a task's report. Bumps only the report's revision, never the task's, so the user's edits
- * of the task do not conflict with it.
- */
+type ReportContent = Pick<BoardTaskReport, (typeof REPORT_BLOCK_SECTIONS)[number] | "blocks">;
+
+/** Compute the write once, before snapshots, freshness or activity are mutated. */
+function prepareReportContent(report: BoardTaskReport, input: ReportWrite): { content: ReportContent; liveResults: string[] } {
+	const { sections, blocks, addResult, addResultBlocks } = input;
+	validateReportBlocks(blocks, addResultBlocks);
+	if ((addResult !== undefined || addResultBlocks !== undefined) && (sections.results !== undefined || blocks?.results !== undefined)) {
+		throw new ServerError("bad_request", "A Results append cannot also replace Results.");
+	}
+	if (addResult !== undefined && (addResultBlocks !== undefined || !addResult.trim())) {
+		throw new ServerError("bad_request", "Send one of addResult (nonblank) or addResultBlocks, not both.");
+	}
+	if (Object.values(sections).every(value => value === undefined) && !Object.keys(blocks ?? {}).length && addResult === undefined && addResultBlocks === undefined && !input.mergeChecks?.length && !input.planUpdate && !input.milestone?.trim()) {
+		throw new ServerError("bad_request", "A report write names at least one section, block list, check or milestone.");
+	}
+	const content: ReportContent = {
+		results: report.results, next: report.next,
+		...(report.summary === undefined ? {} : { summary: report.summary }),
+		...(report.notDone === undefined ? {} : { notDone: report.notDone }),
+		...(report.steps === undefined ? {} : { steps: report.steps }),
+	};
+	const typed = plain(report.blocks ?? {});
+	for (const name of REPORT_BLOCK_SECTIONS) {
+		const replacement = blocks?.[name];
+		const text = sections[name];
+		if (replacement === undefined && text === undefined) continue;
+		if (replacement !== undefined && text !== undefined) throw new ServerError("bad_request", `Send either Markdown or blocks for ${name}, not both.`);
+		// Assign each section with its exact discriminated element type.
+		delete typed[name];
+		if (replacement?.length) Object.assign(typed, { [name]: replacement });
+		const mirror = replacement ? reportMarkdown(name, replacement) : text!.trim();
+		if (mirror || name === "results" || name === "next") content[name] = mirror;
+		else delete content[name];
+	}
+	const liveResults: string[] = [];
+	if (addResultBlocks && !sameAppendedBlocks(typed.results, addResultBlocks)) {
+		typed.results = [...(typed.results ?? (content.results ? [{ kind: "markdown" as const, text: content.results }] : [])), ...addResultBlocks];
+		for (const block of addResultBlocks) if (block.kind === "outcome" || block.kind === "finding") {
+			const line = renderedReportText(block.text);
+			liveResults.push(line.length > 160 ? `${line.slice(0, 159)}…` : line);
+		}
+	} else if (addResult !== undefined) {
+		const bullet = legacyBullet(addResult);
+		const last = typed.results?.at(-1);
+		const previousBullet = last ? reportMarkdown("results", [last]).split("\n").pop() : content.results.split("\n").pop();
+		const adapted = typed.results ? legacyResultBlock(addResult) : undefined;
+		const repeat = adapted?.kind === "outcome" ? sameAppendedBlocks(typed.results, [adapted]) : last?.kind === "markdown" && last.text === adapted?.text;
+		if (!repeat && previousBullet !== bullet) {
+			if (typed.results && adapted) typed.results.push(adapted);
+			else content.results = content.results ? `${content.results}\n${bullet}` : bullet;
+			liveResults.push(addResult.trim().replace(/^[-*] /, ""));
+		}
+	}
+	reportAppendHasCapacity(typed.results);
+	if (typed.results && (addResult !== undefined || addResultBlocks !== undefined)) content.results = reportMarkdown("results", typed.results);
+	if (Object.keys(typed).length) content.blocks = typed;
+	return { content, liveResults };
+}
+
+/** Rewrite the named sections without changing the task's ordinary edit revision. */
 export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?: string): BoardTask {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
-	const { now, results, next, steps, summary, notDone, checks } = input.sections;
+	return applyReportWrite(state, task, input, prepareReportContent(task.report ?? emptyReport(), input), liveWriteKey);
+}
+
+function applyReportWrite(state: BoardState, task: BoardTask, input: ReportWrite, prepared: ReturnType<typeof prepareReportContent>, liveWriteKey?: string): BoardTask {
+	const { now, checks } = input.sections;
 	const { mergeChecks } = input;
-	if (Object.values(input.sections).every(value => value === undefined) && input.addResult === undefined && !mergeChecks?.length && !input.planUpdate) {
-		throw new ServerError("bad_request", "A report write names at least one of now, results, next, steps, summary, notDone and checks");
-	}
+	const { content, liveResults } = prepared;
 	const report = (task.report ??= emptyReport());
 	initializeTaskFreshness(state, task);
-	const previous = { results: report.results, next: report.next, steps: report.steps, summary: report.summary, notDone: report.notDone };
+	const previous = { results: reportSectionFacts(report, "results"), next: reportSectionFacts(report, "next") };
+	const changed = REPORT_BLOCK_SECTIONS.some(name => content[name] !== report[name] || reportBlockStructure(content.blocks?.[name]) !== reportBlockStructure(report.blocks?.[name]));
 	let checksChanged = false;
- let recordedChecks: BoardReportCheck[] = [];
- if (now !== undefined && !state.taskActivityEnabled) report.now = now.trim();
-	if (results !== undefined) report.results = results.trim();
-	if (next !== undefined) report.next = next.trim();
-	if (steps !== undefined) {
-		const markdown = steps.trim();
-		if (!markdown) {
-			delete report.steps;
-			delete report.stepsWrittenAt;
-		} else if (markdown !== report.steps) {
-			report.steps = markdown;
-			report.stepsWrittenAt = input.now;
-		}
+	let recordedChecks: BoardReportCheck[] = [];
+	if (now !== undefined && !state.taskActivityEnabled) report.now = now.trim();
+	if (!content.steps) delete report.stepsWrittenAt;
+	else if (content.steps !== report.steps) report.stepsWrittenAt = input.now;
+	for (const name of REPORT_BLOCK_SECTIONS) {
+		const text = content[name];
+		if (text === undefined) delete report[name];
+		else if (text !== report[name]) report[name] = text;
 	}
-	for (const [name, text] of [["summary", summary], ["notDone", notDone]] as const) {
-		if (text === undefined) continue;
-		const markdown = text.trim();
-		if (markdown) report[name] = markdown;
-		else delete report[name];
-	}
+	if (!content.blocks) delete report.blocks;
+	else if (changed) report.blocks = content.blocks;
 	if (checks !== undefined || mergeChecks?.length) {
 		const checkWithTimestamp = ({ name, result, count, note, at }: ReportCheckInput): BoardReportCheck => ({
 			name, result, ...(count === undefined ? {} : { count }), ...(note === undefined ? {} : { note }), at: at ?? input.now,
@@ -485,21 +541,11 @@ export function writeReport(state: BoardState, input: ReportWrite, liveWriteKey?
 		if (!nextChecks.length) delete report.checks;
 		else if (checksChanged) report.checks = nextChecks;
 	}
- let addedResult: string | undefined;
- if (input.addResult !== undefined) {
-  const line = input.addResult.trim();
-  const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
-  // The same line twice in a row is a rerun after a restart, not two results.
-  if (report.results.split("\n").pop() !== bullet) {
-   report.results = report.results ? `${report.results}\n${bullet}` : bullet;
-   addedResult = line.replace(/^[-*] /, "");
-  }
- }
- if (state.taskActivityEnabled || input.planUpdate) recordLiveReport(state, task.id, input.by, input.now, now, addedResult, liveWriteKey, checksChanged ? recordedChecks : [], input.planUpdate);
+ if (state.taskActivityEnabled || input.planUpdate) recordLiveReport(state, task.id, input.by, input.now, now, liveResults, liveWriteKey, checksChanged ? recordedChecks : [], input.planUpdate);
 	for (const name of ["results", "next"] as const) {
 		coverReportSection(state, task, name, { previous: previous[name], by: input.by, at: input.now, coveredEventSeq: input.coveredEventSeq, waitsOn: input.waitsOn });
 	}
-	if (state.taskActivityEnabled && (Object.keys(previous) as (keyof typeof previous)[]).every(name => previous[name] === report[name]) && !checksChanged) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
+	if (state.taskActivityEnabled && !changed && !checksChanged) return plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!);
  report.revision += 1;
 	report.updatedAt = input.now;
 	report.updatedBy = { ...input.by };
@@ -529,27 +575,29 @@ export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId
 export async function writeReportIn(
 	tx: Tx,
 	mainId: ConversationId,
-	input: Omit<ReportWrite, "now"> & { milestone?: string | undefined },
+	input: Omit<ReportWrite, "now">,
 	key: string,
 	at: string,
+	artifactScope?: ReportArtifactScope,
+	beforeApply?: () => Promise<void>,
 ): Promise<BoardTask> {
 	const state = await openBoard(tx, mainId);
-	let coverage = input.coveredEventSeq;
+	const task = state.tasks.find(task => task.id === input.taskId);
+	if (!task) throw unknownTask(input.taskId);
+	const appendKey = input.addResult === undefined && input.addResultBlocks === undefined ? undefined : `report-append:${input.taskId}:${key}`;
+	if (appendKey && state.harnessKeys?.includes(appendKey)) return plain(boardView(state, Date.parse(at), true).tasks.find(row => row.id === task.id)!);
+	const write = { ...input, now: at };
+	const prepared = prepareReportContent(task.report, write);
+	await validateReportProofs(task.id, input.blocks, input.addResultBlocks, artifactScope);
+	await beforeApply?.();
+	if (appendKey) claimHarnessKey(state, appendKey);
 	if (input.milestone?.trim()) {
-		const task = state.tasks.find((task) => task.id === input.taskId);
-		const before = task?.eventSeq ?? 0;
-		const unchanged = (["results", "next"] as const).filter((name) => {
-			const prose = input.sections[name]?.trim() ?? task?.report[name] ?? "";
-			if (prose !== task?.report[name]) return false;
-			if (name !== "results" || input.addResult === undefined) return true;
-			const line = input.addResult.trim();
-			const bullet = /^[-*] /.test(line) ? line : `- ${line}`;
-			return prose.split("\n").pop() === bullet;
-		});
+		const before = task.eventSeq ?? 0;
+		const unchanged = REPORT_SECTIONS.filter(name => reportSectionFacts(task.report, name) === reportSectionFacts(prepared.content, name));
 		noteTaskFact(state, input.taskId, { actor: input.by.author, writer: input.by, kind: "milestone", reason: input.milestone, at, sections: unchanged });
-		if (coverage === before) coverage += 1; // The writer authored this fact, but cannot cover an earlier unseen gap.
+		if (write.coveredEventSeq === before) write.coveredEventSeq += 1; // A writer authored this fact, but cannot cover an earlier unseen gap.
 	}
-	const written = writeReport(state, { ...input, coveredEventSeq: coverage, now: at }, key);
+	const written = applyReportWrite(state, task, write, prepared, key);
 	const label = input.milestone?.trim() ?? "";
 	if (label === "") return written;
 	return snapshotMilestone(tx, mainId, state, { taskId: input.taskId, label, by: input.by, at, key });
@@ -1703,10 +1751,9 @@ export function changeOwner(
 
 /** Whether the change named `key` is new; records it when it is. */
 function claimHarnessKey(state: BoardState, key: string): boolean {
-	const keys = (state.harnessKeys ??= []);
+	const keys = state.harnessKeys ?? [];
 	if (keys.includes(key)) return false;
-	keys.push(key);
-	if (keys.length > KEPT_HARNESS_KEYS) keys.splice(0, keys.length - KEPT_HARNESS_KEYS);
+	state.harnessKeys = [...keys.slice(-(KEPT_HARNESS_KEYS - 1)), key];
 	return true;
 }
 
@@ -2084,7 +2131,12 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	lines.push(
 		snapshots.length === 0
 			? "Snapshots: none"
-			: `Snapshots:\n${snapshots.map((snapshot) => `#${snapshot.seq} ${snapshot.at} ${snapshot.label}`).join("\n")}`,
+			: `Snapshots:\n${snapshots.map((snapshot, index) => {
+				const older = snapshots[index - 1];
+				const structuralChanges = older ? diffReportSections(older.report, snapshot.report).filter(change => change.structureChanged) : [];
+				const structure = structuralChanges.map(({ section, factsChanged }) => `${section} blocks changed${factsChanged ? " with updated facts" : " (same facts)"}`);
+				return `#${snapshot.seq} ${snapshot.at} ${snapshot.label}${structure.length ? ` — ${structure.join(", ")}` : ""}`;
+			}).join("\n")}`,
 	);
 	if (extras !== undefined && extras.timeline.length > 0) {
 		const shownEntries = extras.timeline.slice(-SHOWN_TIMELINE_ENTRIES);
@@ -2240,6 +2292,7 @@ export type BoardServiceOptions = {
  taskLive?: boolean;
  watcherModels?: Models;
  watcherStatusChanged?: (status: TaskWatcherStatus) => Promise<void>;
+ reportArtifacts?: ReportArtifactScope["store"];
  taskArtifactSaves?: { read: () => Promise<readonly TaskArtifactSave[]>; watch: (listener: () => void) => () => void };
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
@@ -2721,14 +2774,17 @@ export class BoardService {
 	 */
 	async writeReport(
 		commit: <R>(change: (tx: Tx) => Promise<R>) => Promise<R>,
-		input: Omit<ReportWrite, "now"> & { milestone?: string | undefined },
+		input: Omit<ReportWrite, "now">,
 		key: string,
 	): Promise<BoardTask> {
   const conversation = input.by.author === "coordinator" ? await this.#conversationOf(input.by.threadId) : undefined;
   const threadTitle = await this.#options.threadTitle?.(input.by.threadId ?? "main");
   return commit(async tx => {
-   if (conversation) await inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, this.#iso(), threadTitle);
-   return writeReportIn(tx, this.#mainId, input, key, this.#iso());
+   const store = this.#options.reportArtifacts;
+   const at = this.#iso();
+   return writeReportIn(tx, this.#mainId, input, key, at, store && { store, projectId: this.#options.project().id }, conversation
+    ? () => inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, at, threadTitle)
+    : undefined);
   });
 	}
 
@@ -3406,7 +3462,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    const tasks = state.tasks.filter(task => ids.has(task.id));
    const fields: string[] = [];
    for (const task of tasks) {
-    fields.push(task.description, task.goal ?? "", task.report.steps ?? "", task.report.summary ?? "", task.report.results, task.report.notDone ?? "", task.report.next);
+    fields.push(task.description, task.goal ?? "", ...REPORT_BLOCK_SECTIONS.map(section => task.report[section] ?? ""));
     for (const decision of state.decisions) if (decision.taskId === task.id) fields.push(decision.text, decision.why ?? "");
     if (writes[task.id]?.feedbackIds?.length) {
      const history = await openTaskHistory(tx, this.#mainId, task.id);
@@ -3610,7 +3666,7 @@ const BoardToolParameters = Type.Object({
 		],
 		{
 			description:
-				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of summary, results, notDone, next, steps or checks; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
+				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of summary, results, notDone, next, steps, blocks or checks; Now is automatic; replaces the sections you pass and nothing else, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
 		},
 	),
 	waitingFor: Type.Optional(Type.String({ maxLength: 2000, description: "Required when setting waiting: the external review, release or reply the user named." })),
@@ -3662,6 +3718,7 @@ const BoardToolParameters = Type.Object({
 	coveredEventSeq: Type.Optional(Type.Integer({ minimum: 0, description: "write_report: optional eventSeq from when you read the task, so anything that happened since stays marked. If omitted, a changed section covers events up to this write." })),
 	waitsOn: Type.Optional(Type.Array(Type.String(), { description: "write_report Next: explicit IDs of Q/task/change/deploy dependencies. Omitted means any task answer can invalidate Next." })),
 	now: Type.Optional(Type.String({ description: "Compatibility only: optional short phase for this task-focused turn; Now is automatic. Prefer results and next." })),
+	blocks: Type.Optional(ReportBlocksInputSchema),
 	summary: Type.Optional(Type.String({ description: "write_report: start with what came out in one or two whole sentences. Shown above Results; empty clears it." })),
 	results: Type.Optional(Type.String({ description: "write_report: what changed, rewritten whole. Use one plain, whole sentence per fact. Put check outcomes in checks, not prose. Link commits with a Kemiri-Task trailer and save files with taskId instead of repeating the record." })),
 	notDone: Type.Optional(Type.String({ description: "write_report: Markdown, one item per line about what is missing or left out. Empty clears it." })),
@@ -3914,10 +3971,11 @@ function createBoardExtension(service: BoardService): Extension {
 					case "write_report": {
 						const id = need(input.id, input.action, "id");
 						const task = await service.writeReport(
-							countTaskWrite(id, [input.summary, input.results, input.notDone, input.next, input.steps]),
+							countTaskWrite(id, [input.summary, input.results, input.notDone, input.next, input.steps, ...submittedBlockText(input.blocks)]),
 							{
 								taskId: id,
 								sections: { now: input.now, results: input.results, next: input.next, steps: input.steps, summary: input.summary, notDone: input.notDone, checks: input.checks },
+								blocks: input.blocks,
 								by: writer,
 								milestone: input.milestone,
 							coveredEventSeq: input.coveredEventSeq,
@@ -3926,7 +3984,7 @@ function createBoardExtension(service: BoardService): Extension {
 							callKey,
 						);
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
-						const chatWarning = [input.summary, input.results, input.notDone, input.next, input.steps].some(pointsAtChat) ? CHAT_POINTER_WARNING : "";
+						const chatWarning = [input.summary, input.results, input.notDone, input.next, input.steps, ...submittedBlockText(input.blocks)].some(pointsAtChat) ? CHAT_POINTER_WARNING : "";
 						const styleWarnings = taskTextWarnings(
 							{ name: "Summary", text: input.summary, paragraphs: true },
 							{ name: "Results", text: input.results, paragraphs: true },

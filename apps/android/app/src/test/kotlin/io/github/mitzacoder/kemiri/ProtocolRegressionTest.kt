@@ -195,6 +195,20 @@ class ProtocolRegressionTest {
         }
     }
 
+    @Test fun reportBlocksCannotBreakBoardOrSnapshotDecoding() {
+        val blocks = """{"results":[{"kind":"outcome","text":"The desk opened."},{"kind":"future"},{"kind":"metric","value":{}},null],"steps":false}"""
+        val report = """{"now":"","results":"- The desk opened.","next":"","revision":1,"updatedAt":null,"updatedBy":null,"blocks":$blocks}"""
+        val board = """{"tasks":[{"id":"T1","revision":1,"title":"Booking rehearsal","description":"","acceptance":null,"status":"todo","blockedBy":[],
+            "blockedReason":null,"writeScopes":[],"workerIds":[],"scheduleId":null,"order":1,"createdBy":"user","updatedBy":"user",
+            "createdAt":"a","updatedAt":"b","settledAt":null,"archived":false,"report":$report}],"questions":[],"decisions":[],"updatedAt":null}"""
+        val task = wireJson.decodeFromString(Board.serializer(), board).tasks.single()
+        assertEquals("- The desk opened.", task.report.results)
+        assertEquals(wireJson.parseToJsonElement(blocks), task.report.blocks)
+        val snapshot = wireJson.decodeFromString(BoardTaskSnapshotReport.serializer(), report)
+        assertEquals(task.report.results, snapshot.results)
+        assertEquals(task.report.blocks, snapshot.blocks)
+    }
+
     @Test fun projectBoardLoadsOnConnectTakesPushesAndReportsConflicts() = runBlocking {
         fun board(id: String) = """{"tasks":[{"id":"$id","revision":1,"title":"$id","description":"","acceptance":null,"status":"todo","blockedBy":[],
             "blockedReason":null,"writeScopes":[],"workerIds":[],"scheduleId":null,"order":1,"createdBy":"user","updatedBy":"user",

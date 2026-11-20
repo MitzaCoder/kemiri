@@ -71,11 +71,6 @@ export const BoardWriterSchema = Type.Object({
 });
 export type BoardWriter = Static<typeof BoardWriterSchema>;
 
-/**
- * A task's report: short Markdown the agents rewrite in place, never append to. Each section is replaced whole by the
- * write that names it. Questions and warnings are not part of it; they are board questions linked to the task, so a
- * rewrite cannot drop them.
- */
 /** Section-local age and coverage; optional container means an older backend. No timeline row is created. */
 export const BoardReportSectionSchema = Type.Object({
 	writtenAt: Type.Union([Type.String(), Type.Null()], { description: "ISO date, null when never written. Show written 2 h ago; prefix approximate dates with about." }),
@@ -90,6 +85,58 @@ export const BoardReportSectionSchema = Type.Object({
 });
 export type BoardReportSection = Static<typeof BoardReportSectionSchema>;
 
+export const REPORT_BLOCK_SECTIONS = ["summary", "results", "notDone", "next", "steps"] as const;
+export type ReportBlockSection = (typeof REPORT_BLOCK_SECTIONS)[number];
+
+const singleLine = (description: string) => Type.String({ pattern: "^(?=.*\\S)[^\\r\\n\\u2028\\u2029]+$", description });
+const reportProse = singleLine("Short prose with optional inline emphasis, code or safe links.");
+const reportTitle = singleLine("A short plain-text heading.");
+const reportBlock = <K extends string, P extends Record<string, import("typebox").TSchema>>(kind: K, fields: P) =>
+	Type.Object({ kind: Type.Literal(kind), ...fields }, { additionalProperties: false });
+
+const outcomeBlock = reportBlock("outcome", { text: reportProse });
+const riskBlock = reportBlock("risk", { title: reportTitle, text: reportProse });
+const nextActionBlock = reportBlock("nextAction", { text: reportProse });
+const stepBlock = reportBlock("step", {
+	text: reportProse,
+	copyText: Type.Optional(Type.String({ pattern: "\\S", description: "Exact copyable value or command, possibly multiline." })),
+	language: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_+.#-]+$", description: "Optional code language for display only." })),
+});
+const markdownBlock = reportBlock("markdown", { text: Type.String({ pattern: "\\S", description: "Server-preserved legacy Markdown; not authorable." }) });
+const resultBlocks = [
+	outcomeBlock,
+	reportBlock("finding", { title: reportTitle, text: reportProse }),
+	reportBlock("setup", { title: reportTitle, facts: Type.Array(Type.Object({ label: singleLine("Plain-text name."), value: singleLine("Plain-text value.") }, { additionalProperties: false }), { minItems: 1, maxItems: 8 }) }),
+	reportBlock("proof", {
+		text: reportProse,
+		artifactRef: Type.Object({ artifactId: Type.String({ pattern: "^[A-Za-z0-9_-]+$", description: "Saved artifact ID on this task, without a version suffix." }), version: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "An optional retained version." })) }, { additionalProperties: false }),
+	}),
+	reportBlock("cleanup", { text: reportProse }),
+	riskBlock,
+	reportBlock("metric", { label: singleLine("Plain-text measurement name."), value: Type.Number(), unit: Type.Optional(singleLine("Plain-text unit.")), context: Type.Optional(reportProse) }),
+] as const;
+export const ResultBlockSchema = Type.Union([...resultBlocks]);
+export type ResultBlock = Static<typeof ResultBlockSchema>;
+export const ReportBlockSchema = Type.Union([...resultBlocks, markdownBlock, nextActionBlock, stepBlock]);
+export type ReportBlock = Static<typeof ReportBlockSchema>;
+
+const reportBlockSections = {
+	summary: Type.Optional(Type.Array(outcomeBlock, { maxItems: 2 })),
+	notDone: Type.Optional(Type.Array(riskBlock, { maxItems: 64 })),
+	next: Type.Optional(Type.Array(nextActionBlock, { maxItems: 64 })),
+	steps: Type.Optional(Type.Array(stepBlock, { maxItems: 64 })),
+};
+export const ReportBlocksInputSchema = Type.Object({
+	...reportBlockSections,
+	results: Type.Optional(Type.Array(ResultBlockSchema, { maxItems: 64 })),
+}, { additionalProperties: false, description: "Replace each named section in order. Omit to preserve; [] clears. Do not also send Markdown for the same section. Up to 32 KiB per write." });
+export type ReportBlocksInput = Static<typeof ReportBlocksInputSchema>;
+export const ReportBlocksSchema = Type.Object({
+	...reportBlockSections,
+	results: Type.Optional(Type.Array(Type.Union([...resultBlocks, markdownBlock]), { maxItems: 64 })),
+}, { description: "Authoritative typed sections, with Markdown mirrors in the sibling string fields." });
+export type ReportBlocks = Static<typeof ReportBlocksSchema>;
+
 const BoardReportStepsSchema = Type.Optional(Type.String({ description: "task-steps: Your steps, a numbered Markdown list of manual actions with exact values and copyable commands. Absent when cleared." }));
 
 export const BoardReportCheckSchema = Type.Object({
@@ -102,6 +149,7 @@ export const BoardReportCheckSchema = Type.Object({
 export type BoardReportCheck = Static<typeof BoardReportCheckSchema>;
 
 const BoardReportOutcomeSchema = {
+	blocks: Type.Optional(ReportBlocksSchema),
 	summary: Type.Optional(Type.String({ description: "One or two sentences about what came out of the task, above Results." })),
 	notDone: Type.Optional(Type.String({ description: "Markdown, one item per line, about what is missing or left out." })),
 	checks: Type.Optional(Type.Array(BoardReportCheckSchema)),

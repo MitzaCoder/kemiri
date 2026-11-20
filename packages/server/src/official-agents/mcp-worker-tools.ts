@@ -55,7 +55,7 @@ export async function officialAgentWorkerTools(options: {
 			if (name === taskProgress.name && taskId !== null) {
 				if (!Check(progressParameters, args) || Object.keys(args).some(key => !Object.hasOwn(progressParameters.properties, key))) return bridgeToolError("Invalid task_progress arguments.");
 				const result = await workerTaskProgress(args as Static<typeof progressParameters>, {
-					harness, mainId, context: BACKGROUND_CONTEXT, scope: { taskId, workerId, threadId }, taskLive, key, assignedTaskOnly: true,
+					harness, mainId, context: BACKGROUND_CONTEXT, scope: { taskId, workerId, threadId }, taskLive, key, assignedTaskOnly: true, artifactScope: { store: artifacts, projectId },
 					commit: change => harness.commit(async tx => {
 						if (!await isCurrent(tx) || signal.aborted) throw new Error("This worker's bridge is no longer active.");
 						return change(tx);

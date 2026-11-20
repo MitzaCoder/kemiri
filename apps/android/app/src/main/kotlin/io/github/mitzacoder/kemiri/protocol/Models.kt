@@ -3017,6 +3017,7 @@ data class BoardTaskReport(
     val `updatedBy`: BoardWriter?,
     val `steps`: String? = null,
     val `stepsWrittenAt`: String? = null,
+    val `blocks`: JsonElement? = null,
     val `summary`: String? = null,
     val `notDone`: String? = null,
     val `checks`: List<BoardReportCheck>? = null
@@ -3048,6 +3049,7 @@ data class BoardTaskSnapshotReport(
     val `results`: String,
     val `next`: String,
     val `steps`: String? = null,
+    val `blocks`: JsonElement? = null,
     val `summary`: String? = null,
     val `notDone`: String? = null,
     val `checks`: List<BoardReportCheck>? = null

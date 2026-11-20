@@ -2855,11 +2855,21 @@ is where they talk.
 
 - **Every subject is a task.** The coordinator creates a board task for each subject the user brings up, before
   replying, and says which task it filed the message under. No exceptions for now; we will see if it is too much.
-- **A report per task, rewritten in place.** The Markdown sections are `now` (automatic), `results`, `next` and
+- **A report per task, rewritten in place.** The Markdown fields are `now` (automatic), `results`, `next` and
   `steps`, with optional `summary` and `notDone`. A write replaces the sections it names. Write one fact per
   line, about 20 words, in whole sentences with verbs and small words, without semicolons. Use names instead of
   IDs and say each thing once. Leave hashes, change IDs, test counts, paths and worker names to the record: tie
   commits to the task with `Kemiri-Task` trailers and files with `artifact_save` and `taskId`.
+- **Typed report blocks (T356).** `hello.features` includes `task-report-blocks`; the legacy feature set does
+  not assume it. `board.write_report.blocks` replaces each named section's ordered list; omission preserves it
+  and `[]` clears it. A string write removes blocks from just that section. Sending both forms for one section
+  fails. Summary takes up to two outcomes; Results takes outcomes, findings, setup, proof, cleanup, risks and
+  metrics; Not done takes risks; Next takes next actions; Your steps takes steps with optional exact copy text.
+  Each section holds up to 64 blocks, each write submits at most 32 KiB of typed data, and setup has at most eight
+  label/value pairs. Proof stores only a saved artifact ID and optional retained version for this project and task.
+  The same transaction writes deterministic Markdown mirrors; older readers and Android read those fields.
+  Android keeps blocks as opaque JSON so an unknown kind or malformed section cannot break board/history decoding.
+  `show_task` and worker reads use the readable mirrors without fetching artifact bytes. The compact list is unchanged.
 - **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
   and null clears it. `write_report` sets `summary` (one or two sentences above Results), `notDone` (Markdown,
   one item per line) and `checks` (name, passed or failed, optional count and note, and a timestamp that defaults
@@ -2874,9 +2884,13 @@ is where they talk.
   tracking and writing them alone does not invalidate Results or Next. Clients gate the section on server
   `hello.features` containing `task-steps`.
 - **Who writes.** Workers use `task_progress` on the task they were spawned for. They can set a Now phase, add
-  Results and record checks. The coordinator owns status, report rewrites, questions and decisions. Background
-  threads report on the task they were started for. Report writes have their own revision and never conflict
-  with the user's edits.
+  Results and record checks. `task_progress.addResultBlocks` appends one to eight Results blocks instead of
+  `addResult`; native, code-mode and the scoped official-agent MCP bridge share one schema and writer.
+  The first typed append preserves existing Markdown as a server-owned segment. A legacy append to typed
+  Results becomes an outcome for a simple bullet or a preserved Markdown segment otherwise. Durable tool
+  keys and adjacent repeat checks keep retries from adding the same evidence twice. The coordinator owns status,
+  report rewrites, questions and decisions. Background threads report on the task they were started for. Report
+  writes have their own revision and never conflict with the user's edits.
 - **Questions and warnings are separate items**, board questions linked to the task (`kind: "warning"` for warnings),
   so a rewrite cannot drop them. They stay until answered or acknowledged. An `ask` with `choices` stores a label,
   optional effect and optional recommendation per choice, with at most one recommended. `options` mirrors the
@@ -3669,8 +3683,10 @@ before writing. A changed-prose rewrite that omits coverage covers the task's cu
 time, so ordinary agent rewrites clear stale badges even after a task was read through list or discussed
 in chat. Agents that read earlier and write later can pass the sequence they read: explicit coverage is
 clamped to the current sequence without regressing prior coverage, and concurrent newer facts stay stale.
-A no-op covers nothing, whether coverage is omitted or explicit. A substantive rewrite
-bumps only that section's version and date; identical prose does not clear staleness or rearm nudges.
+Both milestone invalidation and section coverage compare ordered readable facts, including meaningful labels,
+numbers and exact commands, not generated Markdown decoration or proof identifiers. A no-op or an equivalent
+legacy-to-block conversion covers nothing, whether coverage is omitted or explicit. A substantive rewrite
+bumps only that section's version and date; the same facts do not clear staleness or rearm nudges.
 A covered rewrite clears its stale causes and rearms that section. An uncovered rewrite retains its
 pending admission or delivered suppression, rather than creating a nag loop. Milestones are authored
 facts: non-coordinator milestones invalidate only sections not substantively rewritten with the milestone,
@@ -4463,6 +4479,8 @@ its own list, and a timeline; the description stays the original ask and the rep
     Headings, tables, code and URLs do not count toward that limit. The paragraph hint replaces line-length hints
     within the passage, not revision-ID hints. Native and official-agent MCP `task_progress.addResult` use the same
     Results checks. Style warnings quote the affected text, at most three per reply, and do not change or reject it.
+    The end-of-turn only-in-chat check reads each Markdown mirror once; write metering credits submitted
+    block prose and exact step text, not labels, artifact references, JSON or empty clears.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`
     to put it back); the user dismisses and reopens in the app (`board.feedback.set`), and the coordinator that holds the
     task hears of it as a `[board]` follow-up. Workers do not touch feedback: they keep the task's `now` through
@@ -5865,8 +5883,10 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   newline-separated criteria as a list and retains existing Markdown lists. Checks follows when available on
   `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. Checks, Decided,
   and Activity start closed. Each row's open choice is stored independently in this browser. Activity contains timeline
-  events (including worker events) and snapshot history. The timeline keeps its kind filters, bounded event viewport,
-  keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
+  events (including worker events) and snapshot history. Snapshots retain typed blocks alongside their mirrors,
+  including proof versions. The server's history comparison separates structural changes from changed facts;
+  `show_task` calls out block changes even when the facts are unchanged. The timeline keeps its kind filters,
+  bounded event viewport, keyboard scrolling, local day separators and sort control. The web reading-direction choice remains in
   `aiki.timeline-order.v1`.
 - **About this task.** Shows available delivery and status facts, owner thread, titled task links with small IDs,
   parts progress, full files (including the existing media viewer and tag controls), workers and task times.

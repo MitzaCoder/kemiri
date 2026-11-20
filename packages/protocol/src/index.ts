@@ -90,6 +90,7 @@ import {
  */
 import { type Static, type TSchema, Type } from "typebox";
 
+export { REPORT_BLOCK_SECTIONS, ReportBlockSchema, ReportBlocksSchema, ReportBlocksInputSchema, ResultBlockSchema, type ReportBlock, type ReportBlocks, type ReportBlocksInput, type ReportBlockSection, type ResultBlock } from "./board.ts";
 export * from "./cache-misses.ts";
 export * from "./cache-stats.ts";
 export * from "./common.ts";

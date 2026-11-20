@@ -1115,7 +1115,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 export type WorkerServiceOptions = {
 	taskLive?: boolean;
 	officialAgents?: OfficialAgentSessions;
-	officialAgentArtifacts?: ArtifactStore;
+	artifacts?: ArtifactStore;
 	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
@@ -1311,6 +1311,11 @@ export class WorkerService {
 		return this.#options.coordinator;
 	}
 
+	get reportArtifactScope() {
+		const store = this.#options.artifacts;
+		return store && { store, projectId: this.project.id };
+	}
+
 	get project(): Project {
 		return this.#options.project();
 	}
@@ -1359,7 +1364,7 @@ export class WorkerService {
 					const projectId = this.project.id;
 					const { record, threadId } = worker;
 					const coordinatorId = this.coordinators.placeOfThread(threadId)?.conversationId;
-					const artifacts = this.#options.officialAgentArtifacts;
+					const artifacts = this.#options.artifacts;
 					const taskId = record.taskId ?? null;
 					const turnId = String(api.taskId);
 					sessions.tag(last, { cwd, turnId, projectId, conversationId,
@@ -2701,6 +2706,7 @@ function createWorkerTaskExtension(service: WorkerService, taskLive: boolean): E
 			}
 			return workerTaskProgress(args, {
 				harness: service.harness, mainId: service.mainId as ConversationId, context, taskLive,
+				artifactScope: service.reportArtifactScope,
 				scope: { taskId, threadId: place.threadId, workerId: place.record.id },
 				key: `call:${api.conversationId}:${api.callId}`,
 				commit: change => api.commit(change, context),

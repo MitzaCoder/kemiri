@@ -10,7 +10,7 @@ import { timelineId } from "./task-timeline.ts";
 export const TASK_LIVE_LIMIT = 30;
 
 /** Called inside the existing report write. Only the writer's running source on this task can add lines. */
-export function recordLiveReport(state: BoardState, taskId: string, by: BoardWriter, at: string, phase: string | undefined, result: string | undefined, key: string | undefined, checks: readonly BoardReportCheck[] = [], planUpdate?: LivePlanUpdate): void {
+export function recordLiveReport(state: BoardState, taskId: string, by: BoardWriter, at: string, phase: string | undefined, results: readonly string[], key: string | undefined, checks: readonly BoardReportCheck[] = [], planUpdate?: LivePlanUpdate): void {
  const tracking = state.taskActivity?.[taskId];
  const source = Object.values(tracking?.sources ?? {}).find(({ state, actor }) => state === "running" && actor.threadId === by.threadId &&
   (by.author === "worker" ? actor.kind === "worker" && actor.name === by.workerId : by.author === "coordinator" && actor.kind !== "worker"));
@@ -27,7 +27,7 @@ export function recordLiveReport(state: BoardState, taskId: string, by: BoardWri
  if (!state.taskLiveEnabled || key === undefined) return;
  source.liveStartedAt ??= startedAt;
  appendLiveLine(tracking, taskId, source, at, `${key}:phase`, "phase", changedPhase);
- if (by.author === "worker") appendLiveLine(tracking, taskId, source, at, `${key}:result`, "result", result);
+ if (by.author === "worker") results.forEach((result, index) => appendLiveLine(tracking, taskId, source, at, index === 0 ? `${key}:result` : `${key}:result:${index}`, "result", result));
  if (checks.length && !source.liveCheckWrites?.includes(key)) {
   source.liveCheckWrites ??= [];
   source.liveCheckWrites.push(key);

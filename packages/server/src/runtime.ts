@@ -1334,6 +1334,7 @@ export class ProjectManager {
      this.#emit(await this.#summaryOf(entry.project));
     },
    } : {}),
+   reportArtifacts: this.artifacts,
    taskArtifactSaves: { read: () => this.artifacts.taskSaves(project.id), watch: listener => this.artifacts.watchTaskSaves(project.id, listener) },
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
@@ -1398,7 +1399,8 @@ export class ProjectManager {
 
 		const workers = new WorkerService({
 			taskLive: this.#taskLive,
-			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents, officialAgentArtifacts: this.artifacts }),
+			artifacts: this.artifacts,
+			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
 			browsers: this.browsers,
 			lessons: this.#maintenance?.lessons,
 			memory: this.#memory,

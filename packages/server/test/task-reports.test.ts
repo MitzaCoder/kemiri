@@ -239,6 +239,35 @@ async function toolsOf(client: TestClient, projectId: string, workerId?: string)
 }
 
 describe("reports through the tools", () => {
+	it.each(["native", "code-mode"] as const)("appends the same typed Results via %s worker tools", async mode => {
+		const { test, client, projectId } = await start();
+		const addResultBlocks: JsonObject[] = [
+			{ kind: "outcome", text: "The desk opened." },
+			{ kind: "finding", title: "The limit held", text: "The desk sent overflow to the waiting list." },
+		];
+		const saved = await client.request({ type: "board.task.save", projectId, task: { title: "Rehearse bookings", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] } });
+		if (saved.type !== "board.task.save") throw errorOf(saved);
+		const factory = (request: TranscriptContext) => {
+			const { text } = lastOf(request);
+			if (text === "Start the rehearsal.") return call("worker_spawn", { id: "reader", task: BRIEF, taskId: saved.task.id });
+			if (text === BRIEF) return mode === "native" ? call("task_progress", { addResultBlocks }) : call("codemode", { code: `return await tools.task_progress(${JSON.stringify({ addResultBlocks })});` });
+			return fauxAssistantMessage("Noted.");
+		};
+		test.faux.setResponses(Array.from({ length: 30 }, () => factory));
+		const capabilities = await TestClient.open(test.server);
+		clients.push(capabilities);
+		const hello = await capabilities.hello();
+		if (hello.type !== "hello") throw errorOf(hello);
+		expect(hello.features).toContain("task-report-blocks");
+		const view = new ViewClient(client);
+		await view.start(projectId);
+		await client.request({ type: "conversation.submit", projectId, requestId: `typed-${mode}`, content: "Start the rehearsal." });
+		await view.waitForView(value => value.entries.some(entry => entryText(entry).includes("[worker reader reported]")));
+		const board = await client.request({ type: "board.get", projectId });
+		if (board.type !== "board.get") throw errorOf(board);
+		expect(board.board.tasks[0]!.report).toMatchObject({ blocks: { results: addResultBlocks }, results: "- The desk opened.\n\n- **The limit held**: The desk sent overflow to the waiting list." });
+	}, 15_000);
+
 	it("keeps manual steps on the task and in history, and negotiates the new state kind", async () => {
 		const { test, client: legacy, projectId } = await start();
 		const current = await TestClient.open(test.server);

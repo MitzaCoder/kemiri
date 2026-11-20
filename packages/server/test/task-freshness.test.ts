@@ -740,6 +740,29 @@ it.each(["steps", "next"] as const)("repeating five steps already in %s is clean
  expect(state.chatDetailCounts?.[utcDay]).toEqual({ flagged: 0, clean: 1 });
 }, 15_000);
 
+it("code-mode typed steps cover exact commands and only submitted prose contributes to chat metering", async () => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ const copyText = "example-cli inspect --profile amber\nexample-cli close --profile amber";
+ const steps = fiveSteps.split("\n").map((line, index) => ({ kind: "step", text: line.slice(3), ...(index === 0 ? { copyText } : {}) }));
+ const unrelated = "A berth may remain unoccupied until sunset, or an attendant can allocate it to an arriving crew. ".repeat(5).trim();
+ const write = { action: "write_report", id: "T1", blocks: { steps, results: [{ kind: "outcome", text: unrelated }] } };
+ setup.faux.setResponses([
+  fauxAssistantMessage([fauxToolCall("codemode", { code: `return await tools.board(${JSON.stringify(write)});` })], { stopReason: "toolUse" }),
+  fauxAssistantMessage(`${longDetail}\n\n${fiveSteps}\n\nRun \`example-cli inspect --profile amber\`.\n\n\`\`\`sh\n${copyText}\n\`\`\``),
+ ]);
+ await submitOwnerChat(test, "File the instructions for T1.", "typed-steps", "T1");
+ expect((await runtime.board.state()).tasks[0]!.report.blocks?.steps).toHaveLength(5);
+ expect((await runtime.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 0, clean: 1 });
+ setup.faux.setResponses([
+  toolReply({ action: "write_report", id: "T1", blocks: { results: [], steps: [], notDone: [{ kind: "risk", title: "Unrelated heading ".repeat(100), text: "The pilot has not run." }] } }),
+  fauxAssistantMessage(longDetail), fauxAssistantMessage("Noted."),
+ ]);
+ await submitOwnerChat(test, "Explain the observations on T1.", "clear-typed-steps", "T1");
+ expect((await runtime.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 1 });
+ expect(await detailNudges(runtime)).toContainEqual(expect.stringContaining("only in chat: long detail"));
+}, 15_000);
+
 it("a reply-only task reference routes a missing inline command; a long linked ask counts as filed", async () => {
  const test = await integration();
  const { setup, runtime } = test;

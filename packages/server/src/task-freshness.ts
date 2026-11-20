@@ -1,3 +1,5 @@
+import { reportSectionFacts } from "./report-blocks.ts";
+export { reportSectionFacts };
 /** Deterministic report coverage and durable nudge admission. No model calls or timeline writes. */
 import { BOARD_PREFIX, CHECK_IN_PREFIX, THREAD_FINISHED_PREFIX, THREAD_MESSAGE_PREFIX, WORKER_REPORT_PREFIX, type BoardReportSection, type BoardTask, type BoardWriter } from "@kemiri/protocol";
 import { estimateTextTokens } from "@earendil-works/pi-ai/utils/estimate";
@@ -135,7 +137,7 @@ export function coverReportSection(state: BoardState, task: BoardTask, name: Rep
 	previous: string; by: BoardWriter; at: string; coveredEventSeq?: number | undefined; waitsOn?: string[] | undefined;
 }): void {
 	initializeTaskFreshness(state, task);
-	if (state.taskFreshnessEnabled === false || input.previous === task.report[name]) return;
+	if (state.taskFreshnessEnabled === false || input.previous === reportSectionFacts(task.report, name)) return;
 	const section = task.report.freshness![name];
 	const tracking = state.reportTracking![task.id]!;
 	const coverage = Math.max(section.coveredEventSeq ?? 0, Math.min(task.eventSeq ?? 0, Math.max(0, input.coveredEventSeq ?? task.eventSeq ?? 0)));
