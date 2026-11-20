@@ -30,6 +30,8 @@ internal data class TaskSheetState(
     val threads: List<ThreadSummary>,
     val workers: List<WorkerSummary>,
     val artifacts: List<Artifact>,
+    val artifactsProblem: String?,
+    val onRetryArtifacts: () -> Unit,
     val onUpdateArtifactTags: (suspend (Artifact, List<String>) -> Artifact?)?,
     val owner: TaskOwner,
     val now: Long,
@@ -112,9 +114,9 @@ internal fun rememberTaskSheetState(
     val workers = if (connection.supports("workers")) panelData(context, "sheet-workers", { it is WorkersStateEvent && it.projectId == project }) {
         context.backend.client.request(WorkersListRequest(projectId = project)).workers
     }.value.orEmpty() else emptyList()
-    val artifacts = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project && it.artifact.taskId == taskId }) {
+    val artifactFeed = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project && it.artifact.taskId == taskId }) {
         context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId)).artifacts
-    }.value.orEmpty() else emptyList()
+    } else null
     val now = rememberTaskMinuteNow()
 
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -206,7 +208,8 @@ internal fun rememberTaskSheetState(
         context = context, task = task, tasks = view.tasks, archivedLinks = view.board?.archivedLinks.orEmpty(),
         previousTaskId = previousTaskId, previousTaskTitle = view.task(previousTaskId.orEmpty())?.title,
         wide = wide, bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
-        threads = threads, workers = workers, artifacts = artifacts,
+        threads = threads, workers = workers, artifacts = artifactFeed?.value.orEmpty(),
+        artifactsProblem = artifactFeed?.error, onRetryArtifacts = { artifactFeed?.refresh?.trySend(Unit) },
         onUpdateArtifactTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
             context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
         } else null,

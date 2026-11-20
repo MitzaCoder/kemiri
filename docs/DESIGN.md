@@ -2950,6 +2950,12 @@ Reply opens the existing task composer from the corner or from the review contro
 Route's five report sections go through `RouteReportSection.svelte`. It renders Markdown now and uses bounded
 excerpts for closed doors. Swap the two render modes there when the typed report renderer and glance helpers land.
 
+**Android Route (T368).** The owner selects Route from Task view, without changing Classic or its default.
+Route fills the task window. Calm keeps the current stop in view on a horizontal line above the reading sections.
+At 840dp, Doors opens one rounded platform beside two flat summaries. The first question remains answerable
+in a closed Your stop door. Door widths animate only with motion enabled. Both layouts share the existing
+task actions and reply composer. `RouteReportSection.kt` is the seam for full reports and closed-door excerpts.
+
 ### Task changes and integration refs (T124)
 
 The backend observes repositories, not agent chat. `task-changes.json` beside `project.json` is an atomic,

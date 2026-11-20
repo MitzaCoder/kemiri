@@ -39,6 +39,8 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: LazyListState, previousTaskId: String? = null) {
+    val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
+    val design = TaskViewDesigns.resolve(deviceSettings.taskViewDesignId)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         val dark = Jarvis.colors.dark
@@ -54,27 +56,29 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
         // the message can be written.
         val quote: ((String) -> Unit)? = if (context.route.workerId == null) { text -> ComposerQuotes.send(context.route, text); onDismiss() } else null
         CompositionLocalProvider(LocalQuoteHandler provides quote, LocalOpenTaskId provides taskId) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            // From a tablet's width the sheet is a panel from the end with the chat dimmed beside it; a tap there closes it.
-            val wide = maxWidth >= 600.dp
-            if (wide) {
-                Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the task", onClick = onDismiss))
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                // Classic keeps its side sheet; full-window designs use the whole available width.
+                val sideSheet = maxWidth >= 600.dp && !design.fillsWindow
+                if (sideSheet) Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() },
+                    indication = null, onClickLabel = "Close the task", onClick = onDismiss))
                 Surface(
-                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(minOf(1184.dp, maxWidth - 48.dp)),
-                    shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                    if (sideSheet) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(minOf(1184.dp, maxWidth - 48.dp)) else Modifier.fillMaxSize(),
+                    shape = if (sideSheet) RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp) else androidx.compose.ui.graphics.RectangleShape,
                     color = Jarvis.colors.bg,
-                    shadowElevation = 12.dp,
-                    border = BorderStroke(1.dp, Jarvis.colors.border),
-                ) { key(taskId) { TaskSheetContent(context, taskId, wide = true, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
-            } else Surface(Modifier.fillMaxSize(), color = Jarvis.colors.bg) { key(taskId) { TaskSheetContent(context, taskId, wide = false, onDismiss = onDismiss, previousTaskId = previousTaskId, bodyState = bodyState) } }
-        }
+                    shadowElevation = if (sideSheet) 12.dp else 0.dp,
+                    border = if (sideSheet) BorderStroke(1.dp, Jarvis.colors.border) else null,
+                ) {
+                    key(taskId) { TaskSheetContent(context, taskId, sideSheet, onDismiss, previousTaskId, bodyState, deviceSettings, design) }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: LazyListState) {
-    val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
+private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: LazyListState,
+    deviceSettings: io.github.mitzacoder.kemiri.data.DeviceSettings, design: TaskViewDesign,
+) {
     val board = context.board
     val view by board.view.collectAsStateWithLifecycle()
     val liveTask = view.task(taskId)
@@ -87,7 +91,6 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         lookedUp = true
     }
     val task = liveTask ?: archivedTask
-    val design = TaskViewDesigns.resolve(deviceSettings.taskViewDesignId)
     val scope = rememberCoroutineScope()
     val selectDesign: (String) -> Unit = { id -> scope.launch { context.repository.setTaskViewDesign(id) } }
     val insets = Modifier.windowInsetsPadding(taskSheetInsets(wide))
