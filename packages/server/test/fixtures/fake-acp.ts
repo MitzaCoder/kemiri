@@ -4,6 +4,7 @@ import { McpClient, StdioTransport } from "@earendil-works/pi-mcp";
 import type { AcpStdioMcpServer } from "../../src/official-agents/mcp-bridge-command.ts";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
+import { wrappedReportParagraph } from "./report-paragraph.ts";
 
 const sessionId = "fake-acp-session";
 const profile = process.env.HOME!;
@@ -87,7 +88,7 @@ async function callMcp(exercise: boolean) {
 		symlinkSync(outside, "escape.txt");
 		symlinkSync(path, "allowed-link.txt");
 		await call("spoof-progress", "task_progress", { taskId: "T2", addResult: "Other task." });
-		await call("progress", "task_progress", { now: "Checking the fixture", addResult: "The fixture called the scoped bridge.", milestone: "Fixture reached the bridge" });
+		await call("progress", "task_progress", { now: "Checking the fixture", addResult: wrappedReportParagraph, milestone: "Fixture reached the bridge" });
 		await call("unlisted", "artifact_read", {});
 		await call("outside", "artifact_save", { path: outside });
 		await call("symlink", "artifact_save", { path: "escape.txt" });

@@ -4457,10 +4457,12 @@ its own list, and a timeline; the description stays the original ask and the rep
     detail, but warns in its result to write that detail on the task. Ordinary mentions of a chat do not warn.
     Style warnings also follow a successful save: for Summary, Results, Not done, Your steps, Next, ask text,
     options and choice effects, descriptions, acceptance and feedback notes, the tool flags lines over 30 words
-    and likely revision IDs in prose. It also flags
-    questions that do not open with a question or list choices in the question text. Code blocks are skipped; inline
-    code and URLs are not scanned for IDs. `task_progress.addResult` uses the same prose checks. The style warnings
-    quote the affected lines, at most three per reply, and do not change or reject the text.
+    and likely revision IDs in prose. It also flags questions that do not open with a question or list choices in
+    the question text. Code blocks are skipped; inline code and URLs are not scanned for IDs. Report sections also
+    get a section-specific split hint for paragraphs and list passages over 60 prose words, even when softly wrapped.
+    Headings, tables, code and URLs do not count toward that limit. The paragraph hint replaces line-length hints
+    within the passage, not revision-ID hints. Native and official-agent MCP `task_progress.addResult` use the same
+    Results checks. Style warnings quote the affected text, at most three per reply, and do not change or reject it.
   - Who sets it: coordinators (main and threads) through the `board` action `feedback` (`handling`, `addressed`, or `open`
     to put it back); the user dismisses and reopens in the app (`board.feedback.set`), and the coordinator that holds the
     task hears of it as a `[board]` follow-up. Workers do not touch feedback: they keep the task's `now` through

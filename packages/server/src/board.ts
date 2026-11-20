@@ -3928,11 +3928,11 @@ function createBoardExtension(service: BoardService): Extension {
 						const milestone = input.milestone === undefined ? "" : `; milestone "${input.milestone.trim()}" saved`;
 						const chatWarning = [input.summary, input.results, input.notDone, input.next, input.steps].some(pointsAtChat) ? CHAT_POINTER_WARNING : "";
 						const styleWarnings = taskTextWarnings(
-							{ name: "Summary", text: input.summary },
-							{ name: "Results", text: input.results },
-							{ name: "Not done", text: input.notDone },
-							{ name: "Next", text: input.next },
-							{ name: "Your steps", text: input.steps },
+							{ name: "Summary", text: input.summary, paragraphs: true },
+							{ name: "Results", text: input.results, paragraphs: true },
+							{ name: "Not done", text: input.notDone, paragraphs: true },
+							{ name: "Next", text: input.next, paragraphs: true },
+							{ name: "Your steps", text: input.steps, paragraphs: true },
 						);
 						return toolText(`Rewrote the report of ${task.id} (report r${task.report.revision}${milestone}).${chatWarning}${styleWarnings}`, {
 							details: { taskId: task.id },

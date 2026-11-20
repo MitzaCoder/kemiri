@@ -34,6 +34,7 @@ import {
 	withTaskReference,
 } from "../src/board.ts";
 import { splitTaskReference } from "../src/queued-inputs.ts";
+import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
 const T0 = "2026-11-09T10:00:00.000Z";
@@ -434,7 +435,8 @@ async function timelineOf(client: TestClient, projectId: string, taskId: string,
 it("saves board text before warning about its writing style", async () => {
 	const { test, client, projectId } = await start();
 	await saveTaskVia(client, projectId, "Ship the patch");
-	const results = "This line has fifteen words in its first sentence, counting each written word here once. This sentence adds fifteen more words so the line can sit at exactly the limit. Ten more words make this single line too long now.";
+	const line = "This line has fifteen words in its first sentence, counting each written word here once. This sentence adds fifteen more words so the line can sit at exactly the limit. Ten more words make this single line too long now.";
+	const results = `${wrappedReportParagraph}\n\n${line}`;
 	const next = "The patch is in a1b2c3d.";
 	const question = "The patch is ready. Ship now? (A) Ship today. (B) Wait.";
 	const options = ["Ship a1b2c3d now: it goes live today.", "Wait: it goes live tomorrow."];
@@ -456,6 +458,7 @@ it("saves board text before warning about its writing style", async () => {
 	await until(() => replies.length === 3);
 
 	expect(replies[0]).toStartWith("Rewrote the report of T1");
+	expect(replies[0]).toContain(`\n${resultsParagraphWarning}`);
 	expect(replies[0]).toContain("\nResults, “This line has fifteen words…”: Split this line; it has over 30 words.");
 	expect(replies[0]).toContain("\nNext, “The patch is in a1b2c3d.”: Leave commit hashes and change IDs out of prose.");
 	expect(replies[1]).toStartWith("Asked Q1.");

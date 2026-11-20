@@ -1,42 +1,53 @@
-type TaskTextField = { name: string; text?: string | null; question?: boolean };
+type TaskTextField = { name: string; text?: string | null; question?: boolean; paragraphs?: boolean };
+type ProseLine = { text: string; quoteDepth: number; listContentIndent?: number; indent: number };
 
 const LINE_WORD_LIMIT = 30;
+const PARAGRAPH_WORD_LIMIT = 60;
 const WARNING_LIMIT = 3;
+const listMarker = /^\s*(?:[-+*]|\d+[.)])\s+/;
+const skippedLine: ProseLine = { text: "", quoteDepth: 0, indent: 0 };
 
 // Keep a line's prose for diagnostics. Fences can also be quoted or open inside a list.
-function proseLines(text: string): string[] {
+function proseLines(text: string): ProseLine[] {
 	let fence = "";
 	let startsBlock = true;
 	let insideList = false;
 	let indentedCode = false;
 	return text.split(/\r\n?|\n/).map(line => {
-		const unquoted = line.replace(/^(?:[ \t]*>[ \t]?)+/, "");
+		const quotePrefix = /^(?:[ \t]*>[ \t]?)+/.exec(line)?.[0] ?? "";
+		const unquoted = line.slice(quotePrefix.length);
 		if (fence) {
 			const closing = unquoted.trim();
 			if (closing.startsWith(fence) && [...closing].every(character => character === fence[0])) {
 				fence = "";
 				startsBlock = true;
 			}
-			return "";
+			return skippedLine;
 		}
 		if (!unquoted.trim()) {
 			startsBlock = true;
-			return "";
+			return skippedLine;
 		}
 		if (/^(?: {4}| {0,3}\t)/.test(unquoted) && (indentedCode || (startsBlock && !insideList))) {
 			indentedCode = true;
-			return "";
+			return skippedLine;
 		}
 		indentedCode = false;
 		startsBlock = false;
-		if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(unquoted)) insideList = true;
+		const listContentIndent = listMarker.exec(unquoted)?.[0].length;
+		if (listContentIndent !== undefined) insideList = true;
 		else if (/^\S/.test(unquoted)) insideList = false;
 		const opening = /^\s*(?:(?:[-+*]|\d+[.)])\s+)?(`{3,}[^`]*$|~{3,}.*$)/.exec(unquoted);
 		if (opening) {
 			fence = /^(`+|~+)/.exec(opening[1]!)![0];
-			return "";
+			return skippedLine;
 		}
-		return unquoted.replace(/^\s*(?:[-+*]|\d+\.)\s+/, "").trim();
+		return {
+			text: unquoted.replace(/^\s*(?:[-+*]|\d+\.)\s+/, "").trim(),
+			quoteDepth: quotePrefix.match(/>/g)?.length ?? 0,
+			...(listContentIndent === undefined ? {} : { listContentIndent }),
+			indent: unquoted.length - unquoted.trimStart().length,
+		};
 	});
 }
 
@@ -46,6 +57,64 @@ function maskNonProse(text: string): string {
 		.replace(/(?<!`)(`+)(?!`)(?:(?!\n\s*\n)[\s\S])*?(?<!`)\1(?!`)/g, span => span.replace(/[^\n]+/g, "◊"))
 		.replace(/\]\(<?[^\s)]+>?\)/g, "]")
 		.replace(/(?:\b[a-z][a-z\d+.-]*:\/\/|\bwww\.)[^\s<>]+/gi, url => `◊${url.match(/[.!?,;:)\]]+$/)?.[0] ?? ""}`);
+}
+
+const atxHeading = /^#{1,6}(?:\s|$)/;
+const thematicBreak = /^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/;
+const tablePipe = /(?<!\\)\|/;
+const tableDelimiter = /^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$/;
+
+// Find passages before warning on lines, so a wrapped paragraph gets one split hint.
+function longParagraphs(lines: ProseLine[], maskedLines: string[]): Map<number, { end: number; words: number }> {
+	const paragraphs = new Map<number, { end: number; words: number }>();
+	let start: number | undefined;
+	let words = 0;
+	const finish = (end: number, heading = false) => {
+		if (!heading && start !== undefined && words > PARAGRAPH_WORD_LIMIT) paragraphs.set(start, { end, words });
+		start = undefined;
+		words = 0;
+	};
+	for (let line = 0; line < lines.length; line++) {
+		const { quoteDepth, listContentIndent, indent } = lines[line]!;
+		const prose = listContentIndent === undefined ? maskedLines[line]! : maskedLines[line]!.replace(/^\d+\)\s+/, "");
+		// A quote can continue lazily without repeating the quote marker on every line.
+		if (listContentIndent !== undefined || (start !== undefined && quoteDepth > lines[start]!.quoteDepth)) finish(line);
+		if (start !== undefined && quoteDepth === lines[start]!.quoteDepth && /^(?:=+|-+)$/.test(prose) && indent >= (lines[start]!.listContentIndent ?? 0)) {
+			finish(line, true); // Setext underline: the preceding passage was a heading.
+			continue;
+		}
+		if (!prose || atxHeading.test(prose) || thematicBreak.test(prose)) {
+			finish(line);
+			continue;
+		}
+		const inSameBlock = (next: number) => lines[next]?.quoteDepth === quoteDepth && lines[next]?.listContentIndent === undefined;
+		const delimiter = maskedLines[line + 1];
+		if (delimiter && tablePipe.test(prose) && inSameBlock(line + 1) && tablePipe.test(delimiter) && tableDelimiter.test(delimiter)) {
+			finish(line);
+			line++;
+			// A table row can omit the pipe when it only fills the first column.
+			while (inSameBlock(line + 1)) {
+				const row = maskedLines[line + 1]!;
+				if (!row || atxHeading.test(row) || thematicBreak.test(row)) break;
+				line++;
+			}
+			continue;
+		}
+		start ??= line;
+		words += prose.replaceAll("◊", " ").match(/[\p{L}\p{N}][^\s]*/gu)?.length ?? 0;
+	}
+	finish(lines.length);
+	return paragraphs;
+}
+
+function paragraphHint(name: string): string {
+	switch (name) {
+		case "Summary": return "Give the main outcome in one or two short sentences.";
+		case "Not done": return "Put one gap on each line.";
+		case "Next": return "Give one or two short actions.";
+		case "Your steps": return "Use one numbered step per action and keep the exact values.";
+		default: return "Lead with the outcome, then give each finding, setting and proof its own line.";
+	}
 }
 
 function hasRevisionId(line: string): boolean {
@@ -91,18 +160,27 @@ export function taskTextWarnings(...fields: TaskTextField[]): string {
 	const warnings: string[] = [];
 	for (const field of fields) {
 		if (!field.text?.trim()) continue;
-		const lines = proseLines(field.text);
+		const prose = proseLines(field.text);
+		const lines = prose.map(line => line.text);
 		const masked = maskNonProse(lines.join("\n"));
-		const warn = (line: number, fix: string) => warnings.push(`${field.name}, ${lineOpening(lines[line]!)}: ${fix}`);
+		const maskedLines = masked.split("\n");
+		const paragraphs = field.paragraphs ? longParagraphs(prose, maskedLines) : undefined;
+		const warn = (text: string, fix: string) => warnings.push(`${field.name}, ${lineOpening(text)}: ${fix}`);
 		if (field.question) {
 			const firstLine = lines.findIndex(Boolean);
-			if (firstLine >= 0 && !firstSentenceIsQuestion(masked)) warn(firstLine, "Put the question in the first sentence.");
+			if (firstLine >= 0 && !firstSentenceIsQuestion(masked)) warn(lines[firstLine]!, "Put the question in the first sentence.");
 			const listLine = choiceListLine(masked);
-			if (listLine !== undefined) warn(listLine, "Put the choices in options, not in the question text.");
+			if (listLine !== undefined) warn(lines[listLine]!, "Put the choices in options, not in the question text.");
 		}
-		for (const [line, prose] of masked.split("\n").entries()) {
-			if ((prose.match(/[\p{L}\p{N}◊][^\s]*/gu)?.length ?? 0) > LINE_WORD_LIMIT) warn(line, "Split this line; it has over 30 words.");
-			if (hasRevisionId(prose)) warn(line, "Leave commit hashes and change IDs out of prose.");
+		let warnedParagraphEnd = 0;
+		for (const [line, prose] of maskedLines.entries()) {
+			const paragraph = paragraphs?.get(line);
+			if (paragraph) {
+				warn(lines.slice(line, paragraph.end).join(" "), `Split this ${paragraph.words}-word paragraph: ${paragraphHint(field.name)}`);
+				warnedParagraphEnd = paragraph.end;
+			}
+			if (line >= warnedParagraphEnd && (prose.match(/[\p{L}\p{N}◊][^\s]*/gu)?.length ?? 0) > LINE_WORD_LIMIT) warn(lines[line]!, "Split this line; it has over 30 words.");
+			if (hasRevisionId(prose)) warn(lines[line]!, "Leave commit hashes and change IDs out of prose.");
 			if (warnings.length >= WARNING_LIMIT) break;
 		}
 		if (warnings.length >= WARNING_LIMIT) break;

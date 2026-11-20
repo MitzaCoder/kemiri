@@ -24,6 +24,7 @@ import {
 	withTaskReference,
 	writeReport,
 } from "../src/board.ts";
+import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
 const NOW = "2026-11-05T12:00:00.000Z";
@@ -393,9 +394,9 @@ describe("reports through the tools", () => {
 			const { role, text, toolName } = lastOf(request);
 			if (system.includes('You are the worker "')) {
 				workerTurns += 1;
-				if (text === BRIEF) return call("task_progress", { now: "Reading the README.", addResult: "README read", checks: [{ name: "Tests", result: "failed" }, { name: "Build", result: "passed", at: NOW }], milestone: "README read" });
-				if (toolName === "task_progress" && text.includes('milestone "README read"')) return call("task_progress", { checks: [{ name: "Tests", result: "passed", count: 4 }] });
+				if (text === BRIEF) return call("task_progress", { now: "Reading the README.", addResult: wrappedReportParagraph, checks: [{ name: "Tests", result: "failed" }, { name: "Build", result: "passed", at: NOW }], milestone: "README read" });
 				if (role === "toolResult") results.push(text);
+				if (toolName === "task_progress" && text.includes('milestone "README read"')) return call("task_progress", { checks: [{ name: "Tests", result: "passed", count: 4 }] });
 				return fauxAssistantMessage("## Report\nOutcome: done");
 			}
 			if (text === "[task T1, feedback F1] Read the README.") return call("worker_spawn", { id: "reader", task: BRIEF, taskId: "T1" });
@@ -433,9 +434,10 @@ describe("reports through the tools", () => {
 		const board = await client.request({ type: "board.get", projectId });
 		if (board.type !== "board.get") throw errorOf(board);
 		const task = board.board.tasks.find((candidate) => candidate.id === "T1") as BoardTask;
+		expect(results).toContain(`Updated the report of T1 (report r1; milestone "README read" saved).\n${resultsParagraphWarning}`);
 		expect(task.report).toMatchObject({
 			now: task.activity?.text,
-			results: "- README read",
+			results: `- ${wrappedReportParagraph}`,
 			checks: [{ name: "Tests", result: "passed", count: 4, at: expect.any(String) }, { name: "Build", result: "passed", at: NOW }],
 			revision: 2,
 			updatedBy: { author: "worker", threadId: "main", workerId: "reader" },

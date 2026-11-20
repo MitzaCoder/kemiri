@@ -16,6 +16,7 @@ import { BRIDGE_URL_ENV, BRIDGE_TOKEN_ENV, OFFICIAL_AGENT_MCP_COMMAND, bridgeCom
 import { OfficialAgentSessions } from "../src/official-agents/provider.ts";
 import { FileCredentialStore } from "../src/credentials.ts";
 import type { AuthLogin } from "@kemiri/protocol";
+import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
 const AGY = { provider: "antigravity", modelId: "gemini-3.8-flash" };
@@ -318,9 +319,10 @@ test("official workers can update only their own task and retain only files insi
 		for (const label of ["spoof-progress", "unlisted", "outside", "symlink", "spoof-artifact"]) expect(calls[label]?.failed).toBe(true);
 		for (const label of ["outside", "symlink"]) expect(calls[label]?.content[0].text).toContain("must resolve inside");
 		for (const label of ["progress", "artifact", "revision"]) expect(calls[label]?.failed).toBe(false);
+		expect(calls.progress?.content[0].text).toBe(`Updated the report of T1 (report r1; milestone "Fixture reached the bridge" saved).\n${resultsParagraphWarning}`);
 		const { runtime } = await s.setup.server.manager.open(s.projectId);
 		const state = await runtime.board.state();
-		expect(state.tasks[0]?.report.results).toContain("The fixture called the scoped bridge.");
+		expect(state.tasks[0]?.report.results).toBe(`- ${wrappedReportParagraph}`);
 		expect(state.tasks[1]?.report.results).toBe("");
 		const checkpoint = (await runtime.board.history("T1")).find(entry => entry.label === "Fixture reached the bridge");
 		expect(checkpoint?.by).toMatchObject({ author: "worker", threadId: "main", workerId: "official" });
@@ -351,7 +353,7 @@ test("reassigning an official worker reloads its native session with a grant for
 		const { runtime } = await s.setup.server.manager.open(s.projectId);
 		const { tasks } = await runtime.board.state();
 		expect(tasks.find(task => task.id === "T1")?.report.results).toBe("");
-		expect(tasks.find(task => task.id === "T2")?.report.results).toContain("The fixture called the scoped bridge.");
+		expect(tasks.find(task => task.id === "T2")?.report.results).toBe(`- ${wrappedReportParagraph}`);
 		expect(await s.setup.server.artifacts.list(s.projectId)).toMatchObject([{ taskId: "T2" }]);
 	} finally { grants.mockRestore(); await s.cleanup(); }
 }, 30_000);

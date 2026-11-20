@@ -76,7 +76,7 @@ export async function workerTaskProgress(args: WorkerTaskProgressArgs, options: 
 			milestone: args.milestone,
 		}, key, at));
 		const milestone = args.milestone === undefined ? "" : `; milestone "${args.milestone.trim()}" saved`;
-		const warnings = taskTextWarnings({ name: "Results", text: args.addResult });
+		const warnings = taskTextWarnings({ name: "Results", text: args.addResult, paragraphs: true });
 		const plan = planUpdate ? " Run plan updated." : "";
 		return progressText(`Updated the report of ${task.id} (report r${task.report.revision}${milestone}).${plan}${warnings}`, task.id);
 	} catch (error) {
