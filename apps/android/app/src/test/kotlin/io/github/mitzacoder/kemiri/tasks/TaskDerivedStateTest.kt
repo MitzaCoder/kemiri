@@ -89,14 +89,16 @@ class TaskDerivedStateTest {
         assertEquals("dropped", dropTarget(KanbanColumnId.Done, true))
     }
 
-    @Test fun sameDerivedGroupKeepsIndependentAttentionRowsWithFoldableFamilyCopies() {
+    @Test fun sameDerivedGroupNestsAttentionPartsAcrossDifferentStatuses() {
         val parent = derived("T1", "needs_you", "failed").copy(status = "blocked")
         val child = derived("T2", "needs_you", "review").copy(parent = "T1", status = "review")
-        val families = taskFamilies(taskSections(listOf(child, parent), emptyList()).single(), mapOf("T1" to false))
-        assertEquals(2, families.size)
-        assertTrue(families.first { it.row.task.id == "T1" }.canToggle)
-        assertTrue(families.all { it.children.isEmpty() })
-        assertEquals("T2", taskFamilies(taskSections(listOf(child, parent), emptyList()).single(), mapOf("T1" to true)).first { it.row.task.id == "T1" }.children.single().row.task.id)
+        val section = taskSections(listOf(child, parent), emptyList()).single()
+        for (expanded in listOf(false, true)) {
+            val family = taskFamilies(section, mapOf("T1" to expanded)).single()
+            assertEquals("T1", family.row.task.id)
+            assertEquals("T2", family.children.single().row.task.id)
+            assertFalse(family.canToggle)
+        }
     }
 
     @Test fun labelsTonesAndAgesDistinguishPausedBlockedAndQuestions() {

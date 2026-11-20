@@ -1,13 +1,22 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
-/** Visible children only; families default folded. Mirrors web task-families.ts. */
+enum class TaskFamilyRole { Task, ParentHeader, Pointer }
+
+/** Keep folded branches by ID so the list can animate them without moving pinned attention rows. */
+data class TaskFamilyBranch(val family: TaskFamily, val visible: Boolean)
+
 data class TaskFamily(
     val row: TaskRow,
-    val children: List<TaskFamily>,
+    val role: TaskFamilyRole,
+    val branches: List<TaskFamilyBranch>,
     val canToggle: Boolean,
     val expanded: Boolean,
     val foldedCount: Int,
-)
+) {
+    val children: List<TaskFamily> get() = branches.filter { it.visible }.map { it.family }
+}
+
+private fun TaskRow.needsOwner() = task.state?.group == "needs_you"
 
 /** List-only relocation; search and board retain their ordinary state sections. */
 fun taskFamilySections(sections: List<TaskSection>): List<TaskSection> {
@@ -23,13 +32,25 @@ fun taskFamilySections(sections: List<TaskSection>): List<TaskSection> {
         }
         return ancestor.section
     }
-    return sections.map { section -> section.copy(rows = rows.filter {
-        familySection(it) == section.id || (it.task.state?.group == "needs_you" && section.id == TaskSectionId.NeedsYou)
-    }) }.filter { it.rows.isNotEmpty() }
+    val familySections = rows.associate { it.task.id to familySection(it) }
+    return sections.map { section ->
+        val needsYou = section.id == TaskSectionId.NeedsYou
+        val members = rows.filter { familySections[it.task.id] == section.id || (needsYou && it.needsOwner()) }
+        val parentRows = if (needsYou) {
+            val memberIds = members.mapTo(hashSetOf()) { it.task.id }
+            members.filter { it.needsOwner() }.mapNotNull { row ->
+                byId[row.task.parent]?.takeIf { it.task.state != null && !it.task.archived && it.task.id !in memberIds }
+            }.distinctBy { it.task.id }
+        } else emptyList()
+        section.copy(rows = members, parentRows = parentRows)
+    }.filter { it.rows.isNotEmpty() }
 }
 
-fun taskFamilyCount(section: TaskSection): Int =
-    if (section.rows.any { it.task.state != null }) taskFamilies(section).size else section.rows.size
+fun taskFamilyCount(section: TaskSection): Int = when {
+    section.rows.none { it.task.state != null } -> section.rows.size
+    section.id == TaskSectionId.NeedsYou -> section.rows.count { it.needsOwner() }
+    else -> taskFamilies(section).size
+}
 
 fun needsFamilyAttention(row: TaskRow): Boolean =
     row.waiting.isNotEmpty() || (row.task.state?.group?.let { it in setOf("needs_you", "waiting") } ?: (row.task.status in setOf("review", "blocked", "waiting")))
@@ -39,9 +60,10 @@ fun familySectionStartsOpen(section: TaskSection): Boolean =
 
 /**
  * Derived families nest across states; legacy families retain same-status nesting.
- * Needs-you parts also have independent root rows, so their family copies can fold.
+ * Needs-you parts have their full row in Needs you, with a foldable pointer in a different family section.
  */
 fun taskFamilies(section: TaskSection, expansion: Map<String, Boolean> = emptyMap()): List<TaskFamily> {
+    val needsYou = section.id == TaskSectionId.NeedsYou
     val byId = section.rows.associateBy { it.task.id }
     val parents = linkedMapOf<String, String>()
     section.rows.forEach { row ->
@@ -59,25 +81,53 @@ fun taskFamilies(section: TaskSection, expansion: Map<String, Boolean> = emptyMa
             ancestor = parents[ancestor]
         }
     }
-    val children = section.rows.filter { it.task.id in parents }.groupBy { parents[it.task.id]!! }
+    val children = section.rows.filter { it.task.id in parents }.groupBy { parents.getValue(it.task.id) }
+    val order = section.rows.mapIndexed { index, row -> row.task.id to index }.toMap()
     val attention = mutableMapOf<String, Boolean>()
     fun mustShow(row: TaskRow): Boolean = attention.getOrPut(row.task.id) {
-        (if (row.task.state != null) row.task.state.group != "needs_you" && row.waiting.isNotEmpty() && !isSettled(row.task.status) else needsFamilyAttention(row)) || children[row.task.id].orEmpty().any { mustShow(it) }
+        val pinned = when {
+            row.task.state == null -> needsFamilyAttention(row)
+            row.needsOwner() -> needsYou
+            else -> row.waiting.isNotEmpty() && !isSettled(row.task.status)
+        }
+        pinned || children[row.task.id].orEmpty().any(::mustShow)
     }
-    fun branchCount(row: TaskRow): Int = 1 + children[row.task.id].orEmpty().sumOf { branchCount(it) }
+    fun branchCount(row: TaskRow): Int = 1 + children[row.task.id].orEmpty().sumOf(::branchCount)
+    val quietOrder = compareBy<TaskRow> { isSettled(it.task.status) }.thenBy { it.task.order }
+    val needsYouOrder = compareBy<TaskRow> { !it.needsOwner() }
+        .thenBy { if (it.needsOwner()) order.getValue(it.task.id) else Int.MAX_VALUE }
+        .then(quietOrder)
     fun family(row: TaskRow): TaskFamily {
-        val nested = children[row.task.id].orEmpty().let { if (row.task.state != null) it.sortedWith(compareBy<TaskRow> { isSettled(it.task.status) }.thenBy { it.task.order }) else it }
+        val nested = children[row.task.id].orEmpty().let {
+            when {
+                row.task.state == null -> it
+                needsYou -> it.sortedWith(needsYouOrder)
+                else -> it.sortedWith(quietOrder)
+            }
+        }
         val canToggle = nested.any { !mustShow(it) }
         val expanded = canToggle && expansion[row.task.id] == true
+        val role = if (!needsYou && row.needsOwner() && row.task.id in parents) TaskFamilyRole.Pointer else TaskFamilyRole.Task
         return TaskFamily(
-            row = row, canToggle = canToggle, expanded = expanded,
-            children = nested.filter { expanded || mustShow(it) }.map { family(it) },
-            foldedCount = nested.filter { !expanded && !mustShow(it) }.sumOf { branchCount(it) },
+            row = row, role = role, canToggle = canToggle, expanded = expanded,
+            branches = nested.map { TaskFamilyBranch(family(it), expanded || mustShow(it)) },
+            foldedCount = nested.filter { !expanded && !mustShow(it) }.sumOf(::branchCount),
         )
     }
-    return section.rows.filter { it.task.id !in parents || (section.id == TaskSectionId.NeedsYou && it.task.state?.group == "needs_you") }.map {
-        if (section.id == TaskSectionId.NeedsYou && it.task.id in parents && it.task.state?.group == "needs_you")
-            TaskFamily(it, emptyList(), false, false, 0)
-        else family(it)
+    val roots = section.rows.filter { it.task.id !in parents }
+    if (!needsYou || section.rows.none { it.task.state != null }) return roots.map(::family)
+
+    val headers = section.parentRows.associateBy { it.task.id }
+    val partsByParent = roots.filter { it.needsOwner() && it.task.parent in headers }.groupBy { it.task.parent }
+    val groups = roots.filterNot { it.needsOwner() && it.task.parent in headers }.map(::family) +
+        partsByParent.map { (parent, parts) ->
+            TaskFamily(headers.getValue(parent!!), TaskFamilyRole.ParentHeader,
+                parts.sortedWith(needsYouOrder).map { TaskFamilyBranch(family(it), visible = true) },
+                canToggle = false, expanded = true, foldedCount = 0)
+        }
+    fun urgency(group: TaskFamily): Int {
+        val own = if (group.row.needsOwner()) order.getValue(group.row.task.id) else Int.MAX_VALUE
+        return minOf(own, group.children.minOfOrNull(::urgency) ?: Int.MAX_VALUE)
     }
+    return groups.sortedWith(compareBy<TaskFamily>(::urgency).thenBy { order[it.row.task.id] ?: Int.MAX_VALUE })
 }

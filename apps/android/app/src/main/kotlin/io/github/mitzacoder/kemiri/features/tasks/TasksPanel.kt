@@ -1,5 +1,11 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,18 +20,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.data.familyExpansion
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
@@ -35,7 +41,10 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 
 /**
  * The project's tasks, the body of the panels' Tasks tab on a `task-reports` backend (web `TasksPanel.svelte`): every
@@ -79,9 +88,46 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val searchHits = if (searching) search.index.search(search.query, eligible) else emptyList()
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
     val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks))
+    val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
+    val looseGroups = loose.groupBy { it.waitingOn == "agent" }
+    val familySections = if (searching) emptyList() else taskFamilySections(sections)
+    val needsYouSection = familySections.firstOrNull { it.id == TaskSectionId.NeedsYou }
+    // Toolbar and filters, any error or empty message, then loose questions before the first section.
+    val needsYouIndex = familySections.indexOf(needsYouSection) + 2 +
+        (if (view.error != null) 1 else 0) + (if (!view.loaded || empty) 1 else 0) + looseGroups.size
+    var jumpToTask by remember(stateKey) { mutableStateOf<String?>(null) }
+    var highlightedTask by remember(stateKey) { mutableStateOf<String?>(null) }
+    var needsYouLayout by remember(stateKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    val needsYouRowLayouts = remember(stateKey) { mutableStateMapOf<String, LayoutCoordinates>() }
+    LaunchedEffect(jumpToTask, needsYouSection, needsYouIndex, reducedMotion) {
+        val id = jumpToTask ?: return@LaunchedEffect
+        highlightedTask = null
+        if (needsYouSection?.rows?.any { it.task.id == id && it.task.state?.group == "needs_you" } == true) {
+            if (list.layoutInfo.visibleItemsInfo.none { it.key == "section-${TaskSectionId.NeedsYou.name}" }) {
+                list.scrollToItem(needsYouIndex)
+            }
+            // The section is a single lazy item; align the actual nested row, not just its section heading.
+            val layouts = withTimeoutOrNull(750) {
+                snapshotFlow {
+                    val sectionLayout = needsYouLayout?.takeIf { it.isAttached }
+                    val rowLayout = needsYouRowLayouts[id]?.takeIf { it.isAttached }
+                    if (sectionLayout != null && rowLayout != null) sectionLayout to rowLayout else null
+                }.first { it != null }
+            }
+            if (layouts != null) {
+                val (sectionLayout, rowLayout) = layouts
+                val center = rowLayout.positionInRoot().y - sectionLayout.positionInRoot().y + rowLayout.size.height / 2f
+                val offset = (center - list.layoutInfo.viewportSize.height / 2f).roundToInt()
+                if (reducedMotion) list.scrollToItem(needsYouIndex, offset) else list.animateScrollToItem(needsYouIndex, offset)
+                highlightedTask = id
+                delay(1_200)
+                highlightedTask = null
+            }
+        }
+        jumpToTask = null
+    }
     val answered = view.questions.filter { it.status == "answered" }
     val decisions = loadedBoard?.decisions.orEmpty()
-    val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
     val archivedShown = if (view.showArchived) tasks.count { it.archived } else 0
     val openCount = tasks.count { !it.archived && !isSettled(it.status) }
 
@@ -129,7 +175,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 Text("The coordinator adds a task for each thing you bring up. You can also add one yourself.", Modifier.padding(horizontal = 4.dp), style = TextStyles.sm, color = colors.fgSubtle)
             }
         }
-        loose.groupBy { it.waitingOn == "agent" }.forEach { (agentWaiting, questions) ->
+        looseGroups.forEach { (agentWaiting, questions) ->
             item(key = "loose-$agentWaiting") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     SectionTitle(if (agentWaiting) "Waiting for the agent" else "Waiting for you", questions.size, accent = !agentWaiting)
@@ -158,28 +204,37 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                     TaskGroup {
                         searchHits.forEachIndexed { index, hit -> searchRows[hit.id]?.let { row ->
                             if (index > 0) GroupHairline()
-                            TaskListRow(TaskFamily(row, emptyList(), false, true, 0), now, reducedMotion, connection.supports("task-links"), false, loadedBoard?.archivedLinks.orEmpty(), {}) { context.openTask(hit.id) }
+                            TaskListRow(TaskFamily(row, TaskFamilyRole.Task, emptyList(), false, true, 0), now, reducedMotion, connection.supports("task-links"), false, loadedBoard?.archivedLinks.orEmpty(), {}) { context.openTask(hit.id) }
                         } }
                     }
                 }
             }
         }
-        (if (searching) emptyList() else taskFamilySections(sections)).forEach { section ->
+        familySections.forEach { section ->
             val open = sectionExpansion[section.id.name] ?: familySectionStartsOpen(section)
             val families = taskFamilies(section, expansion)
             item(key = "section-${section.id.name}") {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val needsYou = section.id == TaskSectionId.NeedsYou
+                val sectionModifier = if (needsYou) Modifier.onGloballyPositioned { needsYouLayout = it } else Modifier
+                Column(sectionModifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (section.collapsedByDefault) FoldHeading(section.label, open, onToggle = {
                         sectionExpansion = sectionExpansion + (section.id.name to !open)
                     }, count = taskFamilyCount(section), chevronFirst = false, style = TaskType.sectionTitle)
-                    else SectionTitle(section.label, taskFamilyCount(section), accent = section.id == TaskSectionId.NeedsYou)
+                    else SectionTitle(section.label, taskFamilyCount(section), accent = needsYou)
                     if (open) TaskGroup {
-                        TaskFamilyRows(
-                            families, now, reducedMotion, connection.supports("task-links"), loadedBoard?.archivedLinks.orEmpty(),
-                            onToggle = { family -> scope.launch {
-                                context.repository.setTaskFamilyExpanded(context.backend.config.key, project, family.row.task.id, !family.expanded)
-                            } }, onOpen = context::openTask,
-                        )
+                        val previewTask = LocalPreviewTaskId.current
+                        CompositionLocalProvider(LocalPreviewTaskId provides (highlightedTask.takeIf { needsYou } ?: previewTask)) {
+                            TaskFamilyRows(
+                                families.map { TaskFamilyBranch(it, visible = true) }, now, reducedMotion,
+                                connection.supports("task-links"), loadedBoard?.archivedLinks.orEmpty(),
+                                onToggle = { family -> scope.launch {
+                                    context.repository.setTaskFamilyExpanded(context.backend.config.key, project, family.row.task.id, !family.expanded)
+                                } }, onOpen = context::openTask, onJump = { jumpToTask = it },
+                                onRowLayout = if (needsYou) ({ id, layout ->
+                                    if (layout == null) needsYouRowLayouts.remove(id) else needsYouRowLayouts[id] = layout
+                                }) else null,
+                            )
+                        }
                     }
                 }
             }
@@ -218,24 +273,48 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     }
 }
 
-/** Descendants stay within their parent’s section; guides stop consuming width after three levels. */
+/** Fold quiet branches independently so pinned parts never disappear during the transition. */
 @Composable
 private fun TaskFamilyRows(
-    families: List<TaskFamily>, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
-    archived: List<BoardTaskBrief>, onToggle: (TaskFamily) -> Unit, onOpen: (String) -> Unit, depth: Int = 0,
+    branches: List<TaskFamilyBranch>, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
+    archived: List<BoardTaskBrief>, onToggle: (TaskFamily) -> Unit, onOpen: (String) -> Unit,
+    onJump: (String) -> Unit, onRowLayout: ((String, LayoutCoordinates?) -> Unit)?, depth: Int = 0,
 ) {
     val guide = Jarvis.colors.border
+    val firstVisible = branches.indexOfFirst { it.visible }
     Column {
-        families.forEachIndexed { index, family ->
-            key(family.row.task.id) {
-                if (index > 0) GroupHairline()
-                TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) }) { onOpen(family.row.task.id) }
-                if (family.children.isNotEmpty()) Box(
-                    Modifier.padding(start = if (depth < 3) 14.dp else 0.dp)
-                        .drawBehind { drawLine(guide, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) },
-                ) {
-                    TaskFamilyRows(family.children, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, depth + 1)
+        branches.forEachIndexed { index, branch ->
+            val family = branch.family
+            val id = family.row.task.id
+            key(id) {
+                val rowContent: @Composable () -> Unit = {
+                    // The first visible part has no separator above it.
+                    if (index > firstVisible.coerceAtLeast(0)) GroupHairline()
+                    when (family.role) {
+                        TaskFamilyRole.ParentHeader -> TaskParentHeaderRow(family.row) { onOpen(id) }
+                        TaskFamilyRole.Pointer -> TaskPointerRow(family, onOpen = { onOpen(id) }, onJump = { onJump(id) }, onToggle = { onToggle(family) })
+                        TaskFamilyRole.Task -> {
+                            val rowModifier = if (onRowLayout == null) Modifier else {
+                                DisposableEffect(id) { onDispose { onRowLayout(id, null) } }
+                                Modifier.onGloballyPositioned { onRowLayout(id, it) }
+                            }
+                            TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) }, rowModifier) { onOpen(id) }
+                        }
+                    }
+                    if (family.branches.isNotEmpty()) Box(
+                        Modifier.padding(start = if (depth < 3) 14.dp else 0.dp)
+                            .drawBehind { drawLine(guide, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) },
+                    ) {
+                        TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump, onRowLayout, depth + 1)
+                    }
                 }
+                if (depth == 0 || reducedMotion) {
+                    if (branch.visible) rowContent()
+                } else AnimatedVisibility(
+                    visible = branch.visible,
+                    enter = expandVertically(tween(160), expandFrom = Alignment.Top) + fadeIn(tween(160)),
+                    exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Top) + fadeOut(tween(160)),
+                ) { Column { rowContent() } }
             }
         }
     }

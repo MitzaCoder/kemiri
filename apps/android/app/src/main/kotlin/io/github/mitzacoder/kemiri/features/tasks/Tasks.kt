@@ -141,9 +141,17 @@ enum class TaskSectionId(val label: String) {
 data class TaskRow(val task: BoardTask, val waiting: List<BoardQuestion>, val section: TaskSectionId)
 
 /** Closed tasks are history: their section starts folded. */
-data class TaskSection(val id: TaskSectionId, val rows: List<TaskRow>, val collapsedByDefault: Boolean) {
-    val label: String get() = if (id == TaskSectionId.Working && rows.any { it.task.state != null }) "In progress" else id.label
+data class TaskSection(
+    val id: TaskSectionId,
+    val rows: List<TaskRow>,
+    val collapsedByDefault: Boolean,
+    val parentRows: List<TaskRow> = emptyList(),
+) {
+    val label: String get() = id.labelFor(derived = rows.any { it.task.state != null })
 }
+
+internal fun TaskSectionId.labelFor(derived: Boolean): String =
+    if (this == TaskSectionId.Working && derived) "In progress" else label
 
 private fun warningsFirst(questions: List<BoardQuestion>) = questions.filter(::isWarning) + questions.filterNot(::isWarning)
 
