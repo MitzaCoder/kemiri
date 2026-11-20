@@ -73,8 +73,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     // Typing on the soft keyboard never reaches the activity's key dispatch; the field says it instead.
     val notificationCenter = LocalNotificationCenter.current
     var draftValue by chatDraft::value
-    val draft = draftValue.text
-    fun setDraft(text: String) { draftValue = TextFieldValue(text,TextRange(text.length)) }
+    val discussion = chatDraft.discussion
+    val draft = chatDraft.wireText
+    fun setDraft(text: String) { chatDraft.setWireText(text) }
     // A message can be about one board task (main's chat only) and carry quotes from the transcript.
     var taskId by chatDraft::taskId
     var quotes by chatDraft::quotes
@@ -358,10 +359,10 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 Text(it, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
             }
-            val pickerOpen = taskChoicesSource != null && (pickerListOpen || trigger != null)
+            val pickerOpen = discussion == null && taskChoicesSource != null && (pickerListOpen || trigger != null)
             fun closePicker() { trigger?.let { dismissedAt = it.start }; trigger = null; pickerListOpen = false }
             fun syncTrigger(value: TextFieldValue) {
-                val found = if(taskChoicesSource == null) null else hashTrigger(value.text,value.selection.start)
+                val found = if(taskChoicesSource == null || discussion != null) null else hashTrigger(value.text,value.selection.start)
                 if(found == null) dismissedAt = null
                 trigger = found?.takeIf { it.start != dismissedAt }
             }
@@ -379,7 +380,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             // What the user types, or moves the caret in: the message limit, "interacted", and the `#` task picker.
             val onUserEdit by rememberUpdatedState { buffer: TextFieldBuffer ->
                 val value = TextFieldValue(buffer.asCharSequence().toString(),buffer.selection)
-                if(value.text.length > 64000) { buffer.revertAllChanges(); error = "Message limit is 64,000 characters." }
+                if(value.text.length + (discussion?.header?.length?.plus(2) ?: 0) > 64000) { buffer.revertAllChanges(); error = "Message limit is 64,000 characters." }
                 else { if(value.text != chatDraft.textState.text.toString()) notificationCenter?.interacted(); syncTrigger(value) }
             }
             val userEdits = remember { InputTransformation { onUserEdit(this) } }
@@ -417,7 +418,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                             TextButton(onClick = { discardPending = true }) { Text("Start a new admission…") }
                         }
                     }
-                    if(attached != null) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (discussion != null) DiscussionComposerAttachment(context, discussion, attached,
+                        onRemove = chatDraft::removeDiscussion, onTask = { taskId = it })
+                    if(attached != null && discussion == null) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("About",style = MaterialTheme.typography.labelSmall,color = Jarvis.colors.fgSubtle)
                         TaskPill(attached,Modifier.weight(1f,fill = false),title = taskChoicesSource?.firstOrNull { it.id == attached }?.title,onRemove = { taskId = null })
                     }
@@ -431,7 +434,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 afterInput = { chatDraft.origin?.let { DraftOriginHint(it) } },
                 controls = {
                     ComposerSettings(context,threadModelNote = activeThread?.model?.let { "Runs on ${modelLabel(it,models)}" },modifier = Modifier.weight(1f)) { workerDefaults = it }
-                    if(taskChoicesSource != null) TaskPickerButton(active = attached != null || pickerOpen) { if(pickerOpen) closePicker() else pickerListOpen = true }
+                    if(taskChoicesSource != null && discussion == null) TaskPickerButton(active = attached != null || pickerOpen) { if(pickerOpen) closePicker() else pickerListOpen = true }
                     if (busy) JarvisIconButton(Lucide.Square, "Stop coordinator", onClick = { scope.launch {
                         try { context.backend.client.request(ConversationAbortRequest(projectId = context.route.projectId, threadId = context.route.threadId)) }
                         catch(e: CancellationException) { throw e }
@@ -455,7 +458,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                         try {
                             context.backend.client.request(ConversationSubmitRequest(projectId = context.route.projectId, threadId = context.route.threadId,
                                 requestId = requestId, content = content, whenBusy = "steer",workerModel = admission.workerDefaults.model,workerThinkingLevel = admission.workerDefaults.thinkingLevel,taskId = admission.taskId,fileIds = admission.fileIds))
-                            if (draft == message) setDraft("")
+                            if (chatDraft.wireText == message) setDraft("")
                             setFiles(files.filter { it.id !in admission.fileIds })
                             if(chatDraft.images === sentImages) chatDraft.clearImages()
                             if(taskId == sentTask) taskId = null

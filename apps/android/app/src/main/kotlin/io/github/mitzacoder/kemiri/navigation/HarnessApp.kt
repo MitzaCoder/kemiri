@@ -42,7 +42,9 @@ import io.github.mitzacoder.kemiri.features.tasks.rememberTasksView
 import io.github.mitzacoder.kemiri.features.terminal.TerminalScreen
 import io.github.mitzacoder.kemiri.features.usage.UsageScreen
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import io.github.mitzacoder.kemiri.protocol.Artifact
 import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,6 +120,23 @@ private fun HarnessNavigation(
         unknownBackend = null
         scope.launch { drawer.close() }
     }
+    val android = LocalContext.current
+    var discussionProblem by remember { mutableStateOf(false) }
+    fun discuss(source: Destination.Chat, artifact: Artifact) {
+        val session = sessions.find { it.config.key == source.backendKey } ?: return
+        val mainChat = Destination.Chat(source.backendKey, artifact.projectId)
+        scope.launch {
+            try {
+                val discussionContext = ProjectScreenContext(repository, session, mainChat, navigate)
+                appendArtifactReviewDraft(android, discussionContext, mainChat, discussHeader(artifact), artifact.taskId, discussion = true)
+                navigate(mainChat)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { discussionProblem = true }
+        }
+    }
+    if (discussionProblem) AlertDialog(onDismissRequest = { discussionProblem = false },
+        title = { Text("Could not attach the artifact") }, text = { Text("The chat draft could not be saved. Try again.") },
+        confirmButton = { TextButton(onClick = { discussionProblem = false }) { Text("Close") } })
     val settingsNavigator = SettingsNavigator(
         navigate,
         { next -> updateBackStack { it.replaceSibling(next) } },
@@ -245,12 +264,12 @@ private fun HarnessNavigation(
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier, navigate)
-                            Destination.ArtifactLibrary -> ArtifactLibraryScreen(repository, sessions, artifactLibraryReads, modifier, navigate)
-                            is Destination.ArtifactStudio -> if (context != null) ArtifactStudioScreen(context, current.artifactId, ::pop, modifier) else MissingBackend(modifier)
+                            Destination.ArtifactLibrary -> ArtifactLibraryScreen(repository, sessions, artifactLibraryReads, modifier, navigate, onDiscuss = ::discuss)
+                            is Destination.ArtifactStudio -> if (context != null) ArtifactStudioScreen(context, current.artifactId, ::pop, modifier, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, requireNotNull(settingsScopes), navigate, connectPayload, onConnectHandled, modifier)
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
-                            is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }) else MissingBackend(modifier)
+                            is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
                             is Destination.Terminal -> sessions.firstOrNull { it.config.key == current.backendKey }
                                 ?.let { TerminalScreen(it, current, onBack = ::pop, modifier = modifier) } ?: MissingBackend(modifier)
                         }

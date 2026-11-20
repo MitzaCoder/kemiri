@@ -25,6 +25,8 @@ import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.Artifact
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 
 @Composable
 internal fun ShelfArtifact(context: ProjectScreenContext, artifact: Artifact, open: () -> Unit, discuss: (() -> Unit)?, reducedMotion: Boolean, modifier: Modifier) {
@@ -90,7 +92,13 @@ internal fun ShelfArtifact(context: ProjectScreenContext, artifact: Artifact, op
                 if (artifact.living != null) Text("● Living", color = colors.accent2, style = MaterialTheme.typography.labelMedium)
             }
         }
-        discuss?.let { TextButton(onClick = it) { Text("Discuss") } }
+        if (discuss != null) Box {
+            var menuOpen by remember { mutableStateOf(false) }
+            IconButton(onClick = { menuOpen = true }) { LucideGlyph(Lucide.MoreHorizontal, size = 19.dp, contentDescription = "Actions for ${artifactTitle(artifact)}") }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Discuss") }, onClick = { menuOpen = false; discuss() })
+            }
+        }
     }
 }
 

@@ -35,6 +35,7 @@ fun ArtifactScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
     onFullHeightChange: (Boolean) -> Unit = {},
+    onDiscuss: ((Artifact) -> Unit)? = null,
     belowViewer: (@Composable (root: Artifact, viewed: Artifact, selectVersion: (Long) -> Unit) -> Unit)? = null,
 ) {
     var latestArtifact by remember(context.route,artifactId) { mutableStateOf<Artifact?>(null) }
@@ -204,6 +205,7 @@ fun ArtifactScreen(
                             DropdownMenuItem(text = { Text("Next version") }, enabled = index < versions.lastIndex, onClick = { selectedVersion = versions[index + 1].version; dismiss() })
                         }
                         ArtifactDownloadAction(context, artifact, artifact?.id ?: artifactId, canSave = deletion != ArtifactDeleteState.Sending, menuItem = true)
+                        if (onDiscuss != null) DropdownMenuItem(text = { Text("Discuss") }, onClick = { dismiss(); onDiscuss(artifact) })
                         DropdownMenuItem(text = { Text("Delete…") }, onClick = { dismiss(); deletion = ArtifactDeleteState.Confirming })
                         DropdownMenuItem(text = { Text("Close") }, onClick = { dismiss(); onBack() })
                     })
@@ -296,6 +298,7 @@ fun ArtifactScreen(
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), modifier = Modifier.semantics { contentDescription = "Delete artifact" }) {
                     LucideGlyph(ArtifactGlyphs.Trash, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Delete")
                 }
+                if (onDiscuss != null && artifact != null) TextButton(onClick = { onDiscuss(artifact) }) { Text("Discuss") }
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) { ArtifactDownloadAction(context, artifact, artifact?.id ?: artifactId, canSave = deletion != ArtifactDeleteState.Sending) }
             }

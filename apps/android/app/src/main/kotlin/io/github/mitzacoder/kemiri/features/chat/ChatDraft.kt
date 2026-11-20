@@ -38,6 +38,17 @@ internal class ChatDraftState {
     var value: TextFieldValue
         get() = TextFieldValue(textState.text.toString(), textState.selection)
         set(next) { textState.edit { replace(0, length, next.text); selection = TextRange(next.selection.start.coerceIn(0, length), next.selection.end.coerceIn(0, length)) } }
+    var discussion by mutableStateOf<DiscussionReference?>(null)
+        private set
+    val wireText: String get() = discussion?.let { discussionText(it.header, value.text) } ?: value.text
+    fun setWireText(text: String) {
+        val reference = discussionReference(text)
+        discussion = reference?.copy(body = "")
+        val body = reference?.body ?: text
+        value = TextFieldValue(body, TextRange(body.length))
+    }
+    fun removeDiscussion() { discussion = null; taskId = null }
+
     var taskId by mutableStateOf<String?>(null)
     var quotes by mutableStateOf(listOf<String>())
     /** The images the draft holds, in order, by reference; the bytes are here once read from the cache or the backend. */
@@ -56,7 +67,7 @@ internal class ChatDraftState {
     internal var last: DraftContent? = null
 
     fun content(): DraftContent = DraftContent(
-        text = value.text,
+        text = wireText,
         taskId = taskId,
         quotes = quotes,
         attachments = images.map { it.ref }.takeIf { it.isNotEmpty() },
@@ -67,9 +78,11 @@ internal class ChatDraftState {
         val next = content ?: DraftContent(text = "", quotes = emptyList())
         last = next
         val current = value
-        val caretAtEnd = current.selection.end >= current.text.length
-        val caret = if (caretAtEnd) next.text.length else current.selection.end.coerceAtMost(next.text.length)
-        value = TextFieldValue(next.text, TextRange(caret))
+        val reference = discussionReference(next.text)
+        discussion = reference?.copy(body = "")
+        val body = reference?.body ?: next.text
+        val caret = if (current.selection.end >= current.text.length) body.length else current.selection.end.coerceAtMost(body.length)
+        value = TextFieldValue(body, TextRange(caret))
         taskId = next.taskId
         quotes = next.quotes
         // Keep the bytes of images already shown; the others are read (see `loadImages`).
@@ -255,14 +268,15 @@ internal object ArtifactReviewDrafts {
 }
 internal fun appendReviewDraft(draft: DraftContent, text: String, taskId: String?): DraftContent =
     draft.copy(text = listOf(draft.text, text).filter { it.isNotEmpty() }.joinToString("\n\n"), taskId = taskId ?: draft.taskId)
-internal suspend fun appendArtifactReviewDraft(android: android.content.Context, context: ProjectScreenContext, recipient: io.github.mitzacoder.kemiri.navigation.Destination.Chat, text: String, taskId: String?) {
+internal suspend fun appendArtifactReviewDraft(android: android.content.Context, context: ProjectScreenContext, recipient: io.github.mitzacoder.kemiri.navigation.Destination.Chat, text: String, taskId: String?, discussion: Boolean = false) {
+    fun append(draft: DraftContent) = if (discussion) attachDiscussion(draft, text, taskId) else appendReviewDraft(draft, text, taskId)
     val cache = DraftCache.of(android)
     cache.awaitLoaded()
     val chatId = if (sameThread(recipient.threadId, null)) MAIN_THREAD_ID else recipient.threadId!!
     val key = "${context.backend.config.key}|${recipient.projectId}|$chatId"
     val mounted = ArtifactReviewDrafts.mounted[key]
     if (mounted != null) {
-        val next = appendReviewDraft(mounted.content(), text, taskId)
+        val next = append(mounted.content())
         mounted.show(next); mounted.origin = null; mounted.sync?.changed(next); mounted.sync?.flush()
         // Persist immediately too: show() deliberately updates the last-content marker.
         val loaded = cache.load(key)
@@ -270,7 +284,7 @@ internal suspend fun appendArtifactReviewDraft(android: android.content.Context,
         mounted.reviewFocus = true
     } else {
         val loaded = cache.load(key)
-        cache.save(key, appendReviewDraft(loaded.draft ?: DraftContent(text = "", quotes = emptyList()), text, taskId), loaded.synced)
+        cache.save(key, append(loaded.draft ?: DraftContent(text = "", quotes = emptyList())), loaded.synced)
         ArtifactReviewDrafts.focus.add(key)
     }
 }

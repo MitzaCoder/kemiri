@@ -170,7 +170,7 @@ private const val ORB_MIN_WIDTH_DP = 640
             first.kind == "image" -> Box(Modifier.fillMaxWidth(),contentAlignment = Alignment.CenterEnd) {
                 AsyncImage(model = remember(first.text) { runCatching { Base64.decode(first.text,Base64.DEFAULT) }.getOrNull() },contentDescription = "Attached image",modifier = Modifier.fillMaxWidth(.85f).heightIn(max = 320.dp).clip(RoundedCornerShape(16.dp)))
             }
-            first.kind == "user" -> UserMessage(first, scope.context)
+            first.kind == "user" -> UserMessage(first, scope.context, scope.artifacts)
             else -> TaskMentions(streaming,source = first.text) { RichMarkdown(first.text,Modifier.fillMaxWidth()) }
         }
         row.turn?.let { TurnFooter(row.key,it) }
@@ -299,12 +299,18 @@ private fun stepIcon(part: ChatPart): LucideIcon = when {
  * A message from the user: the task it is about as a pill above the bubble, the quotes it starts with as small quotes
  * at the top of the bubble, the text, then copy and time.
  */
-@Composable private fun UserMessage(part: ChatPart, context: ProjectScreenContext?) {
+@Composable private fun UserMessage(part: ChatPart, context: ProjectScreenContext?, artifacts: List<Artifact>) {
     val attachment = remember(part.text) { splitFileMessage(part.text) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     val download = context?.let { rememberFileDownload(it.backend.client) { message -> downloadError = message } }
     val reference = remember(attachment.text) { io.github.mitzacoder.kemiri.features.tasks.parseTaskReference(attachment.text) }
-    val quoted = remember(reference.text) { splitQuotes(reference.text) }
+    val main = context?.takeIf { it.route.workerId == null && (it.route.threadId == null || it.route.threadId == "main") }
+    val discussion = if (main != null) remember(reference.text) { discussionReference(reference.text) } else null
+    val root = discussion?.let { pinned -> artifacts.find { it.id == pinned.artifactId } }
+    val details = if (main != null && discussion != null) rememberDiscussionDetails(main, discussion, reference.taskId, withFolder = false, knownRoot = root) else null
+    val home = (root ?: details?.root)?.let { it.taskId.orEmpty() } ?: reference.taskId.orEmpty()
+    val text = discussion?.body ?: reference.text
+    val quoted = remember(text) { splitQuotes(text) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val widest = minOf(640.dp,maxWidth * .88f)
     Column(Modifier.fillMaxWidth(),horizontalAlignment = Alignment.End,verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -319,7 +325,12 @@ private fun stepIcon(part: ChatPart): LucideIcon = when {
                         RichMarkdown(quoted.text, userMessage = true)
                     }
                 }
+                if (main != null && discussion != null) DiscussionChip(main, discussion, root ?: details?.root)
             }
+        }
+        val sentAt = part.timestamp
+        if (main != null && discussion != null && sentAt != null && home.isNotEmpty()) {
+            DiscussionOverrule(main, discussion, details, home, part.key.substringBeforeLast('-'), sentAt)
         }
         Row(verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             if(reference.text.isNotEmpty()) CopyTextButton(part.text,"Copy message")

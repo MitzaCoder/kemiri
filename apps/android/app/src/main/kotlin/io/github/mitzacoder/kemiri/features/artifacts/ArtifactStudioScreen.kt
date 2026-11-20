@@ -34,6 +34,7 @@ internal fun ArtifactStudioScreen(context: ProjectScreenContext, artifactId: Str
     val projectName = projects.find { it.id == context.route.projectId }?.name
     val scope = rememberCoroutineScope()
     var artifact by remember(artifactId) { mutableStateOf<Artifact?>(null) }
+    var viewedForDiscussion by remember(artifactId) { mutableStateOf<Artifact?>(null) }
     var folders by remember(artifactId) { mutableStateOf(emptyList<ArtifactTaskFolder>()) }
     var comments by remember(artifactId) { mutableStateOf(emptyList<ArtifactComment>()) }
     var trailRevision by remember(artifactId) { mutableIntStateOf(0) }
@@ -46,7 +47,7 @@ internal fun ArtifactStudioScreen(context: ProjectScreenContext, artifactId: Str
             when (event) {
                 is BoardStateEvent -> if (event.projectId == context.route.projectId) trailRevision++
                 is ArtifactsChangedEvent -> if (event.projectId == context.route.projectId && event.artifact.id == artifactId) {
-                    if (event.deleted) artifact = null else trailRevision++
+                    if (event.deleted) { artifact = null; viewedForDiscussion = null } else trailRevision++
                 }
                 else -> Unit
             }
@@ -69,7 +70,7 @@ internal fun ArtifactStudioScreen(context: ProjectScreenContext, artifactId: Str
         Column {
             TopAppBar(title = { Text(artifact?.let(::artifactTitle) ?: "Artifact", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { JarvisIconButton(Lucide.ArrowLeft, "Back to artifacts", onClick = { keyboard?.hide(); close() }) },
-                actions = { artifact?.let { root -> onDiscuss?.let { discuss -> TextButton(onClick = { discuss(root) }) { Text("Discuss") } } } })
+                actions = { viewedForDiscussion?.let { viewed -> onDiscuss?.let { discuss -> TextButton(onClick = { discuss(viewed) }) { Text("Discuss") } } } })
             val root = artifact
             if (supported && root != null) {
                 val living = root.living != null
@@ -95,7 +96,10 @@ internal fun ArtifactStudioScreen(context: ProjectScreenContext, artifactId: Str
         }
     }) { padding ->
         ArtifactScreen(context, artifactId, Modifier.padding(padding), onBack = close, belowViewer = { root, viewed, select ->
-            if (!supported && artifact != root) SideEffect { artifact = root }
+            SideEffect {
+                if (!supported && artifact != root) artifact = root
+                if (viewedForDiscussion != viewed) viewedForDiscussion = viewed
+            }
             val metadata = artifact ?: root
             val home = folders.find { it.id == root.taskId }
             val doneAt = home?.settledAt?.takeIf { home.status == "done" }

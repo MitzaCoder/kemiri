@@ -26,8 +26,12 @@ internal data class PendingAdmission(
     fun save(): String = Json.encodeToString(serializer(),this)
     fun canRetry(scope: String, text: String, images: List<JsonObject>, taskId: String? = null, quotes: List<String> = emptyList(), fileIds: List<String> = emptyList()): Boolean =
         this.scope == scope && this.text == text && imageDigest == digest(images) && this.taskId == taskId && this.quotes == quotes && this.fileIds == fileIds
-    /** The text that goes out: the quotes as blockquotes, then what was typed. */
-    val message: String get() = if(quotes.isEmpty()) text else messageWithQuotes(quotes,text)
+    /** Quotes follow a pinned Discuss header so both clients can still recognize the message. */
+    val message: String get() {
+        if (quotes.isEmpty()) return text
+        val discussion = discussionReference(text) ?: return messageWithQuotes(quotes, text)
+        return discussionText(discussion.header, messageWithQuotes(quotes, discussion.body))
+    }
     /** The content the request carries: the text, then each image in order; null when [images] are not the ones this admission was made with. */
     fun content(images: List<JsonObject>): JsonElement? {
         if(imageDigest != digest(images)) return null

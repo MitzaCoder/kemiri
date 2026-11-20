@@ -676,7 +676,13 @@ use the capped page thumbnails, and keep the living ring still when Android anim
 Studio opens on the same back stack. Back and its toolbar arrow return to the library with its filters and scroll
 position. The existing artifact viewers and review controls sit above the filmstrip, task context and history.
 Version markers show saves before and after task completion. The trail supplies task decisions and addressed notes.
-The owner can switch Keep alive on or off on supported backends. Discuss hooks remain unbound until T374 integration.
+The owner can switch Keep alive on or off on supported backends.
+
+Android Discuss opens the project’s main chat from a shelf’s actions menu, Studio, or an artifact viewer. Its
+version chip hides the pinned header without changing the synced review-draft format. Removing the chip keeps the
+text and clears its task. Bring its task folder uses the trail to show the task, decision count and earlier comment count.
+Sent messages about settled work offer the same two confirmed actions as web. Android rereads the board before the
+status writes, and retries the short instruction with the same admission ID without clearing the current draft.
 
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)
 
