@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useOpenTaskId } from '#lib/task-detail-context.js';
-	import { toBlocks } from '#lib/markdown/parse.js';
+	import { renderInline, toBlocks } from '#lib/markdown/parse.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { linkRefMentions } from '#lib/refs.js';
 	import CodeBlock from './CodeBlock.svelte';
@@ -15,8 +15,9 @@
 		source,
 		streaming = false,
 		userMessage = false,
+		inline = false,
 		class: className = ''
-	}: { source: string; streaming?: boolean; userMessage?: boolean; class?: string } = $props();
+	}: { source: string; streaming?: boolean; userMessage?: boolean; inline?: boolean; class?: string } = $props();
 
 	const refLinks = useRefLinks();
 	const taskLinks = useTaskLinks();
@@ -29,12 +30,17 @@
 </script>
 
 <div class="md {className}" class:streaming class:md-user={userMessage} use:overlayScrollWithin={'.md-table'}>
-	{#each blocks as block (block.key)}
-		{#if block.kind === 'code'}
-			<CodeBlock code={block.code} lang={block.lang} streaming={!block.closed} />
-		{:else}
-			<!-- Sanitized with DOMPurify in toBlocks(). -->
-			{@html block.html}
-		{/if}
-	{/each}
+	{#if inline}
+		<!-- Sanitized with DOMPurify in renderInline(). -->
+		{@html renderInline(linked, taskLinks()?.title, openTaskId())}
+	{:else}
+		{#each blocks as block (block.key)}
+			{#if block.kind === 'code'}
+				<CodeBlock code={block.code} lang={block.lang} streaming={!block.closed} />
+			{:else}
+				<!-- Sanitized with DOMPurify in toBlocks(). -->
+				{@html block.html}
+			{/if}
+		{/each}
+	{/if}
 </div>

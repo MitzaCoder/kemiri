@@ -29,7 +29,9 @@ export function taskDetailFields(task: Pick<BoardTask, 'goal' | 'report'>, taskF
 	return {
 		goal: taskFieldsEnabled ? task.goal?.trim() || undefined : undefined,
 		summary: taskFieldsEnabled ? task.report.summary?.trim() || undefined : undefined,
+		// Route still reads the normalized Markdown until it adopts the report renderer.
 		notDoneMarkdown: taskFieldsEnabled ? notDoneMarkdown(task.report.notDone) : undefined,
+		notDone: taskFieldsEnabled && task.report.notDone?.trim() ? task.report.notDone : undefined,
 		checks: taskFieldsEnabled ? task.report.checks ?? [] : []
 	};
 }

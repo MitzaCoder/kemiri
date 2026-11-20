@@ -187,7 +187,11 @@ export function toBlocks(source: string, streaming: boolean, userMessage = false
 	return blocks;
 }
 
-/** Render inline-only markdown (titles, short labels). */
-export function renderInline(source: string): string {
-	return purify(marked.parseInline(source) as string);
+/** Render inline Markdown without interpreting its source as a new block. */
+export function renderInline(source: string, taskTitle?: (id: string) => string | undefined, openTaskId?: string): string {
+	const tokens = marked.Lexer.lexInline(source, marked.defaults);
+	if (taskTitle !== undefined || openTaskId !== undefined) {
+		linkTaskTokens(tokens, id => isTaskSelfReference(id, openTaskId) ? '' : taskTitle?.(id), undefined, openTaskId);
+	}
+	return purify(marked.Parser.parseInline(tokens, marked.defaults));
 }

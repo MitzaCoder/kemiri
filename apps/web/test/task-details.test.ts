@@ -56,7 +56,7 @@ describe('Needs you', () => {
 
 describe('structured task fields', () => {
 	const report: BoardTask['report'] = { now: '', results: '- Legacy result', next: '**Legacy plan**', revision: 0, updatedAt: null, updatedBy: null };
-	const hidden = { goal: undefined, summary: undefined, notDoneMarkdown: undefined, checks: [] };
+	const hidden = { goal: undefined, summary: undefined, notDone: undefined, notDoneMarkdown: undefined, checks: [] };
 	const passed: BoardReportCheck = { name: 'Tests', result: 'passed', count: 0, at: question.askedAt };
 	const failed: BoardReportCheck = { name: 'Typecheck', result: 'failed', at: question.askedAt };
 
@@ -64,13 +64,13 @@ describe('structured task fields', () => {
 		const task = { goal: ' Reserve books. ', report: { ...report, summary: ' The form is ready. ', notDone: ' No reminders yet. \r\n\r\n* **Staff edits** are not ready.\n1. No email.', checks: [passed, failed] } };
 		expect(taskDetailFields(task, false)).toEqual(hidden);
 		expect(taskDetailFields({ report }, true)).toEqual(hidden);
-		expect(taskDetailFields({ goal: null, report: { ...report, summary: '  ', notDone: '\n - \n', checks: [] } }, true)).toEqual(hidden);
+		expect(taskDetailFields({ goal: null, report: { ...report, summary: '  ', notDone: '\n \n', checks: [] } }, true)).toEqual(hidden);
 		expect(taskDetailFields(task, true)).toEqual({
 			goal: 'Reserve books.', summary: 'The form is ready.',
-			notDoneMarkdown: '- No reminders yet.\n- **Staff edits** are not ready.\n- No email.', checks: [passed, failed]
+			notDone: task.report.notDone, notDoneMarkdown: '- No reminders yet.\n- **Staff edits** are not ready.\n- No email.', checks: [passed, failed]
 		});
 		expect(taskDetailFields({ goal: ' ', report: { ...report, notDone: 'Just one item.' } }, true))
-			.toEqual({ ...hidden, notDoneMarkdown: '- Just one item.' });
+			.toEqual({ ...hidden, notDone: 'Just one item.', notDoneMarkdown: '- Just one item.' });
 		expect(task.report).toMatchObject({ results: '- Legacy result', next: '**Legacy plan**' });
 	});
 

@@ -5840,8 +5840,12 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   Clicking sends only the label. One-line previews stay label-only, and questions without choices keep their chips.
 - **What you get, Not done and Next.** Results stays Markdown, with at most three clickable image/video proof
   thumbnails from the task artifact feed. On `task-fields` backends, a non-empty summary leads What you get and
-  failed checks are named there. A non-empty Not done list follows What you get. Old Markdown still renders as
-  before. Next shows the agents' plan unless it is already in the review check. A working task's automatic Now
+  failed checks are named there. A non-empty Not done section follows. On web, the report body shapes legacy
+  Markdown on read, without changing stored text: flat bullets become spaced rows and runs of short, unambiguous
+  `Label: value` lines or bullets become aligned pairs that stack on narrow screens. Plain Not done lines become
+  rows, but structured Markdown stays intact, as do paragraphs, nested lists, numbered steps and other Markdown
+  blocks. Report prose is limited to about 70 characters across. Next shows the agents' plan unless it is already
+  in the review check. A working task's automatic Now
   appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
   stale report gets one line with the existing request-update action.
 - **Task usage (D108 / T328).** On web, the task sheet reads lifetime usage on open, not on board pushes. When the

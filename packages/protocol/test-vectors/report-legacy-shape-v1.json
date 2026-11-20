@@ -1,0 +1,418 @@
+[
+  {
+    "name": "empty section",
+    "section": "results",
+    "markdown": " \r\n\t",
+    "expected": []
+  },
+  {
+    "name": "code fence with lookalike rows",
+    "section": "results",
+    "markdown": "```text\nSite: Linden Hall\nWindow: Morning\n- no split\n```",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "```text\nSite: Linden Hall\nWindow: Morning\n- no split\n```"
+      }
+    ]
+  },
+  {
+    "name": "softly wrapped paragraph with a mid-sentence label",
+    "section": "results",
+    "markdown": "The counter was ready before the doors opened and the team checked\nthe paper slips; see Proof: in the desk log before serving the queue.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The counter was ready before the doors opened and the team checked\nthe paper slips; see Proof: in the desk log before serving the queue."
+      }
+    ]
+  },
+  {
+    "name": "capacity rehearsal in one 400-word paragraph",
+    "section": "results",
+    "markdown": "The booking desk can handle the expected morning queue at Linden Hall. We ran a rehearsal during the morning session with the reservation desk using the same arrival order that the hall expects on an ordinary opening day. The entrance team gave each volunteer a printed slip with a made up name and arrival time so that the desk could practice without using anyone's real booking details. We left the normal counter layout in place and had the same number of people on the desk as the opening schedule calls for. In the first window the desk accepted ten reservations. All ten were entered before the window ended and the clerk could find each reservation again by its slip number when the entrance team asked for it. The desk did not need to open a second queue while those ten people were being served. When the next volunteer arrived, the clerk sent the request to the waiting list instead of putting an eleventh reservation into the first window. The volunteer kept the same slip number and the clerk could call that number in order when a place opened later in the session. That handoff is the second thing we wanted to see because the door team needs to be able to tell people where to wait without sending them through the line again. Proof: the booking replay in Files follows the tenth reservation and the first waiting list entry in order. It also records what the clerk said to the volunteer so the entrance team can try the same wording next time. We did not treat the rehearsal as a forecast for a special event because a larger group arriving together could change the time people spend at the desk. The morning result is enough to keep the one queue layout for the usual opening. We erased the practice reservations from the desk book after matching them against the replay. Then we removed the practice waiting list and set out a fresh stack of blank slips. The next shift can start with an empty book instead of having to tell rehearsal names apart from new bookings. We left the usual reference card at the counter and asked the entrance team to keep using the same line for anyone who comes to make a reservation. The replay stays available for anyone who wants to see what happened at the cutoff before the hall opens again on an ordinary morning.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The booking desk can handle the expected morning queue at Linden Hall. We ran a rehearsal during the morning session with the reservation desk using the same arrival order that the hall expects on an ordinary opening day. The entrance team gave each volunteer a printed slip with a made up name and arrival time so that the desk could practice without using anyone's real booking details. We left the normal counter layout in place and had the same number of people on the desk as the opening schedule calls for. In the first window the desk accepted ten reservations. All ten were entered before the window ended and the clerk could find each reservation again by its slip number when the entrance team asked for it. The desk did not need to open a second queue while those ten people were being served. When the next volunteer arrived, the clerk sent the request to the waiting list instead of putting an eleventh reservation into the first window. The volunteer kept the same slip number and the clerk could call that number in order when a place opened later in the session. That handoff is the second thing we wanted to see because the door team needs to be able to tell people where to wait without sending them through the line again. Proof: the booking replay in Files follows the tenth reservation and the first waiting list entry in order. It also records what the clerk said to the volunteer so the entrance team can try the same wording next time. We did not treat the rehearsal as a forecast for a special event because a larger group arriving together could change the time people spend at the desk. The morning result is enough to keep the one queue layout for the usual opening. We erased the practice reservations from the desk book after matching them against the replay. Then we removed the practice waiting list and set out a fresh stack of blank slips. The next shift can start with an empty book instead of having to tell rehearsal names apart from new bookings. We left the usual reference card at the counter and asked the entrance team to keep using the same line for anyone who comes to make a reservation. The replay stays available for anyone who wants to see what happened at the cutoff before the hall opens again on an ordinary morning."
+      }
+    ]
+  },
+  {
+    "name": "numbered procedure in Next",
+    "section": "next",
+    "markdown": "1. Open the ledger.\n2. Set the code to `314`.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "1. Open the ledger.\n2. Set the code to `314`."
+      }
+    ]
+  },
+  {
+    "name": "flat bullets with inline Markdown and a task reference",
+    "section": "results",
+    "markdown": "- The **desk** opened.\n- See [the guide](https://example.test/guide) and T4.\n- Enter `314`.",
+    "expected": [
+      {
+        "kind": "rows",
+        "items": [
+          "The **desk** opened.",
+          "See [the guide](https://example.test/guide) and T4.",
+          "Enter `314`."
+        ]
+      }
+    ]
+  },
+  {
+    "name": "loosely spaced single-paragraph bullets",
+    "section": "results",
+    "markdown": "- First row\n\n- Second row",
+    "expected": [
+      {
+        "kind": "rows",
+        "items": [
+          "First row",
+          "Second row"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a wrapped bullet remains one row",
+    "section": "results",
+    "markdown": "- Leave the key\n  with the desk.\n- Check the log.",
+    "expected": [
+      {
+        "kind": "rows",
+        "items": [
+          "Leave the key\nwith the desk.",
+          "Check the log."
+        ]
+      }
+    ]
+  },
+  {
+    "name": "flat labeled lines with Unicode and inline values",
+    "section": "results",
+    "markdown": "Étage: **First**\r\nDesk code: `314`\r\nProof: [Desk log](https://example.test/log)",
+    "expected": [
+      {
+        "kind": "labeled",
+        "rows": [
+          {
+            "label": "Étage",
+            "value": "**First**"
+          },
+          {
+            "label": "Desk code",
+            "value": "`314`"
+          },
+          {
+            "label": "Proof",
+            "value": "[Desk log](https://example.test/log)"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "labeled bullets with a time in the value",
+    "section": "next",
+    "markdown": "- Site: Linden Hall\n- Desk opens: 10:30",
+    "expected": [
+      {
+        "kind": "labeled",
+        "rows": [
+          {
+            "label": "Site",
+            "value": "Linden Hall"
+          },
+          {
+            "label": "Desk opens",
+            "value": "10:30"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "one labeled line stays a paragraph",
+    "section": "next",
+    "markdown": "Site: Linden Hall",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: Linden Hall"
+      }
+    ]
+  },
+  {
+    "name": "a URL makes the whole line run ambiguous",
+    "section": "results",
+    "markdown": "Site: Linden Hall\nhttps://example.test/hall\nSession: Morning",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: Linden Hall\nhttps://example.test/hall\nSession: Morning"
+      }
+    ]
+  },
+  {
+    "name": "a time makes the whole bullet run ambiguous",
+    "section": "results",
+    "markdown": "- Site: Linden Hall\n- 10:30 Arrival\n- Session: Morning",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- Site: Linden Hall\n- 10:30 Arrival\n- Session: Morning"
+      }
+    ]
+  },
+  {
+    "name": "an empty or marked-up label leaves the run alone",
+    "section": "results",
+    "markdown": "Site: Linden Hall\nSession:\n**Intake**: Reservation desk",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: Linden Hall\nSession:\n**Intake**: Reservation desk"
+      }
+    ]
+  },
+  {
+    "name": "a code span makes the label ambiguous",
+    "section": "results",
+    "markdown": "Site: Linden Hall\n`Session`: Morning",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: Linden Hall\n`Session`: Morning"
+      }
+    ]
+  },
+  {
+    "name": "a long label makes the run ambiguous",
+    "section": "results",
+    "markdown": "Site: Linden Hall\nHours when the doors are open: Morning",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: Linden Hall\nHours when the doors are open: Morning"
+      }
+    ]
+  },
+  {
+    "name": "inline Markdown spanning label lines",
+    "section": "results",
+    "markdown": "Site: *Linden Hall\nSession: Morning*",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "Site: *Linden Hall\nSession: Morning*"
+      }
+    ]
+  },
+  {
+    "name": "table",
+    "section": "results",
+    "markdown": "| Site | Session |\n| --- | --- |\n| Linden Hall | Morning |",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "| Site | Session |\n| --- | --- |\n| Linden Hall | Morning |"
+      }
+    ]
+  },
+  {
+    "name": "nested bullet list",
+    "section": "results",
+    "markdown": "- Entrance\n  - East doors\n- Desk",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- Entrance\n  - East doors\n- Desk"
+      }
+    ]
+  },
+  {
+    "name": "multi-paragraph bullet item",
+    "section": "results",
+    "markdown": "- First paragraph.\n\n  Second paragraph.\n- Another item.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- First paragraph.\n\n  Second paragraph.\n- Another item."
+      }
+    ]
+  },
+  {
+    "name": "checkboxes retain their authored meaning",
+    "section": "results",
+    "markdown": "- [x] Set out the sign\n- [ ] Open the doors",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- [x] Set out the sign\n- [ ] Open the doors"
+      }
+    ]
+  },
+  {
+    "name": "reference links stay with their definitions",
+    "section": "results",
+    "markdown": "- See [the guide][guide].\n- Open the doors.\n\n[guide]: https://example.test/guide",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- See [the guide][guide].\n- Open the doors.\n\n[guide]: https://example.test/guide"
+      }
+    ]
+  },
+  {
+    "name": "plain unmarked Not done lines",
+    "section": "notDone",
+    "markdown": "No evening sign yet.\nThe **west gate** is still shut.",
+    "expected": [
+      {
+        "kind": "rows",
+        "items": [
+          "No evening sign yet.",
+          "The **west gate** is still shut."
+        ]
+      }
+    ]
+  },
+  {
+    "name": "plain marked Not done lines",
+    "section": "notDone",
+    "markdown": "- No evening sign yet.\n- The west gate is still shut.",
+    "expected": [
+      {
+        "kind": "rows",
+        "items": [
+          "No evening sign yet.",
+          "The west gate is still shut."
+        ]
+      }
+    ]
+  },
+  {
+    "name": "labeled Not done lines",
+    "section": "notDone",
+    "markdown": "East doors: No sign after dusk\nSide gate: No cover in rain",
+    "expected": [
+      {
+        "kind": "labeled",
+        "rows": [
+          {
+            "label": "East doors",
+            "value": "No sign after dusk"
+          },
+          {
+            "label": "Side gate",
+            "value": "No cover in rain"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Not done with a heading, table and paragraphs",
+    "section": "notDone",
+    "markdown": "The evening pickup plan is open.\n\n### Entrance checks\n\n| Entrance | Missing |\n| --- | --- |\n| Gate | Shelter |\n\nUse the east doors in the morning.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The evening pickup plan is open.\n\n### Entrance checks\n\n| Entrance | Missing |\n| --- | --- |\n| Gate | Shelter |\n\nUse the east doors in the morning."
+      }
+    ]
+  },
+  {
+    "name": "Not done with blank-line separated paragraphs",
+    "section": "notDone",
+    "markdown": "The evening pickup plan is open.\n\nUse the east doors in the morning.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The evening pickup plan is open.\n\nUse the east doors in the morning."
+      }
+    ]
+  },
+  {
+    "name": "Not done with a nested bullet list",
+    "section": "notDone",
+    "markdown": "- Entrance\n  - East doors\n- Desk",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "- Entrance\n  - East doors\n- Desk"
+      }
+    ]
+  },
+  {
+    "name": "Not done with a numbered procedure",
+    "section": "notDone",
+    "markdown": "1. Check the latch.\n2. Place the sign.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "1. Check the latch.\n2. Place the sign."
+      }
+    ]
+  },
+  {
+    "name": "Not done with attributed lines in a quote",
+    "section": "notDone",
+    "markdown": "> East doors: No sign after dusk\n> Side gate: No cover in rain",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "> East doors: No sign after dusk\n> Side gate: No cover in rain"
+      }
+    ]
+  },
+  {
+    "name": "Not done with a code fence",
+    "section": "notDone",
+    "markdown": "~~~text\nSite: Linden Hall\nWindow: Morning\n~~~",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "~~~text\nSite: Linden Hall\nWindow: Morning\n~~~"
+      }
+    ]
+  },
+  {
+    "name": "Not done with a Markdown hard break",
+    "section": "notDone",
+    "markdown": "The evening cutoff is  \nstill unclear.",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The evening cutoff is  \nstill unclear."
+      }
+    ]
+  },
+  {
+    "name": "mixed paragraph and list",
+    "section": "results",
+    "markdown": "The desk is open.\n\n- Set out slips.\n- Check the clock.\n\nSee the [hall guide](https://example.test/hall).",
+    "expected": [
+      {
+        "kind": "markdown",
+        "source": "The desk is open.\n\n"
+      },
+      {
+        "kind": "rows",
+        "items": [
+          "Set out slips.",
+          "Check the clock."
+        ]
+      },
+      {
+        "kind": "markdown",
+        "source": "\n\nSee the [hall guide](https://example.test/hall)."
+      }
+    ]
+  }
+]

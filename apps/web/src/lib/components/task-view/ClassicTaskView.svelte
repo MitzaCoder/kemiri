@@ -14,6 +14,7 @@
 	import TaskWaitingForm from '#lib/components/TaskWaitingForm.svelte';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
+	import ReportSectionBody from '#lib/components/ReportSectionBody.svelte';
 	import TaskFeedback from '#lib/components/TaskFeedback.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
 	import TaskRefs from '#lib/components/TaskRefs.svelte';
@@ -113,13 +114,13 @@
 									{#if needsYou.stepsMarkdown}
 									<div class="flex flex-col gap-3" data-task-steps>
 										<h3 class="font-semibold">Your steps</h3>
-										<Markdown source={needsYou.stepsMarkdown} class="task-detail-markdown" />
+										<Markdown source={needsYou.stepsMarkdown} class="task-detail-markdown task-report-prose" />
 									</div>
 								{/if}
 								{#if needsYou.review}
 										<div class="flex flex-col gap-3">
 											<h3 class="font-semibold">Check the work</h3>
-											{#if task.report.next.trim()}<Markdown source={task.report.next} class="task-detail-markdown" />{/if}
+											{#if task.report.next.trim()}<ReportSectionBody section="next" markdown={task.report.next} />{/if}
 											<div class="flex flex-wrap gap-2">
 												<Button class="min-h-11" disabled={closing} onclick={model.completeReview}>It works: close the task</Button>
 												<Button class="min-h-11" variant="outline" onclick={model.focusReply}>Something is off…</Button>
@@ -148,11 +149,11 @@
 
 							<section class="task-reading-section" aria-label="What you get">
 								<h2 class="task-detail-heading">What you get</h2>
-								{#if fields?.summary}<p class="text-[1.0625rem] font-medium">{fields.summary}</p>{/if}
+								{#if fields?.summary}<p class="task-report-prose text-[1.0625rem] font-medium">{fields.summary}</p>{/if}
 								{#if staleReport}
 									<div class="task-stale-report flex min-h-11 flex-wrap items-center gap-x-1 text-(--chat-fg-muted)"><span>Report may be out of date.</span><ReportStaleAction {backend} {projectId} taskId={task.id} /></div>
 								{/if}
-								{#if task.report.results.trim()}<Markdown source={task.report.results} class="task-detail-markdown" />
+								{#if task.report.results.trim()}<ReportSectionBody section="results" markdown={task.report.results} />
 								{:else if !fields?.summary && !failedChecks}<p class="text-(--chat-fg-muted)">{emptyFinishedResults(task) ? 'No results yet · work finished' : 'Nothing written yet.'}</p>{/if}
 								{#if failedChecks}<p class="text-(--chat-danger)">{failedChecks}</p>{/if}
 								{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
@@ -166,17 +167,17 @@
 								</section>
 							{/if}
 
-							{#if fields?.notDoneMarkdown}
+							{#if fields?.notDone}
 								<section class="task-reading-section" aria-label="Not done">
 									<h2 class="task-detail-heading">Not done</h2>
-									<Markdown source={fields.notDoneMarkdown} class="task-detail-markdown" />
+									<ReportSectionBody section="notDone" markdown={fields.notDone} />
 								</section>
 							{/if}
 
 							{#if !needsYou?.review && task.report.next.trim()}
 								<section class="task-reading-section" aria-label="Next">
 									<h2 class="task-detail-heading">Next</h2>
-									<Markdown source={task.report.next} class="task-detail-markdown" />
+									<ReportSectionBody section="next" markdown={task.report.next} />
 								</section>
 							{/if}
 							{#if needsYou?.questionsForAgent.length}

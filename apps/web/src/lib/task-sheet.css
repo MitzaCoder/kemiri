@@ -50,6 +50,7 @@
 	font-size: var(--task-page-text);
 	line-height: 1.6;
 }
+.task-report-prose { max-inline-size: 34em; }
 .task-needs-you {
 	gap: 1rem;
 	padding: clamp(0.85rem, 2.5cqw, 1.5rem);
