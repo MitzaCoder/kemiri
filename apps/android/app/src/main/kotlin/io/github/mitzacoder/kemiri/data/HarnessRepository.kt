@@ -147,6 +147,7 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun setNotifications(transform: (NotificationSettings) -> NotificationSettings) = update { it.copy(notifications = transform(it.notifications)) }
     suspend fun setWorkDayStart(start: String) = update { it.copy(workDayStart = normalizeWorkDayStart(start)) }
     suspend fun setTimeFormat(format: TimeFormat) = update { it.copy(timeFormat = format) }
+    internal suspend fun setTaskViewDesign(id: String) = update { it.copy(taskViewDesignId = id) }
     suspend fun setTheme(palette: ThemePalette, mode: ThemeMode) = update { it.copy(palette = palette, mode = mode) }
     suspend fun resetReadingChoices() = update {
         it.copy(codeWrap = null, timelineNewestFirst = true, mediaSeparate = false, taskRecordFolds = emptyMap())

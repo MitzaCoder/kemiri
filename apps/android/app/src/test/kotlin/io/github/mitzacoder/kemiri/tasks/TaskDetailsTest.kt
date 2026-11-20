@@ -119,10 +119,10 @@ class TaskDetailsTest {
 
     @Test fun filesShowsTheFullTaskFeedWithoutADisclosureAfterResults() {
         val tasks = File("src/main/kotlin/io/github/mitzacoder/kemiri/features/tasks")
-        val sheet = tasks.resolve("TaskSheet.kt").readText()
-        val sectionsAfterResults = sheet.substringAfter("item(key = \"results\")").substringBefore("item(key = \"record\")")
+        val classic = tasks.resolve("ClassicTaskView.kt").readText()
+        val sectionsAfterResults = classic.substringAfter("item(key = \"results\")").substringBefore("item(key = \"record\")")
         assertTrue(Regex("""TaskReadingSection\("Files"\) \{\s*TaskFiles\(context, artifacts, onUpdateTags""").containsMatchIn(sectionsAfterResults))
-        assertTrue(sheet.contains("ArtifactsListRequest(projectId = project, taskId = taskId)"))
+        assertTrue(tasks.resolve("TaskSheetState.kt").readText().contains("ArtifactsListRequest(projectId = project, taskId = taskId)"))
         assertFalse(tasks.resolve("TaskAbout.kt").readText().contains("TaskFiles("))
     }
 

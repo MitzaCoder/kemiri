@@ -5927,6 +5927,13 @@ lines; a stale one offers the existing update action. There is no section naviga
 - The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
   sync. See Compact refs and keyboard space above.
 
+**Android task view designs.** Classic (`classic`) is the default and keeps the existing sheet layout.
+The owner can choose a design from Task view in the sheet header overflow or in Settings → Appearance.
+The choice is saved on this device for all projects and applies to an open task without reopening it.
+Missing or unrecognized choices display Classic. Each entry in `TaskViewDesigns` supplies a stable ID,
+label, description and composable. Designs share `TaskSheetState` for the open task, including its
+queries, actions and reply; each design decides how to lay it out.
+
 **Android record (T299).** With `task-delivery`, Android requests the delivery projection and uses the same
 explicit-citation and day-grouping rules as web. Decided expands to show the question, answer and attribution.
 Activity combines Now, timeline events, worker runs and expandable snapshots. Built, Merged and Live appear

@@ -12,6 +12,8 @@ import kotlinx.serialization.Serializable
 enum class ThemePalette { Jarvis, Neutral }
 enum class ThemeMode { System, Light, Dark }
 
+internal const val DEFAULT_TASK_VIEW_DESIGN_ID = "classic"
+
 @Serializable
 data class ProjectLocation(val backendKey: String, val projectId: String)
 
@@ -48,6 +50,8 @@ data class DeviceSettings(
     val codeWrap: String? = null,
     /** One independent open/closed preference per record row, across tasks on this device. */
     val taskRecordFolds: Map<String, Boolean> = emptyMap(),
+    /** Task detail design for every project on this device. */
+    val taskViewDesignId: String = DEFAULT_TASK_VIEW_DESIGN_ID,
     val lastOpenedProject: ProjectLocation? = null,
     val lastUsedComputerKey: String? = null,
 )

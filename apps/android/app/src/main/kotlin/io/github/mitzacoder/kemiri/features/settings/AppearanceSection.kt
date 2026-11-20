@@ -24,6 +24,7 @@ import io.github.mitzacoder.kemiri.data.TimeFormat
 import io.github.mitzacoder.kemiri.data.displayWallTime
 import io.github.mitzacoder.kemiri.data.ThemeMode
 import io.github.mitzacoder.kemiri.data.ThemePalette
+import io.github.mitzacoder.kemiri.features.tasks.TaskViewDesigns
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -93,6 +94,15 @@ internal fun AppearanceSection(repository: HarnessRepository) {
             }
         }
         SettingsGroup(title = "Reading") {
+            val taskViewDesign = TaskViewDesigns.resolve(settings.taskViewDesignId)
+            SettingsRow("Task view", hint = "${taskViewDesign.description} Saved on this device.", control = RowControl.Wide) {
+                Row(Modifier.selectableGroup().fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TaskViewDesigns.entries.forEach { design ->
+                        FilterChip(taskViewDesign.id == design.id, { scope.launch { repository.setTaskViewDesign(design.id) } },
+                            label = { Text(design.label) }, modifier = Modifier.heightIn(min = 44.dp))
+                    }
+                }
+            }
             SettingsRow("Wrap code", hint = when (settings.codeWrap) {
                 "wrap" -> "Wrap lines"
                 "scroll" -> "Scroll sideways"
