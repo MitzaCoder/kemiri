@@ -28,7 +28,7 @@ const authEvents = async (dataDir: string) => (await readFile(join(agentDir(data
 const subscriptionProfiles = async (dataDir: string) => (await readdir(agentDir(dataDir))).filter(name => name.startsWith("subscription-"));
 const setCredential = (store: FileCredentialStore) => store.modify(AGY.provider, async () => ({ type: "api_key", key: "synthetic-fixture" }));
 
-async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean; taskless?: boolean; log?: (message: string) => void } = {}) {
+async function workerSetup(brief: string, options: { isolated?: boolean; signedOut?: boolean; taskless?: boolean; model?: typeof AGY; log?: (message: string) => void } = {}) {
 	const setup = await createSetup({ antigravityCommand: fakeAgent, ...(options.log ? { log: options.log } : {}) });
 	try {
 		await setCredential(setup.credentials);
@@ -39,7 +39,7 @@ async function workerSetup(brief: string, options: { isolated?: boolean; signedO
 		const added = await client.request({ type: "projects.add", path: setup.projectDir });
 		if (added.type !== "projects.add") throw new Error(JSON.stringify(added));
 		const projectId = added.project.id;
-		expect((await client.request({ type: "projects.configure", projectId, coordinatorModel: FAUX, workerModels: [AGY] })).type).toBe("projects.configure");
+		expect((await client.request({ type: "projects.configure", projectId, coordinatorModel: FAUX, workerModels: [options.model ?? AGY] })).type).toBe("projects.configure");
 		const { runtime } = await setup.server.manager.open(projectId);
 		await runtime.harness.commit(async tx => {
 			const board = await openBoard(tx, runtime.conversation.id);
@@ -97,6 +97,26 @@ test("official-agent worker receives its brief in its isolated workspace and rep
 		expect(catalog.providers.find(p => p.id === AGY.provider)?.officialAgent?.installedVersion).toBe("1.5.12");
 	} finally { await s.cleanup(); }
 }, 30_000);
+
+test("ACP-reported Neon input, cache reads and thought tokens reach the request log at catalog rates", async () => {
+	const neon = { provider: AGY.provider, modelId: "gemini-4-neon" };
+	const s = await workerSetup("NEON_USAGE", { model: neon });
+	try {
+		await s.submit();
+		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
+		const requestLog = s.setup.server.requestLog!;
+		await requestLog.flush();
+		const row = requestLog.store.rows({ from: 0, to: Date.now() + 1, projectId: s.projectId }).find(row => row.provider === AGY.provider);
+		expect(row).toMatchObject({
+			model: neon.modelId, taskId: "T1", priced: true, input: 200_000, output: 100_000,
+			cacheRead: 2_000_000, costInput: 0.6, costOutput: 1.5, costCacheRead: 0.3,
+		});
+		expect(row!.cost).toBeCloseTo(2.4);
+		const catalog = await s.client.request({ type: "models.list" });
+		if (catalog.type !== "models.list") throw new Error("Expected catalog");
+		expect(catalog.models.find(model => model.modelId === neon.modelId)?.name).toBe("Renamed Neon from ACP");
+	} finally { await s.cleanup(); }
+});
 
 test("official-agent ACP tool updates and plan appear on a running task without a progress call", async () => {
  const s = await workerSetup("LIVE_TASK HOLD_TURN");

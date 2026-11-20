@@ -1,4 +1,8 @@
 import { afterEach, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { antigravityDefinition } from "../src/official-agents/antigravity.ts";
 import { ConversationRequests } from "../src/request-log.ts";
 import { RequestLogStore, type RequestRow } from "../src/request-log-store.ts";
 import { readSubscriptionValue, valueMonth } from "../src/subscription-value.ts";
@@ -38,6 +42,62 @@ function fixture(provider = PROVIDER) {
 			currentBilling: new Map([[provider, "subscription"]]), label: id => id, billingFor: async () => null,
 			boardTasks: async () => [], ...overrides }) };
 }
+
+it("recovers retained Antigravity value for the month, model and parent task without double counting", async () => {
+	const at = Date.UTC(2026, 10, 20);
+	const dir = mkdtempSync(join(tmpdir(), "retained-value-"));
+	cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+	const file = join(dir, "log.sqlite");
+	const { id: provider, modelRates } = antigravityDefinition(dir);
+	const catalogPricing = { provider, modelRates: modelRates! };
+	const old = RequestLogStore.open(file);
+	try {
+		old.subscriptionTerms.observe(provider, "Pro", "subscription", at);
+		old.subscriptionTerms.setPrice(provider, 20, at);
+		const tracker = new ConversationRequests({ projectId: "library", conversationId: 4,
+			identity: { kind: "worker", threadId: "main", taskId: "leaf", workerId: "example", scheduleId: null } });
+		const row = tracker.request({ provider, model: "gemini-4-neon-high", timestamp: at + MINUTE,
+			usage: { input: 1_000_000, output: 1_000_000, cacheRead: 2_000_000 },
+		}, { wake: "brief", retention: null, changes: null, source: "live" });
+		old.insertMany([
+			{ ...row, billing: "subscription", priced: false },
+			{ ...row, billing: "subscription", priced: true, cost: 2 },
+			{ ...row, billing: "subscription", priced: false, model: "gemini-pro-orchestrator-neon" },
+			{ ...row, billing: "subscription", priced: false, model: "gemini-4-neon", input: 0, output: 0, cacheRead: 0 },
+		]);
+	} finally { old.close(); }
+	for (let open = 0; open < 2; open++) {
+		const store = RequestLogStore.open(file, { catalogPricing });
+		try {
+			const [recovered, alreadyPriced, unknown, noTokens] = store.rows({ from: 0, to: at + DAY });
+			expect(recovered).toMatchObject({ priced: true, cost: 18.3, costInput: 3, costOutput: 15, costCacheRead: 0.3 });
+			expect(alreadyPriced).toMatchObject({ priced: true, cost: 2 });
+			expect(unknown).toMatchObject({ priced: false, cost: 0 });
+			expect(noTokens).toMatchObject({ priced: true, cost: 0 });
+			if (open === 1) store.prune(at + 120 * DAY);
+			const value = await readSubscriptionValue({ store, month: valueMonth({ utcOffsetMinutes: 0 }, at + DAY),
+				currentBilling: new Map(), label: id => id, billingFor: async () => null,
+				boardTasks: async () => [{ id: "root", title: "Root", parent: null }, { id: "leaf", title: "Leaf", parent: "root" }],
+			});
+			expect(value.unpricedRequests).toBe(1);
+			expect(value.subscriptions[0]).toMatchObject({ apiValue: 20.3, realisedRatio: 20.3 / 20,
+				models: [{ model: "gemini-4-neon-high", apiValue: 20.3 }, { apiValue: 0 }, { apiValue: 0 }],
+				topTasks: [{ taskId: "root", apiValue: 20.3 }],
+			});
+			expect(store.taskUsage("library", ["leaf"]).reduce((n, row) => n + row.requests, 0)).toBe(4);
+		} finally { store.close(); }
+	}
+});
+
+it("uses announced Gemini 4 standard rates on either side of the introductory cutoff", () => {
+	const rates = antigravityDefinition("unused").modelRates!;
+	const cutoff = Date.UTC(2026, 11, 1);
+	for (const model of ["gemini-4-argon", "gemini-4-carbon-high"]) {
+		expect(rates(model, cutoff - 1)).toEqual({ input: 2, output: 10, cacheRead: 0.10, cacheWrite: 0 });
+		expect(rates(model, cutoff)).toEqual({ input: 4, output: 20, cacheRead: 0.20, cacheWrite: 0 });
+	}
+	expect(rates("gemini-4-hydrogen-high", cutoff)).toEqual({ input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 });
+});
 
 it.each([4, 5, 10])("requires five pooled points and reports a range with %i points", async points => {
 	const f = fixture();

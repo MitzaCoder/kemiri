@@ -19,6 +19,9 @@ import type { PromptFingerprint } from "./prompt-fingerprint.ts";
 import { createLimitLedgerTables, createRequestEndIndex, LimitLedger } from "./limit-ledger.ts";
 import { SubscriptionTerms } from "./subscription-terms.ts";
 import { usageRole } from "./usage-analysis.ts";
+import { tokenCatalogCost, type TokenRates } from "./request-pricing.ts";
+
+export type RequestCatalogPricing = { provider: string; modelRates: (model: string, at: number) => TokenRates | undefined };
 
 /**
  * Schema 3 added billing and the limit ledger in a new file. Releases before it refuse a newer schema, so the
@@ -255,8 +258,7 @@ function createUsageRollup(db: Database): void {
 	`);
 }
 
-function addToUsageRollup(db: Database, row: RequestRow, legacy = false): void {
-	const sign = legacy ? -1 : 1;
+function addToUsageRollup(db: Database, row: RequestRow, bucket: "minute" | "legacy-day" = "minute", sign = 1): void {
 	// The grouping index treats missing dimensions as equal, using a different SQLite type from each column.
 	db.query(`INSERT INTO usage_rollup (day, minute, project_id, task_id, worker_id, thread_id, role, provider, model, billing, period_id,
 		requests, input, cache_read, cache_write, output, cost, unpriced_requests)
@@ -264,7 +266,7 @@ function addToUsageRollup(db: Database, row: RequestRow, legacy = false): void {
 		ON CONFLICT DO UPDATE SET requests = requests + excluded.requests, input = input + excluded.input,
 		cache_read = cache_read + excluded.cache_read, cache_write = cache_write + excluded.cache_write,
 		output = output + excluded.output, cost = cost + excluded.cost, unpriced_requests = unpriced_requests + excluded.unpriced_requests`
-	).run(row.at, legacy ? null : Math.floor(row.at / 60_000), row.projectId, row.taskId, row.workerId,
+	).run(row.at, bucket === "legacy-day" ? null : Math.floor(row.at / 60_000), row.projectId, row.taskId, row.workerId,
 		row.threadId, usageRole(row), row.provider, row.model, row.billing ?? null, row.periodId ?? null,
 		sign, sign * row.input, sign * row.cacheRead, sign * row.cacheWrite, sign * row.output, sign * row.cost,
 		sign * Number(row.priced === false));
@@ -291,7 +293,7 @@ export class RequestLogStore {
 	readonly #warmListeners = new Set<() => void>();
 	readonly #insert: ReturnType<Database["prepare"]>;
 
-	private constructor(db: Database) {
+	private constructor(db: Database, private readonly catalogPricing?: RequestCatalogPricing) {
 		this.#db = db;
 		this.ledger = new LimitLedger(db);
 		this.subscriptionTerms = new SubscriptionTerms(db, this.ledger);
@@ -321,7 +323,7 @@ export class RequestLogStore {
 	}
 
 	/** Open or create the log; `now` stamps a new one's `liveSince`. `readonly` opens an existing file for reading only. */
-	static open(path: string, options: { now?: number; readonly?: boolean } = {}): RequestLogStore {
+	static open(path: string, options: { now?: number; readonly?: boolean; catalogPricing?: RequestCatalogPricing } = {}): RequestLogStore {
 		if (options.readonly === true) {
 			const db = new Database(path, { readonly: true, strict: true });
 			return new RequestLogStore(db);
@@ -414,7 +416,7 @@ export class RequestLogStore {
 				// Upgrade retained rows to minute precision. Only already-pruned schema-3 rows stay daily.
 				for (const stored of db.query<DbRow, []>("SELECT * FROM requests").iterate()) {
 					const row = fromDb(stored);
-					if (upgradeDailyRollups) addToUsageRollup(db, row, true);
+					if (upgradeDailyRollups) addToUsageRollup(db, row, "legacy-day", -1);
 					addToUsageRollup(db, row);
 				}
 				if (upgradeDailyRollups) {
@@ -430,7 +432,51 @@ export class RequestLogStore {
 		db.exec("CREATE INDEX IF NOT EXISTS usage_rollup_by_task ON usage_rollup (project_id, task_id) WHERE task_id IS NOT NULL");
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('internal_since', ?)").run(String(options.now ?? Date.now()));
 		db.query("INSERT OR IGNORE INTO meta (key, value) VALUES ('live_since', ?)").run(String(options.now ?? Date.now()));
-		return new RequestLogStore(db);
+		const store = new RequestLogStore(db, options.catalogPricing);
+		try {
+			store.#priceRetainedRequests();
+			return store;
+		} catch (error) {
+			db.close();
+			throw error;
+		}
+	}
+
+	#withCatalogCost(row: RequestRow): RequestRow {
+		if (row.cost !== 0 || row.provider !== this.catalogPricing?.provider) return row;
+		const rates = this.catalogPricing.modelRates(row.model, row.at);
+		if (!rates) return row;
+		const cost = tokenCatalogCost(rates, row);
+		return { ...row, priced: true, cost: cost.total, costInput: cost.input,
+			costOutput: cost.output, costCacheRead: cost.cacheRead, costCacheWrite: cost.cacheWrite };
+	}
+
+	/** Repair retained rows only. Pruned buckets can mix requests with different pricing histories. */
+	#priceRetainedRequests(): void {
+		const pricing = this.catalogPricing;
+		if (!pricing) return;
+		const db = this.#db;
+		db.transaction(() => {
+			const update = db.query(`UPDATE requests SET priced = 1, cost = ?, cost_input = ?, cost_output = ?,
+				cost_cache_read = ?, cost_cache_write = ? WHERE id = ?`);
+			const updatePeriod = db.query("UPDATE limit_periods SET api_value = api_value + ? WHERE id = ?");
+			let refreshOpenPeriods = false;
+			for (const stored of db.query<DbRow & { id: number }, [string]>(`
+				SELECT * FROM requests WHERE provider = ? AND priced IS NOT 1 AND cost = 0
+			`).all(pricing.provider)) {
+				const row = fromDb(stored);
+				const priced = this.#withCatalogCost(row);
+				if (priced === row) continue;
+				update.run(priced.cost, priced.costInput, priced.costOutput, priced.costCacheRead, priced.costCacheWrite, stored.id);
+				addToUsageRollup(db, row, "minute", -1);
+				addToUsageRollup(db, priced);
+				if (priced.cost > 0 && (row.billing === "subscription" || row.billing === "plan_key")) {
+					if (row.periodId != null) updatePeriod.run(priced.cost, row.periodId);
+					refreshOpenPeriods = true;
+				}
+			}
+			if (refreshOpenPeriods) this.ledger.refreshOpenMeasurements(pricing.provider);
+		}).immediate();
 	}
 
 	internalSince(): number | null {
@@ -459,6 +505,7 @@ export class RequestLogStore {
 	}
 
 	#insertRequest(row: RequestRow): void {
+		row = this.#withCatalogCost(row);
 		if (row.periodId === undefined && (row.billing === "subscription" || row.billing === "plan_key")) {
 			row = { ...row, periodId: this.ledger.bindingPeriodId(row.provider, row.at) };
 		}

@@ -10,6 +10,30 @@ import type { OfficialAgentDefinition } from "./definition.ts";
 
 export const ANTIGRAVITY_PROVIDER = "antigravity";
 
+// Google Developer API Standard USD/1M rates. Gemini 4 uses implicit caching, not separately billed cache writes.
+// The High choices select thinking effort, not a different API model. Do not map multi-model orchestrators.
+function gemini4Rates(modelId: string, at: number) {
+	switch (modelId) {
+		case "gemini-4-neon":
+		case "gemini-4-neon-high":
+			// https://ai.google.dev/gemini-api/docs/pricing#gemini-4-neon
+			return { input: 3, output: 15, cacheRead: 0.15, cacheWrite: 0 };
+		case "gemini-4-hydrogen":
+		case "gemini-4-hydrogen-high":
+			// https://ai.google.dev/gemini-api/docs/pricing#gemini-4-hydrogen
+			return { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 };
+		case "gemini-4-argon":
+		case "gemini-4-argon-high":
+		case "gemini-4-carbon":
+		case "gemini-4-carbon-high":
+			// https://ai.google.dev/gemini-api/docs/pricing#gemini-4-argon
+			// https://ai.google.dev/gemini-api/docs/pricing#gemini-4-carbon
+			return at < Date.UTC(2026, 11, 1)
+				? { input: 2, output: 10, cacheRead: 0.10, cacheWrite: 0 }
+				: { input: 4, output: 20, cacheRead: 0.20, cacheWrite: 0 };
+	}
+}
+
 export function antigravityDefinition(dataDir: string, command = serverSettings.KEMIRI_ANTIGRAVITY_COMMAND?.trim()): OfficialAgentDefinition & { installedQuotaCommand(): Promise<string | null> } {
 	const installer = new AntigravityInstaller({ dataDir });
 	const executable = () => command ? Bun.which(command, { PATH: childEnvironment().PATH ?? "" }) : null;
@@ -23,6 +47,7 @@ export function antigravityDefinition(dataDir: string, command = serverSettings.
 		models: [
 			{ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
 			{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" },
+			{ id: "gemini-4-neon", name: "Gemini 4 Neon" },
 			{ id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" },
 			{ id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" },
 			{ id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)" },
@@ -35,6 +60,7 @@ export function antigravityDefinition(dataDir: string, command = serverSettings.
 			{ id: "gemini-3.6-flash-high", name: "Gemini 3.6 Flash (High)" },
 			{ id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)" },
 		],
+		modelRates: gemini4Rates,
 		separateThoughtTokens: true,
 		apiKeyName: "Gemini API key",
 		apiKeyMethod: "gemini-api-key",

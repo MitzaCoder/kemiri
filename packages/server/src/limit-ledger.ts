@@ -191,6 +191,13 @@ export class LimitLedger {
 		}
 	}
 
+	/** Revalue open windows after retained request costs change. Closed measurements stay frozen. */
+	refreshOpenMeasurements(provider: string): void {
+		for (const { id } of this.#db.query<{ id: number }, [string]>(
+			"SELECT id FROM limit_periods WHERE provider = ? AND ended_at IS NULL",
+		).all(provider)) this.#measure(id);
+	}
+
 	backfillMeasurements(): void {
 		for (const { id } of this.#db.query<{ id: number }, []>("SELECT id FROM limit_periods").all()) this.#measure(id);
 	}

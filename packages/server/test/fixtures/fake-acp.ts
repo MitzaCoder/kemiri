@@ -39,9 +39,10 @@ if (process.argv.includes("--login")) {
 const record = (event: object) => appendFileSync(eventLog, JSON.stringify(event) + "\n");
 const send = (frame: object) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n");
 const update = (update: object) => send({ method: "session/update", params: { sessionId, update } });
-const modelOptions = { configOptions: [{ category: "model", id: "model", currentValue: "other", options: [{ value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" }, { value: "other", name: "Another model" }] }] };
+const modelOptions = { configOptions: [{ category: "model", id: "model", currentValue: "other", options: [{ value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" }, { value: "gemini-4-neon", name: "Renamed Neon from ACP" }, { value: "other", name: "Another model" }] }] };
 let promptId: number;
 let hold = false;
+let neonUsage = false;
 let servers: AcpStdioMcpServer[] = [];
 
 function liveTaskUpdates() {
@@ -145,6 +146,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				break;
 			}
 			hold = input.includes("HOLD_TURN");
+			neonUsage = input.includes("NEON_USAGE");
 			if (input.includes("LIVE_TASK")) liveTaskUpdates();
 			update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Inspecting workspace.\n" } });
 			if (!input.includes("LIVE_TASK")) {
@@ -166,7 +168,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 					update({ sessionUpdate: "tool_call_update", toolCallId: "fake-read", status: "completed" });
 					update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "## Report\n" } });
 					update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Outcome: done from ACP." } });
-					send({ id: promptId!, result: { stopReason: "end_turn", usage: { inputTokens: 11, outputTokens: 7 } } });
+					if (neonUsage) update({ sessionUpdate: "usage_update", usage: { inputTokens: 999_000 } });
+					send({ id: promptId!, result: { stopReason: "end_turn", usage: neonUsage
+						? { inputTokens: 200_000, outputTokens: 40_000, thoughtTokens: 60_000, cachedReadTokens: 2_000_000 }
+						: { inputTokens: 11, outputTokens: 7 } } });
 				}
 			}
 	}

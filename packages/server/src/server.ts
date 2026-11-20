@@ -73,7 +73,7 @@ import { ProjectStore } from "./projects.ts";
 import { backfillProjects } from "./request-backfill.ts";
 import { hasCatalogPrice, requestBilling } from "./request-billing.ts";
 import { RequestLog, type RequestLogOptions } from "./request-log.ts";
-import { LEGACY_REQUEST_LOG_FILE, REQUEST_LOG_FILE, RequestLogStore } from "./request-log-store.ts";
+import { LEGACY_REQUEST_LOG_FILE, REQUEST_LOG_FILE, RequestLogStore, type RequestCatalogPricing } from "./request-log-store.ts";
 import { ProjectManager } from "./runtime.ts";
 import { GithubReviewReader, ScheduleEventPoller, ScheduleEventStore } from "./schedule-events.ts";
 import { type RunCommand } from "./host-commands.ts";
@@ -322,6 +322,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		log,
 		cacheReadPerToken,
 		billingFor: (provider) => requestBilling(credentials, unobservedModels, provider),
+		...(antigravity.modelRates && unobservedModels.getProvider(antigravity.id) === officialAgent
+			? { catalogPricing: { provider: antigravity.id, modelRates: antigravity.modelRates } } : {}),
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
 	const subscriptionUsage = new SubscriptionUsageService({
@@ -1231,7 +1233,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 function openRequestLog(
 	config: StartServerOptions["requestLog"],
 	dataDir: string,
-	options: Omit<RequestLogOptions, "store"> & { log: (message: string) => void },
+	options: Omit<RequestLogOptions, "store"> & { log: (message: string) => void; catalogPricing?: RequestCatalogPricing },
 ): RequestLog | undefined {
 	if (config === false) return undefined;
 	const file = config?.file ?? join(dataDir, REQUEST_LOG_FILE);
@@ -1239,7 +1241,10 @@ function openRequestLog(
 		if (config?.file === undefined && RequestLogStore.copyLegacy(join(dataDir, LEGACY_REQUEST_LOG_FILE), file)) {
 			options.log(`kemiri: copied the request log of an earlier release into ${file}; the old file stays for a rollback`);
 		}
-		const store = RequestLogStore.open(file, options.now === undefined ? {} : { now: options.now() });
+		const store = RequestLogStore.open(file, {
+			...(options.now === undefined ? {} : { now: options.now() }),
+			...(options.catalogPricing === undefined ? {} : { catalogPricing: options.catalogPricing }),
+		});
 		options.log(`kemiri: request log ${file}`);
 		return new RequestLog({ store, ...options });
 	} catch (error) {

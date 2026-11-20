@@ -10,6 +10,7 @@ import { acpActivityUpdate, acpToolLabel, type AcpActivityUpdate } from "./acp-a
 import { AcpClient, AcpProcessError, AcpProtocolError, AcpRpcError, type AcpUpdate } from "./acp-client.ts";
 import { OFFICIAL_AGENT_API, type OfficialAgentDefinition, type OfficialAgentLogin, type OfficialAgentModel } from "./definition.ts";
 import type { OfficialAgentMcpBridge, OfficialAgentMcpGrant, OfficialAgentMcpScope } from "./mcp-bridge.ts";
+import { tokenCatalogCost } from "../request-pricing.ts";
 
 export type OfficialAgentRequest = { projectId: string; conversationId: number; cwd: string; turnId: string; recordActivity?: (update: AcpActivityUpdate) => Promise<void>; mcpScope?: { taskId: string | null; create: () => Promise<OfficialAgentMcpScope> } };
 type Turn = { state: "sent" } | { state: "done"; text: string; usage: Usage } | { state: "failed"; error: string };
@@ -196,7 +197,9 @@ export class OfficialAgentSessions {
 					previous = journal?.turns[turnId];
 					if (previous?.state === "failed") throw new AcpProcessError(previous.error);
 					if (previous?.state === "done") {
-						answer.usage = previous.usage;
+						answer.usage = { ...previous.usage };
+						const rates = definition.modelRates?.(model.id, answer.timestamp);
+						if (rates && answer.usage.cost.total === 0) answer.usage.cost = tokenCatalogCost(rates, answer.usage);
 						events.push({ type: "start", partial: answer });
 						delta("text", previous.text);
 						return;
@@ -272,6 +275,8 @@ export class OfficialAgentSessions {
 					}
 					if (!text.slice(resumed ? RESUME_NOTE.length : 0).trim()) throw new AcpProtocolError("The agent finished without writing a report.");
 					answer.usage = acpUsage(result.usage ?? usage, definition.separateThoughtTokens);
+					const rates = definition.modelRates?.(model.id, answer.timestamp);
+					if (rates) answer.usage.cost = tokenCatalogCost(rates, answer.usage);
 					sessionJournal.turns[turnId] = { state: "done", text, usage: answer.usage };
 					await writeJsonFile(journalPath, sessionJournal);
 				} catch (error) {
@@ -320,7 +325,7 @@ export class OfficialAgentSessions {
 			} },
 			getModels: () => [...models.values()].map(({ id, name }) => ({
 				id, name, api: OFFICIAL_AGENT_API, provider: definition.id, baseUrl: "", input: ["text"], reasoning: false,
-				cost: zeroCost(), contextWindow: 0, maxTokens: 0,
+				cost: definition.modelRates?.(id, Date.now()) ?? zeroCost(), contextWindow: 0, maxTokens: 0,
 			})),
 			streamSimple: stream,
 			stream: stream,

@@ -1,4 +1,5 @@
 import type { ProviderAuthInteraction } from "@earendil-works/pi-ai";
+import type { TokenRates } from "../request-pricing.ts";
 
 export const OFFICIAL_AGENT_API = "official-agent";
 
@@ -13,6 +14,8 @@ export interface OfficialAgentDefinition {
 	pinnedVersion: string;
 	subscriptionWarning: string;
 	models: readonly OfficialAgentModel[];
+	/** API-equivalent rates for confirmed single-model choices, independent of ACP display names. */
+	modelRates?(modelId: string, at: number): TokenRates | undefined;
 	/** Whether ACP outputTokens excludes separately reported thoughtTokens. */
 	separateThoughtTokens?: boolean;
 	apiKeyName: string;

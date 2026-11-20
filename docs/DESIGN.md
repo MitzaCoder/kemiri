@@ -1900,7 +1900,10 @@ older release therefore keeps working with its own log. Requests logged during a
   thread, usage role, provider, model, billing and period. Inserts and their roll-ups commit together, including
   transcript read-back. Schema 4 upgrades retained rows from daily to minute precision. Older pruned rows keep
   their daily totals, assigned to the local month containing UTC noon. The response flags an approximate month
-  if those rows straddle its boundary. The 90-day prune leaves roll-ups intact. There is no project-deletion hook.
+  if those rows straddle its boundary. The 90-day prune leaves roll-ups intact. When a previously unpriced official-agent
+  model gains catalog rates, opening the log prices retained zero-cost requests from their recorded token counts and
+  adjusts their roll-ups in the same transaction. Binding-period totals and open measurements are updated; closed
+  measurements and already-pruned requests are left alone. There is no project-deletion hook.
 - Live capture (`request-log.ts`), off the request's path: the `aiki.request-log` extension (hooks only, no section or
   tool, so no prompt changes; workers and threads keep it) has a `beforeRequest` hook on pi-durable's generation task
   that tags the last message object with the project and conversation. The server's `Models` is wrapped (after the
@@ -2353,8 +2356,11 @@ Free and Plus. Paid Pro adds Neon, Argon, Hydrogen, Neon and Argon Orchestrators
 Eligible premium-device Pro trials also list Neon, Argon and their Orchestrators. Ultra adds Carbon. The binary did
 not confirm a Carbon Orchestrator ID. Flash 3.7, Flash 3.6 and 3.1 Pro are listed for Enterprise. Catalog entries
 are not promises of subscription or API-key entitlement. Effort is off in Kemiri; model IDs with effort baked in
-are selected like any other advertised model. Show reported per-turn tokens, or zeros when absent. Zero cost means
-unknown, not free. Model metadata is marked worker-only. Coordinator selection (including background threads), report
+are selected like any other advertised model. ACP prompt results or token usage updates supply per-turn counters.
+For Antigravity, separately reported thoughts are counted with output, and cached reads are priced separately.
+Confirmed single-model Gemini 4 choices use Google's published standard API rates at the request timestamp, not
+the subscription charge. A discovered or renamed choice keeps its price by ID. Multi-model orchestrators have no
+single catalog rate. Missing counters stay zero rather than being estimated from text. Model metadata is marked worker-only. Coordinator selection (including background threads), report
 audits and memory jobs refuse it. Cache keep-warm already admits only native Anthropic coordinator requests.
 Disable pi-durable compaction for these workers: the ACP agent manages its own context and must never receive a
 Kemiri summary prompt. Ungated calls, including internal model jobs without a worker generation tag, are rejected.
