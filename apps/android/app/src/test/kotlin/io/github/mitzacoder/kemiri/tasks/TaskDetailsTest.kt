@@ -82,14 +82,15 @@ class TaskDetailsTest {
         val legacy = task.report.copy(results = "- Legacy result", next = "**Legacy plan**")
         val passed = BoardReportCheck("Tests", "passed", count = 0, at = task.createdAt)
         val failed = BoardReportCheck("Typecheck", "failed", at = task.createdAt)
+        val structuredNotDone = " No reminders yet. \r\n\r\n* **Staff edits** are not ready.\n1. No email."
         val populated = task.copy(goal = " Reserve books. ", report = legacy.copy(summary = " The form is ready. ",
-            notDone = " No reminders yet. \r\n\r\n* **Staff edits** are not ready.\n1. No email.", checks = listOf(passed, failed)))
+            notDone = structuredNotDone, checks = listOf(passed, failed)))
         assertEquals(TaskDetailFields(), taskDetailFields(populated, false))
         assertEquals(TaskDetailFields(), taskDetailFields(task.copy(report = legacy), true))
-        assertEquals(TaskDetailFields(), taskDetailFields(task.copy(goal = null, report = legacy.copy(summary = " ", notDone = "\n - \n", checks = emptyList())), true))
-        assertEquals(TaskDetailFields("Reserve books.", "The form is ready.", "- No reminders yet.\n- **Staff edits** are not ready.\n- No email.", listOf(passed, failed)),
+        assertEquals(TaskDetailFields(), taskDetailFields(task.copy(goal = null, report = legacy.copy(summary = " ", notDone = "\n \t \n", checks = emptyList())), true))
+        assertEquals(TaskDetailFields("Reserve books.", "The form is ready.", "- No reminders yet.\n- **Staff edits** are not ready.\n- No email.", listOf(passed, failed), notDone = structuredNotDone),
             taskDetailFields(populated, true))
-        assertEquals(TaskDetailFields(notDoneMarkdown = "- Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
+        assertEquals(TaskDetailFields(notDoneMarkdown = "- Just one item.", notDone = "Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
         assertEquals(legacy.results, populated.report.results)
         assertEquals(legacy.next, populated.report.next)
     }

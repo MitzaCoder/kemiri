@@ -42,6 +42,7 @@ internal data class TaskDetailFields(
     val summary: String? = null,
     val notDoneMarkdown: String? = null,
     val checks: List<BoardReportCheck> = emptyList(),
+    val notDone: String? = null,
 )
 
 internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): TaskDetailFields {
@@ -51,9 +52,11 @@ internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): Task
         summary = task.report.summary?.trim()?.takeIf { it.isNotEmpty() },
         notDoneMarkdown = notDoneMarkdown(task.report.notDone),
         checks = task.report.checks.orEmpty(),
+        notDone = task.report.notDone?.takeIf { it.isNotBlank() },
     )
 }
 
+// Route still reads normalized Markdown until it adopts the report renderer.
 private val listMarker = Regex("""^(?:[-+*]|\d+[.)])(?:\s+|$)""")
 
 /** Not done is one item per line, with or without Markdown list markers. */

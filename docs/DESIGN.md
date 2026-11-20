@@ -5844,8 +5844,9 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   Markdown on read, without changing stored text: flat bullets become spaced rows and runs of short, unambiguous
   `Label: value` lines or bullets become aligned pairs that stack on narrow screens. Plain Not done lines become
   rows, but structured Markdown stays intact, as do paragraphs, nested lists, numbered steps and other Markdown
-  blocks. Report prose is limited to about 70 characters across. Next shows the agents' plan unless it is already
-  in the review check. A working task's automatic Now
+  blocks. Report prose is limited to about 70 characters across. Android follows the same legacy shaping fixtures,
+  with stacked label/value pairs and the existing native Markdown renderer for unshaped text.
+  Next shows the agents' plan unless it is already in the review check. A working task's automatic Now
   appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
   stale report gets one line with the existing request-update action.
 - **Task usage (D108 / T328).** On web, the task sheet reads lifetime usage on open, not on board pushes. When the

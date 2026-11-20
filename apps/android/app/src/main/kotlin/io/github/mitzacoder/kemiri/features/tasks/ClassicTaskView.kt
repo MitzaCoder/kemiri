@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -14,6 +15,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.github.mitzacoder.kemiri.features.chat.MarkdownContent
+import io.github.mitzacoder.kemiri.features.chat.QuotableSelection
 import io.github.mitzacoder.kemiri.features.refs.refLinkedText
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskProof
@@ -108,7 +112,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                     TaskReadingSection("What you get") {
                         fields.summary?.let { Text(it, style = TextStyles.task.copy(fontWeight = FontWeight.Medium), color = colors.fg) }
                         if (sheet.staleReport) StaleTaskReport(context, task.id)
-                        if (task.report.results.isNotBlank()) ReportMarkdown(task.report.results)
+                        if (task.report.results.isNotBlank()) ReportSectionBody(LegacyReportSection.Results, task.report.results)
                         else if (fields.summary == null && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                         failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                         TaskUsageDisclosure(sheet.usage, taskId)
@@ -120,8 +124,8 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskFiles(context, artifacts, onUpdateTags = sheet.onUpdateArtifactTags)
                     }
                 }
-                fields.notDoneMarkdown?.let { notDone ->
-                    item(key = "not-done") { TaskReadingSection("Not done") { ReportMarkdown(notDone) } }
+                fields.notDone?.let { notDone ->
+                    item(key = "not-done") { TaskReadingSection("Not done") { ReportSectionBody(LegacyReportSection.NotDone, notDone) } }
                 }
                 if (sheet.showNow || sheet.showNext) item(key = "next") {
                     TaskReadingSection("Next") {
@@ -129,7 +133,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                             TaskHeading("Now")
                             if (activity != null) TaskActivityView(activity, inlineAge = true) else ReportMarkdown(task.report.now)
                         }
-                        if (sheet.showNext) ReportMarkdown(task.report.next)
+                        if (sheet.showNext) ReportSectionBody(LegacyReportSection.Next, task.report.next)
                     }
                 }
                 if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {
@@ -186,5 +190,40 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             TaskReplyBox(reply, onDismiss, replyInputMaxHeight)
         }
     }
+    }
+}
+
+/** The host supplies the heading and placement; only the section and its authored text shape the body. */
+@Composable
+internal fun ReportSectionBody(section: LegacyReportSection, markdown: String) {
+    val segments = remember(section, markdown) { shapeLegacyReport(section, markdown) }
+    if (segments.isEmpty()) return
+    val unshaped = segments.singleOrNull() as? LegacyReportSegment.Markdown
+    if (unshaped != null) {
+        ReportMarkdown(unshaped.source)
+        return
+    }
+
+    val colors = Jarvis.colors
+    ProvideTextStyle(TextStyles.task) {
+        QuotableSelection {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                for (segment in segments) when (segment) {
+                    is LegacyReportSegment.Markdown -> MarkdownContent(segment.source)
+                    is LegacyReportSegment.Rows -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (item in segment.items) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("•", color = colors.fgSubtle, lineHeight = 25.sp)
+                            Box(Modifier.weight(1f)) { MarkdownContent(item, inlineOnly = true) }
+                        }
+                    }
+                    is LegacyReportSegment.Labeled -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for ((label, value) in segment.rows) Column {
+                            Text("$label:", color = colors.fgMuted, fontWeight = FontWeight.SemiBold)
+                            MarkdownContent(value, inlineOnly = true)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

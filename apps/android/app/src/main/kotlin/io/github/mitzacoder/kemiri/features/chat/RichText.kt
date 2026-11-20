@@ -43,6 +43,7 @@ import org.commonmark.ext.gfm.tables.*
 import coil3.compose.AsyncImage
 
 private val parser = Parser.builder().extensions(listOf(TablesExtension.create())).build()
+private val inlineParser = Parser.builder().enabledBlockTypes(emptySet()).build()
 private fun children(node: Node): List<Node> = buildList { var n = node.firstChild; while(n != null) { add(n); n = n.next } }
 /** A link found in plain Markdown text: the characters from [start] up to [end] and what tapping them does. */
 data class TextLinkSpan(val start: Int, val end: Int, val link: LinkAnnotation)
@@ -100,11 +101,18 @@ internal fun inline(node: Node, linkers: List<TextLinker> = emptyList(), userMes
 private val LocalCompactMarkdown = compositionLocalOf { false }
 
 @Composable fun RichMarkdown(source: String, modifier: Modifier = Modifier, userMessage: Boolean = false, compact: Boolean = false) {
-    val document = remember(source) { parser.parse(source) }
+    QuotableSelection(modifier) { MarkdownContent(source, userMessage = userMessage, compact = compact) }
+}
+
+/** Markdown inside a caller-owned selection region, so selection can span several pieces of a report. */
+@Composable internal fun MarkdownContent(source: String, inlineOnly: Boolean = false, userMessage: Boolean = false, compact: Boolean = false) {
+    val document = remember(source, inlineOnly) { (if (inlineOnly) inlineParser else parser).parse(source) }
     TaskMentions(source = source, userMessage = userMessage) {
         CompositionLocalProvider(LocalCompactMarkdown provides compact) {
             ProvideTextStyle(if (compact) LocalTextStyle.current.copy(fontSize = 14.sp, lineHeight = 21.sp) else LocalTextStyle.current) {
-                QuotableSelection(modifier) { Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) { children(document).forEach { MarkdownNode(it, userMessage) } } }
+                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
+                    children(document).forEach { MarkdownNode(it, userMessage) }
+                }
             }
         }
     }

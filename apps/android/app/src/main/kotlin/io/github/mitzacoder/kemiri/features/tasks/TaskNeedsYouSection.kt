@@ -35,7 +35,7 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
             if (needsYou.review) {
                 if (needsYou.ownerQuestions.isNotEmpty() || needsYou.stepsMarkdown != null) HorizontalDivider(color = colors.borderStrong)
                 TaskHeading("Check the work")
-                if (task.report.next.isNotBlank()) ReportMarkdown(task.report.next)
+                if (task.report.next.isNotBlank()) ReportSectionBody(LegacyReportSection.Next, task.report.next)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(onClick = onCloseTask, enabled = !closing, modifier = Modifier.heightIn(min = 48.dp)) { Text("It works: close the task") }
                     OutlinedButton(onClick = onFocusReply, modifier = Modifier.heightIn(min = 48.dp)) { Text("Something is off…") }
