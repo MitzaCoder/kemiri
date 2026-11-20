@@ -11,8 +11,6 @@ import org.commonmark.node.Text
 import org.commonmark.parser.IncludeSourceSpans
 import org.commonmark.parser.Parser
 
-internal enum class LegacyReportSection { Results, NotDone, Next }
-
 internal sealed interface LegacyReportSegment {
     data class Markdown(val source: String) : LegacyReportSegment
     data class Rows(val items: List<String>) : LegacyReportSegment
@@ -71,20 +69,21 @@ private fun Paragraph.flatLines(source: String): List<String>? {
 }
 
 /** Read-time layout only. Keep unshaped blocks as source instead of rebuilding their Markdown. */
-internal fun shapeLegacyReport(section: LegacyReportSection, source: String): List<LegacyReportSegment> {
+internal fun shapeLegacyReport(section: ReportSectionKind, source: String): List<LegacyReportSegment> {
     if (source.isBlank()) return emptyList()
     val markdown = listOf(LegacyReportSegment.Markdown(source))
+    if (section == ReportSectionKind.Summary || section == ReportSectionKind.Steps) return markdown
     val normalized = source.replace("\r\n", "\n").replace('\r', '\n')
     val document = reportParser.parse(normalized)
     // Keep reference definitions with their users, even when a definition is nested in another block.
     if (document.hasReferenceDefinition()) return markdown
 
     val blocks = document.children().toList()
-    val plainNotDone = section == LegacyReportSection.NotDone && blocks.singleOrNull() is Paragraph
+    val plainNotDone = section == ReportSectionKind.NotDone && blocks.singleOrNull() is Paragraph
     val flatBullets = blocks.filterIsInstance<BulletList>().mapNotNull { list ->
         list.flatItems(normalized)?.let { list to it }
     }.toMap()
-    if (section == LegacyReportSection.NotDone && !plainNotDone && flatBullets.size != blocks.size) return markdown
+    if (section == ReportSectionKind.NotDone && !plainNotDone && flatBullets.size != blocks.size) return markdown
 
     val segments = mutableListOf<LegacyReportSegment>()
     var markdownStart = 0

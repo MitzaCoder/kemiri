@@ -55,8 +55,8 @@ class TaskDetailsTest {
         assertFalse(needs("dropped").show)
         assertFalse(taskNeedsYou(task.copy(report = task.report.copy(steps = " ")), emptyList(), false, true).show)
         assertTrue(needs("todo").show)
-        assertEquals(markdown, needs("todo").stepsMarkdown)
-        assertEquals(markdown, needs("review").stepsMarkdown)
+        assertTrue(needs("todo").showSteps)
+        assertTrue(needs("review").showSteps)
         assertTrue(needs("review").review)
         assertEquals("Your steps to do", taskDetailState("todo", needs("todo"), "steps_needed"))
         assertEquals("Your steps to do", taskDetailState("todo", needs("todo")))
@@ -88,9 +88,10 @@ class TaskDetailsTest {
         assertEquals(TaskDetailFields(), taskDetailFields(populated, false))
         assertEquals(TaskDetailFields(), taskDetailFields(task.copy(report = legacy), true))
         assertEquals(TaskDetailFields(), taskDetailFields(task.copy(goal = null, report = legacy.copy(summary = " ", notDone = "\n \t \n", checks = emptyList())), true))
-        assertEquals(TaskDetailFields("Reserve books.", "The form is ready.", "- No reminders yet.\n- **Staff edits** are not ready.\n- No email.", listOf(passed, failed), notDone = structuredNotDone),
+        assertEquals(TaskDetailFields("Reserve books.", true, true, listOf(passed, failed),
+            summary = "The form is ready.", notDoneMarkdown = "- No reminders yet.\n- **Staff edits** are not ready.\n- No email."),
             taskDetailFields(populated, true))
-        assertEquals(TaskDetailFields(notDoneMarkdown = "- Just one item.", notDone = "Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
+        assertEquals(TaskDetailFields(showNotDone = true, notDoneMarkdown = "- Just one item."), taskDetailFields(task.copy(goal = " ", report = legacy.copy(notDone = "Just one item.")), true))
         assertEquals(legacy.results, populated.report.results)
         assertEquals(legacy.next, populated.report.next)
     }

@@ -2,7 +2,7 @@ package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.data.wireJson
 import io.github.mitzacoder.kemiri.features.tasks.LabeledReportRow
-import io.github.mitzacoder.kemiri.features.tasks.LegacyReportSection
+import io.github.mitzacoder.kemiri.features.tasks.ReportSectionKind
 import io.github.mitzacoder.kemiri.features.tasks.LegacyReportSegment
 import io.github.mitzacoder.kemiri.features.tasks.shapeLegacyReport
 import kotlinx.serialization.json.JsonObject
@@ -20,9 +20,9 @@ class ReportLegacyShapeTest {
             .first { it.isFile }
         for (fixture in wireJson.parseToJsonElement(file.readText()).jsonArray.map { it.jsonObject }) {
             val section = when (val name = fixture.text("section")) {
-                "results" -> LegacyReportSection.Results
-                "notDone" -> LegacyReportSection.NotDone
-                "next" -> LegacyReportSection.Next
+                "results" -> ReportSectionKind.Results
+                "notDone" -> ReportSectionKind.NotDone
+                "next" -> ReportSectionKind.Next
                 else -> error("Unknown report section: $name")
             }
             val expected = fixture.getValue("expected").jsonArray.map { it.jsonObject.segment() }

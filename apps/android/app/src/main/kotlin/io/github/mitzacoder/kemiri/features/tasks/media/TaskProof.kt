@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
@@ -22,8 +21,7 @@ import io.github.mitzacoder.kemiri.protocol.Artifact
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
-internal fun TaskProof(context: ProjectScreenContext, artifacts: List<Artifact>) {
-    val proof = remember(artifacts) { splitMedia(artifacts).media.take(3) }
+internal fun TaskProof(context: ProjectScreenContext, proof: List<Artifact>) {
     if (proof.isEmpty()) return
     val shape = RoundedCornerShape(8.dp)
     Row(Modifier.widthIn(max = 480.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

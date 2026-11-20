@@ -8,7 +8,9 @@ import org.commonmark.ext.gfm.tables.TableCell
 private val previewParser = Parser.builder().extensions(listOf(TablesExtension.create())).build()
 
 /** Plain option labels, notification bodies and previews. Parse the whole source before truncating the result. */
-fun markdownText(source: String): String = buildString {
+fun markdownText(source: String): String = markdownText(previewParser.parse(source))
+
+internal fun markdownText(document: Node): String = buildString {
     fun visit(node: Node) {
         when (node) {
             is Text -> append(node.literal)
@@ -24,5 +26,5 @@ fun markdownText(source: String): String = buildString {
             }
         }
     }
-    visit(previewParser.parse(source))
+    visit(document)
 }.replace(Regex("\\s+"), " ").trim()

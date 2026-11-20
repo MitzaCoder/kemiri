@@ -15,7 +15,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.mix
 
 @Composable
-internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: () -> Unit, onFocusReply: () -> Unit) {
+internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, nextPlacement: ReportNextPlacement?, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: () -> Unit, onFocusReply: () -> Unit) {
     val colors = Jarvis.colors
     Surface(
         Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
@@ -28,21 +28,21 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
                 if (index > 0) HorizontalDivider(color = colors.borderStrong)
                 QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
             } }
-            needsYou.stepsMarkdown?.let { steps ->
+            if (needsYou.showSteps) {
                 if (needsYou.ownerQuestions.isNotEmpty()) HorizontalDivider(color = colors.borderStrong)
-                TaskReadingSection("Your steps") { ReportMarkdown(steps) }
+                TaskReadingSection("Your steps") { ReportSection(task, ReportSectionKind.Steps) }
             }
             if (needsYou.review) {
-                if (needsYou.ownerQuestions.isNotEmpty() || needsYou.stepsMarkdown != null) HorizontalDivider(color = colors.borderStrong)
+                if (needsYou.ownerQuestions.isNotEmpty() || needsYou.showSteps) HorizontalDivider(color = colors.borderStrong)
                 TaskHeading("Check the work")
-                if (task.report.next.isNotBlank()) ReportSectionBody(LegacyReportSection.Next, task.report.next)
+                if (nextPlacement == ReportNextPlacement.Review) ReportSection(task, ReportSectionKind.Next)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(onClick = onCloseTask, enabled = !closing, modifier = Modifier.heightIn(min = 48.dp)) { Text("It works: close the task") }
                     OutlinedButton(onClick = onFocusReply, modifier = Modifier.heightIn(min = 48.dp)) { Text("Something is off…") }
                 }
             }
             if (needsYou.blocked) {
-                if (needsYou.ownerQuestions.isNotEmpty() || needsYou.stepsMarkdown != null) HorizontalDivider(color = colors.borderStrong)
+                if (needsYou.ownerQuestions.isNotEmpty() || needsYou.showSteps) HorizontalDivider(color = colors.borderStrong)
                 task.blockedReason?.takeIf { it.isNotBlank() }?.let { ReportMarkdown(it) }
                 if (blockers.isNotEmpty()) Column {
                     TaskHeading("Blocked by")

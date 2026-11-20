@@ -12,24 +12,27 @@ internal data class TaskNeedsYou(
     val questionsForAgent: List<BoardQuestion>,
     val review: Boolean,
     val blocked: Boolean,
+    val showSteps: Boolean = false,
     val stepsMarkdown: String? = null,
 ) {
-    val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || stepsMarkdown != null
+    val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps
 }
 
 internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean): TaskNeedsYou {
     val (warnings, ordinary) = questions.filter { it.status == "open" && it.taskId == task.id }.partition(::isWarning)
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
-    val stepsMarkdown = if (stepsSupported && !isSettled(task.status)) task.report.steps?.takeIf { it.isNotBlank() } else null
+    val stepsEnabled = stepsSupported && !isSettled(task.status)
+    val showSteps = stepsEnabled && readReportSection(task.report, ReportSectionKind.Steps).hasContent
+    val stepsMarkdown = if (stepsEnabled) task.report.steps?.takeIf { it.isNotBlank() } else null
     return TaskNeedsYou(ownerQuestions, questionsForAgent, task.status == "review",
-        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), stepsMarkdown)
+        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, stepsMarkdown)
 }
 
 internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: String? = null): String = when {
-    needsYou.stepsMarkdown != null && kind == "steps_needed" -> "Your steps to do"
+    needsYou.showSteps && kind == "steps_needed" -> "Your steps to do"
     needsYou.ownerQuestions.any { !isWarning(it) } -> "Needs your answer"
-    needsYou.stepsMarkdown != null && kind == "failed" && status != "blocked" -> "Failed"
-    needsYou.stepsMarkdown != null && kind == null && !needsYou.blocked -> "Your steps to do"
+    needsYou.showSteps && kind == "failed" && status != "blocked" -> "Failed"
+    needsYou.showSteps && kind == null && !needsYou.blocked -> "Your steps to do"
     status == "review" -> "Ready for you to check"
     else -> taskStatusWords(status)
 }
@@ -39,24 +42,26 @@ internal fun showTaskNow(task: BoardTask, activity: BoardTaskActivity?): Boolean
 
 internal data class TaskDetailFields(
     val goal: String? = null,
+    val showSummary: Boolean = false,
+    val showNotDone: Boolean = false,
+    val checks: List<BoardReportCheck> = emptyList(),
+    // Route still reads Markdown mirrors until it adopts the report renderer.
     val summary: String? = null,
     val notDoneMarkdown: String? = null,
-    val checks: List<BoardReportCheck> = emptyList(),
-    val notDone: String? = null,
 )
 
 internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): TaskDetailFields {
     if (!taskFieldsEnabled) return TaskDetailFields()
     return TaskDetailFields(
         goal = task.goal?.trim()?.takeIf { it.isNotEmpty() },
+        showSummary = readReportSection(task.report, ReportSectionKind.Summary).hasContent,
+        showNotDone = readReportSection(task.report, ReportSectionKind.NotDone).hasContent,
+        checks = task.report.checks.orEmpty(),
         summary = task.report.summary?.trim()?.takeIf { it.isNotEmpty() },
         notDoneMarkdown = notDoneMarkdown(task.report.notDone),
-        checks = task.report.checks.orEmpty(),
-        notDone = task.report.notDone?.takeIf { it.isNotBlank() },
     )
 }
 
-// Route still reads normalized Markdown until it adopts the report renderer.
 private val listMarker = Regex("""^(?:[-+*]|\d+[.)])(?:\s+|$)""")
 
 /** Not done is one item per line, with or without Markdown list markers. */

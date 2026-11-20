@@ -46,7 +46,7 @@ internal data class TaskSheetState(
     val liveEnabled: Boolean,
     val staleReport: Boolean,
     val showNow: Boolean,
-    val showNext: Boolean,
+    val nextPlacement: ReportNextPlacement?,
     val usage: UsageTaskResponse?,
     val record: TaskSheetRecordState,
     val status: TaskSheetStatus,
@@ -174,7 +174,7 @@ internal fun rememberTaskSheetState(
     val decided = if (deliveryEnabled) taskDecided(task.id, decisions, taskQuestions) else null
     val recordNow = if (deliveryEnabled && liveNow == null) taskRecordNow(task, activity, taskQuestions, delivery != null) else null
     val showNow = !deliveryEnabled && liveNow == null && showTaskNow(task, activity)
-    val showNext = !needsYou.review && task.report.next.isNotBlank()
+    val nextPlacement = remember(task.report, needsYou.review) { reportNextPlacement(task.report, needsYou.review) }
     val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
 
     val staleReport = taskReportIsStale(connection.supports("task-freshness"), task.report)
@@ -215,7 +215,7 @@ internal fun rememberTaskSheetState(
         } else null,
         owner = owner, now = now, fields = fields, needsYou = needsYou, blockers = blockers, decisions = decisions,
         questions = taskQuestions, activity = activity, liveNow = liveNow, liveNews = news, liveEnabled = liveEnabled,
-        staleReport = staleReport, showNow = showNow, showNext = showNext, usage = taskUsage,
+        staleReport = staleReport, showNow = showNow, nextPlacement = nextPlacement, usage = taskUsage,
         record = TaskSheetRecordState(
             linksEnabled, timelineGroupsEnabled, deliveryEnabled, delivery, decided, recordNow, timeline, timelineProblem,
             feedbackBusy, ::setFeedback, { timelineRefresh++ }, { timelineKinds = it }, deviceSettings.timelineNewestFirst,

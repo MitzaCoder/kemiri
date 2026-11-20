@@ -2868,9 +2868,10 @@ is where they talk.
   metrics; Not done takes risks; Next takes next actions; Your steps takes steps with optional exact copy text.
   Each section holds up to 64 blocks, each write submits at most 32 KiB of typed data, and setup has at most eight
   label/value pairs. Proof stores only a saved artifact ID and optional retained version for this project and task.
-  The same transaction writes deterministic Markdown mirrors; older readers and Android read those fields.
-  Web validates each section independently and renders either its complete typed sequence or its Markdown mirror.
-  Android keeps blocks as opaque JSON so an unknown kind or malformed section cannot break board/history decoding.
+  The same transaction writes deterministic Markdown mirrors for older readers and history.
+  Web and Android validate each section independently and render either its complete typed sequence or its Markdown mirror.
+  Android keeps blocks as opaque JSON on the wire and decodes them at the presentation boundary, so an unknown kind
+  or malformed section cannot break board/history decoding.
   `show_task` and worker reads use the readable mirrors without fetching artifact bytes. The compact list is unchanged.
 - **Task fields (T295).** `add_task` and `update_task` set the optional `goal` sentence; omission preserves it,
   and null clears it. `write_report` sets `summary` (one or two sentences above Results), `notDone` (Markdown,
@@ -5854,24 +5855,29 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   outside the tint. Review uses legacy Next Markdown, if present, as its check steps; “It works: close the task” uses the
   normal Done flow, including the open-parts choice, and “Something is off…” focuses the task reply. A blocked task
   puts its reason and unresolved blockers here. On `task-steps` backends, non-empty Your steps (T278) is shown as
-  a numbered procedure for open tasks, before the review check. The Copy button on a typed step copies the whole
-  exact snippet and briefly shows the result in its label. When steps take priority, the header says “Your steps
+  a numbered procedure for open tasks, before the review check. On both apps, the Copy button on a typed step
+  copies the whole exact snippet and briefly shows the result in its label. Android wraps the selectable snippet
+  without dropping lines and gives Copy at least a 48 dp touch target. When steps take priority, the header says “Your steps
   to do” and the task appears in Needs you with a checklist icon, including in the graph and part progress. Web opts
   in through `hello.client.features`; Android keeps the server's review fallback until it opts in separately.
 - **Question choices (T296).** When `hello.features` includes `task-fields`, shared question cards in the task
   sheet, Needs you lists and chat show choices as buttons with the label, optional effect and recommendation.
   Clicking sends only the label. One-line previews stay label-only, and questions without choices keep their chips.
 - **What you get, Not done and Next.** On `task-fields` backends, a non-empty Summary leads What you get and
-  failed checks are named there. A non-empty Not done section follows. On web, the standalone `ReportSection`
-  owns the bodies of Summary, Results, Not done, Next and Your steps. Typed sections show findings with headings,
+  failed checks are named there. A non-empty Not done section follows. On web and Android, the standalone
+  `ReportSection` owns the bodies of Summary, Results, Not done, Next and Your steps. Hosts own the section
+  headings, placement and scroll state. Typed sections show findings with headings,
   setup pairs that stack on narrow screens, wrapping metrics, captioned proof and quiet cleanup rows.
   Adjacent risks use the same spacing as findings. Results labels each risk “Caveat”; Not done needs no row label.
   A cited artifact replaces its automatic image/video thumbnail, including when a pinned version is unavailable.
   The caption remains readable and Files stays the full inventory. At most three uncited automatic thumbnails show.
   The Markdown fallback shapes flat bullets, plain Not done lines and short, unambiguous `Label: value` runs on
   read. It keeps paragraphs, nested lists, numbered steps and other structured Markdown intact. Report prose is
-  limited to about 70 characters across. Android follows the same legacy shaping fixtures,
-  with stacked label/value pairs and the existing native Markdown renderer for unshaped text. Typed Next is for agents and stays outside the review check. Legacy Next
+  limited to about 70 characters across. Android uses the same legacy shaping fixtures and the existing native
+  Markdown renderer for unshaped text. Native typed sections stack setup pairs and announce finding titles as
+  headings. A metric reads its value before its label and stacks them at large type sizes. Captioned proof opens
+  the existing artifact viewer, using the exact retained version when pinned. Typed Next is for agents and stays
+  outside the review check, even when it falls back to its mirror. Legacy Next
   appears once, inside the review check during review and under Next otherwise. A working task's automatic Now
   appears once here; delivery activity can appear in About instead. Current reports have no freshness lines; a
   stale report gets one line with the existing request-update action.

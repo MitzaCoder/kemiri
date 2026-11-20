@@ -15,12 +15,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import io.github.mitzacoder.kemiri.features.chat.MarkdownContent
-import io.github.mitzacoder.kemiri.features.chat.QuotableSelection
 import io.github.mitzacoder.kemiri.features.refs.refLinkedText
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskProof
+import io.github.mitzacoder.kemiri.features.tasks.media.automaticReportProof
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
@@ -43,6 +41,9 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
     val threads = sheet.threads
     val workers = sheet.workers
     val artifacts = sheet.artifacts
+    val results = remember(task.report) { readReportSection(task.report, ReportSectionKind.Results) }
+    val automaticProof = remember(results, artifacts) { automaticReportProof(results, artifacts) }
+    val showNext = sheet.nextPlacement == ReportNextPlacement.Next
     val now = sheet.now
     val activity = sheet.activity
     val liveNow = sheet.liveNow
@@ -102,7 +103,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             if (sheet.editing) item(key = "editor") { TaskEditor(context, task, sheet.tasks, onBack = { sheet.onEditChange(false) }, scrolls = false) }
             else {
                 if (needsYou.show) item(key = "needs-you") {
-                    TaskNeedsYouSection(context, task, needsYou, blockers, threads, status.saving,
+                    TaskNeedsYouSection(context, task, needsYou, sheet.nextPlacement, blockers, threads, status.saving,
                         onCloseTask = { status.onSet("done", null, null) }, onFocusReply = sheet.onFocusReply)
                 }
                 if (liveNow != null && task.live != null) item(key = "live") {
@@ -110,13 +111,13 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                 }
                 item(key = "results") {
                     TaskReadingSection("What you get") {
-                        fields.summary?.let { Text(it, style = TextStyles.task.copy(fontWeight = FontWeight.Medium), color = colors.fg) }
+                        if (fields.showSummary) ReportSection(task, ReportSectionKind.Summary)
                         if (sheet.staleReport) StaleTaskReport(context, task.id)
-                        if (task.report.results.isNotBlank()) ReportSectionBody(LegacyReportSection.Results, task.report.results)
-                        else if (fields.summary == null && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
+                        if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts)
+                        else if (!fields.showSummary && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                         failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                         TaskUsageDisclosure(sheet.usage, taskId)
-                        TaskProof(context, artifacts)
+                        TaskProof(context, automaticProof)
                     }
                 }
                 if (artifacts.isNotEmpty()) item(key = "files") {
@@ -124,16 +125,16 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskFiles(context, artifacts, onUpdateTags = sheet.onUpdateArtifactTags)
                     }
                 }
-                fields.notDone?.let { notDone ->
-                    item(key = "not-done") { TaskReadingSection("Not done") { ReportSectionBody(LegacyReportSection.NotDone, notDone) } }
+                if (fields.showNotDone) item(key = "not-done") {
+                    TaskReadingSection("Not done") { ReportSection(task, ReportSectionKind.NotDone) }
                 }
-                if (sheet.showNow || sheet.showNext) item(key = "next") {
+                if (sheet.showNow || showNext) item(key = "next") {
                     TaskReadingSection("Next") {
                         if (sheet.showNow) {
                             TaskHeading("Now")
                             if (activity != null) TaskActivityView(activity, inlineAge = true) else ReportMarkdown(task.report.now)
                         }
-                        if (sheet.showNext) ReportSectionBody(LegacyReportSection.Next, task.report.next)
+                        if (showNext) ReportSection(task, ReportSectionKind.Next)
                     }
                 }
                 if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {
@@ -190,40 +191,5 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             TaskReplyBox(reply, onDismiss, replyInputMaxHeight)
         }
     }
-    }
-}
-
-/** The host supplies the heading and placement; only the section and its authored text shape the body. */
-@Composable
-internal fun ReportSectionBody(section: LegacyReportSection, markdown: String) {
-    val segments = remember(section, markdown) { shapeLegacyReport(section, markdown) }
-    if (segments.isEmpty()) return
-    val unshaped = segments.singleOrNull() as? LegacyReportSegment.Markdown
-    if (unshaped != null) {
-        ReportMarkdown(unshaped.source)
-        return
-    }
-
-    val colors = Jarvis.colors
-    ProvideTextStyle(TextStyles.task) {
-        QuotableSelection {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                for (segment in segments) when (segment) {
-                    is LegacyReportSegment.Markdown -> MarkdownContent(segment.source)
-                    is LegacyReportSegment.Rows -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (item in segment.items) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("•", color = colors.fgSubtle, lineHeight = 25.sp)
-                            Box(Modifier.weight(1f)) { MarkdownContent(item, inlineOnly = true) }
-                        }
-                    }
-                    is LegacyReportSegment.Labeled -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for ((label, value) in segment.rows) Column {
-                            Text("$label:", color = colors.fgMuted, fontWeight = FontWeight.SemiBold)
-                            MarkdownContent(value, inlineOnly = true)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
