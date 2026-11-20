@@ -17,6 +17,10 @@
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
 	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
 	import EyeIcon from '@lucide/svelte/icons/eye';
+	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
+	import { flip } from 'svelte/animate';
+	import { slide } from 'svelte/transition';
+	import { MediaQuery } from 'svelte/reactivity';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import ClockIcon from '@lucide/svelte/icons/clock';
@@ -41,6 +45,7 @@
 		looseWaiting,
 		refLabel,
 		rowGist,
+		SECTION_LABELS,
 		taskRefs,
 		taskSections,
 		taskDisplayToneClass,
@@ -102,6 +107,29 @@
 		saveFamilyExpansion(expansionKey, choices, familyStorage());
 	}
 
+	function foldWithArrow(event: KeyboardEvent, family: TaskFamily): void {
+		if (!family.canToggle || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+		event.preventDefault();
+		if ((event.key === 'ArrowRight') !== family.expanded) toggleFamily(family.row.task.id);
+	}
+
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+	let tasksList: HTMLDivElement;
+	let jumpedTask = $state<string>();
+	let jumpFlashTimer: ReturnType<typeof setTimeout>;
+	$effect(() => () => clearTimeout(jumpFlashTimer));
+
+	function jumpToNeedsYou(taskId: string): void {
+		const target = tasksList.querySelector<HTMLElement>(`[data-section="needs_you"] [data-task="${CSS.escape(taskId)}"]`);
+		if (!target) return;
+		target.querySelector<HTMLAnchorElement>('.task-row-link')?.focus({ preventScroll: true });
+		target.scrollIntoView({ block: 'center', behavior: reducedMotion.current ? 'instant' : 'smooth' });
+		jumpedTask = taskId;
+		clearTimeout(jumpFlashTimer);
+		jumpFlashTimer = setTimeout(() => { jumpedTask = undefined; }, 1200);
+	}
+
 	let adding = $state(false);
 	let sectionOpen = $state<Partial<Record<TaskSectionId, boolean>>>({});
 	let answeredOpen = $state(false);
@@ -116,7 +144,7 @@
 	const searchHitById = $derived(new Map(searchHits.map(hit => [hit.id, hit])));
 	const searchFamilies = $derived.by(() => {
 		const rows = new Map(sections.flatMap(section => section.rows.map(row => [row.task.id, row] as const)));
-		return searchHits.flatMap(hit => { const row = rows.get(hit.id); return row ? [{ row, children: [], canToggle: false, expanded: true, foldedCount: 0 } satisfies TaskFamily] : []; });
+		return searchHits.flatMap(hit => { const row = rows.get(hit.id); return row ? [{ row, role: 'task', children: [], canToggle: false, expanded: true, foldedCount: 0 } satisfies TaskFamily] : []; });
 	});
 	const sections = $derived(
 		board?.board === undefined
@@ -176,38 +204,72 @@
 	{/if}
 {/snippet}
 
-{#snippet taskRow(family: TaskFamily, depth = 0)}
+{#snippet taskRows(families: TaskFamily[], depth = 0)}
+	{#each families as family (`${family.role}:${family.row.task.id}`)}
+		<li class="task-row-item" data-no-task-preview
+			animate:flip={{ duration: searching || reducedMotion.current ? 0 : 180 }}
+			out:slide={{ duration: searching || reducedMotion.current ? 0 : 180 }}>
+			{@render taskRow(family, depth)}
+			{#if family.children.length > 0}
+				<ul class="family-children" class:family-depth-limit={depth >= 3} aria-label="Parts of {family.row.task.id}"
+					transition:slide={{ duration: reducedMotion.current ? 0 : 160 }}>
+					{@render taskRows(family.children, depth + 1)}
+				</ul>
+			{/if}
+		</li>
+	{/each}
+{/snippet}
+
+{#snippet taskRow(family: TaskFamily, depth: number)}
 	{@const row = family.row}
 	{@const warned = row.waiting.some(isWarning)}
 	{@const gist = rowGist(row, board?.activityEnabled === true)}
 	{@const activity = taskRowActivity(row.task, board?.activityEnabled === true, tasks)}
 	{@const refs = taskRefs(row.task)}
 	{@const needsYou = row.section === 'needs_you'}
-	<li class="task-row-item" data-no-task-preview>
+	{#if family.role === 'parentHeader'}
+		<a class="task-row family-compact family-header flex items-center gap-2.5 px-3 text-xs text-(--chat-fg-subtle)"
+			data-parent-header={row.task.id} href={taskHref(row.task.id)} onclick={() => onopentask?.(row.task.id)}
+			aria-label="Parent {row.task.id}: {row.task.title}, {SECTION_LABELS[row.section]}">
+			<GitBranchIcon class="size-3.5 shrink-0" aria-hidden="true" />
+			<span class="min-w-0 flex-1 truncate"><strong class="font-semibold text-(--chat-fg)">{row.task.title}</strong> · {SECTION_LABELS[row.section]}</span>
+			<TaskIdChip taskId={row.task.id} />
+		</a>
+	{:else if family.role === 'pointer'}
+		<div class="task-row family-compact {taskDisplayToneClass(row.task)} relative flex items-center gap-2.5 px-3 text-xs" data-task-pointer={row.task.id}>
+			{@render taskRowIcon(row, false, false)}
+			<a class="task-row-link flex min-w-0 flex-1 items-baseline gap-1 outline-none" href={taskHref(row.task.id)}
+				onclick={() => onopentask?.(row.task.id)} onkeydown={event => foldWithArrow(event, family)}
+				title={row.task.title}>
+				<span class="min-w-0 truncate">{row.task.title}</span>
+				<span class="shrink-0 whitespace-nowrap text-(--chat-fg-subtle)">· {#if row.task.state?.kind === 'steps_needed'}Your steps to do{:else}<TaskStateLabel task={row.task} {tasks} />{/if}</span>
+			</a>
+			{#if family.canToggle}
+				<button type="button" class="family-pointer-button shrink-0" onclick={() => toggleFamily(row.task.id)}
+					aria-label="{family.expanded ? 'Collapse' : 'Expand'} subtasks of {row.task.id}" aria-expanded={family.expanded}>
+					<ChevronRightIcon class="size-3.5 {family.expanded ? 'rotate-90' : ''}" aria-hidden="true" />
+				</button>
+			{/if}
+			<button type="button" class="family-pointer-button shrink-0 font-medium text-(--accent-2)" onclick={() => jumpToNeedsYou(row.task.id)}
+				aria-label="In Needs you ↑: {row.task.title}">In Needs you ↑</button>
+			<span class="shrink-0 text-(--chat-fg-subtle)"><TaskIdChip taskId={row.task.id} /></span>
+		</div>
+	{:else}
 		<!-- The title's link covers the whole row; the ref chips sit above it, so neither link is inside the other. -->
 		<div
 			class="task-row {taskDisplayToneClass(row.task)} group relative flex min-w-0 items-start gap-2.5 py-2.5 pr-2 pl-3"
 			class:task-row-warning={needsYou && warned}
 			class:task-row-question={needsYou && !warned}
 			class:search-context={searching && searchHitById.get(row.task.id)?.context}
+			class:task-row-jump={jumpedTask === row.task.id}
 			data-task={row.task.id}
 		>
-			<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-				{#if row.task.state && row.task.state.kind !== 'working'}
-					{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: ListChecksIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
-					<StateIcon class="size-3.5 text-(--task-status)" />
-				{:else if needsYou && (warned || row.task.state?.kind === 'failed')}
-					<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
-				{:else if needsYou && (!row.task.state || row.task.state.kind === 'answer_needed')}
-					<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
-				{:else}
-					<span class="task-status-dot" class:task-row-pulse={row.task.state ? row.task.state.kind === 'working' : row.task.status === 'in_progress'}></span>
-				{/if}
-			</span>
+			{@render taskRowIcon(row, needsYou, warned)}
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
 				<a
 					href={taskHref(row.task.id)}
 					onclick={() => onopentask?.(row.task.id)}
+					onkeydown={event => foldWithArrow(event, family)}
 					class="task-row-link line-clamp-2 text-[0.875rem] leading-5 font-semibold break-words outline-none {row.section === 'closed'
 						? 'text-(--chat-fg-muted)'
 						: 'text-(--chat-fg)'}"
@@ -235,14 +297,22 @@
 			</span>
 			<ChevronRightIcon class="task-row-chevron mt-0.5 size-3.5 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 		</div>
-		{#if family.children.length > 0}
-			<ul class="family-children" class:family-depth-limit={depth >= 3} aria-label="Subtasks of {row.task.id}">
-				{#each family.children as child (child.row.task.id)}
-					{@render taskRow(child, depth + 1)}
-				{/each}
-			</ul>
+	{/if}
+{/snippet}
+
+{#snippet taskRowIcon(row: TaskRow, needsYou: boolean, warned: boolean)}
+	<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+		{#if row.task.state && row.task.state.kind !== 'working'}
+			{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: ListChecksIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
+			<StateIcon class="size-3.5 text-(--task-status)" />
+		{:else if needsYou && warned}
+			<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
+		{:else if needsYou && !row.task.state}
+			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
+		{:else}
+			<span class="task-status-dot" class:task-row-pulse={row.task.state ? row.task.state.kind === 'working' : row.task.status === 'in_progress'}></span>
 		{/if}
-	</li>
+	</span>
 {/snippet}
 
 {#snippet rowSkeleton(titleWidth: string, gistWidth: string)}
@@ -269,7 +339,7 @@
 
 <div class="flex min-h-0 flex-1 flex-col">
 	<div class="relative flex min-h-0 flex-1 flex-col">
-	<div data-navigation-scroll="tasks-list" use:overlayScroll={'parent'} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+	<div bind:this={tasksList} data-navigation-scroll="tasks-list" use:overlayScroll={'parent'} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
 		<div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
 			{#if board === undefined}
 				<div class="flex flex-col gap-1.5" role="status" aria-busy="true" aria-label="Loading the tasks">
@@ -312,7 +382,7 @@
 					<label class="px-1 text-xs text-(--chat-fg-muted)"><input type="checkbox" checked={sectionOpen.closed === true} onchange={event => sectionOpen.closed = event.currentTarget.checked} /> Show closed</label>
 					<section aria-label="Search results" aria-live="polite">
 						<p class="mb-2 px-1 text-xs text-(--chat-fg-subtle)">{searchHits.filter(hit => !hit.context).length} matching tasks</p>
-						{#if searchFamilies.length}<ul class="task-group">{#each searchFamilies as family (family.row.task.id)}{@render taskRow(family)}{/each}</ul>{:else}<p class="px-1 text-sm text-(--chat-fg-muted)">No tasks match your search.</p>{/if}
+						{#if searchFamilies.length}<ul class="task-group">{@render taskRows(searchFamilies)}</ul>{:else}<p class="px-1 text-sm text-(--chat-fg-muted)">No tasks match your search.</p>{/if}
 					</section>
 				{/if}
 
@@ -367,9 +437,7 @@
 						{/if}
 						{#if isOpen(section)}
 							<ul class="task-group">
-								{#each entry.families as family (family.row.task.id)}
-									{@render taskRow(family)}
-								{/each}
+								{@render taskRows(entry.families)}
 							</ul>
 						{/if}
 					</section>
@@ -486,8 +554,18 @@
 		position: absolute;
 		inset: 0;
 	}
-	.task-row:has(.task-row-link:focus-visible) {
+	.task-row:has(.task-row-link:focus-visible), .family-header:focus-visible {
+		outline: none;
 		box-shadow: inset 0 0 0 2px var(--accent-2);
+	}
+	.task-row.task-row-jump { box-shadow: inset 0 0 0 3px var(--accent-2); }
+	.family-compact { min-height: 28px; }
+	.family-pointer-button { position: relative; z-index: 1; align-self: stretch; }
+	.family-pointer-button:hover { text-decoration: underline; }
+	.family-pointer-button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; border-radius: 4px; }
+	@media (pointer: coarse), (max-width: 639px) {
+		.family-compact { min-height: 44px; }
+		.family-pointer-button::before { content: ''; position: absolute; inset: 0 -4px; }
 	}
 	.task-row:hover:not(:has(.ref-chip:hover, .relation-chip:hover)) {
 		background: color-mix(in oklab, var(--chat-surface-2) 70%, transparent);

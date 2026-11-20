@@ -219,7 +219,7 @@ export function firstLine(markdown: string, length = 140): string {
 
 export type TaskSectionId = "in_progress" | "needs_you" | "review" | "waiting" | "blocked" | "working" | "todo" | "closed";
 
-const SECTION_LABELS: Record<TaskSectionId, string> = {
+export const SECTION_LABELS: Record<TaskSectionId, string> = {
 	needs_you: "Needs you",
 	in_progress: "In progress",
 	review: "Ready for review",
@@ -243,6 +243,8 @@ export type TaskSection = {
 	id: TaskSectionId;
 	label: string;
 	rows: TaskRow[];
+	/** Visible parents of Needs you parts whose full rows belong to another section. */
+	parentRows?: TaskRow[];
 	/** Closed tasks are history: their section starts folded. */
 	collapsedByDefault: boolean;
 };

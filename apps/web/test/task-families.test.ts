@@ -4,6 +4,7 @@ import {
 	type FamilyExpansion, type TaskFamily
 } from '../src/lib/task-families.js';
 import { taskSections, type TaskRow } from '../src/lib/tasks.js';
+import { needsYouCount } from '../src/lib/kanban.js';
 
 type BoardTask = TaskRow['task'];
 type Question = TaskRow['waiting'][number];
@@ -23,8 +24,14 @@ function question(taskId: string, kind: 'question' | 'warning' = 'question'): Qu
 function grouped(tasks: BoardTask[], questions: Question[] = [], expansion: FamilyExpansion = {}) {
 	return taskFamilySections(taskSections({ tasks, questions })).map((section) => ({ section, families: taskFamilies(section, expansion) }));
 }
+function flattenFamilies(families: TaskFamily[]): TaskFamily[] {
+	return families.flatMap(family => [family, ...flattenFamilies(family.children)]);
+}
 function visible(families: TaskFamily[]): string[] {
-	return families.flatMap((family) => [family.row.task.id, ...visible(family.children)]);
+	return flattenFamilies(families).map(family => family.row.task.id);
+}
+function fullRowIds(families: TaskFamily[]): string[] {
+	return flattenFamilies(families).filter(family => family.role === 'task').map(family => family.row.task.id);
 }
 const quietFamily = [task('T1'), task('T2', { parent: 'T1' }), task('T3', { parent: 'T2' }), task('T4')];
 
@@ -139,18 +146,78 @@ describe('D94 families across derived groups', () => {
 		expect(taskFamilyCount(sections[0]!.section)).toBe(1);
 		expect(visible(grouped(tasks)[0]!.families)).toEqual(['T1']);
 	});
-	test('needs-you parts have an independent root even in the same group, plus the unfolded family copy', () => {
-		for (const kind of ['failed', 'answer_needed', 'review'] as const) {
-			for (const parentGroup of ['in_progress', 'needs_you'] as const) {
-				const family = [derived('T1', parentGroup, parentGroup === 'needs_you' ? 'review' : 'paused'), derived('T2', 'needs_you', kind, 'T1')];
-				const folded = grouped(family, [], { T1: false });
-				expect(folded.find(s => s.section.id === 'needs_you')!.families.some(f => f.row.task.id === 'T2')).toBe(true);
-				expect(folded.flatMap(s => visible(s.families)).filter(id => id === 'T2')).toHaveLength(1);
-				const opened = grouped(family, [], { T1: true });
-				expect(opened.flatMap(s => visible(s.families)).filter(id => id === 'T2')).toHaveLength(2);
-				expect(taskFamilyCount(opened.find(s => s.section.id === 'needs_you')!.section)).toBe(parentGroup === 'needs_you' ? 2 : 1);
+	test('each task appears once for any fold choice', () => {
+		for (const kind of ['failed', 'answer_needed', 'steps_needed', 'review'] as const) {
+			for (const [parentGroup, parentKind] of [['needs_you', 'review'], ['in_progress', 'working'], ['waiting', 'waiting_outside'], ['todo', 'todo'], ['closed', 'done']] as const) {
+				const family = [derived('T1', parentGroup, parentKind), derived('T2', 'needs_you', kind, 'T1')];
+				for (const expanded of [false, true]) {
+					const sections = grouped(family, [], { T1: expanded });
+					expect(sections.flatMap(({ families }) => fullRowIds(families)).sort()).toEqual(['T1', 'T2']);
+					expect(fullRowIds(sections.find(({ section }) => section.id === 'needs_you')!.families)).toContain('T2');
+				}
 			}
 		}
+	});
+	test('a Needs you parent cannot fold its attention parts and has no redundant toggle', () => {
+		const family = [derived('T1', 'needs_you', 'answer_needed'), derived('T2', 'needs_you', 'review', 'T1')];
+		const [{ families }] = grouped(family, [], { T1: false });
+		expect(families).toHaveLength(1);
+		expect(families[0]).toMatchObject({ role: 'task', canToggle: false, foldedCount: 0 });
+		expect(fullRowIds(families[0]!.children)).toEqual(['T2']);
+	});
+	test('the chevron on an attention parent folds only quiet parts', () => {
+		const family = [derived('T1', 'needs_you', 'review'), derived('T2', 'in_progress', 'working', 'T1'), derived('T3', 'needs_you', 'review', 'T1'), derived('T4', 'closed', 'done', 'T1')];
+		const [{ families: folded }] = grouped(family);
+		expect(folded[0]).toMatchObject({ canToggle: true, expanded: false, foldedCount: 2 });
+		expect(fullRowIds(folded)).toEqual(['T1', 'T3']);
+		const [{ families: opened }] = grouped(family, [], { T1: true });
+		expect(fullRowIds(opened)).toEqual(['T1', 'T3', 'T2', 'T4']);
+	});
+	test('parts of a working parent share one header and have foldable pointers in its own section', () => {
+		const family = [derived('T1', 'in_progress', 'working'), derived('T2', 'needs_you', 'review', 'T1'), derived('T3', 'needs_you', 'steps_needed', 'T1')];
+		const [{ families: needsYou }, { families: working }] = grouped(family, [], { T1: true });
+		expect(needsYou).toHaveLength(1);
+		expect(needsYou[0]).toMatchObject({ role: 'parentHeader', canToggle: false, row: { section: 'in_progress', task: { id: 'T1' } } });
+		expect(fullRowIds(needsYou)).toEqual(['T3', 'T2']);
+		expect(working[0]!.children.map(({ role, row }) => [role, row.task.id])).toEqual([['pointer', 'T2'], ['pointer', 'T3']]);
+		expect(grouped(family)[1]!.families[0]!.children).toEqual([]);
+	});
+	test('an archived or unavailable parent leaves a regular Needs you root with a parent link', () => {
+		const child = derived('T2', 'needs_you', 'review', 'T1');
+		const archived = { ...derived('T1', 'closed', 'done'), archived: true };
+		for (const sections of [taskSections({ tasks: [child], questions: [] }), taskSections({ tasks: [archived, child], questions: [] }, { includeArchived: true })]) {
+			const [needsYou] = taskFamilySections(sections);
+			const roots = taskFamilies(needsYou!, {});
+			expect(roots).toHaveLength(1);
+			expect(roots[0]).toMatchObject({ role: 'task', row: { task: { id: 'T2', parent: 'T1' } } });
+		}
+	});
+	test('a quiet child stays visible above an attention grandchild when both ancestors are folded', () => {
+		const family = [derived('T1', 'needs_you', 'review'), derived('T2', 'in_progress', 'working', 'T1'), derived('T3', 'needs_you', 'failed', 'T2')];
+		const [needsYou] = grouped(family);
+		expect(fullRowIds(needsYou!.families)).toEqual(['T1', 'T2', 'T3']);
+		expect(needsYou!.families[0]!.canToggle).toBe(false);
+		expect(needsYou!.families[0]!.children[0]!.canToggle).toBe(false);
+	});
+	test('the count equals the number of tasks that need you regardless of folding', () => {
+		const tasks = [derived('T1', 'needs_you', 'review'), derived('T2', 'in_progress', 'working', 'T1'), derived('T3', 'needs_you', 'review', 'T1'), derived('T4', 'todo', 'todo'), derived('T5', 'needs_you', 'steps_needed', 'T4')];
+		for (const T1 of [false, true]) for (const T4 of [false, true]) {
+			const [needsYou] = grouped(tasks, [], { T1, T4 });
+			const attentionRows = flattenFamilies(needsYou!.families).filter(({ role, row }) => role === 'task' && row.task.state?.group === 'needs_you');
+			expect(attentionRows).toHaveLength(3);
+			expect(taskFamilyCount(needsYou!.section)).toBe(attentionRows.length);
+			expect(taskFamilyCount(needsYou!.section)).toBe(needsYouCount({ tasks, questions: [] }));
+		}
+	});
+	test('groups inherit their most urgent member, including a grandchild behind a quiet part', () => {
+		const family = [derived('T1', 'needs_you', 'answer_needed'), derived('T2', 'needs_you', 'review', 'T1'), derived('T3', 'needs_you', 'review'), derived('T4', 'in_progress', 'working', 'T3'), derived('T5', 'needs_you', 'failed', 'T4'), derived('T6', 'needs_you', 'review', 'T3')];
+		const [{ families }] = grouped(family);
+		expect(families.map(({ row }) => row.task.id)).toEqual(['T3', 'T1']);
+		expect(fullRowIds(families[0]!.children)).toEqual(['T6', 'T4', 'T5']);
+	});
+	test('derived cycles do not lose or clone tasks', () => {
+		const family = [derived('T1', 'needs_you', 'review', 'T2'), derived('T2', 'in_progress', 'working', 'T1'), derived('T3', 'needs_you', 'steps_needed', 'T3')];
+		expect(grouped(family, [], { T1: true, T2: true }).flatMap(({ families }) => fullRowIds(families)).sort()).toEqual(['T1', 'T2', 'T3']);
 	});
 	test('nested cross-group parents retain independent fold choices', () => {
 		const family = [derived('T1', 'todo', 'todo'), derived('T2', 'waiting', 'waiting_outside', 'T1'), derived('T3', 'closed', 'done', 'T2')];

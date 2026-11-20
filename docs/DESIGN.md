@@ -3246,7 +3246,7 @@ its own quiet clock applies again. `BoardService.checkPaused()` supports injecte
 missing capability/field retains the legacy display. Needs you sorts Failed, Answer needed,
 Ready for review, oldest within each kind; the list shows Working before Paused, while the
 board's In progress and Waiting sort oldest first. To do retains priority and Closed newest first.
-Family nesting follows the parent across derived groups (T246), retaining independent Needs you rows and the direct-parts progress disclosure.
+Family nesting follows the parent across derived groups (T246), with one full row per task in Needs you and a direct-parts progress disclosure.
 Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
 has a quiet distinct tone and task blockers belong to Waiting. Graph mapping stays Android-only.
 
@@ -3914,7 +3914,7 @@ reads “N of M parts done”, with nonzero “· K working” and “· K needs
 `task-part-states` capability/field, the previous neutral ring and done/total remain. Parent links, grouped relation glyphs/counts and progress share a compact inline meta line with the gist
 where it fits, with no padded metadata row. Grouped relations expose every target in their menu and full tooltip
 and accessible description. Waiting notes already beginning with “waiting for” (case insensitive) are not prefixed again. Root families and siblings
-retain priority order; nesting puts a parent before its children. Derived section counts count top-level rows with families folded, independent of expansion. Needs you counts every independent row it lists; old backends retain counts including folded rows.
+retain priority order; nesting puts a parent before its children. Derived section counts outside Needs you count top-level rows with families folded. Old backends retain counts including folded rows.
 
 **Families stay together (T246 / D94).** With derived state, a part follows its visible parent into that
 parent's section, recursively, regardless of its own state. Finished (done/dropped) parts are muted and
@@ -3922,13 +3922,18 @@ sorted last among siblings, then by priority. They appear only while their paren
 leave Recently closed while nested under an open parent. Closed parents keep their finished parts
 under Recently closed. Roots retain their section's ordering; guides still cap at three levels.
 
-**Needs you is independent of folding.** Every part in derived `needs_you` (failed, answer needed,
-review) also gets its own top-level row in Needs you with the muted `↳ T57` parent link, even when
-its parent is itself in Needs you. Its copy under an unfolded parent is deliberately kept, so the
-family is complete. Folding the parent hides that copy, never the independent Needs you row. The
-parent's direct-parts bar includes the amber segment. Other unfinished tasks with open questions/warnings
-still keep their ancestor path visible if they have no independent Needs you row. Waiting sections start open; recently
-closed starts folded unless it contains an open question or warning. Explicit section folds remain controls.
+**One full row per task in Needs you (web and Android).** A part in derived `needs_you` sits under
+its parent in Needs you and cannot fold away. Quiet ancestors in that section stay visible if a part
+below them needs attention. The parent's parts bar still marks attention in amber, and its chevron
+only folds quiet branches. If the parent lives in another section, Needs you shows a slim header
+that opens the parent. The expanded family in the parent's own section shows a one-line pointer
+instead of another full row for the part. “In Needs you ↑” jumps to the full row and highlights it.
+The count is the number of tasks that need attention, regardless of folding. Headers, pointers and
+quiet parts do not count. Families sort by their most urgent member: failed, answer needed, your
+steps, review, then oldest. Within a family, parts that need attention come before quiet parts,
+with finished quiet parts last. Other unfinished tasks with open questions or warnings still keep
+their ancestor path visible. Waiting starts open; Recently closed starts folded unless it contains
+an open question or warning. Explicit section folds remain controls.
 
 Filtered, archived or missing parents leave visible children at their own group root with a parent
 link. The linked-task focus filter still applies. Relocation is list-only: search keeps its unchanged
@@ -3940,8 +3945,9 @@ questions and warnings cannot fold away), including the old counts.
 project/backend-scoped local key `aiki.task-families.v1:<backend>:<project>`; nested choices survive closing their
 ancestor. Storage failure falls back to in-memory choices. Progress disclosures are separate native buttons with
 `aria-expanded`, Enter/Space support, visible focus and expanded hit areas that do not consume layout space. Hierarchy is expressed with real nested lists,
-not an ARIA tree, so the list retains ordinary Tab navigation (no new arrow-key mode). No expansion animation; reduced
-motion also disables existing row/status motion. Found-while, blocked-by and related glyph links have accessible names
+not an ARIA tree, so the web list retains ordinary Tab navigation. On a focused task link, Right
+opens its fold and Left closes it. Web compact headers and pointers have 44px touch targets. Both apps
+respect reduced motion for family and jump animations, as well as existing row/status motion. Found-while, blocked-by and related glyph links have accessible names
 and native title tooltips. Feedback counts, ref links and task navigation remain.
 
 **Android (T74).** The Compose list follows the same nesting, ordering, attention visibility, parent links and
