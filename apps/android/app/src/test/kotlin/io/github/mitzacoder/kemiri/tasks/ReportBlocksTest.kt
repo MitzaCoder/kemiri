@@ -116,7 +116,7 @@ class ReportBlocksTest {
 
     private fun artifact(id: String, kind: String = "image", version: Long? = null) = Artifact(
         id, "project", "replay.png", "Booking replay", null, kind, "image/png", 1, null,
-        "main", null, "task", "replay.png", createdAt = "2026-01-01T00:00:00Z", version = version,
+        "main", null, "task", sourcePath = "replay.png", createdAt = "2026-01-01T00:00:00Z", version = version,
     )
 
     @Test fun proofDedupRunsBeforeTheCapAndOnlyForRenderableResults() {
@@ -132,7 +132,7 @@ class ReportBlocksTest {
     @Test fun proofOpensThePinnedVersionRatherThanLatest() {
         val latest = artifact("a", version = 2L)
         val old = ArtifactVersion("a~1", latest.projectId, "old.png", "Earlier replay", null, latest.kind,
-            latest.mimeType, latest.size, null, latest.threadId, null, latest.taskId, latest.sourcePath, createdAt = latest.createdAt, version = 1L)
+            latest.mimeType, latest.size, null, latest.threadId, null, latest.taskId, sourcePath = latest.sourcePath, createdAt = latest.createdAt, version = 1L)
         assertEquals(latest, reportProofArtifact(ReportBlock.Proof.ArtifactRef("a", null), listOf(latest)))
         assertNull(reportProofArtifact(ReportBlock.Proof.ArtifactRef("a", 1L), listOf(latest)))
         assertEquals("a~2", reportProofArtifact(ReportBlock.Proof.ArtifactRef("a", 2L), listOf(latest))?.id)

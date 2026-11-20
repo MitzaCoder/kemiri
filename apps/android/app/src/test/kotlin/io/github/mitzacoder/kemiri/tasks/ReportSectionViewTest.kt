@@ -11,8 +11,8 @@ import org.junit.Test
 
 class ReportSectionViewTest {
     private val reportViews = Json.parseToJsonElement("""{"results":{"artifactId":"table","version":2,"label":"Open comparison table"}}""")
-    private val pinned = ArtifactVersion("table~2", "project", "table.html", null, null, "text", "text/html", 42, null, "main", null, "T1", "", createdAt = "", version = 2)
-    private val latest = Artifact("table", "project", "table.html", null, null, "text", "text/html", 45, null, "main", null, "T1", "", createdAt = "", version = 3, versions = listOf(pinned))
+    private val pinned = ArtifactVersion("table~2", "project", "table.html", null, null, "text", "text/html", 42, null, "main", null, "T1", sourcePath = "", createdAt = "", version = 2)
+    private val latest = Artifact("table", "project", "table.html", null, null, "text", "text/html", 45, null, "main", null, "T1", sourcePath = "", createdAt = "", version = 3, versions = listOf(pinned))
     private fun entry(artifacts: List<Artifact>, supported: Boolean = true, section: ReportSectionKind = ReportSectionKind.Results) =
         reportSectionViewEntry(supported, reportViews, section, "project", "T1", artifacts)
 
