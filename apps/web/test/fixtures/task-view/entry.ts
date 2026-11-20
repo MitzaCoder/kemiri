@@ -1,0 +1,26 @@
+import { createRawSnippet, flushSync, mount } from 'svelte';
+import DesignChoice from './DesignChoice.svelte';
+import { TASK_VIEW_DESIGNS, resolveTaskViewDesign } from '../../../src/lib/task-view/designs.js';
+import { taskViewDesignPreference, TASK_VIEW_DESIGN_STORAGE_KEY } from '../../../src/lib/task-view/preference.svelte.js';
+import type { TaskViewDesign, TaskViewDesignProps } from '../../../src/lib/task-view/designs.js';
+import SecondDesign from './SecondDesign.svelte';
+
+const registered = TASK_VIEW_DESIGNS.map(design => design.id + ': ' + design.label);
+const fallbacks = [null, 'removed-design'].map(id => resolveTaskViewDesign(id).id);
+const testRegistry = TASK_VIEW_DESIGNS as TaskViewDesign[];
+testRegistry.push({ id: 'second', label: 'Second', description: 'Test-only view', component: SecondDesign });
+const target = document.querySelector('main')!;
+const model = { task: { title: 'An example task' } } as TaskViewDesignProps['model'];
+mount(DesignChoice, { target, props: { model, editor: createRawSnippet(() => ({ render: () => '<div></div>' })) } });
+flushSync();
+const initial = target.textContent.trim();
+flushSync(() => taskViewDesignPreference.set('second'));
+const switched = target.textContent.trim();
+const persisted = localStorage.getItem(TASK_VIEW_DESIGN_STORAGE_KEY);
+flushSync(() => window.dispatchEvent(new StorageEvent('storage', { key: TASK_VIEW_DESIGN_STORAGE_KEY, newValue: 'classic' })));
+const otherTab = target.textContent.trim();
+const openSheetUnchanged = target === document.querySelector('main');
+const output = document.createElement('pre');
+output.id = 'result';
+output.textContent = JSON.stringify({ registered, fallbacks, initial, switched, persisted, otherTab, openSheetUnchanged });
+document.body.append(output);

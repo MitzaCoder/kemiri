@@ -16,6 +16,8 @@
 	import ThemePreview from '#lib/components/settings/ThemePreview.svelte';
 	import { theme } from '#lib/themes/theme.svelte.js';
 	import { THEMES } from '#lib/themes/themes.js';
+	import { TASK_VIEW_DESIGNS } from '#lib/task-view/designs.js';
+	import { taskViewDesignPreference } from '#lib/task-view/preference.svelte.js';
 
 	const schemeOptions = [
 		{ value: 'device', label: 'Device' },
@@ -90,6 +92,13 @@
 		</div>
 		<SettingsRow label="Light or dark" hint="Device follows this device’s appearance.">
 			<Segmented label="Light or dark" options={schemeOptions} value={colorScheme.preference} onchange={(next) => colorScheme.set(parseColorScheme(next))} />
+		</SettingsRow>
+	</SettingsGroup>
+	<SettingsGroup title="Tasks">
+		<SettingsRow label="Task view" chip="This device only" for="task-view-design">
+			<select id="task-view-design" value={taskViewDesignPreference.current.id} onchange={(event) => taskViewDesignPreference.set(event.currentTarget.value)} class="min-h-11 rounded-md border border-(--chat-border) bg-(--chat-bg) px-3 text-base">
+				{#each TASK_VIEW_DESIGNS as design (design.id)}<option value={design.id}>{design.label}</option>{/each}
+			</select>
 		</SettingsRow>
 	</SettingsGroup>
 	<SettingsGroup title="Time">

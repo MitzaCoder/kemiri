@@ -39,7 +39,7 @@ test('status chips, secondary summaries and event tones keep meaning', () => {
 	expect(timelineTone({ ...entries[1]!, label: 'Worker lens failed' })).toBe('danger');
 });
 test('the merged Activity lives in The record after Your notes', async () => {
-	const source = await Bun.file(new URL('../src/lib/components/TaskSheet.svelte', import.meta.url)).text();
+	const source = await Bun.file(new URL('../src/lib/components/task-view/ClassicTaskView.svelte', import.meta.url)).text();
 	const record = source.slice(source.indexOf('aria-label="The record"'), source.indexOf('<aside'));
 	expect(record).toContain('row="request" title="The request"');
 	expect(record).toContain('row="activity" title="Activity"');

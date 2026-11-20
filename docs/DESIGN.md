@@ -2920,6 +2920,21 @@ is where they talk.
   knows the number). The board tool's description and the coordinator prompt say so; nothing in the code limits a
   title's length.
 
+### Web task view designs (T366)
+
+Classic is the default. The owner can change designs from More → Task view in the task header or from
+Settings → This device → Appearance. Both selectors use the same registry and remember the choice in
+`localStorage` (`kemiri.task-view-design.v1`). A missing or unknown ID falls back to Classic. Switching redraws
+an open sheet without reloading, and other tabs on the same origin follow the stored choice.
+
+Add a web design component and register its ID, label, description, component and optional `sheetClass` in
+`apps/web/src/lib/task-view/designs.ts`. The shell is full-window unless the design docks or narrows it with
+`sheetClass`. It owns the dialog, loading and missing states, the editor snippet and selection quoting.
+Designs own their header, body and reply layout. Each gets the same reactive model from `model.svelte.ts`:
+use its derived task fields, actions and shared timeline read rather than fetching them again. Put
+`TaskViewDesignMenu` in the header, render the supplied `editor` snippet when `model.editing` is true, and
+register the quotable region and reply focus target with the model.
+
 ### Task changes and integration refs (T124)
 
 The backend observes repositories, not agent chat. `task-changes.json` beside `project.json` is an atomic,

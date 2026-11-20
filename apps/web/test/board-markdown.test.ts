@@ -57,7 +57,7 @@ describe('board Markdown plain previews', () => {
 	test('question cards and compact board surfaces share the safe preview renderer', () => {
 		const component = (name: string) => readFileSync(new URL(`../src/lib/components/${name}.svelte`, import.meta.url), 'utf8');
 		for (const name of ['BoardQuestionCard', 'BoardPanel', 'TasksPanel', 'chat/BoardCallCard']) expect(component(name)).toContain('CardMarkdown');
-		expect(component('TaskSheet')).toContain('<BoardQuestionCard');
+		expect(component('task-view/ClassicTaskView')).toContain('<BoardQuestionCard');
 		const card = component('markdown/CardMarkdown');
 		expect(card).toContain('<Markdown {source} userMessage class="md-card"');
 		expect(card).toContain('aria-expanded={expanded}');
