@@ -12,6 +12,8 @@ import type {
 	ArtifactsDeleteResponse,
 	ArtifactsUpdateResponse,
 	ArtifactsListResponse,
+	ArtifactsLibraryResponse,
+	ArtifactsTrailResponse,
 	ArtifactsUrlResponse,
 	AuthLogin,
 	Board,
@@ -1235,6 +1237,20 @@ export class HarnessClient {
 			...(filter.limit === undefined ? {} : { limit: filter.limit }),
 		});
 		return response.artifacts;
+	}
+
+	/** One page of artifacts across this backend, including archived projects. */
+	readArtifactLibrary(before?: string): Promise<ArtifactsLibraryResponse> {
+		return this.#call<ArtifactsLibraryResponse>({ type: "artifacts.library", ...(before === undefined ? {} : { before }) });
+	}
+
+	readArtifactTrail(projectId: string, artifactId: string): Promise<ArtifactsTrailResponse> {
+		return this.#call<ArtifactsTrailResponse>({ type: "artifacts.trail", projectId, artifactId });
+	}
+
+	async setArtifactLiving(projectId: string, artifactId: string, living: boolean): Promise<Artifact> {
+		const response = await this.#call<ArtifactsUpdateResponse>({ type: "artifacts.update", projectId, artifactId, living });
+		return response.artifact;
 	}
 
 	/**

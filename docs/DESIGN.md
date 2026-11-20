@@ -631,6 +631,24 @@ For feedback about an artifact whose task is done, the coordinator answers plain
 For a change it adds a small follow-up with `foundWhile` pointing to the original task and has its worker save the
 revision by `artifactId`, then says in chat what changed. An explicit request to reopen or only answer takes priority.
 
+### Web library and Studio
+
+`/artifacts` merges all connected backends (D121). Keys include backend and project so an artifact or task ID on
+one backend never collides with another. The sidebar shares the live count with the page. A backend without
+`artifact-library` contributes up to 500 files per project and task facts from any readable board, including archived
+work. Changes and reconnects refresh the results. The old backend still has a Studio, without Keep alive or the
+server comment trail.
+
+Vitrine's task, kind, time, before-and-after and living lenses share project, tag and search filters. A done task
+keeps its shelf. The compare lens uses the task gallery's image matching and wipe control. Shelves look like objects
+rather than file rows, and rearrange with FLIP unless motion is reduced. On narrow screens shelves scroll sideways.
+HTML thumbnails share the existing sandbox and four live-frame slots.
+
+Studio keeps the shelves mounted so closing it preserves the browsing position and filters. The existing artifact
+viewers still offer review on text and pages. An immutable version filmstrip marks the boundary at task settlement
+and labels versions made for a later task. The trail fills in task context, decisions and comments; the owner can
+switch Keep alive on or off in the header. Discuss belongs on an object and in the Studio header (T374).
+
 ## MCP preset catalogue and registered OAuth apps (T157 / D73)
 
 Add server offers a searchable catalogue grouped by issue tracking, code, docs,

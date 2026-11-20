@@ -20,9 +20,9 @@
 	import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, loadArtifactReview, saveArtifactReview, formatArtifactReview, precedingArtifactHeading, reviewText, reviewLocation, validateArtifactSelection, loadArtifactCommentDraft, saveArtifactCommentDraft, reviewCommentCount, type ArtifactSelection, type ArtifactCommentDraft, type ReviewComment, type ReviewIntent } from '#lib/artifact-review.js';
 	import { SELECTION_RECT, validateArtifactRects, watchAnchorsMessage, reviewPins, placeReviewCard, blockPath, textOffset, anchorClientRect, type ReviewRect } from '#lib/artifact-review-anchors.js';
 
-	let { artifact, client, layout, surface, textRoot, frame, anchorKind, onclose }: {
+	let { artifact, client, layout, surface, textRoot, frame, anchorKind, reviewSourceThreadId, onclose }: {
 		artifact: Artifact; client: HarnessClient; layout?: HTMLElement; surface?: HTMLElement;
-		textRoot?: HTMLElement; frame?: HTMLIFrameElement; anchorKind: 'p' | 'm' | 's'; onclose?: () => void;
+		textRoot?: HTMLElement; frame?: HTMLIFrameElement; anchorKind: 'p' | 'm' | 's'; reviewSourceThreadId?: string; onclose?: () => void;
 	} = $props();
 	const pageView = $derived(anchorKind === 'p');
 	const backend = $derived(harness.backends.find(backend => backend.client === client));
@@ -371,7 +371,7 @@
 	}
 	function formatted(): string { return formatArtifactReview({ title: artifactTitle(artifact), id: artifact.id, version: artifact.version ?? 1, name: artifact.name }, { comments, overall }); }
 	function clear(): void { submission.accepted(); comments = []; overall = ''; removed = undefined; dismissEditor(false); closePreview(); }
-	const recipient = $derived(reviewThreadId(artifact.taskId, page.params.threadId));
+	const recipient = $derived(reviewThreadId(artifact.taskId, reviewSourceThreadId ?? page.params.threadId));
 	async function send(): Promise<void> {
 		if (sending) return;
 		sending = true; problem = ''; status = '';

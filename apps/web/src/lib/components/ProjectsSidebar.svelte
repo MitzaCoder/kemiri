@@ -6,6 +6,8 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
+	import BoxesIcon from '@lucide/svelte/icons/boxes';
+	import { artifactLibrary } from '#lib/artifact-library.svelte.js';
 	import { page } from '$app/state';
 	import { version as webVersion } from '../../../package.json';
 	import SelfUpdate from './SelfUpdate.svelte';
@@ -155,6 +157,14 @@
 			class:items-center={rail}
 		>
 			{#if !rail}<NeedsYou links={attentionLinks} onnavigate={() => projectsNav.closeDrawer()} />{/if}
+			<a href="/artifacts" aria-current={page.url.pathname === '/artifacts' ? 'page' : undefined}
+				aria-label={rail ? `Artifacts, ${artifactLibrary.entries.length} kept` : undefined} title="Artifacts"
+				onclick={() => projectsNav.closeDrawer()}
+				class="my-1 flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-(--chat-fg-muted) hover:bg-(--chat-surface-2) aria-[current=page]:bg-(--chat-surface-2) aria-[current=page]:text-(--accent-2)"
+				class:justify-center={rail} class:size-9={rail}>
+				<BoxesIcon class="size-4 shrink-0" />
+				{#if !rail}<span class="flex-1 font-medium">Artifacts</span><span class="text-xs text-(--chat-fg-subtle)">{artifactLibrary.entries.length}</span>{/if}
+			</a>
 			{#if harness.backends.length === 0}
 				{#if !rail}
 					<p class="px-1.5 py-2 text-xs leading-5 text-(--chat-fg-subtle)">

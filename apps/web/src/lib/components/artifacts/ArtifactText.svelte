@@ -41,8 +41,9 @@
 		roomy = false,
 		fullSpace = false,
 		menuActions,
+		reviewSourceThreadId,
 		onclose
-	}: { artifact: Artifact; client: HarnessClient; compact?: boolean; roomy?: boolean; fullSpace?: boolean; menuActions?: Snippet; onclose?: () => void } = $props();
+	}: { artifact: Artifact; client: HarnessClient; compact?: boolean; roomy?: boolean; fullSpace?: boolean; menuActions?: Snippet; reviewSourceThreadId?: string; onclose?: () => void } = $props();
 
 	let content = $state<string | undefined>(undefined);
 	let artifactTheme = $state<ArtifactPageTheme>({ mode: 'light', tokens: {} });
@@ -273,7 +274,7 @@
 		<p class="px-3 py-3 text-xs text-(--chat-fg-subtle)">Reading…</p>
 	{/if}
 </div>
-{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {onclose} />{/key}{/if}
+{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {reviewSourceThreadId} {onclose} />{/key}{/if}
 </div>
 
 <style>

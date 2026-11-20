@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { installSettingsNavigation } from '#lib/settings-navigation.svelte.js';
 	import { page } from '$app/state';
+	import { artifactLibrary } from '#lib/artifact-library.svelte.js';
 	import { harness } from '#lib/harness.svelte.js';
 	import { reportInteraction, startInteractionReporting } from '#lib/interaction.js';
 	import { notifications } from '#lib/notifications.svelte.js';
@@ -24,6 +25,7 @@
 	// Read the browser's backend list and sidebar state before children render; connected in onMount.
 	clearPairFragment();
 	harness.load();
+	artifactLibrary.connect();
 	theme.load();
 	projectsNav.load();
 
