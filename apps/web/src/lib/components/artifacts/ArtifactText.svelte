@@ -21,6 +21,9 @@
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import { loadCodeViewer } from '#lib/code/load-viewer.js';
+	import { fitsCodeView } from '#lib/code/limits.js';
+	import type { SourceReview } from '#lib/code/source-review.js';
 	import { ARTIFACT_FRAME_SANDBOX, isHtmlArtifact, openArtifactPreview } from '#lib/artifact-preview.js';
 	import { formatBytes, isMarkdownArtifact, MEDIA_RETRY_LIMIT } from '#lib/artifacts.js';
 	import { useArtifactSource } from '#lib/artifacts.svelte.js';
@@ -94,6 +97,8 @@
 	let readingSurface = $state<HTMLDivElement>();
 	let readingBody = $state<HTMLElement>();
 	let review = $state<ArtifactReview>();
+	let sourceReview = $state.raw<SourceReview>();
+	const fitsViewer = $derived(content !== undefined && fitsCodeView(content));
 	let menuOpen = $state(false);
 	let copyStatus = $state('');
 	async function copySource(): Promise<void> {
@@ -171,7 +176,7 @@
 				<DropdownMenu.Trigger class="html-actions-trigger" aria-label="Artifact actions" title="Artifact actions" data-artifact-actions><EllipsisVerticalIcon class="size-5" /></DropdownMenu.Trigger>
 				<DropdownMenu.Portal><DropdownMenu.Content align="end" sideOffset={6} class="html-actions-menu" data-artifact-actions-menu>
 					<DropdownMenu.Item disabled={content === undefined} onSelect={() => setView(page ? 'source' : 'page')}>{page ? 'Show HTML source' : 'Show page'}</DropdownMenu.Item>
-					{#if !page}<DropdownMenu.Item onSelect={() => wrap = !wrap}>{wrap ? 'Do not wrap lines' : 'Wrap lines'}</DropdownMenu.Item>{/if}
+					{#if !page && !fitsViewer}<DropdownMenu.Item onSelect={() => wrap = !wrap}>{wrap ? 'Do not wrap lines' : 'Wrap lines'}</DropdownMenu.Item>{/if}
 					<DropdownMenu.Item disabled={content === undefined || !page} onSelect={() => frame?.contentWindow?.postMessage('kemiri:print-artifact', '*')}>Print</DropdownMenu.Item>
 					<DropdownMenu.Item disabled={content === undefined} onSelect={openTab}>Open in a new tab</DropdownMenu.Item>
 					<DropdownMenu.Item disabled={content === undefined} onSelect={() => void copySource()}>Copy HTML source</DropdownMenu.Item>
@@ -209,7 +214,7 @@
 				{/each}
 			</div>
 		{/if}
-		{#if !rendered && !page}
+		{#if !rendered && !page && !fitsViewer}
 			<button
 				type="button"
 				class="grid size-7 place-items-center rounded-md hover:bg-(--chat-surface-2) aria-pressed:text-(--accent-2)"
@@ -226,7 +231,7 @@
 				<ExternalLinkIcon />
 			</Button>
 		{/if}
-		{#if content !== undefined}
+		{#if content !== undefined && (rendered || page || !fitsViewer)}
 			<CopyButton text={content} label="Copy the text" />
 		{/if}
 	</div>
@@ -256,7 +261,19 @@
 			</div>
 		{:else}
 			<div bind:this={readingSurface} class:html-source={fullSpace} class="relative reading-document">
+			{#if fitsViewer}
+				{#await loadCodeViewer()}
+					<p class="p-3 text-xs" role="status">Opening source…</p>
+				{:then { default: CodeViewer }}
+					<CodeViewer text={content} path={artifact.name} languageHint={html ? 'html' : markdown ? 'markdown' : undefined} {compact} {roomy} bind:review={sourceReview} oncomment={roomy ? () => review?.commentOnSource() : undefined} ongeometry={() => review?.refreshGeometry()} />
+				{:catch}
+					<p class="px-3 py-2 text-xs" role="status">Could not open the source viewer. Showing plain text.</p>
 			<pre bind:this={readingBody} use:overlayScroll={'parent'} class="text-body m-0 overflow-auto px-3 py-2.5 font-mono text-[0.78rem] leading-relaxed" class:wrap class:compact class:roomy>{content}</pre>
+				{/await}
+			{:else}
+				<p class="px-3 py-2 text-xs" role="status">Source exceeds the viewer limits. Showing plain text.</p>
+			<pre bind:this={readingBody} use:overlayScroll={'parent'} class="text-body m-0 overflow-auto px-3 py-2.5 font-mono text-[0.78rem] leading-relaxed" class:wrap class:compact class:roomy>{content}</pre>
+			{/if}
 			</div>
 		{/if}
 		{#if truncated}
@@ -274,7 +291,7 @@
 		<p class="px-3 py-3 text-xs text-(--chat-fg-subtle)">Reading…</p>
 	{/if}
 </div>
-{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {reviewSourceThreadId} {onclose} />{/key}{/if}
+{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} sourceReview={!page && !rendered ? sourceReview : undefined} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {reviewSourceThreadId} {onclose} />{/key}{/if}
 </div>
 
 <style>

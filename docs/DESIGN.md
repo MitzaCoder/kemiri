@@ -601,7 +601,34 @@ a crash can leave extra bytes but never references missing bytes. Deleting the a
 Web and Android artifact dialogs and full-screen media viewers select retained metadata and fetch its version address;
 cards show the total saves. Old servers still show a single snapshot without controls. Editing tags targets latest,
 not an older snapshot. Bare-ID web preview leases refresh on the version push; Android poster and image-cache keys
-include the version so a new card thumbnail cannot reuse old pixels. Source diff is deferred.
+include the version so a new card thumbnail cannot reuse old pixels.
+
+### Web read-only code view (T379)
+
+The viewer uses the existing artifact URL request and tool-card bodies without a dedicated server capability. There are
+no new requests or write paths. Compare versions lives with the artifact viewer’s version controls and requires the
+existing `artifact-versions` feature and two retained text versions. The library’s before/after image slider is unchanged.
+The browser loads CodeMirror only when showing source, opening a full tool-card view, or comparing retained text versions. The production build checks static
+imports for editor modules, including shared chunks. Language support is a fixed set of first-party and legacy modes,
+plus Svelte and Nix. Shiki stays on chat blocks and small edit-card diffs; jsdiff adds bounded word-level marks.
+
+Artifact Source and text retain the existing preview limits. CodeMirror and each comparison side are also capped at
+1 MiB and 20,000 lines; the app falls back to plain previews above those limits. Compare pins both signed reads to
+retained snapshots. It uses bounded merge scanning (500 steps, 100 ms timeout) and labels approximate comparisons.
+Phones show unified changes. Artifact Source review reads selections from the editor document, not from visible DOM lines.
+It translates normalized line endings back to the original UTF-16 offset for existing `s:` anchors. Review messages are
+unchanged. HTML Page keeps its sandbox.
+
+CodeMirror uses the Catppuccin token palette over white in light mode and the app's dark tone background in dark mode.
+The same deterministic contrast pass applies to Shiki's custom Latte syntax theme. Keep hue and saturation fixed, lower
+HSL lightness by one percentage point per step, and stop at the first rounded sRGB hex that reaches 4.5:1 against white.
+Changed Latte syntax colours (original → adjusted):
+
+- Sky `#04a5e5` → `#037dae`, teal `#179299` → `#148187`, sapphire `#209fb5` → `#1a8192`.
+- Green `#40a02b` → `#358423`, lavender `#7287fd` → `#4a65fc`, overlay 1 `#8c8fa1` → `#70748a`, overlay 0 `#7c7f93` → `#717489`.
+- Rosewater `#dc8a78` → `#c94f34`, flamingo `#dd7878` → `#d04343`, yellow `#df8e1d` → `#a46915`.
+- Maroon `#e64553` → `#e22a3a`, pink `#ea76cb` → `#d421a4`, peach `#fe640b` → `#cb4b01`.
+
 
 Re-saving answers `Saved version 3 of report.html`.
 

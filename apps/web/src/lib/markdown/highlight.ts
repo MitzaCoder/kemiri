@@ -8,7 +8,7 @@
  */
 import type { BundledLanguage, HighlighterGeneric } from "shiki";
 
-export const LIGHT_THEME = "catppuccin-latte";
+export const LIGHT_THEME = "kemiri-latte";
 export const DARK_THEME = "catppuccin-mocha";
 
 type Highlighter = HighlighterGeneric<BundledLanguage, typeof LIGHT_THEME | typeof DARK_THEME>;
@@ -38,12 +38,16 @@ const loading = new Map<string, Promise<boolean>>();
 
 function getHighlighter(): Promise<Highlighter> {
 	highlighter ??= (async () => {
-		const [{ createHighlighter }, { createJavaScriptRegexEngine }] = await Promise.all([
+		const [{ createHighlighter, bundledThemes }, { createJavaScriptRegexEngine }, { darkenLatteToken }] = await Promise.all([
 			import("shiki"),
 			import("shiki/engine/javascript"),
+			import("../code/palette.js"),
 		]);
+		const { default: latte } = await bundledThemes["catppuccin-latte"]();
 		return createHighlighter({
-			themes: [LIGHT_THEME, DARK_THEME],
+			themes: [{ ...latte, name: LIGHT_THEME, tokenColors: latte.tokenColors?.map(rule => ({
+				...rule, settings: { ...rule.settings, ...(rule.settings.foreground ? { foreground: darkenLatteToken(rule.settings.foreground) } : {}) },
+			})) }, DARK_THEME],
 			langs: [],
 			engine: createJavaScriptRegexEngine({ forgiving: true }),
 		}) as Promise<Highlighter>;
@@ -83,4 +87,11 @@ export async function highlight(code: string, lang: string | undefined): Promise
 		themes: { light: LIGHT_THEME, dark: DARK_THEME },
 		defaultColor: false,
 	});
+}
+
+/** Token rows for chat diffs. Svelte escapes the text; no HTML is passed through the diff model. */
+export async function highlightRows(source: string, lang: string) {
+	const instance = await getHighlighter();
+	if (!(await ensureLanguage(instance, lang)) || lang === 'plaintext') return [];
+	return instance.codeToTokens(source, { lang: lang as BundledLanguage, themes: { light: LIGHT_THEME, dark: DARK_THEME }, defaultColor: false }).tokens;
 }

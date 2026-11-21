@@ -25,6 +25,14 @@
 	const edits = $derived(
 		Array.isArray(args.edits) ? (args.edits as { oldText?: string; newText?: string }[]) : []
 	);
+	const editDiff = (edit: { oldText?: string; newText?: string }) => [
+		...(edit.oldText ?? '').split('\n').map(line => `- ${line}`),
+		...(edit.newText ?? '').split('\n').map(line => `+ ${line}`),
+	].join('\n');
+	const fullText = $derived(part.name === 'edit' ? typeof diff === 'string' ? diff : edits.length ? edits.map(editDiff).join('\n ...\n') : undefined
+		: part.name === 'write' && typeof args.content === 'string' ? args.content
+		: part.name === 'read' && output.body && status !== 'error' ? output.body : undefined);
+	let fullView = $state(false);
 </script>
 
 {#if part.viaScript !== undefined}
@@ -45,16 +53,11 @@
 	<CodeBlock code={String(args.command ?? '')} lang="bash" bare wrapByDefault streaming={status === 'preparing'} />
 {:else if part.name === 'edit'}
 	{#if typeof diff === 'string'}
-		<DiffView {diff} />
+		<DiffView {diff} lang={langFromPath(path)} />
 	{:else if edits.length > 0}
 		{#each edits as edit, index (index)}
 			<div class="section-label"><span>Edit {index + 1}</span></div>
-			<DiffView
-				diff={[
-					...(edit.oldText ?? '').split('\n').map((line) => `- ${line}`),
-					...(edit.newText ?? '').split('\n').map((line) => `+ ${line}`)
-				].join('\n')}
-			/>
+			<DiffView diff={editDiff(edit)} lang={langFromPath(path)} />
 		{/each}
 	{:else}
 		<div class="section-label"><span>Arguments</span></div>
@@ -101,6 +104,15 @@
 	{/if}
 {:else if status === 'running' || status === 'preparing'}
 	<p class="shimmer-text px-3.5 py-2.5 text-xs">Running…</p>
+{/if}
+
+{#if fullText !== undefined}
+	<div class="section-label justify-end"><button type="button" class="min-h-8 rounded px-2 text-(--chat-fg-muted) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)" onclick={() => fullView = true}>Open full view</button></div>
+	{#if fullView}
+		{#await import('./ToolCodeDialog.svelte') then { default: ToolCodeDialog }}
+			<ToolCodeDialog bind:open={fullView} path={path ?? part.name} text={fullText} isDiff={part.name === 'edit'} notice={part.name === 'read' ? output.notice : undefined} />
+		{/await}
+	{/if}
 {/if}
 
 {#each part.diagnostics as diagnostic, index (index)}

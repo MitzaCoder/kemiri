@@ -20,9 +20,11 @@
 	import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, loadArtifactReview, saveArtifactReview, formatArtifactReview, precedingArtifactHeading, reviewText, reviewLocation, validateArtifactSelection, loadArtifactCommentDraft, saveArtifactCommentDraft, reviewCommentCount, type ArtifactSelection, type ArtifactCommentDraft, type ReviewComment, type ReviewIntent } from '#lib/artifact-review.js';
 	import { SELECTION_RECT, validateArtifactRects, watchAnchorsMessage, reviewPins, placeReviewCard, blockPath, textOffset, anchorClientRect, type ReviewRect } from '#lib/artifact-review-anchors.js';
 
-	let { artifact, client, layout, surface, textRoot, frame, anchorKind, reviewSourceThreadId, onclose }: {
+	import type { SourceReview } from '#lib/code/source-review.js';
+
+	let { artifact, client, layout, surface, textRoot, sourceReview, frame, anchorKind, reviewSourceThreadId, onclose }: {
 		artifact: Artifact; client: HarnessClient; layout?: HTMLElement; surface?: HTMLElement;
-		textRoot?: HTMLElement; frame?: HTMLIFrameElement; anchorKind: 'p' | 'm' | 's'; reviewSourceThreadId?: string; onclose?: () => void;
+		textRoot?: HTMLElement; sourceReview?: SourceReview; frame?: HTMLIFrameElement; anchorKind: 'p' | 'm' | 's'; reviewSourceThreadId?: string; onclose?: () => void;
 	} = $props();
 	const pageView = $derived(anchorKind === 'p');
 	const backend = $derived(harness.backends.find(backend => backend.client === client));
@@ -111,7 +113,7 @@
 		for (const element of new Set([viewer, parent, ...(root ? [root] : [])])) observer.observe(element);
 		return () => observer.disconnect();
 	});
-	$effect(() => { comments; draftEditor; editor?.recovered; textRoot; surface; anchorKind; scheduleGeometry(); });
+	$effect(() => { comments; draftEditor; editor?.recovered; textRoot; sourceReview; surface; anchorKind; scheduleGeometry(); });
 	$effect(() => {
 		anchorKind;
 		untrack(() => {
@@ -128,6 +130,14 @@
 	});
 	$effect(() => { if (preview && !previewPin) closePreview(); });
 
+	export function refreshGeometry(): void { scheduleGeometry(); }
+	export function commentOnSource(): void {
+		const selection = sourceReview?.selection();
+		if (!selection) return;
+		select(selection);
+		scheduleGeometry();
+	}
+
 	function scheduleGeometry(): void {
 		if (refreshFrame) return;
 		refreshFrame = requestAnimationFrame(() => {
@@ -141,15 +151,17 @@
 			const bottom = Math.min(bounds.bottom, (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight));
 			layer = { x: (bounds.left - parent.left) / scaleX, y: (top - parent.top) / scaleY, width: surface.clientWidth, height: Math.max(0, (bottom - top) / scaleY), insetY: (top - bounds.top) / scaleY };
 			sheet = layout.clientWidth < 640;
-			if (!textRoot || anchorKind === 'p') return;
+			if ((!textRoot && !sourceReview) || anchorKind === 'p') return;
 			const relative = (rect: ReviewRect) => ({ x: (rect.x - bounds.x) / scaleX, y: (rect.y - bounds.y) / scaleY, width: rect.width / scaleX, height: rect.height / scaleY });
 			const rects = new Map<string, ReviewRect>();
 			for (const { anchor } of draftEditor ? [...comments, draftEditor.selection] : editor?.recovered ? [...comments, editor.selection] : comments) {
 				if (!anchor || rects.has(anchor)) continue;
-				const rect = anchorClientRect(textRoot, anchorKind, anchor);
+				const rect = sourceReview ? sourceReview.rect(anchor) : textRoot && anchorClientRect(textRoot, anchorKind, anchor);
 				if (rect) rects.set(anchor, relative(rect));
 			}
-			if (liveRange && textRoot.contains(liveRange.commonAncestorContainer)) rects.set(SELECTION_RECT, relative(liveRange.getBoundingClientRect()));
+			const sourceRect = sourceReview?.rect();
+			if (sourceRect) rects.set(SELECTION_RECT, relative(sourceRect));
+			if (liveRange && textRoot?.contains(liveRange.commonAncestorContainer)) rects.set(SELECTION_RECT, relative(liveRange.getBoundingClientRect()));
 			documentRects = rects;
 		});
 	}
@@ -258,6 +270,7 @@
 		liveRange = undefined;
 		if (clearSelection) {
 			if (pageView) frame?.contentWindow?.postMessage('kemiri:clear-artifact-selection', '*');
+			else if (sourceReview) sourceReview.clearSelection();
 			else document.getSelection()?.removeAllRanges();
 		}
 		draftEditor = undefined;
@@ -346,6 +359,7 @@
 		if (editor || sending || !surface || !anchor.startsWith(`${anchorKind}:`)) return;
 		if (sheet) trayOpen = false;
 		if (anchorKind === 'p') frame?.contentWindow?.postMessage(`kemiri:show-artifact-anchor:${anchor.slice(2)}`, '*');
+		else if (sourceReview) { sourceReview.reveal(anchor); scheduleGeometry(); }
 		else if (textRoot) {
 			const target = anchorClientRect(textRoot, anchorKind, anchor);
 			if (!target) return;

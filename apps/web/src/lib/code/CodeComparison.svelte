@@ -1,0 +1,147 @@
+<script lang="ts">
+	import { EditorState } from '@codemirror/state';
+	import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
+	import { getChunks, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from '@codemirror/merge';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { codeLanguageForPath } from './languages.js';
+	import { loadCodeLanguage } from './language-extensions.js';
+	import { readonlyCodeExtensions } from './readonly-editor.js';
+	import { comparisonState, type ComparisonText } from './artifact-comparison.js';
+
+	let { before, after, path, beforeLabel, afterLabel }: {
+		before: ComparisonText; after: ComparisonText; path: string; beforeLabel: string; afterLabel: string;
+	} = $props();
+	const wide = new MediaQuery('(min-width: 768px)');
+	let preferSplit = $state(false);
+	const split = $derived(wide.current && preferSplit);
+	const comparison = $derived(comparisonState(before, after));
+	let host = $state<HTMLDivElement>();
+	let editor = $state.raw<EditorView>();
+	let precise = $state(true);
+	let count = $state(0);
+	let navigation = $state('');
+	let ready = $state(false);
+	let failed = $state(false);
+	const diffConfig = { scanLimit: 500, timeout: 100 };
+	const collapseUnchanged = { margin: 3, minSize: 4 };
+	// Merge's built-in collapse widget is clickable but is not keyboard-focusable.
+	const accessibleCollapse = ViewPlugin.fromClass(class {
+		readonly observer: MutationObserver;
+		constructor(view: EditorView) {
+			const labelWidgets = () => {
+				for (const widget of view.dom.querySelectorAll<HTMLElement>('.cm-collapsedLines:not([role])')) {
+					widget.tabIndex = 0;
+					widget.setAttribute('role', 'button');
+					widget.setAttribute('aria-label', `Show ${widget.textContent}`);
+					widget.addEventListener('keydown', event => {
+						if (event.key !== 'Enter' && event.key !== ' ') return;
+						event.preventDefault();
+						event.stopPropagation();
+						view.focus();
+						widget.click();
+					});
+				}
+			};
+			this.observer = new MutationObserver(labelWidgets);
+			this.observer.observe(view.dom, { childList: true, subtree: true });
+			labelWidgets();
+		}
+		destroy() { this.observer.disconnect(); }
+	});
+
+	$effect(() => {
+		const parent = host, oldText = before.content, newText = after.content, showSplit = split;
+		const oldLabel = beforeLabel, newLabel = afterLabel, language = codeLanguageForPath(path);
+		if (!parent) return;
+		let disposed = false;
+		let destroy: (() => void) | undefined;
+		navigation = '';
+		ready = false;
+		failed = false;
+		void loadCodeLanguage(language).then(extension => {
+			if (disposed) return;
+			const extensions = (label: string) => readonlyCodeExtensions(label, extension, [EditorView.lineWrapping, accessibleCollapse,
+				keymap.of([{ key: 'Alt-ArrowDown', run: goToNextChunk }, { key: 'Alt-ArrowUp', run: goToPreviousChunk }])]);
+			if (showSplit) {
+				const merge = new MergeView({ parent,
+					a: { doc: oldText, extensions: extensions(oldLabel) }, b: { doc: newText, extensions: extensions(newLabel) },
+					diffConfig, collapseUnchanged, gutter: true });
+				editor = merge.b;
+				destroy = () => merge.destroy();
+			} else {
+				const view = new EditorView({ parent, state: EditorState.create({ doc: newText, extensions: [
+					extensions(`${oldLabel} to ${newLabel}, unified changes`),
+					unifiedMergeView({ original: oldText, diffConfig, collapseUnchanged, mergeControls: false, gutter: true }),
+				] }) });
+				editor = view;
+				destroy = () => view.destroy();
+			}
+			const chunks = getChunks(editor.state)?.chunks ?? [];
+			count = chunks.length;
+			precise = chunks.every(chunk => chunk.precise);
+			ready = true;
+		}).catch(() => { if (!disposed) failed = true; });
+		return () => { disposed = true; destroy?.(); editor = undefined; };
+	});
+
+	function goToChange(direction: 'previous' | 'next') {
+		const view = editor;
+		if (!view) return;
+		const go = direction === 'previous' ? goToPreviousChunk : goToNextChunk;
+		if (go(view)) {
+			navigation = `Change at ${afterLabel}, line ${view.state.doc.lineAt(view.state.selection.main.head).number}.`;
+			return;
+		}
+		navigation = direction === 'previous' ? 'No previous change.' : 'No next change.';
+	}
+</script>
+
+{#snippet plainVersions()}
+	<div class="plain-versions">
+		{#each [{ ...before, label: beforeLabel }, { ...after, label: afterLabel }] as preview (preview.label)}
+			<section class="min-w-0">
+				<h3 class="mb-1 text-sm font-medium">{preview.label}{preview.truncated ? ' · preview truncated' : ''}</h3>
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (the scrollable preview needs keyboard focus) -->
+				<pre class="max-h-[50dvh] overflow-auto whitespace-pre-wrap break-all rounded border border-(--chat-border) p-3 text-xs" tabindex="0">{preview.content}</pre>
+			</section>
+		{/each}
+	</div>
+{/snippet}
+
+{#if comparison === 'too-large' || failed}
+	<p class="px-4 py-2 text-sm" role="status">{failed ? 'The comparison could not be drawn.' : 'These versions exceed the comparison limits.'} Showing plain text previews instead.</p>
+	{@render plainVersions()}
+{:else if comparison === 'same'}
+	<p class="px-4 py-8 text-sm" role="status">There are no text changes between these versions.</p>
+{:else}
+	<div class="comparison-controls" role="group" aria-label="Compare controls">
+		<span class="mr-auto px-1 text-xs text-(--chat-fg-muted)" role="status">{ready ? `${count} ${count === 1 ? 'change' : 'changes'}${precise ? '' : ' · approximate'}` : 'Calculating changes…'}</span>
+		{#if wide.current}
+			<Button size="sm" variant="ghost" aria-pressed={!split} onclick={() => preferSplit = false}>Unified</Button>
+			<Button size="sm" variant="ghost" aria-pressed={split} onclick={() => preferSplit = true}>Split</Button>
+		{/if}
+		<Button size="sm" variant="ghost" disabled={!ready} onclick={() => goToChange('previous')} aria-label="Previous change" title="Previous change (Alt+↑)">↑ Previous</Button>
+		<Button size="sm" variant="ghost" disabled={!ready} onclick={() => goToChange('next')} aria-label="Next change" title="Next change (Alt+↓)">↓ Next</Button>
+	</div>
+	<p class="sr-only" role="status">{navigation}</p>
+	{#if split}<div class="version-headings" aria-hidden="true"><span>{beforeLabel}</span><span>{afterLabel}</span></div>{/if}
+	<div class="comparison-content" class:split bind:this={host}></div>
+{/if}
+
+<style>
+	.comparison-controls, .version-headings { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px 10px; background: var(--chat-surface); border-bottom: 1px solid var(--chat-border); }
+	.version-headings span { flex: 1; padding: 0 8px; color: var(--chat-fg-muted); font-size: 12px; }
+	.comparison-content { min-height: 0; flex: 1; }
+	.comparison-content.split { overflow: auto; background: var(--code-view-bg, white); }
+	:global(.dark) .comparison-content.split { --code-view-bg: var(--chat-bg); }
+	.comparison-content.split :global(.cm-mergeView) { overflow: visible; }
+	.comparison-content :global(.cm-merge-a .cm-changedLineGutter::after), .comparison-content :global(.cm-deletedLineGutter::after) { content: '−'; color: var(--chat-danger); }
+	.comparison-content :global(.cm-merge-b .cm-changedLineGutter::after) { content: '+'; color: var(--chat-success); }
+	.comparison-controls :global(button[aria-pressed='true']) { background: var(--chat-surface-2); color: var(--chat-fg); }
+	.comparison-content :global(.cm-changeGutter) { width: 1.4ch !important; }
+	.comparison-content :global(.cm-changedLineGutter), .comparison-content :global(.cm-deletedLineGutter) { width: 1.4ch; background: none !important; }
+	.plain-versions { overflow: auto; display: grid; gap: 8px; padding: 8px 16px 16px; }
+	@media (min-width: 768px) { .plain-versions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	@media (pointer: coarse) { .comparison-controls :global(button) { min-height: 44px; } }
+</style>

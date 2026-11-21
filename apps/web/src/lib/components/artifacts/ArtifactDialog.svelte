@@ -7,6 +7,7 @@
 	import { DropdownMenu } from 'bits-ui';
 	import DiscussButton from './DiscussButton.svelte';
 	import { discussArtifact } from '#lib/artifact-discuss.svelte.js';
+	import { harness } from '#lib/harness.svelte.js';
 	import ArtifactText from './ArtifactText.svelte';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import DownloadIcon from '@lucide/svelte/icons/download';
@@ -56,8 +57,10 @@
 	const versionFeed = useArtifactFeed(() => open && suppliedArtifact !== undefined
 		? { client, projectId: suppliedArtifact.projectId, filter: { artifactId: suppliedArtifact.id } } : undefined);
 	const latestArtifact = $derived(versionFeed.current?.artifacts.find((row) => row.id === suppliedArtifact?.id) ?? suppliedArtifact);
+	let comparing = $state(false);
 	let selectedVersion = $state<number | undefined>(undefined);
 	const versions = $derived(latestArtifact === undefined ? [] : artifactVersions(latestArtifact));
+	const canCompare = $derived(harness.backends.find(backend => backend.client === client)?.features?.includes('artifact-versions') === true && versions.filter(version => version.kind === 'text').length > 1);
 	const artifact = $derived(latestArtifact === undefined ? undefined : selectedArtifactVersion(latestArtifact, selectedVersion));
 	const versionIndex = $derived(versions.findIndex((snapshot) => snapshot.id === artifact?.id));
 
@@ -86,6 +89,7 @@
 	$effect(() => {
 		if (!open) {
 			selectedVersion = undefined;
+			comparing = false;
 			confirming = false;
 			problem = undefined;
 		}
@@ -163,6 +167,7 @@
 			<Button size="xs" variant="ghost" aria-label="Previous version" title="Previous version" disabled={versionIndex <= 0} onclick={() => selectedVersion = versions[versionIndex - 1]?.version}>←</Button>
 			<span class="whitespace-nowrap" aria-live="polite" title={exactTime(artifact.createdAt)}>v{artifact.version ?? 1} of {latestArtifact?.versionCount ?? versions.length} · {relativeTime(artifact.createdAt, Date.now())}</span>
 			<Button size="xs" variant="ghost" aria-label="Next version" title="Next version" disabled={versionIndex >= versions.length - 1} onclick={() => selectedVersion = versions[versionIndex + 1]?.version}>→</Button>
+			{#if canCompare && artifact.kind === 'text'}<Button size="sm" variant="outline" onclick={() => comparing = true}>Compare versions</Button>{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -239,6 +244,8 @@
 							<div class="px-3 py-1 text-xs text-(--chat-fg-muted)" aria-live="polite">v{artifact.version ?? 1} of {latestArtifact?.versionCount ?? versions.length}</div>
 						{/if}
 						<DropdownMenu.Item onSelect={() => void discussArtifact(client, artifact, () => open = false).catch(error => { problem = String(error); })}>Discuss</DropdownMenu.Item>
+						<!-- Wait for the menu to restore focus before opening a second dialog. -->
+						{#if canCompare}<DropdownMenu.Item onSelect={() => setTimeout(() => comparing = true, 0)}>Compare versions</DropdownMenu.Item>{/if}
 						<DropdownMenu.Item disabled={busy === 'download'} onSelect={() => void download()}>Download</DropdownMenu.Item>
 						<DropdownMenu.Item onSelect={() => confirming = true}>Delete…</DropdownMenu.Item>
 						<DropdownMenu.Item onSelect={() => open = false}>Close</DropdownMenu.Item>
@@ -357,6 +364,16 @@
 		</Dialog.Content>
 	{/if}
 </Dialog.Root>
+
+{#if open && artifact?.kind === 'text' && canCompare}
+	{#if comparing}
+		{#await import('./ArtifactCompare.svelte') then { default: ArtifactCompare }}
+			<ArtifactCompare bind:open={comparing} {versions} {client} viewedVersion={artifact.version} />
+		{:catch}
+			<Dialog.Root bind:open={comparing}><Dialog.Content><Dialog.Title>Could not open Compare</Dialog.Title><Dialog.Description>Close this view to read each version separately.</Dialog.Description></Dialog.Content></Dialog.Root>
+		{/await}
+	{/if}
+{/if}
 
 {#if artifact !== undefined && artifact.kind === 'text' && isHtmlArtifact(artifact)}
 	<Dialog.Root bind:open={confirming}>

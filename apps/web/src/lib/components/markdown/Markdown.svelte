@@ -3,6 +3,7 @@
 	import { renderInline, toBlocks } from '#lib/markdown/parse.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { linkRefMentions } from '#lib/refs.js';
+	import DiffView from '../chat/DiffView.svelte';
 	import CodeBlock from './CodeBlock.svelte';
 	import { useTaskLinks } from '#lib/task-links.svelte.js';
 	import { overlayScrollWithin } from '#lib/scrollbars.js';
@@ -36,7 +37,11 @@
 	{:else}
 		{#each blocks as block (block.key)}
 			{#if block.kind === 'code'}
-				<CodeBlock code={block.code} lang={block.lang} streaming={!block.closed} />
+				{#if block.lang.trim().split(/\s+/)[0]?.toLowerCase() === 'diff'}
+					<DiffView diff={block.code} format="patch" enhanced={block.closed} />
+				{:else}
+					<CodeBlock code={block.code} lang={block.lang} streaming={!block.closed} />
+				{/if}
 			{:else}
 				<!-- Sanitized with DOMPurify in toBlocks(). -->
 				{@html block.html}
