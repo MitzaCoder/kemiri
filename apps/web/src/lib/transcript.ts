@@ -406,7 +406,10 @@ export type WaitingInfo = {
 	pending?: boolean;
 };
 
+const coordinatorNoteLabels = { memory: "Memory changed elsewhere", coordinators: "Coordinator roster changed", repository: "Repository changed" } as const;
+
 export type TranscriptItem =
+	| { kind: "coordinatorNote"; key: string; label: string; summary: string }
 	| { kind: "cacheWarm"; key: string; stretch: CacheWarmStretch }
 	| {
 			kind: "user";
@@ -619,6 +622,7 @@ export type BuildOptions = {
  /** A work-log link targets this recorded call or result. */
  entryAnchor?: number;
 	keepWarm?: readonly CacheWarmStretch[];
+	showCoordinatorNotes?: boolean;
 	/**
 	 * The key a message sent from this screen keeps from waiting to placed, by the submission it was: with it the
 	 * waiting bubble and the entry it becomes are one element. Without one, an entry a watch saw placed from a queue
@@ -697,6 +701,16 @@ export function buildTranscript(
 		// Compactions, resets and instruction changes move the cache tracker; assistant messages are fed below.
 		if (entry.kind !== "pi.assistant") cache.observeEntry(entry);
 		switch (entry.kind) {
+			case "kemiri.coordinator-note": {
+				if (!options.showCoordinatorNotes || !entry.data || typeof entry.data !== "object" || Array.isArray(entry.data)) break;
+				const { channel, summary } = entry.data as Record<string, unknown>;
+				if (typeof summary !== "string" || (channel !== "memory" && channel !== "coordinators" && channel !== "repository")) break;
+				flush();
+				// Decode the data block's escapes to plain text. Svelte still renders the value as text, never HTML.
+				const plain = summary.replace(/&(amp|lt|gt|quot);/g, (_, name: "amp" | "lt" | "gt" | "quot") => ({ amp: "&", lt: "<", gt: ">", quot: '"' })[name]);
+				items.push({ kind: "coordinatorNote", key: `entry-${entry.id}`, label: coordinatorNoteLabels[channel], summary: plain });
+				break;
+			}
 			case "pi.user": {
 				flush();
 				const messages = messagesOf(entry).filter((message) => message.role === "user");

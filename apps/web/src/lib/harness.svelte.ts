@@ -1344,6 +1344,11 @@ export class ProjectMemory {
 		}
 	}
 
+	async editSection(scope: MemoryScope, fileId: string, heading: string, text: string, expectedRevision: string): Promise<void> {
+		await this.#client.editMemorySection({ ...memoryTarget(scope, this.projectId), fileId, heading, text, expectedRevision });
+		await this.refresh();
+	}
+
 	/**
 	 * Revert one extraction or maintenance commit in its own scope: the whole commit, as one undo commit. The server
 	 * refuses a change that later writes touched; that refusal is shown under the commit it was about.

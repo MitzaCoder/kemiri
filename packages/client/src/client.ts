@@ -92,6 +92,7 @@ import type {
 	MemorySettingsSetResponse,
 	MemoryStatusResponse,
 	MemoryUndoResponse,
+	MemorySectionEditResponse,
 	ModelRef,
 	ModelsListResponse,
 	NotificationDevice,
@@ -1458,6 +1459,12 @@ export class HarnessClient {
 			...(options.limit === undefined ? {} : { limit: options.limit }),
 		});
 		return response.changes;
+	}
+
+	/** Replace an existing section if its revision still matches the read. */
+	async editMemorySection(options: MemoryQuery & { fileId: string; heading: string; text: string; expectedRevision: string }): Promise<void> {
+		const { fileId, heading, text, expectedRevision } = options;
+		await this.#call<MemorySectionEditResponse>({ type: "memory.section.edit", ...memoryScopeOf(options), fileId, heading, text, expectedRevision });
 	}
 
 	/**

@@ -33,7 +33,7 @@
 
 	/**
 	 * The sidebar's Memory tab: what this backend remembers about the user (global) and about
-	 * this project, read-only. The overview is the scope switch, a search box and the two
+	 * this project, with revision-checked section edits. The overview is the scope switch, a search box and the two
 	 * views: the topic files by title, summary, tags and when they changed (archived ones
 	 * behind a toggle), and the scope's commits. Opening a file shows its front matter — tags,
 	 * links to related memories, where it came from — and its markdown body.
@@ -43,9 +43,13 @@
 	 */
 	let {
 		memory,
+		sharedByCoordinators = false,
+		showCoordinatorWriters = false,
 		hrefForProject
 	}: {
 		memory: ProjectMemory | undefined;
+		sharedByCoordinators?: boolean;
+		showCoordinatorWriters?: boolean;
 		/** A project's chat URL, for the conversation a memory came from. */
 		hrefForProject?: (projectId: string) => string;
 	} = $props();
@@ -58,8 +62,26 @@
 	/** Relative times tick while the panel is open, so "5 min ago" stays true. */
 	let now = $state(Date.now());
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
-	/** The change a confirmation is for; undo is the only write in the panel. */
+	/** The change a confirmation is for; only extraction or maintenance changes can be undone. */
 	let undoTarget = $state<MemoryChangeRow | undefined>(undefined);
+	let sectionEdit = $state<{ scope: ProjectMemory['scope']; fileId: string; heading: string; text: string; revision: string }>();
+	let sectionEditError = $state<string>();
+	let savingSection = $state(false);
+
+	async function saveSection() {
+		if (!memory || !sectionEdit || savingSection) return;
+		const { scope, fileId, heading, text, revision } = sectionEdit;
+		savingSection = true;
+		sectionEditError = undefined;
+		try {
+			await memory.editSection(scope, fileId, heading, text, revision);
+			sectionEdit = undefined;
+		} catch (error) {
+			sectionEditError = error instanceof Error ? error.message : String(error);
+		} finally {
+			savingSection = false;
+		}
+	}
 
 	const heading = 'text-[0.6875rem] font-semibold tracking-wide text-(--chat-fg-subtle) uppercase';
 	const chip =
@@ -172,6 +194,9 @@
 	{#if memory !== undefined}
 		<div class="shrink-0 border-b border-(--chat-border)/70 px-3 py-2">
 			<div class="mx-auto flex w-full max-w-3xl flex-col gap-2">
+				{#if sharedByCoordinators}
+					<p class="px-0.5 text-xs text-(--chat-fg-muted)">Shared by all coordinators</p>
+				{/if}
 				<div
 					role="group"
 					aria-label="Memory scope"
@@ -367,6 +392,17 @@
 							</div>
 						</section>
 
+						{#if showCoordinatorWriters && file.sections?.length}
+							<div class="flex flex-wrap gap-1" aria-label="Edit a memory section">
+								{#each file.sections as section (section.heading)}
+									<Button size="sm" variant="outline" onclick={() => {
+										sectionEditError = undefined;
+										sectionEdit = { ...section, scope: memory.scope, fileId: file.file.fileId };
+									}}>Edit {section.heading}</Button>
+								{/each}
+							</div>
+						{/if}
+
 						<div
 							bind:this={body}
 							class="rounded-xl border border-(--chat-border) bg-(--chat-surface)/30 p-2.5 [&_h2]:scroll-mt-2"
@@ -525,6 +561,9 @@
 									>
 										{row.kind}
 									</span>
+									{#if showCoordinatorWriters && row.change.coordinatorTitle}
+										<span>by {row.change.coordinatorTitle}</span>
+									{/if}
 									{#if row.compactionEntry !== undefined}
 										{@const href = compactionHref(row.change.source?.projectId, row.compactionEntry)}
 										{#if href === undefined}
@@ -655,5 +694,22 @@
 				Undo
 			</Button>
 		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root open={sectionEdit !== undefined} onOpenChange={(open) => { if (!open && !savingSection) sectionEdit = undefined; }}>
+	<Dialog.Content>
+		{#if sectionEdit}
+			<Dialog.Header>
+				<Dialog.Title>Edit {sectionEdit.heading}</Dialog.Title>
+				<Dialog.Description>This replaces the Markdown in one shared memory section.</Dialog.Description>
+			</Dialog.Header>
+			<textarea aria-label="Section Markdown" rows="8" class="w-full rounded-md border p-2 font-mono text-sm" bind:value={sectionEdit.text}></textarea>
+			{#if sectionEditError}<p role="alert" class="max-h-48 overflow-auto whitespace-pre-wrap text-sm">{sectionEditError}</p>{/if}
+			<Dialog.Footer>
+				<Button variant="outline" disabled={savingSection} onclick={() => { sectionEdit = undefined; }}>Cancel</Button>
+				<Button disabled={savingSection || !sectionEdit.text.trim()} onclick={saveSection}>Save section</Button>
+			</Dialog.Footer>
+		{/if}
 	</Dialog.Content>
 </Dialog.Root>

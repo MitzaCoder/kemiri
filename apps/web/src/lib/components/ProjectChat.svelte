@@ -245,7 +245,7 @@
 	const waitingList = $derived(waiting?.supported === true ? waiting.messages(session?.view?.queued) : []);
 	const items = $derived(
 		withWaiting(
-			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm }),
+			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes') }),
 			waitingList,
 			waiting?.pending
 		)
@@ -1198,7 +1198,7 @@
 						/>
 					{/snippet}
 					{#snippet memoryPanel()}
-						<MemoryPanel {memory} hrefForProject={(id) => projectHref(backend.id, id)} />
+						<MemoryPanel {memory} sharedByCoordinators={backend.supports('coordinators')} showCoordinatorWriters={backend.supports('memory-notes')} hrefForProject={(id) => projectHref(backend.id, id)} />
 					{/snippet}
 			</ConversationSidebar>
 		{/if}

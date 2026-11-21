@@ -1,3 +1,4 @@
+import { enqueueCoordinatorNotes, noteField, type PendingCoordinatorNote } from "./coordinator-notes.ts";
 import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
@@ -1106,6 +1107,7 @@ export class ThreadService {
 			doc.createdAt ??= now;
 			// Registered inside the commit: the thread's first turn cannot run before its tools know it.
 			this.#options.coordinators.add(this.placeFor(created));
+			if (input.coordinator) await this.#rosterNote(tx, id, conversation.id, title, "created", input.coordinator.area);
 			if (!input.coordinator || moved.length > 0) await tx.createTask(
 				ThreadKickoff,
 				{ conversationId: conversation.id, content: input.coordinator ? moved.map(change => `[board] The user moved ${change.after.id} to you.`).join("\n") : input.brief, requestId: `thread-brief:${input.key}` },
@@ -1136,6 +1138,28 @@ export class ThreadService {
 		return this.summaryOf(started.record);
 	}
 
+	/** Select from the durable roster in the same commit as each queue update. */
+	async queueCoordinatorNotes(tx: Tx, notes: readonly PendingCoordinatorNote[], excludedConversation?: number, workspaceOnly = false) {
+		const doc = await tx.doc(ThreadsDoc, this.#mainId);
+		if (!workspaceOnly && this.#mainId !== excludedConversation) await enqueueCoordinatorNotes(tx, this.#mainId, notes);
+		for (const record of Object.values(doc.threads)) {
+			if (record.kind === "coordinator" && !record.archived && record.conversationId !== excludedConversation) {
+				await enqueueCoordinatorNotes(tx, record.conversationId as ConversationId, notes);
+			}
+		}
+	}
+
+	async isHeld(tx: Tx, conversationId: ConversationId): Promise<boolean> {
+		const threadId = this.coordinators.threadIdOf(conversationId);
+		if (!threadId || threadId === MAIN_THREAD_ID) return false;
+		return (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId]?.held === true;
+	}
+
+	async #rosterNote(tx: Tx, threadId: string, conversationId: number, title: string, action: string, area?: string) {
+		await this.queueCoordinatorNotes(tx, [{ channel: "coordinators", key: `${threadId}:${action}`,
+			line: `${noteField(title)} (${noteField(threadId)}) ${action}${area === undefined ? "" : ` — ${noteField(area, 240).replace(/[.!?]+$/, "")}`}.` }], conversationId);
+	}
+
 	async update(threadId: string, input: Omit<ThreadsUpdateRequest, "type" | "id" | "projectId" | "threadId">): Promise<ThreadSummary> {
 		const title = input.title === undefined ? undefined : requiredText(input.title, "Title");
 		const area = input.area === undefined ? undefined : requiredText(input.area, "Area");
@@ -1150,8 +1174,14 @@ export class ThreadService {
 				if (title === undefined && area === undefined && color === undefined) return;
 				doc.main ??= { ...GENERAL };
 				if (!applyLifecycleOperation(doc.main, "update", input.operationId)) return;
-				if (title !== undefined) doc.main.title = title;
-				if (area !== undefined) doc.main.area = area;
+				if (title !== undefined && title !== doc.main.title) {
+					doc.main.title = title;
+					await this.#rosterNote(tx, threadId, this.#mainId, title, "renamed");
+				}
+				if (area !== undefined && area !== doc.main.area) {
+					doc.main.area = area;
+					await this.#rosterNote(tx, threadId, this.#mainId, doc.main.title, "re-scoped", area);
+				}
 				if (color !== undefined) doc.main.color = color;
 				return;
 			}
@@ -1159,6 +1189,8 @@ export class ThreadService {
 			if (!record || record.kind !== "coordinator") throw new ServerError("bad_request", "Choose a coordinator to edit.");
 			if (!applyLifecycleOperation(record, "update", input.operationId)) return;
 			const before = JSON.stringify(record);
+			const renamed = title !== undefined && title !== record.title;
+			const rescoped = (area !== undefined && area !== record.area) || (paths !== undefined && JSON.stringify(paths) !== JSON.stringify(record.paths));
 			if (title !== undefined) record.title = title;
 			if (area !== undefined) record.area = area;
 			if (color !== undefined) record.color = color;
@@ -1167,6 +1199,8 @@ export class ThreadService {
 			if (model !== undefined) record.model = model;
 			if (thinkingLevel !== undefined) record.thinkingLevel = thinkingLevel;
 			if (before !== JSON.stringify(record)) record.updatedAt = new Date(this.now()).toISOString();
+			if (renamed) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "renamed");
+			if (rescoped) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "re-scoped", record.area);
 			if (title !== undefined || area !== undefined || model !== undefined || thinkingLevel !== undefined) {
 				await configure(tx, record.conversationId as ConversationId, {
 					model: record.model, thinkingLevel: record.thinkingLevel,
@@ -1202,6 +1236,7 @@ export class ThreadService {
 			if (record.held) {
 				const queued = heldText(record);
 				this.#clearHold(record);
+				await this.#rosterNote(tx, place.threadId, conversation.id, record.title, "resumed");
 				if (queued) return conversation.submit(tx, { ...draft, whenBusy: "followUp", content: typeof draft.content === "string"
 					? typeof queued === "string" ? `${draft.content}\n\n${queued}` : [{ type: "text", text: draft.content }, ...queued]
 					: [...draft.content, ...(typeof queued === "string" ? [{ type: "text" as const, text: queued }] : queued)] });
@@ -1226,6 +1261,7 @@ export class ThreadService {
 			const record = (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId]!;
 			if (record.kind !== "coordinator" || record.archived) throw new ServerError("bad_request", "Only an unarchived coordinator can be paused.");
 			if (!applyLifecycleOperation(record, "hold", requestId) || (record.held ?? false) === held) return;
+			await this.#rosterNote(tx, threadId, conversation.id, record.title, held ? "paused" : "resumed");
 			if (held) {
 				record.held = true;
 				record.heldAt = record.updatedAt = new Date(this.now()).toISOString();
@@ -1338,6 +1374,7 @@ export class ThreadService {
 					}
 				}
 				current.archived = archived;
+				await this.#rosterNote(tx, threadId, current.conversationId, current.title, archived ? "archived" : "restored");
 				current.updatedAt = new Date(this.now()).toISOString();
 			}, BACKGROUND_CONTEXT);
 			await this.#options.board.deliverUserMoveNotices();

@@ -54,6 +54,7 @@ export type MemoryFileSummary = Static<typeof MemoryFileSummarySchema>;
 export const MemoryFileSchema = Type.Object({
 	file: MemoryFileSummarySchema,
 	body: Type.String({ description: "The markdown after the front matter." }),
+	sections: Type.Optional(Type.Array(Type.Object({ heading: Type.String(), text: Type.String(), revision: Type.String() }))),
 });
 export type MemoryFile = Static<typeof MemoryFileSchema>;
 
@@ -100,6 +101,8 @@ export const MemoryChangeSchema = Type.Object({
 			Type.Null(),
 		]),
 	),
+	coordinatorId: Type.Optional(Type.String()),
+	coordinatorTitle: Type.Optional(Type.String()),
 	undoable: Type.Optional(
 		Type.Boolean({ description: "`extraction` and `maintenance` changes not undone yet: `memory.undo` takes them." }),
 	),
@@ -144,6 +147,21 @@ export const MemoryHistoryRequestSchema = Type.Object({
 	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, description: "Default 50, newest first." })),
 });
 export type MemoryHistoryRequest = Static<typeof MemoryHistoryRequestSchema>;
+
+/** Edit an existing section as the owner. Requires the memory-notes feature. */
+export const MemorySectionEditRequestSchema = Type.Object({
+	type: Type.Literal("memory.section.edit"),
+	id: RequestIdSchema,
+	...ScopeTarget,
+	fileId: Type.String({ minLength: 1 }),
+	heading: Type.String({ minLength: 1 }),
+	text: Type.String({ minLength: 1 }),
+	expectedRevision: Type.String({ minLength: 1 }),
+});
+export type MemorySectionEditRequest = Static<typeof MemorySectionEditRequestSchema>;
+
+export const MemorySectionEditResponseSchema = Type.Object({ type: Type.Literal("memory.section.edit"), id: RequestIdSchema });
+export type MemorySectionEditResponse = Static<typeof MemorySectionEditResponseSchema>;
 
 /** Revert one `extraction` or `maintenance` change. Refused with `memory_conflict` when later changes touched it. */
 export const MemoryUndoRequestSchema = Type.Object({

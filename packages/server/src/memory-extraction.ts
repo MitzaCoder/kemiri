@@ -275,6 +275,7 @@ export type MemoryExtractionServiceOptions = {
 	/** Read at each use, so a model change applies to the next extraction. */
 	project(): Project;
 	conversation: Conversation;
+	coordinatorId?: string;
 	/** Set for a background thread's conversation: its progress is recorded apart from main's. */
 	background?: boolean;
 	memory: MemoryStore;
@@ -444,7 +445,7 @@ export class MemoryExtractionService {
 			store: this.#options.memory,
 			projectId: project.id,
 			scopes: ["global", "project"],
-			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id },
+			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id, ...(this.#options.coordinatorId ? { coordinatorId: this.#options.coordinatorId } : {}) },
 			log: this.#log,
 		});
 		const sessionId = newModelSessionId();
@@ -483,7 +484,7 @@ export class MemoryExtractionService {
 		const answer = answers.filter(text => text.trim().length > 0).join("\n\n");
 		const { commits } = await editor.commit({
 			kind: "extraction",
-			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id },
+			source: { projectId: project.id, conversationId: this.#options.conversation.id, entryId: entry.id, ...(this.#options.coordinatorId ? { coordinatorId: this.#options.coordinatorId } : {}) },
 			render: (scope, changes) => ({
 				subject: `memory: extraction from conversation ${this.#options.conversation.id}`,
 				body: [

@@ -1080,7 +1080,14 @@ export class ClientConnection {
 				}
 				case "memory.read": {
 					const file = await this.#manager.readMemory(request.scope, request.projectId, request.fileId);
-					this.#respond({ type: "memory.read", id: request.id, file });
+					const { sections, ...legacyFile } = file;
+					this.#respond({ type: "memory.read", id: request.id, file: this.#features.includes("memory-notes") ? file : legacyFile });
+					return;
+				}
+				case "memory.section.edit": {
+					if (!this.#features.includes("memory-notes")) return this.#unknownRequest(request);
+					await this.#manager.editMemorySection(request);
+					this.#respond({ type: "memory.section.edit", id: request.id });
 					return;
 				}
 				case "memory.search": {
@@ -1097,7 +1104,8 @@ export class ClientConnection {
 				}
 				case "memory.history": {
 					const changes = await this.#manager.memoryHistory(request.scope, request.projectId, request.limit ?? 50);
-					this.#respond({ type: "memory.history", id: request.id, changes });
+					const visible = this.#features.includes("memory-notes") ? changes : changes.map(({ coordinatorId, coordinatorTitle, ...change }) => change);
+					this.#respond({ type: "memory.history", id: request.id, changes: visible });
 					return;
 				}
 				case "memory.undo": {

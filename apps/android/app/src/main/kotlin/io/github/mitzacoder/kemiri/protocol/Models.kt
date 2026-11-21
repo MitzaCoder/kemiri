@@ -4376,7 +4376,15 @@ data class MemoryFileSummarySource(
 @Serializable
 data class MemoryFile(
     val `file`: MemoryFileSummary,
-    val `body`: String
+    val `body`: String,
+    val `sections`: List<MemoryFileSectionsItem>? = null
+)
+
+@Serializable
+data class MemoryFileSectionsItem(
+    val `heading`: String,
+    val `text`: String,
+    val `revision`: String
 )
 
 @Serializable
@@ -4397,6 +4405,8 @@ data class MemoryChange(
     val `files`: List<String>,
     val `kind`: String? = null,
     val `source`: MemoryFileSummarySource? = null,
+    val `coordinatorId`: String? = null,
+    val `coordinatorTitle`: String? = null,
     val `undoable`: Boolean? = null,
     val `undoneBy`: String? = null
 )
@@ -4408,6 +4418,24 @@ data class MemoryListRequest(
     val `scope`: String,
     val `projectId`: String? = null,
     val `includeArchived`: Boolean? = null
+)
+
+@Serializable
+data class MemorySectionEditRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "memory.section.edit",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `scope`: String,
+    val `projectId`: String? = null,
+    val `fileId`: String,
+    val `heading`: String,
+    val `text`: String,
+    val `expectedRevision`: String
+)
+
+@Serializable
+data class MemorySectionEditResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "memory.section.edit",
+    val `id`: String
 )
 
 @Serializable

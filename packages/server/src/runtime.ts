@@ -37,6 +37,7 @@ import type { MemoryMaintenanceSettings, MemoryScopeStatus } from "@kemiri/proto
 import {
 	type ConversationContext,
 	type MemoryChange,
+	type MemorySectionEditRequest,
 	type MemoryFile,
 	type MemoryFileSummary,
 	type MemoryScope,
@@ -78,6 +79,7 @@ import { createArtifactExtension } from "./artifact-tools.ts";
 import { ArtifactStore } from "./artifacts.ts";
 import { cacheRetentionFor, type PromptCacheRetention } from "./cache-retention.ts";
 import { createCodemodeSandbox, createHarnessCodemodeExtension } from "./codemode.ts";
+import { coordinatorNotesExtension, noteField, type PendingCoordinatorNote } from "./coordinator-notes.ts";
 import { Coordinators } from "./coordinators.ts";
 import { createAgentContextExtension, readConversationContext, loadAgentContext } from "./context.ts";
 import { createFolderContextExtension } from "./folder-context.ts";
@@ -85,7 +87,7 @@ import { resolveAgentDir, resolveClaudeDir, resolveConfigDir } from "./data-dir.
 import { ServerError, errorMessage } from "./errors.ts";
 import { MemoryExtractionService, MemoryExtractionStore } from "./memory-extraction.ts";
 import type { MemoryMaintenanceService } from "./memory-maintenance.ts";
-import { MemoryStore } from "./memory.ts";
+import { MemoryStore, type MemoryCommit } from "./memory.ts";
 import { MemoryService } from "./memory-tools.ts";
 import { isWorkerOnlyModel, type OfficialAgentSessions } from "./official-agents/provider.ts";
 import { describeModels, findModel, type ModelCatalog } from "./models.ts";
@@ -417,6 +419,7 @@ export class ProjectManager {
 		this.#configDir = options.configDir ?? resolveConfigDir();
 		this.#claudeDir = options.claudeDir ?? resolveClaudeDir();
 		this.#memory = options.memory ?? new MemoryStore({ dataDir: options.store.dataDir, log: this.#log });
+		this.#memory.onCommit(commit => this.#queueMemoryNotes(commit));
 		this.#maintenance = options.maintenance;
 		this.#notifications = options.notifications;
 		this.#extractions = options.extractions ?? new MemoryExtractionStore({ projects: options.store, log: this.#log });
@@ -959,6 +962,28 @@ export class ProjectManager {
 		return this.#claudeDir;
 	}
 
+	async #queueMemoryNotes({ target, change, topics }: MemoryCommit): Promise<void> {
+		const writerProject = change.source?.projectId;
+		const writer = change.source?.conversationId;
+		const writerRuntime = writerProject ? this.#runtimes.get(writerProject)?.runtime : undefined;
+		const writerId = change.coordinatorId ?? (writer ? writerRuntime?.coordinators.threadIdOf(writer) : undefined);
+		const roster = await writerRuntime?.threads.state();
+		const namedCoordinator = writerId === MAIN_THREAD_ID ? roster?.main.title ?? "General" : writerId ? roster?.threads[writerId]?.title : undefined;
+		const writerLabel = writerId ?
+			noteField(namedCoordinator && namedCoordinator !== writerId ? `${namedCoordinator} (${writerId})` : writerId) : "the owner";
+		const notes: PendingCoordinatorNote[] = change.kind === "maintenance"
+			? [{ channel: "memory", key: `${target.scope}:maintenance:${change.commit}`, line: `${target.scope}: maintenance updated ${change.files.length} ${change.files.length === 1 ? "topic" : "topics"}.` }]
+			: topics.map(({ fileId, title, sections, kind }) => ({ channel: "memory", key: `${target.scope}:${fileId}`,
+				display: `${target.scope === "global" ? "global:" : ""}${fileId}: ${noteField(title, 72)}, by ${noteField(namedCoordinator ?? writerId ?? "the owner", 48)}`,
+				line: `${target.scope}:${fileId} — "${noteField(title)}" (${kind}${sections.length ? `: ${noteField(sections.join(", "))}` : ""}, by ${writerLabel})` }));
+		if (!notes.length) return;
+		await Promise.all([...this.#runtimes.entries()].map(async ([projectId, entry]) => {
+			if (!entry.runtime || (target.scope === "project" && target.projectId !== projectId)) return;
+			const { harness, threads } = entry.runtime;
+			await harness.commit(tx => threads.queueCoordinatorNotes(tx, notes, projectId === writerProject ? writer ?? undefined : undefined), BACKGROUND_CONTEXT);
+		}));
+	}
+
 	/** The backend's memory scopes, global and per project. */
 	get memory(): MemoryStore {
 		return this.#memory;
@@ -984,6 +1009,11 @@ export class ProjectManager {
 		return this.#memory.read(scope, id, fileId);
 	}
 
+	async editMemorySection({ scope, projectId, fileId, heading, text, expectedRevision }: MemorySectionEditRequest): Promise<void> {
+		const target = scope === "project" ? { scope, projectId: await this.#memoryProjectId(projectId) } : { scope };
+		await this.#memory.write({ target, fileId, heading, text, expectedRevision, byOwner: true });
+	}
+
 	async searchMemory(options: {
 		query: string;
 		scope: MemoryScope | "both";
@@ -1001,7 +1031,17 @@ export class ProjectManager {
 
 	async memoryHistory(scope: MemoryScope, projectId: string | undefined, limit: number): Promise<MemoryChange[]> {
 		const id = scope === "project" ? await this.#memoryProjectId(projectId) : undefined;
-		return this.#memory.history(scope, id, limit);
+		const changes = await this.#memory.history(scope, id, limit);
+		return Promise.all(changes.map(async change => {
+			const source = change.source;
+			if (!source?.projectId || source.conversationId === null) return change;
+			const runtime = this.#runtimes.get(source.projectId)?.runtime;
+			const coordinatorId = change.coordinatorId ?? runtime?.coordinators.threadIdOf(source.conversationId);
+			if (!coordinatorId) return change;
+			const roster = await runtime?.threads.state();
+			const coordinatorTitle = coordinatorId === MAIN_THREAD_ID ? roster?.main.title ?? "General" : roster?.threads[coordinatorId]?.title ?? coordinatorId;
+			return { ...change, coordinatorId, coordinatorTitle };
+		}));
 	}
 
 	/** Revert one extraction or maintenance change; a later change to the same files refuses it with `memory_conflict`. */
@@ -1374,9 +1414,14 @@ export class ProjectManager {
 			integrationRef: () => entry.project.integrationRef,
 			taskIds: async () => (await board.state()).tasks.map(task => task.id),
 			onChangesLanded: fact => board.recordChangesLanded(fact),
+			onIntegrationRefMoved: newCommits => harness.commit(tx => threads.queueCoordinatorNotes(tx, [{
+				channel: "repository", key: "integration-ref",
+				line: `The integration ref moved: ${newCommits} new ${newCommits === 1 ? "commit" : "commits"}; rebase before you land.`,
+			}], undefined, true), BACKGROUND_CONTEXT),
 			log: message => this.#log(`project ${project.id}: ${message}`), now: () => this.#clock(),
 		});
 		const extraction = new MemoryExtractionService({
+			coordinatorId: MAIN_THREAD_ID,
 			project: () => entry.project,
 			conversation,
 			memory: this.#memory,
@@ -1398,6 +1443,7 @@ export class ProjectManager {
 					const service = new MemoryExtractionService({
 						project: () => entry.project,
 						conversation: threadConversation,
+						...(coordinators.placeOf(conversationId)?.kind === "coordinator" ? { coordinatorId: coordinators.threadIdOf(conversationId)! } : {}),
 						background: true,
 						memory: this.#memory,
 						store: this.#extractions,
@@ -1511,6 +1557,7 @@ export class ProjectManager {
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
 		registry.install(memory.extension);
+		registry.install(coordinatorNotesExtension(harness, coordinators, (tx, conversationId) => threads.isHeld(tx, conversationId)));
 		registry.install(compaction.extension);
 		registry.install(history.extension);
 		registry.install(board.extension);

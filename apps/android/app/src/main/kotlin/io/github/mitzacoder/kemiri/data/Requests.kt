@@ -496,6 +496,10 @@ suspend fun HarnessClient.request(value: MemoryListRequest, explicitNulls: Set<S
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(MemoryListRequest.serializer(), value).jsonObject, explicitNulls), MemoryListResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: MemorySectionEditRequest, explicitNulls: Set<String> = emptySet()): MemorySectionEditResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(MemorySectionEditRequest.serializer(), value).jsonObject, explicitNulls), MemorySectionEditResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: MemoryReadRequest, explicitNulls: Set<String> = emptySet()): MemoryReadResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(MemoryReadRequest.serializer(), value).jsonObject, explicitNulls), MemoryReadResponse.serializer()
 )

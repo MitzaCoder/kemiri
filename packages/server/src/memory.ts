@@ -68,9 +68,20 @@ export type MemorySource = {
 	projectId: string | null;
 	conversationId: number | null;
 	entryId: number | null;
+	coordinatorId?: string;
 };
 
 export type MemorySection = { heading: string; text: string };
+
+export function memorySectionRevision(text: string): string {
+	return createHash("sha256").update(text).digest("hex").slice(0, 12);
+}
+
+export type MemoryCommit = {
+	target: MemoryTarget;
+	change: MemoryChange;
+	topics: { fileId: string; title: string; sections: string[]; kind: "new" | "edited" | "archived" }[];
+};
 
 /** One topic file as this module understands it: front matter, intro text and `##` sections. */
 export type MemoryTopic = {
@@ -98,6 +109,9 @@ export type MemoryWriteInput = {
 	/** The section's markdown, or the file's intro text when there is no heading. */
 	text: string;
 	heading?: string;
+	expectedRevision?: string;
+	/** An edit by hand, rather than a tool call. */
+	byOwner?: boolean;
 	title?: string;
 	summary?: string;
 	tags?: string[];
@@ -113,6 +127,7 @@ export type MemoryWriteOutcome = {
 	commit: string | null;
 	/** What changed, in words a commit message can use: `the intro`, `section "X"`, or nothing. */
 	detail?: string;
+	changedBy?: { coordinatorId: string; minutesAgo: number };
 };
 
 export type MemoryWriteResult = MemoryWriteOutcome | { kind: "suggest"; matches: MemorySearchHit[] };
@@ -208,6 +223,7 @@ function parseSource(value: string | undefined): MemorySource | null {
 			projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
 			conversationId: numberOrNull(parsed.conversationId),
 			entryId: numberOrNull(parsed.entryId),
+			...(typeof parsed.coordinatorId === "string" ? { coordinatorId: parsed.coordinatorId } : {}),
 		};
 	} catch {
 		return null;
@@ -220,7 +236,12 @@ export function serializeSource(source: MemorySource | null): string {
 		projectId: source.projectId,
 		conversationId: source.conversationId,
 		entryId: source.entryId,
+		coordinatorId: source.coordinatorId,
 	});
+}
+
+function sourceLocation({ projectId, conversationId, entryId }: MemorySource) {
+	return { projectId, conversationId, entryId };
 }
 
 function parseStatus(value: string | undefined): MemoryStatus {
@@ -334,7 +355,7 @@ export function topicSummary(topic: MemoryTopic, scope: MemoryScope): MemoryFile
 		headings: topic.sections.map((section) => section.heading),
 		created: topic.created,
 		updated: topic.updated,
-		source: topic.source,
+		source: topic.source === null ? null : sourceLocation(topic.source),
 	};
 }
 
@@ -526,7 +547,8 @@ export function parseHistory(stdout: string, limit: number): MemoryChange[] {
 			at,
 			files,
 			...(CHANGE_KINDS.includes(kindText) ? { kind: kindText as MemoryChangeKind } : {}),
-			...(source === null ? {} : { source }),
+			...(source === null ? {} : { source: sourceLocation(source) }),
+			...(source?.coordinatorId ? { coordinatorId: source.coordinatorId } : {}),
 		});
 	}
 	const undoneBy = new Map<string, string>();
@@ -579,6 +601,14 @@ export function applyWriteToTopics(
 	const title = validateTitle(input.title);
 	const summary = validateSummary(input.summary);
 	const existing = topics.get(input.fileId);
+	if (input.expectedRevision !== undefined) {
+		if (!heading) throw new ServerError("bad_request", "expectedRevision requires a section heading.");
+		const current = existing?.sections.find(section => section.heading === heading);
+		const revision = current === undefined ? null : memorySectionRevision(current.text);
+		if (revision !== input.expectedRevision) throw new ServerError("memory_conflict",
+			`Section "${heading}" changed. Merge with the current section${revision ? ` (revision ${revision}):\n\n${current!.text}` : ": it no longer exists."}`,
+			{ heading, revision, text: current?.text ?? null });
+	}
 
 	if (existing === undefined) {
 		// Before a new topic exists, close matches are the answer: the writer updates an existing topic instead.
@@ -743,6 +773,8 @@ export type MemoryScopeOptions = {
 	log?: (message: string) => void;
 	/** Called after a write, and after a hand edit was indexed, so clients can read again. */
 	onChange?: () => void;
+	onCommit?: (commit: MemoryCommit) => Promise<void>;
+	observeCommits?: () => boolean;
 };
 
 /**
@@ -757,6 +789,8 @@ export class MemoryScopeStore {
 
 	readonly #log: (message: string) => void;
 	readonly #onChange: (() => void) | undefined;
+	#onCommit: MemoryScopeOptions["onCommit"];
+	#observeCommits: MemoryScopeOptions["observeCommits"];
 	#queue: Promise<unknown> = Promise.resolve();
 	#db: DatabaseSync | undefined;
 	#topics = new Map<string, MemoryTopic>();
@@ -773,6 +807,8 @@ export class MemoryScopeStore {
 		this.indexFile = options.indexFile;
 		this.#log = options.log ?? (() => undefined);
 		this.#onChange = options.onChange;
+		this.#onCommit = options.onCommit;
+		this.#observeCommits = options.observeCommits;
 	}
 
 	#run<T>(work: () => Promise<T> | T): Promise<T> {
@@ -946,6 +982,7 @@ export class MemoryScopeStore {
 					this.#watchTimer = undefined;
 					if (this.#closed) return;
 					void this.#run(async () => {
+						if (this.#observeCommits?.()) await this.#commit(renderCommitMessage(HAND_EDITS_COMMIT_MESSAGE, null, { kind: "hand" }));
 						this.#refresh();
 						this.#emit();
 					}).catch((error: unknown) => {
@@ -1060,7 +1097,7 @@ export class MemoryScopeStore {
 				[{ fileId, heading: null }, ...topic.sections.map((section) => ({ fileId, heading: section.heading }))],
 				new Date().toISOString(),
 			);
-			return { file: topicSummary(topic, this.scope), body: topic.body };
+			return { file: topicSummary(topic, this.scope), body: topic.body, sections: topic.sections.map(section => ({ ...section, revision: memorySectionRevision(section.text) })) };
 		});
 	}
 
@@ -1068,13 +1105,14 @@ export class MemoryScopeStore {
 		return this.#runReady(() => this.#historyNow(limit));
 	}
 
-	async #historyNow(limit: number): Promise<MemoryChange[]> {
+	async #historyNow(limit: number, fileId?: string): Promise<MemoryChange[]> {
 		const result = await git(this.dir, [
 			"log",
 			"-n",
 			String(limit),
 			"--name-only",
 			`--format=${MEMORY_LOG_FORMAT}`,
+			...(fileId === undefined ? [] : ["--", `${fileId}.md`]),
 		]);
 		if (result.code !== 0) {
 			// An empty repository has no commits yet; that is a history of zero, not an error.
@@ -1187,18 +1225,39 @@ export class MemoryScopeStore {
 	async #writeNow(input: MemoryWriteInput): Promise<MemoryWriteResult> {
 		memoryFilePath(this.dir, input.fileId);
 		this.#refresh();
+		const previous = this.#topics.get(input.fileId)?.sections.find(section => section.heading === input.heading?.trim());
 		const result = applyWriteToTopics(this.#topics, input, new Date().toISOString(), (candidate) =>
 			this.#closeMatches(candidate),
 		);
-		if (result.kind === "suggest" || result.kind === "unchanged") return result;
+		if (result.kind === "suggest") return result;
+		const changedBy = input.expectedRevision === undefined && previous && input.source
+			? await this.#recentSectionWriter(input.fileId, previous, input.source) : undefined;
+		if (result.kind === "unchanged") return { ...result, ...(changedBy ? { changedBy } : {}) };
 		const message =
 			result.kind === "created"
 				? `memory: create ${input.fileId}`
 				: `memory: update ${result.detail ?? "a section"} in ${input.fileId}`;
-		const commit = await this.#writeTopic(result.topic, message, { kind: "tool", source: input.source ?? null });
+		const commit = await this.#writeTopic(result.topic, message, { kind: input.byOwner ? "hand" : "tool", source: input.source ?? null });
 		this.#refresh();
 		this.#emit();
-		return { ...result, commit };
+		return { ...result, commit, ...(changedBy ? { changedBy } : {}) };
+	}
+
+	/** A later edit of another section does not take credit for this section's text. */
+	async #recentSectionWriter(fileId: string, section: MemorySection, writer: MemorySource) {
+		const now = Date.now();
+		for (const change of await this.#historyNow(32, fileId)) {
+			const minutesAgo = Math.floor((now - Date.parse(change.at)) / 60_000);
+			if (minutesAgo >= 60) break;
+			const textAt = (topic: MemoryTopic | undefined) => topic?.sections.find(candidate => candidate.heading === section.heading)?.text;
+			if (textAt(await this.#topicAt(change.commit, fileId)) !== section.text) break;
+			if (textAt(await this.#topicAt(`${change.commit}^`, fileId)) === section.text) continue;
+			const source = change.source;
+			if (source && change.coordinatorId && (source.projectId !== writer.projectId || source.conversationId !== writer.conversationId)) {
+				return { coordinatorId: change.coordinatorId, minutesAgo: Math.max(0, minutesAgo) };
+			}
+			break;
+		}
 	}
 
 	/** Close topics for a proposed new one: the index's answer, one row per topic. */
@@ -1298,6 +1357,7 @@ export class MemoryScopeStore {
 					undoneBy: present.undoneBy,
 				});
 			}
+			await this.#commit(renderCommitMessage(HAND_EDITS_COMMIT_MESSAGE, null, { kind: "hand" }));
 			const touched = await this.#touchedSince(full);
 			const overlap = (present?.files ?? []).filter((fileId) => touched.has(fileId));
 			if (overlap.length > 0) {
@@ -1381,8 +1441,37 @@ export class MemoryScopeStore {
 			return null;
 		}
 		const rev = await git(this.dir, ["rev-parse", "HEAD"]);
-		return rev.code === 0 ? rev.stdout.trim() : null;
+		if (rev.code !== 0) return null;
+		const hash = rev.stdout.trim();
+		if (this.#observeCommits?.()) {
+			try { await this.#publishCommit(hash); }
+			catch (error) { this.#log(`memory: could not queue commit ${hash}: ${errorMessage(error)}`); }
+		}
+		return hash;
 	}
+
+	async #topicAt(ref: string, fileId: string): Promise<MemoryTopic | undefined> {
+		const shown = await git(this.dir, ["show", `${ref}:${fileId}.md`]);
+		return shown.code === 0 ? parseMemoryFile(fileId, shown.stdout, "") : undefined;
+	}
+
+	async #publishCommit(hash: string): Promise<void> {
+		const shown = await git(this.dir, ["show", "--name-only", `--format=${MEMORY_LOG_FORMAT}`, hash]);
+		const change = shown.code === 0 ? parseHistory(shown.stdout, 1)[0] : undefined;
+		if (!change?.files.length) return;
+		const topics: MemoryCommit["topics"] = [];
+		if (change.kind !== "maintenance") for (const fileId of change.files) {
+			const [before, after] = await Promise.all([this.#topicAt(`${hash}^`, fileId), this.#topicAt(hash, fileId)]);
+			const headings = new Set([...(after?.sections ?? []), ...(before?.sections ?? [])].map(section => section.heading));
+			const sections = [...headings].filter(heading => before?.sections.find(section => section.heading === heading)?.text !==
+				after?.sections.find(section => section.heading === heading)?.text);
+			topics.push({ fileId, title: after?.title ?? before?.title ?? fileId, sections,
+				kind: !after || (after.status !== "active" && before?.status === "active") ? "archived" : !before ? "new" : "edited" });
+		}
+		const target: MemoryTarget = this.projectId === null ? { scope: "global" } : { scope: "project", projectId: this.projectId };
+		await this.#onCommit?.({ target, change, topics });
+	}
+
 }
 
 // --- the store ----------------------------------------------------------------------------------------------------
@@ -1401,6 +1490,11 @@ export class MemoryStore {
 	readonly #log: (message: string) => void;
 	readonly #onChange: ((scope: MemoryScope, projectId: string | null) => void) | undefined;
 	readonly #scopes = new Map<string, MemoryScopeStore>();
+	readonly #commitListeners = new Set<(commit: MemoryCommit) => Promise<void>>();
+
+	onCommit(listener: (commit: MemoryCommit) => Promise<void>): void {
+		this.#commitListeners.add(listener);
+	}
 
 	constructor(options: MemoryStoreOptions) {
 		this.dataDir = options.dataDir;
@@ -1431,6 +1525,8 @@ export class MemoryStore {
 			indexFile: join(dirname(dir), MEMORY_INDEX_FILE),
 			log: this.#log,
 			onChange: () => this.#onChange?.(target.scope, projectId),
+			observeCommits: () => this.#commitListeners.size > 0,
+			onCommit: async commit => { for (const listener of this.#commitListeners) await listener(commit); },
 		});
 		this.#scopes.set(key, store);
 		return store;

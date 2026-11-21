@@ -152,6 +152,7 @@ export type TaskChangeObserverOptions = {
 	taskIds(): Promise<readonly string[]>;
 	/** Internal integration seam for freshness and folded Delivery. Default no-op; no push/deploy claim. */
 	onChangesLanded?(fact: ChangesLanded): Promise<void> | void;
+	onIntegrationRefMoved?(newCommits: number): Promise<void> | void;
 	log(message: string): void;
 	now?: () => number;
 };
@@ -279,6 +280,7 @@ export class TaskChangeObserver {
 			ref, previous: state.tip, tip, at: new Date((this.#options.now ?? Date.now)()).toISOString(), taskIds,
 			commits, removed, reverted,
 		});
+		await this.#options.onIntegrationRefMoved?.(commits.length);
 		state.tip = tip;
 		await writeJsonFile(this.#options.file, ledger);
 		await this.#deliver(ledger);

@@ -223,7 +223,7 @@
 			});
 		});
 	});
-	const LINE_KINDS: ReadonlySet<string> = new Set(['report', 'checkin', 'thread', 'board', 'reports']);
+	const LINE_KINDS: ReadonlySet<string> = new Set(['report', 'checkin', 'thread', 'board', 'reports', 'coordinatorNote']);
 </script>
 
 <div class="relative min-h-0 flex-1">
@@ -268,6 +268,10 @@
 								oncancel={onwaiting && (() => onwaiting(item.key, 'cancel'))}
 								onretry={onwaiting && (() => onwaiting(item.key, 'retry'))}
 							/>
+						{:else if item.kind === 'coordinatorNote'}
+							<p class="truncate px-1 py-1 text-xs leading-5 text-(--chat-fg-muted)" title={`${item.label} · ${item.summary}`}>
+								<span class="font-medium">{item.label}</span> · {item.summary}
+							</p>
 						{:else if item.kind === 'turn'}
 							<AssistantTurn
 								parts={item.parts}

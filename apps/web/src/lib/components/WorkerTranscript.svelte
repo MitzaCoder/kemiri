@@ -408,7 +408,7 @@
 					/>
 				{/snippet}
 				{#snippet memoryPanel()}
-					<MemoryPanel {memory} hrefForProject={(id) => projectHref(backend.id, id)} />
+					<MemoryPanel {memory} sharedByCoordinators={backend.supports('coordinators')} showCoordinatorWriters={backend.supports('memory-notes')} hrefForProject={(id) => projectHref(backend.id, id)} />
 				{/snippet}
 		</ConversationSidebar>
 	{/if}

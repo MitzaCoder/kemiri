@@ -2662,7 +2662,7 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   also share the direct-chat rules for the board, delegation, verification, and owner input.
   Their workspace and schedule guidance differ. The live roster is a tool result, not part
   of the prompt; renaming or re-scoping one coordinator changes only its own instructions.
-  Roster and memory change notes are a later stage.
+  Roster changes reach peers at their next real input through the shared notes channel below.
 - **Shared state.** The board and memory are still shared. Tasks retain `ownerThreadId`
   and emit a derived `coordinatorId`. See Tasks board below for assignment and delivery.
 - **Messages.** `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply never wakes an idle
@@ -5742,7 +5742,7 @@ builds its context from only the parts relevant to the task.
 - Front matter: `title`, a one-line `summary`, `tags`, `links` to related
   memories, `created`, `updated`, `source` (conversation and entry it
   came from), and `status` (active, superseded by another, or archived).
-- The files are the source of truth. The user reads them in the web app (read-only for now).
+- The files are the source of truth. The web Memory tab reads them and can edit existing sections with a revision check.
 - Each memory directory is a git repository; every write is a commit. That
   gives history and undo without extra code.
 
@@ -5764,10 +5764,12 @@ builds its context from only the parts relevant to the task.
 - `memory_search`: query, scope (global, project or both), tags, limit.
   Returns matching sections (file id, title, heading, snippet), never whole
   files.
-- `memory_read`: chosen sections, or whole files, with their links.
+- `memory_read`: chosen sections, or whole files, with their links and a short text revision for each `##` section.
 - `memory_write`: add or edit a section, or create a topic file. Before
   creating something, it returns close matches, so the writer updates the
-  existing topic instead of duplicating.
+  existing topic instead of duplicating. `expectedRevision` protects an existing section: a mismatch includes the current
+  Markdown so the writer can merge. Without the revision we still write, but mention a peer's last edit to that section
+  if it was within the hour. Read and check use the same section text, and the check runs in the serialized write queue.
 - `memory_archive`: retire a whole topic file. Outdated facts inside a
   file are edited out; git history keeps them.
 - The coordinator has all of them. Workers have none; they put what they learned in their reports and the
@@ -5832,7 +5834,7 @@ builds its context from only the parts relevant to the task.
 **Changes and undo**
 
 - Every memory commit says what made it through git trailers: `tool`, `hand`
-  (an edit made outside the harness), `extraction`, `maintenance` or `undo`,
+  (an owner edit in the app or of the files), `extraction`, `maintenance` or `undo`,
   the conversation an automatic write came from, and which commit an undo
   reverts. History derives the kind, the source and whether a change can be
   undone from them, so hand edits and tool writes are labelled too.
@@ -5840,6 +5842,24 @@ builds its context from only the parts relevant to the task.
   `git revert`. It is refused with `memory_conflict` when a later commit
   touched any of the same files, or when the change was already undone; the
   revert is a commit of its own and marks the original as undone.
+
+**Live notes between coordinators (T396)**
+
+- Memory commits queue notes for the other unarchived coordinators. Project commits stay in that project; global commits
+  reach every open project. General is included, but the writing conversation, workers, and background jobs are not
+  recipients. A maintenance commit is one line. Notes merge by scoped topic; each delivery shows at most 12 data lines
+  (including the overflow count) and 1,200 characters. Untrusted labels are flattened and escaped.
+- `[coordinators]` lifecycle notices use the same queue. T124's integration-ref observer sends `[repository]` notes
+  to coordinators with their own workspaces, even when none of the moved commits is linked to a board task.
+- Each recipient's pending notes live in a separate version-1 conversation document. A note never starts a generation,
+  changes the system prompt or writes to an idle transcript. The already-running generation appends and clears notes
+  together at its next request; when a real user input is being placed in context, the note precedes it in the model's
+  messages. A held coordinator keeps its notes until a real request after resume. The prompt index still only refreshes
+  at conversation start or compaction. Keep-warm does not consume notes.
+- Feature `memory-notes` advertises the `kemiri.coordinator-note` entries (`data.channel`, `data.summary`), optional
+  `memory.history` writer fields `coordinatorId` and `coordinatorTitle`, and revision-bearing `memory.read` sections.
+  Web draws one quiet line per entry. `memory.section.edit` replaces one existing section as the owner, using the
+  revision just read. The shared Memory tab label depends on `coordinators`, not on the notes feature.
 
 **Maintenance**
 

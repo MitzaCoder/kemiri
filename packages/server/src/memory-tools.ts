@@ -31,6 +31,7 @@ import {
 	type MemorySource,
 	type MemoryStore,
 	type MemoryTarget,
+	memorySectionRevision,
 	splitSections,
 } from "./memory.ts";
 import type { Coordinators } from "./coordinators.ts";
@@ -185,7 +186,9 @@ export class MemoryService {
 
 	/** Where a write came from. The tool call's own entry is committed after it runs, so its ID is not known yet. */
 	source(conversationId: number): MemorySource {
-		return { projectId: this.project.id, conversationId, entryId: null };
+		const place = this.#options.coordinators?.placeOf(conversationId);
+		return { projectId: this.project.id, conversationId, entryId: null,
+			...(place?.kind === "coordinator" ? { coordinatorId: place.threadId } : {}) };
 	}
 
 	/** What a memory tool answers outside the coordinator, which only a deliberately re-added extension reaches. */
@@ -301,7 +304,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 		name: "memory_read",
 		description:
 			"Read one memory topic: its whole body, or only the sections you name. Use it after memory_search, before " +
-			"editing a topic, and to follow its links to related topics.",
+			"editing a topic, and to follow its links. Each section has a revision for a guarded memory_write.",
 		parameters: Type.Object({
 			fileId: Type.String({ minLength: 1, description: 'The topic name, without ".md".' }),
 			scope: scopeSchema("Where the topic is. Default: project, then global."),
@@ -352,7 +355,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 			];
 			if (links.length > 0) lines.push("", "Links:", ...links);
 			if (wanted === undefined && intro.trim().length > 0) lines.push("", intro.trim());
-			for (const section of selected) lines.push("", `## ${section.heading}`, "", section.text.trim());
+			for (const section of selected) lines.push("", `## ${section.heading}`, `Revision: ${memorySectionRevision(section.text)}`, "", section.text.trim());
 			if (wanted !== undefined && selected.length === 0) {
 				lines.push(
 					"",
@@ -360,7 +363,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 				);
 			}
 			if (missing.length > 0) lines.push("", `Not found: ${missing.join(", ")}.`);
-			return toolText(lines.join("\n"), { details: { scope, fileId: file.fileId } });
+			return toolText(lines.join("\n"), { details: { scope, fileId: file.fileId, sections: selected.map(section => ({ heading: section.heading, revision: memorySectionRevision(section.text) })) } });
 		},
 	});
 
@@ -369,7 +372,8 @@ function createMemoryExtension(service: MemoryService): Extension {
 		description:
 			"Write durable memory: add or replace one `##` section of a topic, update its front matter, or start a new " +
 			"topic. Every write is one git commit. Before a new topic is created it returns close matches, so an existing " +
-			"topic is updated instead of duplicated; pass `create: true` to start one anyway. Write facts, not transcripts.",
+			"topic is updated instead of duplicated; pass `create: true` to start one anyway. For an existing section, " +
+			"pass expectedRevision from memory_read to refuse a stale edit and see the current text. Write facts, not transcripts.",
 		parameters: Type.Object({
 			fileId: Type.String({
 				minLength: 1,
@@ -381,6 +385,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 			heading: Type.Optional(
 				Type.String({ description: "The `##` section to add or replace. Omit to write the file's intro text." }),
 			),
+			expectedRevision: Type.Optional(Type.String({ description: "A section revision from memory_read. Omit for an unconditional edit." })),
 			title: Type.Optional(Type.String({ description: "Shown by search and in the app." })),
 			summary: Type.Optional(Type.String({ description: "One line: what this topic is about." })),
 			tags: Type.Optional(Type.Array(Type.String(), { description: "For search." })),
@@ -404,13 +409,18 @@ function createMemoryExtension(service: MemoryService): Extension {
 				fileId: args.fileId,
 				text: args.text,
 				...(args.heading === undefined ? {} : { heading: args.heading }),
+				...(args.expectedRevision === undefined ? {} : { expectedRevision: args.expectedRevision }),
 				...(args.title === undefined ? {} : { title: args.title }),
 				...(args.summary === undefined ? {} : { summary: args.summary }),
 				...(args.tags === undefined ? {} : { tags: args.tags }),
 				...(args.links === undefined ? {} : { links: args.links }),
 				...(args.create === undefined ? {} : { create: args.create }),
 				source: service.source(api.conversationId),
+			}).catch((error: unknown) => {
+				if (error instanceof ServerError && error.code === "memory_conflict") return error;
+				throw error;
 			});
+			if (result instanceof ServerError) return toolText(result.message, { isError: true });
 			const name = `${target.scope}:${args.fileId}`;
 			if (result.kind === "suggest") {
 				return toolText(
@@ -423,6 +433,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 					{ details: { created: false, matches: result.matches.length } },
 				);
 			}
+			const warning = result.changedBy ? ` Note: this section was changed by ${result.changedBy.coordinatorId} ${result.changedBy.minutesAgo} minute${result.changedBy.minutesAgo === 1 ? "" : "s"} ago.` : "";
 			const commit = result.commit === null ? "" : ` Commit ${result.commit.slice(0, 8)}.`;
 			const details = { scope: target.scope, fileId: args.fileId, created: result.kind === "created" };
 			if (result.kind === "created") {
@@ -432,10 +443,10 @@ function createMemoryExtension(service: MemoryService): Extension {
 				);
 			}
 			if (result.kind === "unchanged") {
-				return toolText(`${name} already reads that way; nothing was written.`, { details });
+				return toolText(`${name} already reads that way; nothing was written.${warning}`, { details });
 			}
 			const what = args.heading === undefined ? "the intro" : `section "${args.heading}"`;
-			return toolText(`Updated ${what} of ${name}, ${result.topic.sections.length} sections in all.${commit}`, {
+			return toolText(`Updated ${what} of ${name}, ${result.topic.sections.length} sections in all.${commit}${warning}`, {
 				details,
 			});
 		},
