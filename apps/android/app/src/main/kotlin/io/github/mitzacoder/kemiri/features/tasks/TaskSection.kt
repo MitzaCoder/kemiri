@@ -25,9 +25,9 @@ internal fun TaskHeading(title: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun TaskReadingSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun TaskReadingSection(title: String?, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TaskHeading(title)
+        if (title != null) TaskHeading(title)
         content()
     }
 }

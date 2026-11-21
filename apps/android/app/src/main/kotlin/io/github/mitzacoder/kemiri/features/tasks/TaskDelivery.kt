@@ -49,11 +49,16 @@ internal fun deliverySteps(delivery: BoardTaskTimelineResponseDelivery?): List<D
 }
 
 @Composable
-internal fun TaskDelivery(context: ProjectScreenContext, task: BoardTask, delivery: BoardTaskTimelineResponseDelivery) {
+internal fun TaskDelivery(
+    context: ProjectScreenContext,
+    task: BoardTask,
+    delivery: BoardTaskTimelineResponseDelivery,
+    showHeading: Boolean = true,
+) {
     val colors = Jarvis.colors
     val steps = deliverySteps(delivery)
     if (steps.isEmpty()) return
-    TaskReadingSection("Delivery") {
+    TaskReadingSection(if (showHeading) "Delivery" else null) {
         steps.forEach { step ->
             Row(Modifier.semantics(mergeDescendants = true) { stateDescription = if (step.complete) "Complete" else "Not complete" },
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {

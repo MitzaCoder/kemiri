@@ -3089,6 +3089,8 @@ Closed doors use the shared glance facts: Arrived leads with the first outcome a
 shows risk titles and the first next action, with brief Markdown fallbacks. Your stop shows manual instructions
 from Your steps, or legacy Next under Check the work in review. Typed Next never becomes a review instruction.
 A Results proof block replaces its automatic thumbnail without removing the file from Files.
+Route labels Delivery itself in Arrived: a heading in Doors and a disclosure in Calm. The shared
+Delivery component renders its own heading only in Classic.
 
 **Android Route (T368).** The owner selects Route from Task view, without changing Classic or its default.
 Route fills the task window. Calm keeps the current stop in view on a horizontal line above the reading sections.
