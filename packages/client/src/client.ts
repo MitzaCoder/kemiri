@@ -1,3 +1,4 @@
+import type { AppSettings, ProjectApp } from "@kemiri/protocol";
 import type { TaskWatcherSettings } from "@kemiri/protocol";
 import type { CoordinatorCompaction, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
@@ -348,6 +349,8 @@ export class HarnessClient {
 	readonly #threadMessageListeners = new Set<(event: ThreadsMessageEvent) => void>();
 	readonly #threadListeners = new Set<(state: ThreadsSnapshot & { projectId: string }) => void>();
 	readonly #subscriptionUsageListeners = new Set<(subscriptions: SubscriptionUsage[]) => void>();
+	readonly #appsListeners = new Set<(projectId: string) => void>();
+	readonly #appSettingsListeners = new Set<(settings: AppSettings) => void>();
 	readonly #artifactListeners = new Set<(event: ArtifactsChangedEvent) => void>();
 	readonly #draftListeners = new Set<(event: DraftsChangedEvent) => void>();
 	readonly #loginListeners = new Set<(login: AuthLogin) => void>();
@@ -664,6 +667,36 @@ export class HarnessClient {
 			throw new ClientError("disconnected", "Not connected");
 		}
 		return (await this.#sendOn(socket, message, timeoutMs)) as T | ErrorResponse;
+	}
+
+	onAppsChanged(listener: (projectId: string) => void): () => void {
+		this.#appsListeners.add(listener);
+		return () => this.#appsListeners.delete(listener);
+	}
+
+	onAppSettingsChanged(listener: (settings: AppSettings) => void): () => void {
+		this.#appSettingsListeners.add(listener);
+		return () => this.#appSettingsListeners.delete(listener);
+	}
+
+	async listApps(projectId: string): Promise<ProjectApp[]> {
+		return (await this.#call<Extract<Response, { type: "apps.list" }>>({ type: "apps.list", projectId })).apps;
+	}
+
+	async allowApp(projectId: string, appId: string): Promise<ProjectApp> {
+		return (await this.#call<Extract<Response, { type: "apps.allow" }>>({ type: "apps.allow", projectId, appId })).app;
+	}
+
+	async unpublishApp(projectId: string, appId: string): Promise<ProjectApp> {
+		return (await this.#call<Extract<Response, { type: "apps.unpublish" }>>({ type: "apps.unpublish", projectId, appId })).app;
+	}
+
+	async getAppSettings(): Promise<AppSettings> {
+		return (await this.#call<Extract<Response, { type: "apps.settings.get" }>>({ type: "apps.settings.get" })).settings;
+	}
+
+	async setAppSettings(settings: AppSettings): Promise<AppSettings> {
+		return (await this.#call<Extract<Response, { type: "apps.settings.set" }>>({ type: "apps.settings.set", settings })).settings;
 	}
 
 	async listProjects(): Promise<ProjectSummary[]> {
@@ -1985,6 +2018,12 @@ export class HarnessClient {
 				}
 				return;
 			}
+			case "apps.changed":
+				for (const listener of this.#appsListeners) { try { listener(message.projectId); } catch { /* Isolate listeners. */ } }
+				return;
+			case "apps.settings.changed":
+				for (const listener of this.#appSettingsListeners) { try { listener(message.settings); } catch { /* Isolate listeners. */ } }
+				return;
 			case "artifacts.changed": {
 				for (const listener of this.#artifactListeners) {
 					try {

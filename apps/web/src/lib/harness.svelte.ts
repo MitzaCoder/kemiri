@@ -184,7 +184,7 @@ export class BackendConnection {
 		this.client = new HarnessClient({
 			url: backendWebSocketUrl(config.url),
 			clientName: "aiki-web",
-			clientFeatures: ["task-steps", "task-live-watcher", "coordinator-messages"],
+			clientFeatures: ["task-steps", "task-live-watcher", "coordinator-messages", "apps"],
 			prepareHello: async () => {
 				this.#migrationRegistered = false;
 				try { return await this.#deviceAuth.prepare(); }

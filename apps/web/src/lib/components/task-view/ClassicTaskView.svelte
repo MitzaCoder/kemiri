@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskApps from '#lib/components/apps/TaskApps.svelte';
 	import TaskActivity from '#lib/components/TaskActivity.svelte';
 	import TaskLive from '#lib/components/TaskLive.svelte';
 	import TaskDelivery from '#lib/components/TaskDelivery.svelte';
@@ -164,6 +165,8 @@
 								{#if proof.length > 0}<TaskProof media={proof} client={backend.client} />{/if}
 								{#if requestedId !== null && model.supportsUsage}<TaskUsage client={backend.client} {projectId} taskId={task.id} />{/if}
 							</section>
+
+							<TaskApps {backend} {projectId} taskId={task.id} />
 
 							{#if artifacts.length > 0}
 								<section class="task-reading-section" aria-label="Files">

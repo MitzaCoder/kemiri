@@ -1638,6 +1638,142 @@ data class ArtifactVersion(
 )
 
 @Serializable
+data class AppSettings(
+    val `addresses`: AppAddresses,
+    val `policy`: String
+)
+
+@Serializable(with = AppAddressesSerializer::class)
+sealed interface AppAddresses { val `mode`: String }
+
+/** A AppAddresses variant this build does not know, kept as it came. */
+data class UnknownAppAddresses(override val raw: JsonObject) : AppAddresses, UnknownVariant {
+    override val `mode`: String get() = raw["mode"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object AppAddressesSerializer : UnionSerializer<AppAddresses>("AppAddresses", "mode", mapOf(
+    "off" to AppAddressesOff.serializer(),
+    "template" to AppAddressesTemplate.serializer(),
+), { it.`mode` }, ::UnknownAppAddresses)
+
+@Serializable
+data class AppAddressesOff(
+    @kotlinx.serialization.EncodeDefault override val `mode`: String = "off"
+) : AppAddresses
+
+@Serializable
+data class AppAddressesTemplate(
+    @kotlinx.serialization.EncodeDefault override val `mode`: String = "template",
+    val `template`: String
+) : AppAddresses
+
+@Serializable
+data class AppPublisher(
+    val `id`: String,
+    val `kind`: String,
+    val `threadId`: String,
+    val `conversationId`: Long
+)
+
+@Serializable
+data class ProjectApp(
+    val `appId`: String,
+    val `projectId`: String,
+    val `name`: String,
+    val `port`: Long,
+    val `path`: String,
+    val `url`: String?,
+    val `state`: String,
+    val `taskId`: String? = null,
+    val `publishedBy`: AppPublisher,
+    val `createdAt`: String,
+    val `mode`: String
+)
+
+@Serializable
+data class AppsListRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.list",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String
+)
+
+@Serializable
+data class AppsAllowRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.allow",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `appId`: String
+)
+
+@Serializable
+data class AppsUnpublishRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.unpublish",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `appId`: String
+)
+
+@Serializable
+data class AppsSettingsGetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.get",
+    val `id`: String = java.util.UUID.randomUUID().toString()
+)
+
+@Serializable
+data class AppsSettingsSetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.set",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `settings`: AppSettings
+)
+
+@Serializable
+data class AppsListResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.list",
+    val `id`: String,
+    val `apps`: List<ProjectApp>
+)
+
+@Serializable
+data class AppsAllowResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.allow",
+    val `id`: String,
+    val `app`: ProjectApp
+)
+
+@Serializable
+data class AppsUnpublishResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.unpublish",
+    val `id`: String,
+    val `app`: ProjectApp
+)
+
+@Serializable
+data class AppsSettingsGetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.get",
+    val `id`: String,
+    val `settings`: AppSettings
+)
+
+@Serializable
+data class AppsSettingsSetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.set",
+    val `id`: String,
+    val `settings`: AppSettings
+)
+
+@Serializable
+data class AppsChangedEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.changed",
+    val `projectId`: String
+) : ProtocolEvent
+
+@Serializable
+data class AppsSettingsChangedEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.changed",
+    val `settings`: AppSettings
+) : ProtocolEvent
+
+@Serializable
 data class ArtifactsListRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.list",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -4735,6 +4871,8 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "conversation.view" -> json.decodeFromJsonElement(ConversationViewEvent.serializer(), raw)
     "conversation.watchEnded" -> json.decodeFromJsonElement(ConversationWatchEndedEvent.serializer(), raw)
     "workers.state" -> json.decodeFromJsonElement(WorkersStateEvent.serializer(), raw)
+    "apps.changed" -> json.decodeFromJsonElement(AppsChangedEvent.serializer(), raw)
+    "apps.settings.changed" -> json.decodeFromJsonElement(AppsSettingsChangedEvent.serializer(), raw)
     "artifacts.changed" -> json.decodeFromJsonElement(ArtifactsChangedEvent.serializer(), raw)
     "terminal.closed" -> json.decodeFromJsonElement(TerminalClosedEvent.serializer(), raw)
     "terminal.resync" -> json.decodeFromJsonElement(TerminalResyncEvent.serializer(), raw)

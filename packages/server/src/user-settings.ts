@@ -1,6 +1,7 @@
-import { DEFAULT_COORDINATOR_COMPACTION, normalizeUserName, type CoordinatorCompaction, type UserSettings } from "@kemiri/protocol";
+import { DEFAULT_APP_SETTINGS, type AppSettings, DEFAULT_COORDINATOR_COMPACTION, normalizeUserName, type CoordinatorCompaction, type UserSettings } from "@kemiri/protocol";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { readAppSettings, validateAppSettings } from "./app-addresses.ts";
 
 function validateCompaction(thresholds: CoordinatorCompaction): CoordinatorCompaction {
 	const { backgroundPercent, blockingPercent } = thresholds;
@@ -16,21 +17,38 @@ function validateCompaction(thresholds: CoordinatorCompaction): CoordinatorCompa
 export class UserSettingsStore {
 	readonly file: string;
 	#settings: UserSettings = { userName: "" };
+	#apps: AppSettings = DEFAULT_APP_SETTINGS;
 	readonly #compactionListeners = new Set<() => void>();
 	#pending: Promise<unknown> = Promise.resolve();
-	constructor(dataDir: string, readonly changed: (settings: UserSettings) => void = () => {}) {
+	constructor(dataDir: string, readonly changed: (settings: UserSettings) => void = () => {},
+		readonly appsChanged: (settings: AppSettings) => void = () => {}) {
 		this.file = join(dataDir, "user-settings.json");
 	}
 	async open(): Promise<void> {
-		const stored = await readJsonFile(this.file) as Partial<UserSettings> | undefined;
+		const stored = await readJsonFile(this.file) as (Partial<UserSettings> & { apps?: AppSettings }) | undefined;
 		if (stored !== undefined) {
 			if (typeof stored.userName !== "string") throw new Error("Invalid user settings");
 			this.#settings = { userName: normalizeUserName(stored.userName) };
+			this.#apps = readAppSettings(stored.apps);
 			if (stored.coordinatorCompaction !== undefined) {
 				this.#settings.coordinatorCompaction = validateCompaction(stored.coordinatorCompaction);
 			}
 		}
 	}
+	get appSettings(): AppSettings { return structuredClone(this.#apps); }
+
+	setAppSettings(settings: AppSettings): Promise<AppSettings> {
+		const write = this.#pending.then(async () => {
+			const apps = validateAppSettings(settings);
+			await writeJsonFile(this.file, { ...this.#settings, apps });
+			this.#apps = apps;
+			this.appsChanged(this.appSettings);
+			return this.appSettings;
+		});
+		this.#pending = write.catch(() => undefined);
+		return write;
+	}
+
 	get coordinatorCompaction(): Readonly<CoordinatorCompaction> {
 		return this.#settings.coordinatorCompaction ?? DEFAULT_COORDINATOR_COMPACTION;
 	}
@@ -53,7 +71,7 @@ export class UserSettingsStore {
 			if (backgroundPercent !== DEFAULT_COORDINATOR_COMPACTION.backgroundPercent || blockingPercent !== DEFAULT_COORDINATOR_COMPACTION.blockingPercent) {
 				settings.coordinatorCompaction = { backgroundPercent, blockingPercent };
 			}
-			await writeJsonFile(this.file, settings);
+			await writeJsonFile(this.file, { ...settings, ...(this.#apps === DEFAULT_APP_SETTINGS ? {} : { apps: this.#apps }) });
 			this.#settings = settings;
 			this.changed(this.get());
 			if (compactionChanged) for (const listener of this.#compactionListeners) listener();

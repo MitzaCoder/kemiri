@@ -1,3 +1,4 @@
+import type { AppSettings } from "@kemiri/protocol";
 import type { ThreadsMessageEvent } from "@kemiri/protocol";
 import { resolveCodeRoot } from "./code-root.ts";
 import type { ProjectFileWrites } from "./project-file-writes.ts";
@@ -242,6 +243,16 @@ export class ClientConnection {
 
 	get ready(): boolean {
 		return this.#ready;
+	}
+
+	#clientSupportsApps = false;
+
+	notifyApps(projectId: string): void {
+		if (this.#clientSupportsApps) this.#respond({ type: "apps.changed", projectId });
+	}
+
+	notifyAppSettings(settings: AppSettings): void {
+		if (this.#clientSupportsApps) this.#respond({ type: "apps.settings.changed", settings });
 	}
 
 	notifySkills(projectId: string): void {
@@ -796,6 +807,28 @@ export class ClientConnection {
 				case "refs.details": {
 					const details = await this.#manager.refDetails(request.projectId, request.ref);
 					this.#respond({ type: "refs.details", id: request.id, details });
+					return;
+				}
+				case "apps.list":
+				case "apps.allow":
+				case "apps.unpublish": {
+					const apps = this.#manager.apps;
+					if (!apps || !this.#features.includes("apps")) return this.#unknownRequest(request);
+					if (request.type === "apps.list") {
+						this.#respond({ type: request.type, id: request.id, apps: await apps.list(request.projectId) });
+					} else if (request.type === "apps.unpublish") {
+						this.#respond({ type: request.type, id: request.id, app: await apps.unpublish(request.projectId, request.appId, "owner") });
+					} else {
+						const { runtime } = await this.#manager.open(request.projectId);
+						this.#respond({ type: request.type, id: request.id, app: await apps.allow(request.projectId, request.appId, runtime.activeApps) });
+					}
+					return;
+				}
+				case "apps.settings.get":
+				case "apps.settings.set": {
+					if (!this.#userSettings || !this.#features.includes("apps")) return this.#unknownRequest(request);
+					const settings = request.type === "apps.settings.set" ? await this.#userSettings.setAppSettings(request.settings) : this.#userSettings.appSettings;
+					this.#respond({ type: request.type, id: request.id, settings });
 					return;
 				}
 				case "artifacts.list": {
@@ -1541,6 +1574,7 @@ export class ClientConnection {
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
+		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
 		this.#ready = true;
 		this.#respond({
 			type: "hello",

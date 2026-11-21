@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { provideProjectApps, useProjectApps } from '#lib/agent-apps.svelte.js';
 	import { rememberConversationView, conversationBack } from "#lib/conversation-navigation.svelte.js";
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
@@ -69,6 +70,7 @@
 	);
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
+	provideProjectApps(useProjectApps(() => backend.features?.includes('apps') ? { client: backend.client, projectId } : undefined));
 	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts') }));
 	provideRefLinks(() => ({ links: project?.links, status: () => undefined }));
 	const supportsWorkers = $derived(backend.supports('workers'));

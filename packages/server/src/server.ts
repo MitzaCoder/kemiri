@@ -1,3 +1,4 @@
+import { AgentApps } from "./agent-apps.ts";
 import { ProjectFileWrites } from "./project-file-writes.ts";
 import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
 import type { WorkerBrowserService } from "./worker-browser.ts";
@@ -357,6 +358,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const models = cacheRetention.applyTo(requestLog?.observeModels(usageModels) ?? usageModels);
 	const hostname = options.hostname ?? DEFAULT_HOSTNAME;
 	const port = options.port ?? resolvePort();
+	let boundPort = port;
 	const allowedOrigins = options.allowedOrigins ?? resolveAllowedOrigins();
 	// Without its log, `cache.stats` has nothing to answer with.
 	// A terminal is a shell as this server's user, so it can be switched off per backend and is then not even advertised.
@@ -593,9 +595,18 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	await skills.open();
 	const userSettings = new UserSettingsStore(dataDir, settings => {
 		for (const connection of connections) connection.notifyUserSettings(settings);
+	}, settings => {
+		for (const connection of connections) connection.notifyAppSettings(settings);
 	});
 	await userSettings.open();
+	const apps = features.includes("apps") ? new AgentApps({
+		store, settings: () => userSettings.appSettings, backendPort: () => boundPort,
+		backendOrigins: () => [...auth.hosts, ...allowedOrigins],
+		changed: projectId => { for (const connection of connections) connection.notifyApps(projectId); },
+		...(options.now === undefined ? {} : { now: options.now }),
+	}) : undefined;
 	const manager = new ProjectManager({
+		apps,
 		officialAgents,
 		browsers: options.browsers,
 		userSettings,
@@ -1070,7 +1081,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		},
 	});
 
-	const actualPort = server.port ?? port;
+	const actualPort = boundPort = server.port ?? port;
 	if (options.webDir) mcpOrigins.push(`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`);
 
 	auth.onRevoke = async (sessionId) => {

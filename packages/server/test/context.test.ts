@@ -208,7 +208,7 @@ describe("conversation context", () => {
 		expect(context.tools.find((tool) => tool.name === "read")?.extension).toBe("coding-tools");
 		expect(context.tools.find((tool) => tool.name === "worker_spawn")?.extension).toBe("worker-tools");
 		// Optional built-ins have separate injected availability tests.
-		expect(context.skills.filter(skill => skill.name !== "agent-browser").map((skill) => skill.name)).toEqual(["html-artifacts"]);
+		expect(context.skills.filter(skill => skill.name !== "agent-browser").map((skill) => skill.name)).toEqual(["html-artifacts", "serve-apps"]);
 	});
 
 	it("offers global and project skills, and marks one read once this conversation has read it", async () => {
@@ -234,6 +234,7 @@ describe("conversation context", () => {
 			["deploy", "pi", "global", false],
 			["testing", "pi", "project", false],
 			["html-artifacts", "harness", "global", false],
+			["serve-apps", "harness", "global", false],
 		]);
 		expect(before.skills[1]?.description).toBe("How tests are written in this project.");
 		expect(before.skills[1]?.path).toBe(projectSkill);
@@ -294,6 +295,7 @@ describe("conversation context", () => {
 			["harness-skill", "harness", "global"],
 			["claude-skill", "claude", "global"],
 			["html-artifacts", "harness", "global"],
+			["serve-apps", "harness", "global"],
 		]);
 		expect(context.systemPrompt).toContain(`<location>${harnessSkill}</location>`);
 		expect(context.systemPrompt).toContain(`<location>${claudeSkill}</location>`);
@@ -388,7 +390,7 @@ describe("conversation context", () => {
 		expect(worker.cwd).toBe(test.projectDir);
 		expect(worker.projectPath).toBe(test.projectDir);
 		expect(worker.contextFiles.map((file) => file.path)).toContain(join(test.projectDir, "AGENTS.md"));
-		expect(worker.skills.filter(skill => skill.name !== "agent-browser").map((skill) => [skill.name, skill.scope])).toEqual([["testing", "project"], ["html-artifacts", "global"]]);
+		expect(worker.skills.filter(skill => skill.name !== "agent-browser").map((skill) => [skill.name, skill.scope])).toEqual([["testing", "project"], ["html-artifacts", "global"], ["serve-apps", "global"]]);
 		expect(worker.systemPrompt).toContain("Use bun.");
 		expect(worker.systemPrompt).toContain('You are the worker "reader"');
 

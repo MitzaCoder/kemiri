@@ -220,6 +220,26 @@ suspend fun HarnessClient.request(value: ProjectsStorageCleanRequest, explicitNu
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ProjectsStorageCleanRequest.serializer(), value).jsonObject, explicitNulls), ProjectsStorageCleanResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: AppsListRequest, explicitNulls: Set<String> = emptySet()): AppsListResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsListRequest.serializer(), value).jsonObject, explicitNulls), AppsListResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AppsAllowRequest, explicitNulls: Set<String> = emptySet()): AppsAllowResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsAllowRequest.serializer(), value).jsonObject, explicitNulls), AppsAllowResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AppsUnpublishRequest, explicitNulls: Set<String> = emptySet()): AppsUnpublishResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsUnpublishRequest.serializer(), value).jsonObject, explicitNulls), AppsUnpublishResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AppsSettingsGetRequest, explicitNulls: Set<String> = emptySet()): AppsSettingsGetResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsSettingsGetRequest.serializer(), value).jsonObject, explicitNulls), AppsSettingsGetResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AppsSettingsSetRequest, explicitNulls: Set<String> = emptySet()): AppsSettingsSetResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsSettingsSetRequest.serializer(), value).jsonObject, explicitNulls), AppsSettingsSetResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: ArtifactsListRequest, explicitNulls: Set<String> = emptySet()): ArtifactsListResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ArtifactsListRequest.serializer(), value).jsonObject, explicitNulls), ArtifactsListResponse.serializer()
 )

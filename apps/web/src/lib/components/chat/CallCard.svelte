@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AppCallCard from '#lib/components/apps/AppCallCard.svelte';
 	import type { MemoryScope, WorkerSummary } from '@kemiri/protocol';
 	import { BOARD_TOOL_NAME, boardCallView } from '#lib/board.js';
 	import { hasThreadCard, threadIdOfCall, type ThreadCards } from '#lib/threads.js';
@@ -80,6 +81,8 @@
 	<MemoryCallCard {part} {onopentopic} />
 {:else if boardView !== undefined}
 	<BoardCallCard {part} view={boardView} {onopenboard} />
+{:else if part.name === 'app_publish'}
+	<AppCallCard {part} {cwd} />
 {:else if part.name === ARTIFACT_SAVE_TOOL}
 	<ArtifactCallCard {part} />
 {:else if isCodemodeTool(part.name)}

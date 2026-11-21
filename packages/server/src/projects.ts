@@ -17,6 +17,7 @@ import {
 	THINKING_LEVELS,
 } from "@kemiri/protocol";
 import { ServerError } from "./errors.ts";
+import { readAppRegistry, type AppRegistryDocument } from "./app-registry-document.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 
 export const PROJECT_FILE = "project.json";
@@ -27,6 +28,7 @@ export type Project = {
 	version: 1;
 	id: string;
 	name: string;
+	apps?: AppRegistryDocument;
 	/** Absolute, symlink-free host directory. The coordinator's tools run with this as cwd. */
 	path: string;
 	createdAt: string;
@@ -143,9 +145,11 @@ function parseProject(value: unknown, id: string): Project | undefined {
 		typeof coordinator.thinkingLevel === "string" || coordinator.thinkingLevel === null || coordinator.thinkingLevel === undefined
 			? (coordinator.thinkingLevel ?? null)
 			: null;
+	const apps = readAppRegistry(record.apps, id);
 	return {
 		version: 1,
 		id,
+		...(apps === undefined ? {} : { apps }),
 		name: record.name,
 		path: record.path,
 		createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date(0).toISOString(),
@@ -404,6 +408,17 @@ export class ProjectStore {
 			}
 			await writeJsonFile(this.projectFile(id), next, 0o600);
 			return next;
+		});
+	}
+
+	/** Serialize app mutations with project settings edits, including the initial read. */
+	updateAppRegistry<T>(id: string, update: (apps: AppRegistryDocument) => Promise<{ result: T; changed: boolean }>): Promise<T> {
+		return this.#write(async () => {
+			const project = await this.require(id);
+			const apps = project.apps ?? {};
+			const { result, changed } = await update(apps);
+			if (changed) await writeJsonFile(this.projectFile(id), { ...project, apps });
+			return result;
 		});
 	}
 

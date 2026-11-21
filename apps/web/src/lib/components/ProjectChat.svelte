@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { provideProjectApps, useProjectApps } from '#lib/agent-apps.svelte.js';
+	import RunningApps from '#lib/components/apps/RunningApps.svelte';
 	import { rememberConversationView, conversationBack } from "#lib/conversation-navigation.svelte.js";
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -147,6 +149,7 @@
 		const query = new URLSearchParams({ name: file.name, ...(threadId ? { threadId } : {}) });
 		return (await backend.attachmentRequest(`/attachments/${projectId}?${query}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file })).json();
 	}
+	provideProjectApps(useProjectApps(() => backend.features?.includes('apps') ? { client: backend.client, projectId } : undefined));
 	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts') }));
 
 	let session = $state<ChatSession | undefined>(undefined);
@@ -1029,6 +1032,9 @@
 						{/each}
 						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" onclick={() => manager = 'new'}>+ New</button>
 					</nav>
+				{/if}
+				{#if backend.features?.includes('apps')}
+					<RunningApps tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />
 				{/if}
 			</header>
 			{#if isThread && thread && threads && !coordinatorChat}

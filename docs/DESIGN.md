@@ -497,6 +497,37 @@ The coordinator's lazy catalogue picks up that one addition on its next model re
 worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
 Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
 
+### Agent-served apps (T411)
+
+The optional `apps` feature lets workers, threads and coordinators register an HTTP server they already run, with
+`app_publish`, `app_list` and `app_unpublish`. Workers default to their assigned task. Before publishing, the backend
+makes a short HTTP HEAD request only to IPv4 loopback. Any HTTP status counts. It never follows redirects and refuses
+its own port and ports below 1024. The port check does not prove that a device can reach the advertised address.
+
+Settings → Computers → the backend → Advanced stores the publishing policy (`off`, `ask`, `on`) and address mode in
+that backend's existing settings. The defaults are `ask` and address mode `off`. With `ask`, a publish has no URL
+until the owner presses Allow in Running apps. This allows that app and later publishes in the same project, not
+in other projects. Settings changes apply to future publications. Mode `off` records the app without a link.
+
+Address modes are separate from publishing policy and storage. Template mode substitutes `{port}` in the host or
+port and `{path}` in the path, or appends the path when `{path}` is absent, as in `http://oven.example.test:{port}`.
+Templates use HTTP(S) only, without credentials, query or fragment. Links have a different origin from the known
+Kemiri origins. A template doesn't open a firewall, add a proxy or apply tailnet ACLs: the owner configures an
+address already reachable only by the intended tailnet devices. Kemiri sign-in does not protect these app links.
+
+Each version-1 `project.json` holds optional app records, approval and the app activity log. Reads normalize absent
+fields; an older release can still read the project and ignores the app extension. Publishing, approval and
+unpublishing record the app, task and publisher, and who made the change. Stop unpublishes but never stops the
+process or revokes a copied address. A task that closes or archives loses its publications. For an app without a
+task, forgetting its worker or archiving its thread does the same. An attached publication can outlast its worker.
+
+One generated Apps instruction line gives the bind and address facts on each run. The built-in `serve-apps` skill
+holds practical details, and coordinator project facts include active app names, tasks, addresses and states. There
+are no agent environment variables, technology detection, listener discovery or managed processes in this stage.
+The web project header opens Running apps, with Open, Copy link, QR, Allow and Stop. Chat publish cards resolve the
+latest app state from the registry rather than opening historical tool output. The task view lists its apps beside
+its files. App links open a new tab with `noopener`. Android has generated protocol models but no app views yet.
+
 ### Managed worker browsers (T248)
 
 `agent-browser-pin.ts` carries native agent-browser **0.43.0**, upstream `vercel-labs/agent-browser`, with each npm

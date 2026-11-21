@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { appPublishReceipt, type AgentApps, type AppAgent } from "../agent-apps.ts";
+import { APP_LIST_TOOL, APP_PUBLISH_TOOL, APP_UNPUBLISH_TOOL, appListDescription, appListParameters, appPublishDescription, appPublishParameters, appToolText, appUnpublishDescription, appUnpublishParameters, type ActiveApps } from "../app-tools.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, Harness, Tx } from "@earendil-works/pi-durable";
 import type { Tool } from "@earendil-works/pi-mcp";
@@ -33,6 +36,8 @@ export async function officialAgentWorkerTools(options: {
 	harness: Harness;
 	mainId: ConversationId;
 	artifacts: ArtifactStore;
+	apps?: { registry: AgentApps; active: ActiveApps };
+	conversationId?: number;
 	isCurrent(tx?: Tx): Promise<boolean>;
 	onSavedProof?(path: string): Promise<void>;
 }): Promise<OfficialAgentMcpScope> {
@@ -47,9 +52,14 @@ export async function officialAgentWorkerTools(options: {
 		const proof = await captureBridgeArtifactRoot(proofDirectory, true).catch(() => undefined);
 		if (proof) roots.push(proof);
 	}
+	const appTools: Tool[] = options.apps ? [
+		{ name: APP_PUBLISH_TOOL, description: appPublishDescription, inputSchema: { ...appPublishParameters } },
+		{ name: APP_UNPUBLISH_TOOL, description: appUnpublishDescription, inputSchema: { ...appUnpublishParameters } },
+		{ name: APP_LIST_TOOL, description: appListDescription, inputSchema: { ...appListParameters } },
+	] : [];
 	return {
 		isCurrent,
-		tools: taskId === null ? [artifactSave] : [taskProgress, artifactSave],
+		tools: [...(taskId === null ? [] : [taskProgress]), artifactSave, ...appTools],
 		async call(name, args, key, signal) {
 			if (name === taskProgress.name && taskId !== null) {
 				if (!Check(progressParameters, args) || Object.keys(args).some(key => !Object.hasOwn(progressParameters.properties, key))) return bridgeToolError("Invalid task_progress arguments.");
@@ -61,6 +71,27 @@ export async function officialAgentWorkerTools(options: {
 					}, BACKGROUND_CONTEXT),
 				});
 				return { content: result.output, ...("isError" in result ? { isError: true } : {}) };
+			}
+			if (options.apps && options.conversationId !== undefined && appTools.some(tool => tool.name === name)) {
+				const { registry, active } = options.apps;
+				const agent: AppAgent = { publisher: { id: workerId, kind: "worker", threadId, conversationId: options.conversationId }, taskId: taskId ?? undefined };
+				try {
+					if (signal.aborted || !await isCurrent()) return bridgeToolError("This worker's bridge is no longer active.");
+					if (name === APP_PUBLISH_TOOL && Check(appPublishParameters, args)) {
+						const appId = createHash("sha256").update(key).digest("hex");
+						const app = await registry.publish(projectId, args, agent, async () => {
+							const check = await active(true);
+							return !signal.aborted && await isCurrent() ? check : () => false;
+						}, appId);
+						return { content: appToolText(appPublishReceipt(app)).output };
+					}
+					if (name === APP_UNPUBLISH_TOOL && Check(appUnpublishParameters, args)) {
+						await registry.unpublish(projectId, args.appId, agent.publisher);
+						return { content: appToolText({ appId: args.appId, state: "unpublished", warning: "The process was not stopped." }).output };
+					}
+					if (name === APP_LIST_TOOL && Check(appListParameters, args)) return { content: appToolText(await registry.list(projectId)).output };
+					return bridgeToolError(`Invalid ${name} arguments.`);
+				} catch (error) { return bridgeToolError(errorMessage(error)); }
 			}
 			if (name !== artifactSave.name) return bridgeToolError("This tool is not available to this worker.");
 			if (!Check(artifactParameters, args)) return bridgeToolError("Invalid artifact_save arguments. The backend assigns the task automatically.");

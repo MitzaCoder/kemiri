@@ -1,3 +1,5 @@
+import { createAppExtension, type ActiveApps } from "./app-tools.ts";
+import type { AgentApps } from "./agent-apps.ts";
 import type { ArtifactsLibraryRequest } from "@kemiri/protocol";
 import { artifactLibrary, artifactTrail } from "./artifact-library.ts";
 import { DEFAULT_TASK_WATCHER, type TaskWatcherStatus } from "@kemiri/protocol";
@@ -123,6 +125,7 @@ import type { ConversationIdentity, RequestLog } from "./request-log.ts";
 import { join } from "node:path";
 
 export type ProjectRuntime = {
+	readonly activeApps: ActiveApps;
 	readonly role: (conversationId: number) => Promise<SkillRole>;
 	readonly project: Project;
 	readonly harness: Harness;
@@ -198,6 +201,7 @@ export type ProjectManagerOptions = {
 	officialAgents?: OfficialAgentSessions;
 	browsers?: WorkerBrowserService;
 	userSettings?: UserSettingsStore;
+	apps?: AgentApps | undefined;
  mcp?: McpService;
  skills?: ProjectSkillStore;
  homeDir?: string;
@@ -323,6 +327,7 @@ function projectSummary(
 
 export class ProjectManager {
 	readonly #officialAgents: OfficialAgentSessions | undefined;
+	readonly apps: AgentApps | undefined;
 	readonly #userSettings: UserSettingsStore | undefined;
 	readonly store: ProjectStore;
  readonly mcp: McpService | undefined;
@@ -394,6 +399,7 @@ export class ProjectManager {
 	constructor(options: ProjectManagerOptions) {
 		this.#officialAgents = options.officialAgents;
 		this.#userSettings = options.userSettings;
+		this.apps = options.apps;
 		this.store = options.store;
 		this.files = new ChatFileStore(options.store.dataDir);
  this.mcp = options.mcp;
@@ -1483,6 +1489,7 @@ export class ProjectManager {
 		};
 
 		const workers = new WorkerService({
+			...(this.apps === undefined ? {} : { apps: { registry: this.apps, active: requirePublisher => activeApps(requirePublisher) } }),
 			taskLive: this.#taskLive,
 			artifacts: this.artifacts,
 			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
@@ -1557,6 +1564,30 @@ export class ProjectManager {
 			onMessage: this.#onThreadsMessage,
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
+		const activeApps: ActiveApps = async requirePublisher => {
+			const [boardState, threadList, workerList] = await Promise.all([board.state(), threads.list(false), workers.list()]);
+			const openTasks = new Set(boardState.tasks.filter(task => !task.archived && task.status !== "done" && task.status !== "dropped").map(task => task.id));
+			const liveThreads = new Set(threadList.map(thread => thread.id));
+			const liveWorkers = new Set(workerList.workers.filter(worker => worker.status !== "done").map(worker => worker.conversationId));
+			return ({ taskId, publishedBy }) => {
+				const publisherActive = liveThreads.has(publishedBy.threadId) &&
+					(publishedBy.kind !== "worker" || liveWorkers.has(publishedBy.conversationId));
+				if (requirePublisher && !publisherActive) return false;
+				return taskId === undefined ? publisherActive : openTasks.has(taskId);
+			};
+		};
+		const reconcileApps = () => this.apps?.reconcile(project.id, activeApps).catch(error => this.#log(`project ${project.id}: app cleanup: ${errorMessage(error)}`));
+		if (this.apps && this.#userSettings) registry.install(createAppExtension({
+			projectId: project.id, apps: this.apps, settings: () => this.#userSettings!.appSettings, active: activeApps,
+			isCoordinator: id => coordinators.placeOf(id)?.kind === "coordinator",
+			agent: async conversationId => {
+				const place = coordinators.placeOf(conversationId);
+				if (place) return { publisher: { id: place.threadId, threadId: place.threadId, conversationId, kind: place.kind === "coordinator" ? "coordinator" : "thread" } };
+				const worker = await workers.workerOf(conversationId);
+				if (!worker || worker.record.status === "done") return undefined;
+				return { publisher: { id: worker.record.id, kind: "worker", threadId: worker.threadId, conversationId }, taskId: worker.record.taskId ?? undefined };
+			},
+		}));
 		workers.attachThreadCheckIns(threads.checkIns);
 		workers.diskWarnings = this.#diskWarnings;
 		const projectStorage = new ProjectStorage({
@@ -1837,6 +1868,7 @@ export class ProjectManager {
 				threadsQueued = false;
 				void (async () => {
 					const list = await threads.list(false);
+					void reconcileApps();
 					activity.setBackgroundThreads(await threads.backgroundCount());
  activity.setBackgroundJobs(backgroundJobCounts(list));
 					updateAttention(threadAttention(list));
@@ -1874,6 +1906,7 @@ export class ProjectManager {
 			threads,
 			storage: projectStorage,
 			role,
+			activeApps,
 		};
 		entry.stopExtraction = async () => {
 			extractionStopped = true;
@@ -1883,6 +1916,7 @@ export class ProjectManager {
 		entry.stopThreads = () => threads.stop();
 		entry.stopWorkersWatch = await workers
 			.watch((list, defaults) => {
+				void reconcileApps();
 				this.#emitWorkers(project.id, list, defaults);
 				updateAttention(workerAttention(list));
 				// The project's activity counts main's running workers; each thread counts its own in the thread list.
@@ -1898,6 +1932,7 @@ export class ProjectManager {
 			});
 		entry.stopBoardWatch = await board
 			.watch((view, openQuestions) => {
+				void reconcileApps();
 				this.#emitBoard(project.id, view);
 				activity.setOpenQuestions(openQuestions);
 				updateAttention(boardAttention(view));
@@ -1907,6 +1942,7 @@ export class ProjectManager {
 				this.#log(`project ${project.id}: board watch failed: ${errorMessage(error)}`);
 				return async () => undefined;
 			});
+		await reconcileApps();
 		await taskChanges.start();
 		const taskDeploys = new TaskDeployObserver({
 			projectId: project.id, path: project.path,

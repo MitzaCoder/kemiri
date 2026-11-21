@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AppSettingsGroup from './AppSettingsGroup.svelte';
 	import YourNameGroup from "./YourNameGroup.svelte";
 	import CoordinatorCompactionGroup from "./CoordinatorCompactionGroup.svelte";
 	import DevicesSection from './DevicesSection.svelte';
@@ -66,6 +67,7 @@
 {:else if section === 'devices'}
 	<DevicesSection {backend} />
 {:else if section === 'advanced'}
+	{#if backend.features?.includes('apps')}<AppSettingsGroup {backend} />{/if}
 	{#if backend.features?.includes('coordinator-compaction-settings')}
 		{#key backend.id}<CoordinatorCompactionGroup {backend} />{/key}
 	{/if}

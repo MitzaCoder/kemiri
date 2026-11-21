@@ -1,3 +1,5 @@
+import type { AgentApps } from "./agent-apps.ts";
+import type { ActiveApps } from "./app-tools.ts";
 import { workerCommandIntent } from "./worker-command-intent.ts";
 import { acpToolLabel, acpToolStep } from "./official-agents/acp-activity.ts";
 import { recordAcpActivity } from "./official-agents/acp-recording.ts";
@@ -1128,6 +1130,7 @@ export type WorkerServiceOptions = {
 	taskLive?: boolean;
 	officialAgents?: OfficialAgentSessions;
 	artifacts?: ArtifactStore;
+	apps?: { registry: AgentApps; active: ActiveApps };
 	browsers?: WorkerBrowserService;
 	lessons?: Pick<WorkerLessonStore, "capture">;
 	/** Used only at worker creation, never when its conversation resumes. */
@@ -1388,6 +1391,7 @@ export class WorkerService {
 						...(artifacts && coordinatorId !== undefined ? { mcpScope: { taskId, create: async () => officialAgentWorkerTools({
 							projectId, workerId: record.id, threadId, taskId, cwd, artifacts, harness: this.harness, mainId: this.mainId as ConversationId,
 							taskLive: this.#options.taskLive === true,
+							...(this.#options.apps === undefined ? {} : { apps: this.#options.apps, conversationId }),
 							managedWorkspace: record.workspacePath != null || (threadId !== "main" && checkout != null),
 							proofDirectory: await this.#options.browsers?.proofDirectory(projectId, conversationId).catch(() => undefined),
 							onSavedProof: async path => { await this.#options.browsers?.recordSavedProof(projectId, conversationId, path); },

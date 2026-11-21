@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskApps from '#lib/components/apps/TaskApps.svelte';
 	import { tick } from 'svelte';
 	import { formatMinutes } from '@kemiri/client';
 	import type { BoardQuestion } from '@kemiri/protocol';
@@ -246,6 +247,7 @@
 													</div>
 												{/if}
 											</div>
+											{#if open}<TaskApps {backend} {projectId} taskId={task.id} />{/if}
 										{:else}
 											<div class="route-flow">
 												{#if open}
