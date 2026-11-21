@@ -16,6 +16,8 @@ import type {
 } from "@kemiri/protocol";
 import { calculateCost, type Model, type Models, type Usage } from "@earendil-works/pi-ai";
 import { usageAnalysis } from "./usage-analysis.ts";
+import { recordedUsageRange, readRecordedUsage } from "./recorded-usage.ts";
+import type { TaskLink } from "./subscription-value.ts";
 import type { ProjectStore } from "./projects.ts";
 import { REQUEST_LOG_KEEP_DAYS, type RequestLogStore, type RequestRow } from "./request-log-store.ts";
 
@@ -330,22 +332,28 @@ export async function readCacheStats(options: {
 	projectId?: string;
 	utcOffsetMinutes?: number;
 	calendarToday?: boolean;
+	month?: string;
+	recorded?: boolean;
+	boardTasks?: (projectId: string) => Promise<readonly TaskLink[]>;
 	now?: number;
 }): Promise<CacheStats> {
 	const now = options.now ?? Date.now();
-	const offset = (options.utcOffsetMinutes ?? 0) * 60_000;
-	const { from, to } = options.calendarToday
-		? { from: Math.floor((now + offset) / DAY_MS) * DAY_MS - offset, to: now + 1 }
-		: cacheStatsRange(now, options.days);
+	const { from, to } = recordedUsageRange(options, now);
 	const projects = await options.projects.list().catch(() => []);
-	return cacheStats({
-		rows: options.store.rows({ from, to, ...(options.projectId === undefined ? {} : { projectId: options.projectId }) }),
+	const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+	const projectFilter = options.projectId === undefined ? {} : { projectId: options.projectId };
+	const stats = cacheStats({
+		rows: options.store.rows({ from, to, ...projectFilter }),
 		from,
 		to,
 		liveSince: options.store.liveSince(),
 		internalSince: options.store.internalSince(),
-		projectNames: new Map(projects.map((project) => [project.id, project.name])),
+		projectNames,
 		...(options.models === undefined ? {} : { models: options.models }),
 		...(options.utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes: options.utcOffsetMinutes }),
 	});
+	if (options.recorded || options.month !== undefined) {
+		stats.recorded = await readRecordedUsage(options.store, { from, to, ...projectFilter }, projectNames, options.boardTasks);
+	}
+	return stats;
 }

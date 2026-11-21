@@ -176,7 +176,7 @@ export type StartServerOptions = {
 	/** Subscription usage reads. Defaults: the real endpoints, a 5 minute poll while a client is connected. */
 	subscriptionUsage?: Pick<
 		SubscriptionUsageOptions,
-		"fetch" | "anthropicBaseUrl" | "chatgptBaseUrl" | "pollIntervalMs" | "afterTurnQuietMs" | "minReadGapMs"
+		"fetch" | "anthropicBaseUrl" | "chatgptBaseUrl" | "opencodeGoBaseUrl" | "readAntigravityQuota" | "pollIntervalMs" | "afterTurnQuietMs" | "minReadGapMs"
 	>;
 	/**
 	 * Artifacts. Defaults: `KEMIRI_ARTIFACT_MAX_BYTES` (else 2 GiB) per file, URLs valid 10 minutes, durations from
@@ -374,7 +374,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const projectFiles = (options.projectFiles ?? projectFilesEnabled()) ? new ProjectFiles() : undefined;
 	const features = (options.features ?? HARNESS_FEATURES).filter(
 		(feature) =>
-			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value" && feature !== "task-usage") ||
+			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "recorded-usage" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "project-files" || projectFiles !== undefined) &&

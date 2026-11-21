@@ -4,11 +4,8 @@
 	import CoinsIcon from '@lucide/svelte/icons/coins';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import LightbulbIcon from '@lucide/svelte/icons/lightbulb';
-	import type { CacheGroup } from '@kemiri/protocol';
-	import Banner from '#lib/components/Banner.svelte';
-	import UsageSkeleton from '#lib/components/usage/UsageSkeleton.svelte';
+	import type { CacheGroup, CacheStats } from '@kemiri/protocol';
 	import {
-		CACHE_STATS_RANGES,
 		REASONS,
 		changeLines,
 		conversationLabel,
@@ -25,24 +22,18 @@
 		wakeLabel,
 		wakePhrase
 	} from '#lib/cache-stats.js';
-	import type { BackendCacheStats } from '#lib/cache-stats.svelte.js';
 	import { exactTime } from '#lib/relative-time.js';
 
 	/**
 	 * One backend's prompt cache statistics: what its model requests cost, how much of that billed a cached prompt again
 	 * and why, where and after what, what would have helped, and each costly miss with what changed in the request.
 	 */
-	let { cache, showRange = true }: { cache: BackendCacheStats; showRange?: boolean } = $props();
-
-	const stats = $derived(cache.stats);
-	const summary = $derived(stats === undefined ? undefined : summaryLines(stats));
-	const bars = $derived(stats === undefined ? [] : dayBars(stats));
-	const ideas = $derived(
-		stats === undefined ? [] : [longCacheLine(stats), ...wakeAdvice(stats, cache.days)].filter((line) => line !== undefined)
-	);
-	const wakes = $derived(stats?.byWake.filter((wake) => wake.wake !== 'continue') ?? []);
-	const highestReason = $derived(Math.max(0, ...(stats?.byReason.map((group) => group.missedCost) ?? [])));
-	const liveSince = $derived(stats?.liveSince ?? null);
+	let { stats, days }: { stats: CacheStats; days: number } = $props();
+	const summary = $derived(summaryLines(stats));
+	const bars = $derived(dayBars(stats));
+	const ideas = $derived([longCacheLine(stats), ...wakeAdvice(stats, days)].filter((line) => line !== undefined));
+	const wakes = $derived(stats.byWake.filter((wake) => wake.wake !== 'continue'));
+	const highestReason = $derived(Math.max(0, ...stats.byReason.map((group) => group.missedCost)));
 	/** The miss list starts short; the reader asks for the rest. */
 	const SHORT_LIST = 15;
 	let allMisses = $state(false);
@@ -64,31 +55,8 @@
 		<CoinsIcon class="size-4 text-(--chat-fg-subtle)" />
 		<h3 class="text-sm font-semibold tracking-tight">Prompt cache</h3>
 		<span class="h-px min-w-4 flex-1 bg-(--chat-border)"></span>
-		{#if showRange}<div class="flex rounded-lg border border-(--chat-border) p-0.5 text-xs" role="group" aria-label="Range">
-			{#each CACHE_STATS_RANGES as days (days)}
-				<button
-					type="button"
-					class="rounded-md px-2 py-0.5 tabular-nums transition-colors {cache.days === days
-						? 'bg-(--chat-surface-2) font-medium text-(--chat-fg)'
-						: 'text-(--chat-fg-muted) hover:text-(--chat-fg)'}"
-					aria-pressed={cache.days === days}
-					disabled={cache.loading && cache.days === days}
-					onclick={() => cache.load(days)}
-				>
-					{days} days
-				</button>
-			{/each}
-		</div>{/if}
 	</div>
-
-	{#if cache.error}
-		<Banner tone={stats ? 'warning' : 'error'}>Could not read the prompt cache numbers: {cache.error}</Banner>
-	{/if}
-
-	{#if stats === undefined || summary === undefined}
-		{#if !cache.error}<UsageSkeleton />{/if}
-	{:else}
-		<article class="cache-card flex flex-col gap-3 rounded-2xl border border-(--chat-border) bg-(--chat-surface)/55 p-3 shadow-(--chat-shadow)" class:opacity-60={cache.loading}>
+		<article class="cache-card flex flex-col gap-3 rounded-2xl border border-(--chat-border) bg-(--chat-surface)/55 p-3 shadow-(--chat-shadow)">
 			<p class="text-sm text-(--chat-fg-muted)">
 				A provider keeps the start of a conversation for a few minutes, so the next request reads it for a fraction of the price.
 				When that copy is gone or no longer matches, the whole prompt is billed again in full.
@@ -290,14 +258,6 @@
 			</article>
 		{/if}
 
-		<p class="px-1 text-xs text-(--chat-fg-subtle)">
-			Kept for {stats.keptDays} days.
-			{#if liveSince}
-				Recorded as they run since {new Date(liveSince).toLocaleDateString()}; earlier requests were read back from the
-				transcripts, without what changed in each request.
-			{/if}
-		</p>
-	{/if}
 </div>
 
 <style>

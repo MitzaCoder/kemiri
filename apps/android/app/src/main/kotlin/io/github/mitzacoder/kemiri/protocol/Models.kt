@@ -2629,8 +2629,100 @@ data class LongCacheWhatIf(
 )
 
 @Serializable
+data class RecordedUsageGroup(
+    val `key`: String,
+    val `label`: String,
+    val `requests`: Long,
+    val `inputTokens`: Double,
+    val `cacheReadTokens`: Double,
+    val `cacheWriteTokens`: Double,
+    val `outputTokens`: Double,
+    val `cost`: Double,
+    val `unpricedRequests`: Long
+)
+
+@Serializable
+data class RecordedUsage(
+    val `totals`: RecordedUsageGroup,
+    val `byProject`: List<RecordedUsageGroup>,
+    val `byTask`: List<RecordedUsageGroup>,
+    val `byModel`: List<RecordedUsageGroup>,
+    val `byRole`: List<RecordedUsageGroup>,
+    val `byProviderBilling`: List<RecordedUsageGroup>,
+    val `approximate`: Boolean
+)
+
+@Serializable
+data class UsageDetailRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.detail",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `month`: String? = null,
+    val `days`: Long? = null,
+    val `calendarToday`: Boolean? = null,
+    val `utcOffsetMinutes`: Long? = null,
+    val `selection`: UsageSelection
+)
+
+@Serializable(with = UsageSelectionSerializer::class)
+sealed interface UsageSelection { val `kind`: String }
+
+/** A UsageSelection variant this build does not know, kept as it came. */
+data class UnknownUsageSelection(override val raw: JsonObject) : UsageSelection, UnknownVariant {
+    override val `kind`: String get() = raw["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object UsageSelectionSerializer : UnionSerializer<UsageSelection>("UsageSelection", "kind", mapOf(
+    "task" to UsageSelectionTask.serializer(),
+    "project" to UsageSelectionProject.serializer(),
+    "model" to UsageSelectionModel.serializer(),
+    "role" to UsageSelectionRole.serializer(),
+    "providerBilling" to UsageSelectionProviderBilling.serializer(),
+), { it.`kind` }, ::UnknownUsageSelection)
+
+@Serializable
+data class UsageSelectionTask(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "task",
+    val `projectId`: String,
+    val `taskId`: String
+) : UsageSelection
+
+@Serializable
+data class UsageSelectionProject(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "project",
+    val `projectId`: String
+) : UsageSelection
+
+@Serializable
+data class UsageSelectionModel(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "model",
+    val `provider`: String,
+    val `model`: String
+) : UsageSelection
+
+@Serializable
+data class UsageSelectionRole(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "role",
+    val `role`: String
+) : UsageSelection
+
+@Serializable
+data class UsageSelectionProviderBilling(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "providerBilling",
+    val `provider`: String,
+    val `billing`: String?
+) : UsageSelection
+
+@Serializable
+data class UsageDetailResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage.detail",
+    val `id`: String,
+    val `usage`: RecordedUsage
+)
+
+@Serializable
 data class CacheStats(
     val `usage`: CacheStatsUsage? = null,
+    val `recorded`: RecordedUsage? = null,
     val `from`: String,
     val `to`: String,
     val `keptDays`: Long,
@@ -2688,10 +2780,12 @@ data class CacheStatsKeepWarm(
 data class CacheStatsRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "cache.stats",
     val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `month`: String? = null,
     val `days`: Long? = null,
     val `calendarToday`: Boolean? = null,
-    val `projectId`: String? = null,
-    val `utcOffsetMinutes`: Long? = null
+    val `utcOffsetMinutes`: Long? = null,
+    val `recorded`: Boolean? = null,
+    val `projectId`: String? = null
 )
 
 @Serializable

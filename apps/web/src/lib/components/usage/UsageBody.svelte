@@ -1,356 +1,384 @@
 <script lang="ts">
-	import { overlayScroll } from '#lib/scrollbars.js';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import GaugeIcon from '@lucide/svelte/icons/gauge';
-	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import ChartIcon from '@lucide/svelte/icons/chart-no-axes-column-increasing';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import InfoIcon from '@lucide/svelte/icons/info';
+	import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
 	import XIcon from '@lucide/svelte/icons/x';
+	import { page } from '$app/state';
 	import { onMount, tick } from 'svelte';
-	import type { SubscriptionUsage } from '@kemiri/protocol';
-	import Banner from '#lib/components/Banner.svelte';
+	import type { CacheStats, UsageValueResponse } from '@kemiri/protocol';
 	import Orb from '#lib/components/Orb.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
-	import UsageAnalysis from '#lib/components/usage/UsageAnalysis.svelte';
-	import BackendSubscriptionValue from './BackendSubscriptionValue.svelte';
-	import { Input } from '#lib/components/ui/input/index.js';
-	import { localValueMonth, moveValueMonth } from '#lib/subscription-value.js';
-	import { supportsSubscriptionValue, usageTabs, usageTabAfterKey, usageTabKey, type UsageTab } from '#lib/usage-analysis.js';
-	import SubscriptionCard from '#lib/components/usage/SubscriptionCard.svelte';
-	import UsageSkeleton from '#lib/components/usage/UsageSkeleton.svelte';
-	import { backendSettingsHref, generalSettingsHref } from '#lib/settings.js';
-	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
-	import { updatedLabel } from '#lib/subscription-usage.js';
-	import { usageBoard } from '#lib/subscription-usage.svelte.js';
-	import { cacheStatsBoard } from '#lib/cache-stats.svelte.js';
-	import { page } from '$app/state';
 	import { inAppBackVisible } from '#lib/settings-navigation.js';
+	import { backendSettingsHref, generalSettingsHref } from '#lib/settings.js';
+	import { overlayScroll } from '#lib/scrollbars.js';
+	import { providerMark, resetLabel, updatedLabel } from '#lib/subscription-usage.js';
+	import { usageBoard } from '#lib/subscription-usage.svelte.js';
+	import { localValueMonth, valueMonthRequest } from '#lib/subscription-value.js';
+	import { computerNames, mergeSubscriptions, providerSpend, quietLimits, rankedLimits, spendRows, subscriptionMonths,
+		SPEND_DIMENSIONS, USAGE_BACKEND_KEY, USAGE_PERIODS, usagePeriodRequest, type SpendDimension, type SpendRow, type UsagePeriod } from '#lib/usage-glance.js';
+	import { usageMoney } from '#lib/usage-money.js';
+	import CacheSection from './CacheSection.svelte';
+	import GlanceLimitRow from './GlanceLimitRow.svelte';
+	import GlanceSpendDetail from './GlanceSpendDetail.svelte';
+	import GlanceSubscriptionDetail from './GlanceSubscriptionDetail.svelte';
+	import ProviderMark from './ProviderMark.svelte';
 
-	/**
-	 * Subscription usage across every connected backend that reports it: a card per logged-in subscription (each backend
-	 * has its own logins), a gauge and a chart per rate-limit window. Mounted while the modal is open, so reads start
-	 * then and stop on close. Numbers follow the server's pushes; the refresh button makes each backend read its
-	 * providers now.
-	 */
-	const reporting = $derived(harness.backends.filter((backend) => backend.supports('subscription-usage')));
-	const silent = $derived(harness.backends.filter((backend) => !backend.supports('subscription-usage')));
-	const usages = $derived(reporting.map((backend) => usageBoard.for(backend)));
-	const all = $derived(usages.flatMap((usage) => usage.subscriptions));
-	const allLoaded = $derived(usages.length > 0 && usages.every((usage) => usage.loaded));
-	const refreshing = $derived(usages.some((usage) => usage.refreshing));
-	const empty = $derived(allLoaded && all.length === 0);
-	const newestUpdate = $derived(newest(all));
-	/** Prompt cache numbers, from the backends that keep a request log. */
-	const caches = $derived(
-		harness.backends.filter((backend) => backend.supports('cache-stats')).map((backend) => cacheStatsBoard.for(backend))
-	);
-
-	const valueBackends = $derived(harness.backends.filter((backend) => supportsSubscriptionValue(backend.features)));
-	const tabs = $derived(usageTabs(valueBackends.length > 0));
-
-	/** The clock every countdown, pace and "updated" reads; ticks so they age on their own. */
+	type Sheet = { kind: 'subscription'; key: string } | { kind: 'spend'; row: SpendRow };
+	let sheetTrail = $state<Sheet[]>([]);
+	const sheet = $derived(sheetTrail.at(-1));
+	let sheetTrigger: HTMLElement | undefined;
+	let sheetClose: HTMLButtonElement | null = $state(null);
+	let sheetScroll: HTMLDivElement | null = $state(null);
+	let backendId = $state('');
+	let period = $state<UsagePeriod>('rolling');
+	let dimension = $state<SpendDimension>('task');
+	let grouped = $state(false);
+	let showQuiet = $state(false);
+	let showAllSpend = $state(false);
+	let expandedLimit = $state<string>();
 	let now = $state(Date.now());
-	let tab = $state<UsageTab>('Overview');
-	let period = $state<1 | 7 | 30>(30);
-	let panel = $state<HTMLDivElement | null>(null);
-	let tablist = $state<HTMLDivElement | null>(null);
-	let pickedMonth = $state<string>();
-	let valueRefreshCount = $state(0);
-	const currentMonth = $derived(localValueMonth(new Date(now)));
-	const valueMonth = $derived(pickedMonth ?? currentMonth);
+	let refreshRevision = $state(0);
+	let recordedReads = $state<{ computer: BackendConnection; stats?: CacheStats; error?: string }[]>([]);
+	let monthlyReads = $state<{ computer: BackendConnection; report?: UsageValueResponse; error?: string }[]>([]);
+	let readingRecorded = $state(false);
+	let readingMonth = $state(false);
 
-	function selectMonth(month: string): void {
-		if (!/^[1-9][0-9]{3}-(0[1-9]|1[0-2])$/.test(month) || month > currentMonth) return;
-		pickedMonth = month === currentMonth ? undefined : month;
-		if (panel) panel.scrollTop = 0;
-	}
-
-	$effect(() => {
-		if (tab !== 'Value' || tabs.includes(tab)) return;
-		const restoreFocus = tablist?.contains(document.activeElement) || panel?.contains(document.activeElement)
-			|| document.activeElement === document.body;
-		selectTab('Overview');
-		if (restoreFocus) void tick().then(() => focusTab('Overview'));
-	});
-
-	function focusTab(label: UsageTab): void {
-		tablist?.querySelector<HTMLButtonElement>(`#usage-tab-${usageTabKey(label)}`)?.focus();
-	}
-	function selectTab(next: UsageTab): void {
-		tab = next;
-		if (panel) panel.scrollTop = 0;
-	}
-	function tabKeydown(event: KeyboardEvent): void {
-		const next = usageTabAfterKey(tab, event.key, tabs);
-		if (!next) return;
-		event.preventDefault();
-		selectTab(next);
-		focusTab(next);
-	}
+	const month = $derived(localValueMonth(new Date(now)));
+	const monthLabel = $derived(new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }));
+	const periodLabel = $derived(period === 'month' ? `${monthLabel} so far` : (USAGE_PERIODS.find(([key]) => key === period)?.[1] ?? ''));
+	const periodRequest = $derived(usagePeriodRequest(period, month, new Date(now)));
+	// The wall clock drives the countdown; only a changed calendar boundary or offset drives a new recorded read.
+	const periodRequestKey = $derived(JSON.stringify(periodRequest));
+	const localDay = $derived(period === 'today' ? new Date(now).toDateString() : '');
+	const selectedId = $derived(harness.backends.some(backend => backend.id === backendId) ? backendId : '');
+	const selectedBackends = $derived(harness.backends.filter(backend => !selectedId || backend.id === selectedId));
+	const offline = $derived(selectedBackends.filter(backend => !backend.ready));
+	const usageSources = $derived(selectedBackends.filter(backend => backend.supports('subscription-usage') && backend.ready).map(backend => usageBoard.for(backend)));
+	const subscriptions = $derived(mergeSubscriptions(usageSources.flatMap(source => source.subscriptions.map(subscription => ({ computer: source.backend, subscription })))));
+	const limits = $derived(rankedLimits(subscriptions, now));
+	const quiet = $derived(quietLimits(limits));
+	const quietKeys = $derived(new Set(quiet.map(limit => limit.key)));
+	const visibleLimits = $derived(showQuiet ? limits : limits.filter(limit => !quietKeys.has(limit.key)));
+	const attention = $derived(limits.filter(limit => limit.status === 'near' || limit.status === 'hot').slice(0, 2));
+	const newestUpdate = $derived(subscriptions.map(subscription => subscription.reading.updatedAt ?? '').sort().at(-1));
+	const refreshing = $derived(usageSources.some(source => source.refreshing));
+	const recorded = $derived(recordedReads.flatMap(({ computer, stats }) => stats ? [{ computer, stats }] : []));
+	const total = $derived(recorded.reduce((sum, { stats }) => sum + (stats.recorded?.totals.cost ?? stats.usage?.totals.cost ?? stats.totals.cost + (stats.keepWarm?.cost ?? 0)), 0));
+	const rankedSpend = $derived(spendRows(recorded, dimension));
+	const subscriptionSpend = $derived(providerSpend(recorded, subscriptions));
+	const providerTotal = $derived(subscriptionSpend.reduce((sum, row) => sum + row.cost, 0));
+	const months = $derived(subscriptionMonths(monthlyReads.flatMap(({ computer, report }) => report ? [{ computer, report }] : []), subscriptions));
+	const selectedSubscription = $derived(sheet?.kind === 'subscription' ? subscriptions.find(subscription => subscription.key === sheet.key) : undefined);
+	const needsMonth = $derived(period === 'month' || sheet?.kind === 'subscription');
+	const knownPlanPrice = $derived([...months.values()].reduce((sum, entry) => sum + (entry.price?.monthlyPrice ?? 0), 0));
+	const subscriptionMonthCost = $derived([...months.values()].reduce((sum, entry) => sum + entry.cost, 0));
+	const completeComparison = $derived(months.size > 0 && [...months.values()].every(entry => entry.price?.monthlyPrice != null)
+		&& selectedBackends.filter(backend => backend.ready && (backend.supports('cache-stats') || backend.supports('subscription-usage')))
+			.every(backend => monthlyReads.some(read => read.computer.id === backend.id && read.report)));
+	const priceMarker = $derived(period === 'month' && completeComparison && knownPlanPrice > 0 ? knownPlanPrice : 0);
+	const spendScale = $derived(Math.max(total, priceMarker));
+	const promptTokens = $derived(recorded.reduce((sum, { stats }) => sum + stats.totals.inputTokens + stats.totals.cacheReadTokens + stats.totals.cacheWriteTokens, 0));
+	const cacheRead = $derived(recorded.reduce((sum, { stats }) => sum + stats.totals.cacheReadTokens, 0));
+	const signals = $derived([
+		{ label: 'Prompt billed again', note: 'Estimated from inferred cache misses', cost: recorded.reduce((sum, { stats }) => sum + stats.totals.missedCost, 0) },
+		{ label: 'Failed or stopped responses', note: 'Only responses with reported usage', cost: recorded.reduce((sum, { stats }) => sum + (stats.usage?.failed.cost ?? 0), 0) },
+		{ label: 'Keep-warm', note: 'Scheduled cache refreshes', cost: recorded.reduce((sum, { stats }) => sum + (stats.keepWarm?.cost ?? 0), 0) },
+		{ label: 'Check-ins and retries', note: 'Requests themselves, not follow-up turns', cost: recorded.reduce((sum, { stats }) => sum + (stats.usage?.checkIns.cost ?? 0) + (stats.usage?.retries.cost ?? 0), 0) },
+	]);
+	let scroll: HTMLDivElement | null = $state(null);
 
 	onMount(() => {
-		const timer = setInterval(() => (now = Date.now()), 10_000);
+		try { backendId = localStorage.getItem(USAGE_BACKEND_KEY) ?? ''; } catch { /* Storage is optional. */ }
+		const timer = setInterval(() => now = Date.now(), 10_000);
 		return () => clearInterval(timer);
 	});
-
 	$effect(() => {
-		const started = usages;
-		for (const usage of started) usage.start();
-		return () => {
-			for (const usage of started) usage.stop();
-		};
+		const sources = usageSources;
+		for (const source of sources) source.start();
+		return () => { for (const source of sources) source.stop(); };
+	});
+	$effect(() => {
+		const backends = selectedBackends.filter(backend => backend.ready && backend.supports('cache-stats'));
+		const range = JSON.parse(periodRequestKey) as typeof periodRequest;
+		void refreshRevision;
+		void localDay;
+		recordedReads = [];
+		let ignore = false;
+		readingRecorded = backends.length > 0;
+		void Promise.all(backends.map(async computer => {
+			const supported = computer.supports('recorded-usage');
+			if (range.month && !supported) return { computer, error: 'does not report calendar-month usage yet' };
+			try {
+				const stats = await computer.client.readCacheStats({ ...range, ...(supported ? { recorded: true } : {}) });
+				return { computer, stats };
+			} catch { return { computer, error: 'could not be read' }; }
+		})).then(reads => { if (!ignore) { recordedReads = reads; readingRecorded = false; } });
+		return () => { ignore = true; };
+	});
+	$effect(() => {
+		const backends = selectedBackends.filter(backend => backend.ready && backend.supports('subscription-value'));
+		const query = valueMonthRequest(month);
+		void refreshRevision;
+		let ignore = false;
+		monthlyReads = [];
+		readingMonth = needsMonth && backends.length > 0;
+		if (!needsMonth) return;
+		void Promise.all(backends.map(async computer => {
+			try {
+				const report = await computer.client.request<UsageValueResponse>(query);
+				if (report.type === 'usage.value') return { computer, report };
+			} catch { /* A partial comparison is labelled below. */ }
+			return { computer, error: 'could not be read' };
+		})).then(reads => { if (!ignore) { monthlyReads = reads; readingMonth = false; } });
+		return () => { ignore = true; };
 	});
 
-	$effect(() => {
-		const started = caches;
-		for (const cache of started) {
-			cache.days = period;
-			cache.calendarToday = period === 1;
-			cache.start();
-		}
-		return () => {
-			for (const cache of started) cache.stop();
-		};
-	});
-
-	function newest(subscriptions: SubscriptionUsage[]): string | null {
-		let best: string | null = null;
-		for (const subscription of subscriptions) {
-			const at = subscription.updatedAt;
-			if (at !== null && (best === null || Date.parse(at) > Date.parse(best))) best = at;
-		}
-		return best;
+	function pickBackend(id: string) {
+		backendId = id;
+		expandedLimit = undefined;
+		try { localStorage.setItem(USAGE_BACKEND_KEY, id); } catch { /* The view still changes. */ }
 	}
-
-	async function refresh(): Promise<void> {
+	function refresh() {
 		now = Date.now();
-		if (tab === 'Value') { valueRefreshCount += 1; return; }
-		await Promise.allSettled([...usages.map((usage) => usage.load(true)), ...caches.map((cache) => cache.load())]);
-		now = Date.now();
+		refreshRevision += 1;
+		void Promise.allSettled(usageSources.map(source => source.load(true)));
 	}
-
-	/** Where this backend's logins live: its Accounts and API keys page. */
-	function loginsHref(backend: BackendConnection): string {
-		return backendSettingsHref(backend.id, 'accounts');
+	function jumpTo(id: string) {
+		const heading = scroll?.querySelector<HTMLElement>(`#${id}`);
+		heading?.focus({ preventScroll: true });
+		heading?.scrollIntoView({ block: 'start' });
+	}
+	function openSheet(detail: Sheet) {
+		if (!sheet) sheetTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		sheetTrail = [...sheetTrail, detail];
+		void tick().then(() => { if (sheetScroll) sheetScroll.scrollTop = 0; sheetClose?.focus(); });
+	}
+	function openSpend(row: SpendRow) {
+		if (row.subscriptionKey) openSheet({ kind: 'subscription', key: row.subscriptionKey });
+		else openSheet({ kind: 'spend', row });
+	}
+	function restoreSheetFocus(event: Event) {
+		event.preventDefault();
+		sheetTrigger?.focus();
 	}
 </script>
 
-<Dialog.Header
-	class="shrink-0 gap-1 border-b border-(--chat-border) px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3 sm:px-6 sm:pt-5"
->
-	<div class="flex items-center gap-2">
-		<Dialog.Title class="min-w-0 flex-1 text-xl leading-tight font-bold tracking-tight">Usage</Dialog.Title>
-		{#if newestUpdate && tab !== 'Value'}
-			<span class="text-xs whitespace-nowrap text-(--chat-fg-subtle) tabular-nums"
-				>{updatedLabel(newestUpdate, now)}</span
-			>
-		{/if}
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={refresh}
-			disabled={tab === 'Value' ? valueBackends.every((backend) => !backend.ready) : refreshing || usages.every((usage) => !usage.backend.ready)}
-			aria-label={tab === 'Value' ? 'Refresh subscription value' : 'Read every provider now'}
-			title={tab === 'Value' ? 'Refresh subscription value' : 'Read every provider now'}
-		>
-			<RefreshCwIcon class="size-4 {tab !== 'Value' && refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" />
-			<span class="max-sm:sr-only">{tab !== 'Value' && refreshing ? 'Refreshing…' : 'Refresh'}</span>
-		</Button>
-		{#if inAppBackVisible(page.state.navigation)}<Button variant="ghost" class="h-11 min-w-11" onclick={() => history.back()}>Back</Button>{/if}
-		<Dialog.Close>
-			{#snippet child({ props })}
-				<Button variant="ghost" class="size-11" {...props}>
-					<XIcon />
-					<span class="sr-only">Close</span>
-				</Button>
-			{/snippet}
-		</Dialog.Close>
-	</div>
-	<Dialog.Description class="text-sm text-muted-foreground">
-		Subscription capacity and where recorded tokens go. Compare callers, models and tasks before changing defaults.
-	</Dialog.Description>
+<Dialog.Header class="usage-glance-heading">
+	<Dialog.Title class="flex min-w-0 flex-1 items-center gap-2 text-xl font-bold tracking-tight"><ChartIcon class="hidden size-5 text-(--accent-2) sm:block" />Usage</Dialog.Title>
+	<label class="computer-filter"><span class="sr-only md:not-sr-only md:mr-1.5 md:text-xs md:text-muted-foreground">Computer</span>
+		<select value={selectedId} onchange={event => pickBackend(event.currentTarget.value)}>
+			<option value="">All</option>
+			{#each harness.backends as backend (backend.id)}<option value={backend.id}>{backend.name}</option>{/each}
+		</select>
+	</label>
+	{#if newestUpdate}<span class="hidden text-xs text-muted-foreground md:inline">{updatedLabel(newestUpdate, now)}</span>{/if}
+	<Button variant="ghost" size="icon" onclick={refresh} disabled={refreshing || !selectedBackends.some(backend => backend.ready)} aria-label="Refresh usage" title="Refresh usage"><RefreshIcon class="size-4 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" /></Button>
+	{#if inAppBackVisible(page.state.navigation)}<Button variant="ghost" onclick={() => history.back()}>Back</Button>{/if}
+	<Dialog.Close aria-label="Close usage" class="grid size-9 place-items-center rounded-md hover:bg-muted"><XIcon class="size-4" /></Dialog.Close>
+	<Dialog.Description class="sr-only">Live subscription limits and recorded work at API prices.</Dialog.Description>
 </Dialog.Header>
 
-<div class="shrink-0 border-b border-(--chat-border) px-4 py-3 sm:px-6">
-	<div bind:this={tablist} role="tablist" aria-label="Usage views" class="flex flex-wrap gap-1">
-		{#each tabs as label (label)}
-			<button
-				type="button"
-				role="tab"
-				id="usage-tab-{usageTabKey(label)}"
-				aria-controls="usage-panel"
-				aria-selected={tab === label}
-				tabindex={tab === label ? 0 : -1}
-				onclick={() => selectTab(label)}
-				onkeydown={tabKeydown}
-				class="rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-2) {tab ===
-				label
-					? 'bg-(--chat-surface-2) text-(--chat-fg)'
-					: 'text-(--chat-fg-muted) hover:bg-(--chat-surface)'}">{label}</button
-			>
-		{/each}
-	</div>
-	{#if tab === 'Value'}
-		<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-			<label for="usage-value-month" class="text-(--chat-fg-muted)">Calendar month</label>
-			<div class="flex items-center gap-1">
-				<Button variant="ghost" size="icon" onclick={() => selectMonth(moveValueMonth(valueMonth, -1))} aria-label="Previous month"><ChevronLeftIcon /></Button>
-				<Input id="usage-value-month" type="month" value={valueMonth} min="1000-01" max={currentMonth} class="w-auto"
-					onchange={(event) => { const field = event.currentTarget; selectMonth(field.value); field.value = pickedMonth ?? currentMonth; }} />
-				<Button variant="ghost" size="icon" onclick={() => selectMonth(moveValueMonth(valueMonth, 1))} disabled={valueMonth >= currentMonth} aria-label="Next month"><ChevronRightIcon /></Button>
-			</div>
-		</div>
-	{:else}
-		<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-			<span class="text-(--chat-fg-muted)">Recorded period</span>
-			<div class="flex gap-1 rounded-lg border border-(--chat-border) p-0.5" role="group" aria-label="Recorded period">
-				{#each [1, 7, 30] as days (days)}<button
-						type="button"
-						aria-pressed={period === days}
-						onclick={() => (period = days as 1 | 7 | 30)}
-						class="rounded-md px-2.5 py-1 {period === days
-							? 'bg-(--chat-surface-2) font-semibold'
-							: 'text-(--chat-fg-muted)'}">{days === 1 ? 'Today' : `${days} days`}</button
-					>{/each}
-			</div>
-			<span class="text-(--chat-fg-subtle)">Live subscription windows stay unchanged.</span>
-		</div>
-	{/if}
-</div>
-
-<!-- The scrollbars live in this wrapper, not in the scroller: inside, they scroll with the content and jump. -->
 <div class="relative min-h-0 flex-1">
-	<div
-		use:overlayScroll={'parent'}
-		bind:this={panel}
-		id="usage-panel"
-		role="tabpanel"
-		aria-labelledby="usage-tab-{usageTabKey(tab)}"
-		tabindex="0"
-		class="absolute inset-0 flex flex-col gap-5 overflow-y-auto overscroll-contain px-4 pt-4 *:shrink-0 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6"
-	>
-		{#if tab === 'Overview'}
-			{#if harness.backends.length === 0}
-				<section
-					class="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-(--chat-border-strong) px-6 py-14 text-center"
-				>
-					<Orb size={48} />
-					<h2 class="text-lg font-semibold">No backends yet</h2>
-					<p class="max-w-sm text-sm text-(--chat-fg-muted)">Add a backend, then log in to a subscription there.</p>
-					<Button
-						href={generalSettingsHref('backends')}
-						variant="outline"
-						size="sm"
-						>Add a backend</Button
-					>
-				</section>
-			{:else if reporting.length === 0}
-				<section
-					class="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-(--chat-border-strong) px-6 py-14 text-center"
-				>
-					<GaugeIcon class="size-8 text-(--chat-fg-subtle)" />
-					<h2 class="text-lg font-semibold">No backend reports usage</h2>
-					<p class="max-w-sm text-sm text-(--chat-fg-muted)">
-						{silent.map((backend) => backend.name).join(', ')}
-						{silent.length === 1 ? 'runs' : 'run'} a release without subscription usage. It appears here after the next deploy.
-					</p>
-				</section>
-			{:else if empty}
-				<section
-					class="relative flex animate-rise flex-col items-center gap-3 overflow-hidden rounded-3xl border border-(--chat-border) bg-(--chat-surface)/50 px-6 py-14 text-center motion-reduce:animate-none"
-				>
-					<Orb size={56} />
-					<h2 class="text-lg font-semibold">No subscription is logged in</h2>
-					<p class="max-w-md text-sm text-(--chat-fg-muted)">
-						Log in to Claude or ChatGPT, or add an OpenCode Go key, on a backend and its limits show up here, with how
-						fast you are using them.
-					</p>
-					<div class="flex flex-wrap justify-center gap-2 pt-1">
-						{#each reporting as backend (backend.id)}
-							<Button href={loginsHref(backend)} variant="outline" size="sm" >
-								Logins on {backend.name}
-							</Button>
-						{/each}
+	<div use:overlayScroll={'parent'} bind:this={scroll} class="usage-scroll">
+		<nav class="usage-jumps" aria-label="Usage sections">
+			<button onclick={() => jumpTo('usage-limits')} type="button">Limits</button>
+			<button onclick={() => jumpTo('usage-spend')} type="button">Spend</button>
+			<button onclick={() => jumpTo('usage-look')} type="button">Worth a look</button>
+		</nav>
+		<div class="usage-overview">
+			<p class="verdict" data-attention={attention[0]?.status ?? 'room'} aria-live="polite">
+				<span aria-hidden="true"></span>
+				{#if attention.length}<span>
+					{#each attention as limit, index (limit.key)}{#if index > 0}{'; '}{/if}<strong>{limit.subscription.reading.label}’s {limit.window.label.replace(/^(Weekly|Monthly)/, label => label.toLowerCase())} is {limit.status === 'near' ? 'nearly out' : 'running hot'}</strong> ({Math.round(limit.window.usedPercent!)}%){limit.pace.resetsAt === null ? ' · reset time unknown' : ` and ${resetLabel(limit.pace, now)}`}{/each}.
+				</span>
+				{:else if limits.some(limit => limit.status === 'room')}<span><strong>No measured limit needs attention.</strong>{limits.some(limit => limit.status === 'unknown') ? ' Some readings are missing or out of date.' : ''}</span>
+				{:else if usageSources.some(source => !source.loaded && !source.error)}<span>Reading subscription limits…</span>
+				{:else}<span><strong>No current limit readings.</strong> {selectedBackends.length ? 'Check the computers and their subscription sign-ins.' : 'Add a computer to see its usage.'}</span>{/if}
+			</p>
+
+			<section aria-labelledby="usage-limits">
+				<div class="section-heading">
+					<h2 id="usage-limits" tabindex="-1">Limits</h2>
+					<div class="segments" role="group" aria-label="Limit order">
+						<button type="button" aria-pressed={!grouped} onclick={() => grouped = false}>Closest first</button>
+						<button type="button" aria-pressed={grouped} onclick={() => grouped = true}>By subscription</button>
 					</div>
-				</section>
-			{:else}
-				{#each usages as usage (usage.backend.id)}
-					{@const backend = usage.backend}
-					{@const view = connectionView(backend.connection)}
-					<section class="flex flex-col gap-3" aria-label={backend.name}>
-						<div class="flex items-center gap-2 px-1">
-							<span class="size-2 rounded-full {connectionDotClass(view.tone)}" title={view.title ?? view.label}></span>
-							<h2 class="text-sm font-semibold tracking-tight">{backend.name}</h2>
-							<span class="text-xs text-(--chat-fg-subtle)">
-								{#if usage.loaded}
-									{usage.subscriptions.length} subscription{usage.subscriptions.length === 1 ? '' : 's'}
-								{:else}
-									{view.label}
-								{/if}
-							</span>
-							<span class="h-px flex-1 bg-(--chat-border)"></span>
-						</div>
-						{#if usage.error}
-							<Banner tone={usage.loaded ? 'warning' : 'error'}>
-								Could not read usage from {backend.name}: {usage.error}
-							</Banner>
-						{/if}
-						{#if !usage.loaded && !usage.error}
-							<div class="grid gap-4 md:grid-cols-2">
-								<UsageSkeleton />
-								<div class="max-md:hidden"><UsageSkeleton /></div>
-							</div>
-						{:else if usage.loaded && usage.subscriptions.length === 0}
-							<p
-								class="rounded-2xl border border-dashed border-(--chat-border-strong) px-4 py-5 text-sm text-(--chat-fg-muted)"
-							>
-								No subscription is logged in here.
-								<a
-									class="font-medium text-(--chat-fg) underline underline-offset-4"
-									href={loginsHref(backend)}
-									
-								>
-									Log in from settings
-								</a>.
-							</p>
-						{:else}
-							<div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,28rem),1fr))] items-start gap-4">
-								{#each usage.subscriptions as subscription, index (subscription.providerId)}
-									<SubscriptionCard {subscription} {now} {index} backend={usage.backend} />
-								{/each}
-							</div>
-						{/if}
-					</section>
-				{/each}
-
-				{#if silent.length > 0}
-					<p class="px-1 text-xs text-(--chat-fg-subtle)">
-						{silent.map((backend) => backend.name).join(', ')}
-						{silent.length === 1 ? 'does' : 'do'} not report subscription usage yet.
-					</p>
-				{/if}
-			{/if}
-		{/if}
-
-		{#if tab === 'Value'}
-			{#each valueBackends as backend (backend.id)}
-				{#key valueMonth}
-					<BackendSubscriptionValue {backend} month={valueMonth} {currentMonth} refreshCount={valueRefreshCount} />
-				{/key}
-			{/each}
-		{:else}
-			{#if caches.length === 0 && tab !== 'Overview'}<p class="text-sm text-(--chat-fg-muted)">
-					No backend reports recorded usage yet.
-				</p>{/if}
-			{#each caches as cache (cache.backend.id)}
-				<section class="flex flex-col gap-3" aria-label="Recorded usage on {cache.backend.name}">
-					{#if caches.length > 1 || tab !== 'Overview' || reporting.length === 0}
-						<h2 class="px-1 text-sm font-semibold tracking-tight">{cache.backend.name}</h2>
+				</div>
+				<div class="usage-card limits-card">
+					{#if grouped}
+						{#each subscriptions as subscription (subscription.key)}
+							<button type="button" class="subscription-group" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>
+								<ProviderMark providerId={subscription.reading.providerId} label={subscription.reading.label} size={24} />
+								<strong>{subscription.reading.label}</strong><small>{[subscription.reading.plan, computerNames(subscription.members.map(member => member.computer))].filter(Boolean).join(' · ')}</small><ChevronRight class="ml-auto size-4" />
+							</button>
+							<ul class="divide-y divide-(--chat-border)">
+								{#each limits.filter(limit => limit.subscription.key === subscription.key) as limit (limit.key)}{@render limitRow(limit, true)}{/each}
+							</ul>
+						{/each}
+					{:else}
+						<ul class="divide-y divide-(--chat-border)">{#each visibleLimits as limit (limit.key)}{@render limitRow(limit, false)}{/each}</ul>
+						{#if quiet.length}<button type="button" class="quiet-toggle" aria-expanded={showQuiet} onclick={() => showQuiet = !showQuiet}>
+							{showQuiet ? 'Hide quiet limits' : `${quiet.length} more limit${quiet.length === 1 ? '' : 's'}, all under ${Math.floor(Math.max(...quiet.map(limit => limit.window.usedPercent ?? 0))) + 1}% · show`}
+						</button>{/if}
 					{/if}
-					<UsageAnalysis {cache} {tab} />
-				</section>
-			{/each}
-		{/if}
+					{#if !selectedBackends.length}
+						<div class="empty-copy flex items-center gap-3"><Orb size={24} /><p>No subscription limits to show. <a href={generalSettingsHref('backends')}>Add a computer</a>.</p></div>
+					{:else if !limits.length}<p class="empty-copy">No subscription limits to show.</p>{/if}
+				</div>
+				{#each usageSources.filter(source => source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">Could not read limits on {source.backend.name}: {source.error}</p>{/each}
+				{#each subscriptions.filter(subscription => subscription.reading.error || !subscription.windows.length) as subscription (subscription.key)}<p class="mt-2 text-xs text-muted-foreground"><button class="underline underline-offset-4" type="button" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>{subscription.reading.label}</button> · {computerNames(subscription.members.map(member => member.computer))}: {subscription.reading.error ?? 'No limit readings yet.'}</p>{/each}
+				{#each usageSources.filter(source => source.loaded && !source.subscriptions.length && !source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">No subscriptions on {source.backend.name}. <a class="underline underline-offset-4" href={backendSettingsHref(source.backend.id, 'accounts')}>Open Accounts</a></p>{/each}
+			</section>
+
+			<section aria-labelledby="usage-spend">
+				<div class="section-heading">
+					<h2 id="usage-spend" tabindex="-1">Spend</h2>
+					<div class="segments" role="group" aria-label="Spend period">
+						{#each USAGE_PERIODS as [key, label] (key)}<button type="button" aria-pressed={period === key} onclick={() => { period = key; showAllSpend = false; }}>{label}</button>{/each}
+					</div>
+				</div>
+				{#each recordedReads.filter(read => read.error) as read (read.computer.id)}<p class="mb-2 text-xs text-muted-foreground">Usage on {read.computer.name} {read.error}.</p>{/each}
+				{#if offline.length}<p class="mb-2 text-xs text-muted-foreground">Not connected: {computerNames(offline)}.</p>{/if}
+				<div class="spend-grid" aria-busy={readingRecorded}>
+					<div class="usage-card spend-total">
+						<p class="text-xs text-muted-foreground">{periodLabel}</p>
+						{#if readingRecorded}<p role="status" class="py-3 text-sm text-muted-foreground">Reading spend…</p>
+						{:else if recorded.length}<p class="my-1 text-sm text-muted-foreground"><strong class="mr-1 text-[2rem] leading-tight tracking-tight text-foreground tabular-nums">{usageMoney(total)}</strong> of work at API prices</p>
+						{:else}<p class="py-3 text-sm text-muted-foreground">No recorded spend is available.</p>{/if}
+						{#if period === 'month' && !readingRecorded}
+							{#if readingMonth}<p class="mb-2 text-xs text-muted-foreground">Reading monthly prices…</p>
+							{:else if completeComparison && knownPlanPrice > 0}<p class="mb-2 text-sm">Subscriptions cost <strong>{usageMoney(knownPlanPrice)}</strong> a month. Subscription work at API prices is <strong>{(subscriptionMonthCost / knownPlanPrice).toFixed(1)}×</strong> that price.</p>
+							{:else if recorded.length}<p class="mb-2 text-xs text-muted-foreground">{knownPlanPrice > 0 ? `${usageMoney(knownPlanPrice)} a month in known plan prices. ` : ''}A full price comparison is not available.</p>{/if}
+						{/if}
+						{#if providerTotal > 0}
+							<div class="spend-stack" aria-hidden="true">{#each subscriptionSpend as row (row.key)}<span style:flex-basis="{100 * row.cost / spendScale}%" style:background={providerMark(row.provider ?? '', row.label).accent}></span>{/each}{#if priceMarker}<b class="price-marker" title="Monthly subscription price" style:left="{Math.min(99.7, 100 * priceMarker / spendScale)}%"></b>{/if}</div>
+						{/if}
+						{#if subscriptionSpend.length}<ul class="divide-y divide-(--chat-border)">
+							{#each subscriptionSpend as row (row.key)}<li>{@render spendButton(row, false)}</li>{/each}
+						</ul>{/if}
+					</div>
+					<div class="usage-card spend-ranking">
+						<h3>What cost most</h3>
+						<div class="segments" role="group" aria-label="Group spend by">
+							{#each SPEND_DIMENSIONS as [key, label] (key)}<button type="button" aria-pressed={dimension === key} onclick={() => { dimension = key; showAllSpend = false; }}>{label}</button>{/each}
+						</div>
+						{#if rankedSpend.length}
+							<ol class="mt-1 divide-y divide-(--chat-border)">{#each (showAllSpend ? rankedSpend : rankedSpend.slice(0, 5)) as row (row.key)}<li>{@render spendButton(row, true)}</li>{/each}</ol>
+							{#if rankedSpend.length > 5}<button type="button" class="quiet-toggle" aria-expanded={showAllSpend} onclick={() => showAllSpend = !showAllSpend}>{showAllSpend ? 'Show the top five' : `Show ${rankedSpend.length - 5} more`}</button>{/if}
+						{:else if !readingRecorded}<p class="py-3 text-xs text-muted-foreground">No rows for this group and period.</p>{/if}
+					</div>
+				</div>
+			</section>
+
+			<section aria-labelledby="usage-look">
+				<div class="section-heading"><h2 id="usage-look" tabindex="-1">Worth a look</h2><span class="text-xs text-muted-foreground">{periodLabel} · signals, not proof of waste</span></div>
+				{#if recorded.length}
+					<ul class="usage-card divide-y divide-(--chat-border)">
+						{#each signals as signal (signal.label)}<li class="flex items-center gap-3 px-3 py-2.5 text-sm"><span class="min-w-0 flex-1 font-medium">{signal.label}<small class="block font-normal text-muted-foreground sm:ml-2 sm:inline">{signal.note}</small></span><strong class="shrink-0 tabular-nums">{usageMoney(signal.cost)}</strong></li>{/each}
+					</ul>
+					{#if promptTokens > 0}<p class="mt-2 text-xs text-muted-foreground">{Math.round(100 * cacheRead / promptTokens)}% of prompt tokens were read from cache.</p>{/if}
+					<details class="usage-disclosure"><summary>Prompt-cache diagnosis</summary>
+						{#each recorded as { computer, stats } (computer.id)}<div class="mt-4 min-w-0"><h3 class="mb-2 font-semibold">{computer.name}</h3><CacheSection {stats} days={Math.max(1, stats.days.length)} /></div>{/each}
+					</details>
+				{:else}<p class="empty-copy">No prompt-cache numbers for this period.</p>{/if}
+			</section>
+
+			<details class="usage-disclosure info-disclosure">
+				<summary><InfoIcon class="mr-1 inline size-3.5" /> About these numbers</summary>
+				<div class="space-y-2 px-3 pb-3 text-xs text-muted-foreground">
+					<p>Limits come from the provider and can include use outside Kemiri. The marker shows how much of the window has passed; the chart’s projection assumes the same average pace.</p>
+					<p>Work at API prices is a catalog estimate, not a bill. The monthly comparison counts only subscription-covered work and does not prorate prices. A shared login counts once when its account and plan can be matched; recorded work from both computers is still counted.</p>
+					<p>Prices and billed usage may differ from catalog estimates. Requests without a catalog price add tokens but no cost.{#if recorded.some(({ stats }) => stats.recorded?.approximate)} Some older daily totals cross the selected period’s boundary and are assigned by UTC noon.{/if}{#if monthlyReads.some(({ report }) => report?.assumed)} Some older requests use the current credential to infer their billing.{/if}</p>
+					{#each recorded as { computer, stats } (computer.id)}<p>{computer.name}: prompt-cache details are kept for {stats.keptDays} days.{#if stats.liveSince} Recorded live since {new Date(stats.liveSince).toLocaleDateString()}; earlier requests did not record prompt changes.{/if}</p>{/each}
+				</div>
+			</details>
+		</div>
 	</div>
 </div>
+
+{#snippet limitRow(limit: (typeof limits)[number], inGroup: boolean)}
+	<GlanceLimitRow {limit} {now} grouped={inGroup} open={expandedLimit === limit.key} toggle={() => expandedLimit = expandedLimit === limit.key ? undefined : limit.key}
+		viewSubscription={() => openSheet({ kind: 'subscription', key: limit.subscription.key })} />
+{/snippet}
+
+{#snippet spendButton(row: SpendRow, ranking: boolean)}
+	<button class="spend-row" type="button" onclick={() => openSpend(row)}>
+		{#if row.provider}<ProviderMark providerId={row.provider} label={row.label} size={23} />{/if}
+		<span class="min-w-0 flex-1">
+			<span class="block break-words font-medium">{row.label}</span>
+			<span class="block text-[0.6875rem] text-muted-foreground">{computerNames(row.portions.map(portion => portion.computer))}</span>
+			{#if ranking && rankedSpend[0] && rankedSpend[0].cost > 0}<span aria-hidden="true" class="rank-bar"><span style:width="{100 * row.cost / rankedSpend[0].cost}%"></span></span>{/if}
+		</span>
+		<span class="shrink-0 text-right font-semibold tabular-nums">{usageMoney(row.cost)}{#if ranking && total > 0}<small class="block font-normal text-muted-foreground">{Math.round(100 * row.cost / total)}%</small>{/if}</span>
+		<ChevronRight class="size-3.5 shrink-0 text-muted-foreground" />
+	</button>
+{/snippet}
+
+<Dialog.Root open={sheet !== undefined} onOpenChange={open => { if (!open) sheetTrail = []; }}>
+	<Dialog.Content showCloseButton={false} onCloseAutoFocus={restoreSheetFocus}
+		class="left-auto right-0 top-0 bottom-0 flex h-dvh max-w-[min(100vw,34rem)] translate-x-0 translate-y-0 flex-col gap-0 rounded-r-none p-0 max-sm:inset-x-0 max-sm:top-auto max-sm:h-auto max-sm:max-h-[88dvh] max-sm:max-w-none max-sm:rounded-t-2xl max-sm:rounded-b-none">
+		<Dialog.Header class="flex shrink-0 flex-row items-center gap-2 border-b border-(--chat-border) p-3">
+			{#if sheetTrail.length > 1}<Button size="sm" variant="ghost" onclick={() => { sheetTrail = sheetTrail.slice(0, -1); if (sheetScroll) sheetScroll.scrollTop = 0; sheetClose?.focus(); }}>Back</Button>{/if}
+			<Dialog.Title class="min-w-0 flex-1 break-words">{sheet?.kind === 'spend' ? sheet.row.label : selectedSubscription?.reading.label ?? 'Subscription'}</Dialog.Title>
+			<Dialog.Description class="sr-only">Usage breakdown</Dialog.Description>
+			<Button bind:ref={sheetClose} size="icon" variant="ghost" aria-label="Close breakdown" onclick={() => sheetTrail = []}><XIcon class="size-4" /></Button>
+		</Dialog.Header>
+		<div bind:this={sheetScroll} class="min-h-0 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+			{#if sheet?.kind === 'spend'}
+				<GlanceSpendDetail row={sheet.row} period={periodRequest} {periodLabel} overallCost={total} openTask={openSpend} />
+			{:else if selectedSubscription}
+				<GlanceSubscriptionDetail subscription={selectedSubscription} monthly={months.get(selectedSubscription.key)} loading={readingMonth} {monthLabel} {now} />
+			{:else}<p class="text-muted-foreground">This subscription is not available.</p>{/if}
+		</div>
+	</Dialog.Content>
+</Dialog.Root>
+
+<style>
+	:global(.usage-glance-heading) { display: flex; flex-direction: row; align-items: center; gap: .55rem; flex-shrink: 0; border-bottom: 1px solid var(--chat-border); padding: max(.55rem, env(safe-area-inset-top)) 1rem .55rem; }
+	.computer-filter select { min-height: 2rem; max-width: min(32vw, 13rem); border: 1px solid var(--chat-border-strong); background: var(--chat-surface); color: var(--chat-fg); padding: .2rem .45rem; border-radius: .55rem; font-size: .8125rem; }
+	.usage-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }
+	.usage-jumps { position: sticky; top: 0; z-index: 1; display: flex; gap: 1.25rem; align-items: center; padding: .1rem 1.25rem; background: var(--chat-surface); border-bottom: 1px solid var(--chat-border); }
+	.usage-jumps button { min-height: 2rem; color: var(--chat-fg-muted); font-size: .75rem; font-weight: 650; }
+	.usage-jumps button:hover { color: var(--chat-fg); text-decoration: underline; text-underline-offset: 4px; }
+	.usage-overview { display: grid; gap: 1rem; padding: .85rem 1.25rem max(1.5rem, env(safe-area-inset-bottom)); }
+	.verdict { --verdict-tone: var(--accent-2); display: flex; align-items: baseline; gap: .6rem; border: 1px solid color-mix(in oklab, var(--verdict-tone) 30%, var(--chat-border)); border-radius: .75rem; padding: .65rem .8rem; background: color-mix(in oklab, var(--verdict-tone) 8%, var(--chat-surface)); font-size: .8125rem; line-height: 1.5; }
+	.verdict[data-attention='near'] { --verdict-tone: var(--chat-danger); }
+	.verdict[data-attention='hot'] { --verdict-tone: var(--chat-warning); }
+	.verdict > span:first-child { width: .45rem; height: .45rem; flex: 0 0 .45rem; border-radius: 50%; background: var(--verdict-tone); }
+	.section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem .5rem; margin-bottom: .4rem; }
+	.section-heading h2 { font-size: 1.02rem; font-weight: 700; scroll-margin-top: 2.6rem; }
+	.segments { display: inline-flex; max-width: 100%; flex-wrap: wrap; gap: .15rem; padding: .15rem; border: 1px solid var(--chat-border); border-radius: .55rem; font-size: .6875rem; }
+	.segments button { min-height: 1.7rem; border-radius: .35rem; padding-inline: .6rem; white-space: nowrap; color: var(--chat-fg-muted); }
+	.segments button:hover { background: var(--chat-surface-2); }
+	.segments button[aria-pressed='true'] { color: var(--chat-fg); background: var(--chat-surface-2); font-weight: 650; }
+	.usage-card { min-width: 0; border: 1px solid var(--chat-border); border-radius: .8rem; background: var(--chat-surface); overflow: hidden; }
+	.limits-card { container-type: inline-size; }
+	.quiet-toggle { min-height: 2rem; display: block; width: 100%; padding: .25rem .8rem; text-align: left; font-size: .75rem; font-weight: 600; color: var(--chat-fg-muted); border-top: 1px solid var(--chat-border); }
+	.quiet-toggle:hover, .subscription-group:hover, .spend-row:hover { background: var(--chat-surface-2); }
+	.subscription-group { width: 100%; display: flex; gap: .5rem; align-items: center; text-align: left; padding: .5rem .8rem; background: var(--chat-surface-2); font-size: .8125rem; }
+	.subscription-group small { color: var(--chat-fg-muted); }
+	.spend-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; align-items: start; }
+	.spend-total, .spend-ranking { padding: .7rem .75rem; }
+	.spend-ranking h3 { margin-bottom: .4rem; font-size: .92rem; font-weight: 700; }
+	.spend-stack { position: relative; display: flex; height: .5rem; overflow: hidden; margin: .55rem 0 .15rem; border-radius: 1rem; background: var(--chat-surface-2); }
+	.spend-stack span { border-right: 1px solid var(--chat-surface); }
+	.price-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--chat-fg); }
+	.spend-row { display: flex; width: 100%; gap: .45rem; align-items: center; text-align: left; padding: .4rem .2rem; font-size: .8125rem; }
+	.rank-bar { display: block; height: 3px; margin-top: .2rem; max-width: 10rem; border-radius: 1rem; background: var(--chat-surface-2); }
+	.rank-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent-2); }
+	.empty-copy { padding: .7rem .8rem; font-size: .8125rem; color: var(--chat-fg-muted); }
+	.empty-copy a { text-decoration: underline; }
+	.usage-disclosure { margin-top: .45rem; }
+	.usage-disclosure summary { cursor: pointer; padding: .4rem 0; font-size: .8125rem; font-weight: 650; }
+	.info-disclosure { border-top: 1px solid var(--chat-border); }
+	.info-disclosure summary { color: var(--chat-fg-muted); }
+	@media (max-width: 639px) {
+		.usage-overview { padding-inline: .75rem; gap: .8rem; }
+		.usage-jumps { padding-inline: 1rem; }
+		.spend-grid { grid-template-columns: minmax(0,1fr); }
+		.segments button { min-height: 1.95rem; padding-inline: .43rem; }
+	}
+</style>

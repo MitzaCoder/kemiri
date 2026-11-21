@@ -328,6 +328,10 @@ suspend fun HarnessClient.request(value: SubscriptionsUsageRequest, explicitNull
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(SubscriptionsUsageRequest.serializer(), value).jsonObject, explicitNulls), SubscriptionsUsageResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: UsageDetailRequest, explicitNulls: Set<String> = emptySet()): UsageDetailResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(UsageDetailRequest.serializer(), value).jsonObject, explicitNulls), UsageDetailResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: CacheStatsRequest, explicitNulls: Set<String> = emptySet()): CacheStatsResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(CacheStatsRequest.serializer(), value).jsonObject, explicitNulls), CacheStatsResponse.serializer()
 )

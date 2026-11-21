@@ -1292,15 +1292,15 @@ export class HarnessClient {
 		return this.#call<import("@kemiri/protocol").SubscriptionsResetResponse>({type:"subscriptions.reset",...options});
 	}
 
-	async readCacheStats(options: { days?: number; projectId?: string; utcOffsetMinutes?: number; calendarToday?: boolean } = {}): Promise<CacheStats> {
-		const response = await this.#call<CacheStatsResponse>({
-			type: "cache.stats",
-			...(options.days === undefined ? {} : { days: options.days }),
-			...(options.calendarToday === undefined ? {} : { calendarToday: options.calendarToday }),
-			...(options.projectId === undefined ? {} : { projectId: options.projectId }),
-			...(options.utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes: options.utcOffsetMinutes }),
-		});
+	async readCacheStats(options: Omit<import("@kemiri/protocol").CacheStatsRequest, "type" | "id"> = {}): Promise<CacheStats> {
+		const response = await this.#call<CacheStatsResponse>({ type: "cache.stats", ...options });
 		return response.stats;
+	}
+
+	/** A spend row split by the other dimensions in the same period. Needs `recorded-usage`. */
+	async readUsageDetail(options: Omit<import("@kemiri/protocol").UsageDetailRequest, "type" | "id">): Promise<import("@kemiri/protocol").RecordedUsage> {
+		const response = await this.#call<import("@kemiri/protocol").UsageDetailResponse>({ type: "usage.detail", ...options });
+		return response.usage;
 	}
 
 	/**

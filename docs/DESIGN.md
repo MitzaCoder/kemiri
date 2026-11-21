@@ -2073,52 +2073,62 @@ older release therefore keeps working with its own log. Requests logged during a
   input price), Anthropic Messages models only (Codex has no write price or retention option). Requests that had it
   already (retention `long`, or a one-hour write for rows read back) are left out and counted in `alreadyLong`, so the
   Usage screen says it was on for them and proposes it only for the rest.
-- The Usage modal shows a "Prompt cache" section per backend with the feature (`CacheSection.svelte`, wording in
-  `lib/cache-stats.ts`): spend, reuse and what was billed again, a cost-per-day bar, why, what woke the agents, what
+- Usage → Worth a look → Prompt-cache diagnosis shows details per backend with the feature (`CacheSection.svelte`,
+  wording in `lib/cache-stats.ts`): spend, reuse and what was billed again, a cost-per-day bar, why, what woke the agents, what
   would help (the one-hour cache, and halving the wakes the harness causes: check-ins, reports, board changes,
   thread posts, retries), by project/conversation/model, the conversations that lost the most, and each miss with what
   changed. `bun run cache-report` in `packages/server` prints the same in a terminal (`--conversation P:ID` lists one
   conversation's requests; `--backfill` reads a data directory's transcripts in first, for a copy of another backend's).
 
-### Usage analysis (T78 web prototype)
+### Usage Glance (T405)
 
-The web Usage modal stays full-screen on phones and keeps its compact size below the `2xl` breakpoint. On larger
-screens it shares the text artifact viewer's size (80vw up to 100rem, 90dvh tall). When there is enough room, live
-subscription charts and recorded breakdowns fit more columns without adding another scroll region.
+The web Usage modal is full-screen on phones and compact below the `2xl` breakpoint. On larger screens it
+shares the text artifact viewer’s size (80vw up to 100rem, 90dvh tall).
 
-The Usage modal has Overview, By role, By model, Projects & tasks, and Waste tabs. Value appears second when a backend
-advertises `subscription-value`. A shared Today / 7 days / 30 days picker applies to recorded requests, not to the
-provider's live subscription windows. Today starts at local midnight; the other ranges are rolling. Tab arrows, Home
-and End move focus and selection among the visible tabs. Old backends keep the subscription overview and existing cache
-report; `usage-breakdown` advertises the additive `cache.stats.usage` field. Android keeps its existing usage screen in
-this phase; generated DTOs include the optional analysis for a later UI.
+Web Usage is one scrollable overview with jump links for Limits, Spend and Worth a look. The header's Computer
+filter defaults to All and is saved locally on the device. All uses connected backends, names the contributing
+computers on the rows, and sums recorded work. Projects and tasks retain their backend identity; provider + model
+and caller identities can aggregate. A known shared provider account and plan is shown once with both computers.
+The newest reading for each window wins, not a sum of percentages. When a provider does not identify the account,
+separate logins stay separate rather than merging by provider alone.
 
-Value replaces the period picker with a calendar month and sends the browser's UTC offset at the start of that month.
-It reads only supporting backends and groups results by backend. Each measured subscription shows work at API rates
-against its monthly price and, when supported by evidence, an estimated full-use value on the same scale. The binding
-window supplies plan use, a full-window estimate with range, and the share used elsewhere. Money in the Value tab and
-the task sheet's usage line uses one format (`usage-money.ts`): whole dollars from $100 up, two decimals below. Models show their recorded API value and a separate estimate only for a
-measured scoped limit. Top tasks open their project task sheets and include subtask totals. Coordinator work is not
-spread across tasks: “Where it went” lists it at API prices on one unlinked line per project, after the tasks.
-Keys are listed separately at API prices, with no ratio. Subscriptions without limits also show the coordinator
-breakdown when present and show a realised ratio only when a price exists. The notes distinguish estimates, assumed
-billing on old rows and requests missing a catalog price.
+The attention sentence uses live readings. Limits rank by percent used, then earliest reset. The four closest and
+any other non-quiet limits stay visible; remaining room-to-spare limits below 45% fold. By subscription shows all
+limits under their subscriptions. A bar's marker is elapsed time, not usage. Expanding a row shows its pace chart
+and a link to the subscription sheet. Unmeasured and stale readings are distinct from limits with room to spare.
 
-Default prices disclose their checked date and source. The owner can enter a monthly USD price in the current month or
-reset it to the default with `null`. Changes apply from now; older months are read-only. A missing price shows
-“Add what you pay” in the current month without suppressing the usage estimates.
+Spend has one period control. Today starts at local midnight, 7 and 30 days roll, and This month uses the UTC offset
+at the start of the browser's local month. The catalog total is “work at API prices.” Only the month view compares
+subscription-covered work and plan prices. A shared plan is counted once in the price, but work is still summed.
+An owner price takes precedence over a default on a shared account; the highest price of that kind wins a conflict.
+Missing coverage or prices make the comparison partial. Account settings remain the place to edit the price.
+
+What cost most ranks tasks, projects, models or callers. Rows open a side sheet (bottom sheet on phones), with the
+same period, source computers, other splits and tokens. Task details link back to the task. A project includes work
+not tied to a task. The subscription sheet shows limits and observed resets, this month's work and price, models,
+and the top tasks and task-less coordinator work from the existing Value projection. Worth a look keeps cache miss,
+failed or stopped, keep-warm and check-in/retry signals, and the existing prompt-cache diagnosis. An info disclosure
+explains time, pricing and retention caveats rather than repeating them between sections.
+
+`recorded-usage` advertises the optional `cache.stats` `recorded: true` read and `month: "YYYY-MM"` (which implies
+recorded groups and takes precedence over day options). `stats.recorded` sums the existing minute roll-up by task,
+project, model, caller and provider/billing, including tokens and unpriced requests. Old daily-only rows use UTC
+noon and flag ambiguous edge days. A rolling range includes the roll-up minute that crosses its start. The cache
+miss diagnosis and legacy `stats.usage` still use retained raw rows; unmodified reads keep their old shape and
+rank limits. `usage.detail` accepts the same period and a selector: task (project + task), project, provider + model,
+caller role, or provider + billing. It returns the same recorded groups narrowed to that row, for example task by
+model and project by task, without reconstructing data from pruned request logs. No storage migration is needed.
+Generated Android models expose the new optional fields and query. Android's screen is unchanged in this phase.
+
+For local proof, `packages/server/scripts/subscription-value-demo.ts` starts two disposable backends. Set
+`DEMO_ORIGINS` to the web dev origin and `DEMO_OUTPUT` to a temporary file. Its `backends` array seeds the web
+app's `aiki.backends.v1` local storage before opening `/usage`. It uses four synthetic plans and one shared login.
 
 **Android (T329).** The usage screen keeps the existing Limits view and adds a Limits / Value switch only when
 at least one backend advertises `subscription-value`. Value requests the selected calendar month with the device's
 UTC offset at that month's start, and shows the supporting backends' cards in one column. It uses the same realised
-ratio, money format (including “< $0.01”), separate API payments, and project coordinator rows as web. Top tasks open
-the task sheet. Only the current month offers price editing and an explicit null reset. Older reports are read-only.
-
-Usage totals count input, cache read, cache write and output separately, including keep-warm calls. Groups rank by
-catalog-price equivalent, not cache-miss cost: caller role (scheduled runs take precedence over worker/thread),
-provider/model × role, project, board task and conversation. All shares use the same recorded total. These are not
-subscription percentages or invoices: providers do not expose a per-request conversion into subscription allowance,
-and other clients can consume the same subscription. The period-based analysis does not use the billing and limit ledger.
+ratio, money format (including “< $0.01”), separate API payments, and project coordinator rows as the original Value
+view. Top tasks open the task sheet. Only the current month offers price editing and an explicit null reset. Older reports are read-only.
 
 Existing request rows already identify coordinator/worker/thread, schedule, board task and keep-warm. New recording
 adds an optional internal purpose for coordinator compaction, memory extraction and backend memory maintenance,
@@ -2127,13 +2137,6 @@ not cache-miss comparisons; they cannot be backfilled from transcripts. Internal
 conversation (not the coordinator). Readers can still open legacy logs read-only, and writers refuse a newer schema
 rather than silently dropping attribution. Ordinary calls continue deriving role from their identity, so historic
 attribution works without guessing new internal purposes.
-
-Waste shows observed prompt reuse (read / all prompt tokens), rebilled-cache estimates, failed/aborted response
-cost, keep-warm cost and unexpected writes, largest prompts, and check-in/retry pressure. These are investigation
-signals, not a claim that the work was useless. Never-read writes, useless warming, no-action check-ins, reports
-never used and context re-sent specifically because of compaction require cache-prefix lifecycles or semantic/run
-outcome linkage that we do not have. Errors without returned usage and upstream worker compaction remain gaps.
-Codemode executes tools, not a separate model call; titles are not generated by a separate model service here.
 
 Subscription windows continue displaying provider reset times. Claude OAuth usage/profile and rate-limit headers,
 Codex wham usage and rate-limit events/headers, and OpenCode Go usage expose automatic reset timestamps.
@@ -2145,7 +2148,7 @@ Claude usage/discovery/reset requests share a versioned CLI User-Agent, never mo
 its own hourly cache, independent of window/header samples, invalidated after a confirmed spend. Discovery
 runs even when the normal usage response omits program markers. Optional givesBackWeekly and unavailableReason
 preserve narrower Fable grants (even when type is full) and provider reasons without inferring broad coverage.
-Web limit-reset rows group only matching label/program/scopes/expiry/usability, retain one grant ID per spend,
+Web subscription-sheet reset rows group only matching label/program/scopes/expiry/usability, retain one grant ID per spend,
 and explain weekly give-back separately from a full weekly refill. The provider's seven_day_overage_included
 scope is the Fable allowance; launch/tenure grant labels normalize to Fable reset only with matching narrow
 coverage and weekly give-back. Android places the same groups after its window grid, uses 48dp labelled
@@ -6585,7 +6588,7 @@ The shared section order and route names (a quiet technical term follows the pla
 With `memory-maintenance-enabled`, turning cleanup off keeps the model. Turning it on without a model opens
 its model picker. Older computers use the No model option. Software updates belong to the computer. About
 shows only versions and links update notices to Overview. Signed-in subscriptions in AI accounts edit or reset
-the current monthly price shared with the Usage Value tab. API keys do not show prices.
+the current monthly price shared with the Usage subscription sheet. API keys do not show prices.
 
 Devices has one Add a device group. Pairing grants access using the existing confirmation flow. The address-only
 option shares HTTPS computer addresses, not sign-in. On computers without sign-in, address sharing comes first.

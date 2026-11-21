@@ -207,8 +207,58 @@ export const UsageAnalysisSchema = Type.Object({
 });
 export type UsageAnalysis = Static<typeof UsageAnalysisSchema>;
 
+/** A roll-up group, without per-request peaks (which are not retained). */
+export const RecordedUsageGroupSchema = Type.Object({
+	...Type.Omit(UsageGroupSchema, ["maxPromptTokens"]).properties,
+	unpricedRequests: Type.Integer(),
+});
+export type RecordedUsageGroup = Static<typeof RecordedUsageGroupSchema>;
+
+export const RecordedUsageSchema = Type.Object({
+	totals: RecordedUsageGroupSchema,
+	byProject: Type.Array(RecordedUsageGroupSchema),
+	byTask: Type.Array(RecordedUsageGroupSchema),
+	byModel: Type.Array(RecordedUsageGroupSchema),
+	byRole: Type.Array(RecordedUsageGroupSchema),
+	byProviderBilling: Type.Array(RecordedUsageGroupSchema),
+	approximate: Type.Boolean({ description: "Old daily totals overlap a range edge and are assigned by UTC noon." }),
+});
+export type RecordedUsage = Static<typeof RecordedUsageSchema>;
+
+const Month = Type.String({ pattern: "^[1-9][0-9]{3}-(0[1-9]|1[0-2])$", description: "Local calendar month, YYYY-MM." });
+const UsagePeriodFields = {
+	month: Type.Optional(Month),
+	days: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })),
+	calendarToday: Type.Optional(Type.Boolean()),
+	utcOffsetMinutes: Type.Optional(Type.Integer({ minimum: -840, maximum: 840 })),
+};
+const UsageKey = Type.String({ minLength: 1 });
+export const UsageSelectionSchema = Type.Union([
+	Type.Object({ kind: Type.Literal("task"), projectId: UsageKey, taskId: UsageKey }),
+	Type.Object({ kind: Type.Literal("project"), projectId: UsageKey }),
+	Type.Object({ kind: Type.Literal("model"), provider: UsageKey, model: UsageKey }),
+	Type.Object({ kind: Type.Literal("role"), role: UsageKey }),
+	Type.Object({ kind: Type.Literal("providerBilling"), provider: UsageKey, billing: Type.Union([Type.Literal("subscription"), Type.Literal("plan_key"), Type.Literal("api_key"), Type.Literal("agent"), Type.Null()]) }),
+]);
+export type UsageSelection = Static<typeof UsageSelectionSchema>;
+
+export const UsageDetailRequestSchema = Type.Object({
+	type: Type.Literal("usage.detail"),
+	id: RequestIdSchema,
+	...UsagePeriodFields,
+	selection: UsageSelectionSchema,
+});
+export type UsageDetailRequest = Static<typeof UsageDetailRequestSchema>;
+export const UsageDetailResponseSchema = Type.Object({
+	type: Type.Literal("usage.detail"),
+	id: RequestIdSchema,
+	usage: RecordedUsageSchema,
+});
+export type UsageDetailResponse = Static<typeof UsageDetailResponseSchema>;
+
 export const CacheStatsSchema = Type.Object({
  usage: Type.Optional(UsageAnalysisSchema),
+	recorded: Type.Optional(RecordedUsageSchema),
 	from: Type.String({ description: "ISO 8601, the start of the range." }),
 	to: Type.String({ description: "ISO 8601, when the stats were read." }),
 	keptDays: Type.Integer({ minimum: 1, description: "How long the backend keeps the request log." }),
@@ -234,12 +284,9 @@ export type CacheStats = Static<typeof CacheStatsSchema>;
 export const CacheStatsRequestSchema = Type.Object({
 	type: Type.Literal("cache.stats"),
 	id: RequestIdSchema,
-	days: Type.Optional(Type.Integer({ minimum: 1, maximum: 120, description: "Default 30." })),
-	calendarToday: Type.Optional(Type.Boolean({ description: "Local midnight to now, using utcOffsetMinutes; usage-breakdown." })), 
-	projectId: Type.Optional(Type.String({ minLength: 1 })),
-	utcOffsetMinutes: Type.Optional(
-		Type.Integer({ minimum: -14 * 60, maximum: 14 * 60, description: "The asker's offset from UTC, for `days`. Default 0." }),
-	),
+	...UsagePeriodFields,
+	recorded: Type.Optional(Type.Boolean({ description: "Include durable roll-up groups. Implied by month. Requires recorded-usage." })),
+	projectId: Type.Optional(UsageKey),
 });
 export type CacheStatsRequest = Static<typeof CacheStatsRequestSchema>;
 

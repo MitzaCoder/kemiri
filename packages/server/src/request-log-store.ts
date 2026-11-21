@@ -14,6 +14,7 @@ import {
 	type PreviousRequest,
 	type RequestSource,
 	type WakeReason,
+	type UsageSelection,
 } from "@kemiri/protocol";
 import type { PromptFingerprint } from "./prompt-fingerprint.ts";
 import { createLimitLedgerTables, createRequestEndIndex, LimitLedger } from "./limit-ledger.ts";
@@ -278,6 +279,11 @@ type UsageCostGroup = {
 
 export type MonthlyUsageGroup = UsageCostGroup & {
 	project_id: string; task_id: string | null; is_coordinator: 0 | 1;
+};
+
+export type RecordedUsageRow = UsageCostGroup & {
+	projectId: string; taskId: string | null; role: string; requests: number;
+	inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number;
 };
 
 export type TaskUsageGroup = UsageCostGroup & {
@@ -631,6 +637,43 @@ export class RequestLogStore {
 			AND ((day = ?1 AND ?3 % 86400 != 0) OR (day = ?2 AND ?4 % 86400 != 0))) AS found
 		`).get(firstDay, lastDay, from / 1000, to / 1000);
 		return { groups, approximate: approximate?.found === 1 };
+	}
+
+	/** The same stored totals power the overview and a detail scoped to one row. */
+	recordedUsage(query: { from: number; to: number; projectId?: string; selection?: UsageSelection }): { rows: RecordedUsageRow[]; approximate: boolean } {
+		const { from, to, projectId, selection } = query;
+		if (from >= to) return { rows: [], approximate: false };
+		const firstDay = new Date(from).toISOString().slice(0, 10);
+		const lastDay = new Date(to - 1).toISOString().slice(0, 10);
+		const args: Record<string, string | number | null> = { firstDay, lastDay };
+		let scope = "day BETWEEN $firstDay AND $lastDay";
+		function narrow(column: string, value: string | null): void {
+			const key = `filter${Object.keys(args).length}`;
+			scope += ` AND ${column} IS $${key}`;
+			args[key] = value;
+		}
+		if (projectId !== undefined) narrow("project_id", projectId);
+		if (selection?.kind === "project" || selection?.kind === "task") narrow("project_id", selection.projectId);
+		if (selection?.kind === "task") narrow("task_id", selection.taskId);
+		if (selection?.kind === "role") narrow("role", selection.role);
+		if (selection?.kind === "model" || selection?.kind === "providerBilling") narrow("provider", selection.provider);
+		if (selection?.kind === "model") narrow("model", selection.model);
+		if (selection?.kind === "providerBilling") narrow("billing", selection.billing);
+		const approximate = this.#db.query<{ found: number }, typeof args>(`SELECT EXISTS (
+			SELECT 1 FROM usage_rollup WHERE ${scope} AND minute IS NULL
+			AND ((day = $firstDay AND $from % 86400000 != 0) OR (day = $lastDay AND $to % 86400000 != 0))
+		) AS found`).get({ ...args, from, to })?.found === 1;
+		const rows = this.#db.query<RecordedUsageRow, typeof args>(`
+			SELECT project_id AS projectId, task_id AS taskId, role, provider, model, billing,
+				sum(requests) AS requests, sum(input) AS inputTokens, sum(output) AS outputTokens,
+				sum(cache_read) AS cacheReadTokens, sum(cache_write) AS cacheWriteTokens,
+				sum(cost) AS cost, sum(unpriced_requests) AS unpriced
+			FROM usage_rollup WHERE ${scope}
+			AND coalesce(minute, unixepoch(day, '12 hours') / 60) >= $from
+			AND coalesce(minute, unixepoch(day, '12 hours') / 60) < $to
+			GROUP BY project_id, task_id, role, provider, model, billing
+		`).all({ ...args, from: Math.floor(from / 60_000), to: to / 60_000 });
+		return { rows, approximate };
 	}
 
 	/** Lifetime totals, including usage that has aged out of the request log. */

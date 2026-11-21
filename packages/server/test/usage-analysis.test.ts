@@ -169,3 +169,53 @@ it("calendarToday respects local midnight and excludes rows outside it", async (
 	});
 	expect(utc.usage?.totals.requests).toBe(1);
 });
+
+it('reads a full local month and task/project details from pruned roll-ups without changing legacy reads', async () => {
+	const setup = await createSetup();
+	cleanups.push(setup.cleanup);
+	const client = await TestClient.open(setup.server);
+	cleanups.push(() => client.close());
+	const hello = await client.hello();
+	if (hello.type !== 'hello') throw new Error('No hello');
+	expect(hello.features).toContain('recorded-usage');
+	const store = setup.server.requestLog!.store;
+	const boundary = Date.parse('2025-01-31T22:00:00Z'); // February midnight at UTC+2.
+	for (const [index, projectId, taskId, model, cost, at] of [
+		[1, 'garden', 'T1', 'small', 100, boundary - 60_000],
+		[2, 'garden', 'T1', 'small', 2, boundary],
+		[3, 'garden', 'T1', 'large', 3, boundary + 60_000],
+		[4, 'garden', 'T2', 'small', 4, boundary + 60_000],
+		[5, 'garden', null, 'small', 5, boundary + 60_000],
+		[6, 'library', 'T1', 'small', 6, boundary + 60_000],
+		[7, 'garden', 'T1', 'small', 100, Date.parse('2025-02-28T22:00:00Z')],
+	] as const) {
+		store.insert(row({ conversationId: index, at, taskId, projectId, model, cost,
+			kind: taskId === null ? 'main' : 'worker', billing: taskId === null ? 'api_key' : 'subscription' }));
+	}
+	expect(store.prune(Date.parse('2025-07-01T00:00:00Z'))).toBe(7);
+	const old = await client.request({ type: 'cache.stats' });
+	if (old.type !== 'cache.stats') throw new Error('No cache stats');
+	expect(old.stats.recorded).toBeUndefined();
+	const range = { month: '2025-02', utcOffsetMinutes: 120 };
+	const overview = await client.request({ type: 'cache.stats', ...range });
+	if (overview.type !== 'cache.stats') throw new Error('No calendar month stats');
+	expect(overview.stats.from).toBe('2025-01-31T22:00:00.000Z');
+	expect(overview.stats.to).toBe('2025-02-28T22:00:00.000Z');
+	expect(overview.stats.totals.requests).toBe(0); // Cache diagnosis needs the raw rows.
+	expect(overview.stats.recorded?.totals).toMatchObject({ requests: 5, cost: 20, cacheReadTokens: 100 });
+	expect(overview.stats.recorded?.byProject).toMatchObject([{ key: 'garden', cost: 14 }, { key: 'library', cost: 6 }]);
+	expect(overview.stats.recorded?.byRole).toMatchObject([{ key: 'worker', cost: 15 }, { key: 'coordinator', cost: 5 }]);
+	expect(overview.stats.recorded?.byProviderBilling).toMatchObject([
+		{ key: '["synthetic","subscription"]', cost: 15 }, { key: '["synthetic","api_key"]', cost: 5 },
+	]);
+	const task = await client.request({ type: 'usage.detail', ...range, selection: { kind: 'task', projectId: 'garden', taskId: 'T1' } });
+	if (task.type !== 'usage.detail') throw new Error('No task breakdown');
+	expect(task.usage.totals.cost).toBe(5);
+	expect(task.usage.byModel).toMatchObject([{ label: 'large', cost: 3 }, { label: 'small', cost: 2 }]);
+	const project = await client.request({ type: 'usage.detail', ...range, selection: { kind: 'project', projectId: 'garden' } });
+	if (project.type !== 'usage.detail') throw new Error('No project breakdown');
+	expect(project.usage.byTask).toMatchObject([
+		{ key: '["garden","T1"]', cost: 5 }, { key: '["garden",null]', label: 'Not tied to a task', cost: 5 },
+		{ key: '["garden","T2"]', cost: 4 },
+	]);
+});

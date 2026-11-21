@@ -68,6 +68,7 @@ import { subscriptionBilling } from "./subscription-terms.ts";
 import { readSubscriptionValue, valueMonth } from "./subscription-value.ts";
 import { readTaskUsage } from "./task-usage.ts";
 import type { SubscriptionUsageService } from "./subscription-usage.ts";
+import { readRecordedUsage, recordedUsageRange } from "./recorded-usage.ts";
 import { readCacheStats } from "./cache-stats.ts";
 import type { RequestLog } from "./request-log.ts";
 import type { Notifier } from "./notifications.ts";
@@ -755,6 +756,16 @@ export class ClientConnection {
 					this.#respond({ type: "subscriptions.price.set", id: request.id, providerId, price: terms.setPrice(providerId, monthlyPrice, now) });
 					return;
 				}
+				case "usage.detail": {
+					if (!this.#features.includes("recorded-usage")) return this.#unknownRequest(request);
+					if (!this.#requestLog) throw new ServerError("bad_request", "Recorded usage is unavailable");
+					const projectNames = new Map((await this.#manager.store.list()).map(project => [project.id, project.name]));
+					const usage = await readRecordedUsage(this.#requestLog.store,
+						{ ...recordedUsageRange(request, Date.now()), selection: request.selection },
+						projectNames, async projectId => (await this.#manager.board(projectId, true)).tasks);
+					this.#respond({ type: "usage.detail", id: request.id, usage });
+					return;
+				}
 				case "cache.stats": {
 					if (this.#requestLog === undefined) {
 						throw new ServerError("internal", "This backend keeps no request log");
@@ -763,8 +774,13 @@ export class ClientConnection {
 						store: this.#requestLog.store,
 						projects: this.#manager.store,
 						models: this.#manager.models,
+						...(this.#features.includes("recorded-usage") ? {
+							...(request.month === undefined ? {} : { month: request.month }),
+							...(request.recorded === undefined ? {} : { recorded: request.recorded }),
+							boardTasks: async (projectId: string) => (await this.#manager.board(projectId, true)).tasks,
+						} : {}),
 						...(request.days === undefined ? {} : { days: request.days }),
-						...(request.calendarToday === undefined || !this.#features.includes("usage-breakdown") ? {} : { calendarToday: request.calendarToday }),
+						...(request.calendarToday === undefined || !(this.#features.includes("usage-breakdown") || this.#features.includes("recorded-usage")) ? {} : { calendarToday: request.calendarToday }),
 						...(request.projectId === undefined ? {} : { projectId: request.projectId }),
 						...(request.utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes: request.utcOffsetMinutes }),
 					});

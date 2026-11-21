@@ -175,7 +175,7 @@ export function providerMark(providerId: string, label: string): ProviderMark {
 	if (providerId.startsWith("openai") || /chatgpt|codex/i.test(label)) {
 		return { glyph: "openai", accent: "var(--accent-1)", initial };
 	}
-	return { glyph: "generic", accent: "var(--accent-3)", initial };
+	return { glyph: "generic", accent: providerId === "opencode-go" ? "var(--accent-2)" : "var(--accent-3)", initial };
 }
 
 // --- geometry -------------------------------------------------------------------------------------------------------
