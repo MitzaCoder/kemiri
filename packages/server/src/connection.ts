@@ -1,4 +1,5 @@
 import { resolveCodeRoot } from "./code-root.ts";
+import type { ProjectFileWrites } from "./project-file-writes.ts";
 import type { ProjectFiles } from "./project-files.ts";
 import { WorkingChanges } from "./working-changes.ts";
 import { ProjectChanges } from "./project-changes.ts";
@@ -97,6 +98,7 @@ export type ClientConnectionOptions = {
 	deviceAuth?: { store: DeviceAuth; identity: Identity | undefined };
 	manager: ProjectManager;
 	projectFiles: ProjectFiles | undefined;
+	fileWrites: ProjectFileWrites;
 	credentials: CredentialStore;
 	logins: OAuthLoginManager;
 	/** The user's devices: registration, the VAPID key, a test push, and where this connection is looking. */
@@ -178,6 +180,7 @@ export class ClientConnection {
 		this.#respond({ type: "user.settings.changed", settings });
 	}
 	readonly #manager: ProjectManager;
+	readonly #fileWrites: ProjectFileWrites;
 	readonly #projectFiles: ProjectFiles | undefined;
 	readonly #deviceAuth: ClientConnectionOptions["deviceAuth"];
 	readonly #credentials: CredentialStore;
@@ -214,6 +217,7 @@ export class ClientConnection {
 		this.#deviceAuth = options.deviceAuth;
 		this.#manager = options.manager;
 		this.#projectFiles = options.projectFiles;
+		this.#fileWrites = options.fileWrites;
 		this.#credentials = options.credentials;
 		this.#logins = options.logins;
 		this.#notifications = options.notifications;
@@ -457,6 +461,7 @@ export class ClientConnection {
 							? {}
 							: { promptCacheWarmHours: request.promptCacheWarmHours }),
 						...(request.uiProof === undefined ? {} : { uiProof: request.uiProof }),
+						...(request.allowFileWrites === undefined ? {} : { allowFileWrites: request.allowFileWrites }),
 						...(request.blockArtifactRequests === undefined ? {} : { blockArtifactRequests: request.blockArtifactRequests }),
 						...(request.integrationRef === undefined ? {} : { integrationRef: request.integrationRef }),
 						...(request.deployFeed === undefined ? {} : { deployFeed: request.deployFeed }),
@@ -917,6 +922,23 @@ export class ClientConnection {
 				case "board.task.history": {
 					const snapshots = await this.#manager.boardTaskHistory(request.projectId, request.taskId);
 					this.#respond({ type: "board.task.history", id: request.id, taskId: request.taskId, snapshots });
+					return;
+				}
+				case "files.write": {
+					if (!this.#features.includes("project-files-write")) return this.#unknownRequest(request);
+					const project = await this.#manager.store.require(request.projectId);
+					const disconnected = new ServerError("auth_revoked", "File save cancelled");
+					const requireEnabled = async () => {
+						const latest = await this.#manager.store.require(project.id);
+						if (!this.#authorized(0, request.id)) throw disconnected;
+						if (latest.allowFileWrites !== true) throw new ServerError("permission_denied", "Allow saving files from the app is off for this project");
+						if (latest.path !== project.path || latest.archived) throw new ServerError("permission_denied", "This project is no longer available for file saves");
+					};
+					try {
+						await requireEnabled();
+						const result = await this.#fileWrites.write(project.path, request.path, request.text, request.baseHash, requireEnabled);
+						this.#respond({ type: request.type, id: request.id, ...result });
+					} catch (error) { if (error !== disconnected) throw error; }
 					return;
 				}
 				case "files.list":

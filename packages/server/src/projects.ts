@@ -44,6 +44,8 @@ export type Project = {
 	promptCacheWarmHours: 1 | 2 | 4 | 8;
 	/** Show UI changes: what agents prove with screenshots or videos; see `uiProofParagraph` in `workers.ts`. */
 	uiProof: UiProof;
+	/** Explicit opt-in only; absent on older project records. */
+	allowFileWrites?: true;
 	blockArtifactRequests?: boolean;
 	reportAudit?: ReportAuditSettings;
 	taskWatcher?: TaskWatcherSettings;
@@ -72,6 +74,7 @@ export type ProjectChange = {
 	promptCacheWarmHours?: 1 | 2 | 4 | 8 | null;
 	/** `null` restores `DEFAULT_UI_PROOF`. */
 	uiProof?: UiProof | null;
+	allowFileWrites?: boolean | null;
 	blockArtifactRequests?: boolean | null;
 	reportAudit?: ReportAuditSettings | null;
 	taskWatcher?: TaskWatcherSettings | null;
@@ -156,6 +159,7 @@ function parseProject(value: unknown, id: string): Project | undefined {
 		keepPromptCacheWarm: typeof record.keepPromptCacheWarm === "boolean" ? record.keepPromptCacheWarm : true,
 		promptCacheWarmHours: [1, 2, 4, 8].includes(record.promptCacheWarmHours as number) ? record.promptCacheWarmHours as 1 | 2 | 4 | 8 : 8,
 		uiProof: parseUiProof(record.uiProof),
+		...(record.allowFileWrites === true ? { allowFileWrites: true as const } : {}),
 		blockArtifactRequests: record.blockArtifactRequests === true,
 		reportAudit: parseReportAudit(record.reportAudit),
 		taskWatcher: parseTaskWatcher(record.taskWatcher),
@@ -392,6 +396,8 @@ export class ProjectStore {
 				integrationRef: change.integrationRef === undefined ? project.integrationRef : change.integrationRef,
 				deployFeed: change.deployFeed === undefined ? project.deployFeed : change.deployFeed,
 			};
+			if (change.allowFileWrites === true) next.allowFileWrites = true;
+			else if (change.allowFileWrites !== undefined) delete next.allowFileWrites;
 			if (change.archived !== undefined) {
 				if (change.archived) next.archived = true;
 				else delete next.archived;

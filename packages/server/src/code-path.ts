@@ -6,12 +6,13 @@ import { ServerError } from "./errors.ts";
 
 const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 export const codeFileFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+export const isCodeSaveTemp = (name: string) => /^\.kemiri-save-[0-9a-f-]{36}\.tmp$/.test(name);
 export const isVcsMetadata = (name: string) => /^\.(git|jj)$/i.test(name);
 const invalidPath = () => new ServerError("invalid_path", "The path must stay inside the code root and outside repository metadata");
 
 export function isCodePath(path: string): boolean {
 	return Buffer.byteLength(path) <= MAX_FILE_PATH_BYTES && !/^[a-z]:/i.test(path) && !path.startsWith("/") &&
-		!/[\\\0]/.test(path) && !path.split("/").some(part => part === ".." || isVcsMetadata(part));
+		!/[\\\0]/.test(path) && !path.split("/").some(part => part === ".." || isVcsMetadata(part) || isCodeSaveTemp(part));
 }
 
 export function pathInsideCodeRoot(root: string, target: string): string {
@@ -37,13 +38,14 @@ export async function assertCodeDescriptor(root: string, canonical: string, file
 	if (actual !== canonical || !sameInode(info, await lstat(canonical))) throw invalidPath();
 }
 
-export async function withCodeDirectory<T>(root: string, directory: string, work: (directoryPath: string) => Promise<T>): Promise<T> {
+export async function withCodeDirectory<T>(root: string, directory: string, work: (directoryPath: string, descriptor: FileHandle, verify: () => Promise<void>) => Promise<T>): Promise<T> {
 	const file = await open(directory, directoryFlags);
 	try {
 		const info = await file.stat();
-		await assertCodeDescriptor(root, directory, file, info);
-		const answer = await work(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : directory);
-		await assertCodeDescriptor(root, directory, file, info);
+		const verify = () => assertCodeDescriptor(root, directory, file, info);
+		await verify();
+		const answer = await work(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : directory, file, verify);
+		await verify();
 		return answer;
 	} finally { await file.close(); }
 }

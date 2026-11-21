@@ -1,6 +1,7 @@
 import {
 	CodeRootSchema, FileListEntrySchema, FilesListRequestSchema, FilesListResponseSchema,
 	FilesSearchRequestSchema, FilesSearchResponseSchema, FilesReadRequestSchema, FilesReadResponseSchema,
+	FilesWriteRequestSchema, FilesWriteResponseSchema,
 } from "./project-files.ts";
 import {
 	ChangeSourceSchema, ChangeRequestSourceSchema, ChangeCommitSchema, ChangedFileSchema, ChangeFileSideSchema,
@@ -898,6 +899,7 @@ export const ClientMessageSchema = Type.Union([
 	FilesListRequestSchema,
 	FilesSearchRequestSchema,
 	FilesReadRequestSchema,
+	FilesWriteRequestSchema,
 	BoardFeedbackSetRequestSchema,
 	UsageValueRequestSchema,
 	UsageTaskRequestSchema,
@@ -1030,6 +1032,7 @@ export const ResponseSchema = Type.Union([
 	FilesListResponseSchema,
 	FilesSearchResponseSchema,
 	FilesReadResponseSchema,
+	FilesWriteResponseSchema,
 	BoardFeedbackSetResponseSchema,
 	UsageValueResponseSchema,
 	UsageTaskResponseSchema,
@@ -1465,6 +1468,8 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	FilesSearchResponse: FilesSearchResponseSchema,
 	FilesReadRequest: FilesReadRequestSchema,
 	FilesReadResponse: FilesReadResponseSchema,
+	FilesWriteRequest: FilesWriteRequestSchema,
+	FilesWriteResponse: FilesWriteResponseSchema,
 	ChangesListRequest: ChangesListRequestSchema,
 	ChangesListResponse: ChangesListResponseSchema,
 	ChangesFileRequest: ChangesFileRequestSchema,

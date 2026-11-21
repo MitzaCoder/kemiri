@@ -30,6 +30,8 @@ import type {
 	FilesListResponse,
 	FilesSearchResponse,
 	FilesReadResponse,
+	FilesWriteResponse,
+	FileWriteResult,
 	BoardFeedbackSetResponse,
 	BoardTimelineKind,
 	BoardFeedback,
@@ -219,6 +221,7 @@ export type ProjectChange = {
 	promptCacheWarmHours?: 1 | 2 | 4 | 8 | null;
 	/** `null` restores the server's default (`screenshots-and-videos`); needs feature `ui-proof`. */
 	uiProof?: UiProof | null;
+	allowFileWrites?: boolean | null;
 	/** Optional HTML-page CSP; null restores off. */
 	blockArtifactRequests?: boolean | null;
 	/** Feature `report-audit`; null restores automatic checks with 65,000 daily tokens. */
@@ -670,6 +673,7 @@ export class HarnessClient {
 			...(change.keepPromptCacheWarm === undefined ? {} : { keepPromptCacheWarm: change.keepPromptCacheWarm }),
 			...(change.promptCacheWarmHours === undefined ? {} : { promptCacheWarmHours: change.promptCacheWarmHours }),
 			...(change.uiProof === undefined ? {} : { uiProof: change.uiProof }),
+			...(change.allowFileWrites === undefined ? {} : { allowFileWrites: change.allowFileWrites }),
 			...(change.blockArtifactRequests === undefined ? {} : { blockArtifactRequests: change.blockArtifactRequests }),
 			...(change.reportAudit === undefined ? {} : { reportAudit: change.reportAudit }),
 			...(change.integrationRef === undefined ? {} : { integrationRef: change.integrationRef }),
@@ -1103,6 +1107,12 @@ export class HarnessClient {
 	async readFile(projectId: string, root: CodeRoot, path: string, reveal?: boolean): Promise<Omit<FilesReadResponse, "type" | "id">> {
 		const { type: _, id: __, ...file } = await this.#call<FilesReadResponse>({ type: "files.read", projectId, root, path, reveal });
 		return file;
+	}
+
+	/** Replace an existing project file. Needs `project-files-write` and the project's explicit opt-in. */
+	async writeFile(projectId: string, path: string, text: string, baseHash: string): Promise<FileWriteResult> {
+		const { type: _, id: __, ...result } = await this.#call<FilesWriteResponse>({ type: "files.write", projectId, path, text, baseHash });
+		return result;
 	}
 
 	/** List changes for a task or full commit hash. A code root additionally requires `project-changes-working`. */

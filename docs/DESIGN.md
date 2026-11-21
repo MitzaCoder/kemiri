@@ -3244,6 +3244,26 @@ Existing artifact-page review Markdown remains byte-for-byte compatible. Send us
 `conversation.submit` with `whenBusy: steer` and `keepDraft: true`. Task feedback goes to the coordinator;
 standalone commits stay in their opening chat. Add to chat draft uses the same handoff as artifact review.
 
+### Code view: project-files-write
+
+`project-files-write` adds authenticated `files.write` for an existing path in the project's own checkout. Clients
+must check both the backend feature and `allowFileWrites` in the project summary. In `projects.configure`, `true`
+opts in and `false` or `null` restores off. Records without the setting are off. `KEMIRI_PROJECT_FILES=off` also
+removes the write capability. There is no worker or thread selector and no create, rename, or delete operation.
+
+The backend checks project scope again before replacing the file. It refuses symlinks (including parents), sensitive
+names, repository metadata, special files, invalid text and text over 1 MiB. `baseHash` is the SHA-256 of the bytes
+from Files. A stale hash returns a typed `conflict` with the current text and hash, without writing. A `saved` reply
+returns the new hash, byte size and modification time. The save preserves the submitted line endings and the original
+mode and ownership. File contents are never logged.
+
+On a single backend, saves to one path are serial. Each save writes an exclusive, same-directory temporary file,
+syncs it, checks the target and base again, atomically replaces the target and syncs the directory. A failure before
+replacement leaves the original file intact and cleans up the temporary file; its reserved name is not served by Files
+or live Changes. Other local programs do not share the save queue, so the final recheck narrows but cannot eliminate the
+race with a concurrent external edit. Direct saves suit documents and settings. For code that needs checks, use a
+suggested edit so the agent can apply, test and commit it. A save itself does not commit or snapshot the checkout.
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

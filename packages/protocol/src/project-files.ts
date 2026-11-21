@@ -14,6 +14,7 @@ export const CodeRootSchema = Type.Union([
 export type CodeRoot = Static<typeof CodeRootSchema>;
 
 const pathSchema = Type.String({ maxLength: MAX_FILE_PATH_BYTES });
+const fileHash = Type.String({ pattern: "^[a-f0-9]{64}$" });
 const fileMetadata = { size: Type.Integer({ minimum: 0 }), modifiedAt: Type.String({ description: "ISO 8601 modification time." }) };
 export const FileListEntrySchema = Type.Object({
 	name: Type.String({ minLength: 1 }),
@@ -36,6 +37,13 @@ export type FilesListRequest = Static<typeof FilesListRequestSchema>;
 export type FilesSearchRequest = Static<typeof FilesSearchRequestSchema>;
 export type FilesReadRequest = Static<typeof FilesReadRequestSchema>;
 
+/** Only the project's own checkout can be written. Do not accept a root selector or extra fields. */
+export const FilesWriteRequestSchema = Type.Object({
+	type: Type.Literal("files.write"), id: RequestIdSchema, projectId: ProjectIdSchema,
+	path: Type.String({ minLength: 1, maxLength: MAX_FILE_PATH_BYTES }), text: Type.String({ maxLength: MAX_FILE_BYTES }), baseHash: fileHash,
+}, { additionalProperties: false });
+export type FilesWriteRequest = Static<typeof FilesWriteRequestSchema>;
+
 export const FilesListResponseSchema = Type.Object({
 	type: Type.Literal("files.list"), id: RequestIdSchema, entries: Type.Array(FileListEntrySchema, { maxItems: MAX_FILE_LIST_ENTRIES }),
 	truncated: Type.Boolean(),
@@ -45,10 +53,20 @@ export const FilesSearchResponseSchema = Type.Object({
 });
 export const FilesReadResponseSchema = Type.Object({
 	type: Type.Literal("files.read"), id: RequestIdSchema, ...fileMetadata,
-	text: Type.Optional(Type.String()), hash: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+	text: Type.Optional(Type.String()), hash: Type.Optional(fileHash),
 	binary: Type.Optional(Type.Literal(true)), mimeType: Type.Optional(Type.String()),
 	tooLarge: Type.Optional(Type.Literal(true)), sensitive: Type.Optional(Type.Literal(true)),
 });
 export type FilesListResponse = Static<typeof FilesListResponseSchema>;
 export type FilesSearchResponse = Static<typeof FilesSearchResponseSchema>;
 export type FilesReadResponse = Static<typeof FilesReadResponseSchema>;
+
+const writeResponseFields = { type: Type.Literal("files.write"), id: RequestIdSchema };
+export const FilesWriteResponseSchema = Type.Union([
+	Type.Object({ ...writeResponseFields, status: Type.Literal("saved"), ...fileMetadata, hash: fileHash }),
+	Type.Object({ ...writeResponseFields, status: Type.Literal("conflict"), current: Type.Object({ text: Type.String(), hash: fileHash }) }),
+]);
+export type FilesWriteResponse = Static<typeof FilesWriteResponseSchema>;
+// Keep the discriminated payload when stripping the wire envelope.
+type WithoutEnvelope<T> = T extends unknown ? Omit<T, "type" | "id"> : never;
+export type FileWriteResult = WithoutEnvelope<FilesWriteResponse>;

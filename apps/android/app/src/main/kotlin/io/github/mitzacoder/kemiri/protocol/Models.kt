@@ -941,6 +941,7 @@ data class ProjectsConfigureRequest(
     val `reportAudit`: ProjectsConfigureRequestReportAudit? = null,
     val `taskWatcher`: ProjectsConfigureRequestReportAudit? = null,
     val `blockArtifactRequests`: Boolean? = null,
+    val `allowFileWrites`: Boolean? = null,
     val `uiProof`: String? = null,
     val `integrationRef`: String? = null,
     val `deployFeed`: String? = null,
@@ -975,6 +976,7 @@ data class ProjectSummary(
     val `keepPromptCacheWarm`: Boolean? = null,
     val `promptCacheWarmHours`: Long? = null,
     val `uiProof`: String? = null,
+    val `allowFileWrites`: Boolean? = null,
     val `blockArtifactRequests`: Boolean? = null,
     val `integrationRef`: String? = null,
     val `deployFeed`: String? = null,
@@ -3446,6 +3448,18 @@ data class FilesReadResponse(
 )
 
 @Serializable
+data class FilesWriteRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.write",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `path`: String,
+    val `text`: String,
+    val `baseHash`: String
+) {
+    override fun toString(): String = "FilesWriteRequest(redacted)"
+}
+
+@Serializable
 data class ChangesListRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "changes.list",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -4372,6 +4386,47 @@ data class MemoryChangedEvent(
     val `scope`: String,
     val `projectId`: String?
 ) : ProtocolEvent
+
+@Serializable(with = FilesWriteResponseSerializer::class)
+sealed interface FilesWriteResponse { val `status`: String }
+
+/** A FilesWriteResponse variant this build does not know, kept as it came. */
+data class UnknownFilesWriteResponse(override val raw: JsonObject) : FilesWriteResponse, UnknownVariant {
+    override val `status`: String get() = raw["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object FilesWriteResponseSerializer : UnionSerializer<FilesWriteResponse>("FilesWriteResponse", "status", mapOf(
+    "saved" to FilesWriteResponseSaved.serializer(),
+    "conflict" to FilesWriteResponseConflict.serializer(),
+), { it.`status` }, ::UnknownFilesWriteResponse)
+
+@Serializable
+data class FilesWriteResponseSaved(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.write",
+    val `id`: String,
+    @kotlinx.serialization.EncodeDefault override val `status`: String = "saved",
+    val `size`: Long,
+    val `modifiedAt`: String,
+    val `hash`: String
+) : FilesWriteResponse {
+    override fun toString(): String = "FilesWriteResponseSaved(redacted)"
+}
+
+@Serializable
+data class FilesWriteResponseConflict(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.write",
+    val `id`: String,
+    @kotlinx.serialization.EncodeDefault override val `status`: String = "conflict",
+    val `current`: FilesWriteResponseConflictCurrent
+) : FilesWriteResponse {
+    override fun toString(): String = "FilesWriteResponseConflict(redacted)"
+}
+
+@Serializable
+data class FilesWriteResponseConflictCurrent(
+    val `text`: String,
+    val `hash`: String
+)
 
 data class UnknownEvent(val raw: JsonObject) : ProtocolEvent
 

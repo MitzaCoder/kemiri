@@ -1,3 +1,4 @@
+import { ProjectFileWrites } from "./project-file-writes.ts";
 import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
 import type { WorkerBrowserService } from "./worker-browser.ts";
 import { UserSettingsStore } from "./user-settings.ts";
@@ -377,6 +378,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "project-files" || projectFiles !== undefined) &&
+			(feature !== "project-files-write" || (projectFiles !== undefined && (options.features ?? HARNESS_FEATURES).includes("project-files"))) &&
 			(feature !== "project-changes-working" || (projectFiles !== undefined && (options.features ?? HARNESS_FEATURES).includes("project-changes"))) &&
    (feature !== "task-live-watcher" || (options.features ?? HARNESS_FEATURES).includes("task-live")) &&
 			(feature !== "fcm-relay-v1" || (relayEndpoint !== undefined &&
@@ -770,6 +772,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	await manager.prepareAttention();
 	const connectionOptions = {
 		userSettings,
+		fileWrites: new ProjectFileWrites(),
 		projectFiles,
 		manager,
 		credentials,

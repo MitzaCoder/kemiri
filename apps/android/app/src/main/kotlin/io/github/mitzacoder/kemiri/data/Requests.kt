@@ -376,6 +376,10 @@ suspend fun HarnessClient.request(value: FilesReadRequest, explicitNulls: Set<St
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(FilesReadRequest.serializer(), value).jsonObject, explicitNulls), FilesReadResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: FilesWriteRequest, explicitNulls: Set<String> = emptySet()): FilesWriteResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(FilesWriteRequest.serializer(), value).jsonObject, explicitNulls), FilesWriteResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: ChangesListRequest, explicitNulls: Set<String> = emptySet()): ChangesListResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ChangesListRequest.serializer(), value).jsonObject, explicitNulls), ChangesListResponse.serializer()
 )
