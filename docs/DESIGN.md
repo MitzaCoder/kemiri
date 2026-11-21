@@ -3125,6 +3125,27 @@ also deduplicates freshness and nudge admission: retries neither increment event
 after outbox admission. Unattributed changes do nothing. No push notifications, publication or deploy
 outcomes are generated.
 
+### Code view: project-changes
+
+The `project-changes` hello capability adds read-only, authenticated `changes.list` and `changes.file`
+requests scoped to a registered project. They read committed Git objects, including Git-backed jj stores,
+without reading or snapshotting the checkout. Projects without a Git store get `not_found`. Commit sources
+require an existing full SHA-1 or SHA-256 commit hash. `landed` means reachable from the configured local
+integration ref, not published or deployed. Task sources use the same current attribution as Delivery.
+
+A commit is compared with its first parent, or the empty tree for a root commit. A task gets a combined diff
+only when all its attributed commits form one unbroken first-parent chain. The range runs from the oldest
+commit's first parent to the newest commit. Otherwise the list gives the commits and a reason, but no combined
+files. Clients can request each commit with a commit source. Working-copy sources are not implemented here.
+
+The file list returns at most 500 paths with status, rename source, line counts and Git's binary classification.
+Read a rename by its destination path. Only changed, regular blobs serve text. Paths must use forward slashes,
+fit within 4,096 UTF-8 bytes and exclude traversal and `.git`/`.jj` segments. Symlinks and submodules are not
+followed. File sides carry their Git blob hash and up to 1 MiB of exact UTF-8 text. Binary and invalid UTF-8
+omit text. Oversized text uses a unified patch capped at 256 KiB and marks a clipped prefix as truncated.
+Git calls use argument arrays, no optional locks or external diff tools, a 10-second timeout and bounded output.
+Git errors never include file contents or subprocess output in logs.
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

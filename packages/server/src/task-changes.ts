@@ -1,6 +1,7 @@
 /** Task attribution and integration facts. All VCS reads are object/ref reads, never working-copy snapshots. */
 import { execFile } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { childEnvironment } from "./child-environment.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
@@ -46,11 +47,48 @@ export type TaskChangeLedger = {
 	}>;
 };
 
-function command(binary: string, args: string[], cwd: string): Promise<string> {
+export class VcsCommandError extends Error {
+	constructor(readonly reason: "timeout" | "output_limit" | "failed", readonly exitCode?: number) {
+		super(`VCS command ${reason.replace("_", " ")}`);
+	}
+}
+
+/** Keep byte limits, argument-only execution and timeout policy shared by observation and review. */
+export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string, maxBuffer = 8 * 1024 * 1024,
+	keepOutputPrefix = false): Promise<{ stdout: Buffer; truncated: boolean }> {
+	const env = childEnvironment();
+	if (binary === "git") {
+		// A host-level index, gitdir, namespace, config injection or object directory must not retarget a project read.
+		for (const name of Object.keys(env)) if (name.startsWith("GIT_")) delete env[name];
+		Object.assign(env, { GIT_OPTIONAL_LOCKS: "0", GIT_NO_LAZY_FETCH: "1", GIT_GRAFT_FILE: "/dev/null" });
+		args = ["--no-optional-locks", "--no-replace-objects", ...args];
+	}
 	return new Promise((accept, reject) => execFile(binary, args, {
-		cwd, env: { ...childEnvironment(), GIT_OPTIONAL_LOCKS: "0" }, timeout: 10_000,
-		maxBuffer: 8 * 1024 * 1024, encoding: "utf8",
-	}, (error, stdout, stderr) => error ? reject(new Error(`${binary}: ${stderr.trim() || error.message}`)) : accept(stdout.trimEnd())));
+		cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer",
+	}, (error, stdout) => {
+		// Do not forward stderr or execFile's command/error text from Git.
+		if (!error) return accept({ stdout, truncated: false });
+		if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+			if (keepOutputPrefix && stdout.length === maxBuffer) return accept({ stdout, truncated: true });
+			return reject(new VcsCommandError("output_limit"));
+		}
+		reject(new VcsCommandError(error.killed ? "timeout" : "failed", typeof error.code === "number" ? error.code : undefined));
+	}));
+}
+
+async function command(binary: "git" | "jj", args: string[], cwd: string): Promise<string> {
+	return (await runVcsCommand(binary, args, cwd)).stdout.toString("utf8").trimEnd();
+}
+
+export async function gitIntegrationTip(readGit: (args: string[]) => Promise<string>, configured: string | null | undefined) {
+	if (configured === null) return undefined;
+	const refs = configured && configured !== "auto" ? [configured] : ["refs/heads/main", "refs/heads/master"];
+	for (const ref of refs) {
+		if (!/^refs\/[A-Za-z0-9_./-]+$/.test(ref) || ref.includes("..")) throw new Error("Invalid integration ref");
+		try { return { ref, tip: await readGit(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) }; }
+		catch (error) { if (!(error instanceof VcsCommandError && error.exitCode === 1)) throw error; }
+	}
+	return undefined;
 }
 
 /** Only the final trailer paragraph is interpreted; examples in the subject/body are not declarations. */
@@ -66,15 +104,37 @@ export function taskTrailers(message: string): string[] {
 }
 
 /** Git worktrees, colocated jj and jj's Git-backed non-colocated workspaces all use Git objects. */
-export async function gitRepository(path: string): Promise<string | undefined> {
-	try { return await realpath(await command("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], path)); } catch { /* jj workspace */ }
+export async function gitRepository(path: string, projectRootOnly = false): Promise<string | undefined> {
+	const preserveCommandFailure = (error: unknown) => {
+		if (projectRootOnly && error instanceof VcsCommandError && error.exitCode !== 128) throw error;
+	};
 	try {
-		const pointer = join(path, ".jj", "repo");
-		const repo = await readFile(pointer, "utf8").then(text => resolve(path, ".jj", text.trim())).catch(() => pointer);
+		const { stdout } = await runVcsCommand("git", ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-prefix"], path);
+		const output = stdout.toString("utf8").slice(0, -1); // one LF terminates each field
+		const separator = output.lastIndexOf("\n");
+		if (!projectRootOnly || output.slice(separator + 1) === "") return await realpath(output.slice(0, separator));
+	} catch (error) { preserveCommandFailure(error); /* jj workspace */ }
+	try {
+		const jjDirectory = join(path, ".jj");
+		if (!(await lstat(jjDirectory)).isDirectory()) return undefined;
+		const pointer = join(jjDirectory, "repo");
+		const entry = await lstat(pointer);
+		let repo = pointer;
+		if (entry.isFile()) {
+			// Linked jj workspaces use a small text pointer. Never follow a link or block on a special file.
+			const file = await open(pointer, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+			try {
+				if (!(await file.stat()).isFile()) return undefined;
+				const bytes = Buffer.alloc(4097);
+				const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+				if (bytesRead === 0 || bytesRead === bytes.length) return undefined;
+				repo = resolve(jjDirectory, bytes.toString("utf8", 0, bytesRead).trim());
+			} finally { await file.close(); }
+		} else if (!entry.isDirectory()) return undefined;
 		const git = await realpath(join(repo, "store", "git"));
 		await command("git", [`--git-dir=${git}`, "rev-parse", "--git-dir"], path);
 		return git;
-	} catch { return undefined; }
+	} catch (error) { preserveCommandFailure(error); return undefined; }
 }
 
 export type TaskChangeObserverOptions = {
@@ -218,18 +278,21 @@ export class TaskChangeObserver {
 		await this.#deliver(ledger);
 	}); }
 
+	/** The current ledger attribution for one canonical Git store, shared by Delivery and Changes. */
+	async attributedHashes(repo: string, taskId: string): Promise<string[]> {
+		const state = (await this.#ledger()).repositories[repo];
+		return state ? [...new Set(state.changes.filter(change => change.taskId === taskId).flatMap(change => change.commits))] : [];
+	}
+
 	/** Present attribution, not the union of historical milestone rows. Read only the configured repository/ref. */
 	async delivery(taskId: string): Promise<{ commits: string[]; integration?: { ref: string; landed: number } } | undefined> {
-		const ledger = await this.#ledger();
-		if (!Object.keys(ledger.repositories).length) return undefined;
 		const repo = await gitRepository(this.#options.path);
-		const state = repo ? ledger.repositories[repo] : undefined;
-		if (!repo || !state) return undefined;
-		const commits = [...new Set(state.changes.filter(change => change.taskId === taskId).flatMap(change => change.commits))];
+		if (!repo) return undefined;
+		const commits = await this.attributedHashes(repo, taskId);
 		if (!commits.length) return undefined;
-		const ref = await this.#ref(repo);
-		const tip = ref && await this.#resolve(repo, ref);
-		if (!ref || !tip) return { commits };
+		const integration = await gitIntegrationTip(args => this.#git(repo, args), this.#options.integrationRef());
+		if (!integration) return { commits };
+		const { ref, tip } = integration;
 
 		// Check reachability at one tip, including already-landed manual attributions and ref rewrites.
 		// A declared revert is distinct from an ancestry removal; report ancestry under Merged.

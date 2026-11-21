@@ -1,3 +1,4 @@
+import { ProjectChanges } from "./project-changes.ts";
 import type { UserSettingsStore } from "./user-settings.ts";
 import type { UserSettings } from "@kemiri/protocol";
 import { MCP_PRESETS } from "@kemiri/protocol";
@@ -910,6 +911,19 @@ export class ClientConnection {
 				case "board.task.history": {
 					const snapshots = await this.#manager.boardTaskHistory(request.projectId, request.taskId);
 					this.#respond({ type: "board.task.history", id: request.id, taskId: request.taskId, snapshots });
+					return;
+				}
+				case "changes.list":
+				case "changes.file": {
+					if (!this.#features.includes("project-changes")) return this.#unknownRequest(request);
+					const project = await this.#manager.store.require(request.projectId);
+					const changes = new ProjectChanges(project.path, project.integrationRef, async (gitStore, taskId) => {
+						const { runtime } = await this.#manager.open(project.id);
+						await runtime.board.requireTask(taskId);
+						return runtime.taskChanges.attributedHashes(gitStore, taskId);
+					});
+					if (request.type === "changes.list") this.#respond({ type: request.type, id: request.id, ...await changes.list(request.source) });
+					else this.#respond({ type: request.type, id: request.id, ...await changes.file(request.source, request.path) });
 					return;
 				}
 				case "board.task.timeline": {

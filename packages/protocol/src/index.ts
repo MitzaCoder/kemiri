@@ -1,3 +1,7 @@
+import {
+	ChangeSourceSchema, ChangeCommitSchema, ChangedFileSchema, ChangeFileSideSchema,
+	ChangesListRequestSchema, ChangesListResponseSchema, ChangesFileRequestSchema, ChangesFileResponseSchema,
+} from "./project-changes.ts";
 export * from "./user-settings.ts";
 export * from "./subscription-value.ts";
 import {
@@ -885,6 +889,8 @@ export const ClientMessageSchema = Type.Union([
 	BoardLiveMarkWrongRequestSchema,
 	BoardReportStaleRequestSchema,
 	BoardTaskTimelineRequestSchema,
+	ChangesListRequestSchema,
+	ChangesFileRequestSchema,
 	BoardFeedbackSetRequestSchema,
 	UsageValueRequestSchema,
 	UsageTaskRequestSchema,
@@ -1012,6 +1018,8 @@ export const ResponseSchema = Type.Union([
 	BoardLiveMarkWrongResponseSchema,
 	BoardReportStaleResponseSchema,
 	BoardTaskTimelineResponseSchema,
+	ChangesListResponseSchema,
+	ChangesFileResponseSchema,
 	BoardFeedbackSetResponseSchema,
 	UsageValueResponseSchema,
 	UsageTaskResponseSchema,
@@ -1434,6 +1442,14 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardTaskTimelineRequest: BoardTaskTimelineRequestSchema,
 	BoardFeedbackSetRequest: BoardFeedbackSetRequestSchema,
 	BoardTaskTimelineResponse: BoardTaskTimelineResponseSchema,
+	ChangeSource: ChangeSourceSchema,
+	ChangeCommit: ChangeCommitSchema,
+	ChangedFile: ChangedFileSchema,
+	ChangeFileSide: ChangeFileSideSchema,
+	ChangesListRequest: ChangesListRequestSchema,
+	ChangesListResponse: ChangesListResponseSchema,
+	ChangesFileRequest: ChangesFileRequestSchema,
+	ChangesFileResponse: ChangesFileResponseSchema,
 	BoardFeedbackSetResponse: BoardFeedbackSetResponseSchema,
 	NotificationKind: NotificationKindSchema,
 	NotificationPreferences: NotificationPreferencesSchema,
@@ -1886,3 +1902,5 @@ export * from "./mcp-import.ts";
 export { ThreadStateSchema, threadState, backgroundJobCounts, type ThreadState } from "./threads.ts";
 
 export { liveCounterLabels, livePlanProgress, LIVE_PLAN_MIN_STEPS, LIVE_PLAN_MAX_STEPS, LIVE_PLAN_STEP_MAX_CHARS, BoardLivePlanStatusSchema, BoardLivePlanStepSchema };
+
+export * from "./project-changes.ts";

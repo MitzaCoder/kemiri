@@ -3324,6 +3324,96 @@ data class BoardTaskTimelineResponseDeliveryIntegration(
 )
 
 @Serializable
+data class ChangeCommit(
+    val `hash`: String,
+    val `subject`: String,
+    val `author`: String,
+    val `time`: String,
+    val `landed`: Boolean
+)
+
+@Serializable
+data class ChangedFile(
+    val `path`: String,
+    val `previousPath`: String? = null,
+    val `status`: String,
+    val `additions`: Long,
+    val `deletions`: Long,
+    val `binary`: Boolean
+)
+
+@Serializable
+data class ChangeFileSide(
+    val `text`: String,
+    val `hash`: String
+)
+
+@Serializable
+data class ChangesListRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "changes.list",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `source`: ChangeSource
+)
+
+@Serializable(with = ChangeSourceSerializer::class)
+sealed interface ChangeSource { val `kind`: String }
+
+/** A ChangeSource variant this build does not know, kept as it came. */
+data class UnknownChangeSource(override val raw: JsonObject) : ChangeSource, UnknownVariant {
+    override val `kind`: String get() = raw["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object ChangeSourceSerializer : UnionSerializer<ChangeSource>("ChangeSource", "kind", mapOf(
+    "task" to ChangeSourceTask.serializer(),
+    "commit" to ChangeSourceCommit.serializer(),
+), { it.`kind` }, ::UnknownChangeSource)
+
+@Serializable
+data class ChangeSourceTask(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "task",
+    val `taskId`: String
+) : ChangeSource
+
+@Serializable
+data class ChangeSourceCommit(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "commit",
+    val `hash`: String
+) : ChangeSource
+
+@Serializable
+data class ChangesListResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "changes.list",
+    val `id`: String,
+    val `commits`: List<ChangeCommit>,
+    val `files`: List<ChangedFile>,
+    val `truncated`: Boolean,
+    val `contiguous`: Boolean? = null,
+    val `nonContiguousReason`: String? = null
+)
+
+@Serializable
+data class ChangesFileRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "changes.file",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `source`: ChangeSource,
+    val `path`: String
+)
+
+@Serializable
+data class ChangesFileResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "changes.file",
+    val `id`: String,
+    val `before`: ChangeFileSide? = null,
+    val `after`: ChangeFileSide? = null,
+    @kotlinx.serialization.EncodeDefault val `binary`: Boolean = true,
+    @kotlinx.serialization.EncodeDefault val `tooLarge`: Boolean = true,
+    val `patch`: String? = null,
+    @kotlinx.serialization.EncodeDefault val `patchTruncated`: Boolean = true
+)
+
+@Serializable
 data class BoardFeedbackSetResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.feedback.set",
     val `id`: String,

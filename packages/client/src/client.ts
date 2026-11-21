@@ -23,6 +23,9 @@ import type {
 	BoardTask,
 	BoardTaskHistoryResponse,
 	BoardTaskTimelineResponse,
+	ChangeSource,
+	ChangesListResponse,
+	ChangesFileResponse,
 	BoardFeedbackSetResponse,
 	BoardTimelineKind,
 	BoardFeedback,
@@ -1078,6 +1081,18 @@ export class HarnessClient {
 			...(response.groups === undefined ? {} : { groups: response.groups }),
 			...(response.timelineRevision === undefined ? {} : { timelineRevision: response.timelineRevision }),
 			...(response.delivery === undefined ? {} : { delivery: response.delivery }) };
+	}
+
+	/** List committed changes for a task or a full commit hash. Needs `project-changes`. */
+	async listChanges(projectId: string, source: ChangeSource): Promise<Omit<ChangesListResponse, "type" | "id">> {
+		const { type: _, id: __, ...changes } = await this.#call<ChangesListResponse>({ type: "changes.list", projectId, source });
+		return changes;
+	}
+
+	/** Read a changed file by its listed path, including a rename's destination. Needs `project-changes`. */
+	async readChangeFile(projectId: string, source: ChangeSource, path: string): Promise<Omit<ChangesFileResponse, "type" | "id">> {
+		const { type: _, id: __, ...file } = await this.#call<ChangesFileResponse>({ type: "changes.file", projectId, source, path });
+		return file;
 	}
 
 	/** Set a feedback entry's state: the user dismisses or reopens it. Answers the entry as stored. Needs `task-links`. */

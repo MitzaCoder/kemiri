@@ -364,6 +364,14 @@ suspend fun HarnessClient.request(value: BoardFeedbackSetRequest, explicitNulls:
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardFeedbackSetRequest.serializer(), value).jsonObject, explicitNulls), BoardFeedbackSetResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: ChangesListRequest, explicitNulls: Set<String> = emptySet()): ChangesListResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ChangesListRequest.serializer(), value).jsonObject, explicitNulls), ChangesListResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: ChangesFileRequest, explicitNulls: Set<String> = emptySet()): ChangesFileResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ChangesFileRequest.serializer(), value).jsonObject, explicitNulls), ChangesFileResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: NotificationsConfigRequest, explicitNulls: Set<String> = emptySet()): NotificationsConfigResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(NotificationsConfigRequest.serializer(), value).jsonObject, explicitNulls), NotificationsConfigResponse.serializer()
 )
