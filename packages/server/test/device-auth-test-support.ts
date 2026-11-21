@@ -5,11 +5,7 @@ import { join } from "node:path";
 import { authSecret, type SessionCredentials } from "../src/device-auth.ts";
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
 
-const cleanups: (() => Promise<void>)[] = [];
-export function authCleanup(cleanup: () => Promise<void>) { cleanups.push(cleanup); }
-afterEach(async () => {
-	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
-});
+export function authCleanup(cleanup: () => Promise<void>) { afterEach(cleanup); }
 export const claimProof = (label = "Synthetic browser", platform = "web") => ({
 	claimId: randomBytes(16).toString("hex"),
 	claimSecret: authSecret("aiki_c1"),
@@ -17,9 +13,7 @@ export const claimProof = (label = "Synthetic browser", platform = "web") => ({
 	platform,
 });
 export async function authSetup(options: Parameters<typeof createSetup>[0] = {}) {
-	const setup = await createSetup({ terminals: false, auth: { mode: "required" }, ...options });
-	cleanups.push(setup.cleanup);
-	return setup;
+	return createSetup({ terminals: false, auth: { mode: "required" }, ...options });
 }
 export function authPost(setup: TestSetup, path: string, body: unknown, headers: Record<string, string> = {}) {
 	return fetch(`${setup.server.url}${path}`, {
@@ -60,7 +54,7 @@ export async function httpEnroll(setup: TestSetup): Promise<SessionCredentials> 
 }
 export async function authClient(setup: TestSetup, credentials?: Pick<SessionCredentials, "accessToken">) {
 	const client = await TestClient.open(setup.server);
-	cleanups.push(async () => client.close());
+	authCleanup(async () => client.close());
 	const hello = await client.request({
 		type: "hello", protocolVersion: 1,
 		...(credentials ? { auth: { accessToken: credentials.accessToken } } : {}),

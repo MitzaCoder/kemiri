@@ -6,7 +6,8 @@
 import "./clean-env.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DRAIN_FEATURES, type FakeBackend, type FakeRelease, startFakeBackend } from "./fake-backend.ts";
@@ -24,11 +25,22 @@ const SAFE_CGROUP = "0::/user.slice/user-1000.slice/session-3.scope";
 
 const backends: FakeBackend[] = [];
 const machines: Machine[] = [];
+const temporaryDirectories: string[] = [];
 
-afterEach(() => {
-	for (const backend of backends.splice(0)) backend.stop();
-	for (const machine of machines.splice(0)) expect(existsSync(join(machine.dir, "network-attempted"))).toBe(false);
+afterEach(async () => {
+	try {
+		for (const backend of backends.splice(0)) backend.stop();
+		for (const machine of machines.splice(0)) expect(existsSync(join(machine.dir, "network-attempted"))).toBe(false);
+	} finally {
+		await Promise.all(temporaryDirectories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+	}
 });
+
+function temporaryDirectory(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	temporaryDirectories.push(dir);
+	return dir;
+}
 
 function startBackend(overrides: Parameters<typeof startFakeBackend>[0] = {}): FakeBackend {
 	const backend = startFakeBackend(overrides);
@@ -55,7 +67,7 @@ async function healthCheck(backend: FakeBackend, args: string[] = []): Promise<R
 
 /** A path in a fresh temporary directory, for the recorded open projects. */
 function temporaryFile(name: string): string {
-	return join(mkdtempSync(join(tmpdir(), "aiki-deploy-projects.")), name);
+	return join(temporaryDirectory("aiki-deploy-projects."), name);
 }
 
 const COMMIT = "0f1e2d3c4b5a69788796a5b4c3d2e1f009182736";
@@ -327,7 +339,7 @@ function installTerminalStub(home: string): void {
 }
 
 function makeMachine(): Machine {
-	const dir = mkdtempSync(join(tmpdir(), "aiki-deploy-test."));
+	const dir = temporaryDirectory("aiki-deploy-test.");
 	const home = join(dir, "home");
 	const root = join(home, ".local", "share", "aiki-deploy");
 	const bin = join(dir, "bin");
@@ -692,7 +704,7 @@ describe("backend.sh", () => {
 describe("deploy.sh", () => {
 	/** A throwaway repository with this deploy/ in it, so `git archive` has a commit to materialise. */
 	async function makeRepository(): Promise<{ dir: string; sha: string }> {
-		const dir = mkdtempSync(join(tmpdir(), "aiki-deploy-repo."));
+		const dir = temporaryDirectory("aiki-deploy-repo.");
 		cpSync(DEPLOY_DIR, join(dir, "deploy"), { recursive: true, filter: (source) => source !== join(DEPLOY_DIR, "local") });
 		writeFileSync(join(dir, "package.json"), '{ "name": "aiki", "private": true }\n');
 		const git = async (...args: string[]): Promise<void> => {
@@ -835,7 +847,10 @@ describe("deploy.sh", () => {
 		const state = join(machine.dir, "state/aiki-deploy"); mkdirSync(state, { recursive: true });
 		mkdirSync(join(state, "deploy-journal.json"));
 		if (checksFail) writeScript(join(machine.bin, "bun"), `if [[ \${1:-} == test ]]; then exit 7; fi\nexec ${BUN} "$@"`);
-		const result = await run(["bash", join(dir, "deploy/deploy.sh"), sha], environment);
+		const checkTmpDir = join(machine.dir, "tmp");
+		mkdirSync(checkTmpDir);
+		const result = await run(["bash", join(dir, "deploy/deploy.sh"), sha], { ...environment, TMPDIR: checkTmpDir });
+		expect(readdirSync(checkTmpDir)).toEqual([]);
 		expect(result.code).toBe(checksFail ? 1 : 0);
 		expect(result.stdout).toContain(checksFail ? "tests failed on" : "deployed");
 		expect(restarts(machine)).toEqual([]);
@@ -1433,7 +1448,7 @@ describe("vapid-key.sh", () => {
 describe("watch.sh catch-up", () => {
 	/** A repository holding this deploy/ with a deploy.sh that only logs how it was called and exits with `code`. */
 	async function watchedRepository(code: number): Promise<{ dir: string; log: string; sha: string }> {
-		const dir = mkdtempSync(join(tmpdir(), "demo-watch-repo."));
+		const dir = temporaryDirectory("demo-watch-repo.");
 		cpSync(DEPLOY_DIR, join(dir, "deploy"), { recursive: true, filter: (source) => source !== join(DEPLOY_DIR, "local") });
 		const log = join(dir, "calls.log");
 		writeFileSync(log, "");
@@ -1454,8 +1469,12 @@ describe("watch.sh catch-up", () => {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		await Bun.sleep(seconds * 1000);
-		child.kill();
+		try {
+			await Bun.sleep(seconds * 1000);
+		} finally {
+			child.kill();
+			await child.exited;
+		}
 		return new Response(child.stdout).text();
 	}
 
@@ -1467,14 +1486,14 @@ describe("watch.sh catch-up", () => {
 
 	test("does not run a catch-up while nothing is pending", async () => {
 		const { dir, log } = await watchedRepository(0);
-		const state = mkdtempSync(join(tmpdir(), "demo-watch-state."));
+		const state = temporaryDirectory("demo-watch-state.");
 		await watchFor(dir, state, 3.5);
 		expect(readFileSync(log, "utf8")).toBe("");
 	}, 15_000);
 
 	test("runs a catch-up for the current main while a laptop is pending, every round", async () => {
 		const { dir, log, sha } = await watchedRepository(0);
-		const state = mkdtempSync(join(tmpdir(), "demo-watch-state."));
+		const state = temporaryDirectory("demo-watch-state.");
 		pend(state);
 		await watchFor(dir, state, 3.5);
 		const calls = readFileSync(log, "utf8").trim().split("\n");
@@ -1484,7 +1503,7 @@ describe("watch.sh catch-up", () => {
 
 	test("does not repeat a catch-up that failed for this commit", async () => {
 		const { dir, log, sha } = await watchedRepository(1);
-		const state = mkdtempSync(join(tmpdir(), "demo-watch-state."));
+		const state = temporaryDirectory("demo-watch-state.");
 		pend(state);
 		const output = await watchFor(dir, state, 3.5);
 		expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([`--catch-up ${sha}`]);
@@ -1493,7 +1512,7 @@ describe("watch.sh catch-up", () => {
 
 	test("treats a deploy that holds the lock (75) as not yet, and tries again", async () => {
 		const { dir, log } = await watchedRepository(75);
-		const state = mkdtempSync(join(tmpdir(), "demo-watch-state."));
+		const state = temporaryDirectory("demo-watch-state.");
 		pend(state);
 		const output = await watchFor(dir, state, 3.5);
 		expect(readFileSync(log, "utf8").trim().split("\n").length).toBeGreaterThanOrEqual(2);

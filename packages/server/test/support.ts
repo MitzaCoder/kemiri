@@ -6,6 +6,7 @@ import type { MutableModels } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai";
 import { fauxProvider, type FauxProviderHandle } from "@earendil-works/pi-ai/providers/faux";
 import type { ConversationView, ServerMessage } from "@kemiri/protocol";
+import { afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +32,7 @@ export type TestSetup = {
 	cleanup(): Promise<void>;
 };
 
-export async function createSetup(options?: {
+type TestSetupOptions = {
 	antigravityCommand?: string;
 	updates?: StartServerOptions["updates"];
 	/** Register extra providers, for example a fake OAuth provider, on the setup's models. */
@@ -75,8 +76,36 @@ export async function createSetup(options?: {
 	githubReviews?: StartServerOptions["githubReviews"];
 	/** Terminals: a plain-shell host, or zellij pointed at test-only sockets. */
 	terminals?: StartServerOptions["terminals"];
-}): Promise<TestSetup> {
+};
+
+export async function createSetup(options?: TestSetupOptions): Promise<TestSetup> {
 	const root = await mkdtemp(join(tmpdir(), "aiki-test-"));
+	let setup: Omit<TestSetup, "cleanup"> | undefined;
+	let cleaning: Promise<void> | undefined;
+	const cleanup = () => cleaning ??= (async () => {
+		try {
+			await setup?.server.stop();
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	})();
+	try {
+		try {
+			// Register while the test is running, not when this shared module is first imported.
+			afterEach(cleanup);
+		} catch (error) {
+			// Standalone demo scripts own the fixture via the returned cleanup function.
+			if (!(error instanceof Error && error.message.startsWith("Cannot use afterEach() outside of the test runner."))) throw error;
+		}
+		setup = await startTestSetup(root, options);
+		return Object.assign(setup, { cleanup });
+	} catch (error) {
+		await cleanup();
+		throw error;
+	}
+}
+
+async function startTestSetup(root: string, options?: TestSetupOptions): Promise<Omit<TestSetup, "cleanup">> {
 	const dataDir = join(root, "data");
 	const projectDir = join(root, "project");
 	await mkdir(projectDir, { recursive: true });
@@ -131,7 +160,7 @@ export async function createSetup(options?: {
 		});
 
 	let server = await start();
-	const setup: TestSetup = {
+	return {
 		root,
 		dataDir,
 		projectDir,
@@ -149,12 +178,7 @@ export async function createSetup(options?: {
 			server = await start();
 			return server;
 		},
-		async cleanup() {
-			await server.stop().catch(() => undefined);
-			await rm(root, { recursive: true, force: true });
-		},
 	};
-	return setup;
 }
 
 type Pending = { resolve: (message: ServerMessage) => void };

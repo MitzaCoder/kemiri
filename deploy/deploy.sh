@@ -346,9 +346,17 @@ fi
 
 if ((!PARTIAL)); then journal_event web running; journal_event host running; fi
 
+STAGE=""
+function cleanup_stage() {
+	if [[ -z $STAGE ]]; then return 0; fi
+	if rm -rf -- "$STAGE"; then
+		STAGE=""
+	else
+		printf 'WARNING: could not remove deploy check directory: %s\n' "$STAGE" >&2
+	fi
+}
+trap cleanup_stage EXIT
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/aiki-deploy-check.XXXXXX")
-function cleanup() { rm -rf "$STAGE"; }
-trap cleanup EXIT
 
 # 1. The commit, exactly as committed: no working copy, no .jj, no node_modules.
 git archive --format=tar "$SHA" | tar -x -C "$STAGE" || checks_failed "could not archive ${SHA:0:12}; not deploying"
@@ -387,6 +395,8 @@ else
 	failed "app: $APP_ROOT was not updated"
 	journal_event web failed
 fi
+# No remaining steps use the staged checks or web build. EXIT still covers earlier failures.
+cleanup_stage
 
 # 4. The backend on this host. Its system unit comes from nix-config, which is not applied yet on some machines.
 function publish_host() {

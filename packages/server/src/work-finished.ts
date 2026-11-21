@@ -115,6 +115,7 @@ export class WorkFinishedWatch {
 
 	/** The coordinator's newest final answer, the body of the next `work_finished`. */
 	reply(text: string): void {
+		if (this.#stopped) return;
 		this.#lastReply = text;
 		this.#persist();
 	}

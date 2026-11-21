@@ -1306,6 +1306,11 @@ Origins before any artifact access. New auth HTTP always uses exact Origin match
 
 ### Deploy checks and rollback safety
 
+The deploy check archive is temporary. Its exit trap covers check and publish failures, and the script removes it
+as soon as the web step no longer needs it. Deploy tests use isolated scratch trees and remove them after stopping
+fixture services. Server integration tests register teardown when `createSetup` allocates a root, so each test stops
+its server before deleting its files, even if the test fails. Standalone demos call the same cleanup explicitly.
+
 `deploy/health-check.ts` stays standalone (Bun/OS imports only). It probes `GET /auth/status`: off/optional and older
 servers without that route keep the anonymous WebSocket checks. Required uses `health-check <JSON request>` on the
 owner-only `<data>/auth.sock`, not a network exemption or a stored deployment credential. Only hello, server status,

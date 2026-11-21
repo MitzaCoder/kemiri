@@ -3,20 +3,13 @@ import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { authSecret } from "../src/device-auth.ts";
-import { createSetup, type TestSetup } from "./support.ts";
+import { createSetup } from "./support.ts";
 
 const main = join(import.meta.dir, "../src/main.ts");
-const setups: TestSetup[] = [];
-const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => {
-	for (const cleanup of cleanups.splice(0)) await cleanup();
-	for (const s of setups.splice(0)) await s.cleanup();
-});
 
 for (const originSource of ["backend origins", "public URL fallback"] as const) {
 	test(`env-file auth settings reach the real server and owner CLI (${originSource})`, async () => {
 		const s = await createSetup({ terminals: false });
-		setups.push(s);
 		const file = join(s.root, "isolated-server.env");
 		const backend = originSource === "backend origins" ? "https://backend.example.test" : "https://fallback.example.test";
 		await writeFile(file, [
@@ -45,7 +38,8 @@ for (const originSource of ["backend origins", "public URL fallback"] as const) 
 		const errorOutput = (async () => { for await (const bytes of child.stderr) errors += new TextDecoder().decode(bytes); })();
 		void child.exited.then(code => ready.reject(new Error(`Isolated server exited (${code}): ${errors}`)));
 		const timeout = setTimeout(() => ready.reject(new Error(`Isolated startup timed out: ${logs}\n${errors}`)), 5000);
-		cleanups.push(async () => {
+		// This child writes inside the parent fixture. Register after createSetup so it stops first.
+		afterEach(async () => {
 			clearTimeout(timeout);
 			child.kill("SIGTERM");
 			await child.exited;

@@ -126,7 +126,6 @@ test("full auth, pairing, refresh, signed artifact and revocation flow never log
 
 test.skipIf(Bun.which("zellij") === null)("live revocation stops binary output and detaches, but the zellij host job survives", async () => {
 	const root = await mkdtemp(join(tmpdir(), "aiki-auth-pty-"));
-	await mkdir(join(root, "home"));
 	authCleanup(async () => {
 		// Only test-owned zellij processes name this unique socket directory.
 		for (const entry of await readdir("/proc")) {
@@ -135,6 +134,7 @@ test.skipIf(Bun.which("zellij") === null)("live revocation stops binary output a
 		}
 		await rm(root, { recursive: true, force: true });
 	});
+	await mkdir(join(root, "home"));
 	const s = await authSetup({ terminals: {
 		multiplexer: "zellij", survive: "off", configFile: join(root, "zellij.kdl"),
 		env: { PATH: process.env.PATH, HOME: join(root, "home"), SHELL: Bun.which("bash")!, ZELLIJ_SOCKET_DIR: join(root, "sock"), XDG_CACHE_HOME: join(root, "cache"), XDG_CONFIG_HOME: join(root, "config"), PS1: "$ " },

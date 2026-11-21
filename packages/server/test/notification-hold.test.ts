@@ -17,10 +17,11 @@ import {
 	type NotificationEvent,
 } from "../src/notifications.ts";
 
-const dirs: string[] = [];
-afterEach(async () => {
-	for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
-});
+async function temporaryHoldDirectory(): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), "aiki-hold-"));
+	afterEach(() => rm(dir, { recursive: true, force: true }));
+	return dir;
+}
 
 /** Time that only moves when the test says so; timers fire in order as it passes them. */
 class FakeClock {
@@ -84,8 +85,7 @@ const fakeFcm = (sent: Rig["sent"]): FcmSender =>
 	}) as unknown as FcmSender;
 
 async function rig(options: { dir?: string; clock?: FakeClock; presence?: NotificationPresence } = {}): Promise<Rig> {
-	const dir = options.dir ?? (await mkdtemp(join(tmpdir(), "aiki-hold-")));
-	if (options.dir === undefined) dirs.push(dir);
+	const dir = options.dir ?? await temporaryHoldDirectory();
 	const clock = options.clock ?? new FakeClock();
 	const presence = options.presence ?? new NotificationPresence();
 	const sent: Rig["sent"] = [];
@@ -102,6 +102,11 @@ async function rig(options: { dir?: string; clock?: FakeClock; presence?: Notifi
 		fcm: fakeFcm(sent),
 		now: () => clock.now,
 		schedule: clock.schedule,
+	});
+	// Flush queued state writes before teardown removes the directory they can recreate.
+	afterEach(async () => {
+		notifier.stop();
+		await notifier.flush();
 	});
 	return { clock, presence, notifier, sent, dir, stateFile: join(dir, "state.json") };
 }
@@ -344,8 +349,7 @@ describe("a restart during a hold", () => {
 	});
 
 	it("ignores a held entry in the state file that is not an event", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "aiki-hold-"));
-		dirs.push(dir);
+		const dir = await temporaryHoldDirectory();
 		await Bun.write(
 			join(dir, "state.json"),
 			JSON.stringify({ version: 1, deployAttempt: null, notified: [], held: [{ id: 1 }, { id: "x", at: "a", dueAt: 1, event: { kind: "nope" } }] }),
