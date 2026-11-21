@@ -256,6 +256,18 @@ suspend fun HarnessClient.request(value: ThreadsArchiveRequest, explicitNulls: S
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsArchiveRequest.serializer(), value).jsonObject, explicitNulls), ThreadsArchiveResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: ThreadsCreateRequest, explicitNulls: Set<String> = emptySet()): ThreadsCreateResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsCreateRequest.serializer(), value).jsonObject, explicitNulls), ThreadsCreateResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: ThreadsUpdateRequest, explicitNulls: Set<String> = emptySet()): ThreadsUpdateResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsUpdateRequest.serializer(), value).jsonObject, explicitNulls), ThreadsUpdateResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: ThreadsHoldRequest, explicitNulls: Set<String> = emptySet()): ThreadsHoldResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsHoldRequest.serializer(), value).jsonObject, explicitNulls), ThreadsHoldResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: TerminalListRequest, explicitNulls: Set<String> = emptySet()): TerminalListResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(TerminalListRequest.serializer(), value).jsonObject, explicitNulls), TerminalListResponse.serializer()
 )

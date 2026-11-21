@@ -690,6 +690,8 @@ export type NotificationEvent = {
 	scheduleId?: string | null;
 	/** The background thread it is about ("main" for main's own); the app opens main and highlights its card. */
 	threadId?: string | null;
+	coordinatorId?: string;
+	entryId?: number;
 	/** The board task it is about; the app opens that task. */
 	taskId?: string | null;
 	/** Notifications that share a tag replace each other on the device. Default: one per event kind and target. */
@@ -760,6 +762,8 @@ export function notificationPayload(
 		workerId: event.workerId ?? null,
 		scheduleId: event.scheduleId ?? null,
 		...(event.threadId === undefined ? {} : { threadId: event.threadId }),
+		...(event.coordinatorId === undefined ? {} : { coordinatorId: event.coordinatorId }),
+		...(event.entryId === undefined ? {} : { entryId: event.entryId }),
 		...(event.taskId === undefined ? {} : { taskId: event.taskId }),
 		tag: event.tag ?? notificationTag(event),
 		at,
@@ -773,14 +777,17 @@ export function replyNotification(input: {
 	entryId: number;
 	at: string;
 	text: string;
+	coordinatorId?: string;
+	coordinatorTitle?: string;
 }): NotificationEvent {
 	return {
 		kind: "reply",
-		title: `${input.projectName} replied`,
+		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.projectName} replied`,
+		...(input.coordinatorId ? { coordinatorId: input.coordinatorId, threadId: input.coordinatorId, entryId: input.entryId } : {}),
 		body: notificationLine(input.text) || "The coordinator finished an answer.",
 		projectId: input.projectId,
-		tag: `reply:${input.projectId}`,
-		key: `reply:${input.projectId}:${input.entryId}`,
+		tag: `reply:${input.projectId}${input.coordinatorId ? `:${input.coordinatorId}` : ""}`,
+		key: `reply:${input.projectId}${input.coordinatorId ? `:${input.coordinatorId}` : ""}:${input.entryId}`,
 	};
 }
 
@@ -795,12 +802,15 @@ export function workerNotification(input: {
 	failure: string | null;
 	/** The background thread that started the worker; absent for main's. */
 	threadId?: string;
+	coordinatorId?: string;
+	coordinatorTitle?: string;
 }): NotificationEvent {
 	const failed = input.kind === "worker_failed";
 	const thread = input.threadId === undefined || input.threadId === "main" ? undefined : input.threadId;
 	return {
 		kind: input.kind,
-		title: failed ? `Worker failed · ${input.projectName}` : `Worker reported · ${input.projectName}`,
+		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : failed ? `Worker failed · ${input.projectName}` : `Worker reported · ${input.projectName}`,
+		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: failed
 			? notificationLine(input.failure) || "A worker could not finish."
 			: notificationLine(input.text) || "A worker reported.",
@@ -847,10 +857,12 @@ export function threadFailedNotification(input: {
 	failure: string;
 	key: string;
 	scheduleId?: string | null;
+	coordinator?: boolean;
 }): NotificationEvent {
 	return {
 		kind: "thread_failed",
-		title: `Thread failed · ${input.title}`,
+		title: input.coordinator ? `${input.projectName} · ${input.title}` : `Thread failed · ${input.title}`,
+		...(input.coordinator ? { coordinatorId: input.threadId } : {}),
 		body: notificationLine(input.failure) || `${input.projectName}: a background thread failed.`,
 		projectId: input.projectId,
 		threadId: input.threadId,
@@ -993,6 +1005,8 @@ export function boardQuestionNotification(input: {
 	text: string;
 	/** The thread that asked; "main" for main. */
 	threadId?: string;
+	coordinatorId?: string;
+	coordinatorTitle?: string;
 	/** The task it is about, if it names one. */
 	taskId?: string | null;
 	/** A warning, not a question: the user must acknowledge it. */
@@ -1000,7 +1014,8 @@ export function boardQuestionNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "board_question",
-		title: `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
+		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
+		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: notificationLine(markdownText(input.text)),
 		projectId: input.projectId,
 		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
@@ -1020,10 +1035,13 @@ export function taskReviewNotification(input: {
 	revision: number;
 	/** The thread that holds the task, if it is a background thread. */
 	threadId?: string;
+	coordinatorId?: string;
+	coordinatorTitle?: string;
 }): NotificationEvent {
 	return {
 		kind: "task_review",
-		title: `Ready for review · ${input.projectName}`,
+		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `Ready for review · ${input.projectName}`,
+		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: notificationLine(`${input.taskId} ${input.title}`),
 		projectId: input.projectId,
 		...(input.threadId === undefined || input.threadId === "main" ? {} : { threadId: input.threadId }),

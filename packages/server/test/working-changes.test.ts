@@ -171,6 +171,7 @@ test("working changes resolve worker and thread checkouts and reject missing roo
 				status: "done", thinkingLevel: null, spawnedByCallId: null, anchorTaskId: 42, createdAt: at, updatedAt: at, lastReport: null, failure: null };
 			const threads = await tx.doc(ThreadsDoc, runtime.conversation.id);
 			threads.threads.papers = { id: "papers", title: "Paper samples", brief: "Read sample files", startedBy: "main", conversationId: 43, anchorTaskId: 43, scheduleId: null, startedByKey: "sample",
+                kind: "job", parentThreadId: "main",
 				model, thinkingLevel: null, onFinish: "record", status: "done", summary: null, failure: null, createdAt: at, updatedAt: at,
 				finishedAt: at, archived: false, autoArchive: false, checkout: thread, checkoutKind: "directory" };
 		}, BACKGROUND_CONTEXT);

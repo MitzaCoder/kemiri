@@ -227,7 +227,7 @@ describe("board and the coordinator", () => {
 		await view.waitForView((value) => boardInputs(value).length >= 2);
 		const last = boardInputs(view.view)[1] ?? "";
 		expect(last).toContain('T1 "Fix login" (r2): status "review" -> "in_progress"; the user says: "The tests still fail on Safari"');
-		expect(last).toContain("order: T2, T1 first");
+		expect(last).toContain("order: T2 first");
 	});
 
 	it("names what a task waits for, and until when, when the user moves it to waiting", async () => {

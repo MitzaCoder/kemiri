@@ -1,6 +1,7 @@
 import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
+import { boardAttention } from "./sidebar-attention.ts";
 import { stateKind } from "./state-identity.ts";
 /**
  * Background threads: full coordinators of a project, started by main (or a schedule) for big, long work. The contract
@@ -29,6 +30,10 @@ import type { Models } from "@earendil-works/pi-ai";
 import {
 	type Conversation,
 	type ConversationId,
+	type InputSubmissionDraft,
+	type SubmissionDraft,
+	type UserInput,
+	InboxDoc,
 	configure,
 	defineDoc,
 	defineExtension,
@@ -54,6 +59,9 @@ import {
 	type ProjectActivity,
 	type ThinkingLevel,
 	type ThreadStartedBy,
+	type ThreadKind,
+	type ThreadsCreateRequest,
+	type ThreadsUpdateRequest,
 	type ThreadStatus,
 	type ThreadSummary,
 	type WorkerSummary,
@@ -66,6 +74,8 @@ import {
 	type BoardService,
 	HARNESS_WRITER,
 	claimTaskForThread,
+ moveTaskToCoordinator,
+ queueUserMoveNotices,
  linksOfBoard,
  logLinkChanges,
  openTaskHistory,
@@ -78,7 +88,7 @@ import {
 import type { CoordinatorPlace, Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import { JjError, ensureJjWorkspace, jjRoot } from "./jj.ts";
-import { type Notifier, threadFailedNotification, threadFinishedNotification } from "./notifications.ts";
+import { type Notifier, replyNotification, threadFailedNotification, threadFinishedNotification } from "./notifications.ts";
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
 import {
@@ -101,7 +111,22 @@ export const THREAD_PEEK_MAX_CHARS = 2_400;
 const THREAD_CHECK_IN_ENTRIES = 4;
 const THREAD_CHECK_IN_LINE_CHARS = 110;
 
+const GENERAL = { title: "General", area: "Everything without a home.", color: null };
+type MainThreadRecord = { title: string; area: string; color: string | null; lifecycleOperations?: string[] };
+type HeldInput = { content: import("@earendil-works/chord/json").JsonRepresentation<UserInput>; requestId: string };
+
 export type ThreadRecord = {
+	kind: ThreadKind;
+	parentThreadId: string;
+	area?: string;
+	paths?: string[];
+	color?: string | null;
+	order?: number;
+	held?: boolean;
+	heldAt?: string | null;
+	heldInputs?: HeldInput[];
+	heldInputReceipts?: string[];
+	lifecycleOperations?: string[];
 	id: string;
 	title: string;
 	brief: string;
@@ -131,14 +156,20 @@ export type ThreadRecord = {
 	checkoutKind: "jj" | "directory";
 };
 
-export type ThreadsState = {
-	threads: Record<string, ThreadRecord>;
+type StoredThreadRecord = Omit<ThreadRecord, "kind" | "parentThreadId"> & Partial<Pick<ThreadRecord, "kind" | "parentThreadId">>;
+
+export type StoredThreadsState = {
+	main?: MainThreadRecord;
+	threads: Record<string, StoredThreadRecord>;
 	/** When the list was created: main's `createdAt` in the protocol. */
 	createdAt: string | null;
 };
 
-export const ThreadsDoc = defineDoc<ThreadsState>({
+export type ThreadsState = StoredThreadsState & { main: MainThreadRecord; threads: Record<string, ThreadRecord> };
+
+export const ThreadsDoc = defineDoc<StoredThreadsState>({
 	kind: stateKind("threads"),
+	// Keep the storage version readable by the previous release if deployment rolls back.
 	version: 1,
 	scope: "conversation",
 	history: "latest",
@@ -147,19 +178,28 @@ export const ThreadsDoc = defineDoc<ThreadsState>({
 	initial: () => ({ threads: {}, createdAt: null }),
 });
 
-function emptyThreadsState(): ThreadsState {
-	return { threads: {}, createdAt: null };
+function normalizeThreadRecord(record: Readonly<StoredThreadRecord>): ThreadRecord {
+	return { ...record, kind: record.kind ?? "job", parentThreadId: record.parentThreadId ?? MAIN_THREAD_ID };
+}
+
+/** Default the service's read view only; drafts keep their persisted shape and unknown fields. */
+function normalizeThreadsState(state: Readonly<StoredThreadsState> | undefined): ThreadsState {
+	return {
+		createdAt: state?.createdAt ?? null,
+		main: state?.main ?? { ...GENERAL },
+		threads: Object.fromEntries(Object.entries(state?.threads ?? {}).map(([id, record]) => [id, normalizeThreadRecord(record)])),
+	};
 }
 
 /** Whether a thread counts as archived at `now`: by hand, or 7 days after a schedule-started one finished. */
-export function isThreadArchived(record: ThreadRecord, now: number): boolean {
+export function isThreadArchived(record: StoredThreadRecord, now: number): boolean {
 	if (record.archived) return true;
 	if (!record.autoArchive || record.status !== "done" || record.finishedAt === null) return false;
 	return Date.parse(record.finishedAt) + THREAD_ARCHIVE_AFTER_MS <= now;
 }
 
 /** Persist the archive flag of every thread whose 7 days passed. */
-function sweepArchive(state: ThreadsState, now: number): void {
+function sweepArchive(state: StoredThreadsState, now: number): void {
 	for (const record of Object.values(state.threads)) {
 		if (!record.archived && isThreadArchived(record, now)) record.archived = true;
 	}
@@ -196,8 +236,14 @@ const ThreadKickoff = defineTask<KickoffInput, { phase: "deliver" }, null>({
 		deliver: async (task, runtime, context) => {
 			const { conversationId, content, requestId } = task.input;
 			const conversation = await runtime.conversation(conversationId as ConversationId, context);
-			await conversation?.submit({ type: "input", content, whenBusy: "followUp", requestId }, context);
-			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+			await runtime.commit(async tx => {
+				const state = await tx.doc(ThreadsDoc, runtime.conversationId);
+				const record = Object.values(state.threads).find(record => record.conversationId === conversationId);
+				if (!record?.archived && !(record && queueHeldInput(record, content, requestId))) {
+					await conversation?.submit(tx, { type: "input", content, whenBusy: "followUp", requestId });
+				}
+				return { status: "terminal", outcome: { status: "completed", result: null } };
+			}, context);
 		},
 	},
 	abort: (_task, runtime, context) =>
@@ -209,9 +255,11 @@ const ThreadKickoff = defineTask<KickoffInput, { phase: "deliver" }, null>({
 /**
  * Main's paragraph on threads, in its system prompt. Static text, so the prompt stays byte-stable from turn to turn.
  */
-export const MAIN_THREADS_SECTION = `Background threads are for big, long work that needs coordinating itself: a change across many repositories, a long investigation, a run over every open ticket. Start one with thread_start for a task on the board, which it claims and reports on: a full coordinator with its own workers, the shared board and memory, working in its own workspace, never in your checkout. Use a worker for one self-contained task; start a thread when the work needs its own plan and several workers, or would keep you busy for hours. Brief a thread completely, like a worker: it never sees this conversation.
+export const PEER_THREADS_SECTION = `Work inside your area. Use thread_list to find the other coordinators and their areas; paths are hints, not locks. When the owner raises work that belongs to another area, add the task, hand it to that coordinator and say where it went. When ownership is unclear, keep it and ask. General takes work without a home.
 
-You relay between the user and the threads; the user talks only to you. When they ask how something is going, look with thread_peek or thread_list and answer; when they want to change its course, pass that on with thread_send; when they want the work back, stop it with thread_stop and take over its tasks on the board. A thread's summary arrives as "[thread <id> finished] ..." and a failure as "[thread <id> failed: ...]": review it like a worker's report and tell the user what came of it. A thread's messages to you arrive as "[from <thread>] ..."; answer with thread_send (reply: true). Threads ask the user their own questions on the board, and the answers go back to them. Archive a thread with thread_archive once its work is merged or no longer needed.`;
+Use the board to pass work (handoff), memory for facts that last, and a message only when another coordinator must do or answer something. Say what is needed and by when. Do not thank or acknowledge. When the owner moves a task away, stop work on it, let running workers finish or stop them, and send the new coordinator what it needs to carry on. Only General lands changes or asks for deploy approval. Other coordinators send General a request to land their change, with the change and its task.`;
+
+export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. The owner talks to other coordinators directly. Use coordinator_start when the owner asks for an enduring area of work, and thread_start for a background job with one task and a complete brief. Use a worker for self-contained work. Review your own jobs' finish and failure reports as you would a worker's report. Use thread_list or thread_peek when the owner asks for a wider view.`;
 
 /** What a background thread is told about itself; its brief arrives as its first message. */
 export function threadInstructions(options: {
@@ -221,6 +269,7 @@ export function threadInstructions(options: {
 	checkout: string;
 	checkoutKind: "jj" | "directory";
 	startedBy: ThreadStartedBy;
+	area?: string;
 	/** The board task it was started for. */
 	taskId?: string | null;
 }): string {
@@ -233,6 +282,11 @@ export function threadInstructions(options: {
 		checkoutKind === "jj"
 			? `Your workspace is ${checkout}, a jj workspace of the project's repository, started from main's working copy. Do your work and merge your workers' changes there, and commit it; name the change IDs in your summary. Add an \`Kemiri-Task: T…\` trailer to commit descriptions.`
 			: `Your workspace is ${checkout}, a directory of your own. The project at ${project.path} is not a jj repository, so make your checkouts here: a git worktree (\`git -C ${project.path} worktree add ${checkout}/<name> -b <branch>\`) or a clone. Workers with isolation "workspace" need jj and are not available; spawn "shared" workers and name the worktree they work in.`;
+	if (options.area !== undefined) return `You are the coordinator ${JSON.stringify(title)} (thread ${id}) of ${JSON.stringify(project.name)}. The owner talks to you directly.
+
+Your area: ${JSON.stringify(options.area)}
+
+${workspace} Never edit the project checkout at ${project.path}: it belongs to the default coordinator.`;
 	const starter =
 		startedBy === "schedule"
 			? "A schedule started you with the user's prompt, your first message."
@@ -348,7 +402,10 @@ export type ThreadServiceOptions = {
 };
 
 /** What starts a thread: main's `thread_start`, or a schedule. */
+type CoordinatorCreate = Pick<ThreadsCreateRequest, "title" | "area" | "paths" | "color" | "model" | "thinkingLevel" | "taskIds">;
+
 export type ThreadStartInput = {
+	coordinator?: CoordinatorCreate;
 	title: string;
 	brief: string;
 	model: ModelRef | null;
@@ -383,6 +440,38 @@ export type ScheduledThreadInput = {
 };
 
 const THREAD_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+
+function applyLifecycleOperation(record: { lifecycleOperations?: string[] }, action: string, operationId?: string): boolean {
+	if (!operationId) return true;
+	const key = `${action}:${operationId}`;
+	if (record.lifecycleOperations?.includes(key)) return false;
+	record.lifecycleOperations ??= [];
+	record.lifecycleOperations.push(key);
+	return true;
+}
+
+function requiredText(value: string, field: string): string {
+	const text = value.trim();
+	if (!text) throw new ServerError("bad_request", `${field} cannot be blank.`);
+	return text;
+}
+
+function queueHeldInput(record: StoredThreadRecord, content: UserInput, requestId: string): boolean {
+	if (record.heldInputReceipts?.includes(requestId)) return true;
+	if (!record.held) return false;
+	record.heldInputs ??= [];
+	record.heldInputs.push({ content, requestId });
+	record.heldInputReceipts ??= [];
+	record.heldInputReceipts.push(requestId);
+	return true;
+}
+
+function heldText(record: StoredThreadRecord): UserInput | undefined {
+	const items = record.heldInputs ?? [];
+	if (items.length === 0) return undefined;
+	if (items.every(item => typeof item.content === "string")) return items.map(item => item.content).join("\n\n");
+	return items.flatMap(({ content }) => typeof content === "string" ? [{ type: "text" as const, text: content }] : content);
+}
 
 function slugify(title: string): string {
 	const slug = title
@@ -425,6 +514,12 @@ export class ThreadService {
 
 	constructor(options: ThreadServiceOptions) {
 		this.#options = options;
+		options.coordinators.queueWhileHeld = async (tx, conversationId, content, requestId) => {
+			const place = options.coordinators.placeOf(conversationId);
+			if (place?.kind !== "coordinator" || place.threadId === MAIN_THREAD_ID) return false;
+			const record = (await tx.doc(ThreadsDoc, this.#mainId)).threads[place.threadId];
+			return record ? queueHeldInput(record, content, requestId) : false;
+		};
 	}
 
 	get project(): Project {
@@ -459,7 +554,12 @@ export class ThreadService {
 
 	async state(context: Context = BACKGROUND_CONTEXT): Promise<ThreadsState> {
 		const state = await this.#options.harness.snapshot(ThreadsDoc, this.#mainId, context);
-		return state === undefined ? emptyThreadsState() : (state as ThreadsState);
+		return normalizeThreadsState(state);
+	}
+
+	async titleOf(threadId: string): Promise<string | undefined> {
+		const state = await this.state();
+		return threadId === MAIN_THREAD_ID ? state.main.title : state.threads[threadId]?.title;
 	}
 
 	async record(threadId: string, context: Context = BACKGROUND_CONTEXT): Promise<ThreadRecord | undefined> {
@@ -504,9 +604,11 @@ export class ThreadService {
 		await this.#queue.catch(() => undefined);
 	}
 
-	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout">): CoordinatorPlace {
+	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout" | "kind" | "parentThreadId">): CoordinatorPlace {
 		return {
 			threadId: record.id,
+			kind: record.kind,
+			parentThreadId: record.parentThreadId,
 			conversationId: record.conversationId,
 			checkout: record.checkout,
 			workspacesDir: join(this.#options.threadsDir, record.id, "workers"),
@@ -541,7 +643,8 @@ export class ThreadService {
 		const now = this.#options.now();
 		const records = Object.values(state.threads)
 			.filter((record) => includeArchived || !isThreadArchived(record, now))
-			.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+			.sort((left, right) => Number(right.kind === "coordinator") - Number(left.kind === "coordinator")
+				|| (left.order ?? 0) - (right.order ?? 0) || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
 		return [this.#mainSummary(state, now), ...records.map((record) => this.summaryOf(record, now))];
 	}
 
@@ -559,8 +662,15 @@ export class ThreadService {
 		return {
 			id: record.id,
 			title: record.title,
-			status: record.status,
- state: threadState({ status: record.status, openQuestions: this.#openQuestions(record.id), runningWorkers: running }),
+			...this.#summaryFields(record.id, record.kind, this.#activities.get(record.id), record.status),
+			parentThreadId: record.parentThreadId,
+			...(record.area === undefined ? {} : { area: record.area }),
+			...(record.paths === undefined ? {} : { paths: record.paths }),
+			...(record.color === undefined ? {} : { color: record.color }),
+			...(record.order === undefined ? {} : { order: record.order }),
+			held: record.held ?? false,
+			status: record.kind === "coordinator" && record.status === "stopped" ? "idle" : record.status,
+ state: threadState({ status: record.kind === "coordinator" && record.status === "stopped" ? "idle" : record.status, openQuestions: this.#openQuestions(record.id), runningWorkers: running }),
 			main: false,
 			startedBy: record.startedBy,
 			scheduleId: record.scheduleId,
@@ -591,7 +701,10 @@ export class ThreadService {
 		const createdAt = state.createdAt ?? new Date(0).toISOString();
 		return {
 			id: MAIN_THREAD_ID,
-			title: project.name,
+			title: state.main.title,
+			...this.#summaryFields(MAIN_THREAD_ID, "coordinator", activity, status),
+			area: state.main.area,
+			color: state.main.color,
 			status,
  state: threadState({ status, openQuestions: this.#openQuestions(MAIN_THREAD_ID), runningWorkers: running }),
 			main: true,
@@ -611,6 +724,23 @@ export class ThreadService {
 			updatedAt: activity.lastReplyAt ?? createdAt,
 			finishedAt: null,
 			archived: false,
+		};
+	}
+
+	#summaryFields(id: string, kind: ThreadKind, activity: ProjectActivity | undefined, status: ThreadStatus) {
+		const belongs = (threadId: string | null | undefined) => kind === "job"
+			? threadId === id : this.coordinators.coordinatorId(threadId) === id;
+		const tasks = (this.#board?.tasks ?? []).filter(task => belongs(task.ownerThreadId));
+		const attention = boardAttention({ tasks, questions: (this.#board?.questions ?? []).filter(q => belongs(q.threadId)) });
+		const failedJobs = kind === "coordinator" ? this.coordinators.places().filter(place =>
+			place.kind === "job" && place.parentThreadId === id && this.#activities.get(place.threadId)?.coordinator === "failed").length : 0;
+		return {
+			kind,
+			lastReplyAt: activity?.lastReplyAt ?? null,
+			lastReplyEntryId: activity?.lastReplyEntryId ?? null,
+			openTasks: tasks.filter(task => !task.archived && task.status !== "done" && task.status !== "dropped").length,
+			attention: { questions: attention.questions, warnings: attention.warnings, steps: attention.stepsTasks ?? 0,
+				review: attention.reviewTasks, failed: Number(status === "failed") + failedJobs + this.#workers.filter(w => belongs(w.threadId ?? MAIN_THREAD_ID) && w.status === "failed").length },
 		};
 	}
 
@@ -694,6 +824,12 @@ export class ThreadService {
 				void this.#enqueue(() => this.#settleStatus(record.id));
 				this.#changed();
 			},
+			...(record.kind !== "coordinator" ? {} : { onReply: (reply: { entryId: number; at: string; text: string }) => {
+				void this.titleOf(record.id).then(title => this.#options.notifications?.notify(replyNotification({
+					projectId: this.project.id, projectName: this.project.name, coordinatorId: record.id,
+					coordinatorTitle: title ?? record.title, entryId: reply.entryId, at: reply.at, text: reply.text,
+				}))).catch(error => this.log(`coordinator reply notification: ${errorMessage(error)}`));
+			} }),
 			log: (message) => this.#options.log(`thread ${record.id}: ${message}`),
 		});
 		this.#watches.set(record.id, activity);
@@ -750,14 +886,15 @@ export class ThreadService {
 			current.status = "failed";
 			current.failure = reason;
 		});
-		await this.#options.board.noteThreadOutcome(record.id, `failed:${key}`, "thread failed", record.taskId);
-		await this.#post(record, `[thread ${record.id} failed: ${reason}]`, `thread-failed:${key}`);
+		if (record.kind === "job") await this.#options.board.noteThreadOutcome(record.id, `failed:${key}`, "thread failed", record.taskId);
+		if (record.kind === "job") await this.#post(record, `[thread ${record.id} failed: ${reason}]`, `thread-failed:${key}`);
 		const project = this.project;
 		this.#options.notifications?.notify(
 			threadFailedNotification({
 				projectId: project.id,
 				projectName: project.name,
 				threadId: record.id,
+				coordinator: record.kind === "coordinator",
 				title: record.title,
 				failure: reason,
 				key,
@@ -787,7 +924,7 @@ export class ThreadService {
 		}
 	}
 
-	async #update(threadId: string, change: (record: ThreadRecord) => void): Promise<void> {
+	async #update(threadId: string, change: (record: StoredThreadRecord) => void): Promise<void> {
 		const now = this.#options.now();
 		await this.#options.harness.commit(async (tx) => {
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
@@ -880,7 +1017,7 @@ export class ThreadService {
 			if (task.status === "done" || task.status === "dropped") {
 				return { ok: false, message: `Task ${task.id} is ${task.status}: only the user reopens a closed task. Start the thread on another task.` };
 			}
-		} else if (input.scheduleId === null) {
+		} else if (input.scheduleId === null && input.coordinator === undefined) {
 			return { ok: false, message: "A thread needs the board task it works on (taskId)." };
 		}
 
@@ -890,11 +1027,14 @@ export class ThreadService {
 		} catch (error) {
 			return { ok: false, message: errorMessage(error) };
 		}
-		const checkIn = input.onFinish === "review" ? await this.#options.workers.checkInNeeded() : false;
+		const checkIn = input.coordinator === undefined && input.onFinish === "review" ? await this.#options.workers.checkInNeeded() : false;
 		const title = input.title.trim().slice(0, 120) || id;
-		const { record, notices } = await commit(async (tx) => {
+		const { record, notices, existed } = await commit(async (tx) => {
 			// Reads before the first write: a transaction may not read tables after it.
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
+			const existing = Object.values(doc.threads).find(record => record.startedByKey === input.key);
+			if (existing) return { record: normalizeThreadRecord(JSON.parse(JSON.stringify(existing)) as StoredThreadRecord), notices: [], existed: true };
+			if (doc.threads[id]) throw new ServerError("bad_request", `Thread ID ${id} is already in use. Try again.`);
 			const workers = await tx.doc(WorkersDoc, this.#mainId);
 			// The thread claims its task (a schedule's run its schedule's one task) and the status change is snapshotted,
 			// all before the first table write.
@@ -902,13 +1042,18 @@ export class ThreadService {
 			const board = await openBoard(tx, this.#mainId);
 			const before = statusesOf(board);
    const linksBefore = linksOfBoard(board);
-			const taskId =
+			const taskId = input.coordinator ? null :
 				input.taskId ?? taskForSchedule(board, { scheduleId: input.scheduleId as string, title, now }).after.id;
-			const move = claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, now });
+			const move = taskId === null ? undefined : claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, now });
+			const moved = [...new Set(input.coordinator?.taskIds ?? [])].map(taskId => moveTaskToCoordinator(board, taskId, id, now));
+			for (const change of moved) queueUserMoveNotices(board, change, this.coordinators.coordinatorId(change.before?.ownerThreadId), id, title, false);
    await logLinkChanges(tx, this.#mainId, board, linksBefore, { by: HARNESS_WRITER, at: now });
-   const task = board.tasks.find(task => task.id === taskId)!;
-   const history = await openTaskHistory(tx, this.#mainId, taskId);
-   upsertTimelineFact(history, task, { id: timelineId(taskId, `claim:${input.key}`), at: now, endAt: now, kind: "milestone", group: "work", source: "ownership", outcome: "claimed", label: `Claimed by ${id}`, by: HARNESS_WRITER });
+			if (taskId !== null) {
+				const task = board.tasks.find(task => task.id === taskId)!;
+				const history = await openTaskHistory(tx, this.#mainId, taskId);
+				upsertTimelineFact(history, task, { id: timelineId(taskId, `claim:${input.key}`), at: now, endAt: now, kind: "milestone", group: "work", source: "ownership", outcome: "claimed", label: `Claimed by ${id}`, by: HARNESS_WRITER });
+			}
+
 			await snapshotStatusChanges(tx, this.#mainId, board, before, { by: HARNESS_WRITER, at: now, key: `thread-start:${input.key}` });
 			const background = { ownership: { kind: "conversation" as const }, conversationId: this.#mainId, background: true };
 			const anchor = await tx.createTask(ThreadAnchor, null, background);
@@ -917,7 +1062,7 @@ export class ThreadService {
 				model,
 				thinkingLevel,
 				cwd: place.checkout,
-				extensions: { add: [mcpRoleExtension("background")], remove: [mcpRoleExtension("coordinator"), mcpRoleExtension("workers"), this.startExtension, ...this.#options.removedExtensions()] },
+				extensions: { add: [mcpRoleExtension("background")], remove: [mcpRoleExtension("coordinator"), mcpRoleExtension("workers"), this.startExtension, ...(input.coordinator ? [this.finishExtension] : []), ...this.#options.removedExtensions()] },
 				instructions: threadInstructions({
 					id,
 					title,
@@ -926,10 +1071,15 @@ export class ThreadService {
 					checkoutKind: place.kind,
 					startedBy: input.startedBy,
 					taskId,
+					...(input.coordinator ? { area: input.coordinator.area } : {}),
 				}),
 			});
 			const created: ThreadRecord = {
 				id,
+				kind: input.coordinator ? "coordinator" : "job",
+				parentThreadId: MAIN_THREAD_ID,
+				...(input.coordinator ? { area: input.coordinator.area, paths: input.coordinator.paths ?? [], color: input.coordinator.color ?? null,
+					order: Math.max(0, ...Object.values(doc.threads).map(record => record.order ?? 0)) + 1, held: false, heldAt: null } : {}),
 				title,
 				brief: input.brief,
 				conversationId: conversation.id,
@@ -941,7 +1091,7 @@ export class ThreadService {
 				model: { provider: model.provider, modelId: model.modelId },
 				thinkingLevel,
 				onFinish: input.onFinish,
-				status: "running",
+				status: input.coordinator && moved.length === 0 ? "idle" : "running",
 				summary: null,
 				failure: null,
 				createdAt: now,
@@ -956,25 +1106,149 @@ export class ThreadService {
 			doc.createdAt ??= now;
 			// Registered inside the commit: the thread's first turn cannot run before its tools know it.
 			this.#options.coordinators.add(this.placeFor(created));
-			await tx.createTask(
+			if (!input.coordinator || moved.length > 0) await tx.createTask(
 				ThreadKickoff,
-				{ conversationId: conversation.id, content: input.brief, requestId: `thread-brief:${input.key}` },
+				{ conversationId: conversation.id, content: input.coordinator ? moved.map(change => `[board] The user moved ${change.after.id} to you.`).join("\n") : input.brief, requestId: `thread-brief:${input.key}` },
 				background,
 			);
 			await this.#options.workers.startCheckIn(tx, workers, this.#mainId, checkIn);
-			return { record: JSON.parse(JSON.stringify(created)) as ThreadRecord, notices: move?.notices ?? [] };
+			return { record: JSON.parse(JSON.stringify(created)) as ThreadRecord, notices: move?.notices ?? [], existed: false };
 		});
 		// The kickoff is a background task; outside a run nothing would pick it up without this.
 		this.#options.harness.resume();
 		await this.#watch(record);
+		if (input.coordinator?.taskIds?.length) await this.#options.board.deliverUserMoveNotices();
 		this.#changed();
-		return { ok: true, record, existed: false, notices };
+		return { ok: true, record, existed, notices };
 	}
 
 	/**
 	 * Start the thread of a scheduled run: ID `<scheduleId>-<yyyy-mm-dd-hhmm>` in the backend's timezone, so a retried
 	 * slot finds the thread it already started.
 	 */
+	async create(input: CoordinatorCreate, key: string, commit?: <T>(change: (tx: Tx) => Promise<T>) => Promise<T>): Promise<ThreadSummary> {
+		const title = requiredText(input.title, "Title");
+		const area = requiredText(input.area, "Area");
+		const started = await this.start({ title, brief: "", model: input.model ?? null,
+			thinkingLevel: input.thinkingLevel ?? null, onFinish: "record", startedBy: "user", scheduleId: null,
+			taskId: null, key: `coordinator:${key}`, coordinator: { ...input, title, area } }, commit);
+		if (!started.ok) throw new ServerError("bad_request", started.message);
+		return this.summaryOf(started.record);
+	}
+
+	async update(threadId: string, input: Omit<ThreadsUpdateRequest, "type" | "id" | "projectId" | "threadId">): Promise<ThreadSummary> {
+		const title = input.title === undefined ? undefined : requiredText(input.title, "Title");
+		const area = input.area === undefined ? undefined : requiredText(input.area, "Area");
+		const { model, thinkingLevel, color, paths, order } = input;
+		if (model && (isWorkerOnlyModel(this.#options.models, model) || !this.#options.models.getModel(model.provider, model.modelId))) {
+			throw new ServerError("bad_request", "Choose a valid coordinator model.");
+		}
+		await this.#options.harness.commit(async tx => {
+			const doc = await tx.doc(ThreadsDoc, this.#mainId);
+			if (threadId === MAIN_THREAD_ID) {
+				if ([model, thinkingLevel, paths, order].some(field => field !== undefined)) throw new ServerError("bad_request", "Only title, area and color can be edited for General here.");
+				if (title === undefined && area === undefined && color === undefined) return;
+				doc.main ??= { ...GENERAL };
+				if (!applyLifecycleOperation(doc.main, "update", input.operationId)) return;
+				if (title !== undefined) doc.main.title = title;
+				if (area !== undefined) doc.main.area = area;
+				if (color !== undefined) doc.main.color = color;
+				return;
+			}
+			const record = doc.threads[threadId];
+			if (!record || record.kind !== "coordinator") throw new ServerError("bad_request", "Choose a coordinator to edit.");
+			if (!applyLifecycleOperation(record, "update", input.operationId)) return;
+			const before = JSON.stringify(record);
+			if (title !== undefined) record.title = title;
+			if (area !== undefined) record.area = area;
+			if (color !== undefined) record.color = color;
+			if (paths !== undefined) record.paths = paths;
+			if (order !== undefined) record.order = order;
+			if (model !== undefined) record.model = model;
+			if (thinkingLevel !== undefined) record.thinkingLevel = thinkingLevel;
+			if (before !== JSON.stringify(record)) record.updatedAt = new Date(this.now()).toISOString();
+			if (title !== undefined || area !== undefined || model !== undefined || thinkingLevel !== undefined) {
+				await configure(tx, record.conversationId as ConversationId, {
+					model: record.model, thinkingLevel: record.thinkingLevel,
+					instructions: threadInstructions({ ...record, project: this.project }),
+				});
+			}
+		}, BACKGROUND_CONTEXT);
+		this.#changed();
+		const state = await this.state();
+		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(state.threads[threadId]!);
+	}
+
+	async submitHarness(conversation: Conversation, draft: SubmissionDraft, content: UserInput, requestId: string, context = BACKGROUND_CONTEXT) {
+		if (this.coordinators.placeOf(conversation.id)?.kind !== "coordinator" || this.coordinators.isMain(conversation.id)) {
+			return conversation.submit(draft, context);
+		}
+		const id = await this.#options.harness.commit(async tx =>
+			await this.coordinators.queueWhileHeld?.(tx, conversation.id, content, requestId) ? undefined : conversation.submit(tx, draft), context);
+		if (id === undefined) return undefined;
+		this.#options.harness.resume();
+		return this.#options.harness.submission(id, context);
+	}
+
+	async submitOwner(conversation: Conversation, draft: InputSubmissionDraft) {
+		const place = this.coordinators.placeOf(conversation.id);
+		if (!place || place.kind !== "coordinator" || place.threadId === MAIN_THREAD_ID) return conversation.submit(draft, BACKGROUND_CONTEXT);
+		await this.revive(place.threadId);
+		const id = await this.#options.harness.commit(async tx => {
+			const record = (await tx.doc(ThreadsDoc, this.#mainId)).threads[place.threadId]!;
+			const requestId = draft.requestId;
+			const existing = requestId ? await tx.submissionByRequest(conversation.id, requestId) : undefined;
+			if (existing) return existing.id;
+			if (record.held) {
+				const queued = heldText(record);
+				this.#clearHold(record);
+				if (queued) return conversation.submit(tx, { ...draft, whenBusy: "followUp", content: typeof draft.content === "string"
+					? typeof queued === "string" ? `${draft.content}\n\n${queued}` : [{ type: "text", text: draft.content }, ...queued]
+					: [...draft.content, ...(typeof queued === "string" ? [{ type: "text" as const, text: queued }] : queued)] });
+			}
+			return conversation.submit(tx, draft);
+		}, BACKGROUND_CONTEXT);
+		this.#options.harness.resume();
+		return (await this.#options.harness.submission(id, BACKGROUND_CONTEXT))!;
+	}
+
+	#clearHold(record: StoredThreadRecord): void {
+		record.held = false;
+		record.heldAt = null;
+		record.heldInputs = [];
+		record.updatedAt = new Date(this.now()).toISOString();
+	}
+
+	async hold(threadId: string, held: boolean, requestId: string): Promise<ThreadSummary> {
+		const current = await this.#requireBackground(threadId);
+		const conversation = await this.conversation(threadId);
+		await this.#options.harness.commit(async tx => {
+			const record = (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId]!;
+			if (record.kind !== "coordinator" || record.archived) throw new ServerError("bad_request", "Only an unarchived coordinator can be paused.");
+			if (!applyLifecycleOperation(record, "hold", requestId) || (record.held ?? false) === held) return;
+			if (held) {
+				record.held = true;
+				record.heldAt = record.updatedAt = new Date(this.now()).toISOString();
+				// Take not-yet-placed inputs away from the turn boundary. Their content is admitted together on resume.
+				const inbox = await tx.doc(InboxDoc, conversation.id);
+				for (const item of inbox.items) {
+					if (item.mode === "write") continue;
+					record.heldInputs ??= [];
+					record.heldInputs.push({ content: item.content, requestId: `submission:${item.id}` });
+					tx.settleSubmission(item.id, { status: "unanswered", reason: "held" });
+				}
+				inbox.items = inbox.items.filter(item => item.mode === "write");
+			} else {
+				const content = heldText(record);
+				this.#clearHold(record);
+				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}` });
+			}
+		}, BACKGROUND_CONTEXT);
+		if (!held) this.#options.harness.resume();
+		this.#changed();
+		return this.summaryOf((await this.record(threadId)) ?? current);
+	}
+
 	async startScheduled(run: ScheduledThreadInput): Promise<ThreadStartResult> {
 		const safe = run.scheduleId.toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 32);
 		return this.start({
@@ -1023,7 +1297,7 @@ export class ThreadService {
 			await conversation.abort(BACKGROUND_CONTEXT, { background: true }).catch((error: unknown) => {
 				this.#options.log(`thread ${threadId}: abort failed: ${errorMessage(error)}`);
 			});
-			await this.#options.board.releaseThread(threadId, `stopped:${threadId}:${record.updatedAt}`, record.taskId);
+			if (record.kind === "job") await this.#options.board.releaseThread(threadId, `stopped:${threadId}:${record.updatedAt}`, record.taskId);
 		}
 		return this.summaryOf((await this.record(threadId)) as ThreadRecord);
 	}
@@ -1037,17 +1311,42 @@ export class ThreadService {
 	 * Archive a thread that no longer works, or bring one back (which also stops it archiving itself). Archiving removes
 	 * its checkout and its idle workers' workspaces in the background; its commits stay in the repository.
 	 */
-	async archive(threadId: string, archived: boolean): Promise<ThreadSummary> {
+	async archive(threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string): Promise<ThreadSummary> {
 		const record = await this.#requireBackground(threadId);
-		if (archived && isLive(record.status)) {
-			throw new ServerError("bad_request", `Thread "${threadId}" is still ${record.status}; stop it before archiving it.`, {
-				threadId,
-			});
+		if (moveTasksTo !== undefined && record.kind !== "coordinator") throw new ServerError("bad_request", "Only coordinators can move tasks on archive.");
+		if (record.kind === "job" && archived && isLive(record.status)) {
+			throw new ServerError("bad_request", `Thread "${threadId}" is still ${record.status}; stop it before archiving it.`, { threadId });
 		}
-		await this.#update(threadId, (current) => {
-			current.archived = archived;
-			if (!archived) current.autoArchive = false;
-		});
+		if (!archived) await this.#ensureCheckout(threadId);
+		if (record.kind === "coordinator") {
+			const to = moveTasksTo ?? MAIN_THREAD_ID;
+			await this.#options.harness.commit(async tx => {
+				const doc = await tx.doc(ThreadsDoc, this.#mainId);
+				const current = doc.threads[threadId]!;
+				if (!applyLifecycleOperation(current, "archive", operationId) || current.archived === archived) return;
+				if (archived) {
+					const live = await tx.doc(LiveDoc, current.conversationId as ConversationId);
+					const workers = await tx.doc(WorkersDoc, current.conversationId as ConversationId);
+					if (live.run || Object.values(workers.workers).some(worker => worker.status === "running")) throw new ServerError("bad_request", "Wait for this coordinator and its workers to finish before archiving.");
+					if (to === threadId || (to !== MAIN_THREAD_ID && (doc.threads[to]?.kind !== "coordinator" || doc.threads[to]?.archived))) throw new ServerError("bad_request", "Choose another unarchived coordinator.");
+					const board = await openBoard(tx, this.#mainId);
+					const now = new Date(this.now()).toISOString();
+					for (const task of board.tasks) {
+						if (task.status === "done" || task.status === "dropped" || this.coordinators.coordinatorId(task.ownerThreadId) !== threadId) continue;
+						const change = moveTaskToCoordinator(board, task.id, to, now);
+						queueUserMoveNotices(board, change, undefined, to, to === MAIN_THREAD_ID ? doc.main?.title ?? GENERAL.title : doc.threads[to]!.title);
+					}
+				}
+				current.archived = archived;
+				current.updatedAt = new Date(this.now()).toISOString();
+			}, BACKGROUND_CONTEXT);
+			await this.#options.board.deliverUserMoveNotices();
+			this.#changed();
+		} else {
+			await this.#update(threadId, current => { current.archived = archived; if (!archived) current.autoArchive = false; });
+		}
+		const saved = (await this.record(threadId))!;
+		if (saved.archived !== archived) return this.summaryOf(saved);
 		const watch = this.#watches.get(threadId);
 		if (archived && watch !== undefined) {
 			this.#watches.delete(threadId);
@@ -1057,7 +1356,7 @@ export class ThreadService {
 			await this.#watch((await this.record(threadId)) as ThreadRecord);
 		}
 		if (archived) {
-			void this.#storage?.removeThread(threadId).catch((error: unknown) => {
+			await this.#storage?.removeThread(threadId).catch((error: unknown) => {
 				this.#options.log(`thread ${threadId}: could not remove its workspaces: ${errorMessage(error)}`);
 			});
 		}
@@ -1130,38 +1429,32 @@ export class ThreadService {
 		const content = `[from ${input.sender}] ${input.message}`;
 		const requestId = `thread-message:${input.callId}`;
 		const live = await this.#options.harness.snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
-		if (input.reply && live?.run === undefined) {
-			await conversation.submit(
-				{
-					type: "write",
-					entry: { kind: "pi.user", model: [{ role: "user", content, timestamp: this.#options.now() }] },
-					requestId,
-				},
-				BACKGROUND_CONTEXT,
-			);
-			await this.#options.board.recordReportChat(input.sender, input.message, requestId);
-			return "written";
-		}
+		const written = input.reply && live?.run === undefined;
 		if (!input.reply) await this.revive(input.receiver);
-		await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND_CONTEXT);
+		const submission = await this.submitHarness(conversation, written ? {
+			type: "write", entry: { kind: "pi.user", model: [{ role: "user", content, timestamp: this.#options.now() }] }, requestId,
+		} : { type: "input", content, whenBusy: "steer", requestId }, content, requestId);
 		await this.#options.board.recordReportChat(input.sender, input.message, requestId);
+		if (!submission || written) return "written";
 		return "steered";
 	}
 
 	/** A bounded digest of one thread (or main), for `thread_peek`. */
 	async peek(threadId: string, entries: number, now: number, maxChars: number = THREAD_PEEK_MAX_CHARS): Promise<string> {
-		const record = threadId === MAIN_THREAD_ID ? this.#mainRecord() : await this.record(threadId);
+		const record = threadId === MAIN_THREAD_ID ? this.#mainRecord(await this.state()) : await this.record(threadId);
 		if (record === undefined) throw new ServerError("unknown_thread", `No thread "${threadId}" in this project`, { threadId });
 		return this.#describe(record, { entries, lines: Math.max(entries, 4), lineChars: THREAD_PEEK_LINE_CHARS, maxChars }, now);
 	}
 
 	/** Main as a record, so `thread_peek main` reads like any other thread. */
-	#mainRecord(): ThreadRecord {
+	#mainRecord(state: ThreadsState): ThreadRecord {
 		const project = this.project;
-		const summary = this.#mainSummary(emptyThreadsState(), this.#options.now());
+		const summary = this.#mainSummary(state, this.#options.now());
 		return {
 			id: MAIN_THREAD_ID,
-			title: project.name,
+			kind: "coordinator",
+			parentThreadId: MAIN_THREAD_ID,
+			title: state.main.title,
 			brief: "",
 			conversationId: this.#mainId as number,
 			anchorTaskId: 0,
@@ -1227,7 +1520,7 @@ export class ThreadService {
 	async #checkInThreads(): Promise<ThreadRecord[]> {
 		const now = this.#options.now();
 		return Object.values((await this.state()).threads).filter(
-			(record) => record.status === "running" && record.onFinish === "review" && !isThreadArchived(record, now),
+			(record) => record.kind === "job" && record.parentThreadId === MAIN_THREAD_ID && record.status === "running" && record.onFinish === "review" && !isThreadArchived(record, now),
 		);
 	}
 
@@ -1280,14 +1573,15 @@ const modelRefSchema = Type.Object({
 const thinkingLevelSchema = Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)));
 
 function describeRecordLine(summary: ThreadSummary): string {
-	const parts = [`${summary.id} — ${summary.title}`, `  status: ${summary.status}${summary.current === null ? "" : `; ${summary.current}`}`];
-	if (!summary.main) {
+	const parts = [`${summary.id} — ${summary.title} (${summary.kind ?? "job"})`, `  status: ${summary.status}${summary.current === null ? "" : `; ${summary.current}`}`];
+	if (summary.kind === "coordinator") parts.push(`  area: ${summary.area ?? ""}; paths: ${summary.paths?.join(", ") || "none"}; held: ${summary.held ?? false}`);
+	if (summary.kind === "job") {
 		parts.push(
 			`  started by ${summary.startedBy ?? "main"}${summary.scheduleId === null ? "" : ` (schedule ${summary.scheduleId})`}; summary is ${summary.onFinish === "review" ? "reviewed" : "recorded"}`,
 		);
 	}
 	parts.push(
-		`  workers running: ${summary.runningWorkers}; tasks: ${summary.ownedTasks.length === 0 ? "none" : summary.ownedTasks.join(", ")}; open questions: ${summary.openQuestions}`,
+		`  workers running: ${summary.runningWorkers}; open tasks: ${summary.openTasks ?? 0}; tasks: ${summary.ownedTasks.length === 0 ? "none" : summary.ownedTasks.join(", ")}; open questions: ${summary.openQuestions}`,
 	);
 	if (summary.failure !== null) parts.push(`  failure: ${excerpt(summary.failure, 200)}`);
 	if (summary.summary !== null) parts.push(`  summary: ${excerpt(summary.summary, 240)}`);
@@ -1299,6 +1593,19 @@ function createThreadStartExtension(service: ThreadService): Extension {
 	const onlyMain = (tool: string): string =>
 		`${tool} is main's: only the thread the user talks to starts, stops and archives background threads. A background thread cannot start threads (one level only); use workers, or ask main with thread_send.`;
 
+	const coordinatorStart = defineTool({
+		name: "coordinator_start", callers: ["model"], replay: "safe",
+		description: "Create an idle coordinator for a lasting area when the owner asks. Only General can do this.",
+		parameters: Type.Object({ title: Type.String({ minLength: 1, maxLength: 120 }), area: Type.String({ minLength: 1, maxLength: 2000 }),
+			paths: Type.Optional(Type.Array(Type.String())), model: Type.Optional(modelRefSchema), thinkingLevel: Type.Optional(thinkingLevelSchema) }),
+		execute: async (args, api, context) => {
+			if (!service.coordinators.isMain(api.conversationId)) return toolText(onlyMain("coordinator_start"), { isError: true });
+			try {
+				const thread = await service.create(args, `tool:${api.callId}`, change => api.commit(change, context));
+				return toolText(`Coordinator ${thread.title} (${thread.id}) is ready. It waits for a message or a task.`, { details: { threadId: thread.id, conversationId: thread.conversationId } });
+			} catch (error) { return toolText(errorMessage(error), { isError: true }); }
+		},
+	});
 	const startTool = defineTool({
 		name: "thread_start",
 		callers: ["model"],
@@ -1411,9 +1718,13 @@ function createThreadStartExtension(service: ThreadService): Extension {
 	return defineExtension({
 		name: "thread-start-tools",
 		tasks: [ThreadAnchor, ThreadKickoff] as Task<unknown, { phase: string }, unknown, object>[],
-		tools: [startTool, stopTool, archiveTool] as ToolRegistration[],
+		tools: [coordinatorStart, startTool, stopTool, archiveTool] as ToolRegistration[],
 		sections: [
-			section("threads", (input) => (service.coordinators.isMain(input.conversationId) ? MAIN_THREADS_SECTION : undefined)),
+			section("threads", async input => {
+				if (!service.coordinators.isMain(input.conversationId)) return undefined;
+				const { title, area } = (await service.state()).main;
+				return `${MAIN_THREADS_SECTION}\n\nYour name is ${JSON.stringify(title)} (thread main). Your area: ${JSON.stringify(area)}`;
+			}),
 		],
 	});
 }
@@ -1528,6 +1839,7 @@ function createThreadExtension(service: ThreadService): Extension {
 	return defineExtension({
 		name: "thread-tools",
 		tools: [listTool, peekTool, sendTool] as ToolRegistration[],
+		sections: [section("coordinator-peers", input => service.coordinators.isCoordinator(input.conversationId) ? PEER_THREADS_SECTION : undefined)],
 	});
 }
 
@@ -1553,7 +1865,7 @@ function createThreadFinishExtension(service: ThreadService): Extension {
 				);
 			}
 			const record = await service.record(threadId);
-			if (record === undefined) return toolText(`Thread "${threadId}" is not in the list.`, { isError: true });
+			if (record?.kind !== "job") return toolText("Only background jobs can finish.", { isError: true });
 			const running = Object.values(
 				((await api.snapshot(WorkersDoc, api.conversationId, context)) ?? { workers: {} }).workers,
 			).filter((worker) => worker.status === "running");

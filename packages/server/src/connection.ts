@@ -896,8 +896,29 @@ export class ClientConnection {
 					this.#respond({ type: "projects.storage.clean", id: request.id, ...cleaned });
 					return;
 				}
+				case "threads.create": {
+					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
+					const { runtime } = await this.#manager.open(request.projectId);
+					const thread = await runtime.threads.create(request, `owner:${request.operationId ?? crypto.randomUUID()}`);
+					this.#respond({ type: request.type, id: request.id, thread });
+					return;
+				}
+				case "threads.update": {
+					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
+					const { runtime } = await this.#manager.open(request.projectId);
+					const thread = await runtime.threads.update(request.threadId, request);
+					this.#respond({ type: request.type, id: request.id, thread });
+					return;
+				}
+				case "threads.hold": {
+					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
+					const { runtime } = await this.#manager.open(request.projectId);
+					const thread = await runtime.threads.hold(request.threadId, request.held, request.operationId ?? crypto.randomUUID());
+					this.#respond({ type: request.type, id: request.id, thread });
+					return;
+				}
 				case "threads.archive": {
-					const thread = await this.#manager.archiveThread(request.projectId, request.threadId, request.archived);
+					const thread = await this.#manager.archiveThread(request.projectId, request.threadId, request.archived, this.#features.includes("coordinators") ? request.moveTasksTo : undefined, request.operationId);
 					this.#respond({ type: "threads.archive", id: request.id, thread });
 					return;
 				}
@@ -999,6 +1020,7 @@ export class ClientConnection {
 					const task = await this.#manager.saveBoardTask(request.projectId, {
 						taskId: request.taskId,
 						expectedRevision: request.expectedRevision,
+						ownerThreadId: this.#features.includes("task-coordinator") ? request.ownerThreadId : undefined,
 						task: request.task,
       openParts: request.openParts,
 						note: request.note,
@@ -1136,8 +1158,14 @@ export class ClientConnection {
 						});
 					}
 					// A message about a task names it in front of its text, so every coordinator reads which task it is about.
-					if (request.taskId !== undefined) await this.#manager.requireBoardTask(request.projectId, request.taskId);
-					const { conversation, runtime } = await this.#manager.conversation(request.projectId, request.threadId);
+					const { runtime } = await this.#manager.open(request.projectId);
+					let threadId = request.threadId;
+					if (request.taskId !== undefined) {
+						await runtime.board.requireTask(request.taskId);
+						const task = (await runtime.board.state()).tasks.find(task => task.id === request.taskId);
+						threadId = await runtime.board.routeCoordinator(task?.ownerThreadId);
+					}
+					const conversation = await runtime.threads.conversation(threadId ?? "main");
 					if (!this.#authorized(0, request.id)) return;
 					const content = await this.#manager.files.message(request.projectId, conversation.id, request.content, request.fileIds);
 					if (!this.#authorized(0, request.id)) return;
@@ -1154,14 +1182,14 @@ export class ClientConnection {
 							: await this.#manager.recordBoardFeedback(request.projectId, {
 									taskId: request.taskId,
 									...description,
-									threadId: request.threadId ?? "main",
+									threadId: threadId ?? "main",
 									requestId: request.requestId,
 								});
 					// The user typed into a finished or stopped background thread: it works again.
-					await this.#manager.reviveThread(request.projectId, request.threadId);
+					await this.#manager.reviveThread(request.projectId, threadId);
 					if (!this.#authorized(0, request.id)) return;
 					if (this.#updateHolding?.()) throw new Error("Kemiri is restarting for an update. Try again after reconnecting.");
-					const submission = await conversation.submit(
+					const submission = await runtime.threads.submitOwner(conversation,
 						{
 							type: "input",
 							entry: { kind: OWNER_CHAT_ENTRY },
@@ -1172,7 +1200,6 @@ export class ClientConnection {
 							requestId: request.requestId,
 							...(request.whenBusy === undefined ? {} : { whenBusy: request.whenBusy }),
 						},
-						BACKGROUND_CONTEXT,
 					);
 					// Whether the run took it at once or it waits for a boundary; a re-sent request ID answers the same way.
 					const status = (await submission.status(BACKGROUND_CONTEXT).catch(() => undefined))?.status;

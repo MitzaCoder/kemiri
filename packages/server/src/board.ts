@@ -113,6 +113,7 @@ export type BoardState = {
  taskFocus?: Record<string, string>;
 	reportTracking?: Record<string, TaskReportTracking>;
 	reportOutbox?: ReportOutbox[];
+	userMoveNotices?: { target: string; requestId: string; content: string }[];
 	reportInFlight?: Record<string, number>;
 	chatDetailCounts?: ChatDetailCounts;
 	chatDetailWrites?: Record<string, { first: number; tasks: Record<string, ChatDetailWrite> }>;
@@ -580,7 +581,7 @@ function applyReportWrite(state: BoardState, task: BoardTask, input: ReportWrite
 }
 
 /** Task-linked coordinator actions imply activity for the rest of this turn, not ownership. */
-export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId, conversationId: ConversationId, threadId: string, taskId: string, at: string, threadTitle?: string): Promise<void> {
+export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId, conversationId: ConversationId, threadId: string, taskId: string, at: string,threadTitle?: string): Promise<void> {
  const live = await tx.doc(LiveDoc, conversationId);
  if (!live.run || live.run.afterRun) return;
  const state = await openBoard(tx, mainId);
@@ -1142,7 +1143,7 @@ export function sweepArchive(state: BoardState, now: number): boolean {
 }
 
 /** The board as the protocol shows it: by order, archived tasks only when asked for, questions open first. */
-export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean): Board {
+export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId: (owner: string | null | undefined) => string = () => "main"): Board {
 	const byOrder = (left: { order: number; id: string }, right: { order: number; id: string }): number =>
 		left.order - right.order || compareIds(left.id, right.id);
 	// Links are derived over every task, archived ones too: a link to a closed task stays.
@@ -1195,6 +1196,7 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
    }
 			return {
 				...task,
+				coordinatorId: coordinatorId(task.ownerThreadId),
 				report: { ...(task.report ?? emptyReport()), ...(activity ? { now: activity.text } : {}) },
     ...(activity ? { activity } : {}),
     ...(shown ? { state: shown } : {}),
@@ -1411,6 +1413,7 @@ export function saveTask(
 		taskId?: string | undefined;
 		expectedRevision?: number | undefined;
 		task: BoardTaskInput;
+  ownerThreadId?: string | null | undefined;
   openParts?: "close" | "follow_up" | undefined;
 		author: BoardAuthor;
 		now: string;
@@ -1473,6 +1476,7 @@ export function saveTask(
 			writeScopes: unique(fields.writeScopes),
 			workerIds: [],
 			scheduleId: null,
+			...(input.ownerThreadId === undefined ? {} : { ownerThreadId: input.ownerThreadId }),
 			report: emptyReport(),
 			snapshots: 0,
 			order: Math.max(0, ...state.tasks.map((task) => task.order)) + 1,
@@ -1505,6 +1509,7 @@ export function saveTask(
 	checkBlockedBy(state, existing.id, blockedBy);
 	checkLinks(state, existing.id, fields);
 	const before = plain(existing);
+	if (input.ownerThreadId !== undefined) setTaskOwner(state, existing, input.ownerThreadId, now, author);
 	if (waiting === undefined) delete existing.waiting;
 	else existing.waiting = waiting;
 	existing.title = fields.title;
@@ -1729,8 +1734,40 @@ export function addDecision(
  */
 export type OwnershipChange =
 	| { kind: "claim"; threadId: string }
-	| { kind: "release"; threadId: string }
+	| { kind: "release"; threadId: string; to?: string | null }
 	| { kind: "handoff"; threadId: string; to: string };
+
+function setTaskOwner(state: BoardState, task: BoardTask, owner: string | null, now: string, author: BoardAuthor): void {
+	const previous = task.ownerThreadId ?? null;
+	if (previous === owner) return;
+	task.ownerThreadId = owner;
+	const tracking = activityTracking(state, task.id);
+	for (const source of Object.values(tracking.sources)) if (source.actor.kind !== "worker" && source.actor.threadId === previous) endActivitySource(tracking, source.actor.id, now);
+	if (previous && state.taskFocus?.[previous] === task.id) delete state.taskFocus[previous];
+	noteTaskFact(state, task.id, { actor: author, kind: "thread_handoff", reason: "thread handoff", at: now });
+}
+
+/** Move an open task in the same commit as a coordinator lifecycle change. */
+export function moveTaskToCoordinator(state: BoardState, taskId: string, to: string, now: string): TaskChange {
+	const task = state.tasks.find(candidate => candidate.id === taskId);
+	if (!task) throw unknownTask(taskId);
+	if (isSettled(task)) throw new ServerError("bad_request", `Task ${taskId} is closed.`);
+	const before = plain(task);
+	setTaskOwner(state, task, to === "main" ? null : to, now, "user");
+	task.revision += 1;
+	task.updatedBy = "user";
+	task.updatedAt = state.updatedAt = now;
+	return { before, after: plain(task) };
+}
+
+/** Record the move and its notices together; delivery can resume after a restart. */
+export function queueUserMoveNotices(state: BoardState, change: TaskChange, from: string | undefined, to: string, title: string, notifyNew = true): void {
+	if (from === to) return;
+	const { id, revision } = change.after;
+	state.userMoveNotices ??= [];
+	if (from) state.userMoveNotices.push({ target: from, content: `${BOARD_PREFIX} The user moved ${id} to ${title}.`, requestId: `board-user-move:${id}@${revision}:${from}` });
+	if (notifyNew) state.userMoveNotices.push({ target: to, content: `${BOARD_PREFIX} The user moved ${id} to you.`, requestId: `board-user-move:${id}@${revision}:${to}` });
+}
 
 export function changeOwner(
 	state: BoardState,
@@ -1760,13 +1797,7 @@ export function changeOwner(
 		);
 	}
 	const before = plain(task);
-	task.ownerThreadId = change.kind === "claim" ? change.threadId : change.kind === "release" ? null : change.to;
- if (change.kind !== "claim") {
-  const tracking = activityTracking(state, task.id);
-  for (const source of Object.values(tracking.sources)) if (source.actor.kind !== "worker" && source.actor.threadId === owner) endActivitySource(tracking, source.actor.id, input.now);
-  if (owner && state.taskFocus?.[owner] === task.id) delete state.taskFocus[owner];
- }
-	if (owner !== task.ownerThreadId) noteTaskFact(state, task.id, { actor: "coordinator", kind: "thread_handoff", reason: "thread handoff", at: input.now });
+	setTaskOwner(state, task, change.kind === "claim" ? change.threadId : change.kind === "release" ? change.to ?? null : change.to, input.now, "coordinator");
 	task.revision += 1;
 	task.updatedBy = "coordinator";
 	task.updatedAt = input.now;
@@ -2325,6 +2356,8 @@ export type BoardServiceOptions = {
  taskArtifactSaves?: { read: () => Promise<readonly TaskArtifactSave[]>; watch: (listener: () => void) => () => void };
 	auditModels?: Models;
 	auditStatusChanged?: (record: ReportAuditRecord) => Promise<void>;
+ submitInput?: (conversation: Conversation, input: { type: "input"; content: string; requestId: string; whenBusy: "steer" | "followUp" }) => Promise<{ id: number } | undefined>;
+ threadAvailable?: (threadId: string) => Promise<boolean>;
  threadTitle?: (threadId: string) => Promise<string | undefined>;
 	threadIsLive?: (threadId: string) => Promise<boolean>;
 	reportTimings?: { trailingMs?: number; maxBurstMs?: number; ageMs?: number; sweepMs?: number; maxTokens?: number };
@@ -2415,9 +2448,35 @@ export class BoardService {
 		return this.#options.coordinators?.placeOfThread(threadId) !== undefined;
 	}
 
+	coordinatorId(owner?: string | null): string {
+		return this.#options.coordinators?.coordinatorId(owner) ?? "main";
+	}
+
+	async routeCoordinator(owner?: string | null): Promise<string> {
+		const id = this.coordinatorId(owner);
+		return await this.#options.threadAvailable?.(id) === false ? "main" : id;
+	}
+
+	async #deliveryThread(owner?: string | null): Promise<string> {
+		if (owner && this.knowsThread(owner) && await this.#options.threadAvailable?.(owner) !== false) return owner;
+		return this.routeCoordinator(owner);
+	}
+
+	async coordinatorOwner(owner: string | null): Promise<string | null> {
+		if (owner === null || owner === "main") return null;
+		if (this.#options.coordinators?.placeOfThread(owner)?.kind !== "coordinator" || await this.#options.threadAvailable?.(owner) === false) {
+			throw new ServerError("bad_request", `Choose an available coordinator, not ${owner}.`);
+		}
+		return owner;
+	}
+
+	#submitInput(conversation: Conversation, input: { type: "input"; content: string; requestId: string; whenBusy: "steer" | "followUp" }) {
+		return this.#options.submitInput ? this.#options.submitInput(conversation, input) : conversation.submit(input, BACKGROUND_CONTEXT);
+	}
+
 	/** After an input reached `threadId`: a background thread that had finished works again. */
 	async #woke(threadId: string | null | undefined): Promise<void> {
-		if (threadId === null || threadId === undefined || threadId === "main" || !this.knowsThread(threadId)) return;
+		if (threadId === null || threadId === undefined || threadId === "main" || !this.knowsThread(threadId) || await this.#options.threadAvailable?.(threadId) === false) return;
 		await this.#options.wakeThread?.(threadId);
 	}
 
@@ -2639,13 +2698,10 @@ export class BoardService {
 					? `reopened it (it was ${before})`
 					: `set it to ${entry.state}`;
 		const content = `${BOARD_PREFIX} The user ${what}: feedback ${entry.id} on ${taskId}, ${JSON.stringify(clip(entry.text, 200))}${entry.note === null ? "" : ` — they say: ${JSON.stringify(clip(entry.note, 300))}`}`;
-		const target = owner !== null && this.knowsThread(owner) ? owner : "main";
+		const target = await this.#deliveryThread(owner);
 		try {
 			const conversation = await this.#conversationOf(target);
-			await conversation.submit(
-				{ type: "input", content, whenBusy: "followUp", requestId: `board-feedback:${entry.id}@${entry.changes.length}` },
-				BACKGROUND_CONTEXT,
-			);
+			await this.#submitInput(conversation, { type: "input", content, whenBusy: "followUp", requestId: `board-feedback:${entry.id}@${entry.changes.length}` });
 			await this.#woke(target);
 		} catch (error) {
 			this.#options.log(`board: could not tell the coordinator about feedback ${entry.id}: ${errorMessage(error)}`);
@@ -2720,7 +2776,7 @@ export class BoardService {
 				sweepArchive(doc, now);
 			});
 		}
-		const board = boardView(state, now, includeArchived);
+		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner));
   return this.#liveWatch?.project(board, state) ?? board;
 	}
 
@@ -2838,19 +2894,29 @@ export class BoardService {
 
 	/** Create or change a task. A user's `note` (why they moved it, in their words) reaches the coordinator with the change. */
 	async saveTask(
-		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
+		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 		author: BoardAuthor,
 	): Promise<BoardTask> {
 		const now = this.#iso();
 		const writer = author === "user" ? USER_WRITER : author === "harness" ? HARNESS_WRITER : coordinatorWriter("main");
-		const { note, ...fields } = input;
-		const { change, unblocked, other } = await this.#commit(writer, (state) => {
+		const { note, ownerThreadId, ...fields } = input;
+		const requestedOwner = ownerThreadId === undefined ? undefined : await this.coordinatorOwner(ownerThreadId);
+		const { change, unblocked, other } = await this.#options.harness.commit(tx => this.#change(tx, writer, undefined, async (state) => {
 			const before = new Map(state.tasks.map(t => [t.id, plain(t)]));
-   const saved = saveTask(state, { ...fields, author, now });
+   const parent = state.tasks.find(task => task.id === fields.task.parent);
+   const inherited = parent === undefined ? undefined : this.coordinatorId(parent.ownerThreadId);
+   const owner = requestedOwner !== undefined ? requestedOwner : fields.taskId === undefined && inherited !== undefined ? inherited === "main" ? null : inherited : undefined;
+   const saved = saveTask(state, { ...fields, ownerThreadId: owner, author, now });
+   if (author === "user" && saved.before && owner !== undefined) {
+    const from = this.coordinatorId(saved.before.ownerThreadId);
+    const to = this.coordinatorId(owner);
+    if (from !== to) queueUserMoveNotices(state, saved, from, to, await this.#options.threadTitle?.(to) ?? to);
+   }
    const other = state.tasks.filter(t => t.id !== saved.after.id && JSON.stringify(before.get(t.id)) !== JSON.stringify(t)).map(t => ({ before: before.get(t.id) ?? null, after: plain(t) }));
    return { change: saved, unblocked: unblockedBy(state, saved), other };
-		});
+		}), BACKGROUND_CONTEXT);
 		if (author === "user") {
+   await this.deliverUserMoveNotices();
    this.#recordEdit(change.before, change.after, [note, ...(change.notices ?? [])].filter(Boolean).join(" "));
    for (const edit of other) this.#recordEdit(edit.before, edit.after);
   }
@@ -2871,7 +2937,7 @@ export class BoardService {
 		const byOwner = new Map<string, BoardTask[]>();
 		for (const task of unblocked) {
 			const owner = task.ownerThreadId ?? "main";
-			const target = this.knowsThread(owner) ? owner : "main";
+			const target = await this.#deliveryThread(owner);
 			byOwner.set(target, [...(byOwner.get(target) ?? []), task]);
 		}
 		for (const [threadId, tasks] of byOwner) {
@@ -2881,10 +2947,7 @@ export class BoardService {
 			const suffix = threadId === "main" ? "" : `:${threadId}`;
 			try {
 				const conversation = await this.#conversationOf(threadId);
-				await conversation.submit(
-					{ type: "input", content, whenBusy: "followUp", requestId: `board-unblocked:${done.id}@${done.revision}${suffix}` },
-					BACKGROUND_CONTEXT,
-				);
+				await this.#submitInput(conversation, { type: "input", content, whenBusy: "followUp", requestId: `board-unblocked:${done.id}@${done.revision}${suffix}` });
 				await this.#woke(threadId);
 			} catch (error) {
 				this.#options.log(`board: could not tell the coordinator about unblocked tasks: ${errorMessage(error)}`);
@@ -2892,17 +2955,29 @@ export class BoardService {
 		}
 	}
 
+	#moveNoticeRun: Promise<void> = Promise.resolve();
+
+	deliverUserMoveNotices(): Promise<void> {
+		this.#moveNoticeRun = this.#moveNoticeRun.then(async () => {
+			for (const notice of (await this.state()).userMoveNotices ?? []) {
+				const target = await this.routeCoordinator(notice.target);
+				await this.#submitInput(await this.#conversationOf(target), { type: "input", whenBusy: "followUp", content: notice.content, requestId: notice.requestId });
+				await this.#commit(HARNESS_WRITER, state => {
+					state.userMoveNotices = state.userMoveNotices?.filter(item => item.requestId !== notice.requestId) ?? [];
+				});
+			}
+		}).catch(error => this.#options.log(`board: could not deliver task moves: ${errorMessage(error)}`));
+		return this.#moveNoticeRun;
+	}
+
 	/** Tell the thread a task was handed to; the request ID derives from the task's new revision. */
 	async noticeHandoff(task: BoardTask, from: string): Promise<void> {
-		const to = task.ownerThreadId ?? null;
-		if (to === null || to === from) return;
+		const to = await this.#deliveryThread(task.ownerThreadId);
+		if (to === from) return;
 		const content = `${BOARD_PREFIX} Thread "${from}" handed ${task.id} ${JSON.stringify(task.title)} (r${task.revision}) to you. It is yours now: read it with the board tool and carry it on.`;
 		try {
 			const conversation = await this.#conversationOf(to);
-			await conversation.submit(
-				{ type: "input", content, whenBusy: "followUp", requestId: `board-handoff:${task.id}@${task.revision}` },
-				BACKGROUND_CONTEXT,
-			);
+			await this.#submitInput(conversation, { type: "input", content, whenBusy: "followUp", requestId: `board-handoff:${task.id}@${task.revision}` });
 			await this.#woke(to);
 		} catch (error) {
 			this.#options.log(`board: could not tell thread ${to} about ${task.id}: ${errorMessage(error)}`);
@@ -2926,7 +3001,8 @@ export class BoardService {
 				if (!owned && task.id !== primaryTaskId) continue;
 				noteTaskFact(state, task.id, { actor: "harness", kind: "thread_finish", reason: "thread finished or stopped", at: now });
 				if (!owned || isSettled(task)) continue;
-				task.ownerThreadId = null;
+				const parent = this.coordinatorId(threadId);
+				task.ownerThreadId = parent === "main" || parent === threadId ? null : parent;
 				touchByHarness(state, task, task.status, now);
 				released.push(task.id);
 			}
@@ -2981,8 +3057,8 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
 	async clarify(input: { questionId: string; expectedRevision: number; text: string }): Promise<BoardQuestion> {
   const question = await this.#commit(USER_WRITER, state => clarifyQuestion(state, { ...input, now: this.#iso() }));
-  const asker = await this.#conversationOf(question.threadId);
-  await asker.submit({ type: "input", content: `${BOARD_PREFIX} The user asked back on ${question.id} (r${question.revision}): ${input.text}\nReply with board reply_question (id, expectedRevision, text; optional revisedText/revisedOptions). Do not ask a new question for the same decision.`, whenBusy: "steer", requestId: `board-clarify:${question.id}@${question.revision}` }, BACKGROUND_CONTEXT);
+  const asker = await this.#conversationOf(await this.#deliveryThread(question.threadId));
+  await this.#submitInput(asker, { type: "input", content: `${BOARD_PREFIX} The user asked back on ${question.id} (r${question.revision}): ${input.text}\nReply with board reply_question (id, expectedRevision, text; optional revisedText/revisedOptions). Do not ask a new question for the same decision.`, whenBusy: "steer", requestId: `board-clarify:${question.id}@${question.revision}` });
   await this.#woke(question.threadId);
   return question;
  }
@@ -3002,7 +3078,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   for (const { question, outcome } of results) {
    if (outcome === "returned") { this.noticeQuestion(question); continue; }
    const conversation = await this.#conversationOf(question.threadId);
-   await conversation.submit({ type: "input", content: `${BOARD_PREFIX} Clarification reminder for ${question.id} (r${question.revision}): reply with board reply_question before ending this turn, or withdraw/resolve it. Otherwise it returns to the owner marked No reply yet.`, whenBusy: "followUp", requestId: `board-clarify-reminder:${question.id}@${question.revision}` }, BACKGROUND_CONTEXT);
+   await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} Clarification reminder for ${question.id} (r${question.revision}): reply with board reply_question before ending this turn, or withdraw/resolve it. Otherwise it returns to the owner marked No reply yet.`, whenBusy: "followUp", requestId: `board-clarify-reminder:${question.id}@${question.revision}` });
    await this.#commit(HARNESS_WRITER, state => {
     const pending = state.clarificationReminders?.[question.id];
     if (pending?.revision === question.revision) delete pending.pending;
@@ -3017,11 +3093,8 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		const text = `${BOARD_PREFIX} The user answered ${question.id} (${JSON.stringify(clip(question.text, 200))}): ${input.answer}`;
 		try {
 			// The answer goes to the thread that asked; a question from before threads, or from a thread that is gone, to main.
-			const asker = await this.#conversationOf(question.threadId);
-			await asker.submit(
-				{ type: "input", content: text, whenBusy: "steer", requestId: `board-answer:${question.id}@${question.revision}` },
-				BACKGROUND_CONTEXT,
-			);
+			const asker = await this.#conversationOf(await this.#deliveryThread(question.threadId));
+			await this.#submitInput(asker, { type: "input", content: text, whenBusy: "steer", requestId: `board-answer:${question.id}@${question.revision}` });
 			await this.#woke(question.threadId);
 		} catch (error) {
 			this.#options.log(`board: could not deliver the answer to ${question.id}: ${errorMessage(error)}`);
@@ -3032,10 +3105,13 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 	/** Tell the user's devices once about a question or warning a coordinator asked. */
 	noticeQuestion(question: BoardQuestion): void {
 		const project = this.#options.project();
-		this.#options.notifications?.notify(
+		if (!this.#options.notifications) return;
+		const coordinatorId = this.coordinatorId(question.threadId);
+		void Promise.resolve(this.#options.threadTitle?.(coordinatorId)).then(title => this.#options.notifications?.notify(
 			boardQuestionNotification({
 				projectId: project.id,
 				projectName: project.name,
+				...(title ? { coordinatorId, coordinatorTitle: title } : {}),
 				questionId: question.id,
 				text: question.exchanges?.at(-1)?.author.author === "coordinator" ? question.exchanges.at(-1)!.text : question.text,
 				threadId: question.threadId ?? "main",
@@ -3043,23 +3119,26 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				warning: question.kind === "warning",
     ...(question.exchanges?.length ? { revision: question.revision, reply: !question.noReplyYet, noReplyYet: question.noReplyYet } : {}),
 			}),
-		);
+		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
 	}
 
 	/** Tell the user's devices once that someone but the user moved a task to review. */
 	noticeReview(change: TaskChange): void {
 		if (change.after.status !== "review" || change.before?.status === "review") return;
 		const project = this.#options.project();
-		this.#options.notifications?.notify(
+		if (!this.#options.notifications) return;
+		const coordinatorId = this.coordinatorId(change.after.ownerThreadId);
+		void Promise.resolve(this.#options.threadTitle?.(coordinatorId)).then(title => this.#options.notifications?.notify(
 			taskReviewNotification({
 				projectId: project.id,
 				projectName: project.name,
+				...(title ? { coordinatorId, coordinatorTitle: title } : {}),
 				taskId: change.after.id,
 				title: change.after.title,
 				revision: change.after.revision,
 				...(change.after.ownerThreadId === null || change.after.ownerThreadId === undefined ? {} : { threadId: change.after.ownerThreadId }),
 			}),
-		);
+		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
 	}
 
  #threadRunStates(state: BoardState): Map<string, string> {
@@ -3228,7 +3307,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		let boardState = watch.value;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
-			const board = boardView(state, this.#options.now(), false);
+			const board = boardView(state, this.#options.now(), false, owner => this.coordinatorId(owner));
    if (state.taskLiveEnabled && this.#liveWatch) {
     if (!liveOnly) this.#liveWatch.sync(state);
     this.#liveWatch.project(board, state);
@@ -3320,23 +3399,35 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		const order = this.#pendingOrder;
 		this.#pending = new Map();
 		this.#pendingOrder = undefined;
-		const lines = edits.map((edit) => describeEdit(edit)).filter((line) => line !== undefined);
-		if (order !== undefined) lines.push(`order: ${order.ids.join(", ")} first`);
-		if (lines.length === 0) return this.#flushing;
-		const key = createHash("sha256")
-			.update(edits.map((edit) => `${edit.after.id}@${edit.after.revision}`).join(",") + (order === undefined ? "" : `|${order.ids.join(",")}@${order.at}`))
-			.digest("hex")
-			.slice(0, 16);
-		const content = `${BOARD_PREFIX} The user changed the board:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+		if (edits.length === 0 && order === undefined) return this.#flushing;
 		this.#flushing = this.#flushing.then(async () => {
 			try {
-				await this.coordinator.submit(
-					{ type: "input", content, whenBusy: "followUp", requestId: `board-edit:${key}` },
-					BACKGROUND_CONTEXT,
-				);
-			} catch (error) {
-				this.#options.log(`board: could not deliver the user's edits: ${errorMessage(error)}`);
-			}
+				const state = await this.state();
+				const byOwner = new Map<string, string[]>();
+				const add = (owner: string, line: string) => byOwner.set(owner, [...(byOwner.get(owner) ?? []), line]);
+				for (const edit of edits) {
+					const line = describeEdit(edit);
+					const task = state.tasks.find(task => task.id === edit.after.id) ?? edit.after;
+					if (line) add(await this.routeCoordinator(task.ownerThreadId), line);
+				}
+				if (order) {
+					const todoByOwner = new Map<string, string[]>();
+					for (const task of [...state.tasks].sort((a, b) => a.order - b.order)) {
+						if (task.status !== "todo" || task.archived) continue;
+						const owner = await this.routeCoordinator(task.ownerThreadId);
+						todoByOwner.set(owner, [...(todoByOwner.get(owner) ?? []), task.id]);
+					}
+					for (const [owner, ids] of todoByOwner) {
+						const first = ids.filter(id => order.ids.includes(id));
+						if (first.length) add(owner, `order: ${first.join(", ")} first${first.length === ids.length ? "" : `, then ${ids.filter(id => !first.includes(id)).join(", ")}`}`);
+					}
+				}
+				const key = createHash("sha256").update(JSON.stringify([edits.map(edit => [edit.after.id, edit.after.revision]), order])).digest("hex");
+				for (const [owner, lines] of byOwner) {
+					const content = `${BOARD_PREFIX} The user changed the board:\n${lines.map(line => `- ${line}`).join("\n")}`;
+					await this.#submitInput(await this.#conversationOf(owner), { type: "input", content, whenBusy: "followUp", requestId: `board-edit:${key}:${owner}` });
+				}
+			} catch (error) { this.#options.log(`board: could not deliver the user's edits: ${errorMessage(error)}`); }
 		});
 		return this.#flushing;
 	}
@@ -3395,7 +3486,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    if (valid) {
     const target = this.knowsThread(notice.owner) ? notice.owner : "main";
     const conversation = await this.#conversationOf(target);
-    await conversation.submit({ type: "input", content: `${BOARD_PREFIX} ${notice.taskId} is in progress but nothing has run on it for 15 minutes. Move it to review if it is finished, back to To do if it is not being worked on, or ask the user.`, whenBusy: "followUp", requestId: `board-paused:${notice.taskId}:${createHash("sha256").update(notice.episode).digest("hex")}` }, BACKGROUND_CONTEXT);
+    await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${notice.taskId} is in progress but nothing has run on it for 15 minutes. Move it to review if it is finished, back to To do if it is not being worked on, or ask the user.`, whenBusy: "followUp", requestId: `board-paused:${notice.taskId}:${createHash("sha256").update(notice.episode).digest("hex")}` });
     await this.#woke(target);
    }
    await this.#commit(HARNESS_WRITER, doc => {
@@ -3426,9 +3517,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
 				body: `${task.id} is back for review: waiting for ${note}`,
 			});
-			const target = task.ownerThreadId ?? "main";
+			const target = await this.#deliveryThread(task.ownerThreadId);
 			const conversation = await this.#conversationOf(target);
-			await conversation.submit({ type: "input", content: `${BOARD_PREFIX} ${task.id} is back for review: waiting for ${note}. Its check-again date has passed; check the external dependency with the user.`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` }, BACKGROUND_CONTEXT);
+			await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${task.id} is back for review: waiting for ${note}. Its check-again date has passed; check the external dependency with the user.`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` });
 			await this.#woke(target);
 			await this.#commit(HARNESS_WRITER, (doc) => {
 				doc.waitingReturns = (doc.waitingReturns ?? []).filter((entry) => entry.task.id !== task.id || entry.task.revision !== task.revision);
@@ -3622,9 +3713,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    if (busyOwners.has(batch.owner)) continue;
    busyOwners.add(batch.owner);
    const conversation = await this.#conversationOf(batch.owner);
-   const submission = await conversation.submit({ type: "input", content: batch.content, whenBusy: "followUp", requestId: batch.key }, BACKGROUND_CONTEXT);
+   const submission = await this.#submitInput(conversation, { type: "input", content: batch.content, whenBusy: "followUp", requestId: batch.key });
    await this.#woke(batch.owner);
-   await this.#commit(HARNESS_WRITER, (state) => acknowledgeReportNudge(state, batch.key, submission.id));
+   await this.#commit(HARNESS_WRITER, (state) => acknowledgeReportNudge(state, batch.key, submission?.id));
   }
   for (const [owner, id] of Object.entries((await this.state()).reportInFlight ?? {})) this.#waitForReport(owner, id);
  }
@@ -3658,6 +3749,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		await this.#reportRun;
 		await this.#waitingRun;
   await this.#pauseRun;
+		await this.#moveNoticeRun;
 		await this.flushEdits();
 	}
 }
@@ -3788,6 +3880,7 @@ const BoardToolParameters = Type.Object({
 			description: "link, unlink: the kind. parent: id is a subtask of to. foundWhile: id was found while working on to. related: see also, both ways. blockedBy: id waits for to.",
 		}),
 	),
+	owner: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()], { description: "add_task: coordinator thread ID; main or null for General." })),
 	to: Type.Optional(Type.String({ minLength: 1, description: "link, unlink: the other task." })),
 	feedbackId: Type.Optional(Type.String({ minLength: 1, description: 'feedback: the entry, e.g. "F3" (the message said "[task T12, feedback F3]").' })),
 	state: Type.Optional(
@@ -3849,6 +3942,7 @@ function createBoardExtension(service: BoardService): Extension {
 						return toolText(describeBoard(await service.get(input.includeArchived === true)));
 					}
 					case "add_task": {
+						const explicitOwner = input.owner === undefined ? undefined : await service.coordinatorOwner(input.owner);
 						if (input.status === "done" || input.status === "dropped") return toolText(onlyUserCloses(input.status), { isError: true });
 						const change = await service.commitFor(
 							countEntityWrite((result: TaskChange) => result.after.id, [input.description, input.goal]),
@@ -3871,6 +3965,11 @@ function createBoardExtension(service: BoardService): Extension {
 										...(input.related === undefined ? {} : { related: input.related }),
 									},
 									author: "coordinator",
+									ownerThreadId: explicitOwner !== undefined ? explicitOwner : (() => {
+										const parent = state.tasks.find(task => task.id === input.parent);
+										const id = service.coordinatorId(parent ? parent.ownerThreadId : threadId);
+										return id === "main" ? null : id;
+									})(),
 									now,
 								}),
 							writer,
@@ -4084,7 +4183,8 @@ function createBoardExtension(service: BoardService): Extension {
 							}
 							change = { kind: "handoff", threadId, to };
 						} else {
-							change = { kind: input.action, threadId };
+							const parent = service.coordinatorId(threadId);
+							change = input.action === "release" ? { kind: "release", threadId, to: parent === threadId || parent === "main" ? null : parent } : { kind: "claim", threadId };
 						}
 						const task = await service.commitFor(
 							(commit) => api.commit(commit, context),

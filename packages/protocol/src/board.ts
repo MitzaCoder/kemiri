@@ -397,6 +397,7 @@ export const BoardTaskSchema = Type.Object({
 	}),
 	workerIds: Type.Array(Type.String(), { description: "Workers that ran this task, oldest first." }),
 	scheduleId: Type.Union([Type.String(), Type.Null()], { description: "The schedule whose failed run opened it." }),
+	coordinatorId: Type.Optional(Type.String({ description: "Derived coordinator of this task, including tasks held by its jobs." })),
 	ownerThreadId: Type.Optional(
 		Type.Union([Type.String(), Type.Null()], {
 			description: 'The thread that claimed it ("main" for main); null when unclaimed. A thread claims a task before working on it.',
@@ -600,6 +601,7 @@ export const BoardTaskSaveRequestSchema = Type.Object({
 	taskId: Type.Optional(Type.String({ minLength: 1 })),
 	expectedRevision: Type.Optional(Revision),
 	task: BoardTaskInputSchema,
+	ownerThreadId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
 	note: Type.Optional(
 		Type.String({
 			maxLength: 2000,

@@ -722,7 +722,9 @@ describe("events", () => {
 		await until(() => push.ofKind("reply").length === 1);
 		expect(push.ofKind("reply")[0]?.payload).toMatchObject({
 			kind: "reply",
-			title: "project replied",
+			title: "project · General",
+			coordinatorId: "main",
+			entryId: expect.any(Number),
 			body: "All green.",
 			projectId,
 			backendKey: "harness-pc",
@@ -786,7 +788,8 @@ describe("events", () => {
 		await until(() => push.ofKind("board_question").length === 1);
 		expect(push.ofKind("board_question")[0]?.payload).toMatchObject({
 			kind: "board_question",
-			title: "Question · project",
+			title: "project · General",
+			coordinatorId: "main",
 			body: "Which database should it use?",
 			projectId,
 		});
@@ -818,7 +821,7 @@ describe("events", () => {
   } finally { release(); }
   await until(() => push.ofKind("board_question").length === 2);
   const [initial, reply] = push.ofKind("board_question");
-  expect(reply!.payload).toMatchObject({ kind: "board_question", title: "Reply on Q1 · project", body: "Shared storage is remote.", projectId, threadId: "main" });
+  expect(reply!.payload).toMatchObject({ kind: "board_question", title: "project · General", coordinatorId: "main", body: "Shared storage is remote.", projectId, threadId: "main" });
   expect(initial?.payload?.tag).toBe(`board-question:${projectId}:Q1`);
   expect(reply?.payload?.tag).toBe(initial?.payload?.tag);
  }, 30_000);
@@ -841,10 +844,11 @@ describe("events", () => {
 
 		await submit(client, projectId, "Migrate the database.", "req-1");
 		await until(() => push.ofKind("board_question").length === 1 && push.ofKind("task_review").length === 1);
-		expect(push.ofKind("board_question")[0]?.payload).toMatchObject({ title: "Warning · project", taskId: "T1" });
+		expect(push.ofKind("board_question")[0]?.payload).toMatchObject({ title: "project · General", coordinatorId: "main", taskId: "T1" });
 		expect(push.ofKind("task_review")[0]?.payload).toMatchObject({
 			kind: "task_review",
-			title: "Ready for review · project",
+			title: "project · General",
+			coordinatorId: "main",
 			body: "T1 Migrate the database",
 			taskId: "T1",
 		});

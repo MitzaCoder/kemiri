@@ -1,8 +1,11 @@
+import { Database } from "bun:sqlite";
+import { Value } from "typebox/value";
+import { ThreadSummarySchema } from "../../protocol/src/threads.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { JsonObject, SetTimer } from "@earendil-works/pi-durable";
+import { defineDoc, type JsonObject, type SetTimer } from "@earendil-works/pi-durable";
 import { DEFAULT_CHECK_INS, DEFAULT_LONG_PROMPT_CACHE, DEFAULT_UI_PROOF } from "@kemiri/protocol";
 import type {
 	BoardTask,
@@ -15,7 +18,8 @@ import type {
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { type BoardState, changeOwner, emptyBoardState, askQuestion, openBoard, saveTask } from "../src/board.ts";
-import { THREAD_ARCHIVE_AFTER_MS, MAIN_THREADS_SECTION, threadInstructions } from "../src/threads.ts";
+import { THREAD_ARCHIVE_AFTER_MS, MAIN_THREADS_SECTION, PEER_THREADS_SECTION, ThreadsDoc, threadInstructions } from "../src/threads.ts";
+import { stateKind } from "../src/state-identity.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
 it("asks jj background threads to use the namespaced task trailer", () => {
@@ -100,7 +104,7 @@ type Route = (turn: Turn) => Reply | undefined | Promise<Reply | undefined>;
 
 function turnOf(request: TranscriptContext, signal: AbortSignal | undefined): Turn {
 	const system = systemOf(request);
-	const thread = /You are the background thread "([^"]+)"/.exec(system);
+	const thread = /You are the background thread "([^"]+)"/.exec(system) ?? /You are the coordinator .*? \(thread ([^)]+)\)/.exec(system);
 	const who = thread !== null ? "thread" : system.includes("You are the worker \"") ? "worker" : "main";
 	const last = request.messages.findLast((message) => message.role !== "system") as
 		| { role: string; content?: unknown; toolName?: string }
@@ -1000,3 +1004,239 @@ describe("board ownership", () => {
 	});
 });
 
+
+const syntheticTask = (title: string) => ({ title, description: "", acceptance: null, status: "todo" as const, blockedBy: [], blockedReason: null, writeScopes: [] });
+
+threadTest("defaults a legacy v1 thread list without rewriting its shape or losing project data", async () => {
+	const test = await setup({ boardEditDebounceMs: 60_000 });
+	script(test);
+	const { projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	const running = await runtime.threads.create({ title: "Packing", area: "Packing orders." }, "fixture-running");
+	const finished = await runtime.threads.create({ title: "Labels", area: "Printing labels." }, "fixture-finished");
+	const archived = await runtime.threads.create({ title: "Stock", area: "Counting stock." }, "fixture-archived");
+	const conversation = await runtime.threads.conversation(running.id);
+	await conversation.submit({ type: "write", entry: { kind: "pi.user", model: [{ role: "user", content: "Preserve this transcript.", timestamp: Date.now() }] } }, BACKGROUND_CONTEXT);
+	await runtime.harness.commit(async tx => {
+		const board = await openBoard(tx, runtime.conversation.id);
+		const now = new Date().toISOString();
+		saveTask(board, { task: syntheticTask("Pack one order"), ownerThreadId: running.id, author: "user", now });
+		saveTask(board, { task: syntheticTask("Plan tomorrow"), author: "user", now });
+		askQuestion(board, { text: "Which package?", options: [], taskId: "T1", now, threadId: running.id });
+	}, BACKGROUND_CONTEXT);
+	await runtime.memory.store.write({ target: { scope: "project", projectId }, fileId: "packing", title: "Packing", summary: "Fixture", text: "Store packing notes." });
+	const previous = await runtime.threads.state();
+	const legacy = Object.fromEntries(Object.entries(previous.threads).map(([id, record]) => {
+		const { kind, parentThreadId, area, paths, color, order, held, heldAt, ...legacyRecord } = record;
+		return [id, { ...legacyRecord, status: id === running.id ? "running" : "done", archived: id === archived.id,
+			finishedAt: id === running.id ? null : "2026-01-02T00:00:00Z", summary: id === running.id ? null : "Fixture summary." }];
+	}));
+	const boardBefore = await runtime.board.state();
+	const path = test.server.manager.store.sessionPath(projectId);
+	await test.server.stop();
+	using db = new Database(path);
+	const row = db.query<{ id: number; seq: number }, [string]>(`SELECT documents.id, MAX(seq) AS seq FROM documents
+		JOIN document_revisions ON document_id = documents.id WHERE documents.kind = ? GROUP BY documents.id`).get(JSON.stringify(ThreadsDoc.definition.kind));
+	if (!row) throw new Error("Fixture thread document not found");
+	db.transaction(() => {
+		db.run("DELETE FROM document_revisions WHERE document_id = ?", [row.id]);
+		db.run("INSERT INTO document_revisions (document_id, seq, kind, version, content) VALUES (?, ?, 'base', 1, ?)",
+			[row.id, row.seq, JSON.stringify({ threads: legacy, createdAt: previous.createdAt })]);
+	})();
+	const first = await (await test.restart()).manager.open(projectId);
+	const normalized = await first.runtime.threads.state();
+	expect(normalized.main).toEqual({ title: "General", area: "Everything without a home.", color: null });
+	for (const record of Object.values(normalized.threads)) {
+		expect(record.kind).toBe("job");
+		expect(record.parentThreadId).toBe("main");
+		expect(record.conversationId).toBe(legacy[record.id]!.conversationId);
+		expect(record.summary).toBe(legacy[record.id]!.summary);
+		expect(record.archived).toBe(legacy[record.id]!.archived);
+	}
+	const retainedMemory = await first.runtime.memory.store.read("project", projectId, "packing");
+	expect(JSON.stringify(retainedMemory)).toContain("Store packing notes.");
+	const boardAfter = await first.runtime.board.state();
+	expect(boardAfter.tasks.map(t => t.ownerThreadId ?? null)).toEqual(boardBefore.tasks.map(t => t.ownerThreadId ?? null));
+	expect(boardAfter.questions).toEqual(boardBefore.questions);
+	const transcript = await (await first.runtime.threads.conversation(running.id)).entries({}, 20, undefined, BACKGROUND_CONTEXT);
+	expect(JSON.stringify(transcript.items)).toContain("Preserve this transcript.");
+	const savedVersion = () => db.query<{ version: number; seq: number }, [number]>("SELECT version, seq FROM document_revisions WHERE document_id = ? ORDER BY seq DESC LIMIT 1").get(row.id);
+	const stored = await first.runtime.harness.snapshot(ThreadsDoc, first.runtime.conversation.id, BACKGROUND_CONTEXT);
+	expect(stored?.main).toBeUndefined();
+	for (const record of Object.values(stored?.threads ?? {})) {
+		expect(record.kind).toBeUndefined();
+		expect(record.parentThreadId).toBeUndefined();
+	}
+	const versionBefore = savedVersion();
+	expect(versionBefore).toEqual({ version: 1, seq: row.seq });
+	const second = await (await test.restart()).manager.open(projectId);
+	expect((await second.runtime.threads.state()).main).toEqual(normalized.main);
+	expect(savedVersion()).toEqual(versionBefore);
+});
+
+threadTest("a previous-release v1 reader can edit new thread rows without dropping coordinator data", async () => {
+	// This token uses the previous definition and models only the fields its status updater uses.
+	const previousThreadsDoc = defineDoc<{
+		threads: Record<string, { id: string; status: ThreadSummary["status"]; updatedAt: string }>;
+		createdAt: string | null;
+	}>({
+		kind: stateKind("threads"), version: 1, scope: "conversation", history: "latest", fork: "initial",
+		checkpointWhen: () => false, initial: () => ({ threads: {}, createdAt: null }),
+	});
+	const test = await setup();
+	const { projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	await runtime.threads.update("main", { title: "Default desk" });
+	const { id } = await runtime.threads.create({ title: "Packing", area: "Packing orders.", paths: ["packing/**"] }, "rollback-create");
+	await runtime.threads.hold(id, true, "rollback-hold");
+	await runtime.threads.deliver({ sender: "main", receiver: id, message: "Keep this for resume.", reply: false, callId: "rollback-message" });
+	const writer = await (await test.restart()).manager.open(projectId);
+	const previous = await writer.runtime.harness.snapshot(previousThreadsDoc, writer.runtime.conversation.id, BACKGROUND_CONTEXT);
+	expect(previous?.threads[id]).toMatchObject({ id, status: "idle" });
+	const at = "2026-01-02T00:00:00Z";
+	await writer.runtime.harness.commit(async tx => {
+		const doc = await tx.doc(previousThreadsDoc, writer.runtime.conversation.id);
+		const record = doc.threads[id]!;
+		record.status = "stopped";
+		record.updatedAt = at;
+	}, BACKGROUND_CONTEXT);
+	const reopened = await (await test.restart()).manager.open(projectId);
+	const restored = await reopened.runtime.threads.state();
+	expect(restored.main.title).toBe("Default desk");
+	expect(restored.threads[id]).toMatchObject({ kind: "coordinator", parentThreadId: "main", area: "Packing orders.", paths: ["packing/**"],
+		held: true, heldInputs: [{ content: "[from main] Keep this for resume.", requestId: "thread-message:rollback-message" }],
+		status: "stopped", updatedAt: at });
+	const path = test.server.manager.store.sessionPath(projectId);
+	await test.server.stop();
+	using db = new Database(path, { readonly: true });
+	const versions = db.query<{ version: number }, [string]>(`SELECT DISTINCT version FROM document_revisions
+		JOIN documents ON document_id = documents.id WHERE documents.kind = ?`).all(JSON.stringify(previousThreadsDoc.definition.kind));
+	expect(versions).toEqual([{ version: 1 }]);
+});
+
+threadTest("keeps coordinator lifecycle, routing and prompt bytes across restarts", async () => {
+	const test = await setup({ boardEditDebounceMs: 60_000 });
+	const received = new Map<string, string[]>();
+	script(test, turn => {
+		if (turn.role !== "user") return undefined;
+		const who = turn.threadId ?? "main";
+		received.set(who, [...(received.get(who) ?? []), turn.text]);
+		if (turn.text === "Add a packing task.") return call("board", { action: "add_task", title: "Pack a sample box" });
+		return fauxAssistantMessage("Fixture response.");
+	});
+	let { client, projectId } = await openProject(test);
+	let { runtime } = await test.server.manager.open(projectId);
+	const request = { type: "threads.create", projectId, title: "Packing", area: "Pack outgoing orders.", paths: ["packing/**"], operationId: "packing-create" };
+	const created = await client.request(request);
+	if (created.type !== "threads.create") throw new Error(JSON.stringify(created));
+	const packing = created.thread.id;
+	const second = await client.request({ type: "threads.create", projectId, title: "Stock", area: "Count stored items." });
+	if (second.type !== "threads.create") throw new Error(JSON.stringify(second));
+	const stock = second.thread.id;
+	expect(received.size).toBe(0);
+	const initial = await context(client, projectId, { threadId: packing });
+	const general = await context(client, projectId, { threadId: "main" });
+	const boardTaskRule = 'Every subject the user raises is a task on the project\'s board';
+	const boardInputRule = 'Messages starting with "[board]" bring the user\'s edits and answers';
+	expect(initial.systemPrompt).toContain(boardTaskRule);
+	expect(initial.systemPrompt).toContain(boardInputRule);
+	for (const ruleStart of [boardTaskRule, boardInputRule, "Verification has diminishing returns:"]) {
+		const generalRule = general.systemPrompt.split("\n").find(line => line.startsWith(ruleStart))!;
+		const areaRule = initial.systemPrompt.split("\n").find(line => line.startsWith(ruleStart));
+		expect(generalRule).toBeDefined();
+		expect(areaRule).toBe(generalRule);
+	}
+	expect(initial.systemPrompt).not.toContain("schedule_save when it should recur");
+	expect(initial.systemPrompt).toContain('"shared" for reading, searching and work that must touch your own workspace as it is');
+	expect(initial.systemPrompt).toContain(PEER_THREADS_SECTION);
+	expect(initial.systemPrompt).not.toContain("Count stored items.");
+	expect(initial.tools.map(tool => tool.name)).not.toContain("thread_finish");
+	expect(initial.tools.map(tool => tool.name)).not.toContain("coordinator_start");
+	const roster = await threads(client, projectId);
+	const legacyKeys = ["kind", "parentThreadId", "area", "paths", "color", "order", "held", "attention", "lastReplyAt", "lastReplyEntryId", "openTasks"];
+	for (const row of roster) expect(Value.Check(ThreadSummarySchema, Object.fromEntries(Object.entries(row).filter(([key]) => !legacyKeys.includes(key))))).toBe(true);
+	expect(roster[0]).toMatchObject({ id: "main", title: "General", main: true, kind: "coordinator" });
+	expect((await client.request({ type: "threads.update", projectId, threadId: "main", title: "Default desk" })).type).toBe("threads.update");
+	expect((await client.request({ type: "threads.update", projectId, threadId: packing, title: "Packing desk", operationId: "rename" })).type).toBe("threads.update");
+	const renamed = await context(client, projectId, { threadId: packing });
+	expect(renamed.systemPrompt).toContain("Packing desk");
+	await submit(client, projectId, "Add a packing task.", packing);
+	const packingConversation = await runtime.threads.conversation(packing);
+	await packingConversation.waitForIdle(BACKGROUND_CONTEXT);
+	let task = (await runtime.board.get()).tasks.find(t => t.title === "Pack a sample box")!;
+	expect(task).toMatchObject({ ownerThreadId: packing, coordinatorId: packing });
+	expect(await runtime.harness.commit(async tx => (await openBoard(tx, runtime.conversation.id)).tasks.find(t => t.id === task.id)?.coordinatorId, BACKGROUND_CONTEXT)).toBeUndefined();
+	expect((await context(client, projectId, { threadId: packing })).systemPrompt).toBe(renamed.systemPrompt);
+	const holdRequest = { type: "threads.hold", projectId, threadId: packing, held: true, operationId: "pause" };
+	expect((await client.request(holdRequest)).type).toBe("threads.hold");
+	await runtime.threads.deliver({ sender: stock, receiver: packing, message: "Peer message while held.", reply: false, callId: "peer-message" });
+	const edit = await client.request({ type: "board.task.save", projectId, taskId: task.id, expectedRevision: task.revision, task: syntheticTask("Pack two sample boxes") });
+	if (edit.type !== "board.task.save") throw new Error(JSON.stringify(edit));
+	task = edit.task;
+	await runtime.board.flushEdits();
+	expect(received.get(packing)).toEqual(["Add a packing task."]);
+	expect(received.get("main")).toBeUndefined();
+	expect(received.get(stock)).toBeUndefined();
+	client = await connect(await test.restart());
+	await client.hello();
+	({ runtime } = await test.server.manager.open(projectId));
+	expect((await client.request(request))).toMatchObject({ type: "threads.create", thread: { id: packing, title: "Packing desk", held: true } });
+	const ownerReply = await client.request({ type: "conversation.submit", projectId, taskId: task.id, content: "Owner task reply.", requestId: "owner-reply" });
+	expect(ownerReply.type).toBe("conversation.submit");
+	await (await runtime.threads.conversation(packing)).waitForIdle(BACKGROUND_CONTEXT);
+	expect(received.get(packing)).toHaveLength(2);
+	expect(received.get(packing)?.at(-1)).toContain("Owner task reply.");
+	expect(received.get(packing)?.at(-1)).toContain("Peer message while held.");
+	expect(received.get(packing)?.at(-1)).toContain("Pack two sample boxes");
+	expect(received.get("main")).toBeUndefined();
+	expect((await client.request(holdRequest))).toMatchObject({ type: "threads.hold", thread: { held: false } });
+	// Another pause drains one combined input, even when a worker report is queued in its own commit.
+	await runtime.threads.hold(packing, true, "second-pause");
+	const heldTarget = await runtime.threads.conversation(packing);
+	await runtime.harness.commit(async tx => {
+		expect(await runtime.workers.coordinators.queueWhileHeld?.(tx, heldTarget.id, "[worker fixture reported] Finished.", "fixture-report")).toBe(true);
+	}, BACKGROUND_CONTEXT);
+	await runtime.threads.hold(packing, false, "explicit-resume");
+	await heldTarget.waitForIdle(BACKGROUND_CONTEXT);
+	expect(received.get(packing)?.at(-1)).toContain("[worker fixture reported] Finished.");
+	const createdPart = await runtime.board.saveTask({ task: { ...syntheticTask("Pack a part"), parent: task.id } }, "user");
+	expect(createdPart.coordinatorId).toBe(packing);
+	const selected = await runtime.board.saveTask({ task: syntheticTask("Count one box"), ownerThreadId: stock }, "user");
+	expect(selected.coordinatorId).toBe(stock);
+	const moved = await client.request({ type: "board.task.save", projectId, taskId: selected.id, expectedRevision: selected.revision, ownerThreadId: packing, task: syntheticTask(selected.title) });
+	expect(moved).toMatchObject({ type: "board.task.save", task: { coordinatorId: packing } });
+	await heldTarget.waitForIdle(BACKGROUND_CONTEXT);
+	await (await runtime.threads.conversation(stock)).waitForIdle(BACKGROUND_CONTEXT);
+	expect(received.get(packing)?.at(-1)).toContain(`The user moved ${selected.id} to you`);
+	expect(received.get(stock)?.at(-1)).toContain(`The user moved ${selected.id} to Packing desk`);
+
+	const archive = { type: "threads.archive", projectId, threadId: packing, archived: true, moveTasksTo: stock, operationId: "archive" };
+	expect((await client.request(archive))).toMatchObject({ type: "threads.archive", thread: { archived: true } });
+	expect((await runtime.board.get()).tasks.find(t => t.id === task.id)).toMatchObject({ coordinatorId: stock, ownerThreadId: stock });
+	client = await connect(await test.restart());
+	await client.hello();
+	({ runtime } = await test.server.manager.open(projectId));
+	expect((await thread(client, projectId, packing))?.archived).toBe(true);
+	expect((await client.request({ type: "threads.archive", projectId, threadId: packing, archived: false, operationId: "restore" }))).toMatchObject({ type: "threads.archive", thread: { archived: false } });
+	expect((await client.request(archive))).toMatchObject({ type: "threads.archive", thread: { archived: false } });
+	expect((await runtime.board.get()).tasks.find(t => t.id === task.id)?.coordinatorId).toBe(stock);
+	expect((await thread(client, projectId, "main"))?.title).toBe("Default desk");
+});
+
+threadTest("releases a job's open tasks to its parent coordinator", async () => {
+	const test = await setup();
+	const { projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	const parent = await runtime.threads.create({ title: "Packing", area: "Packing orders." }, "parent");
+	const child = await runtime.threads.create({ title: "Batch", area: "One batch." }, "fixture-job");
+	const record = (await runtime.threads.record(child.id))!;
+	runtime.workers.coordinators.add({ ...runtime.threads.placeFor(record), conversationId: record.conversationId + 1_000, kind: "job", parentThreadId: parent.id });
+	await runtime.harness.commit(async tx => {
+		const board = await openBoard(tx, runtime.conversation.id);
+		saveTask(board, { task: syntheticTask("Pack a batch"), ownerThreadId: child.id, author: "user", now: new Date().toISOString() });
+	}, BACKGROUND_CONTEXT);
+	expect((await runtime.board.get()).tasks[0]).toMatchObject({ ownerThreadId: child.id, coordinatorId: parent.id });
+	expect(await runtime.board.releaseThread(child.id, "fixture-release")).toEqual(["T1"]);
+	expect((await runtime.board.get()).tasks[0]).toMatchObject({ ownerThreadId: parent.id, coordinatorId: parent.id });
+	expect(await runtime.board.releaseThread(child.id, "fixture-release")).toEqual([]);
+});

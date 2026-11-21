@@ -2558,8 +2558,8 @@ implemented here.
 
 ## Threads
 
-D89 / T222: user-facing names are **Main chat** and **background job**; code, tools
-and stored records keep `thread`, with no data migration. Web phase 1 shares one pure
+D89 / T222 (legacy clients): user-facing names are **Main chat** and **background job**;
+code, tools and stored records keep `thread`. Web phase 1 shares one pure
 presentation helper for Needs you (amber, the open question), Failed (danger, retry),
 Working (accent, server current text), Paused (muted, message to continue), Finished
 (success, first summary line), and Stopped (subtle, relative finish time). The panel
@@ -2626,20 +2626,41 @@ have 48 dp targets. Worker pages are unchanged.
 
 Decided with the user on 2026-11-04; contracts in `packages/protocol/src/threads.ts` and `artifacts.ts`.
 
-The user's goal: talk to one place and never worry which thread they are in. So a project has one **main** thread
-(the coordinator they talk to, where the app opens) and any number of **background threads**: full coordinators for
-big, long work, started by main or by a schedule. There is no "new thread" button; the user asks main.
+T393 stage 1: a thread is a `coordinator` (long-lived area of work) or a `job` (the
+existing background job). The default coordinator is **General**: its name and area are
+editable, its ID stays `main`, it cannot be archived, and it keeps the project checkout.
+The `aiki.threads` document stays at version 1 for rollback safety. At read time,
+threads without a kind or parent default to jobs parented to `main`, and a missing
+`main` record uses General's defaults. These defaults do not rewrite the document.
+New writes add optional fields the previous release can ignore and preserve when
+editing existing rows. Transcripts, workspaces, board rows and memory stay in place.
 
-- **Roles.** Workers are main's hands for small tasks; background threads are its teammates for big ones. A
-  background thread has the coordinator's tools (workers, board, memory, code mode, history) and runs in its own
-  workspaces, never in the project checkout. One level only: a thread cannot start threads, and workers still start
-  nothing. Same project only; backends never talk to each other.
-- **Main relays.** Status ("how's the Jira run?" → `thread_peek`), steering ("tell it to skip PR 123" →
-  `thread_send`) and taking work back (`thread_stop`, then the task). Main sees only summaries, questions and
-  digests, never a thread's transcript; check-ins list running threads like workers.
-- **Shared state.** The project's board is shared: a task carries `ownerThreadId`, and a thread claims a task
-  (compare-and-set on the revision) before working on it, releases or hands it over. Memory is shared, and every
-  coordinator thread may write it (writes are serialized and committed).
+- **Roles.** The owner talks directly to each coordinator. Other coordinators and jobs
+  use their own workspaces. A coordinator keeps the job tools except `thread_finish`.
+  General alone can create coordinators through `coordinator_start`, start jobs or manage
+  schedules. General alone lands changes or asks for deploy approval at this stage.
+- **Lifecycle.** `threads.create` creates an idle thread unless open tasks move into it.
+  `threads.update` edits metadata and can change the coordinator model and thinking level.
+  `threads.hold` stashes incoming work without interrupting the running turn or workers.
+  Explicit resume or owner input drains the saved inputs in one submission. Held coordinators
+  stop keep-warm; all other coordinators keep the normal project settings. Archive requires idle
+  work, moves open tasks to `moveTasksTo` (default `main`) in the same commit, and retains
+  closed-task owners and chat history. `threads.archive` with `archived: false` restores the
+  workspace without moving tasks back. Lifecycle mutations accept an optional stable `operationId`
+  across retries. The response `id` remains a correlation ID and is not a durable operation ID.
+- **Wire compatibility.** Feature `coordinators` advertises the mutations and optional
+  roster metadata: kind, parent, area, paths, color, order, held, attention, reply marks and
+  open task count. The existing `main: true` list row is General; old clients see additional
+  coordinators as jobs using the existing statuses. Coordinator push payloads carry
+  `coordinatorId` and optionally `entryId` as the chat and reply target.
+- **General is not a relay.** Its check-ins and finish and failure cards cover only its
+  own jobs. All coordinators get the same static peer rules. General and area coordinators
+  also share the direct-chat rules for the board, delegation, verification, and owner input.
+  Their workspace and schedule guidance differ. The live roster is a tool result, not part
+  of the prompt; renaming or re-scoping one coordinator changes only its own instructions.
+  Roster and memory change notes are a later stage.
+- **Shared state.** The board and memory are still shared. Tasks retain `ownerThreadId`
+  and emit a derived `coordinatorId`. See Tasks board below for assignment and delivery.
 - **Messages.** `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply never wakes an idle
   receiver. Requests and hand-overs only.
 - **Finishing.** A background thread ends with `thread_finish` and a summary, which reaches the thread that started
@@ -2652,9 +2673,8 @@ big, long work, started by main or by a schedule. There is no "new thread" butto
   question it asked is open, since weaker models read "wait for the answer" as "finish".
 - **Schedules.** A schedule of kind `thread` starts a background thread with the user's own prompt (nothing
   prefabricated), with its model and thinking level per schedule.
-- **In the app.** Everything a thread does shows in main as compact cards (started, live status, needs you, finished
-  with its summary and artifacts). Open questions from every thread sit above main's composer and the answer goes to
-  the thread that asked; notifications open main with the card highlighted. On web, the title is a menu button:
+- **Legacy app presentation.** General’s own jobs show in its chat as compact cards. The legacy composer
+  still pins shared questions; an answer goes to the thread that asked. On web, the title is a menu button:
   project name · Main chat, or the job title and state badge. Needs-you and working chips stay visible on phones
   (wrapping below the title when narrow). Alt+J opens it; arrows/Home/End move, Enter opens, Escape closes and
   returns focus. Desktop/tablet uses an anchored popover; below 640 px it is a bottom sheet. Both conversations
@@ -4228,6 +4248,16 @@ and leaves the evidence readable. Project model settings put Live news lines bes
 with Automatic, Off and Choose a model, a daily budget for model mode, and the current status or reason.
 
 ### Tasks board
+
+Task ownership stays in `ownerThreadId`. Null belongs to General. On emission, `coordinatorId`
+identifies a coordinator owner, a holding job’s parent, or `main` if there is no known owner.
+A new task belongs to the coordinator adding it. A part inherits its parent’s coordinator
+unless the writer names an owner. The board tool accepts `owner` on `add_task`. The
+`task-coordinator` feature adds `ownerThreadId` to `board.task.save`; existing rows still
+require `expectedRevision`. Owner moves queue a notice for both coordinators. A released
+open job task returns to its parent coordinator; closed tasks retain their historical owner.
+Debounced owner edits and todo order go only to the coordinator of the affected tasks.
+A submission naming `taskId` goes to that task’s coordinator even from a legacy task sheet.
 
 Decided with the user on 2026-11-06. Web only; protocol addition: the optional `note` on `board.task.save` (feature
 `board-moves`). Code: `apps/web/src/lib/kanban.ts` (columns, sorting, moves, the remembered view), `TaskBoard.svelte`,

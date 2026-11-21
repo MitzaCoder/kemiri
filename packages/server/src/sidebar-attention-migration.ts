@@ -5,7 +5,7 @@ import type { ConversationId } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { boardView, type BoardState } from "./board.ts";
 import type { WorkersState } from "./workers.ts";
-import type { ThreadsState } from "./threads.ts";
+import type { StoredThreadsState } from "./threads.ts";
 import { boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
 import type { ProjectAttention } from "@kemiri/protocol";
 
@@ -21,7 +21,7 @@ export async function readStoredAttention(file: string, now = Date.now()): Promi
 			return record === undefined ? undefined : (await storage.document(record.id, "current", BACKGROUND_CONTEXT))?.value as T | undefined;
 		}
 		const board = await doc<BoardState>(main.id, stateKind("board"));
-		const threads = Object.values((await doc<ThreadsState>(main.id, stateKind("threads")))?.threads ?? {});
+		const threads = Object.values((await doc<StoredThreadsState>(main.id, stateKind("threads")))?.threads ?? {});
 		const workers = [];
 		for (const conversationId of [main.id, ...threads.map((thread) => thread.conversationId as ConversationId)]) {
 			workers.push(...Object.values((await doc<WorkersState>(conversationId, stateKind("workers")))?.workers ?? {}));

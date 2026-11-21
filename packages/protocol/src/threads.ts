@@ -1,20 +1,9 @@
 /**
- * Threads: background coordinators of a project.
- *
- * Every project has one main thread: the coordinator the user talks to, where the app opens. Main can start background
- * threads for big, long work, and a schedule of kind `thread` starts one with the user's prompt. A background thread is
- * a full coordinator (workers, board, memory, code mode, history) that cannot start threads itself: one level only, and
- * workers still start nothing. It works in its own workspaces, never in the project checkout, and ends by calling
- * `thread_finish` with a summary, which reaches the thread that started it (main for schedules) as a
- * `[thread <id> finished]` input, reviewed or just recorded like a worker's report.
- *
- * Threads talk through the project's shared board (tasks carry `ownerThreadId`; a thread claims a task before working
- * on it), shared memory, and messages: `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply
- * (`reply: true`) never wakes an idle receiver.
- *
- * The user talks to main. Main relays status and steering, everything a thread does shows in main as cards, and
- * questions any thread asks on the board appear above main's composer. A thread can still be opened and typed into.
- * Threads started by a schedule archive themselves 7 days after they finish; others stay until archived.
+ * Projects share a board and memory across threads: General (`main`), long-lived
+ * coordinators for named areas and background jobs. Additional coordinators and
+ * jobs have their own workspaces. Only jobs finish and report to General at this
+ * stage. `thread_send` delivers requests to peers, and plain replies do not wake
+ * an idle receiver. The existing list shape remains readable by older clients.
  */
 import { type Static, Type } from "typebox";
 import { ModelRefSchema, ProjectIdSchema, RequestIdSchema, ThinkingLevelSchema } from "./common.ts";
@@ -51,12 +40,34 @@ export type ThreadState = Static<typeof ThreadStateSchema>;
 export const ThreadStartedBySchema = Type.Union([Type.Literal("main"), Type.Literal("schedule"), Type.Literal("user")]);
 export type ThreadStartedBy = Static<typeof ThreadStartedBySchema>;
 
+export const ThreadKindSchema = Type.Union([Type.Literal("coordinator"), Type.Literal("job")]);
+export type ThreadKind = Static<typeof ThreadKindSchema>;
+
+const ThreadAttentionSchema = Type.Object({
+	questions: Type.Integer({ minimum: 0 }),
+	warnings: Type.Integer({ minimum: 0 }),
+	steps: Type.Integer({ minimum: 0 }),
+	review: Type.Integer({ minimum: 0 }),
+	failed: Type.Integer({ minimum: 0 }),
+});
+
 export const ThreadSummarySchema = Type.Object({
 	id: Type.String({ minLength: 1, description: 'Unique in the project; "main" is the main thread.' }),
 	title: Type.String(),
 	status: ThreadStatusSchema,
  state: Type.Optional({ ...ThreadStateSchema, description: "What the user reads, derived at emission, never stored; absent from older servers." }),
 	main: Type.Boolean(),
+	kind: Type.Optional(ThreadKindSchema),
+	parentThreadId: Type.Optional(Type.String()),
+	area: Type.Optional(Type.String()),
+	paths: Type.Optional(Type.Array(Type.String())),
+	color: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+	order: Type.Optional(Type.Integer()),
+	held: Type.Optional(Type.Boolean()),
+	attention: Type.Optional(ThreadAttentionSchema),
+	lastReplyAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+	lastReplyEntryId: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
+	openTasks: Type.Optional(Type.Integer({ minimum: 0 })),
 	startedBy: Type.Union([ThreadStartedBySchema, Type.Null()], { description: "Null for main." }),
 	scheduleId: Type.Union([Type.String(), Type.Null()]),
 	conversationId: Type.Integer({ minimum: 1 }),
@@ -111,8 +122,39 @@ export const ThreadsArchiveRequestSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	threadId: Type.String({ minLength: 1 }),
 	archived: Type.Boolean({ description: "False brings it back." }),
+	moveTasksTo: Type.Optional(Type.String({ minLength: 1 })),
+	operationId: Type.Optional(RequestIdSchema),
 });
 export type ThreadsArchiveRequest = Static<typeof ThreadsArchiveRequestSchema>;
+
+const title = Type.String({ minLength: 1, maxLength: 120 });
+const area = Type.String({ minLength: 1, maxLength: 2000 });
+const coordinatorSettings = {
+	paths: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { maxItems: 100 })),
+	color: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 40 }), Type.Null()])),
+	model: Type.Optional(ModelRefSchema),
+	thinkingLevel: Type.Optional(Type.Union([ThinkingLevelSchema, Type.Null()])),
+};
+
+export const ThreadsCreateRequestSchema = Type.Object({
+	type: Type.Literal("threads.create"), id: RequestIdSchema, projectId: ProjectIdSchema,
+	title, area, ...coordinatorSettings, operationId: Type.Optional(RequestIdSchema),
+	taskIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+});
+export type ThreadsCreateRequest = Static<typeof ThreadsCreateRequestSchema>;
+
+export const ThreadsUpdateRequestSchema = Type.Object({
+	type: Type.Literal("threads.update"), id: RequestIdSchema, projectId: ProjectIdSchema,
+	threadId: Type.String({ minLength: 1 }), title: Type.Optional(title), area: Type.Optional(area),
+	...coordinatorSettings, operationId: Type.Optional(RequestIdSchema), order: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+export type ThreadsUpdateRequest = Static<typeof ThreadsUpdateRequestSchema>;
+
+export const ThreadsHoldRequestSchema = Type.Object({
+	type: Type.Literal("threads.hold"), id: RequestIdSchema, projectId: ProjectIdSchema,
+	threadId: Type.String({ minLength: 1 }), held: Type.Boolean(), operationId: Type.Optional(RequestIdSchema),
+});
+export type ThreadsHoldRequest = Static<typeof ThreadsHoldRequestSchema>;
 
 // --- responses ---------------------------------------------------------------------------------------------------
 
@@ -136,6 +178,21 @@ export const ThreadsArchiveResponseSchema = Type.Object({
 	thread: ThreadSummarySchema,
 });
 export type ThreadsArchiveResponse = Static<typeof ThreadsArchiveResponseSchema>;
+
+export const ThreadsCreateResponseSchema = Type.Object({
+	type: Type.Literal("threads.create"), id: RequestIdSchema, thread: ThreadSummarySchema,
+});
+export type ThreadsCreateResponse = Static<typeof ThreadsCreateResponseSchema>;
+
+export const ThreadsUpdateResponseSchema = Type.Object({
+	type: Type.Literal("threads.update"), id: RequestIdSchema, thread: ThreadSummarySchema,
+});
+export type ThreadsUpdateResponse = Static<typeof ThreadsUpdateResponseSchema>;
+
+export const ThreadsHoldResponseSchema = Type.Object({
+	type: Type.Literal("threads.hold"), id: RequestIdSchema, thread: ThreadSummarySchema,
+});
+export type ThreadsHoldResponse = Static<typeof ThreadsHoldResponseSchema>;
 
 // --- server events -----------------------------------------------------------------------------------------------
 

@@ -96,13 +96,19 @@ export function isNotificationFailure(kind: NotificationKind | "test"): boolean 
  * (`?task=`), the worker, the background thread's card in main, or the schedule.
  */
 export type NotificationTarget = Pick<NotificationPayload, "backendKey" | "projectId" | "workerId" | "scheduleId"> &
-	Partial<Pick<NotificationPayload, "threadId" | "taskId">>;
+	Partial<Pick<NotificationPayload, "threadId" | "taskId" | "coordinatorId" | "entryId">>;
 
 /** The link a notification opens. A payload without a project (a deploy problem) opens the app's home page. */
 export function notificationUrl(target: NotificationTarget): string {
 	const projectId = target.projectId;
 	if (projectId === null) return "/";
 	const project = `/b/${encodeURIComponent(target.backendKey)}/projects/${encodeURIComponent(projectId)}`;
+	if (target.coordinatorId != null) {
+		const chat = target.coordinatorId === MAIN_THREAD_ID ? project : `${project}/threads/${encodeURIComponent(target.coordinatorId)}`;
+		const task = target.taskId == null ? "" : `?task=${encodeURIComponent(target.taskId)}`;
+		const reply = target.entryId == null ? "" : `#entry-${target.entryId}`;
+		return `${chat}${task}${reply}`;
+	}
 	const taskId = target.taskId ?? null;
 	if (taskId !== null) return `${project}?task=${encodeURIComponent(taskId)}`;
 	const threadId = target.threadId ?? null;
@@ -166,6 +172,10 @@ export function parseNotificationPayload(raw: string | null | undefined): Notifi
 	const workerId = record.workerId;
 	const scheduleId = record.scheduleId;
 	if (!nullableString(projectId) || !nullableString(workerId) || !nullableString(scheduleId)) return null;
+	const coordinatorId = record.coordinatorId;
+	if (coordinatorId !== undefined && (typeof coordinatorId !== "string" || coordinatorId.length === 0)) return null;
+	const entryId = record.entryId;
+	if (entryId !== undefined && (typeof entryId !== "number" || !Number.isSafeInteger(entryId) || entryId <= 0)) return null;
 	const threadId = record.threadId;
 	if (threadId !== undefined && !nullableString(threadId)) return null;
 	const taskId = record.taskId;
@@ -178,6 +188,8 @@ export function parseNotificationPayload(raw: string | null | undefined): Notifi
 		projectId,
 		workerId,
 		scheduleId,
+		...(coordinatorId === undefined ? {} : { coordinatorId }),
+		...(entryId === undefined ? {} : { entryId }),
 		...(threadId === undefined ? {} : { threadId }),
 		...(taskId === undefined ? {} : { taskId }),
 		tag: record.tag,

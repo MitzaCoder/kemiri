@@ -663,10 +663,10 @@ export class ProjectManager {
 		return runtime.storage.clean(itemIds);
 	}
 
-	async archiveThread(projectId: string, threadId: string, archived: boolean): Promise<ThreadSummary> {
+	async archiveThread(projectId: string, threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string): Promise<ThreadSummary> {
 		const { runtime } = await this.open(projectId);
 		if (archived) this.#requestLog?.warming.invalidate(projectId, "Thread archived", Number((await runtime.threads.conversation(threadId)).id));
-		return runtime.threads.archive(threadId, archived);
+		return runtime.threads.archive(threadId, archived, moveTasksTo, operationId);
 	}
 
 	/**
@@ -828,7 +828,7 @@ export class ProjectManager {
 
 	async saveBoardTask(
 		projectId: string,
-		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
+		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 	): Promise<BoardTask> {
 		const { runtime } = await this.conversation(projectId);
 		return runtime.board.saveTask(input, "user");
@@ -1349,11 +1349,13 @@ export class ProjectManager {
    taskArtifactSaves: { read: () => this.artifacts.taskSaves(project.id), watch: listener => this.artifacts.watchTaskSaves(project.id, listener) },
 			auditStatusChanged: async record => { await writeJsonFile(join(this.store.projectDir(project.id), "report-audit-status.json"), record, 0o600); },
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
-			threadTitle: async (id) => (await threads.record(id))?.title,
+			threadTitle: async id => threads.titleOf(id),
+			threadAvailable: async id => id === MAIN_THREAD_ID || (await threads.record(id))?.archived === false,
+			submitInput: (target, draft) => threads.submitHarness(target, draft, draft.content, draft.requestId),
 			threadIsLive: async (id) => {
 				if (id === "main") return true;
 				const record = await threads.record(id);
-				return record !== undefined && !record.archived && (record.status === "running" || record.status === "idle");
+				return record !== undefined && !record.archived && (record.kind === "coordinator" || record.status === "running" || record.status === "idle");
 			},
 			project: () => entry.project,
 			harness,
@@ -1587,7 +1589,9 @@ export class ProjectManager {
                 conversation: async id => {
                     if (coordinators.isMain(id)) return conversation;
                     const threadId = coordinators.threadIdOf(id);
-                    if (threadId === undefined || (await threads.record(threadId))?.archived) return undefined;
+                    if (threadId === undefined) return undefined;
+                    const record = await threads.record(threadId);
+                    if (!record || record.archived || record.held) return undefined;
                     return threads.conversation(threadId);
                 },
             });
@@ -1649,9 +1653,9 @@ export class ProjectManager {
 			await this.files.removeDeletedConversations(project.id, async id => (await harness.conversation(id as never, BACKGROUND_CONTEXT)) !== undefined);
 			await workers.ensureDocument();
 			await workers.migrateDefaults();
-			await board.ensureDocument();
-			// Every thread registers as a coordinator before anything resumes, so a resumed turn's tools know it.
+			// Register saved threads before board notices or a resumed turn can reach them.
 			await threads.open();
+			await board.ensureDocument();
    // Migrate existing conversations too: old children predate role-specific MCP selection.
    for (const place of coordinators.places()) {
     if (!coordinators.isMain(place.conversationId)) {
@@ -1722,15 +1726,17 @@ export class ProjectManager {
 				work.reply(reply.text);
 				// While workers or threads still run, the answer is not the end of the work: work_finished tells it later.
 				if (work.othersRunning) return;
-				this.#notifications?.notify(
+				void threads.titleOf(MAIN_THREAD_ID).then(title => this.#notifications?.notify(
 					replyNotification({
 						projectId: project.id,
 						projectName: entry.project.name,
 						entryId: reply.entryId,
+						coordinatorId: MAIN_THREAD_ID,
+						coordinatorTitle: title ?? "General",
 						at: reply.at,
 						text: reply.text,
 					}),
-				);
+				)).catch(error => this.#log(`coordinator reply notification: ${errorMessage(error)}`));
 			},
 			onCompactionFailure: (failure) => {
 				this.#notifications?.notify(
@@ -1761,7 +1767,7 @@ export class ProjectManager {
 					activity.setBackgroundThreads(await threads.backgroundCount());
  activity.setBackgroundJobs(backgroundJobCounts(list));
 					updateAttention(threadAttention(list));
-					work.update({ runningThreads: list.filter((thread) => !thread.main && thread.status === "running").length });
+					work.update({ runningThreads: list.filter((thread) => thread.kind === "job" && thread.parentThreadId === MAIN_THREAD_ID && thread.status === "running").length });
 					const encoded = JSON.stringify(list);
 					if (encoded === threadsPushed) return;
 					threadsPushed = encoded;
@@ -1810,7 +1816,7 @@ export class ProjectManager {
 					list.filter((worker) => worker.status === "running" && (worker.threadId ?? MAIN_THREAD_ID) === MAIN_THREAD_ID).length,
 				);
 				threads.workersChanged(list);
-				work.update({ runningWorkers: list.filter((worker) => worker.status === "running").length });
+				work.update({ runningWorkers: list.filter((worker) => (worker.threadId ?? MAIN_THREAD_ID) === MAIN_THREAD_ID && worker.status === "running").length });
 			})
 			.catch((error: unknown) => {
 				this.#log(`project ${project.id}: worker watch failed: ${errorMessage(error)}`);
@@ -1841,6 +1847,7 @@ export class ProjectManager {
 		await taskDeploys.start();
 		entry.stopTaskChanges = async () => { await taskDeploys.stop(); await taskChanges.stop(); };
 		await threads.startWatches();
+		await board.deliverUserMoveNotices();
 		// Continue any run the last process left unfinished.
 		harness.resume();
 

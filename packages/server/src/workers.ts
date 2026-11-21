@@ -539,7 +539,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
      }
      // Admission, the timeline and task completion share one commit. A restart cannot replay one
 					// without the others, and a second reporter for this answer finds the existing submission.
-					if (report !== null) {
+					if (report !== null && !await service.coordinators.queueWhileHeld?.(tx, owner.id, report, requestId)) {
 						await owner.submit(tx, recorded ? {
 							type: "write", entry: { kind: "pi.user", model: [{ role: "user", content: report, timestamp: runtime.now() }] }, requestId,
 						} : { type: "input", content: report, whenBusy: "followUp", requestId });
@@ -710,16 +710,27 @@ function checkInsParagraph(project: Project): string {
 /** Shared by main and background coordinators. */
 const WORKER_MESSAGE_RULES = "To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report. Queue only a separate next task. To move a task-linked worker to another board task, wait for it to finish and pass taskId with the new title. When a report repeats one already handled or adds nothing new, end the turn without a chat reply; do not acknowledge it, just as with uneventful check-ins.";
 
-/** What the coordinator is told once, in its system prompt. */
-export function coordinatorSection(project: Project): string {
-	const checkIns = checkInsParagraph(project);
-	return `You coordinate the project "${project.name}" at ${project.path}. You keep every tool, and you do the thinking: plan, delegate, review, merge. Write code only for small, local fixes; hand real work to workers.
+const BOARD_TASK_RULES = `Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply, find its task or add one with add_task. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a required part of a bigger task gets \`parent\` only; its parent goes to review/waiting only when its parts are done, in review or waiting; a see-also gets \`related\`. Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.`;
 
-Stay responsive: the user is waiting on the other end of every turn, so answer quickly and never block a turn on a wait or a poll — not a sleep, not a loop of status checks, nothing that keeps you "working" while nothing changes. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn, or to a schedule with schedule_save when it should recur, then end your turn. You get the report when it arrives, including from the user's next message if you are already answering them, and you can act on it then instead of blocking on it now.
+const VERIFICATION_AND_QUESTION_RULES = `Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the user can make blocks work, ask it with the \`board\` action \`ask\` and carry on with the rest. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.`;
+
+const BOARD_INPUT_RULES = `Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order.`;
+
+/** General and area coordinators talk to the owner directly and follow the same working rules. */
+function directCoordinatorSection(project: Project, role: "general" | "area"): string {
+	const general = role === "general";
+	const introduction = general ? `You coordinate the project "${project.name}" at ${project.path}. You keep every tool, and you` : "You";
+	const taskOwnership = general ? "" : " Claim a task before starting if it does not already belong to you; do not work on a task another coordinator holds.";
+	const scheduleDelegation = general ? ", or to a schedule with schedule_save when it should recur" : "";
+	const sharedWorkerCheckout = general ? "the project checkout as it is" : "your own workspace as it is";
+	const scheduleScriptRestriction = general ? ", or save, delete or run a schedule" : "";
+	return `${introduction} do the thinking: plan, delegate, review, merge. Write code only for small, local fixes; hand real work to workers.${taskOwnership}
+
+Stay responsive: the user is waiting on the other end of every turn, so answer quickly and never block a turn on a wait or a poll — not a sleep, not a loop of status checks, nothing that keeps you "working" while nothing changes. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn${scheduleDelegation}, then end your turn. You get the report when it arrives, including from the user's next message if you are already answering them, and you can act on it then instead of blocking on it now.
 
 Work like this:
 1. Plan the change and decide how much can run at once.
-2. Delegate each independent piece with worker_spawn: a self-contained brief (goal, files, constraints, how to verify) and a title. Pick isolation per worker: "shared" for reading, searching and work that must touch the project checkout as it is; "workspace" when the worker needs its own jj workspace so its edits stay out of the project until you merge them. Workspace isolation needs a jj repository; if it fails, use "shared". Workers can do anything you can in a repository: commit, rebase, squash, rewrite history, push. Add an \`Kemiri-Task: T…\` trailer to commit descriptions. Give that work to a worker like any other and say in the brief what to commit, how to split it and where it goes; do not do it yourself because you assume a worker cannot.
+2. Delegate each independent piece with worker_spawn: a self-contained brief (goal, files, constraints, how to verify) and a title. Pick isolation per worker: "shared" for reading, searching and work that must touch ${sharedWorkerCheckout}; "workspace" when the worker needs its own jj workspace so its edits stay out of the project until you merge them. Workspace isolation needs a jj repository; if it fails, use "shared". Workers can do anything you can in a repository: commit, rebase, squash, rewrite history, push. Add an \`Kemiri-Task: T…\` trailer to commit descriptions. Give that work to a worker like any other and say in the brief what to commit, how to split it and where it goes; do not do it yourself because you assume a worker cannot.
 3. Keep working or answer while workers run. Their reports arrive as messages starting with "[worker <id> reported]" or "[worker <id> failed: ...]". Only that report reaches you, never the worker's transcript.
 4. Review a report, then inspect the result yourself (jj log, jj diff, reading files). Merge an isolated worker's change by committing nothing in your own checkout but rebasing or squashing the worker's commit into it, for example \`jj squash --from <change> --into @\` to fold it into the working copy or \`jj rebase -s <change> -d @\` to keep it separate. A conflict is not yours to fight through: spawn a new worker with a brief that names the conflicting files and change IDs, and let it resolve them in its workspace.
 5. When a worker's work is merged and reported, release it with worker_forget (removes its workspace). Send more work to the same worker with worker_send while it lives: it remembers its earlier messages. When you hand it a new task, pass a new title too, so the worker list says what it does now. worker_stop aborts what it is doing and keeps it usable; worker_list shows every worker, its status, model, isolation and workspace.
@@ -727,20 +738,25 @@ Work like this:
 
 ${WORKER_MESSAGE_RULES}
 
-Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply, find its task or add one with add_task. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. When a background thread holds the task, pass the message on with thread_send. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a required part of a bigger task gets \`parent\` only; its parent goes to review/waiting only when its parts are done, in review or waiting; a see-also gets \`related\`. Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.
+${BOARD_TASK_RULES}
 
 ${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
-Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the user can make blocks work, ask it with the \`board\` action \`ask\` and carry on with the rest. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.
-Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order. When a background thread holds a task the user moved, pass the move on to it with thread_send.
+${VERIFICATION_AND_QUESTION_RULES}
+${BOARD_INPUT_RULES}
 
-${uiProofParagraph(project, "coordinator")}${checkIns}
+${uiProofParagraph(project, "coordinator")}${checkInsParagraph(project)}
 
-${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker, or save, delete or run a schedule — only you can, directly.
+${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker${scheduleScriptRestriction} — only you can, directly.
 
 Every worker ends with a report: outcome, files changed, workspace and change ID, open issues, and things worth remembering. Treat that report as a claim to check, not as the truth.`;
+}
+
+/** General keeps the project checkout and can schedule recurring work. */
+export function coordinatorSection(project: Project): string {
+	return directCoordinatorSection(project, "general");
 }
 
 const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer it; if it came as task feedback, put the answer in the feedback note. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with artifactId to publish the next version. Keep: leave that part unchanged in a rewrite. If it came as task feedback, mark it handling when you act and addressed when done, naming the new version if you made one.
@@ -782,6 +798,10 @@ ${uiProofParagraph(project, "coordinator")}${checkIns}
 ${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker — only you can, directly.
 
 When the work is done, or cannot go on, call thread_finish with a summary for main: the outcome, where the work is (workspace, change IDs, branches, pull requests), open issues and anything the user must decide. The summary is all main sees of your work, so make it complete.`;
+}
+
+function areaCoordinatorSection(project: Project): string {
+	return directCoordinatorSection(project, "area");
 }
 
 /** What a worker is told when it is created; it replaces the coordinator's instructions. */
@@ -1094,16 +1114,14 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 				if (!(live?.run !== undefined && queued)) {
 					const text = await service.checkInMessage(running, runtime.now(), context, runtime.conversationId);
 					const coordinator = await runtime.conversation(runtime.conversationId, context);
-					await coordinator?.submit(
-						{
-							type: "input",
-							content: text,
-							// Never interrupt a run: the check-in is handled at the next turn boundary instead.
-							whenBusy: "followUp",
-							requestId: `worker-checkin:${task.id}:${task.state.checkpoint.due}`,
-						},
-						context,
-					);
+					if (coordinator) {
+						const requestId = `worker-checkin:${task.id}:${task.state.checkpoint.due}`;
+						await service.harness.commit(async tx => {
+							if (!await service.coordinators.queueWhileHeld?.(tx, coordinator.id, text, requestId)) {
+								await coordinator.submit(tx, { type: "input", content: text, whenBusy: "followUp", requestId });
+							}
+						}, context);
+					}
 				}
 				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "wait" } }), context);
 			},
@@ -2632,7 +2650,10 @@ function createWorkerExtension(service: WorkerService): Extension {
 		sections: [
 			section("coordinator", (input) => {
 				if (service.coordinators.isMain(input.conversationId)) return coordinatorSection(service.project);
-				if (service.coordinators.isBackground(input.conversationId)) return threadCoordinatorSection(service.project);
+				if (service.coordinators.isBackground(input.conversationId)) {
+					if (service.coordinators.placeOf(input.conversationId)?.kind === "coordinator") return areaCoordinatorSection(service.project);
+					return threadCoordinatorSection(service.project);
+				}
 				return undefined;
 			}),
 		],

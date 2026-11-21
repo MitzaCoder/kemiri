@@ -1795,6 +1795,17 @@ data class ThreadSummary(
     val `status`: String,
     val `state`: String? = null,
     val `main`: Boolean,
+    val `kind`: String? = null,
+    val `parentThreadId`: String? = null,
+    val `area`: String? = null,
+    val `paths`: List<String>? = null,
+    val `color`: String? = null,
+    val `order`: Long? = null,
+    val `held`: Boolean? = null,
+    val `attention`: ThreadSummaryAttention? = null,
+    val `lastReplyAt`: String? = null,
+    val `lastReplyEntryId`: Long? = null,
+    val `openTasks`: Long? = null,
     val `startedBy`: String?,
     val `scheduleId`: String?,
     val `conversationId`: Long,
@@ -1812,6 +1823,15 @@ data class ThreadSummary(
     val `updatedAt`: String,
     val `finishedAt`: String?,
     val `archived`: Boolean
+)
+
+@Serializable
+data class ThreadSummaryAttention(
+    val `questions`: Long,
+    val `warnings`: Long,
+    val `steps`: Long,
+    val `review`: Long,
+    val `failed`: Long
 )
 
 @Serializable
@@ -1836,7 +1856,71 @@ data class ThreadsArchiveRequest(
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `threadId`: String,
-    val `archived`: Boolean
+    val `archived`: Boolean,
+    val `moveTasksTo`: String? = null,
+    val `operationId`: String? = null
+)
+
+@Serializable
+data class ThreadsCreateRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.create",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `title`: String,
+    val `area`: String,
+    val `paths`: List<String>? = null,
+    val `color`: String? = null,
+    val `model`: ModelRef? = null,
+    val `thinkingLevel`: String? = null,
+    val `operationId`: String? = null,
+    val `taskIds`: List<String>? = null
+)
+
+@Serializable
+data class ThreadsCreateResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.create",
+    val `id`: String,
+    val `thread`: ThreadSummary
+)
+
+@Serializable
+data class ThreadsUpdateRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.update",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `threadId`: String,
+    val `title`: String? = null,
+    val `area`: String? = null,
+    val `paths`: List<String>? = null,
+    val `color`: String? = null,
+    val `model`: ModelRef? = null,
+    val `thinkingLevel`: String? = null,
+    val `operationId`: String? = null,
+    val `order`: Long? = null
+)
+
+@Serializable
+data class ThreadsUpdateResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.update",
+    val `id`: String,
+    val `thread`: ThreadSummary
+)
+
+@Serializable
+data class ThreadsHoldRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.hold",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `threadId`: String,
+    val `held`: Boolean,
+    val `operationId`: String? = null
+)
+
+@Serializable
+data class ThreadsHoldResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.hold",
+    val `id`: String,
+    val `thread`: ThreadSummary
 )
 
 @Serializable
@@ -2758,6 +2842,7 @@ data class BoardTask(
     val `writeScopes`: List<String>,
     val `workerIds`: List<String>,
     val `scheduleId`: String?,
+    val `coordinatorId`: String? = null,
     val `ownerThreadId`: String? = null,
     val `report`: BoardTaskReport = BoardTaskReport(now = "", results = "", next = "", revision = 0L, updatedAt = null, updatedBy = null),
     val `snapshots`: Long = 0L,
@@ -2895,6 +2980,7 @@ data class BoardTaskSaveRequest(
     val `taskId`: String? = null,
     val `expectedRevision`: Long? = null,
     val `task`: BoardTaskInput,
+    val `ownerThreadId`: String? = null,
     val `note`: String? = null
 )
 
@@ -3599,6 +3685,8 @@ data class NotificationPayload(
     val `projectId`: String?,
     val `workerId`: String?,
     val `scheduleId`: String?,
+    val `coordinatorId`: String? = null,
+    val `entryId`: Long? = null,
     val `threadId`: String? = null,
     val `artifactId`: String? = null,
     val `taskId`: String? = null,

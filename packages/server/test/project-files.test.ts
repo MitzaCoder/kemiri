@@ -204,6 +204,7 @@ test("worker and background-thread roots use this project's durable checkout rec
 			workers.workers.shared = { ...workers.workers.papers, id: "shared", isolation: "shared", workspacePath: null };
 			const threads = await tx.doc(ThreadsDoc, runtime.conversation.id);
 			threads.threads.papers = { id: "papers", title: "Paper samples", brief: "Read some sample files", startedBy: "main", conversationId: 43, anchorTaskId: 43, scheduleId: null, startedByKey: "sample",
+                kind: "job", parentThreadId: "main",
 				model, thinkingLevel: null, onFinish: "record", status: "done", summary: null, failure: null, createdAt: at, updatedAt: at,
 				finishedAt: at, archived: false, autoArchive: false, checkout: thread, checkoutKind: "directory" };
 		}, BACKGROUND_CONTEXT);

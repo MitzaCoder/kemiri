@@ -9,12 +9,14 @@
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
-import type { Conversation, ConversationId, Harness } from "@earendil-works/pi-durable";
-import { MAIN_THREAD_ID } from "@kemiri/protocol";
+import type { Conversation, ConversationId, Harness, Tx, UserInput } from "@earendil-works/pi-durable";
+import { MAIN_THREAD_ID, type ThreadKind } from "@kemiri/protocol";
 
 /** Where one coordinator's workers run. */
 export type CoordinatorPlace = {
 	threadId: string;
+	kind?: ThreadKind;
+	parentThreadId?: string;
 	conversationId: number;
 	/** The directory its `shared` workers run in: the project checkout for main, the thread's own workspace otherwise. */
 	checkout: string;
@@ -36,6 +38,7 @@ export class Coordinators {
 		this.#main = options.main;
 		const main: CoordinatorPlace = {
 			threadId: MAIN_THREAD_ID,
+			kind: "coordinator",
 			conversationId: options.main.id,
 			workspacesDir: options.workspacesDir,
 			workspacePrefix: "harness-",
@@ -45,6 +48,14 @@ export class Coordinators {
 		};
 		this.#byConversation.set(main.conversationId, main);
 		this.#byThread.set(main.threadId, main);
+	}
+
+	/** Stash an input instead of admitting it when the destination is held, inside the caller's commit. */
+	queueWhileHeld?: (tx: Tx, conversationId: number, content: UserInput, requestId: string) => Promise<boolean>;
+
+	coordinatorId(threadId: string | null | undefined): string {
+		const place = threadId == null ? undefined : this.#byThread.get(threadId);
+		return place?.kind === "coordinator" ? place.threadId : place?.parentThreadId ?? MAIN_THREAD_ID;
 	}
 
 	get main(): Conversation {

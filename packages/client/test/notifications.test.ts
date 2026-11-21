@@ -270,6 +270,12 @@ describe("notification payload to URL", () => {
 		expect(notificationUrl(payload({ kind: "thread_failed", threadId: "jira-run", scheduleId: "nightly" }))).toBe(
 			"/b/harness-pc/projects/project-1#thread-jira-run",
 		);
+		expect(notificationUrl(parseNotificationPayload(JSON.stringify({ ...payload({ kind: "reply", threadId: "packing" }), coordinatorId: "packing", entryId: 41 }))!)).toBe(
+			"/b/harness-pc/projects/project-1/threads/packing#entry-41",
+		);
+		expect(notificationUrl({ ...payload({ kind: "board_question", taskId: "T2" }), coordinatorId: "packing" })).toBe(
+			"/b/harness-pc/projects/project-1/threads/packing?task=T2",
+		);
 		expect(notificationUrl(payload({ threadId: "main" }))).toBe("/b/harness-pc/projects/project-1");
 		expect(notificationUrl(payload({ threadId: "jira-run", workerId: "w1" }))).toBe(
 			"/b/harness-pc/projects/project-1/threads/jira-run/workers/w1",

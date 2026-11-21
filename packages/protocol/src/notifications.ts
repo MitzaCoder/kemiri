@@ -160,6 +160,8 @@ export const NotificationPayloadSchema = Type.Object({
 	projectId: Type.Union([ProjectIdSchema, Type.Null()]),
 	workerId: Type.Union([Type.String(), Type.Null()]),
 	scheduleId: Type.Union([Type.String(), Type.Null()]),
+	coordinatorId: Type.Optional(Type.String({ description: "Open this coordinator's chat; main opens the project chat." })),
+	entryId: Type.Optional(Type.Integer({ minimum: 1, description: "Reply entry in the destination chat." })),
 	threadId: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "The background thread it is about; the app opens main and highlights its card." })),
 	artifactId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	taskId: Type.Optional(

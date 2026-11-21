@@ -666,7 +666,7 @@ describe("a user's message about a task", () => {
 		expect((await boardOfProject(client, projectId)).tasks[0]?.status).toBe("in_progress");
 	}, 30_000);
 
-	it("is recorded in a background thread's chat too, under the thread's name", async () => {
+	it("routes a task reply to its coordinator even when a job was the supplied thread", async () => {
 		const { test, client, projectId } = await start();
 		const factory = (request: TranscriptContext) => {
 			const system = systemOf(request);
@@ -688,15 +688,15 @@ describe("a user's message about a task", () => {
 			return list.type === "threads.list" && list.threads.some((entry) => entry.id === "jira-run" && entry.status === "done");
 		}, 30_000);
 
-		const threadView = new ViewClient(client);
-		await threadView.start(projectId, { threadId: "jira-run" });
+		const generalView = new ViewClient(client);
+		await generalView.start(projectId);
 		const sent = await client.request({ type: "conversation.submit", projectId, threadId: "jira-run", requestId: "s2", content: "Also check the Q3 ones.", taskId: "T1" });
 		if (sent.type !== "conversation.submit") throw errorOf(sent);
-		await threadView.waitForView((value) => value.entries.some((entry) => entryText(entry) === "[task T1, feedback F1] Also check the Q3 ones."));
+		await generalView.waitForView((value) => value.entries.some((entry) => entryText(entry) === "[task T1, feedback F1] Also check the Q3 ones."));
 		const { feedback } = await timelineOf(client, projectId, "T1");
 		expect(feedback).toHaveLength(1);
-		expect(feedback[0]).toMatchObject({ id: "F1", text: "Also check the Q3 ones.", threadId: "jira-run", state: "open" });
-		// Threads share the board, so the thread uses the same tool and counts.
+		expect(feedback[0]).toMatchObject({ id: "F1", text: "Also check the Q3 ones.", threadId: "main", state: "open" });
+		// The reply is still attached to the same shared task.
 		expect((await boardOfProject(client, projectId)).tasks[0]?.feedback?.open).toBe(1);
 	}, 60_000);
 
