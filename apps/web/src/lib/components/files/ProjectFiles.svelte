@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { beforeNavigate } from '$app/navigation';
+	import { loadCodeComparison, loadEditableCode } from '#lib/code/load-viewer.js';
+	import { beginFileSave, canEditFile, changeFileEdit, finishFileSave, guardFileNavigation, hasUnfinishedFileEdit, openFileEdit, useDiskVersion, type FileEdit } from '#lib/code/file-edit.js';
 	import { untrack } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { HarnessClient } from '@kemiri/client';
@@ -14,10 +17,10 @@
 	import FileTree from './FileTree.svelte';
 	import CheckoutText from './CheckoutText.svelte';
 
-	let { file, client, backendId, projectId, projectName, roots, taskId, threadId, changesHref, autofocusSearch = false, onselect, onclose, onquote, linkFor, onworking }: {
+	let { file, client, backendId, projectId, projectName, roots, taskId, threadId, changesHref, autofocusSearch = false, onselect, onclose, onquote, linkFor, onworking, writesEnabled, ontellagent }: {
 		file: FileLocation; client: HarnessClient; backendId: string; projectId: string; projectName: string; roots: RootChoice[];
 		taskId?: string; threadId?: string; changesHref?: string; autofocusSearch?: boolean; onselect: (file: FileLocation) => void;
-		onclose: () => void; onworking?: () => void; onquote?: (quote: string) => void; linkFor: (file: FileLocation) => string;
+		onclose: () => void; onworking?: () => void; writesEnabled: boolean; ontellagent: (path: string) => void; onquote?: (quote: string) => void; linkFor: (file: FileLocation) => string;
 	} = $props();
 	const phone = new MediaQuery('(max-width: 640px)');
 	let search = $state<GoToFile>();
@@ -33,6 +36,10 @@
 	let resultPath = $state<string>();
 	let readError = $state('');
 	let copyStatus = $state('');
+	let edit = $state.raw<FileEdit>();
+	let saved = $state(false);
+	let draftError = $state('');
+	const filePath = $derived(file.path);
 	let retry = $state(0);
 	const root = $derived(file.root);
 	const rootKey = $derived(codeRootKey(root));
@@ -41,6 +48,8 @@
 	const rows = $derived(treeRows(phone.current ? directory : '', path => listings.get(folderKey(root, path, showHidden)), phone.current ? new Set() : expanded));
 	const truncated = $derived(currentListing?.truncated || rows.some(row => expanded.has(row.path) && listings.get(folderKey(root, row.path, showHidden))?.truncated));
 	const preview = $derived(result && resultPath === file.path ? fileReadState(result) : undefined);
+	const editable = $derived(resultPath === filePath && !!filePath && canEditFile(writesEnabled, root, result, revealedPath === filePath));
+	const conflict = $derived(edit?.kind === 'conflict' ? edit : undefined);
 	const language = $derived(codeLanguageForPath(file.path));
 	const crumbs = $derived((file.path ? parentFolder(file.path) : directory).split('/').filter(Boolean));
 	const choices = $derived(roots.some(choice => codeRootKey(choice.root) === rootKey) ? roots : [...roots, { root, label: rootKey }]);
@@ -63,11 +72,8 @@
 		untrack(() => { void list(path); for (const folder of children) void list(folder); });
 	});
 	$effect(() => {
-		const path = file.path;
-		if (untrack(() => revealedPath !== path)) revealedPath = undefined;
-	});
-	$effect(() => {
-		const {path, root: requestedRoot} = file, show = revealedPath === file.path;
+		const path = filePath, show = revealedPath === path;
+		const requestedRoot = untrack(() => root);
 		retry;
 		result = undefined; readError = ''; copyStatus = '';
 		if (!path) return;
@@ -77,9 +83,67 @@
 		});
 		return () => { stopped = true; };
 	});
-	function pick(path: string) { revealedPath = undefined; directory = parentFolder(path); onselect({ root, path }); }
+	$effect(() => {
+		const path = filePath;
+		edit = undefined; saved = false; draftError = ''; revealedPath = undefined;
+		if (path) directory = parentFolder(path);
+	});
+
+	const discardMessage = 'Discard unsaved changes to this file?';
+	beforeNavigate(navigation => {
+		const action = guardFileNavigation(edit, navigation.from?.url ?? new URL(location.href), navigation.to?.url, navigation.willUnload);
+		if (action === 'confirm' && !window.confirm(edit?.kind === 'saving'
+			? 'A save is in progress. Leaving will not cancel it. Leave this file?' : discardMessage)) navigation.cancel();
+	});
+	$effect(() => {
+		if (!hasUnfinishedFileEdit(edit)) return;
+		function guardBrowserUnload(event: BeforeUnloadEvent) {
+			event.preventDefault();
+			event.returnValue = '';
+		}
+		window.addEventListener('beforeunload', guardBrowserUnload);
+		return () => window.removeEventListener('beforeunload', guardBrowserUnload);
+	});
+	function cancelEdit() {
+		if (edit?.kind === 'saving' || (hasUnfinishedFileEdit(edit) && !window.confirm(discardMessage))) return;
+		if (edit?.kind === 'conflict') takeDisk();
+		else edit = undefined;
+	}
+	function startEdit() {
+		if (!editable || preview?.kind !== 'text') return;
+		edit = openFileEdit({ text: preview.text, hash: preview.hash });
+	}
+	async function save(keepMine = false) {
+		if (!edit || !editable) return;
+		const saving = beginFileSave(edit, keepMine);
+		if (!saving) return;
+		edit = saving;
+		if (saving.kind !== 'saving') return;
+		try {
+			const reply = await client.writeFile(projectId, filePath, saving.text, saving.base.hash);
+			if (edit !== saving) return;
+			edit = finishFileSave(saving, reply);
+			if (reply.status === 'saved') {
+				result = { ...reply, text: saving.text };
+				saved = true;
+			}
+		} catch (error) {
+			if (edit === saving) edit = { ...saving, kind: 'error', message: error instanceof Error ? error.message : 'Could not save this file.' };
+		}
+	}
+	function takeDisk() {
+		const disk = edit && useDiskVersion(edit);
+		if (!disk || !result) return;
+		result = { ...result, ...disk, size: new TextEncoder().encode(disk.text).length };
+		edit = undefined;
+	}
+	function tellAgent() {
+		try { ontellagent(filePath); }
+		catch { draftError = 'Could not save the chat draft.'; }
+	}
+	function pick(path: string) { onselect({ root, path }); }
 	function browse(path: string) { directory = path; if (file.path) pickFolder(); }
-	function pickFolder() { revealedPath = undefined; onselect({ root, path: '' }); }
+	function pickFolder() { onselect({ root, path: '' }); }
 	function activate(row: FileTreeRow) {
 		if (row.entry.kind !== 'dir') { pick(row.path); return; }
 		if (phone.current) { directory = row.path; return; }
@@ -106,7 +170,8 @@
 			<Dialog.Title class="min-w-0 flex-1 truncate text-sm font-semibold">{projectName}</Dialog.Title>
 			<label><span class="sr-only">Checkout root</span><select aria-label="Checkout root" value={rootKey} onchange={event => {
 				const choice = choices.find(choice => codeRootKey(choice.root) === event.currentTarget.value);
-				if (choice) onselect({ root: choice.root, path: '' });
+				event.currentTarget.value = rootKey;
+				if (choice && codeRootKey(choice.root) !== rootKey) onselect({ root: choice.root, path: '' });
 			}}>{#each choices as choice (codeRootKey(choice.root))}<option value={codeRootKey(choice.root)}>{choice.label}</option>{/each}</select></label>
 			{#if onworking && currentListing && !folderError}<Button size="sm" variant="outline" onclick={onworking}>Uncommitted changes</Button>{/if}
 		</header>
@@ -130,9 +195,41 @@
 				<section class="file-content" aria-label="Open file">
 					<div class="file-heading">
 						<nav aria-label="File breadcrumb"><button onclick={() => browse('')}>Root</button>{#each crumbs as crumb, index}<span aria-hidden="true">/</span><button onclick={() => browse(crumbs.slice(0, index + 1).join('/'))}>{crumb}</button>{/each}<span aria-hidden="true">/</span><strong title={file.path}>{file.path.split('/').at(-1)}</strong></nav>
-						<p>{language}{result ? ` · ${formatBytes(result.size)}` : ''} <span>Read-only</span></p>
+						<div class="file-edit-bar">
+							<p>{language}{result ? ` · ${formatBytes(result.size)}` : ''}{#if !editable && !edit} <span>Read-only</span>{/if}</p>
+							{#if edit && !conflict}
+								<Button size="sm" variant="ghost" disabled={edit.kind === 'saving'} onclick={cancelEdit}>Cancel</Button>
+								<Button size="sm" disabled={!editable || (edit.kind !== 'dirty' && edit.kind !== 'error')} title="Save file (Ctrl or Command S)" aria-keyshortcuts="Control+s Meta+s" onclick={() => void save()}>{edit.kind === 'saving' ? 'Saving…' : 'Save'}</Button>
+							{:else if editable && !edit}
+								<Button size="sm" variant="outline" onclick={startEdit}>Edit</Button>
+							{/if}
+							{#if saved && (!edit || edit.kind === 'saved' || edit.kind === 'clean')}
+								<span class="saved-status" role="status">Saved</span>
+								<Button size="sm" variant="outline" onclick={tellAgent}>Tell the agent</Button>
+							{/if}
+						</div>
 					</div>
-					{#if readError}<div class="file-note" role="alert">{readError} <Button variant="outline" size="sm" onclick={() => retry++}>Retry</Button></div>
+					{#if draftError}<p class="file-edit-note" role="alert">{draftError}</p>{/if}
+					{#if conflict}
+						<div class="file-edit-conflict">
+							<h3>File changed on disk</h3>
+							<p>The file changed after it was opened. Nothing was saved. {phone.current ? '− shows the file on disk. + shows the draft.' : 'Compare the file on disk with the draft before choosing which to keep.'}</p>
+							<div class="conflict-actions">
+								<Button size="sm" variant="outline" onclick={takeDisk}>Use the file on disk</Button>
+								<Button size="sm" disabled={!editable} onclick={() => void save(true)}>Keep mine and save again</Button>
+							</div>
+						</div>
+						{#await loadCodeComparison() then { default: CodeComparison }}
+							<CodeComparison path={filePath} beforeLabel="File on disk" afterLabel="My edits" layout={phone.current ? 'unified' : 'split'}
+								before={{ content: conflict.disk.text, truncated: false }} after={{ content: conflict.text, truncated: false }} />
+						{:catch}<p class="file-edit-note" role="alert">Could not load the comparison.</p>{/await}
+					{:else if edit}
+						{#if !editable}<p class="file-edit-note" role="alert">Saving is no longer available for this file.</p>
+						{:else if edit.kind === 'error'}<p class="file-edit-note" role="alert">{edit.message}</p>{/if}
+						{#await loadEditableCode() then { default: EditableCode }}
+							<EditableCode path={filePath} text={edit.text} locked={edit.kind === 'saving'} onedit={text => { if (edit) edit = changeFileEdit(edit, text); }} onsave={() => void save()} />
+						{:catch}<p class="file-edit-note" role="alert">Could not load the editor.</p>{/await}
+					{:else if readError}<div class="file-note" role="alert">{readError} <Button variant="outline" size="sm" onclick={() => retry++}>Retry</Button></div>
 					{:else if !preview}<p class="file-note" role="status">Reading file…</p>
 					{:else if preview.kind === 'sensitive'}<div class="file-note"><strong>Hidden by default</strong><p>This filename may contain sensitive material.</p><Button variant="outline" onclick={() => revealedPath = file.path}>Show</Button></div>
 					{:else if preview.kind === 'binary'}<p class="file-note">Binary file · {preview.mimeType}</p>
@@ -147,6 +244,13 @@
 </Dialog.Root>
 
 <style>
+	.file-edit-bar, .conflict-actions { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; }
+	.file-edit-bar > p { margin-inline-end:auto; }
+	.file-edit-bar .saved-status { color:var(--chat-success); font-size:12px; }
+	.file-edit-conflict, .file-edit-note { padding:10px 12px; border-bottom:1px solid var(--chat-border); background:var(--chat-surface-2); font-size:13px; }
+	.file-edit-conflict h3 { font-weight:700; color:var(--chat-warning); }
+	.file-edit-conflict p { margin:4px 0 8px; }
+	@media (max-width:640px) { .file-edit-bar :global(button), .conflict-actions :global(button) { min-height:44px; } }
 	.files-header { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid transparent; border-image:var(--chat-grad) 1; background:var(--chat-surface); }
 	.files-header select { max-width:min(35vw,20rem); min-height:34px; padding:0 8px; border:1px solid var(--chat-border); border-radius:7px; background:var(--chat-bg); font-size:12px; }
 	.tabs { display:flex; border:1px solid var(--chat-border); border-radius:8px; padding:2px; background:var(--chat-surface-2); }

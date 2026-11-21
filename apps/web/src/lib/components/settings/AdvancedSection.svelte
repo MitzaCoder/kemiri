@@ -14,6 +14,7 @@
  import type { BackendConnection } from '#lib/harness.svelte.js';
  import { SaveState } from '#lib/save-state.svelte.js';
  import { projectAdvancedGroupNote, projectHasCodingSettings, projectSection, ADVANCED_GROUPS } from '#lib/settings.js';
+ import { showFileWriteSetting } from '#lib/code/file-edit.js';
  import { DEFAULT_UI_PROOF, type UiProof } from '@kemiri/protocol';
 
  let { backend, projectId }: { backend: BackendConnection; projectId: string } = $props();
@@ -30,6 +31,12 @@
  let pendingUiProof = $state<UiProof | undefined>(undefined);
  const uiProofSave = new SaveState();
  const artifactPrivacySave = new SaveState();
+ const fileWriteSettingSave = new SaveState();
+ let requestedFileWrites = $state(false);
+ function configureFileWrites(on: boolean) {
+	requestedFileWrites = on;
+	void fileWriteSettingSave.run(() => backend.configureProject(projectId, { allowFileWrites: on }));
+ }
 	// An older backend does not send the setting, so the row stays out.
 	const uiProofValue = $derived(pendingUiProof ?? project?.uiProof ?? DEFAULT_UI_PROOF);
 	const uiProofOptions = [
@@ -49,6 +56,15 @@
 		<SettingsGroup title="Page privacy" term="Artifact pages">
 			<SettingsRow label="Stop pages from sending data" hint="Blocks connections and form submissions from HTML pages agents make." for="artifact-privacy" status={artifactPrivacySave} control="auto">
 				<Switch id="artifact-privacy" checked={project.blockArtifactRequests} disabled={artifactPrivacySave.status === 'saving'} onchange={(on) => void artifactPrivacySave.run(() => backend.configureProject(projectId, { blockArtifactRequests: on }))} />
+			</SettingsRow>
+		</SettingsGroup>
+	{/if}
+	{#if project && showFileWriteSetting(backend.features)}
+		<SettingsGroup title="Project files">
+			<SettingsRow label="Allow saving files from the app" for="allow-file-writes" control="auto"
+				hint="Edits go straight into the project folder without checks or a commit. Suggested edits are better for code."
+				status={fileWriteSettingSave} onretry={() => configureFileWrites(requestedFileWrites)}>
+				<Switch id="allow-file-writes" checked={project.allowFileWrites === true} disabled={fileWriteSettingSave.status === 'saving'} onchange={configureFileWrites} />
 			</SettingsRow>
 		</SettingsGroup>
 	{/if}

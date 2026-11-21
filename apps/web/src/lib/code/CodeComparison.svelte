@@ -172,6 +172,8 @@
 	.comparison-controls :global(button[aria-pressed='true']) { background: var(--chat-surface-2); color: var(--chat-fg); }
 	.comparison-content :global(.cm-changeGutter) { width: 1.4ch !important; }
 	.comparison-content :global(.cm-changedLineGutter), .comparison-content :global(.cm-deletedLineGutter) { width: 1.4ch; background: none !important; }
+	/* The deleted widget uses the same text inset as a normal CodeMirror line. */
+	.comparison-content :global(.cm-deletedChunk) { padding-inline: 8px 10px; }
 	.comparison-content :global(.cm-showUnchanged) { font-weight: 700; }
 	.comparison-content :global(.cm-mergeSpacer) { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--chat-border) 5px 6px); }
 	.plain-versions { overflow: auto; display: grid; gap: 8px; padding: 8px 16px 16px; }

@@ -3286,6 +3286,17 @@ or live Changes. Other local programs do not share the save queue, so the final 
 race with a concurrent external edit. Direct saves suit documents and settings. For code that needs checks, use a
 suggested edit so the agent can apply, test and commit it. A save itself does not commit or snapshot the checkout.
 
+Web **Project settings → Advanced → Project files** exposes the opt-in switch only when the computer
+advertises the write capability. In Files, **Edit** is available for editable text in the project root,
+never for a revealed sensitive file, worker workspace or thread checkout. The lazy CodeMirror editor has
+history, search and replace, indent, and Ctrl/Cmd+S. Save adopts the returned hash and never sends a chat
+message. **Tell the agent** appends a one-line note to the chat draft. Cancel and navigation protect unsaved
+text, including tab reload through the browser's native leave prompt.
+
+A stale base shows the file on disk beside the draft (unified on phones). Using the disk version discards the
+draft. Keeping the draft resubmits against the disk version’s hash, so a further edit still triggers a conflict.
+In unified diffs, removed line numbers sit in the gutter without shifting the deleted text.
+
 ### Code view on Android: Changes and line comments
 
 On Android, the shared Classic and Route task sheet exposes **Delivery → Changes** when the backend

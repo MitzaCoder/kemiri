@@ -6,6 +6,7 @@
 	import type { WorkerSummary, ThreadSummary } from '@kemiri/protocol';
 	import { fileFromUrl, codeRootKey, withFile } from '#lib/code/file-location.js';
 	import { closeFiles, selectFileLocation, type FilesNavigation } from '#lib/code/files-navigation.svelte.js';
+	import { directEditDraft, fileWritesEnabled } from '#lib/code/file-edit.js';
 	import { fileRootChoices } from '#lib/code/files-view.js';
 	import { changesFromUrl, withChanges } from '#lib/code/project-changes.js';
 	import { taskFromUrl } from '#lib/tasks.js';
@@ -18,6 +19,7 @@
 	} = $props();
 	const file = $derived(navigation.available() ? fileFromUrl(page.url) : undefined);
 	const taskId = $derived(taskFromUrl(page.url) ?? undefined);
+	const writesEnabled = $derived(fileWritesEnabled(backend.features, backend.projects.find(project => project.id === projectId)?.allowFileWrites));
 	const roots = $derived(fileRootChoices(projectName, workers, threads));
 	const explicitChanges = $derived(changesFromUrl(page.url));
 	let hasTaskChanges = $state(false);
@@ -34,6 +36,12 @@
 		if (event.defaultPrevented || file || !navigation.available() || !(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'p') return;
 		event.preventDefault(); void navigation.open('', undefined, true);
 	}
+	function tellAgent(path: string) {
+		const recipient = taskId ? undefined : threadId;
+		moveReviewToDraft(localStorage, window, draftKey(backend.id, projectId, recipient), directEditDraft(path), taskId);
+		void goto(recipient ? threadHref(backend.id, projectId, recipient) : projectHref(backend.id, projectId), { reset: false });
+	}
+
 	function quote(text: string) {
 		if (onquote) { onquote(text); return; }
 		const recipient = taskId ? undefined : threadId;
@@ -45,7 +53,7 @@
 {#if file}
 	{#await import('./ProjectFiles.svelte') then {default: ProjectFiles}}
 		{#key `${backend.id}:${projectId}:${codeRootKey(file.root)}`}
-			<ProjectFiles {file} client={backend.client} backendId={backend.id} {projectId} {projectName} {roots} {taskId} {threadId}
+			<ProjectFiles {file} client={backend.client} backendId={backend.id} {projectId} {projectName} {roots} {taskId} {threadId} {writesEnabled} ontellagent={tellAgent}
 				{changesHref} onworking={backend.features?.includes('project-changes-working') && (file.root.kind !== 'project' || repository !== false) ? () => void openWorkingChanges(file.root) : undefined} autofocusSearch={page.state.searchFiles === true} onselect={file => void selectFileLocation(file)} onclose={closeFiles} onquote={quote} linkFor={file => withFile(page.url, file)} />
 		{/key}
 	{:catch}<div class="fixed inset-x-0 top-0 z-[60] bg-(--chat-surface) p-3" role="alert">Could not load Files. <button class="underline" onclick={closeFiles}>Close</button></div>{/await}
