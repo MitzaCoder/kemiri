@@ -3226,6 +3226,20 @@ or invalid UTF-8 gives a binary marker and MIME guess. Oversized reads return a 
 names require explicit `reveal: true`, even when a benign link name points to one. This is a display safeguard, not
 an authorization boundary. The requests do not write files or serve downloads.
 
+### Web Files view
+
+The project conversation header opens Files when the backend advertises `project-files`. The code surface can
+switch back to Changes when a task or commit has changes. Files browses the project, isolated workers and
+background checkouts. A folder is listed when opened; Show hidden requests a separate listing. Go to file uses
+server-side fuzzy search. Phone layouts drill into one folder at a time. Files and CodeMirror stay out of the
+chat page’s static imports.
+
+`?file=<path>&line=<line>&root=<root>` addresses a relative path and a named checkout. Read cards and Markdown
+path references open Files lazily; the browser does not probe paths while rendering chat. Sensitive names stay
+hidden until Show is pressed. Binary and oversized files show metadata, and Markdown can switch between
+rendered text and Source. File review anchors include the checkout, path and file hash. The browser never
+writes a checkout or includes file contents in a link.
+
 ### Code review comments and suggested edits
 
 The web Changes and artifact Source editors use one review contract: source (task, full commit, or

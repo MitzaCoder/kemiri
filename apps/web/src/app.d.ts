@@ -7,6 +7,8 @@ declare global {
 		// interface PageData {}
 		interface PageState {
 			changesFrom?: string;
+			filesFrom?: string;
+			searchFiles?: boolean;
 			taskTrail?: import('./lib/task-navigation.js').TaskVisit[];
 			navigation?: import('./lib/settings-navigation.js').NavigationEntry;
 			usage?: boolean;

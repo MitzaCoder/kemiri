@@ -12,9 +12,9 @@
 	import { readonlyCodeExtensions } from './readonly-editor.js';
 	import { sourceOffsets, sourceSelection, type SourceReview } from './source-review.js';
 
-	let { text, path, languageHint, compact = false, roomy = false, review = $bindable(), oncomment, ongeometry, lineReview }: {
+	let { text, path, languageHint, compact = false, roomy = false, review = $bindable(), oncomment, ongeometry, lineReview, line, onquote, oncopylink }: {
 		text: string; path: string; languageHint?: string; compact?: boolean; roomy?: boolean; review?: SourceReview;
-		oncomment?: () => void; ongeometry?: () => void; lineReview?: LineReviewTarget;
+		oncomment?: () => void; ongeometry?: () => void; lineReview?: LineReviewTarget; line?: number; onquote?: (quote: string) => void; oncopylink?: (line: number) => void;
 	} = $props();
 	const phone = new MediaQuery('(max-width: 640px)');
 	let host = $state<HTMLDivElement>();
@@ -23,6 +23,17 @@
 	let hasSelection = $state(false);
 	const wrapExtension = new Compartment();
 	const languageExtension = new Compartment();
+	function selectedLines(view: EditorView) {
+		const {from, to} = view.state.selection.main;
+		const first = view.state.doc.lineAt(from), last = view.state.doc.lineAt(to > from ? to - 1 : to);
+		return { line: first.number, text: view.state.doc.sliceString(first.from, last.to) };
+	}
+	$effect(() => {
+		const view = editor, reveal = line;
+		if (!view || !reveal) return;
+		const position = view.state.doc.line(Math.min(reveal, view.state.doc.lines)).from;
+		view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
+	});
 	const language = $derived(languageHint ?? codeLanguageForPath(path));
 
 	$effect(() => {
@@ -99,6 +110,8 @@
 		<Button size="sm" variant="ghost" onclick={() => editor && openSearchPanel(editor)}>Find</Button>
 		<Button size="sm" variant="ghost" aria-pressed={wrap} onclick={() => wrap = !wrap}>Wrap</Button>
 		{#if lineReview}<Button size="sm" variant="ghost" aria-keyshortcuts="Alt+C" onclick={() => editor && lineReview && commentOnVisibleCode(editor, lineReview, 'file')}>Comment</Button>{:else if oncomment}<Button size="sm" variant="ghost" disabled={!hasSelection} onclick={oncomment} title="Select text to comment">Comment<span class="sr-only"> on selection</span></Button>{/if}
+		{#if hasSelection && onquote}<Button size="sm" variant="ghost" onclick={() => editor && onquote?.(selectedLines(editor).text)}>Quote in chat</Button>{/if}
+		{#if hasSelection && oncopylink}<Button size="sm" variant="ghost" onclick={() => editor && oncopylink?.(selectedLines(editor).line)}>Copy link</Button>{/if}
 		<CopyButton {text} label="Copy source" />
 	</div>
 	<div class="code-document" bind:this={host}></div>

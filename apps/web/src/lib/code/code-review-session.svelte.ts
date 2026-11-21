@@ -78,11 +78,12 @@ export class CodeReviewSession {
 
 	reconcile(source: CodeReviewSource, path: string, side: CodeSide, doc: LineDocument | undefined, fromPath?: string): void {
 		const update = (comment: CodeComment) => {
-			if (!sameReviewSource(comment.source, source) || (comment.anchor.path !== path && comment.anchor.path !== fromPath) || comment.anchor.side !== side) return comment;
+			const sameFile = source.kind === 'file' && comment.source.kind === 'file' && source.root === comment.source.root && source.path === comment.source.path;
+			if ((!sameReviewSource(comment.source, source) && !sameFile) || (comment.anchor.path !== path && comment.anchor.path !== fromPath) || comment.anchor.side !== side) return comment;
 			const candidate = doc ? reanchorCodeLines(doc, comment.anchor) : undefined;
 			if (!candidate) return comment.outdated ? comment : { ...comment, outdated: true };
-			if (candidate === comment.anchor && !comment.outdated && candidate.path === path) return comment;
-			return { ...comment, anchor: { ...candidate, path }, outdated: undefined };
+			if (candidate === comment.anchor && !comment.outdated && candidate.path === path && sameReviewSource(comment.source, source)) return comment;
+			return { ...comment, source, anchor: { ...candidate, path }, outdated: undefined };
 		};
 		const comments = this.comments.map(update);
 		if (comments.some((comment, at) => comment !== this.comments[at])) this.comments = comments;

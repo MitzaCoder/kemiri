@@ -12,6 +12,10 @@
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import { onMount, untrack, type Component } from 'svelte';
 	import { page } from '$app/state';
+	import FolderIcon from '@lucide/svelte/icons/folder';
+	import FilesHost from './files/FilesHost.svelte';
+	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
+	import { fileFromUrl, PROJECT_ROOT } from '#lib/code/file-location.js';
 	import { goto } from '$app/navigation';
 	import { changesFromUrl, withChanges } from '#lib/code/project-changes.js';
 	import ArchivedBanner from '#lib/components/ArchivedBanner.svelte';
@@ -117,6 +121,9 @@
 	};
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
+	const filesNavigation = provideFilesNavigation(() => backend.features?.includes('project-files') === true,
+		() => threadId ? { kind: 'thread', threadId } : PROJECT_ROOT, () => threadId ? undefined : project?.path);
+	const filesShown = $derived(filesNavigation.available() && !!fileFromUrl(page.url));
 	const changeSource = $derived(backend.features?.includes('project-changes') ? changesFromUrl(page.url) : undefined);
 	function closeChanges(): void {
 		const returnUrl = withChanges(page.url);
@@ -354,6 +361,7 @@
 				onclick: () => toggleSidebar('memory')
 			});
 		}
+		if (filesNavigation.available()) actions.push({ id: 'files', kind: 'tab', name: 'Files', label: 'Files', icon: FolderIcon, onclick: () => { headerMenuOpen = false; void filesNavigation.open(); } });
 		// A shell on this backend in the project's folder, on a page of its own (zellij sessions, tabs, a phone key bar).
 		if (project && backend.supports('terminal')) {
 			actions.push({
@@ -1208,11 +1216,13 @@
 		<TaskSheet {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
-{#if changeSource}
+<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
+
+{#if changeSource && !filesShown}
 	{#await import('./changes/ProjectChanges.svelte') then { default: ProjectChanges }}
 		{#key `${backend.id}:${projectId}:${changeSource.kind === 'task' ? changeSource.taskId : changeSource.hash}`}
 			<ProjectChanges backendId={backend.id} client={backend.client} {projectId} repository={project?.repository} source={changeSource}
-				taskId={taskFromUrl(page.url) ?? undefined} sourceThreadId={threadId} taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} />
+				taskId={taskFromUrl(page.url) ?? undefined} sourceThreadId={threadId} taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} onfiles={filesNavigation.available() ? () => void filesNavigation.open() : undefined} />
 		{/key}
 	{:catch}
 		<div class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-(--chat-surface) p-4" role="alert">

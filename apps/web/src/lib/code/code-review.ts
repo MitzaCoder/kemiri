@@ -1,6 +1,7 @@
+import { parseCodeRoot, validFilePath } from './file-location.js';
 import { REVIEW_INTENTS, reviewText, type ReviewNote, type ReviewStorage } from '../review.js';
 
-export type CodeReviewSource = { kind: 'task'; taskId: string } | { kind: 'commit'; hash: string } | { kind: 'artifact'; versionId: string };
+export type CodeReviewSource = { kind: 'task'; taskId: string } | { kind: 'commit'; hash: string } | { kind: 'artifact'; versionId: string } | { kind: 'file'; root: string; path: string; hash: string };
 export type CodeSide = 'before' | 'after' | 'file';
 export interface CodeAnchor { path: string; side: CodeSide; startLine: number; endLine: number; quotedText: string }
 export interface CodeComment extends ReviewNote {
@@ -13,9 +14,9 @@ export const MAX_CODE_QUOTE = 4000;
 export const MAX_CODE_REVIEW_CHARS = 96 * 1024;
 const REANCHOR_DISTANCE = 100;
 
-export const reviewSourceKey = (source: CodeReviewSource) => source.kind === 'task' ? source.taskId : source.kind === 'commit' ? source.hash : source.versionId;
+export const reviewSourceKey = (source: CodeReviewSource) => source.kind === 'task' ? source.taskId : source.kind === 'commit' ? source.hash : source.kind === 'artifact' ? source.versionId : `${source.root}/${source.path}@${source.hash}`;
 export function codeReviewKey(backendId: string, projectId: string, source: CodeReviewSource) {
-	return 'kemiri.code-review.v1:' + JSON.stringify([backendId, projectId, source.kind, reviewSourceKey(source)]);
+	return 'kemiri.code-review.v1:' + JSON.stringify([backendId, projectId, source.kind, source.kind === 'file' ? [source.root, source.path] : reviewSourceKey(source)]);
 }
 export const normalizeCode = (text: string) => text.replace(/\r\n?/g, '\n');
 export const codeLocation = ({ path, side, startLine, endLine }: CodeAnchor) => `${path.replace(/[\r\n\t]/g, ' ')} · ${side} ${startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`}`;
@@ -102,7 +103,8 @@ function validCodeComment(value: unknown): value is CodeComment {
 	if (!value || typeof value !== 'object') return false;
 	const { id, anchor, source, intent, note, replacement, outdated } = value as CodeComment;
 	if (!source || !(source.kind === 'task' && /^T\d{1,16}$/.test(source.taskId) || source.kind === 'commit' && /^(?:[\da-f]{40}|[\da-f]{64})$/.test(source.hash) ||
-		source.kind === 'artifact' && /^[\w-]{1,128}~\d{1,10}$/.test(source.versionId))) return false;
+		source.kind === 'artifact' && /^[\w-]{1,128}~\d{1,10}$/.test(source.versionId) ||
+		source.kind === 'file' && typeof source.root === 'string' && !!parseCodeRoot(source.root) && typeof source.path === 'string' && validFilePath(source.path) && /^[a-f0-9]{64}$/.test(source.hash))) return false;
 	return typeof id === 'string' && id.length <= 100 && !!anchor && typeof anchor.path === 'string' && anchor.path.length > 0 && anchor.path.length <= 4096 &&
 		['before', 'after', 'file'].includes(anchor.side) && Number.isSafeInteger(anchor.startLine) && anchor.startLine > 0 && Number.isSafeInteger(anchor.endLine) &&
 		anchor.endLine >= anchor.startLine && anchor.endLine - anchor.startLine < 100 && typeof anchor.quotedText === 'string' && anchor.quotedText.length <= MAX_CODE_QUOTE &&

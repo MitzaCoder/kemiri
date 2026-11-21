@@ -12,7 +12,7 @@ export function lazyCodeView(): Plugin {
 			const chunks = Object.values(bundle).filter(output => output.type === 'chunk');
 			const chat = chunks.filter(chunk => chunk.moduleIds.some(id => id.endsWith('/components/ProjectChat.svelte')));
 			const editorChunks = chunks.filter(chunk => chunk.moduleIds.some(id => editorModule.test(id)));
-			const changesChunks = chunks.filter(chunk => chunk.moduleIds.some(id => id.endsWith('/changes/ProjectChanges.svelte')));
+			const changesChunks = chunks.filter(chunk => chunk.moduleIds.some(id => /\/(?:changes\/ProjectChanges|files\/ProjectFiles)\.svelte$/.test(id)));
 			if (!chat.length || !editorChunks.length || !changesChunks.length) this.error('Could not locate chat and editor chunks for the code-view bundle check.');
 			const visited = new Set<string>();
 			const follow = (chunk: (typeof chunks)[number]) => {
@@ -29,7 +29,7 @@ export function lazyCodeView(): Plugin {
 			for (const chunk of codeChunks) {
 				console.log(`[code-view] ${chunk.name}: ${Buffer.byteLength(chunk.code)} B / ${gzipSync(chunk.code, { level: 9 }).length} B gzip`);
 			}
-			console.log('[code-view] Verified that neither Changes nor editor modules are reachable from any route’s static imports.');
+			console.log('[code-view] Verified that no Changes, Files or editor modules are reachable from any route’s static imports.');
 		},
 	};
 }

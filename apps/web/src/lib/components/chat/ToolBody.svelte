@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useFilesNavigation } from '#lib/code/files-navigation.svelte.js';
+	import { fileLine, pathInCheckout } from '#lib/code/file-location.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import WrapToggle from '#lib/components/WrapToggle.svelte';
@@ -16,6 +18,8 @@
 	const status = $derived(toolCardStatus(part));
 	const args = $derived((part.arguments ?? {}) as Record<string, unknown>);
 	const path = $derived(typeof args.path === 'string' ? args.path : undefined);
+	const files = useFilesNavigation();
+	const checkoutPath = $derived(path && files?.available() ? pathInCheckout(path, files.checkout() ?? cwd) : undefined);
 	const output = $derived(splitNotice(resultText(part.output)));
 	const diff = $derived(
 		typeof part.details === 'object' && part.details !== null
@@ -106,6 +110,12 @@
 	<p class="shimmer-text px-3.5 py-2.5 text-xs">Running…</p>
 {/if}
 
+{#if checkoutPath && files && ['read', 'write', 'edit'].includes(part.name)}
+	<div class="section-label"><code class="truncate">{checkoutPath}</code><a class="shrink-0 rounded px-2 py-1 font-medium text-(--accent-2) hover:underline" href={files.href(checkoutPath, fileLine(args.offset))} onclick={event => {
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		event.preventDefault(); void files.open(checkoutPath, fileLine(args.offset));
+	}}>Open file</a></div>
+{/if}
 {#if fullText !== undefined}
 	<div class="section-label justify-end"><button type="button" class="min-h-8 rounded px-2 text-(--chat-fg-muted) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)" onclick={() => fullView = true}>Open full view</button></div>
 	{#if fullView}

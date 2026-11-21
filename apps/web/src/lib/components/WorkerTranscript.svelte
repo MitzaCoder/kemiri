@@ -7,6 +7,9 @@
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import FilesHost from './files/FilesHost.svelte';
+	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
+	import { PROJECT_ROOT } from '#lib/code/file-location.js';
 	import { onMount } from 'svelte';
  import { page } from '$app/state';
 	import Banner from '#lib/components/Banner.svelte';
@@ -87,6 +90,10 @@
 	const supportsSidebar = $derived(sidebarTabs.length > 0);
 
 	const worker = $derived(workers?.worker(workerId));
+	const filesNavigation = provideFilesNavigation(() => backend.features?.includes('project-files') === true,
+		() => worker?.workspacePath ? { kind: 'worker', workerId } : threadId ? { kind: 'thread', threadId } : PROJECT_ROOT,
+		() => worker?.workspacePath ?? (threadId ? undefined : project?.path));
+
 	const live = $derived(liveState(session?.view));
 	const entryAnchor = $derived(Number(/^#entry-([1-9]\d*)$/.exec(page.url.hash)?.[1]) || undefined);
  const items = $derived(buildTranscript(session?.entries ?? [], live, entryAnchor === undefined ? {} : { entryAnchor }));
@@ -402,6 +409,8 @@
 </div>
 
 <RefCardHost readDetails={backend.supports('ref-details') ? (ref) => backend.client.readRefDetails(projectId, ref) : undefined} />
+
+<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} workers={workers?.workers ?? []} {threadId} />
 
 <style>
 	.worker-icon {

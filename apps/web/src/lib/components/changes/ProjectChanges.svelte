@@ -19,9 +19,9 @@
 	import { changeCommitPicker, changeCounts, changeFileDisplay, changeReadProblem, groupChangedFiles,
 		readViewedChanges, setChangeViewed, viewedChangePrefix, type ChangeFile, type ChangeList } from '#lib/code/project-changes.js';
 
-	let { backendId, client, projectId, repository, source, taskTitle, taskId, sourceThreadId, onclose }: {
+	let { backendId, client, projectId, repository, source, taskTitle, taskId, sourceThreadId, onclose, onfiles }: {
 		backendId: string; client: HarnessClient; projectId: string; repository?: boolean; source: ChangeSource;
-		taskTitle?: string; taskId?: string; sourceThreadId?: string; onclose: () => void;
+		taskTitle?: string; taskId?: string; sourceThreadId?: string; onclose: () => void; onfiles?: () => void;
 	} = $props();
 
 	const review = untrack(() => new CodeReviewSession(source, backendId, projectId, client, source.kind === 'task' ? source.taskId : taskId, sourceThreadId));
@@ -184,7 +184,7 @@
 			<Button bind:ref={closeButton} size="icon" variant="ghost" aria-label="Close changes" title="Close changes (Escape)" onclick={onclose}><XIcon /></Button>
 			<div class="changes-title">
 				<div class="flex min-w-0 items-center gap-2">
-					<span class="view-label">Changes</span>
+					<nav aria-label="Code view" class="view-label"><span aria-current="page">Changes</span>{#if onfiles}<button onclick={onfiles}>Files</button>{/if}</nav>
 					{#if source.kind === 'task' && taskTitle}<span class="task-id-chip shrink-0">{source.taskId}</span>{/if}
 					<Dialog.Title class="truncate text-sm font-semibold" title={heading}>{heading}</Dialog.Title>
 				</div>
@@ -304,6 +304,9 @@
 	.changes-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 7px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid transparent; border-image: var(--chat-grad) 1; background: var(--chat-surface); }
 	.changes-title { min-width: 0; flex: 1; }
 	.view-label { border: 1px solid var(--chat-border); background: var(--chat-surface-2); border-radius: 7px; padding: 3px 7px; font-size: .75rem; font-weight: 600; }
+	.view-label { display:flex; gap:8px; align-items:center; }
+	.view-label button { color:var(--chat-fg-muted); }
+	.view-label button:hover { text-decoration:underline; }
 	.summary, .file-position { margin-top: 1px; color: var(--chat-fg-muted); font-size: 12px; }
 	.changes-options { display: flex; gap: 8px; align-items: center; min-width: 0; }
 	.commit-picker, .layout-picker { max-width: min(32vw, 20rem); background: var(--chat-surface-2); border: 1px solid var(--chat-border); border-radius: 7px; }
