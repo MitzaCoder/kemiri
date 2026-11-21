@@ -49,10 +49,10 @@ export interface ReviewPin { anchor: string; rect: ReviewRect; x: number; y: num
 const PIN_WIDTH = 44, PIN_HEIGHT = 44;
 
 /**
- * One pin for each commented element in view, at its top right corner. A pin stays on the visible edge while part of
- * its element shows, and pins that would cover one another step to the left.
+ * One pin for each commented element in view, at its top right corner. HTML pins leave with that edge instead of
+ * sticking to the viewport; text pins keep their existing edge placement. Overlapping pins step to the left.
  */
-export function reviewPins(comments: readonly ReviewComment[], rects: ReadonlyMap<string, ReviewRect>, surface: ReviewSurface): ReviewPin[] {
+export function reviewPins(comments: readonly ReviewComment[], rects: ReadonlyMap<string, ReviewRect>, surface: ReviewSurface, pinFollowsTopEdge = false): ReviewPin[] {
 	const pins = new Map<string, ReviewPin>();
 	comments.forEach((comment, index) => {
 		const rect = comment.anchor === undefined ? undefined : rects.get(comment.anchor);
@@ -60,8 +60,10 @@ export function reviewPins(comments: readonly ReviewComment[], rects: ReadonlyMa
 		const pin = pins.get(comment.anchor);
 		if (pin) { pin.comments.push(index); return; }
 		if (rect.y + rect.height <= 0 || rect.y >= surface.height || rect.x + rect.width <= 0 || rect.x >= surface.width) return;
+		if (pinFollowsTopEdge && rect.y < 0) return;
 		const edge = PIN_WIDTH / 2;
-		pins.set(comment.anchor, { anchor: comment.anchor, rect, comments: [index], x: clamp(rect.x + rect.width, edge, surface.width - edge), y: clamp(rect.y, edge, surface.height - PIN_HEIGHT / 2) });
+		const y = pinFollowsTopEdge ? rect.y : clamp(rect.y, PIN_HEIGHT / 2, surface.height - PIN_HEIGHT / 2);
+		pins.set(comment.anchor, { anchor: comment.anchor, rect, comments: [index], x: clamp(rect.x + rect.width, edge, surface.width - edge), y });
 	});
 	const placed: ReviewPin[] = [];
 	for (const pin of pins.values()) {

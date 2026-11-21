@@ -44,7 +44,9 @@ function frame(platform: 'web' | 'android', elements: Element[] = [new Element('
 	};
 	const range = { cloneRange() { return this; }, getBoundingClientRect: () => ({ left: 15, top: 25, width: 60, height: 20 }) };
 	const selection = { text: 'Selected words', toString() { return this.text; }, anchorNode: null as Node | Element | null, rangeCount: 1, getRangeAt: () => range, removeAllRanges() { this.text = ''; } };
-	const context = createContext({ parent, document, Element, Node: { DOCUMENT_POSITION_FOLLOWING: 4 }, window: document, clearTimeout() {}, setTimeout: (fn: () => void) => { fn(); }, getSelection: () => selection, getComputedStyle: (element: Element) => element });
+	const animationFrames: Array<() => void> = [];
+	const requestAnimationFrame = (callback: () => void) => animationFrames.push(callback);
+	const context = createContext({ parent, document, Element, Node: { DOCUMENT_POSITION_FOLLOWING: 4 }, window: Object.assign(document, { requestAnimationFrame }), requestAnimationFrame, clearTimeout() {}, setTimeout: (fn: () => void) => { fn(); }, getSelection: () => selection, getComputedStyle: (element: Element) => element });
 	runInContext(platform === 'web' ? ARTIFACT_REVIEW_PRELUDE : androidScript('ARTIFACT_REVIEW_READ'), context);
 	const emit = (name: string, event: unknown) => listeners.get(name)?.forEach(fn => fn(event));
 	function control(data: string, source: unknown = parent) {
@@ -58,7 +60,7 @@ function frame(platform: 'web' | 'android', elements: Element[] = [new Element('
 	}
 	function click(target: Element) { emit('click', { target, preventDefault() {}, stopImmediatePropagation() {} }); if (platform === 'android') read(); }
 	function key(key: string) { emit('keydown', { key, target: body, preventDefault() {}, stopImmediatePropagation() {} }); if (platform === 'android' && (key === 'Enter' || key === 'Escape')) read(); }
-	return { messages, rectangles, chart: elements[0]!, root, emit, control, read, click, key, selection };
+	return { messages, rectangles, chart: elements[0]!, root, emit, control, read, click, key, selection, flushAnimationFrames: () => animationFrames.splice(0).forEach(run => run()) };
 }
 
 for (const platform of ['web', 'android'] as const) {
@@ -156,9 +158,13 @@ test('web: watches only valid parent paths; scroll and clear refresh the rectang
 	expect(view.rectangles.at(-1)?.rects).toBe('*=10,20,100,40|0=10,20,100,40');
 	view.chart.top = -30; view.emit('scroll', {});
 	expect(view.rectangles.at(-1)?.rects).toBe('*=10,-30,100,40|0=10,-30,100,40');
+	const reports = view.rectangles.length;
+	view.emit('scroll', {});
+	expect(view.rectangles).toHaveLength(reports);
 	view.control('kemiri:clear-artifact-selection');
 	expect(view.rectangles.at(-1)?.rects).toBe('0=10,-30,100,40');
 	view.chart.visibility = 'hidden'; view.emit('resize', {});
+	view.flushAnimationFrames();
 	expect(view.rectangles.at(-1)?.rects).toBe('');
 });
 

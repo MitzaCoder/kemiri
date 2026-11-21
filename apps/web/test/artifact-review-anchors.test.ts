@@ -43,6 +43,15 @@ test('pins group by anchor, clamp to visible edges and step left to avoid overla
 	]);
 });
 
+test('HTML pins move with the target top edge instead of sticking to the viewport', () => {
+	const comments = [{ text: 'Quote', note: 'Note', anchor: 'p:0' }];
+	const surface = { width: 200, height: 150 };
+	for (const y of [149, 20, 4, 0, -1]) {
+		const rects = validateArtifactRects(frame, frame, report(`0=25,${y},100,80`))!;
+		expect(reviewPins(comments, rects, surface, true).map(pin => pin.y)).toEqual(y < 0 ? [] : [y]);
+	}
+});
+
 test('card prefers below, then above, then fits over the target', () => {
 	const surface = { width: 400, height: 300 }, card = { width: 360, height: 120 };
 	expect(placeReviewCard({ x: 20, y: 10, width: 100, height: 20 }, surface, card)).toEqual({ left: 20, top: 38, side: 'below' });

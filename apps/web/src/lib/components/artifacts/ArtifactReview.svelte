@@ -73,7 +73,7 @@
 		if (!layer.insetY) return surfaceRects;
 		return new Map([...surfaceRects].map(([key, rect]) => [key, { ...rect, y: rect.y - layer.insetY }]));
 	});
-	const pins = $derived(reviewPins(comments, offsetRects, layer));
+	const pins = $derived(reviewPins(comments, offsetRects, layer, pageView));
 	const previewPin = $derived(pins.find(pin => pin.anchor === preview?.anchor));
 	const editRect = $derived(editor && offsetRects.get(editor.index === undefined && !editor.recovered ? SELECTION_RECT : editor.selection.anchor ?? ''));
 	const outline = $derived(editor && !editor.inTray ? editRect : previewPin?.rect ?? offsetRects.get(flashAnchor ?? ''));

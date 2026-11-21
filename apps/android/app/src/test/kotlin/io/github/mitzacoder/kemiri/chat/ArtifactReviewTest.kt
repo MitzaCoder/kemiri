@@ -116,16 +116,23 @@ class ArtifactReviewTest {
         val artifact = ReviewArtifact("Report", "report", 1, "report.html")
         assertEquals(formatArtifactReview(artifact, review), formatArtifactReview(artifact, ArtifactReview(review.comments.map { it.copy(anchor = null) })))
     }
-    @Test fun `pin geometry rejects unrelated paths and clamps grouped pins to the visible document`() {
-        fun decode(rects: String) = decodeArtifactAnchorRects(Json.encodeToString("""{"width":200,"height":100,"rects":"$rects"}"""), listOf("0", "1", "2"))
-        assertNull(decode("3=0,1,2,3"))
-        assertNull(decode("0=1,2,3,4|0=1,2,3,4"))
-        assertNull(decode("0=1,2,-3,4"))
-        val rects = decode("0=30,-10,200,50|1=30,0,200,50|2=0,-50,50,10")!!
+    @Test fun `document pins follow live native scroll without a fresh geometry sample`() {
+        fun decode(rects: String, scrollY: String = "50") = decodeArtifactAnchorRects(
+            Json.encodeToString("""{"width":200,"height":100,"scrollX":20,"scrollY":$scrollY,"rects":"$rects"}"""), listOf("0", "1", "2"),
+        )
+        assertNull(decode("3=0,1,2,3,1"))
+        assertNull(decode("0=1,2,3,4,1|0=1,2,3,4,1"))
+        assertNull(decode("0=1,2,-3,4,1"))
+        assertNull(decode("0=1,2,3,4,9"))
+        assertNull(decode("0=1,2,3,4,1", "10000000"))
+        val rects = decode("0=50,30,50,50,1|1=50,30,50,50,0|2=0,-50,50,10,1")!!
         val comment = ReviewComment("Quote", intent = "Keep", anchor = "p:0")
         val comments = listOf(comment, comment, comment.copy(anchor = "p:1"), comment.copy(anchor = "p:2"))
         assertEquals(listOf("0", "1", "2"), artifactReviewPaths(comments))
-        assertEquals(listOf(ArtifactReviewPin("p:0", "Quote", 2, 376f, 24f), ArtifactReviewPin("p:1", "Quote", 1, 328f, 24f)), artifactReviewPins(comments, rects, 400f, 200f, 48f))
+        fun pins(x: Int, y: Int) = artifactReviewPins(comments, rects, 400f, 200f, 48f, androidx.compose.ui.unit.IntOffset(x, y))
+        assertEquals(listOf(ArtifactReviewPin("p:0", "Quote", 2, 200f, 60f), ArtifactReviewPin("p:1", "Quote", 1, 152f, 60f)), pins(40, 100))
+        assertEquals(listOf(ArtifactReviewPin("p:0", "Quote", 2, 190f, 5f), ArtifactReviewPin("p:1", "Quote", 1, 200f, 60f)), pins(50, 155))
+        assertEquals(listOf(ArtifactReviewPin("p:1", "Quote", 1, 200f, 60f)), pins(50, 161))
     }
     @Test fun `deleting the final comment closes only the pin preview`() {
         val state = ArtifactReviewState(MemoryStorage(), "key")

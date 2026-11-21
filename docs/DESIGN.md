@@ -80,12 +80,12 @@ new tab or an inline preview. `kemiri:artifact-selection` has required string
 text clears an untouched selection. `kemiri:artifact-anchors` has `type` and a
 single `rects` string with entries `path=x,y,width,height` in frame viewport pixels;
 `*` is the live selection. The parent can watch up to 100 valid child-index paths
-and clear the frame selection or scroll a validated element path into view. Scroll,
-resize, load and layout changes refresh
-geometry. Messages must come from the mounted frame window, use exact text-only
+and clear the frame selection or scroll a validated element path into view. The
+frame reports changed geometry directly on scroll dispatch; resize, load and
+layout changes also refresh it. Messages must come from the mounted frame window, use exact text-only
 keys without accessors, and pass path, rectangle and vocabulary checks. The app
-clips its overlay to the reading surface, keeps cards inside it, and hides pins
-whose targets are out of view. A hostile artifact can fabricate a selection or
+clips its overlay to the reading surface and keeps cards inside it. HTML pins
+follow the target's top edge out of view instead of waiting at the viewport edge. A hostile artifact can fabricate a selection or
 move its own pins within that surface, but cannot send a review or access host
 credentials or DOM. No iframe permissions, origin or network policy changed.
 Exact parent-only strings still toggle/cancel picking. Keyboard arrows and Enter
@@ -148,7 +148,11 @@ Picking a block opens the comment sheet automatically. Saving returns to the pag
 where a native Compose pin counts the comments at that element. Tapping it opens a
 filtered sheet with Edit and Delete. Anchors are local to the artifact version;
 the native layer reads bounded geometry only for watched paths on WebView layout,
-scroll, load and scale changes. No new origin permissions or JavaScript interface
+scroll, load and scale changes. It takes the page scroll offset with each sample
+and uses the WebView's live scroll offset to place pins for page-relative targets
+without waiting for JavaScript. Sticky and fixed targets use refreshed viewport
+rectangles. Geometry reads are coalesced without restarting a pending read.
+No new origin permissions or JavaScript interface
 are used. Native Markdown, text and Source retain their paragraph picker and tray.
 
 Pick mode installs a document-local click listener through the same API; a

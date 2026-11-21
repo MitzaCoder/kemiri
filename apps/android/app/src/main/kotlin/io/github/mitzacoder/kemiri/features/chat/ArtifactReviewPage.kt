@@ -35,14 +35,20 @@ internal val ARTIFACT_REVIEW_RECTS = """
 (function(paths){
  var viewport=window.visualViewport, width=viewport?viewport.width:window.innerWidth, height=viewport?viewport.height:window.innerHeight;
  var x=viewport?viewport.offsetLeft:0,y=viewport?viewport.offsetTop:0;
+ var scrollX=viewport?viewport.pageLeft:window.scrollX,scrollY=viewport?viewport.pageTop:window.scrollY;
  var rects=paths.map(function(path){
    var element=document.body;
    path.split('.').forEach(function(index){element=element&&element.children[Number(index)]});
    if(!element)return '';
    var style=getComputedStyle(element), box=element.getBoundingClientRect();
    if(style.visibility!=='visible'||box.width<=0||box.height<=0)return '';
-   return path+'='+[box.left-x,box.top-y,box.width,box.height].map(Math.round).join(',');
+   var scrollsWithPage=1;
+   for(var ancestor=element;ancestor;ancestor=ancestor.parentElement){
+     var position=(ancestor===element?style:getComputedStyle(ancestor)).position;
+     if(position==='fixed'||position==='sticky'){scrollsWithPage=0;break}
+   }
+   return path+'='+[box.left-x,box.top-y,box.width,box.height,scrollsWithPage].map(Math.round).join(',');
  }).filter(Boolean).join('|');
- return JSON.stringify({width:Math.round(width),height:Math.round(height),rects:rects});
+ return JSON.stringify({width:Math.round(width),height:Math.round(height),scrollX:Math.round(scrollX),scrollY:Math.round(scrollY),rects:rects});
 })
 """.trimIndent()

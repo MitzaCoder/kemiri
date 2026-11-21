@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import androidx.compose.ui.graphics.toArgb
@@ -244,7 +245,8 @@ internal fun ArtifactPage(
         } else webView.evaluateJavascript(ARTIFACT_REVIEW_CANCEL_PICK, null)
     }
     val watchedPaths = remember(reviewComments) { artifactReviewPaths(reviewComments) }
-    var rectangles by remember(document) { mutableStateOf<ArtifactAnchorRects?>(null) }
+    var rectangles by remember(document, pageRevision) { mutableStateOf<ArtifactAnchorRects?>(null) }
+    val pageScroll = remember(webView) { mutableStateOf(IntOffset.Zero) }
     DisposableEffect(webView, document, watchedPaths, pageRevision) {
         if (watchedPaths.isEmpty()) {
             rectangles = null
@@ -252,21 +254,40 @@ internal fun ArtifactPage(
         } else {
             val request = "($ARTIFACT_REVIEW_RECTS)(${JsonArray(watchedPaths.map(::JsonPrimitive))})"
             var observing = true
-            var requestNumber = 0
-            val read = Runnable {
-                val number = ++requestNumber
-                webView.evaluateJavascript(request) {
-                    if (observing && number == requestNumber) rectangles = decodeArtifactAnchorRects(it, watchedPaths)
+            // Keep one read in flight without postponing it or discarding its reply during a fling.
+            val read = object : Runnable {
+                private var scheduled = false
+                private var inFlight = false
+                private var refreshNeeded = false
+
+                fun schedule() {
+                    refreshNeeded = true
+                    if (scheduled || inFlight) return
+                    scheduled = true
+                    webView.postOnAnimation(this)
+                }
+
+                override fun run() {
+                    scheduled = false
+                    refreshNeeded = false
+                    inFlight = true
+                    webView.evaluateJavascript(request) {
+                        if (observing) {
+                            rectangles = decodeArtifactAnchorRects(it, watchedPaths)
+                            inFlight = false
+                            if (refreshNeeded) schedule()
+                        }
+                    }
                 }
             }
-            fun schedule() {
-                webView.removeCallbacks(read)
-                webView.postOnAnimation(read)
-            }
-            val layout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> schedule() }
+            val layout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> read.schedule() }
             webView.addOnLayoutChangeListener(layout)
-            webView.setOnScrollChangeListener { _, _, _, _, _ -> schedule() }
-            schedule()
+            pageScroll.value = IntOffset(webView.scrollX, webView.scrollY)
+            webView.setOnScrollChangeListener { _, x, y, _, _ ->
+                pageScroll.value = IntOffset(x, y)
+                read.schedule()
+            }
+            read.schedule()
             onDispose {
                 observing = false
                 webView.removeCallbacks(read)
@@ -278,7 +299,7 @@ internal fun ArtifactPage(
     Box(modifier.fillMaxWidth().clipToBounds()) {
         AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
         if (!reviewPicking) rectangles?.let {
-            ArtifactReviewPinLayer(reviewComments, it, onReviewPin, Modifier.matchParentSize())
+            ArtifactReviewPinLayer(reviewComments, it, { pageScroll.value }, onReviewPin, Modifier.matchParentSize())
         }
     }
 }
