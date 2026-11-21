@@ -19,6 +19,8 @@
 	import { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
 	import { threadMessageHref, threadMessageAnchor, type ThreadMessageLinks } from '#lib/thread-messages.js';
 	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
+	import LandingTurn from './LandingTurn.svelte';
+	import { landingTurnPresentation, provideLandingTurn } from '#lib/landing-turn.js';
 	import CoordinatorManager from './CoordinatorManager.svelte';
 	import { coordinatorBadges, coordinatorColor, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
 	import { provideCoordinatorTaskView } from '#lib/coordinator-task-view.js';
@@ -248,6 +250,8 @@
 	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, 'scope'));
 	const otherAttention = $derived(roster.filter(row => row.id !== coordinatorId).reduce((sum, row) => sum + coordinatorBadges(row).needsYou, 0));
 	const questionCounts = $derived(roster.filter(row => row.id !== coordinatorId).map(row => ({ row, count: scopedQuestions((board?.board?.questions ?? []).filter(q => q.status === 'open'), threadList, row.id).length })).filter(row => row.count));
+	const landingTurn = $derived(landingTurnPresentation(backend.supports('landing-turn') ? threads?.landingTurn : undefined, roster));
+	provideLandingTurn(() => ({ turn: landingTurn, threads: threadList }));
 	provideCoordinatorTaskView(() => supportsAssignment && roster.length ? { roster: [...roster, ...(threads?.archived ?? []).filter(row => row.kind === 'coordinator')], threads: threadList, coordinatorId: taskScope === 'coordinator' ? coordinatorId : undefined, hidden: hiddenCoordinators } : undefined);
 	$effect(() => {
 		taskScope = readCoordinatorPreference(scopeKey) === 'all' ? 'all' : 'coordinator';
@@ -1307,6 +1311,9 @@
 								</div>{/if}
 							</div>
 						{/if}
+						{#if taskScope === 'all' && landingTurn}
+							<div class="shrink-0 border-b border-(--chat-border) px-3 py-2 @min-[54rem]/peer-panel:hidden"><LandingTurn turn={landingTurn} /></div>
+						{/if}
 						{#if taskScope === 'all' && supportsPeerMessages}
 							<div class="flex shrink-0 gap-2 border-b border-(--chat-border) px-3 py-2 text-xs @min-[54rem]/peer-panel:hidden" role="group" aria-label="All coordinators view">
 								<button class="rounded-md px-2 py-1 aria-pressed:bg-(--chat-surface-2) aria-pressed:font-semibold" aria-pressed={!peerPanel} onclick={() => peerPanel = false}>Tasks</button>
@@ -1336,8 +1343,9 @@
 							<BoardPanel {board} workers={workerList} threads={threadList} hrefOf={(worker) => workerLink(worker)} />
 						{/if}
 						</div>
-						{#if taskScope === 'all' && peerLog}
-							<aside class="min-w-0 flex-1 overflow-y-auto @min-[54rem]/peer-panel:block @min-[54rem]/peer-panel:w-72 @min-[54rem]/peer-panel:flex-none @min-[54rem]/peer-panel:border-l @min-[54rem]/peer-panel:border-(--chat-border) {peerPanel ? 'block' : 'hidden'}">
+						{#if taskScope === 'all' && (peerLog || landingTurn)}
+							<aside class="min-w-0 flex-1 overflow-y-auto @min-[54rem]/peer-panel:block @min-[54rem]/peer-panel:w-72 @min-[54rem]/peer-panel:flex-none @min-[54rem]/peer-panel:border-l @min-[54rem]/peer-panel:border-(--chat-border) {peerPanel && peerLog ? 'block' : 'hidden'}">
+								{#if landingTurn}<div class="hidden border-b border-(--chat-border) p-3 @min-[54rem]/peer-panel:block"><LandingTurn turn={landingTurn} /></div>{/if}
 								{@render peerFeed()}
 							</aside>
 						{/if}

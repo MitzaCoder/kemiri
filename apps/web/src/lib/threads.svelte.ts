@@ -5,7 +5,7 @@
  * archive go through here and put the answer in the list at once, so a row changes without waiting for the push.
  */
 import { backgroundThreads, threadsStateIsFor, type HarnessClient } from "@kemiri/client";
-import type { ThreadSummary, ThreadsCreateRequest, ThreadsUpdateRequest } from "@kemiri/protocol";
+import type { LandingTurn, ThreadSummary, ThreadsCreateRequest, ThreadsUpdateRequest } from "@kemiri/protocol";
 
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -15,6 +15,7 @@ export class ProjectThreads {
 	readonly projectId: string;
 	/** Main and the live background threads, as the server sends them. */
 	threads = $state<ThreadSummary[]>([]);
+	landingTurn = $state<LandingTurn>();
 	/** Archived background threads, read while `showArchived` is on. */
 	archived = $state<ThreadSummary[]>([]);
 	showArchived = $state(false);
@@ -41,6 +42,7 @@ export class ProjectThreads {
 		this.#client = client;
 		this.#unsubscribeThreads = client.onThreadsState((state) => {
 			if (this.#stopped || !threadsStateIsFor(state, projectId)) return;
+			this.landingTurn = state.landingTurn;
 			this.#apply(state.threads);
 			if (this.showArchived) void this.#readArchived();
 		});
@@ -56,6 +58,7 @@ export class ProjectThreads {
 		try {
 			const snapshot = await this.#client.listThreads(this.projectId, { includeArchived: this.showArchived });
 			if (this.#stopped) return;
+			this.landingTurn = snapshot.landingTurn;
 			this.#apply(snapshot.threads.filter((thread) => !thread.archived));
 			if (this.showArchived) this.archived = snapshot.threads.filter((thread) => thread.archived);
 		} catch (error) {

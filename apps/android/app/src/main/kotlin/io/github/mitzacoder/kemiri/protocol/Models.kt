@@ -1835,6 +1835,27 @@ data class ThreadSummaryAttention(
 )
 
 @Serializable
+data class LandingTurn(
+    val `holder`: LandingTurnHolder? = null,
+    val `queue`: List<LandingTurnWaiter>
+)
+
+@Serializable
+data class LandingTurnHolder(
+    val `coordinatorId`: String,
+    val `taskId`: String? = null,
+    val `note`: String? = null,
+    val `takenAt`: String
+)
+
+@Serializable
+data class LandingTurnWaiter(
+    val `coordinatorId`: String,
+    val `taskId`: String? = null,
+    val `askedAt`: String
+)
+
+@Serializable
 data class ThreadsListRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.list",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -1937,7 +1958,8 @@ data class ThreadsHoldResponse(
 data class ThreadsListResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.list",
     val `id`: String,
-    val `threads`: List<ThreadSummary>
+    val `threads`: List<ThreadSummary>,
+    val `landingTurn`: LandingTurn? = null
 )
 
 @Serializable
@@ -2213,7 +2235,8 @@ data class DraftsChangedEvent(
 data class ThreadsStateEvent(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.state",
     val `projectId`: String,
-    val `threads`: List<ThreadSummary>
+    val `threads`: List<ThreadSummary>,
+    val `landingTurn`: LandingTurn? = null
 ) : ProtocolEvent
 
 @Serializable

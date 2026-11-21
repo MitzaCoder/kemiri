@@ -35,6 +35,7 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val enabled = connection.supports("task-coordinator")
     val threads = rememberCoordinatorThreads(context, connection.supports("coordinators") && enabled)
+    val landing = rememberLandingTurn(context, connection.supports("landing-turn"))
     val board by context.board.view.collectAsStateWithLifecycle()
     val android = LocalContext.current
     val chat = context.route
@@ -55,9 +56,10 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
                 }
             }
         }
+        if (all) landing?.turn?.let { LandingTurnLine(it) }
         Box(Modifier.weight(1f)) {
             CompositionLocalProvider(LocalCoordinatorTaskScope provides selector, LocalCoordinatorBoardTasks provides board.tasks,
-                LocalShowAllCoordinators provides { selectAll(true) }) { content() }
+                LocalShowAllCoordinators provides { selectAll(true) }, LocalLandingTurn provides landing) { content() }
         }
     }
 }

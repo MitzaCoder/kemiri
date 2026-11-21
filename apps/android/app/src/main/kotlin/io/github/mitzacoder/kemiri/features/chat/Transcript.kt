@@ -136,6 +136,7 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
                     "memory" -> "Memory changed elsewhere"
                     "coordinators" -> "Coordinators changed"
                     "repository" -> "Integration ref moved"
+                    "turn" -> "Landing turn"
                     else -> null
                 }
                 val summary = data?.s("summary").orEmpty()

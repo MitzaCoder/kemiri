@@ -408,7 +408,7 @@ export type WaitingInfo = {
 	pending?: boolean;
 };
 
-const coordinatorNoteLabels = { memory: "Memory changed elsewhere", coordinators: "Coordinator roster changed", repository: "Repository changed" } as const;
+const coordinatorNoteLabels = { memory: "Memory changed elsewhere", coordinators: "Coordinator roster changed", repository: "Repository changed", turn: "Landing turn" } as const;
 
 export type TranscriptItem =
 	| { kind: "threadMessage"; key: string; message: ThreadMessage }
@@ -714,7 +714,7 @@ export function buildTranscript(
 			case "kemiri.coordinator-note": {
 				if (!options.showCoordinatorNotes || !entry.data || typeof entry.data !== "object" || Array.isArray(entry.data)) break;
 				const { channel, summary } = entry.data as Record<string, unknown>;
-				if (typeof summary !== "string" || (channel !== "memory" && channel !== "coordinators" && channel !== "repository")) break;
+				if (typeof summary !== "string" || (channel !== "memory" && channel !== "coordinators" && channel !== "repository" && channel !== "turn")) break;
 				flush();
 				// Decode the data block's escapes to plain text. Svelte still renders the value as text, never HTML.
 				const plain = summary.replace(/&(amp|lt|gt|quot);/g, (_, name: "amp" | "lt" | "gt" | "quot") => ({ amp: "&", lt: "<", gt: ">", quot: '"' })[name]);

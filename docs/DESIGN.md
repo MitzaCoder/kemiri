@@ -2642,7 +2642,7 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
 - **Roles.** The owner talks directly to each coordinator. Other coordinators and jobs
   use their own workspaces. A coordinator keeps the job tools except `thread_finish`.
   General alone can create coordinators through `coordinator_start`, start jobs or manage
-  schedules. General alone lands changes or asks for deploy approval at this stage.
+  schedules. Each coordinator lands its own work under the shared landing-turn rules below.
 - **Lifecycle.** `threads.create` creates an idle thread unless open tasks move into it.
   `threads.update` edits metadata and can change the coordinator model and thinking level.
   `threads.hold` stashes incoming work without interrupting the running turn or workers.
@@ -2739,6 +2739,25 @@ Memory and roster notes render as one muted line; Memory shows the writer when k
 Coordinator push titles come from the backend; Android groups by backend and project
 and opens the coordinator chat at the reply entry when supplied. These surfaces are
 feature-gated and require no server document version changes.
+
+**Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
+inspect, take or release one project-wide token. `take` grants a free turn or joins
+one FIFO queue entry per coordinator. A queued coordinator ends its turn and waits
+for `[turn] The landing turn is yours`, which wakes it. The new holder and that
+input commit together. The separate `kemiri.landing-turn` document retains the
+holder, queue and call receipts across restarts without changing existing versions.
+Pause, stop, archive and conversation failure drop the coordinator from the turn;
+the next eligible waiter gets it. After 30 minutes the holder gets one non-waking
+pending note at its next step. The peers share one static prompt: take the turn
+when project rules require it, release it immediately after work, and never hold
+it while waiting. The harness only arbitrates access and never lands or deploys.
+
+The `landing-turn` feature adds an optional snapshot to `threads.list` and
+`threads.state`. Web shows it in All coordinators, in the rail when wide and above
+the list when narrow. Android shows it above All tasks. Open question cards show
+other waiters when the asking coordinator holds or is waiting for the turn.
+The board tool's `add_task` names similar open tasks and their coordinators across
+the project. It always adds the task instead of refusing or merging it.
 
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 

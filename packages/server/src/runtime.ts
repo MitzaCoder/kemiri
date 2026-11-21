@@ -54,6 +54,7 @@ import {
 	type WorkerDefaults,
 	type WorkerSummary,
 	type ThreadSummary,
+	type LandingTurn,
 	type StorageItem,
 	MAIN_THREAD_ID,
 	type Board,
@@ -240,7 +241,7 @@ export type ProjectManagerOptions = {
 	onBoardState?: (projectId: string, board: Board) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
 	onThreadsMessage?: (event: ThreadsMessageEvent) => void;
-	onThreadsState?: (projectId: string, threads: ThreadSummary[]) => void;
+	onThreadsState?: (projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void;
 	/** How long the user's board edits wait for another before they reach the coordinator. Default 3 s. */
 	boardEditDebounceMs?: number;
 	taskFreshness?: boolean;
@@ -340,7 +341,7 @@ export class ProjectManager {
 	readonly #onArchivedChange: ((projectId: string, archived: boolean) => void) | undefined;
 	readonly #onBoardState: ((projectId: string, board: Board) => void) | undefined;
 	readonly #onThreadsMessage: ProjectManagerOptions["onThreadsMessage"];
-	readonly #onThreadsState: ((projectId: string, threads: ThreadSummary[]) => void) | undefined;
+	readonly #onThreadsState: ((projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void) | undefined;
 	readonly #boardEditDebounceMs: number | undefined;
 	readonly #taskFreshness: boolean;
  readonly #taskActivity: boolean;
@@ -651,6 +652,11 @@ export class ProjectManager {
 	async threads(projectId: string, includeArchived: boolean): Promise<ThreadSummary[]> {
 		const { runtime } = await this.open(projectId);
 		return runtime.threads.list(includeArchived);
+	}
+
+	async threadSnapshot(projectId: string, includeArchived: boolean) {
+		const { runtime } = await this.open(projectId);
+		return { threads: await runtime.threads.list(includeArchived), landingTurn: await runtime.threads.landingTurn() };
 	}
 
 	async threadMessages(request: ThreadsMessagesRequest) {
@@ -1826,10 +1832,11 @@ export class ProjectManager {
  activity.setBackgroundJobs(backgroundJobCounts(list));
 					updateAttention(threadAttention(list));
 					work.update({ runningThreads: list.filter((thread) => thread.kind === "job" && thread.parentThreadId === MAIN_THREAD_ID && thread.status === "running").length });
-					const encoded = JSON.stringify(list);
+					const landingTurn = await threads.landingTurn();
+					const encoded = JSON.stringify({ list, landingTurn });
 					if (encoded === threadsPushed) return;
 					threadsPushed = encoded;
-					this.#emitThreads(project.id, list);
+					this.#emitThreads(project.id, list, landingTurn);
 				})().catch((error: unknown) => {
 					this.#log(`project ${project.id}: thread push failed: ${errorMessage(error)}`);
 				});
@@ -2067,10 +2074,10 @@ export class ProjectManager {
 		}
 	}
 
-	#emitThreads(projectId: string, threads: ThreadSummary[]): void {
+	#emitThreads(projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn): void {
 		if (this.#onThreadsState === undefined) return;
 		try {
-			this.#onThreadsState(projectId, threads);
+			this.#onThreadsState(projectId, threads, landingTurn);
 		} catch (error) {
 			this.#log(`project ${projectId}: thread state listener failed: ${errorMessage(error)}`);
 		}

@@ -1182,7 +1182,7 @@ export class HarnessClient {
 			projectId,
 			...(options.includeArchived === true ? { includeArchived: true } : {}),
 		});
-		return { threads: response.threads };
+		return { threads: response.threads, ...(response.landingTurn ? { landingTurn: response.landingTurn } : {}) };
 	}
 
 	/** Stop a background thread: its running turn and workers are aborted. Main cannot be stopped this way. */

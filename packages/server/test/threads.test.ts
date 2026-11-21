@@ -1293,3 +1293,115 @@ threadTest("awaited peer replies wake idle askers, with durable task history and
 	expect((await runtime.threads.messages({ taskId })).messages).toHaveLength(15);
 	expect(peerTurns).toBe(2);
 });
+
+threadTest("landing turn is FIFO, wakes once per grant and survives restart and replay", async () => {
+	const test = await setup();
+	const grants: string[] = [];
+	script(test, turn => {
+		if (turn.role === "user" && turn.text === "Take the turn.") return call("project_turn", { action: "take", note: "Sample changes" });
+		if (turn.role === "user" && turn.text.startsWith("[turn] The landing turn is yours")) grants.push(turn.threadId ?? "main");
+		return undefined;
+	});
+	const { client, projectId } = await openProject(test);
+	let { runtime } = await test.server.manager.open(projectId);
+	const { id: shop } = await runtime.threads.create({ title: "Web shop", area: "Storefront." }, "turn-shop");
+	const { id: kitchen } = await runtime.threads.create({ title: "Kitchen API", area: "Stock." }, "turn-kitchen");
+	await submit(client, projectId, "Take the turn.");
+	await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+	const take = { action: "take" } as const;
+	const release = { action: "release" } as const;
+	const status = { action: "status" } as const;
+	expect(await runtime.threads.projectTurn(shop, take, "take-shop")).toContain("position 1");
+	expect(await runtime.threads.projectTurn(kitchen, take, "take-kitchen")).toContain("position 2");
+	expect(await runtime.threads.projectTurn(shop, status, "status-shop")).toMatch(/General.*Sample changes.*Web shop.*Kitchen API/);
+	expect(await client.request({ type: "threads.list", projectId })).toMatchObject({ landingTurn: { holder: { coordinatorId: "main" }, queue: [{ coordinatorId: shop }, { coordinatorId: kitchen }] } });
+	const general = await context(client, projectId, {});
+	const area = await context(client, projectId, { threadId: shop });
+	expect(general.systemPrompt).toContain(PEER_THREADS_SECTION);
+	expect(area.systemPrompt).toContain(PEER_THREADS_SECTION);
+	expect(PEER_THREADS_SECTION).toContain("take it with project_turn");
+	const restarted = await test.restart();
+	runtime = (await restarted.manager.open(projectId)).runtime;
+	expect((await runtime.threads.landingTurn()).queue.map(waiter => waiter.coordinatorId)).toEqual([shop, kitchen]);
+	expect(await runtime.threads.projectTurn("main", release, "release-main")).toContain("Web shop");
+	await (await runtime.threads.conversation(shop)).waitForIdle(BACKGROUND_CONTEXT);
+	expect(await runtime.threads.projectTurn(shop, release, "release-shop")).toContain("Kitchen API");
+	await (await runtime.threads.conversation(kitchen)).waitForIdle(BACKGROUND_CONTEXT);
+	expect(grants).toEqual([shop, kitchen]);
+	await runtime.threads.projectTurn(kitchen, release, "release-kitchen");
+	await runtime.threads.projectTurn("main", take, "take-main-again");
+	await runtime.threads.projectTurn("main", release, "release-main");
+	await runtime.threads.projectTurn(shop, take, "take-shop");
+	expect(await runtime.threads.landingTurn()).toMatchObject({ holder: { coordinatorId: "main" }, queue: [] });
+	expect(grants).toEqual([shop, kitchen]);
+});
+
+for (const lifecycle of ["pause", "stop", "archive", "fail"] as const) {
+	threadTest(`landing turn advances after holder ${lifecycle} and skips a paused waiter`, async () => {
+		const test = await setup();
+		script(test, turn => turn.text === "Fail this turn." ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "Fixture failure" }) : undefined);
+		const { client, projectId } = await openProject(test);
+		const { runtime } = await test.server.manager.open(projectId);
+		const { id: holder } = await runtime.threads.create({ title: "Packing", area: "Pack orders." }, "holder");
+		const { id: skipped } = await runtime.threads.create({ title: "Stock", area: "Count orders." }, "skipped");
+		await runtime.threads.projectTurn(holder, { action: "take" }, "take-holder");
+		await runtime.threads.projectTurn(skipped, { action: "take" }, "take-skipped");
+		await runtime.threads.projectTurn("main", { action: "take" }, "take-main");
+		await runtime.threads.hold(skipped, true, "pause-waiter");
+		expect((await runtime.threads.landingTurn()).queue.map(waiter => waiter.coordinatorId)).toEqual(["main"]);
+		if (lifecycle === "pause") await runtime.threads.hold(holder, true, "pause-holder");
+		if (lifecycle === "stop") await runtime.threads.stopThread(holder);
+		if (lifecycle === "archive") await runtime.threads.archive(holder, true);
+		if (lifecycle === "fail") await submit(client, projectId, "Fail this turn.", holder);
+		await client.waitFor(event => event.type === "threads.state" && event.landingTurn?.holder?.coordinatorId === "main");
+		await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+		expect(await runtime.threads.landingTurn()).toMatchObject({ holder: { coordinatorId: "main" }, queue: [] });
+	});
+}
+
+threadTest("landing turn nudges once, without waking the holder", async () => {
+	let now = Date.now();
+	const test = await setup({ now: () => now });
+	let requests = 0;
+	let nudges = 0;
+	script(test, ({ request }) => {
+		requests++;
+		nudges += request.messages.filter(m => m.role === "user" && textOf(m.content).startsWith("[turn] Landing turn status:")).length;
+		return fauxAssistantMessage("Fixture response.");
+	});
+	const { client, projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	await runtime.threads.projectTurn("main", { action: "take" }, "take-main");
+	now += 31 * 60_000;
+	await runtime.threads.nudgeLandingTurn();
+	await runtime.threads.nudgeLandingTurn();
+	expect(requests).toBe(0);
+	await submit(client, projectId, "Check the task.");
+	await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+	expect(nudges).toBe(1);
+	await runtime.threads.nudgeLandingTurn();
+	const page = await runtime.conversation.entries({ order: "descending" }, 50, undefined, BACKGROUND_CONTEXT);
+	expect(page.items.filter(item => item.kind === "kemiri.coordinator-note")).toHaveLength(1);
+});
+
+threadTest("board add_task hints at near-duplicates across coordinators but still adds them", async () => {
+	const test = await setup();
+	const added: string[] = [];
+	script(test, turn => {
+		if (turn.role === "user" && turn.text.startsWith("Add: ")) return call("board", { action: "add_task", title: turn.text.slice(5) });
+		if (turn.toolName === "board") added.push(turn.text);
+		return fauxAssistantMessage("Fixture response.");
+	});
+	const { client, projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	const { id } = await runtime.threads.create({ title: "Kitchen API", area: "Stock." }, "title-kitchen");
+	await submit(client, projectId, "Add: Publish daily bake quantities", id);
+	await (await runtime.threads.conversation(id)).waitForIdle(BACKGROUND_CONTEXT);
+	await submit(client, projectId, "Add: Publish daily bake quantities online!");
+	await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+	await submit(client, projectId, "Add: Print price cards");
+	await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+	expect(added[1]).toMatch(/^Added T2.*Similar open tasks: T1 "Publish daily bake quantities" \("Kitchen API"\)/);
+	expect(added[2]).toMatch(/^Added T3/);
+	expect(added[2]).not.toContain("Similar open tasks");
+});

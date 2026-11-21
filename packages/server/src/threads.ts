@@ -1,5 +1,6 @@
+import { LANDING_TURN_GRANT_ENTRY, LANDING_TURN_NUDGE_KEY, LANDING_TURN_NUDGE_MS, LandingTurnDoc, type LandingTurnRequest } from "./landing-turn.ts";
 import { THREAD_MESSAGE_ENTRY, THREAD_MESSAGE_LIMIT, ThreadMessagesDoc } from "./thread-messages.ts";
-import { enqueueCoordinatorNotes, noteField, type PendingCoordinatorNote } from "./coordinator-notes.ts";
+import { enqueueCoordinatorNotes, noteField, removeCoordinatorNote, type PendingCoordinatorNote } from "./coordinator-notes.ts";
 import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
@@ -70,6 +71,7 @@ import {
 	type ThreadsUpdateRequest,
 	type ThreadStatus,
 	type ThreadSummary,
+	type LandingTurn,
 	type WorkerSummary,
 } from "@kemiri/protocol";
 import { mkdir, stat } from "node:fs/promises";
@@ -263,9 +265,11 @@ const ThreadKickoff = defineTask<KickoffInput, { phase: "deliver" }, null>({
  */
 export const PEER_THREADS_SECTION = `Work inside your area. Use thread_list to find the other coordinators and their areas; paths are hints, not locks. When the owner raises work that belongs to another area, add the task, hand it to that coordinator and say where it went. When ownership is unclear, keep it and ask. General takes work without a home.
 
-Use the board to pass work (handoff), memory for facts that last, and a message only when another coordinator must do or answer something. Say what is needed and by when. Do not thank or acknowledge. In thread_send, use awaitReply when you end your turn waiting for an answer. Answer such a request with kind "reply" and copy its taskId if present. When the owner moves a task away, stop work on it, let running workers finish or stop them, and send the new coordinator what it needs to carry on. Only General lands changes or asks for deploy approval. Other coordinators send General a request to land their change, with the change and its task.`;
+Use the board to pass work (handoff), memory for facts that last, and a message only when another coordinator must do or answer something. Say what is needed and by when. Do not thank or acknowledge. In thread_send, use awaitReply when you end your turn waiting for an answer. Answer such a request with kind "reply" and copy its taskId if present. When the owner moves a task away, stop work on it, let running workers finish or stop them, and send the new coordinator what it needs to carry on. 
 
-export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. The owner talks to other coordinators directly. Use coordinator_start when the owner asks for an enduring area of work, and thread_start for a background job with one task and a complete brief. Use a worker for self-contained work. Review your own jobs' finish and failure reports as you would a worker's report. Use thread_list or thread_peek when the owner asks for a wider view.`;
+Before landing changes on the project's integration ref, or doing anything else the project's rules say needs the landing turn, take it with project_turn. If queued, end your turn and wait for the [turn] grant. Follow the project's own rules while holding it and release it right after. Never hold the landing turn while waiting for approval or anything else.`;
+
+export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. The owner talks to other coordinators directly. Land your own work with the same landing turn rules as the other coordinators. Use coordinator_start when the owner asks for an enduring area of work, and thread_start for a background job with one task and a complete brief. Use a worker for self-contained work. Review your own jobs' finish and failure reports as you would a worker's report. Use thread_list or thread_peek when the owner asks for a wider view.`;
 
 /** What a background thread is told about itself; its brief arrives as its first message. */
 export function threadInstructions(options: {
@@ -530,6 +534,8 @@ export class ThreadService {
 	/** Status changes are serialized, so two watch callbacks never race on one thread. */
 	#queue: Promise<void> = Promise.resolve();
 	#stopped = false;
+	readonly #landingTurnConversations = new Map<string, Conversation>();
+	#landingTurnNudge: ReturnType<typeof setInterval> | undefined;
 
 	constructor(options: ThreadServiceOptions) {
 		this.#options = options;
@@ -604,11 +610,28 @@ export class ThreadService {
 		}, BACKGROUND_CONTEXT);
 		for (const record of Object.values((await this.state()).threads)) {
 			this.#options.coordinators.add(this.placeFor(record));
+			if (record.kind === "coordinator" && !record.archived) {
+				const conversation = await this.#options.harness.conversation(record.conversationId as ConversationId, BACKGROUND_CONTEXT);
+				if (conversation) this.#landingTurnConversations.set(record.id, conversation);
+			}
 		}
 	}
 
 	/** Watch every thread's transcript; called once the project's Harness is set up. */
 	async startWatches(): Promise<void> {
+		// Recover a queue even if an older release changed the roster while this document was ignored.
+		const turn = await this.landingTurn();
+		if (turn.holder || turn.queue.length) {
+			await this.#options.harness.commit(async tx => {
+				await this.#advanceLandingTurn(tx, await tx.doc(ThreadsDoc, this.#mainId));
+			}, BACKGROUND_CONTEXT);
+			this.#landingTurnChanged();
+		}
+		await this.nudgeLandingTurn();
+		this.#landingTurnNudge = setInterval(() => {
+			void this.#enqueue(() => this.nudgeLandingTurn());
+		}, 60_000);
+		this.#landingTurnNudge.unref();
 		for (const record of Object.values((await this.state()).threads)) {
 			if (record.archived) continue;
 			await this.#watch(record);
@@ -617,6 +640,7 @@ export class ThreadService {
 
 	async stop(): Promise<void> {
 		this.#stopped = true;
+		clearInterval(this.#landingTurnNudge);
 		const watches = [...this.#watches.values()];
 		this.#watches.clear();
 		for (const watch of watches) await watch.stop().catch(() => undefined);
@@ -805,6 +829,9 @@ export class ThreadService {
 
 	/** Main's activity changed: it is main's status in the list. */
 	mainChanged(): void {
+		if (this.#options.mainActivity().coordinator === "failed") void this.#enqueue(async () => {
+			if (this.#options.mainActivity().coordinator === "failed") await this.dropLandingTurn(MAIN_THREAD_ID);
+		});
 		this.#changed();
 	}
 
@@ -823,6 +850,145 @@ export class ThreadService {
 		});
 		this.#queue = next;
 		return next;
+	}
+
+	async landingTurn(): Promise<LandingTurn> {
+		const turn = await this.#options.harness.snapshot(LandingTurnDoc, this.#mainId, BACKGROUND_CONTEXT);
+		return {
+			...(turn?.holder ? { holder: { ...turn.holder } } : {}),
+			queue: (turn?.queue ?? []).map(({ coordinatorId, taskId, askedAt }) => ({ coordinatorId, ...(taskId ? { taskId } : {}), askedAt })),
+		};
+	}
+
+	#canHoldLandingTurn(roster: StoredThreadsState, threadId: string): boolean {
+		if (threadId === MAIN_THREAD_ID) return this.#options.mainActivity().coordinator !== "failed";
+		const record = roster.threads[threadId];
+		return record?.kind === "coordinator" && !record.held && !record.archived && isLive(record.status);
+	}
+
+	/** The new holder and its waking submission commit together. A crash cannot strand a granted waiter. */
+	async #advanceLandingTurn(tx: Tx, roster: StoredThreadsState, departing?: string): Promise<void> {
+		const turn = await tx.doc(LandingTurnDoc, this.#mainId);
+		const eligible = (id: string) => id !== departing && this.#canHoldLandingTurn(roster, id);
+		turn.queue = turn.queue.filter(waiter => eligible(waiter.coordinatorId));
+		let cancelGrant: (() => void) | undefined;
+		if (turn.holder) {
+			if (eligible(turn.holder.coordinatorId)) return;
+			const id = turn.holder.coordinatorId;
+			const conversationId = id === MAIN_THREAD_ID ? this.#mainId : roster.threads[id]?.conversationId as ConversationId | undefined;
+			if (conversationId !== undefined) {
+				if (turn.nudged) await removeCoordinatorNote(tx, conversationId, "turn", LANDING_TURN_NUDGE_KEY);
+				const inbox = await tx.doc(InboxDoc, conversationId);
+				const grants = inbox.items.filter(item => item.entry?.kind === LANDING_TURN_GRANT_ENTRY);
+				inbox.items = inbox.items.filter(item => item.entry?.kind !== LANDING_TURN_GRANT_ENTRY);
+				// Admission must precede the first submission-table write in this transaction.
+				cancelGrant = () => {
+					for (const grant of grants) tx.settleSubmission(grant.id, { status: "unanswered", reason: "landing-turn-released" });
+				};
+			}
+			delete turn.holder;
+			delete turn.nudged;
+		}
+		while (turn.queue.length) {
+			const { coordinatorId, taskId, note, requestId } = turn.queue.shift()!;
+			const conversation = coordinatorId === MAIN_THREAD_ID ? this.coordinators.main : this.#landingTurnConversations.get(coordinatorId);
+			if (!conversation) continue;
+			turn.holder = { coordinatorId, takenAt: new Date(this.now()).toISOString(), ...(taskId ? { taskId } : {}), ...(note ? { note } : {}) };
+			await conversation.submit(tx, {
+				type: "input", whenBusy: "steer", requestId: `landing-turn:${requestId}`,
+				content: `[turn] The landing turn is yours${taskId ? ` (${taskId})` : ""}.`,
+				entry: { kind: LANDING_TURN_GRANT_ENTRY },
+			});
+			break;
+		}
+		cancelGrant?.();
+	}
+
+	#landingTurnChanged(): void {
+		this.#options.harness.resume();
+		this.#changed();
+	}
+
+	async dropLandingTurn(threadId: string): Promise<void> {
+		const turn = await this.landingTurn();
+		if (turn.holder?.coordinatorId !== threadId && !turn.queue.some(waiter => waiter.coordinatorId === threadId)) return;
+		await this.#options.harness.commit(async tx => {
+			await this.#advanceLandingTurn(tx, await tx.doc(ThreadsDoc, this.#mainId), threadId);
+		}, BACKGROUND_CONTEXT);
+		this.#landingTurnChanged();
+	}
+
+	async nudgeLandingTurn(): Promise<void> {
+		const { harness } = this.#options;
+		const isDue = (turn: Readonly<{ holder?: LandingTurn["holder"]; nudged?: boolean }> | undefined) =>
+			turn?.holder !== undefined && !turn.nudged && this.now() - Date.parse(turn.holder.takenAt) >= LANDING_TURN_NUDGE_MS;
+		if (!isDue(await harness.snapshot(LandingTurnDoc, this.#mainId, BACKGROUND_CONTEXT))) return;
+		await harness.commit(async tx => {
+			const turn = await tx.doc(LandingTurnDoc, this.#mainId);
+			if (!isDue(turn)) return;
+			const { coordinatorId } = turn.holder!;
+			const roster = await tx.doc(ThreadsDoc, this.#mainId);
+			if (!this.#canHoldLandingTurn(roster, coordinatorId)) return;
+			const id = coordinatorId === MAIN_THREAD_ID ? this.#mainId : roster.threads[coordinatorId]!.conversationId as ConversationId;
+			await enqueueCoordinatorNotes(tx, id, [{ channel: "turn", key: LANDING_TURN_NUDGE_KEY,
+				line: "You have held the landing turn for at least 30 minutes. Release it if you are no longer using it." }]);
+			turn.nudged = true;
+		}, BACKGROUND_CONTEXT);
+	}
+
+	async projectTurn(threadId: string, request: LandingTurnRequest, callId: string): Promise<string> {
+		// Harness reads cannot run on the mutation line inside a commit. Cache the handle before a take can queue.
+		if (request.action === "take" && threadId !== MAIN_THREAD_ID && !this.#landingTurnConversations.has(threadId)) {
+			this.#landingTurnConversations.set(threadId, await this.conversation(threadId));
+		}
+		const result = await this.#options.harness.commit(async tx => {
+			const roster = await tx.doc(ThreadsDoc, this.#mainId);
+			if (threadId !== MAIN_THREAD_ID && roster.threads[threadId]?.kind !== "coordinator") {
+				throw new ServerError("bad_request", "Only General and area coordinators can use the landing turn.");
+			}
+			const turn = await tx.doc(LandingTurnDoc, this.#mainId);
+			const name = (id: string) => id === MAIN_THREAD_ID ? roster.main?.title ?? GENERAL.title : roster.threads[id]?.title ?? id;
+			const label = ({ coordinatorId, taskId }: { coordinatorId: string; taskId?: string }) =>
+				`${JSON.stringify(name(coordinatorId))} (${coordinatorId}${taskId ? `, ${taskId}` : ""})`;
+			const heldBy = () => turn.holder ? `${label(turn.holder)} since ${turn.holder.takenAt}` : "free";
+			if (request.action === "status") {
+				return `Landing turn: ${heldBy()}.${turn.holder?.note ? ` Note: ${JSON.stringify(turn.holder.note)}.` : ""} Waiting: ${turn.queue.map(label).join(", ") || "nobody"}.`;
+			}
+			const receipt = `${threadId}:${callId}`;
+			if (turn.receipts?.[receipt] !== undefined) return turn.receipts[receipt];
+			let text: string;
+			if (request.action === "release") {
+				const held = turn.holder?.coordinatorId === threadId;
+				const waited = turn.queue.some(waiter => waiter.coordinatorId === threadId);
+				await this.#advanceLandingTurn(tx, roster, threadId);
+				text = held ? `Released the landing turn. Now: ${heldBy()}.` : waited ? "Left the landing turn queue." : "You did not hold or wait for the landing turn.";
+			} else {
+				if (!this.#canHoldLandingTurn(roster, threadId)) throw new ServerError("bad_request", "A paused, stopped, failed or archived coordinator cannot take the landing turn.");
+				await this.#advanceLandingTurn(tx, roster);
+				const { taskId } = request;
+				if (taskId !== undefined && !(await openBoard(tx, this.#mainId)).tasks.some(task => task.id === taskId)) {
+					throw new ServerError("unknown_task", `No task ${JSON.stringify(taskId)} in this project.`);
+				}
+				const at = new Date(this.now()).toISOString();
+				const note = request.note?.trim().slice(0, 240);
+				const details = { coordinatorId: threadId, ...(taskId ? { taskId } : {}), ...(note ? { note } : {}) };
+				if (!turn.holder || turn.holder.coordinatorId === threadId) {
+					turn.holder ??= { ...details, takenAt: at };
+					text = "The landing turn is yours. Release it as soon as you finish.";
+				} else {
+					let index = turn.queue.findIndex(waiter => waiter.coordinatorId === threadId);
+					if (index < 0) {
+						index = turn.queue.length;
+						turn.queue.push({ ...details, askedAt: at, requestId: receipt });
+					}
+					text = `Queued at position ${index + 1}. Held by ${heldBy()}. End your turn and wait for the [turn] grant.`;
+				}
+			}
+			(turn.receipts ??= {})[receipt] = text;
+			return text;
+		}, BACKGROUND_CONTEXT);
+		if (request.action !== "status") this.#landingTurnChanged();
+		return result;
 	}
 
 	// --- live status --------------------------------------------------------------------------------------------
@@ -904,7 +1070,7 @@ export class ThreadService {
 			if (current.status === "done" || current.status === "stopped") return;
 			current.status = "failed";
 			current.failure = reason;
-		});
+		}, true);
 		if (record.kind === "job") await this.#options.board.noteThreadOutcome(record.id, `failed:${key}`, "thread failed", record.taskId);
 		if (record.kind === "job") await this.#post(record, `[thread ${record.id} failed: ${reason}]`, `thread-failed:${key}`);
 		const project = this.project;
@@ -943,7 +1109,7 @@ export class ThreadService {
 		}
 	}
 
-	async #update(threadId: string, change: (record: StoredThreadRecord) => void): Promise<void> {
+	async #update(threadId: string, change: (record: StoredThreadRecord) => void, dropLandingTurn = false): Promise<void> {
 		const now = this.#options.now();
 		await this.#options.harness.commit(async (tx) => {
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
@@ -953,8 +1119,10 @@ export class ThreadService {
 			change(record);
 			if (JSON.stringify(record) !== before) record.updatedAt = new Date(now).toISOString();
 			sweepArchive(doc, now);
+			if (dropLandingTurn) await this.#advanceLandingTurn(tx, doc, threadId);
 		}, BACKGROUND_CONTEXT);
-		this.#changed();
+		if (dropLandingTurn) this.#landingTurnChanged();
+		else this.#changed();
 	}
 
 	// --- starting ------------------------------------------------------------------------------------------------
@@ -1278,13 +1446,15 @@ export class ThreadService {
 		const current = await this.#requireBackground(threadId);
 		const conversation = await this.conversation(threadId);
 		await this.#options.harness.commit(async tx => {
-			const record = (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId]!;
+			const roster = await tx.doc(ThreadsDoc, this.#mainId);
+			const record = roster.threads[threadId]!;
 			if (record.kind !== "coordinator" || record.archived) throw new ServerError("bad_request", "Only an unarchived coordinator can be paused.");
 			if (!applyLifecycleOperation(record, "hold", requestId) || (record.held ?? false) === held) return;
 			await this.#rosterNote(tx, threadId, conversation.id, record.title, held ? "paused" : "resumed");
 			if (held) {
 				record.held = true;
 				record.heldAt = record.updatedAt = new Date(this.now()).toISOString();
+				await this.#advanceLandingTurn(tx, roster, threadId);
 				// Take not-yet-placed inputs away from the turn boundary. Their content is admitted together on resume.
 				const inbox = await tx.doc(InboxDoc, conversation.id);
 				for (const item of inbox.items) {
@@ -1302,8 +1472,7 @@ export class ThreadService {
 				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}`, ...(peerData ? { entry: { kind: THREAD_MESSAGE_ENTRY, data: peerData } } : {}) });
 			}
 		}, BACKGROUND_CONTEXT);
-		if (!held) this.#options.harness.resume();
-		this.#changed();
+		this.#landingTurnChanged();
 		return this.summaryOf((await this.record(threadId)) ?? current);
 	}
 
@@ -1349,12 +1518,12 @@ export class ThreadService {
 				}, BACKGROUND_CONTEXT);
 			}
 			const conversation = await this.conversation(threadId);
-			await this.#update(threadId, (current) => {
-				current.status = "stopped";
-			});
 			await conversation.abort(BACKGROUND_CONTEXT, { background: true }).catch((error: unknown) => {
 				this.#options.log(`thread ${threadId}: abort failed: ${errorMessage(error)}`);
 			});
+			await this.#update(threadId, (current) => {
+				current.status = "stopped";
+			}, true);
 			if (record.kind === "job") await this.#options.board.releaseThread(threadId, `stopped:${threadId}:${record.updatedAt}`, record.taskId);
 		}
 		return this.summaryOf((await this.record(threadId)) as ThreadRecord);
@@ -1396,11 +1565,12 @@ export class ThreadService {
 					}
 				}
 				current.archived = archived;
+				if (archived) await this.#advanceLandingTurn(tx, doc, threadId);
 				await this.#rosterNote(tx, threadId, current.conversationId, current.title, archived ? "archived" : "restored");
 				current.updatedAt = new Date(this.now()).toISOString();
 			}, BACKGROUND_CONTEXT);
+			this.#landingTurnChanged();
 			await this.#options.board.deliverUserMoveNotices();
-			this.#changed();
 		} else {
 			await this.#update(threadId, current => { current.archived = archived; if (!archived) current.autoArchive = false; });
 		}
@@ -1953,9 +2123,30 @@ function createThreadExtension(service: ThreadService): Extension {
 		},
 	});
 
+	const turnTool = defineTool({
+		name: "project_turn",
+		callers: ["model"],
+		description: "Take, release, or inspect the project-wide landing turn. If it is busy, take queues you and a [turn] input wakes you when it is yours. Release hands it to the next coordinator or removes you from the queue. The project's own rules govern what needs the landing turn.",
+		parameters: Type.Object({
+			action: Type.Union([Type.Literal("take"), Type.Literal("release"), Type.Literal("status")]),
+			taskId: Type.Optional(Type.String({ minLength: 1 })),
+			note: Type.Optional(Type.String({ maxLength: 240 })),
+		}),
+		replay: "safe",
+		execute: async (args, api) => {
+			const threadId = service.threadIdOf(api.conversationId);
+			if (threadId === undefined) return toolText(notCoordinator("project_turn"), { isError: true });
+			try {
+				return toolText(await service.projectTurn(threadId, args, api.callId));
+			} catch (error) {
+				return toolText(errorMessage(error), { isError: true });
+			}
+		},
+	});
+
 	return defineExtension({
 		name: "thread-tools",
-		tools: [listTool, peekTool, sendTool] as ToolRegistration[],
+		tools: [listTool, peekTool, sendTool, turnTool] as ToolRegistration[],
 		sections: [section("coordinator-peers", input => service.coordinators.isCoordinator(input.conversationId) ? PEER_THREADS_SECTION : undefined)],
 	});
 }

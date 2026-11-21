@@ -1,5 +1,9 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import androidx.compose.runtime.CompositionLocalProvider
+import io.github.mitzacoder.kemiri.features.coordinators.LocalLandingTurn
+import io.github.mitzacoder.kemiri.features.coordinators.rememberLandingTurn
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -120,7 +124,8 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
             LucideGlyph(Lucide.ChevronDown, Modifier.rotate(if (expanded) 180f else 0f), size = 14.dp, tint = colors.fgSubtle)
         }
         if (!collapsed) {
-            key(current.id) {
+            val landing = rememberLandingTurn(context, connection.supports("landing-turn"))
+            key(current.id) { CompositionLocalProvider(LocalLandingTurn provides landing) {
                 QuestionCard(
                     context, current,
                     askedBy = questionAskedBy(current, threads),
@@ -128,7 +133,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
                     onOpenTask = current.taskId?.takeIf { tasksView }?.let { id -> { context.openTask(id) } },
                     compact = true,
                 )
-            }
+            } }
             pin.others.forEach { question ->
                 key(question.id) {
                     val warning = isWarning(question)

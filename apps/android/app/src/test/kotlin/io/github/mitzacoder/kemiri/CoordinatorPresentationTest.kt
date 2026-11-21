@@ -28,6 +28,22 @@ class CoordinatorPresentationTest {
         assertEquals(listOf("main", "delivery", "kitchen", "shop"), coordinatorRoster(rows).map { it.id })
     }
 
+    @Test fun landingTurnShowsHolderTaskAndOtherWaitersInQueueOrder() {
+        val threads = listOf(thread("shop").copy(title = "Web shop"), thread("kitchen").copy(title = "Kitchen API"),
+            thread("delivery").copy(title = "Deliveries"), thread("job", "job").copy(parentThreadId = "shop"))
+        val turn = LandingTurn(LandingTurnHolder("shop", taskId = "T12", takenAt = ""),
+            listOf(LandingTurnWaiter("kitchen", askedAt = ""), LandingTurnWaiter("delivery", askedAt = "")))
+        val shown = landingTurnPresentation(turn, threads)
+        assertEquals("Web shop", shown?.holder?.title)
+        assertEquals("T12", shown?.taskId)
+        assertEquals(listOf("Kitchen API", "Deliveries"), shown?.waiting?.map { it.title })
+        assertEquals(listOf("Kitchen API", "Deliveries"), otherLandingTurnWaiters(shown, "job", threads))
+        assertEquals(listOf("Deliveries"), otherLandingTurnWaiters(shown, "kitchen", threads))
+        assertTrue(otherLandingTurnWaiters(shown, null, threads).isEmpty())
+        assertNull(landingTurnPresentation(null, threads))
+        assertNull(landingTurnPresentation(LandingTurn(queue = emptyList()), threads)?.holder)
+    }
+
     @Test fun badgesKeepAttentionWorkPauseAndUnreadIndependent() {
         val shop = thread("shop").copy(status = "running", held = true, lastReplyEntryId = 9, attention = ThreadSummaryAttention(1, 0, 0, 1, 0))
         assertEquals(CoordinatorBadges(2, true, true, true, "Needs you"), coordinatorBadges(shop, 8))

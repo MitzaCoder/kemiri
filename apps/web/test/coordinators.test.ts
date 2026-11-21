@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { landingTurnPresentation, otherLandingTurnWaiters } from "../src/lib/landing-turn.js";
 import type { BoardQuestion, BoardTask, ThreadSummary } from '@kemiri/protocol';
 import { coordinatorBadges, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, externalParts, projectEntryHref, scopedQuestions, scopedTasks } from '../src/lib/coordinators.js';
 
@@ -61,4 +62,18 @@ describe('coordinator presentation', () => {
 			expect(coordinatorShortcut({ ...event, ...other })).toBeUndefined();
 		}
 	});
+});
+
+test('presents the landing turn holder, task, and other waiters in order', () => {
+	const roster = [general, shop, kitchen, thread('delivery', { title: 'Deliveries' }), job];
+	const turn = landingTurnPresentation({ holder: { coordinatorId: 'shop', taskId: 'T12', takenAt: '' }, queue: [
+		{ coordinatorId: 'kitchen', askedAt: '' }, { coordinatorId: 'delivery', askedAt: '' }
+	] }, roster);
+	expect(turn?.holder).toMatchObject({ id: 'shop', taskId: 'T12', thread: shop });
+	expect(turn?.waiting.map(waiter => waiter.title)).toEqual(['kitchen', 'Deliveries']);
+	expect(otherLandingTurnWaiters(turn, job.id, roster)).toEqual(['kitchen', 'Deliveries']);
+	expect(otherLandingTurnWaiters(turn, kitchen.id, roster)).toEqual(['Deliveries']);
+	expect(otherLandingTurnWaiters(turn, 'main', roster)).toEqual([]);
+	expect(landingTurnPresentation(undefined, roster)).toBeUndefined();
+	expect(landingTurnPresentation({ queue: [] }, roster)).toEqual({ holder: undefined, waiting: [] });
 });

@@ -8,11 +8,12 @@ import {
 	THREAD_FINISHED_PREFIX,
 	THREAD_MESSAGE_PREFIX,
 	type ThreadsStateEvent,
+	type ThreadsListResponse,
 	type ThreadSummary,
 } from "@kemiri/protocol";
 
 /** A project's threads as `threads.list` and `threads.state` carry them. */
-export type ThreadsSnapshot = { threads: ThreadSummary[] };
+export type ThreadsSnapshot = Pick<ThreadsListResponse, "threads" | "landingTurn">;
 
 /** Whether a pushed list belongs to the project this screen watches: one connection may watch several. */
 export function threadsStateIsFor(state: Pick<ThreadsStateEvent, "projectId">, projectId: string): boolean {

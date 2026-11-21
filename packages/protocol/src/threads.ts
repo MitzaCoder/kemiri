@@ -158,10 +158,26 @@ export type ThreadsHoldRequest = Static<typeof ThreadsHoldRequestSchema>;
 
 // --- responses ---------------------------------------------------------------------------------------------------
 
+export const LandingTurnHolderSchema = Type.Object({
+	coordinatorId: Type.String(), taskId: Type.Optional(Type.String()), note: Type.Optional(Type.String()), takenAt: Type.String(),
+});
+export type LandingTurnHolder = Static<typeof LandingTurnHolderSchema>;
+
+export const LandingTurnWaiterSchema = Type.Object({
+	coordinatorId: Type.String(), taskId: Type.Optional(Type.String()), askedAt: Type.String(),
+});
+export type LandingTurnWaiter = Static<typeof LandingTurnWaiterSchema>;
+
+export const LandingTurnSchema = Type.Object({
+	holder: Type.Optional(LandingTurnHolderSchema), queue: Type.Array(LandingTurnWaiterSchema),
+});
+export type LandingTurn = Static<typeof LandingTurnSchema>;
+
 export const ThreadsListResponseSchema = Type.Object({
 	type: Type.Literal("threads.list"),
 	id: RequestIdSchema,
 	threads: Type.Array(ThreadSummarySchema),
+	landingTurn: Type.Optional(LandingTurnSchema),
 });
 export type ThreadsListResponse = Static<typeof ThreadsListResponseSchema>;
 
@@ -201,6 +217,7 @@ export const ThreadsStateEventSchema = Type.Object({
 	type: Type.Literal("threads.state"),
 	projectId: ProjectIdSchema,
 	threads: Type.Array(ThreadSummarySchema),
+	landingTurn: Type.Optional(LandingTurnSchema),
 });
 export type ThreadsStateEvent = Static<typeof ThreadsStateEventSchema>;
 

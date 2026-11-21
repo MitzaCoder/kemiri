@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.coordinators.LocalLandingTurn
+import io.github.mitzacoder.kemiri.features.coordinators.otherLandingTurnWaiters
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -136,6 +139,11 @@ fun QuestionCard(
                 if (preview) Text(io.github.mitzacoder.kemiri.features.chat.markdownText(question.text),
                     style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 else BoardMarkdown(question.text)
+                val landing = LocalLandingTurn.current
+                if (landing != null && !warning && question.status == "open") {
+                    val waiters = otherLandingTurnWaiters(landing.turn, question.threadId, landing.threads)
+                    if (waiters.isNotEmpty()) Text("Waiting for the landing turn: ${waiters.joinToString()}", style = TaskType.xs, color = colors.fgMuted)
+                }
             }
             if (!optionsOnly) IconButton(onClick = { readingExpanded = true }) {
                 LucideGlyph(ExpandQuestionIcon, size = 16.dp, contentDescription = "Expand ${if (warning) "warning" else "question"} ${question.id}")

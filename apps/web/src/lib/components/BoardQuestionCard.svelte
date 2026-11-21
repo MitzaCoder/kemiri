@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { otherLandingTurnWaiters, useLandingTurn } from '#lib/landing-turn.js';
 	import TaskDetailText from './TaskDetailText.svelte';
 	import { fitQuestionDialogToViewport } from '#lib/question-dialog-viewport.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
@@ -58,6 +59,11 @@
 	} = $props();
 
 	const warning = $derived(question.kind === 'warning');
+	const readLandingTurn = useLandingTurn();
+	const turnWaiters = $derived.by(() => {
+		const landing = readLandingTurn?.();
+		return landing && !warning && question.status === 'open' ? otherLandingTurnWaiters(landing.turn, question.threadId, landing.threads) : [];
+	});
 	const canAnswer = $derived(question.status === 'open' && onanswer !== undefined);
 	const canClarify = $derived(canClarifyQuestion(question, onclarify !== undefined));
 	const waitingForAgent = $derived(question.status === 'open' && question.waitingOn === 'agent');
@@ -294,6 +300,7 @@
 			{#if strip && !optionsOnly}
 				<button type="button" class="block min-h-11 w-full truncate text-left text-xs underline-offset-2 hover:underline" onclick={() => readingExpanded = true} title="Read the full question">{markdownText(question.text)}</button>
 			{:else}<CardMarkdown source={question.text} />{/if}
+			{#if turnWaiters.length}<p class="mt-1 text-xs text-(--chat-fg-muted)">Waiting for the landing turn: {turnWaiters.join(', ')}</p>{/if}
 		</div>
 		{#if !optionsOnly}
 		<Dialog.Root bind:open={readingExpanded}>

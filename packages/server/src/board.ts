@@ -994,6 +994,20 @@ export function changeLink(
 }
 
 /** Explain canonicalization without claiming an ignored origin link was added. */
+/** Match exact normalized titles, or near-identical sets of at least four words. */
+export function similarOpenTasks<T extends Pick<BoardTask, "id" | "title" | "status" | "archived">>(task: Pick<BoardTask, "id" | "title">, candidates: readonly T[]): T[] {
+	const words = (text: string) => new Set(text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+	const title = words(task.title);
+	if (!title.size) return [];
+	return candidates.flatMap(candidate => {
+		if (candidate.id === task.id || candidate.archived || candidate.status === "done" || candidate.status === "dropped") return [];
+		const other = words(candidate.title);
+		const shared = [...title].filter(word => other.has(word)).length;
+		const score = shared / (title.size + other.size - shared);
+		return score === 1 || (shared >= 4 && score >= 0.8) ? [{ candidate, score }] : [];
+	}).sort((a, b) => b.score - a.score).slice(0, 5).map(match => match.candidate);
+}
+
 function duplicateOriginNotice(change: TaskChange, requested?: string | null): string {
 	const repairs = change.notices?.length ? ` ${change.notices.join(" ")}` : "";
  const origin = requested === undefined ? change.before?.foundWhile : requested;
@@ -2454,6 +2468,17 @@ export class BoardService {
 
 	coordinatorId(owner?: string | null): string {
 		return this.#options.coordinators?.coordinatorId(owner) ?? "main";
+	}
+
+	async similarTaskTitles(task: Pick<BoardTask, "id" | "title">): Promise<string> {
+		const matches = similarOpenTasks(task, (await this.state()).tasks);
+		if (!matches.length) return "";
+		const labels = await Promise.all(matches.map(async match => {
+			const coordinatorId = this.coordinatorId(match.ownerThreadId);
+			const name = await this.#options.threadTitle?.(coordinatorId) ?? (coordinatorId === "main" ? "General" : coordinatorId);
+			return `${match.id} ${JSON.stringify(match.title)} (${JSON.stringify(name)})`;
+		}));
+		return ` Similar open tasks: ${labels.join(", ")}. Check whether to merge the work or hand it off.`;
 	}
 
 	async routeCoordinator(owner?: string | null): Promise<string> {
@@ -3982,7 +4007,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const task = change.after;
 						service.noticeReview(change);
 						const warnings = taskTextWarnings({ name: "Description", text: input.description }, { name: "Done when", text: input.acceptance });
-						return toolText(`Added ${task.id} (r${task.revision}).${duplicateOriginNotice(change, input.foundWhile)}${warnings}`, { details: { taskId: task.id } });
+						return toolText(`Added ${task.id} (r${task.revision}).${duplicateOriginNotice(change, input.foundWhile)}${await service.similarTaskTitles(task)}${warnings}`, { details: { taskId: task.id } });
 					}
 					case "update_task":
 					case "drop_task": {

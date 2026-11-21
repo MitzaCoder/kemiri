@@ -40,6 +40,7 @@ import {
 	type Board,
 	type BoardTask,
 	type ThreadSummary,
+	type LandingTurn,
 	CLIENT_MESSAGE_TYPES,
 	ClientMessageSchema,
 	DEFAULT_DRAIN_TIMEOUT_MS,
@@ -262,8 +263,8 @@ export class ClientConnection {
 	}
 
 	/** Push a project's threads (without archived ones) when any changes. */
-	notifyThreads(projectId: string, threads: ThreadSummary[]): void {
-		this.#respond({ type: "threads.state", projectId, threads });
+	notifyThreads(projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn): void {
+		this.#respond({ type: "threads.state", projectId, threads, ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
 	}
 
 	notifyThreadMessage(event: ThreadsMessageEvent): void {
@@ -888,8 +889,8 @@ export class ClientConnection {
 					return;
 				}
 				case "threads.list": {
-					const threads = await this.#manager.threads(request.projectId, request.includeArchived === true);
-					this.#respond({ type: "threads.list", id: request.id, threads });
+					const { threads, landingTurn } = await this.#manager.threadSnapshot(request.projectId, request.includeArchived === true);
+					this.#respond({ type: "threads.list", id: request.id, threads, ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
 					return;
 				}
 				case "threads.stop": {
@@ -1275,8 +1276,9 @@ export class ClientConnection {
 					return;
 				}
 				case "conversation.abort": {
-					const { conversation } = await this.#manager.conversation(request.projectId, request.threadId);
+					const { conversation, runtime } = await this.#manager.conversation(request.projectId, request.threadId);
 					await conversation.abort(BACKGROUND_CONTEXT, request.background === true ? { background: true } : undefined);
+					await runtime.threads.dropLandingTurn(request.threadId ?? "main");
 					this.#respond({ type: "conversation.abort", id: request.id });
 					return;
 				}
