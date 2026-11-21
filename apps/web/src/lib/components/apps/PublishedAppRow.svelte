@@ -44,7 +44,7 @@
 		<div class="app-description">
 			<strong>{app.name}</strong>
 			{#if link}<div class="app-address">{link}</div>{/if}
-			<div class="app-meta">{appStateLabel(app)}{#if detail} · {detail}{/if}</div>
+			<div class="app-meta">{[appStateLabel(app), detail].filter(Boolean).join(' · ')}</div>
 		</div>
 	</div>
 	{#if link || (update && app.state !== 'unpublished')}
@@ -60,7 +60,7 @@
 				{#if showDetails && app.state === 'pending'}
 					<Button size="sm" variant="outline" class="max-sm:min-h-11" disabled={busy} title="Allow this app and future publishes in this project" onclick={() => void act('allow')}>Allow</Button>
 				{/if}
-				<Button size="sm" variant="outline" class="max-sm:min-h-11 text-(--chat-danger)" disabled={busy} title="Unpublish without stopping the process" onclick={() => void act('stop')}>Stop</Button>
+				<Button size="sm" variant="outline" class={app.state === 'stopped' ? "max-sm:min-h-11" : "max-sm:min-h-11 text-(--chat-danger)"} disabled={busy} title="Unpublish without stopping the process" onclick={() => void act('stop')}>{app.state === 'stopped' ? 'Remove' : 'Stop'}</Button>
 			{/if}
 		</div>
 	{/if}

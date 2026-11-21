@@ -33,6 +33,7 @@ export type TestSetup = {
 };
 
 type TestSetupOptions = {
+	appListenerSource?: StartServerOptions["appListenerSource"];
 	antigravityCommand?: string;
 	updates?: StartServerOptions["updates"];
 	/** Register extra providers, for example a fake OAuth provider, on the setup's models. */
@@ -125,6 +126,7 @@ async function startTestSetup(root: string, options?: TestSetupOptions): Promise
 
 	const start = (): Promise<HarnessServer> =>
 		startServer({
+			...(options?.appListenerSource === undefined ? {} : { appListenerSource: options.appListenerSource }),
 			browsers: new WorkerBrowserService({ dataDir, findBrowser: () => null, log: () => {} }),
 			dataDir,
 			...(options?.updates === undefined ? {} : { updates: options.updates }),

@@ -10,10 +10,14 @@ export type AppActivity = {
 	at: string;
 };
 
+/** A stopped app stays encoded as live on disk so a Stage 1 rollback can still read the row. */
+export type AppRecord = ProjectApp & { stoppedAt?: string | undefined; unpublishedAt?: string | undefined };
+
 /** Optional version-1 project fields; older servers ignore this entire extension. */
 export type AppRegistryDocument = {
 	approved?: true;
-	records?: ProjectApp[];
+	records?: AppRecord[];
+	ignoredPorts?: number[];
 	activity?: AppActivity[];
 };
 
@@ -26,16 +30,25 @@ function readAppUrl(record: ProjectApp): string | null {
 	return null;
 }
 
+function validTimestamp(value: unknown): value is string {
+	return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
 export function readAppRegistry(value: unknown, projectId: string): AppRegistryDocument | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const document = value as AppRegistryDocument;
+	const activity = Array.isArray(document.activity) ? document.activity.filter(event => event && validTimestamp(event.at)) : [];
+	const unpublishedAt = new Map(activity.filter(event => event.kind === "unpublished").map(event => [event.appId, event.at]));
 	return {
 		...(document.approved === true ? { approved: true } : {}),
 		records: Array.isArray(document.records) ? document.records.filter(record =>
 			Check(ProjectAppSchema, record) && record.projectId === projectId).map(record => ({
 				...record,
 				url: readAppUrl(record),
+				...(record.state === "live" && validTimestamp(record.stoppedAt) ? { stoppedAt: record.stoppedAt } : { stoppedAt: undefined }),
+				...(record.state === "unpublished" ? { unpublishedAt: validTimestamp(record.unpublishedAt) ? record.unpublishedAt : unpublishedAt.get(record.appId) ?? record.createdAt } : { unpublishedAt: undefined }),
 			})) : [],
-		activity: Array.isArray(document.activity) ? document.activity : [],
+		activity,
+		ignoredPorts: Array.isArray(document.ignoredPorts) ? [...new Set(document.ignoredPorts.filter(port => Number.isInteger(port) && port >= 1024 && port <= 65535))] : [],
 	};
 }

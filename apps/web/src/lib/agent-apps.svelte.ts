@@ -1,9 +1,11 @@
 import type { HarnessClient } from '@kemiri/client';
-import type { ProjectApp } from '@kemiri/protocol';
+import type { DetectedAppPort, ProjectApp } from '@kemiri/protocol';
 import { getContext, setContext } from 'svelte';
 
 class ProjectAppsFeed {
 	apps = $state<readonly ProjectApp[]>([]);
+	detected = $state<readonly DetectedAppPort[]>([]);
+	listenerChecksAvailable = $state<boolean>();
 	loaded = $state(false);
 	error = $state<string>();
 	#sequence = 0;
@@ -14,7 +16,7 @@ class ProjectAppsFeed {
 		this.#offChanges = client.onAppsChanged(id => { if (id === projectId) void this.load(); });
 		this.#offState = client.subscribe(state => {
 			if (state.status === 'ready') void this.load();
-			else { this.#sequence++; this.loaded = false; this.apps = []; }
+			else { this.#sequence++; this.loaded = false; this.apps = []; this.detected = []; }
 		});
 		if (client.connected) void this.load();
 	}
@@ -22,14 +24,17 @@ class ProjectAppsFeed {
 	async load(): Promise<void> {
 		const sequence = ++this.#sequence;
 		try {
-			const apps = await this.client.listApps(this.projectId);
+			const { apps, detected, listenerChecksAvailable } = await this.client.listProjectApps(this.projectId);
 			if (sequence !== this.#sequence) return;
 			this.apps = apps;
+			this.detected = detected ?? [];
+			this.listenerChecksAvailable = listenerChecksAvailable;
 			this.error = undefined;
 			this.loaded = true;
 		} catch (error) {
 			if (sequence !== this.#sequence) return;
 			this.apps = [];
+			this.detected = [];
 			this.error = error instanceof Error ? error.message : String(error);
 		}
 	}
@@ -37,6 +42,12 @@ class ProjectAppsFeed {
 	async update(appId: string, action: 'allow' | 'stop'): Promise<void> {
 		if (action === 'allow') await this.client.allowApp(this.projectId, appId);
 		else await this.client.unpublishApp(this.projectId, appId);
+		await this.load();
+	}
+
+	async updateDetected(port: number, action: 'publish' | 'ignore'): Promise<void> {
+		if (action === 'publish') await this.client.publishDetectedApp(this.projectId, port);
+		else await this.client.ignoreDetectedApp(this.projectId, port);
 		await this.load();
 	}
 

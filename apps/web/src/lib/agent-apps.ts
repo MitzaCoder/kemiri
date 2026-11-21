@@ -22,6 +22,7 @@ export function appLink(app: Pick<ProjectApp, 'state' | 'url'>): string | null {
 }
 
 export function appStateLabel(app: ProjectApp): string {
+	if (app.state === 'stopped') return `Stopped · nothing listens on port ${app.port} any more`;
 	if (app.state === 'pending') return 'Waiting for approval';
 	if (app.state === 'unpublished') return 'Unpublished';
 	return appLink(app) ? 'Live' : 'No address configured';

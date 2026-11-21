@@ -186,12 +186,15 @@ private const val ORB_MIN_WIDTH_DP = 640
 @Composable internal fun ToolCallCard(part: ChatPart, scope: TranscriptScope) {
     val context = scope.context
     val worker = if(context != null) workerForCall(part,scope.workers,context.route.threadId) else null
+    val apps = io.github.mitzacoder.kemiri.features.apps.LocalProjectApps.current
+    val publishedApp = if (apps != null) io.github.mitzacoder.kemiri.features.apps.appIdFromCall(part) else null
     val board = if(part.name == "board") boardCallView(part.arguments,part.text) else null
     when {
         worker != null && context != null -> WorkerCallCard(part,worker,scope.workerTitlesBefore[part.key],worker.scheduleId?.let { scope.scheduleTitles[it] }) {
             context.navigate(context.route.copy(workerId = worker.id,threadId = worker.threadId ?: context.route.threadId))
         }
         part.name.startsWith("thread_") -> ThreadToolCard(part,scope.threads.find { it.id == threadCallId(part) },context,scope.artifacts)
+        publishedApp != null && apps != null -> io.github.mitzacoder.kemiri.features.apps.AppPublishCard(publishedApp, apps)
         part.name == "artifact_save" -> ArtifactCallCard(part,context,scope.artifacts)
         part.name == "codemode" -> CodeModeCard(part)
         part.name.startsWith("memory_") -> MemoryCallCard(part,context)

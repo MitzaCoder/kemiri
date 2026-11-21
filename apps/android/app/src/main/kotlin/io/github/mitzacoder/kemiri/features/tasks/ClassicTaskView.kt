@@ -120,6 +120,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskProof(context, automaticProof)
                     }
                 }
+                item(key = "apps") { io.github.mitzacoder.kemiri.features.apps.TaskApps(taskId) }
                 if (artifacts.isNotEmpty()) item(key = "files") {
                     TaskReadingSection("Files") {
                         TaskFiles(context, artifacts, onUpdateTags = sheet.onUpdateArtifactTags)

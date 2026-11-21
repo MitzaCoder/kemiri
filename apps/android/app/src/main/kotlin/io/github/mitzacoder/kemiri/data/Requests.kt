@@ -228,6 +228,14 @@ suspend fun HarnessClient.request(value: AppsAllowRequest, explicitNulls: Set<St
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsAllowRequest.serializer(), value).jsonObject, explicitNulls), AppsAllowResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: AppsPublishDetectedRequest, explicitNulls: Set<String> = emptySet()): AppsPublishDetectedResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsPublishDetectedRequest.serializer(), value).jsonObject, explicitNulls), AppsPublishDetectedResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AppsIgnoreDetectedRequest, explicitNulls: Set<String> = emptySet()): AppsIgnoreDetectedResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsIgnoreDetectedRequest.serializer(), value).jsonObject, explicitNulls), AppsIgnoreDetectedResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: AppsUnpublishRequest, explicitNulls: Set<String> = emptySet()): AppsUnpublishResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsUnpublishRequest.serializer(), value).jsonObject, explicitNulls), AppsUnpublishResponse.serializer()
 )

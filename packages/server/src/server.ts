@@ -1,3 +1,4 @@
+import type { AppListenerSource } from "./app-listeners.ts";
 import { AgentApps } from "./agent-apps.ts";
 import { ProjectFileWrites } from "./project-file-writes.ts";
 import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
@@ -95,6 +96,7 @@ import { TerminalHost, type TerminalHostOptions, terminalsEnabled } from "./term
 import { resolveToolCallCapMs } from "./tool-caps.ts";
 
 export type StartServerOptions = {
+	appListenerSource?: AppListenerSource;
 	/** Explicit executable override for isolated tests; production uses KEMIRI_ANTIGRAVITY_COMMAND. */
 	antigravityCommand?: string;
 	browsers?: WorkerBrowserService;
@@ -601,6 +603,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	await userSettings.open();
 	const apps = features.includes("apps") ? new AgentApps({
 		store, settings: () => userSettings.appSettings, backendPort: () => boundPort,
+		...(options.appListenerSource === undefined ? {} : { listenerSource: options.appListenerSource }),
 		backendOrigins: () => [...auth.hosts, ...allowedOrigins],
 		changed: projectId => { for (const connection of connections) connection.notifyApps(projectId); },
 		...(options.now === undefined ? {} : { now: options.now }),
@@ -1082,6 +1085,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 
 	const actualPort = boundPort = server.port ?? port;
+	apps?.start(error => log(`app listeners: ${errorMessage(error)}`));
 	if (options.webDir) mcpOrigins.push(`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`);
 
 	auth.onRevoke = async (sessionId) => {
@@ -1221,6 +1225,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			stopped = true;
 			officialAgents.beginShutdown();
 			clearInterval(authTimer);
+			await apps?.stop();
 			scheduleScheduler.stop();
 			scheduleEvents.stop();
 			maintenanceClock.stop();

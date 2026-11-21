@@ -1686,6 +1686,7 @@ data class ProjectApp(
     val `state`: String,
     val `taskId`: String? = null,
     val `publishedBy`: AppPublisher,
+    val `ownerPublished`: Boolean? = null,
     val `createdAt`: String,
     val `mode`: String
 )
@@ -1703,6 +1704,22 @@ data class AppsAllowRequest(
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `appId`: String
+)
+
+@Serializable
+data class AppsPublishDetectedRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.publishDetected",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `port`: Long
+)
+
+@Serializable
+data class AppsIgnoreDetectedRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.ignoreDetected",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `port`: Long
 )
 
 @Serializable
@@ -1730,7 +1747,14 @@ data class AppsSettingsSetRequest(
 data class AppsListResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "apps.list",
     val `id`: String,
-    val `apps`: List<ProjectApp>
+    val `apps`: List<ProjectApp>,
+    val `detected`: List<AppsListResponseDetectedItem>? = null,
+    val `listenerChecksAvailable`: Boolean? = null
+)
+
+@Serializable
+data class AppsListResponseDetectedItem(
+    val `port`: Long
 )
 
 @Serializable
@@ -1738,6 +1762,19 @@ data class AppsAllowResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "apps.allow",
     val `id`: String,
     val `app`: ProjectApp
+)
+
+@Serializable
+data class AppsPublishDetectedResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.publishDetected",
+    val `id`: String,
+    val `app`: ProjectApp
+)
+
+@Serializable
+data class AppsIgnoreDetectedResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.ignoreDetected",
+    val `id`: String
 )
 
 @Serializable

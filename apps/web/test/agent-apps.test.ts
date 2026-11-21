@@ -29,3 +29,11 @@ test('the card gets identity from the tool call, but only a live HTTP address fr
 	expect(appLink({ ...app, url: 'https://secret@example.test' })).toBeNull();
 	expect(appStateLabel({ ...app, url: null })).toBe('No address configured');
 });
+
+test('a stopped app keeps a task row but loses its link and running count', () => {
+	const stopped: ProjectApp = { ...app, state: 'stopped' };
+	expect(visibleApps([stopped], 'T1')).toEqual([stopped]);
+	expect(appCountLabel([stopped])).toBe('0 apps running');
+	expect(appLink(stopped)).toBeNull();
+	expect(appStateLabel(stopped)).toBe(`Stopped · nothing listens on port ${stopped.port} any more`);
+});

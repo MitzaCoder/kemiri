@@ -680,7 +680,19 @@ export class HarnessClient {
 	}
 
 	async listApps(projectId: string): Promise<ProjectApp[]> {
-		return (await this.#call<Extract<Response, { type: "apps.list" }>>({ type: "apps.list", projectId })).apps;
+		return (await this.listProjectApps(projectId)).apps;
+	}
+
+	async listProjectApps(projectId: string) {
+		return this.#call<Extract<Response, { type: "apps.list" }>>({ type: "apps.list", projectId });
+	}
+
+	async publishDetectedApp(projectId: string, port: number): Promise<ProjectApp> {
+		return (await this.#call<Extract<Response, { type: "apps.publishDetected" }>>({ type: "apps.publishDetected", projectId, port })).app;
+	}
+
+	async ignoreDetectedApp(projectId: string, port: number): Promise<void> {
+		await this.#call<Extract<Response, { type: "apps.ignoreDetected" }>>({ type: "apps.ignoreDetected", projectId, port });
 	}
 
 	async allowApp(projectId: string, appId: string): Promise<ProjectApp> {

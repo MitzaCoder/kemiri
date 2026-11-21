@@ -497,14 +497,15 @@ The coordinator's lazy catalogue picks up that one addition on its next model re
 worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
 Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
 
-### Agent-served apps (T411)
+### Agent-served apps (T411, T412)
 
 The optional `apps` feature lets workers, threads and coordinators register an HTTP server they already run, with
 `app_publish`, `app_list` and `app_unpublish`. Workers default to their assigned task. Before publishing, the backend
 makes a short HTTP HEAD request only to IPv4 loopback. Any HTTP status counts. It never follows redirects and refuses
 its own port and ports below 1024. The port check does not prove that a device can reach the advertised address.
+The check is for explicit agent publish and approval only, not for listener discovery.
 
-Settings → Computers → the backend → Advanced stores the publishing policy (`off`, `ask`, `on`) and address mode in
+Settings → Computers → the backend → Advanced on web, and Settings → This computer → Advanced on Android, store the publishing policy (`off`, `ask`, `on`) and address mode in
 that backend's existing settings. The defaults are `ask` and address mode `off`. With `ask`, a publish has no URL
 until the owner presses Allow in Running apps. This allows that app and later publishes in the same project, not
 in other projects. Settings changes apply to future publications. Mode `off` records the app without a link.
@@ -521,12 +522,27 @@ unpublishing record the app, task and publisher, and who made the change. Stop u
 process or revokes a copied address. A task that closes or archives loses its publications. For an app without a
 task, forgetting its worker or archiving its thread does the same. An attached publication can outlast its worker.
 
+On Linux, the backend samples `ss -ltnpH` on list requests and about every 30 seconds for registries and observed
+projects. It never connects to a port to check liveness. If nothing listens on a published port, the app becomes
+stopped and its link is disabled. If a listener returns within a day, the app becomes live again with its original
+address. Stopped and unpublished records and old activity are pruned after one day. A stopped record is stored as
+live plus an optional `stoppedAt` timestamp so rollback can still read the same version-1 record. Stage 1 does not
+interpret that timestamp. An unavailable listener scan leaves the previous app state intact and shows a note in the list.
+
+Listening sockets on loopback or a wildcard bind can be suggested when `/proc/<pid>/cwd` belongs to the project,
+its managed worker or thread checkout, or a linked Git or Jujutsu workspace. The backend excludes its own port,
+privileged ports and ports already registered. It reads no process arguments and shows nothing if cwd is inaccessible.
+Detected ports are never registered or exposed automatically. The owner can explicitly Publish a detected port with a
+default name, or Ignore it until the socket disappears from a successful scan. Owner publication does not grant
+agents approval or set up forwarding; reachability still depends on the backend address mode and network controls.
+
 One generated Apps instruction line gives the bind and address facts on each run. The built-in `serve-apps` skill
 holds practical details, and coordinator project facts include active app names, tasks, addresses and states. There
-are no agent environment variables, technology detection, listener discovery or managed processes in this stage.
-The web project header opens Running apps, with Open, Copy link, QR, Allow and Stop. Chat publish cards resolve the
-latest app state from the registry rather than opening historical tool output. The task view lists its apps beside
-its files. App links open a new tab with `noopener`. Android has generated protocol models but no app views yet.
+are no agent environment variables, technology detection or managed processes.
+Project headers on web and Android open Running apps, with Open, Copy link, QR, Allow, Stop, Remove for stopped
+apps and Publish and Ignore for detected ports. Chat publish cards resolve the latest app state from the registry
+rather than opening historical tool output. The task view lists its apps beside its files. Web opens a new tab with
+`noopener`; Android uses the system browser and shares the pairing QR renderer. App surfaces are gated on `apps`.
 
 ### Managed worker browsers (T248)
 

@@ -65,6 +65,9 @@ internal fun ComputerAdvanced(repository: HarnessRepository, backend: BackendSes
     var confirmingRemove by rememberSaveable { mutableStateOf(false) }
     val connection by backend.client.state.collectAsStateWithLifecycle()
     SettingsSectionPage(ComputerSection.Advanced) {
+        if (connection.supports(io.github.mitzacoder.kemiri.data.HarnessFeature.APPS)) {
+            AppAddressSettings(backend.client, connection.status == ConnectionStatus.Ready)
+        }
         if (connection.supports("coordinator-compaction-settings")) key(backend.config.key) {
             CoordinatorCompactionGroup(backend, connection.status == ConnectionStatus.Ready)
         }

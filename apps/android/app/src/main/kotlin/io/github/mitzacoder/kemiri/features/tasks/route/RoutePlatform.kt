@@ -168,6 +168,7 @@ private fun RouteArrived(sheet: TaskSheetState, open: Boolean, wide: Boolean) {
             }
             RouteProof(sheet, proof)
             RouteChecks(sheet.fields.checks, wide)
+            io.github.mitzacoder.kemiri.features.apps.TaskApps(sheet.task.id)
             if (sheet.artifacts.isNotEmpty()) {
                 TaskHeading("Files (${sheet.artifacts.size})")
                 TaskFiles(sheet.context, sheet.artifacts, onUpdateTags = sheet.onUpdateArtifactTags)

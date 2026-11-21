@@ -8,6 +8,7 @@ import io.github.mitzacoder.kemiri.protocol.*
  * [ConnectionState.supports] to hide what the backend cannot do and never see that error in normal use.
  */
 object HarnessFeature {
+    const val APPS = "apps"
     const val PROJECT_REPOSITORY = "project-repository"
     const val MEMORY_MAINTENANCE_ENABLED = "memory-maintenance-enabled"
     const val WORKER_PICKER_PROJECT_DEFAULT = "worker-picker-project-default"

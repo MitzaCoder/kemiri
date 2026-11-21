@@ -811,11 +811,22 @@ export class ClientConnection {
 				}
 				case "apps.list":
 				case "apps.allow":
+				case "apps.publishDetected":
+				case "apps.ignoreDetected":
 				case "apps.unpublish": {
 					const apps = this.#manager.apps;
 					if (!apps || !this.#features.includes("apps")) return this.#unknownRequest(request);
 					if (request.type === "apps.list") {
-						this.#respond({ type: request.type, id: request.id, apps: await apps.list(request.projectId) });
+						this.#respond({ type: request.type, id: request.id, ...await apps.listForOwner(request.projectId) });
+					} else if (request.type === "apps.ignoreDetected") {
+						await apps.ignoreDetected(request.projectId, request.port);
+						this.#respond({ type: request.type, id: request.id });
+					} else if (request.type === "apps.publishDetected") {
+						const { runtime } = await this.#manager.open(request.projectId);
+						const app = await apps.publishDetected(request.projectId, request.port, {
+							kind: "coordinator", id: "main", threadId: "main", conversationId: runtime.conversation.id,
+						});
+						this.#respond({ type: request.type, id: request.id, app });
 					} else if (request.type === "apps.unpublish") {
 						this.#respond({ type: request.type, id: request.id, app: await apps.unpublish(request.projectId, request.appId, "owner") });
 					} else {

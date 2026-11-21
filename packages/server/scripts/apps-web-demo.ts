@@ -56,9 +56,35 @@ while (!(await apps.list(projectId)).length) {
 	if (Date.now() > deadline) throw new Error(`The demo agent did not publish. ${JSON.stringify(view.view?.entries.slice(-4))}`);
 	await Bun.sleep(25);
 }
+// Separate children run inside the synthetic project, so the real listener scan can attribute their cwd.
+async function projectListener() {
+	const child = Bun.spawn([process.execPath, '-e', `
+		const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('Bakery demo') });
+		console.log(server.port);
+	`], { cwd: setup.projectDir, stdout: 'pipe', stderr: 'inherit' });
+	const reader = child.stdout.getReader();
+	const { value } = await reader.read();
+	reader.releaseLock();
+	const port = Number(new TextDecoder().decode(value).trim());
+	if (!port) throw new Error('The fixture did not start its project listener.');
+	return { child, port };
+}
+const receipt = await projectListener();
+const detected = await projectListener();
+await apps.publish(projectId, { name: 'Receipt printer test page', port: receipt.port }, { publisher: {
+	kind: 'coordinator', id: 'main', threadId: 'main', conversationId: runtime.conversation.id,
+} }, runtime.activeApps);
+receipt.child.kill();
+await receipt.child.exited;
 await client.request({ type: 'apps.settings.set', settings: { addresses: { mode: 'template', template }, policy: 'ask' } });
-const fixture = { url: setup.server.url, projectId, taskId: task.id, port: listener.port, before: before?.url.origin, after: after?.url.origin, pid: process.pid };
+// For the recording, stop the order form process without using the app's Stop button.
+process.on('SIGUSR2', () => { listener.stop(true); });
+const fixture = { url: setup.server.url, projectId, taskId: task.id, port: listener.port, detectedPort: detected.port,
+	before: before?.url.origin, after: after?.url.origin, pid: process.pid };
 await Bun.write(process.env.DEMO_OUTPUT ?? '/tmp/apps-web-demo.json', JSON.stringify(fixture));
 console.log('Synthetic Bakery orders backend ready.');
-process.on('SIGTERM', async () => { client.close(); listener.stop(true); before?.stop(true); after?.stop(true); await setup.cleanup(); process.exit(0); });
+process.on('SIGTERM', async () => {
+	client.close(); listener.stop(true); detected.child.kill(); await detected.child.exited;
+	before?.stop(true); after?.stop(true); await setup.cleanup(); process.exit(0);
+});
 await new Promise(() => {});

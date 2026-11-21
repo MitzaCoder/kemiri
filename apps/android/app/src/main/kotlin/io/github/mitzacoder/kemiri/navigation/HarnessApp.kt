@@ -211,8 +211,9 @@ private fun HarnessNavigation(
         }
     }
     var htmlArtifactViewport by remember(current) { mutableStateOf(false) }
+    val apps = io.github.mitzacoder.kemiri.features.apps.rememberProjectApps(backend?.client, chat?.projectId)
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
-    CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
+    CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets, io.github.mitzacoder.kemiri.features.apps.LocalProjectApps provides apps) {
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && !codeView && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
         Row(Modifier.fillMaxSize()) {
@@ -234,7 +235,7 @@ private fun HarnessNavigation(
             Row(Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.weight(1f),
-                    topBar = {
+                    topBar = { Column {
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
                         if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
@@ -257,7 +258,11 @@ private fun HarnessNavigation(
                                 if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop)
                             },
                         )
-                    },
+                        if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task)) {
+                            val board by context.board.view.collectAsStateWithLifecycle()
+                            io.github.mitzacoder.kemiri.features.apps.RunningAppsChip(board.tasks, Modifier.padding(horizontal = 16.dp))
+                        }
+                    } },
                 ) { padding ->
                     val modifier = if (current is Destination.ArtifactStudio) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(padding)
                     if (!loaded) Box(modifier) { CircularProgressIndicator() }
