@@ -499,7 +499,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 							} else if (moves && taskId !== null) {
 								moveTaskForWorker(board, { key, taskId, move: { kind: "failed", workerId, reason }, now });
 							} else if (moves && scheduleId !== null) {
-								recordScheduleProblem(board, { key, scheduleId, title: schedule?.title ?? scheduleId, reason, now });
+								recordScheduleProblem(board, { key, scheduleId, title: schedule?.title ?? scheduleId, reason, now, ownerThreadId: service.coordinators.threadIdOf(owner.id) });
 							}
 							await snapshotStatusChanges(tx, service.mainId as ConversationId, board, before, { by: HARNESS_WRITER, at: now, key });
 							// The timeline says what became of the worker: a report, or the failure and its reason.
@@ -717,20 +717,14 @@ const VERIFICATION_AND_QUESTION_RULES = `Verification has diminishing returns: v
 const BOARD_INPUT_RULES = `Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped are the user closing the task. The order of the todo tasks is the user's priority, highest first: start them in that order.`;
 
 /** General and area coordinators talk to the owner directly and follow the same working rules. */
-function directCoordinatorSection(project: Project, role: "general" | "area"): string {
-	const general = role === "general";
-	const introduction = general ? `You coordinate the project "${project.name}" at ${project.path}. You keep every tool, and you` : "You";
-	const taskOwnership = general ? "" : " Claim a task before starting if it does not already belong to you; do not work on a task another coordinator holds.";
-	const scheduleDelegation = general ? ", or to a schedule with schedule_save when it should recur" : "";
-	const sharedWorkerCheckout = general ? "the project checkout as it is" : "your own workspace as it is";
-	const scheduleScriptRestriction = general ? ", or save, delete or run a schedule" : "";
-	return `${introduction} do the thinking: plan, delegate, review, merge. Write code only for small, local fixes; hand real work to workers.${taskOwnership}
+function directCoordinatorSection(project: Project): string {
+	return `You do the thinking: plan, delegate, review, merge. Write code only for small, local fixes; hand real work to workers. Claim a task before starting if it does not already belong to you; do not work on a task another coordinator holds.
 
-Stay responsive: the user is waiting on the other end of every turn, so answer quickly and never block a turn on a wait or a poll — not a sleep, not a loop of status checks, nothing that keeps you "working" while nothing changes. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn${scheduleDelegation}, then end your turn. You get the report when it arrives, including from the user's next message if you are already answering them, and you can act on it then instead of blocking on it now.
+Stay responsive: the owner is waiting on the other end of every turn, so answer quickly and never block a turn on a wait or a poll — not a sleep, not a loop of status checks, nothing that keeps you "working" while nothing changes. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn, or to a schedule with schedule_save when it should recur, then end your turn. Use thread_start for a background job with one task and a complete brief. Review your jobs' summaries and failures like worker reports. You get the report when it arrives, including from the owner's next message if you are already answering them.
 
 Work like this:
 1. Plan the change and decide how much can run at once.
-2. Delegate each independent piece with worker_spawn: a self-contained brief (goal, files, constraints, how to verify) and a title. Pick isolation per worker: "shared" for reading, searching and work that must touch ${sharedWorkerCheckout}; "workspace" when the worker needs its own jj workspace so its edits stay out of the project until you merge them. Workspace isolation needs a jj repository; if it fails, use "shared". Workers can do anything you can in a repository: commit, rebase, squash, rewrite history, push. Add an \`Kemiri-Task: T…\` trailer to commit descriptions. Give that work to a worker like any other and say in the brief what to commit, how to split it and where it goes; do not do it yourself because you assume a worker cannot.
+2. Delegate each independent piece with worker_spawn: a self-contained brief (goal, files, constraints, how to verify) and a title. Pick isolation per worker: "shared" for reading, searching and work that must touch your checkout; "workspace" when the worker needs its own jj workspace so its edits stay out of the project until you merge them. Workspace isolation needs a jj repository; if it fails, use "shared". Workers can do anything you can in a repository: commit, rebase, squash, rewrite history, push. Add an \`Kemiri-Task: T…\` trailer to commit descriptions. Give that work to a worker like any other and say in the brief what to commit, how to split it and where it goes; do not do it yourself because you assume a worker cannot.
 3. Keep working or answer while workers run. Their reports arrive as messages starting with "[worker <id> reported]" or "[worker <id> failed: ...]". Only that report reaches you, never the worker's transcript.
 4. Review a report, then inspect the result yourself (jj log, jj diff, reading files). Merge an isolated worker's change by committing nothing in your own checkout but rebasing or squashing the worker's commit into it, for example \`jj squash --from <change> --into @\` to fold it into the working copy or \`jj rebase -s <change> -d @\` to keep it separate. A conflict is not yours to fight through: spawn a new worker with a brief that names the conflicting files and change IDs, and let it resolve them in its workspace.
 5. When a worker's work is merged and reported, release it with worker_forget (removes its workspace). Send more work to the same worker with worker_send while it lives: it remembers its earlier messages. When you hand it a new task, pass a new title too, so the worker list says what it does now. worker_stop aborts what it is doing and keeps it usable; worker_list shows every worker, its status, model, isolation and workspace.
@@ -749,14 +743,14 @@ ${BOARD_INPUT_RULES}
 
 ${uiProofParagraph(project, "coordinator")}${checkInsParagraph(project)}
 
-${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker${scheduleScriptRestriction} — only you can, directly.
+${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker, or save, delete or run a schedule — only you can, directly.
 
 Every worker ends with a report: outcome, files changed, workspace and change ID, open issues, and things worth remembering. Treat that report as a claim to check, not as the truth.`;
 }
 
 /** General keeps the project checkout and can schedule recurring work. */
 export function coordinatorSection(project: Project): string {
-	return directCoordinatorSection(project, "general");
+	return directCoordinatorSection(project);
 }
 
 const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer it; if it came as task feedback, put the answer in the feedback note. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with artifactId to publish the next version. Keep: leave that part unchanged in a rewrite. If it came as task feedback, mark it handling when you act and addressed when done, naming the new version if you made one.
@@ -769,7 +763,7 @@ If an (artifact <id>~<n>, <file>) message is about a done task, answer plain que
  */
 export function threadCoordinatorSection(project: Project): string {
 	const checkIns = checkInsParagraph(project);
-	return `You are a background thread of the project "${project.name}": a coordinator like main (the thread the user talks to), working on one big piece of work on your own. Main started you with a brief. Nobody waits on your turns, so keep going until the work is done, then end with thread_finish.
+	return `You are a background thread of the project "${project.name}": a coordinator like main (the thread the user talks to), working on one big piece of work on your own. Your parent coordinator or a schedule gave you a brief. Nobody waits on your turns, so keep going until the work is done, then end with thread_finish.
 
 Never block a turn on a wait or a poll — not a sleep, not a loop of status checks. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn and end your turn: its report arrives as a message and wakes you.
 
@@ -797,11 +791,7 @@ ${uiProofParagraph(project, "coordinator")}${checkIns}
 
 ${CODEMODE_GUIDANCE} Scripts cannot start, message, stop or forget a worker — only you can, directly.
 
-When the work is done, or cannot go on, call thread_finish with a summary for main: the outcome, where the work is (workspace, change IDs, branches, pull requests), open issues and anything the user must decide. The summary is all main sees of your work, so make it complete.`;
-}
-
-function areaCoordinatorSection(project: Project): string {
-	return directCoordinatorSection(project, "area");
+When the work is done, or cannot go on, call thread_finish with a summary for your parent coordinator: the outcome, where the work is (workspace, change IDs, branches, pull requests), open issues and anything the user must decide. The summary is all your parent sees of your work, so make it complete.`;
 }
 
 /** What a worker is told when it is created; it replaces the coordinator's instructions. */
@@ -1175,6 +1165,8 @@ export type WorkerServiceOptions = {
 
 /** One scheduled run, as the harness starts it: the schedule's brief, model, thinking level and isolation. */
 export type ScheduledRunInput = {
+	ownerThreadId?: string;
+	validateOwner?: (tx: Tx) => Promise<void>;
 	scheduleId: string;
 	title: string;
 	brief: string;
@@ -1199,9 +1191,9 @@ export type ScheduledRunInput = {
 /** What main's check-ins say about its running background threads; attached by `ThreadService`. */
 export type ThreadCheckIns = {
 	/** How many background threads run now. */
-	running(context: Context): Promise<number>;
+	running(parentThreadId: string, context: Context): Promise<number>;
 	/** One digest per running background thread, each within `maxChars`. */
-	digests(now: number, maxChars: number, context: Context): Promise<string[]>;
+	digests(parentThreadId: string, now: number, maxChars: number, context: Context): Promise<string[]>;
 };
 
 export type ScheduledRunResult =
@@ -1316,8 +1308,9 @@ export class WorkerService {
 
 	/** Background threads running now, which main's check-ins also cover; none for a background thread's own. */
 	async runningThreads(conversationId: number, context: Context = BACKGROUND_CONTEXT): Promise<number> {
-		if (!this.#coordinators.isMain(conversationId) || this.#threadCheckIns === undefined) return 0;
-		return this.#threadCheckIns.running(context);
+		const place = this.#coordinators.placeOf(conversationId);
+		if (place?.kind !== "coordinator" || this.#threadCheckIns === undefined) return 0;
+		return this.#threadCheckIns.running(place.threadId, context);
 	}
 
 	/** Where a coordinator's workers work; undefined for anything that is not a coordinator. */
@@ -1642,6 +1635,7 @@ export class WorkerService {
 						projectName: project.name,
 						scheduleId: input.schedule.id,
 						scheduleTitle,
+						coordinatorId: input.threadId,
 						workerId: input.workerId,
 						callId: input.callId,
 						text: input.text,
@@ -1654,6 +1648,7 @@ export class WorkerService {
 						projectName: project.name,
 						scheduleId: input.schedule.id,
 						scheduleTitle,
+						coordinatorId: input.threadId,
 						workerId: input.workerId,
 						callId: input.callId,
 						failure: input.failure,
@@ -1773,8 +1768,8 @@ export class WorkerService {
 		// More workers running means less room each, so one check-in stays inexpensive.
 		const covered = running.length + threads;
 		const budget = Math.max(600, Math.min(CHECK_IN_MAX_CHARS, Math.floor(CHECK_IN_TOTAL_CHARS / Math.max(1, covered))));
-		const threadDigests = threads > 0 ? ((await this.#threadCheckIns?.digests(now, budget, context)) ?? []) : [];
-		if (threadDigests.length > 0) return this.#checkInWithThreads(running, threadDigests, now, budget, context);
+		const threadDigests = threads > 0 ? ((await this.#threadCheckIns?.digests(this.#coordinators.threadIdOf(conversationId)!, now, budget, context)) ?? []) : [];
+		if (threadDigests.length > 0) return this.#checkInWithThreads(running, threadDigests, now, budget, context, conversationId);
 		const { digests, question } = await this.#workerDigests(running, now, budget, context);
 		const count = running.length === 1 ? "1 worker is" : `${running.length} workers are`;
 		const header = [
@@ -1821,6 +1816,7 @@ export class WorkerService {
 		now: number,
 		budget: number,
 		context: Context,
+		conversationId: number,
 	): Promise<string> {
 		const { digests, question } = await this.#workerDigests(running, now, budget, context);
 		const workers = running.length === 0 ? "" : running.length === 1 ? "1 worker and " : `${running.length} workers and `;
@@ -1831,7 +1827,7 @@ export class WorkerService {
 			`${workers}${threads} ${verb} still running. Decide whether any is stuck or on a wrong path: steer a worker with worker_send (interrupt: true) or stop it with worker_stop; steer a thread with thread_send or stop it with thread_stop; say nothing when it is making progress. Do not answer just to acknowledge.`,
 		];
 		const body = [...digests, ...threadDigests.map((digest) => `thread ${digest}`)].join("\n\n");
-		return checkInText(header, body, [question, ...this.#diskLines(this.mainId)]);
+		return checkInText(header, body, [question, ...this.#diskLines(conversationId)]);
 	}
 
 	/**
@@ -1980,7 +1976,10 @@ export class WorkerService {
 	 * finds the worker it already started instead of starting a second one.
 	 */
 	async startScheduledRun(run: ScheduledRunInput): Promise<ScheduledRunResult> {
-		const state = await this.state();
+		const place = this.#coordinators.placeOfThread(run.ownerThreadId ?? "main");
+		if (place?.kind !== "coordinator") return { ok: false, message: "The schedule owner is not a coordinator." };
+		const ownerId = place.conversationId;
+		const state = await this.state(BACKGROUND_CONTEXT, ownerId);
 		const base = run.event?.id ?? scheduledWorkerId(run.scheduleId, run.at, run.timezone);
 		let workerId: string | undefined;
 		for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -2013,7 +2012,7 @@ export class WorkerService {
 		let workspaceRevision: string | null = null;
 		if (run.isolation === "workspace") {
 			try {
-				workspace = await this.createWorkspace(workerId);
+				workspace = await this.createWorkspace(workerId, place);
 				workspaceRevision = await jjWorkspaceRevision(workspace);
 			} catch (error) {
 				return {
@@ -2024,11 +2023,12 @@ export class WorkerService {
 			}
 		}
 		// A `record` run must not wake the coordinator, and a check-in would.
-		const checkIn = run.onReport === "review" ? await this.checkInNeeded() : false;
+		const checkIn = run.onReport === "review" ? await this.checkInNeeded(BACKGROUND_CONTEXT, ownerId) : false;
 		const browserAvailability = this.isOfficialAgent(model) ? "Official-agent worker" : await this.ensureBrowserReady();
 		const conversationId = await this.harness.commit(
-			(tx) =>
-				this.createWorkerIn(tx, this.coordinator.id, {
+			async (tx) => {
+				await run.validateOwner?.(tx);
+				return this.createWorkerIn(tx, ownerId as ConversationId, {
 					browserAvailability,
 					id: workerId,
 					title: run.title.slice(0, 120),
@@ -2046,7 +2046,8 @@ export class WorkerService {
 					followUp: false,
 					checkIn,
 					schedule: { id: run.scheduleId, title: run.title.slice(0, 120), onReport: run.onReport, isolation: run.isolation },
-				}),
+				});
+			},
 			BACKGROUND_CONTEXT,
 		);
 		// The reporter is a background task created outside any run, so nothing would pick it up without this.
@@ -2651,7 +2652,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 			section("coordinator", (input) => {
 				if (service.coordinators.isMain(input.conversationId)) return coordinatorSection(service.project);
 				if (service.coordinators.isBackground(input.conversationId)) {
-					if (service.coordinators.placeOf(input.conversationId)?.kind === "coordinator") return areaCoordinatorSection(service.project);
+					if (service.coordinators.placeOf(input.conversationId)?.kind === "coordinator") return coordinatorSection(service.project);
 					return threadCoordinatorSection(service.project);
 				}
 				return undefined;

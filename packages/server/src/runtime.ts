@@ -111,7 +111,7 @@ import { CompactionService, ContextUsageReader, coordinatorCompactionSettings } 
 import { BoardService, openQuestionCount } from "./board.ts";
 import { HistoryService } from "./history.ts";
 import { type ScheduleStore, SchedulesService, nextRunAfter } from "./schedules.ts";
-import { ThreadService } from "./threads.ts";
+import { mainThreadInstructions, ThreadService } from "./threads.ts";
 import { createToolCapExtension, DEFAULT_TOOL_CALL_CAP_MS } from "./tool-caps.ts";
 import { ToolCallDrain } from "./drain.ts";
 import { WorkerService } from "./workers.ts";
@@ -682,10 +682,10 @@ export class ProjectManager {
 		return runtime.storage.clean(itemIds);
 	}
 
-	async archiveThread(projectId: string, threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string): Promise<ThreadSummary> {
+	async archiveThread(projectId: string, threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string, schedules?: "move" | "disable"): Promise<ThreadSummary> {
 		const { runtime } = await this.open(projectId);
 		if (archived) this.#requestLog?.warming.invalidate(projectId, "Thread archived", Number((await runtime.threads.conversation(threadId)).id));
-		return runtime.threads.archive(threadId, archived, moveTasksTo, operationId);
+		return runtime.threads.archive(threadId, archived, moveTasksTo, operationId, schedules);
 	}
 
 	/**
@@ -880,13 +880,15 @@ export class ProjectManager {
 		};
 	}
 
-	/** Create or replace a schedule the user saved in the app; a closed project picks it up when the clock fires. */
+	/** Create or replace a schedule the owner saved. Legacy General schedules do not open the project. */
 	async saveSchedule(projectId: string, input: ScheduleInput, scheduleId?: string): Promise<Schedule> {
 		const project = await this.store.require(projectId);
-		return this.#schedules.save(project.id, input, {
-			createdBy: "user",
-			...(scheduleId === undefined ? {} : { scheduleId }),
-		});
+		const options = { createdBy: "user" as const, ...(scheduleId === undefined ? {} : { scheduleId }) };
+		const previous = scheduleId === undefined ? undefined : await this.#schedules.find(projectId, scheduleId);
+		const owner = input.ownerThreadId ?? previous?.ownerThreadId ?? MAIN_THREAD_ID;
+		if (owner === MAIN_THREAD_ID) return this.#schedules.save(project.id, input, options);
+		const { runtime } = await this.open(projectId);
+		return runtime.schedules.save(input, options);
 	}
 
 	async deleteSchedule(projectId: string, scheduleId: string): Promise<void> {
@@ -1529,8 +1531,7 @@ export class ProjectManager {
 		let mainActivity: ProjectActivityService | undefined;
 		let pushThreads: () => void = () => undefined;
 		const threadsDir = join(this.store.projectDir(project.id), "threads");
-		// Background threads: coordinators of their own. They keep every coordinator extension except the tools that
-		// start threads and the schedule tools, which stay main's; main removes `thread_finish`.
+		// Jobs keep the background tool set. Area coordinators use the same tool set as General.
 		const threads = new ThreadService({
 			project: () => entry.project,
 			harness,
@@ -1539,7 +1540,8 @@ export class ProjectManager {
 			workers,
 			board,
 			threadsDir,
-			removedExtensions: () => [schedules.extension, workers.taskExtension, workerCommandIntent],
+			removedExtensions: kind => [workers.taskExtension, workerCommandIntent, ...(kind === "job" ? [schedules.extension] : [])],
+			archiveSchedules: (threadId, action) => this.#schedules.archiveOwner(project.id, threadId, action),
 			mainActivity: () => mainActivity?.current ?? DEFAULT_ACTIVITY,
 			...(this.#notifications === undefined ? {} : { notifications: this.#notifications }),
 			now: () => this.#clock(),
@@ -1573,7 +1575,6 @@ export class ProjectManager {
 			now: () => this.#clock(),
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
-		registry.install(memory.extension);
 		registry.install(coordinatorNotesExtension(harness, coordinators, (tx, conversationId) => threads.isHeld(tx, conversationId)));
 		registry.install(compaction.extension);
 		registry.install(history.extension);
@@ -1699,8 +1700,9 @@ export class ProjectManager {
 				),
 			);
 		}
-		// After everything else, so its wraps see every tool (and count the time of the caps above) and its hook holds only
-		// calls no other hook blocked. Neither changes a section, so code mode's section stays last.
+		// Keep the memory index after the shared working sections, before per-conversation instructions.
+		registry.install(memory.extension);
+		// Install drain last so its wraps see every tool and it holds only calls no other hook blocked.
 		registry.install(this.drain.extension(registry.snapshot().tools().map(({ tool }) => tool.name)));
 		try {
 			// Applied on every open: project.json is the source of truth, including a cleared model.
@@ -1709,6 +1711,7 @@ export class ProjectManager {
 					model: project.coordinator.model,
 					thinkingLevel: project.coordinator.thinkingLevel,
 					cwd: project.path,
+					instructions: mainThreadInstructions(project, (await threads.state()).main),
 					// Main never finishes: `thread_finish` is for its background threads. `task_progress` is a worker's.
 					extensions: { add: [mcpRoleExtension("coordinator")], remove: [threads.finishExtension, workers.taskExtension, workerCommandIntent, mcpRoleExtension("workers"), mcpRoleExtension("background")] },
 				},
@@ -1724,7 +1727,7 @@ export class ProjectManager {
    for (const place of coordinators.places()) {
     if (!coordinators.isMain(place.conversationId)) {
      const thread = await coordinators.conversation(place.conversationId);
-     if (thread) await configureMcpRole(harness, thread, "background");
+     if (thread) await thread.configure({ extensions: threads.extensionsFor(place.kind ?? "job") }, BACKGROUND_CONTEXT);
     }
     for (const worker of Object.values((await workers.state(BACKGROUND_CONTEXT, place.conversationId)).workers)) {
      const child = await harness.conversation(worker.conversationId as import("@earendil-works/pi-durable").ConversationId, BACKGROUND_CONTEXT);

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import CoordinatorMark from '#lib/components/CoordinatorMark.svelte';
  import TimeInput from "#lib/components/TimeInput.svelte";
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import Banner from '#lib/components/Banner.svelte';
@@ -25,6 +26,7 @@
 		draftFromSchedule,
 		emptyScheduleDraft,
 		runsAsLabel,
+		scheduleOwnerPresentation,
 		type ScheduleDraft
 	} from '#lib/schedules.js';
 	import {
@@ -32,6 +34,7 @@
 		type ModelRef,
 		type Schedule,
 		type ScheduleInput,
+		type ThreadSummary,
 		type ThinkingLevel
 	} from '@kemiri/protocol';
 
@@ -44,12 +47,15 @@
 		backend,
 		open = $bindable(false),
 		schedule,
+		roster, supportsOwners,
 		onsave
 	}: {
 		backend: BackendConnection;
 		open: boolean;
 		/** The schedule being edited; absent for a new one. */
 		schedule?: Schedule;
+		roster: readonly ThreadSummary[];
+		supportsOwners: boolean;
 		onsave: (input: ScheduleInput, scheduleId: string | undefined) => Promise<void>;
 	} = $props();
 
@@ -58,6 +64,8 @@
 	const supportsThreads = $derived(backend.supports('threads'));
 	/** Only a backend that advertises `schedule-events` can run an event rule; an existing one stays editable. */
 	const supportsEvents = $derived(backend.supports('schedule-events') || draft.kind === 'github-review-requested');
+	let ownerThreadId = $state("main");
+	const owner = $derived(scheduleOwnerPresentation(ownerThreadId, roster));
 	let errors = $state<string[]>([]);
 	let saving = $state(false);
 	/** Which schedule the draft was filled from, so reopening the dialog starts from what is stored. */
@@ -81,6 +89,7 @@
 		if (filledFor === key) return;
 		filledFor = key;
 		draft = schedule === undefined ? emptyScheduleDraft() : draftFromSchedule(schedule);
+		ownerThreadId = schedule?.ownerThreadId ?? "main";
 		errors = [];
 	});
 
@@ -141,7 +150,7 @@
 		{ value: 'workspace', label: 'Own jj workspace', description: 'The coordinator merges it' }
 	];
 	const reportOptions = $derived<ComboOption[]>([
-		{ value: 'review', label: draft.runsAs === 'thread' ? 'Main chat reviews it' : 'Coordinator reviews it', description: 'Wakes it for a turn' },
+		{ value: 'review', label: draft.runsAs === 'thread' && !supportsOwners ? 'Main chat reviews it' : 'Coordinator reviews it', description: 'Wakes it for a turn' },
 		{ value: 'record', label: 'Just record it', description: 'Kept for your next message' }
 	]);
 
@@ -154,7 +163,7 @@
 		errors = [];
 		saving = true;
 		try {
-			await onsave(checked.input, schedule?.id);
+			await onsave({ ...checked.input, ...(supportsOwners && ownerThreadId !== (schedule?.ownerThreadId ?? "main") ? { ownerThreadId } : {}) }, schedule?.id);
 			open = false;
 		} catch (error) {
 			errors = [error instanceof Error ? error.message : String(error)];
@@ -171,7 +180,7 @@
 			<Dialog.Description>
 				{#if draft.runsAs === 'thread'}
 					Each run starts a background job with your prompt: a coordinator with its own workers. Its summary
-					reaches Main chat when it finishes.
+					reaches {supportsOwners ? owner.title : 'Main chat'} when it finishes.
 				{:else}
 					The brief runs as a worker of the project's coordinator. The report goes to the coordinator like any other
 					worker's.
@@ -199,6 +208,22 @@
 						autocomplete="off"
 					/>
 				</Field.Field>
+				{#if supportsOwners}
+					<Field.Field>
+						<Field.Label for="schedule-owner">Owner</Field.Label>
+						<div class="flex min-w-0 items-center gap-2">
+							{#if owner.thread}<CoordinatorMark thread={owner.thread} />{/if}
+							<select id="schedule-owner" bind:value={ownerThreadId} class="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm">
+								<option value="main">{scheduleOwnerPresentation(undefined, roster).title}</option>
+								{#each roster.filter(thread => !thread.main && !thread.archived && thread.kind === 'coordinator') as coordinator (coordinator.id)}
+									<option value={coordinator.id}>{coordinator.title}</option>
+								{/each}
+								{#if owner.id !== 'main' && (!owner.thread || owner.thread.archived)}<option value={owner.id}>{owner.title} (unavailable)</option>{/if}
+							</select>
+						</div>
+						<Field.Description>Runs and reports belong to this coordinator.</Field.Description>
+					</Field.Field>
+				{/if}
 				{#if supportsThreads}
 					<Field.Field>
 						<Field.Label for="schedule-runs-as">Each run</Field.Label>
@@ -216,7 +241,7 @@
 						class="min-h-20 text-sm md:text-sm"
 					/>
 					<Field.Description>
-						{draft.runsAs === 'thread' ? 'What you would ask Main chat for.' : 'Self-contained: the worker sees only this.'}
+						{draft.runsAs === 'thread' ? 'Give the job a self-contained prompt.' : 'Self-contained: the worker sees only this.'}
 					</Field.Description>
 					<LearnMore>
 						{#if draft.runsAs === 'thread'}

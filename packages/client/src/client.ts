@@ -1204,7 +1204,7 @@ export class HarnessClient {
 	}
 
 	/** Archive a background thread, or bring it back with `archived: false`. */
-	async archiveThread(projectId: string, threadId: string, archived = true, options: { moveTasksTo?: string; operationId?: string } = {}): Promise<ThreadSummary> {
+	async archiveThread(projectId: string, threadId: string, archived = true, options: { moveTasksTo?: string; schedules?: "move" | "disable"; operationId?: string } = {}): Promise<ThreadSummary> {
 		const response = await this.#call<ThreadsArchiveResponse>({
 			type: "threads.archive",
 			projectId,

@@ -22,7 +22,7 @@ const kitchen = await runtime.threads.create({ title: 'Kitchen API', area: 'Inve
 const deliveries = await runtime.threads.create({ title: 'Deliveries', area: 'Pickup windows, courier routes, and packaging.', color: '#ba8036' }, 'demo-deliveries');
 const marketing = await runtime.threads.create({ title: 'Marketing', area: 'Seasonal photography, newsletters, and the bakery story.', color: '#d2688c' }, 'demo-marketing');
 const job = await runtime.threads.create({ title: 'Audit product photos', area: 'Check the image sizes for the spring menu.' }, 'demo-photo-audit');
-const { menu, stock, route } = await runtime.harness.commit(async tx => {
+const { menu, stock, route, deliveryJobTask } = await runtime.harness.commit(async tx => {
 	const doc = await tx.doc(ThreadsDoc, runtime.conversation.id);
 	doc.threads[job.id]!.kind = 'job';
 	doc.threads[job.id]!.parentThreadId = shop.id;
@@ -37,6 +37,7 @@ const { menu, stock, route } = await runtime.harness.commit(async tx => {
 	task('Show sold-out items at checkout', shop.id, 'blocked', undefined, [stock]);
 	task('Polish the gift-note field', shop.id, 'review');
 	const route = task('Confirm the Saturday pickup route', deliveries.id);
+	const deliveryJobTask = task('Check courier pickup labels', deliveries.id);
 	const newsletter = task('Draft the spring newsletter', marketing.id);
 	const boxes = task('Choose the sample box supplier', null);
 	task('Print the price cards', null);
@@ -48,7 +49,7 @@ const { menu, stock, route } = await runtime.harness.commit(async tx => {
 		[deliveries.id, route, 'Open the first pickup window at eight or nine?', ['Eight', 'Nine']],
 		[marketing.id, newsletter, 'Lead with the lemon buns or the cardamom knots?', ['Lemon buns', 'Cardamom knots']],
 	] as const) askQuestion(board, { threadId, taskId, text, options, now });
-	return { menu, stock, route };
+	return { menu, stock, route, deliveryJobTask };
 }, BACKGROUND_CONTEXT);
 await runtime.threads.hold(marketing.id, true, 'demo-pause');
 const send = (id: string, message: string, kind: 'request' | 'reply' | 'note', taskId: string, awaitReply = false) =>
@@ -56,6 +57,7 @@ const send = (id: string, message: string, kind: 'request' | 'reply' | 'note', t
 setup.faux.setResponses(Array.from({ length: 100 }, () => request => {
 	const last = request.messages.findLast(message => message.role !== 'system');
 	const text = last && 'content' in last && typeof last.content === 'string' ? last.content : '';
+	if (text === 'Start the pickup label audit.') return fauxAssistantMessage([fauxToolCall('thread_start', { title: 'Audit pickup labels', brief: 'Check the synthetic labels for Saturday’s pickup windows.', taskId: deliveryJobTask, onFinish: 'record' })], { stopReason: 'toolUse' });
 	if (text.includes('How is the spring preorder menu')) return send(kitchen.id, 'What bake quantities can the preorder menu show?', 'request', stock, true);
 	if (text.includes('What bake quantities can the preorder menu show?')) return send(shop.id, 'The first batch will have 24 lemon buns and 18 cardamom knots.', 'reply', stock);
 	if (text.includes('Could you check the pickup labels?')) return send(kitchen.id, 'Can the kitchen confirm the new pickup labels?', 'request', menu, true);
@@ -77,6 +79,14 @@ await submit(kitchen.id, 'demo-note', 'Share the preorder note.');
 await runtime.threads.projectTurn(shop.id, { action: 'take', taskId: menu }, 'demo-shop-turn');
 await runtime.threads.projectTurn(kitchen.id, { action: 'take', taskId: stock }, 'demo-kitchen-turn');
 await runtime.threads.projectTurn(deliveries.id, { action: 'take', taskId: route }, 'demo-deliveries-turn');
-await Bun.write(process.env.DEMO_OUTPUT ?? '/tmp/coordinators-demo.json', JSON.stringify({ url: setup.server.url, projectId, shop: shop.id, kitchen: kitchen.id, task: stock, pid: process.pid }));
+await runtime.schedules.save({ title: 'Check ingredient stock', brief: 'Read the sample stock list and flag low quantities.',
+	ownerThreadId: kitchen.id, spec: { kind: 'weekly', time: '09:00', days: [1, 2, 3, 4, 5] },
+	model: null, thinkingLevel: null, isolation: 'shared', onReport: 'record', enabled: true }, { createdBy: 'user' });
+await runtime.schedules.save({ title: 'Review the market checklist', brief: 'Read the bakery’s synthetic weekly checklist.',
+	spec: { kind: 'weekly', time: '10:00', days: [5] }, model: null, thinkingLevel: null,
+	isolation: 'shared', onReport: 'record', enabled: false }, { createdBy: 'user' });
+await submit(deliveries.id, 'demo-delivery-job', 'Start the pickup label audit.');
+await (await runtime.threads.conversation('audit-pickup-labels')).waitForIdle(BACKGROUND_CONTEXT);
+await Bun.write(process.env.DEMO_OUTPUT ?? '/tmp/coordinators-demo.json', JSON.stringify({ url: setup.server.url, projectId, shop: shop.id, kitchen: kitchen.id, deliveries: deliveries.id, job: 'audit-pickup-labels', task: stock, pid: process.pid }));
 console.log('Coordinator demo ready');
 await new Promise(() => {});

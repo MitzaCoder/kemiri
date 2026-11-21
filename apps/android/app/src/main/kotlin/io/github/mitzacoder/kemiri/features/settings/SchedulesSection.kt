@@ -21,6 +21,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
+import io.github.mitzacoder.kemiri.features.coordinators.CoordinatorMark
+import io.github.mitzacoder.kemiri.features.coordinators.rememberCoordinatorThreads
 import io.github.mitzacoder.kemiri.features.status.BannerTone
 import io.github.mitzacoder.kemiri.features.status.ToneBanner
 import io.github.mitzacoder.kemiri.features.status.relativeTime
@@ -95,6 +97,8 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
     }
     val enabled = !busy && connection.status == ConnectionStatus.Ready && connection.supports("schedules")
     val events = connection.supports("schedule-events")
+    val supportsOwners = connection.supports("coordinator-schedules")
+    val roster = rememberCoordinatorThreads(context, supportsOwners)
     var history by rememberSaveable { mutableStateOf(listOf<String>()) }
 
     SettingsSectionPage("Scheduled tasks", "Work the harness starts on a clock${if (events) " or on an event" else ""}.", SettingsIcon.CalendarClock) {
@@ -129,6 +133,13 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
                             @OptIn(ExperimentalLayoutApi::class)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                                 Text(schedule.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                if (supportsOwners) {
+                                    val owner = scheduleOwnerPresentation(schedule.ownerThreadId, roster)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        CoordinatorMark(owner.thread, owner.title)
+                                        Text(owner.title, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
                                 if (isEventSpec(schedule.spec)) StatusChip("On an event", ChipTone.Info, dot = false, icon = SettingsGlyphs.GitPullRequest)
                                 if (schedule.kind == "thread") StatusChip("Background job", ChipTone.Muted, dot = false)
                                 if (schedule.createdBy == "coordinator") StatusChip("By the coordinator", ChipTone.Muted, dot = false)
@@ -149,7 +160,7 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
                             scope.launch {
                                 try {
                                     val run = client.request(SchedulesRunRequest(projectId = projectId, scheduleId = schedule.id)).run
-                                    notice = runNotice(context, schedule, run)
+                                    notice = runNotice(context, schedule, run, if (supportsOwners) scheduleOwnerPresentation(schedule.ownerThreadId, roster).title else "Main chat")
                                     refresh()
                                 } catch (e: CancellationException) { throw e }
                                 catch (e: Exception) { notice = RunNotice(schedule.id, BannerTone.Error, e.message ?: "Could not run it.") }
@@ -202,7 +213,7 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
     editing?.let { id ->
         val row = schedules.firstOrNull { it.id == id }
         if (id.isEmpty() || row != null) key(id) {
-            ScheduleEditor(row, timezone, models, catalog?.providers.orEmpty(), enabled, error, allowThreads = connection.supports("threads"), allowEvents = events || row?.spec is ScheduleSpecGithubReviewRequested,
+            ScheduleEditor(row, timezone, models, catalog?.providers.orEmpty(), enabled, error, allowThreads = connection.supports("threads"), allowEvents = events || row?.spec is ScheduleSpecGithubReviewRequested, roster = roster, supportsOwners = supportsOwners,
                 onDismiss = { editing = null }, onSave = { input ->
                     operation { client.request(SchedulesSaveRequest(projectId = projectId, scheduleId = id.ifEmpty { null }, schedule = input)); editing = null }
                 })
@@ -210,10 +221,10 @@ private fun SchedulesContent(context: ProjectScreenContext, highlightId: String?
     }
 }
 
-private fun runNotice(context: ProjectScreenContext, schedule: Schedule, run: ScheduleRun): RunNotice {
+private fun runNotice(context: ProjectScreenContext, schedule: Schedule, run: ScheduleRun, ownerTitle: String): RunNotice {
     val destination = scheduleRunDestination(context.route, run)
     return when {
-        run.outcome == "started" && run.threadId != null -> RunNotice(schedule.id, null, "Started a background job. Its summary goes to Main chat when it finishes.", destination, "Open the job")
+        run.outcome == "started" && run.threadId != null -> RunNotice(schedule.id, null, "Started a background job. Its summary goes to $ownerTitle when it finishes.", destination, "Open the job")
         run.outcome == "started" -> RunNotice(schedule.id, null, if (run.workerId == null) "Started a worker." else "Started worker ${run.workerId}. The report goes to the coordinator.", destination, "Open the worker")
         else -> RunNotice(schedule.id, if (run.outcome == "skipped") BannerTone.Warning else BannerTone.Error, "Not run (${scheduleOutcomeLabel(run.outcome).lowercase()}) — ${runReason(run) ?: "no reason given"}")
     }
@@ -251,7 +262,7 @@ private val DAY_LABELS = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 @Composable
 internal fun ScheduleEditor(
     schedule: Schedule?, timezone: String, models: List<ModelInfo>, providers: List<ProviderInfo>, enabled: Boolean, serverError: String?,
-    onDismiss: () -> Unit, onSave: (ScheduleInput) -> Unit, allowThreads: Boolean = false, allowEvents: Boolean = false,
+    onDismiss: () -> Unit, onSave: (ScheduleInput) -> Unit, allowThreads: Boolean = false, allowEvents: Boolean = false, roster: List<ThreadSummary> = emptyList(), supportsOwners: Boolean = false,
 ) {
     val spec = schedule?.spec?.takeUnless { it is UnknownScheduleSpec }
     var title by rememberSaveable { mutableStateOf(schedule?.title ?: "") }
@@ -267,6 +278,8 @@ internal fun ScheduleEditor(
     var isolation by rememberSaveable { mutableStateOf(schedule?.isolation ?: "shared") }
     var onReport by rememberSaveable { mutableStateOf(schedule?.onReport ?: "review") }
     var active by rememberSaveable { mutableStateOf(schedule?.enabled ?: true) }
+    var ownerThreadId by rememberSaveable { mutableStateOf(schedule?.ownerThreadId ?: MAIN_THREAD_ID) }
+    val owner = scheduleOwnerPresentation(ownerThreadId, roster)
     var targetKind by rememberSaveable { mutableStateOf(schedule?.kind ?: "worker") }
     var error by remember { mutableStateOf<String?>(null) }
     val chosenModel = models.firstOrNull { modelKey(it) == model }
@@ -280,17 +293,27 @@ internal fun ScheduleEditor(
                     Button(enabled = enabled, modifier = Modifier.heightIn(min = 44.dp), onClick = {
                         runCatching {
                             require(title.trim().isNotEmpty() && brief.trim().isNotEmpty()) { "Title and ${if (targetKind == "thread") "prompt" else "brief"} are required." }
-                            ScheduleInput(title.trim(), brief.trim(), scheduleSpec(kind, minutes, time, days.toSet(), cron, repos), chosenModel?.let { ModelRef(it.provider, it.modelId) }, if (chosenModel == null) null else thinking, isolation, onReport, active, targetKind)
+                            ScheduleInput(title.trim(), brief.trim(), scheduleSpec(kind, minutes, time, days.toSet(), cron, repos), chosenModel?.let { ModelRef(it.provider, it.modelId) }, if (chosenModel == null) null else thinking, isolation, onReport, active, targetKind, ownerThreadId = ownerThreadId.takeIf { supportsOwners && it != (schedule?.ownerThreadId ?: MAIN_THREAD_ID) })
                         }.onSuccess { error = null; onSave(it) }.onFailure { error = it.message }
                     }) { Text("Save") }
                 }
                 Column(Modifier.weight(1f).widthIn(max = 720.dp).fillMaxWidth().align(Alignment.CenterHorizontally).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     (error ?: serverError)?.let { ToneBanner(BannerTone.Error) { Text(it, style = MaterialTheme.typography.bodySmall) } }
                     SettingsGroup(title = "What to run") {
+                        if (supportsOwners) SettingsRow("Owner", hint = "Runs and reports belong to this coordinator.") {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CoordinatorMark(owner.thread, owner.title)
+                                val available = roster.filter { !it.main && it.kind == "coordinator" && !it.archived }
+                                val choices = listOf(ComboOption(MAIN_THREAD_ID, scheduleOwnerPresentation(null, roster).title)) +
+                                    available.map { ComboOption(it.id, it.title) } +
+                                    listOfNotNull(ComboOption(owner.id, "${owner.title} (unavailable)").takeIf { owner.id != MAIN_THREAD_ID && available.none { it.id == owner.id } })
+                                Box(Modifier.weight(1f)) { Combobox(choices, ownerThreadId, { ownerThreadId = it }, label = "Schedule owner") }
+                            }
+                        }
                         SettingsRow("Each run", hint = "A worker does one task; a background job keeps its own conversation.") {
                             Combobox(
                                 listOfNotNull(ComboOption("worker", "Run one worker", "The report goes to the coordinator"),
-                                    ComboOption("thread", "Start a background job", "Its summary goes to Main chat").takeIf { allowThreads || schedule?.kind == "thread" }),
+                                    ComboOption("thread", "Start a background job", "Its summary goes to ${if (supportsOwners) owner.title else "Main chat"}").takeIf { allowThreads || schedule?.kind == "thread" }),
                                 targetKind, {
                                     targetKind = it
                                     // A background job runs on a coordinator model, which an official agent never is.

@@ -34,6 +34,7 @@
 import type { Extension, JsonObject, SetTimer, ToolRegistration } from "@earendil-works/pi-durable";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import {
+	MAIN_THREAD_ID,
 	isEventSpec,
 	normalizeGithubRepo,
 	type ModelRef,
@@ -547,7 +548,7 @@ export class ScheduleStore {
 	async save(
 		projectId: string,
 		input: ScheduleInput,
-		options: { createdBy: "user" | "coordinator"; scheduleId?: string },
+		options: { createdBy: "user" | "coordinator"; scheduleId?: string; actorThreadId?: string; validateOwner?: (id: string) => Promise<void> },
 	): Promise<Schedule> {
 		await this.#projects.require(projectId);
 		const problem = validateSpec(input.spec, this.timezone);
@@ -566,6 +567,9 @@ export class ScheduleStore {
 					{ scheduleId: options.scheduleId },
 				);
 			}
+			checkScheduleAccess(existing, options.actorThreadId);
+			const ownerThreadId = input.ownerThreadId ?? existing?.ownerThreadId ?? options.actorThreadId ?? MAIN_THREAD_ID;
+			if (!existing || input.ownerThreadId !== undefined || (input.enabled && !existing.enabled)) await options.validateOwner?.(ownerThreadId);
 			const now = this.#now();
 			const at = new Date(now).toISOString();
 			const createdAt = existing?.createdAt ?? at;
@@ -575,8 +579,10 @@ export class ScheduleStore {
 			if (input.enabled && next === undefined && !isEventSpec(spec)) {
 				throw new ServerError("bad_request", "This schedule never runs: no matching time was found");
 			}
+			const { ownerThreadId: _owner, ...settings } = input;
 			const record: Schedule = {
-				...input,
+				...settings,
+				...(ownerThreadId === MAIN_THREAD_ID ? {} : { ownerThreadId }),
 				spec,
 				id: existing?.id ?? newScheduleId(list, input.title),
 				createdBy: existing?.createdBy ?? options.createdBy,
@@ -597,17 +603,36 @@ export class ScheduleStore {
 		});
 	}
 
-	async delete(projectId: string, scheduleId: string): Promise<void> {
+	async delete(projectId: string, scheduleId: string, actorThreadId?: string): Promise<void> {
 		await this.#projects.require(projectId);
 		await this.#enqueue(async () => {
 			const list = await this.list(projectId);
-			if (!list.some((schedule) => schedule.id === scheduleId)) {
+			const schedule = list.find(schedule => schedule.id === scheduleId);
+			if (!schedule) {
 				throw new ServerError("unknown_schedule", `No schedule "${scheduleId}" in this project`, { scheduleId });
 			}
+			checkScheduleAccess(schedule, actorThreadId);
 			await this.#persist(
 				projectId,
 				list.filter((schedule) => schedule.id !== scheduleId),
 			);
+		});
+	}
+
+	async archiveOwner(projectId: string, ownerThreadId: string, action: "move" | "disable"): Promise<void> {
+		await this.#enqueue(async () => {
+			const list = await this.list(projectId);
+			let changed = false;
+			const next = list.map(schedule => {
+				if (schedule.ownerThreadId !== ownerThreadId) return schedule;
+				if (action === "disable" && !schedule.enabled && schedule.nextRunAt === null) return schedule;
+				changed = true;
+				const updated = { ...schedule, updatedAt: new Date(this.#now()).toISOString() };
+				if (action === "disable") return { ...updated, enabled: false, nextRunAt: null };
+				delete updated.ownerThreadId;
+				return updated;
+			});
+			if (changed) await this.#persist(projectId, next);
 		});
 	}
 
@@ -633,7 +658,7 @@ export class ScheduleStore {
 			const record: Schedule = {
 				...schedule,
 				runs: [run, ...kept].slice(0, KEPT_SCHEDULE_RUNS),
-				...(options.nextRunAt === undefined ? {} : { nextRunAt: options.nextRunAt }),
+				...(options.nextRunAt === undefined ? {} : { nextRunAt: schedule.enabled ? options.nextRunAt : null }),
 				...(options.scheduleTaskId === undefined ? {} : { taskId: options.scheduleTaskId }),
 			};
 			await this.#persist(
@@ -862,6 +887,16 @@ export type SchedulesServiceOptions = {
  * One project's schedules: the coordinator's tools, `Run now`, and the firing itself. Everything durable lives in the
  * store; this class is the part that needs the project's Harness and its workers.
  */
+function scheduleOwner(schedule: Schedule): string {
+	return schedule.ownerThreadId ?? MAIN_THREAD_ID;
+}
+
+function checkScheduleAccess(schedule: Schedule | undefined, actorThreadId?: string): void {
+	if (schedule && actorThreadId !== undefined && actorThreadId !== MAIN_THREAD_ID && scheduleOwner(schedule) !== actorThreadId) {
+		throw new ServerError("bad_request", "Only the owning coordinator or General can manage this schedule.");
+	}
+}
+
 export class SchedulesService {
 	readonly #options: SchedulesServiceOptions;
 	readonly #now: () => number;
@@ -882,28 +917,36 @@ export class SchedulesService {
 		return this.#extension;
 	}
 
-	async list(): Promise<Schedule[]> {
-		return this.#options.store.list(this.#options.project().id);
+	async list(actorThreadId?: string): Promise<Schedule[]> {
+		const schedules = await this.#options.store.list(this.#options.project().id);
+		return actorThreadId === undefined || actorThreadId === MAIN_THREAD_ID ? schedules : schedules.filter(schedule => scheduleOwner(schedule) === actorThreadId);
 	}
 
 	async save(
 		input: ScheduleInput,
-		options: { createdBy: "user" | "coordinator"; scheduleId?: string },
+		options: { createdBy: "user" | "coordinator"; scheduleId?: string; actorThreadId?: string; validateOwner?: (id: string) => Promise<void> },
 	): Promise<Schedule> {
-		return this.#options.store.save(this.#options.project().id, input, options);
+		return this.#options.store.save(this.#options.project().id, input, { ...options, validateOwner: async id => {
+			if (id === MAIN_THREAD_ID) return;
+			const owner = await this.#options.threads?.record(id);
+			if (owner?.kind !== "coordinator" || owner.archived) throw new ServerError("bad_request", "Choose an unarchived coordinator as the schedule owner.");
+		} });
 	}
 
-	async delete(scheduleId: string): Promise<void> {
-		await this.#options.store.delete(this.#options.project().id, scheduleId);
+	async delete(scheduleId: string, actorThreadId?: string): Promise<void> {
+		await this.#options.store.delete(this.#options.project().id, scheduleId, actorThreadId);
 	}
 
 	/** Run a schedule now, enabled or not; it counts as a run like any other. */
-	async runNow(scheduleId: string): Promise<ScheduleRun> {
+	async runNow(scheduleId: string, actorThreadId?: string): Promise<ScheduleRun> {
 		const schedule = await this.#options.store.find(this.#options.project().id, scheduleId);
 		if (schedule === undefined) {
 			throw new ServerError("unknown_schedule", `No schedule "${scheduleId}" in this project`, { scheduleId });
 		}
+		checkScheduleAccess(schedule, actorThreadId);
 		if (isEventSpec(schedule.spec)) {
+			const skipped = await this.#skipUnavailableOwner(schedule, "manual", this.#now());
+			if (skipped) return skipped;
 			if (this.#options.runEventNow === undefined) {
 				throw new ServerError("bad_request", "This backend cannot check GitHub for events.");
 			}
@@ -922,6 +965,8 @@ export class SchedulesService {
 		const manual = options.trigger === "manual";
 		const at = manual ? new Date(this.#now()).toISOString() : request.requestedAt;
 		const base = { at, trigger: options.trigger, ref: request.url } as const;
+		const skipped = await this.#skipUnavailableOwner(schedule, options.trigger, Date.parse(at), request.url);
+		if (skipped) return skipped;
 		const kind = options.rerunAt === undefined ? {} : { rerunAt: options.rerunAt };
 		const identity = eventRunIdentity(schedule.id, request, kind);
 		// Written before anything starts: a crash from here on leaves the run in the history, and the retry finds the same
@@ -940,10 +985,12 @@ export class SchedulesService {
 		try {
 			const board = this.#options.board;
 			if (board === undefined) throw new Error("this backend has no board to put the task on");
+			const marker = `${eventTaskMarker(request, kind)}${schedule.ownerThreadId ? ` Schedule: ${schedule.id}.` : ""}`;
 			const task = await board.taskForEvent({
+				ownerThreadId: scheduleOwner(schedule),
 				title: eventTaskTitle(request),
-				description: eventTaskDescription(request, eventTaskMarker(request, kind)),
-				marker: eventTaskMarker(request, kind),
+				description: eventTaskDescription(request, marker),
+				marker,
 				ref: request.url,
 			});
 			const brief = eventBrief(schedule.brief, request);
@@ -954,6 +1001,7 @@ export class SchedulesService {
 					threads === undefined
 						? ({ ok: false, message: "this backend cannot start background threads" } as const)
 						: await threads.startScheduled({
+						ownerThreadId: scheduleOwner(schedule),
 								scheduleId: schedule.id,
 								title: task.title,
 								brief,
@@ -969,6 +1017,8 @@ export class SchedulesService {
 					: { ...base, outcome: "failed", workerId: null, threadId: null, taskId: task.id, message: started.message };
 			} else {
 				const started = await this.#options.workers.startScheduledRun({
+			ownerThreadId: scheduleOwner(schedule),
+			validateOwner: tx => this.#options.threads?.requireScheduleOwner(tx, scheduleOwner(schedule)) ?? Promise.resolve(),
 					scheduleId: schedule.id,
 					title: task.title,
 					brief,
@@ -1006,10 +1056,13 @@ export class SchedulesService {
 	}
 
 	async #run(schedule: Schedule, trigger: ScheduleRun["trigger"], at: number): Promise<ScheduleRun> {
+		const skipped = await this.#skipUnavailableOwner(schedule, trigger, at);
+		if (skipped) return skipped;
 		if (schedule.kind === "thread") return this.#runThread(schedule, trigger, at);
 		const projectId = this.#options.project().id;
 		const runAt = new Date(at).toISOString();
-		const state = await this.#options.workers.state();
+		const place = this.#options.workers.coordinators.placeOfThread(scheduleOwner(schedule));
+		const state = await this.#options.workers.state(undefined, place?.conversationId);
 		const previous = schedule.runs.find((run) => run.outcome === "started" && run.workerId !== null);
 		const previousWorker = previous?.workerId === null || previous === undefined ? undefined : state.workers[previous.workerId];
 		if (previousWorker !== undefined && previousWorker.status === "running") {
@@ -1040,6 +1093,8 @@ export class SchedulesService {
 		// in_progress. A board that cannot be written costs the run its task, never the run.
 		const taskId = await this.#scheduleTaskId(schedule);
 		const started = await this.#options.workers.startScheduledRun({
+			ownerThreadId: scheduleOwner(schedule),
+			validateOwner: tx => this.#options.threads?.requireScheduleOwner(tx, scheduleOwner(schedule)) ?? Promise.resolve(),
 			scheduleId: schedule.id,
 			title: schedule.title,
 			brief: schedule.brief,
@@ -1070,7 +1125,7 @@ export class SchedulesService {
 			threads === undefined || previous?.threadId === undefined || previous.threadId === null
 				? undefined
 				: await threads.record(previous.threadId);
-		if (previousThread !== undefined && (previousThread.status === "running" || previousThread.status === "idle")) {
+		if (previousThread?.kind === "job" && (previousThread.status === "running" || previousThread.status === "idle")) {
 			const run: ScheduleRun = {
 				at: runAt,
 				trigger,
@@ -1096,6 +1151,7 @@ export class SchedulesService {
 			threads === undefined
 				? ({ ok: false, message: "this backend cannot start background threads" } as const)
 				: await threads.startScheduled({
+						ownerThreadId: scheduleOwner(schedule),
 						scheduleId: schedule.id,
 						title: schedule.title,
 						brief: schedule.brief,
@@ -1128,7 +1184,7 @@ export class SchedulesService {
 		const board = this.#options.board;
 		if (board === undefined) return undefined;
 		try {
-			return (await board.scheduleTaskForRun({ scheduleId: schedule.id, title: schedule.title })).id;
+			return (await board.scheduleTaskForRun({ scheduleId: schedule.id, title: schedule.title, ownerThreadId: scheduleOwner(schedule) })).id;
 		} catch (error) {
 			this.#options.log(`schedule ${schedule.id}: could not get its board task: ${errorMessage(error)}`);
 			return undefined;
@@ -1149,6 +1205,7 @@ export class SchedulesService {
 		// A manual run changes no schedule; an event run has no next time to move.
 		const clock = trigger === "schedule" || trigger === "catch-up";
 		const nextRunAt = clock ? this.nextRunAt(schedule) : undefined;
+		if (schedule.ownerThreadId !== undefined) run.ownerThreadId = schedule.ownerThreadId;
 		await this.#options.store.recordRun(projectId, schedule.id, run, {
 			...(nextRunAt === undefined ? {} : { nextRunAt }),
 			...(trigger === "manual" ? { sameSlot: false } : {}),
@@ -1160,6 +1217,7 @@ export class SchedulesService {
 				?.recordScheduleProblem({
 					scheduleId: schedule.id,
 					title: schedule.title,
+					ownerThreadId: scheduleOwner(schedule),
 					runAt: run.ref === undefined || run.ref === null ? run.at : `${run.at} ${run.ref}`,
 					reason: `${run.at} ${run.trigger} run${run.ref === undefined || run.ref === null ? "" : ` for ${run.ref}`} ${run.outcome}: ${run.message ?? "no reason recorded"}`,
 				})
@@ -1170,19 +1228,31 @@ export class SchedulesService {
 			projectName: this.#options.project().name ?? projectId,
 			scheduleId: schedule.id,
 			scheduleTitle: schedule.title,
+			coordinatorId: scheduleOwner(schedule),
 			run,
 		});
 		if (event !== undefined) this.#options.notifications?.notify(event);
 	}
 
-	/** What the coordinator is told when a schedule tool runs anywhere but its own conversation. */
-	notCoordinatorMessage(tool: string): string {
-		return `${tool} answers only the project's coordinator conversation, never a worker. A worker reports what it needs to the coordinator and lets it decide; it does not schedule work.`;
+	async #skipUnavailableOwner(schedule: Schedule, trigger: ScheduleRun["trigger"], at: number, ref?: string): Promise<ScheduleRun | undefined> {
+		const ownerId = scheduleOwner(schedule);
+		if (ownerId === MAIN_THREAD_ID) return undefined;
+		const owner = await this.#options.threads?.record(ownerId);
+		if (owner?.kind === "coordinator" && !owner.held && !owner.archived) return undefined;
+		const run: ScheduleRun = { at: new Date(at).toISOString(), trigger, outcome: "skipped", workerId: null,
+			message: owner?.archived ? "schedule owner is archived" : owner?.held ? "schedule owner is paused" : "schedule owner is unavailable",
+			...(ref === undefined ? {} : { ref }) };
+		await this.#finish(this.#options.project().id, schedule, run, trigger);
+		return run;
 	}
 
-	/** Schedules are main's: a background thread never gets these tools, and one that kept them is refused. */
-	isCoordinator(conversationId: number): boolean {
-		return this.#options.workers.coordinators.isMain(conversationId);
+	notCoordinatorMessage(tool: string): string {
+		return `${tool} is for project coordinators, not background jobs or workers.`;
+	}
+
+	coordinatorId(conversationId: number): string | undefined {
+		const place = this.#options.workers.coordinators.placeOf(conversationId);
+		return place?.kind === "coordinator" ? place.threadId : undefined;
 	}
 }
 
@@ -1284,6 +1354,7 @@ export function describeSchedule(schedule: Schedule, timezone: string): string {
 			: `  worker: ${model}${thinking}, isolation ${schedule.isolation}; ${report}`;
 	return [
 		`${schedule.id} — ${schedule.title}`,
+		`  owner: ${scheduleOwner(schedule)}`,
 		`  when: ${describeSpec(schedule.spec)}${schedule.enabled ? "" : ", disabled"}`,
 		`  next: ${next}`,
 		runs,
@@ -1316,10 +1387,11 @@ function createScheduleExtension(service: SchedulesService): Extension {
 		parameters: Type.Object({}),
 		replay: "safe",
 		execute: async (_args, api) => {
-			if (!service.isCoordinator(api.conversationId)) {
+			const actorThreadId = service.coordinatorId(api.conversationId);
+			if (actorThreadId === undefined) {
 				return toolText(service.notCoordinatorMessage("schedule_list"), { isError: true });
 			}
-			const schedules = await service.list();
+			const schedules = await service.list(actorThreadId);
 			const header = `Schedules run in ${service.timezone}.`;
 			if (schedules.length === 0) {
 				return toolText(`${header}\nNo schedules yet. Create one with schedule_save.`);
@@ -1351,7 +1423,8 @@ function createScheduleExtension(service: SchedulesService): Extension {
 		parameters: scheduleInputSchema,
 		replay: "safe",
 		execute: async (args, api) => {
-			if (!service.isCoordinator(api.conversationId)) {
+			const actorThreadId = service.coordinatorId(api.conversationId);
+			if (actorThreadId === undefined) {
 				return toolText(service.notCoordinatorMessage("schedule_save"), { isError: true });
 			}
 			const problem = validateSpec(args.spec, service.timezone);
@@ -1359,6 +1432,7 @@ function createScheduleExtension(service: SchedulesService): Extension {
 			try {
 				const schedule = await service.save(scheduleInputOf(args), {
 					createdBy: "coordinator",
+					actorThreadId,
 					...(args.id === undefined ? {} : { scheduleId: args.id }),
 				});
 				return toolText(
@@ -1379,11 +1453,12 @@ function createScheduleExtension(service: SchedulesService): Extension {
 		parameters: Type.Object({ id: Type.String({ minLength: 1, description: "The schedule's ID." }) }),
 		replay: "unsafe",
 		execute: async (args, api) => {
-			if (!service.isCoordinator(api.conversationId)) {
+			const actorThreadId = service.coordinatorId(api.conversationId);
+			if (actorThreadId === undefined) {
 				return toolText(service.notCoordinatorMessage("schedule_delete"), { isError: true });
 			}
 			try {
-				await service.delete(args.id);
+				await service.delete(args.id, actorThreadId);
 				return toolText(`Deleted schedule "${args.id}".`, { details: { scheduleId: args.id } });
 			} catch (error) {
 				return toolText(errorMessage(error), { isError: true });
@@ -1403,11 +1478,12 @@ function createScheduleExtension(service: SchedulesService): Extension {
 		// Repeating a start could run the brief twice; the worker-history record already exists by then.
 		replay: "unsafe",
 		execute: async (args, api) => {
-			if (!service.isCoordinator(api.conversationId)) {
+			const actorThreadId = service.coordinatorId(api.conversationId);
+			if (actorThreadId === undefined) {
 				return toolText(service.notCoordinatorMessage("schedule_run"), { isError: true });
 			}
 			try {
-				const run = await service.runNow(args.id);
+				const run = await service.runNow(args.id, actorThreadId);
 				const label =
 					run.outcome === "started"
 						? (run.threadId ?? null) !== null

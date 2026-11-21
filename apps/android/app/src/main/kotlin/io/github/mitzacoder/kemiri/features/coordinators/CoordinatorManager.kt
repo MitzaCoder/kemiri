@@ -32,7 +32,7 @@ internal class CoordinatorOperations {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun CoordinatorEditor(context: ProjectScreenContext, thread: ThreadSummary?, dismiss: () -> Unit, areaOnly: Boolean = false) {
+@Composable internal fun CoordinatorEditor(context: ProjectScreenContext, thread: ThreadSummary?, dismiss: () -> Unit, areaOnly: Boolean = false, promote: Boolean = false) {
     var title by rememberSaveable(thread?.id) { mutableStateOf(thread?.title.orEmpty()) }
     var area by rememberSaveable(thread?.id) { mutableStateOf(thread?.area.orEmpty()) }
     var paths by rememberSaveable(thread?.id) { mutableStateOf(thread?.paths.orEmpty().joinToString("\n")) }
@@ -49,16 +49,16 @@ internal class CoordinatorOperations {
     val project = context.route.projectId
     ModalBottomSheet(onDismissRequest = { if (!busy) dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Jarvis.colors.surface) {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (thread == null) "New coordinator" else if (areaOnly) "Edit area" else "Edit coordinator", style = MaterialTheme.typography.headlineSmall)
+            Text(if (thread == null) "New coordinator" else if (promote) "Keep as coordinator" else if (areaOnly) "Edit area" else "Edit coordinator", style = MaterialTheme.typography.headlineSmall)
             if (!areaOnly) OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
             OutlinedTextField(area, { area = it }, Modifier.fillMaxWidth(), label = { Text("Area") }, placeholder = { Text("What does this coordinator cover?") }, minLines = 2)
-            if (!areaOnly && thread?.main != true) OutlinedTextField(paths, { paths = it }, Modifier.fillMaxWidth(), label = { Text("Paths (optional)") }, placeholder = { Text("One pattern per line") })
+            if (!areaOnly && !promote && thread?.main != true) OutlinedTextField(paths, { paths = it }, Modifier.fillMaxWidth(), label = { Text("Paths (optional)") }, placeholder = { Text("One pattern per line") })
             if (!areaOnly) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box {
                     OutlinedButton(onClick = { colorMenu = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text(coordinatorColors.entries.find { it.value == color }?.key ?: "Colour") }
                     DropdownMenu(colorMenu, { colorMenu = false }) { coordinatorColors.forEach { (name, value) -> DropdownMenuItem(text = { Text(name) }, onClick = { color = value; colorMenu = false }) } }
                 }
-                if (thread?.main != true && models.isNotEmpty()) Box {
+                if (!promote && thread?.main != true && models.isNotEmpty()) Box {
                     OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text(model?.let { modelLabel(it, models) } ?: "Project model", maxLines = 1) }
                     DropdownMenu(modelMenu, { modelMenu = false }) { models.forEach { choice ->
                         DropdownMenuItem(text = { Text(choice.name) }, onClick = { model = ModelRef(choice.provider, choice.modelId); modelMenu = false })
@@ -81,7 +81,7 @@ internal class CoordinatorOperations {
                             context.navigate(coordinatorRoute(context.route, created.id))
                         } else {
                             val request = ThreadsUpdateRequest(id = "", projectId = project, threadId = thread.id, title = name.takeUnless { areaOnly }, area = coverage,
-                                paths = pathPatterns.takeUnless { areaOnly || thread.main }, color = color.takeUnless { areaOnly }, model = model.takeUnless { areaOnly || thread.main }?.takeUnless { it == thread.model })
+                                promote = true.takeIf { promote }, paths = pathPatterns.takeUnless { areaOnly || promote || thread.main }, color = color.takeUnless { areaOnly }, model = model.takeUnless { areaOnly || thread.main }?.takeUnless { it == thread.model })
                             operations.run(request) { client.request(request.copy(id = UUID.randomUUID().toString(), operationId = it)) }
                             dismiss()
                         }
@@ -89,7 +89,7 @@ internal class CoordinatorOperations {
                     catch (e: Exception) { error = e.message ?: "Could not save the coordinator" }
                     finally { busy = false }
                 }
-            }) { Text(if (busy) "Saving…" else if (thread == null) "Create coordinator" else "Save changes") }
+            }) { Text(if (busy) "Saving…" else if (thread == null) "Create coordinator" else if (promote) "Keep as coordinator" else "Save changes") }
         }
     }
 }
@@ -117,8 +117,8 @@ internal class CoordinatorOperations {
             finally { busy = false }
         }
     }
-    fun archive(thread: ThreadSummary, archived: Boolean, moveTo: String? = null) = mutate {
-        val request = ThreadsArchiveRequest(id = "", projectId = project, threadId = thread.id, archived = archived, moveTasksTo = moveTo)
+    fun archive(thread: ThreadSummary, archived: Boolean, moveTo: String? = null, schedules: String? = null) = mutate {
+        val request = ThreadsArchiveRequest(id = "", projectId = project, threadId = thread.id, archived = archived, moveTasksTo = moveTo, schedules = schedules)
         operations.run(request) { client.request(request.copy(id = UUID.randomUUID().toString(), operationId = it)) }
         if (archived) forgetCoordinatorVisit(android, context.route, thread.id)
         archiving = null
@@ -170,6 +170,8 @@ internal class CoordinatorOperations {
     editing?.let { CoordinatorEditor(context, it, dismiss = { editing = null }) }
     archiving?.let { thread ->
         var destination by remember(thread.id) { mutableStateOf(MAIN_THREAD_ID) }
+        var schedules by rememberSaveable(thread.id) { mutableStateOf("move") }
+        val supportsSchedules = client.supports("coordinator-schedules")
         AlertDialog(onDismissRequest = { if (!busy) archiving = null }, title = { Text("Archive ${thread.title}?") }, text = {
             Column(Modifier.heightIn(max = 330.dp).verticalScroll(rememberScrollState())) {
                 Text("Move its open tasks to:")
@@ -179,9 +181,18 @@ internal class CoordinatorOperations {
                         Text(target.title)
                     }
                 }
+                if (supportsSchedules) {
+                    Text("Schedules", style = MaterialTheme.typography.titleSmall)
+                    listOf("move" to "Move to ${roster.firstOrNull { it.main }?.title ?: "General"}", "disable" to "Turn off schedules").forEach { (choice, label) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = schedules == choice, onClick = { schedules = choice }, enabled = !busy)
+                            Text(label)
+                        }
+                    }
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
-        }, confirmButton = { TextButton(onClick = { archive(thread, true, destination) }, enabled = !busy) { Text("Archive") } },
+        }, confirmButton = { TextButton(onClick = { archive(thread, true, destination, schedules.takeIf { supportsSchedules }) }, enabled = !busy) { Text("Archive") } },
             dismissButton = { TextButton(onClick = { archiving = null }, enabled = !busy) { Text("Cancel") } })
     }
 }

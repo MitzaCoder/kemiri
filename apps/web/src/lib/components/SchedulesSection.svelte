@@ -6,6 +6,8 @@
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { onMount } from 'svelte';
 	import Banner from '#lib/components/Banner.svelte';
+	import CoordinatorMark from '#lib/components/CoordinatorMark.svelte';
+	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import ScheduleEditor from '#lib/components/ScheduleEditor.svelte';
 	import GitPullRequestIcon from '@lucide/svelte/icons/git-pull-request';
 	import SettingsGroup from '#lib/components/settings/SettingsGroup.svelte';
@@ -32,6 +34,7 @@
 		runTriggerLabel,
 		scheduleInput,
 		scheduleRunsAs,
+		scheduleOwnerPresentation,
 		timezoneNote,
 		whenText
 	} from '#lib/schedules.js';
@@ -58,10 +61,21 @@
 	let runningId = $state<string | undefined>(undefined);
 	/** What the last "Run now" did: started a worker, or was skipped or failed. */
 	let runNotice = $state<
-		{ scheduleId: string; tone: 'info' | 'warning' | 'error'; text: string; workerId?: string; threadId?: string } | undefined
+		{ scheduleId: string; tone: 'info' | 'warning' | 'error'; text: string; workerId?: string; threadId?: string; ownerThreadId?: string } | undefined
 	>(undefined);
 	let switchError = $state<string | undefined>(undefined);
 
+	const supportsOwners = $derived(backend.supports('coordinator-schedules'));
+	let threads = $state<ProjectThreads>();
+	const roster = $derived([...(threads?.threads ?? []), ...(threads?.archived ?? [])]);
+	function owner(schedule: Schedule) { return scheduleOwnerPresentation(schedule.ownerThreadId, roster); }
+	$effect(() => {
+		if (!supportsOwners || !projectId) return;
+		const watching = backend.watchThreads(projectId);
+		threads = watching;
+		void watching.setShowArchived(true);
+		return () => { watching.stop(); threads = undefined; };
+	});
 	const list = $derived(schedules?.schedules ?? []);
 	const timezone = $derived(schedules?.timezone ?? '');
 	/**
@@ -162,7 +176,7 @@
 				runNotice = {
 					scheduleId: schedule.id,
 					tone: 'info',
-					text: 'Started a background job. Its summary goes to Main chat when it finishes.',
+					text: `Started a background job. Its summary goes to ${supportsOwners ? owner(schedule).title : "Main chat"} when it finishes.`,
 					threadId: run.threadId
 				};
 			} else if (run.outcome === 'started') {
@@ -173,7 +187,8 @@
 						run.workerId === null
 							? 'Started a worker.'
 							: `Started worker ${run.workerId}. The report goes to the coordinator.`,
-					...(run.workerId === null ? {} : { workerId: run.workerId })
+					...(run.workerId === null ? {} : { workerId: run.workerId }),
+					ownerThreadId: run.ownerThreadId
 				};
 			} else {
 				runNotice = {
@@ -195,8 +210,8 @@
 			: [...expanded, scheduleId];
 	}
 
-	function workerLink(workerId: string): string {
-		return workerHref(backend.id, projectId, workerId);
+	function workerLink(workerId: string, ownerThreadId?: string): string {
+		return workerHref(backend.id, projectId, workerId, ownerThreadId);
 	}
 
 	function threadLink(threadId: string): string {
@@ -245,6 +260,10 @@
 					<div class="flex min-w-0 flex-1 flex-col gap-1">
 						<span class="flex flex-wrap items-center gap-1.5">
 							<span class="min-w-0 truncate text-sm font-semibold">{schedule.title}</span>
+							{#if supportsOwners}
+								{@const coordinator = owner(schedule)}
+								<span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground" aria-label="Owner: {coordinator.title}">{#if coordinator.thread}<CoordinatorMark thread={coordinator.thread} />{/if}{coordinator.title}</span>
+							{/if}
 							{#if isEventSpec(schedule.spec)}
 								<StatusChip tone="info" dot={false} class="h-5 text-[0.6875rem]"><GitPullRequestIcon class="size-3" aria-hidden="true" /> On an event</StatusChip>
 							{/if}
@@ -307,7 +326,7 @@
 						{#if runNotice.threadId}
 							<a class="underline" href={threadLink(runNotice.threadId)}>Open the thread</a>
 						{:else if runNotice.workerId}
-							<a class="underline" href={workerLink(runNotice.workerId)}>Open the worker</a>
+							<a class="underline" href={workerLink(runNotice.workerId, runNotice.ownerThreadId)}>Open the worker</a>
 						{/if}
 					</Banner>
 				{/if}
@@ -336,7 +355,7 @@
 								{#if runHasThread(run)}
 									<a class="underline" href={threadLink(run.threadId)}>background job</a>
 								{:else if runHasWorker(run)}
-									<a class="underline" href={workerLink(run.workerId)}>worker {run.workerId}</a>
+									<a class="underline" href={workerLink(run.workerId, run.ownerThreadId)}>worker {run.workerId}</a>
 								{:else if runReason(run)}
 									<span class="min-w-0 break-words text-muted-foreground">{runReason(run)}</span>
 								{/if}
@@ -352,7 +371,7 @@
 	</SettingsGroup>
 </SettingsSection>
 
-<ScheduleEditor {backend} bind:open={editorOpen} schedule={editing} onsave={save} />
+<ScheduleEditor {backend} {roster} {supportsOwners} bind:open={editorOpen} schedule={editing} onsave={save} />
 
 <Dialog.Root bind:open={deleteOpen}>
 	<Dialog.Content class="sm:max-w-sm">

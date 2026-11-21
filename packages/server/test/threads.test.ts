@@ -1,3 +1,4 @@
+import { coordinatorSection } from "../src/workers.ts";
 import { Database } from "bun:sqlite";
 import { Value } from "typebox/value";
 import { ThreadSummarySchema } from "../../protocol/src/threads.ts";
@@ -1146,12 +1147,16 @@ threadTest("keeps coordinator lifecycle, routing and prompt bytes across restart
 		expect(generalRule).toBeDefined();
 		expect(areaRule).toBe(generalRule);
 	}
-	expect(initial.systemPrompt).not.toContain("schedule_save when it should recur");
-	expect(initial.systemPrompt).toContain('"shared" for reading, searching and work that must touch your own workspace as it is');
+	expect(initial.systemPrompt).toContain("schedule_save when it should recur");
+	expect(initial.systemPrompt).toContain('"shared" for reading, searching and work that must touch your checkout');
 	expect(initial.systemPrompt).toContain(PEER_THREADS_SECTION);
 	expect(initial.systemPrompt).not.toContain("Count stored items.");
 	expect(initial.tools.map(tool => tool.name)).not.toContain("thread_finish");
-	expect(initial.tools.map(tool => tool.name)).not.toContain("coordinator_start");
+	expect(JSON.stringify(initial.tools)).toBe(JSON.stringify(general.tools));
+	for (const shared of [coordinatorSection(runtime.threads.project), PEER_THREADS_SECTION]) {
+		expect(general.systemPrompt).toContain(shared);
+		expect(initial.systemPrompt).toContain(shared);
+	}
 	const roster = await threads(client, projectId);
 	const legacyKeys = ["kind", "parentThreadId", "area", "paths", "color", "order", "held", "attention", "lastReplyAt", "lastReplyEntryId", "openTasks"];
 	for (const row of roster) expect(Value.Check(ThreadSummarySchema, Object.fromEntries(Object.entries(row).filter(([key]) => !legacyKeys.includes(key))))).toBe(true);
@@ -1404,4 +1409,63 @@ threadTest("board add_task hints at near-duplicates across coordinators but stil
 	expect(added[1]).toMatch(/^Added T2.*Similar open tasks: T1 "Publish daily bake quantities" \("Kitchen API"\)/);
 	expect(added[2]).toMatch(/^Added T3/);
 	expect(added[2]).not.toContain("Similar open tasks");
+});
+
+
+threadTest("routes an area’s job summary, failure and released tasks to its parent", async () => {
+	const test = await setup();
+	const { client, projectId, view: general } = await openProject(test);
+	script(test, turn => {
+		if (turn.text === "Start the label audit.") return call("thread_start", { title: "Label audit", brief: "Audit the sample labels.", taskId: task.id, onFinish: "review" });
+		if (turn.text === "Finish the audit.") return call("thread_finish", { summary: "Labels checked." });
+		if (turn.text === "Fail the audit.") return fauxAssistantMessage("", { stopReason: "error", errorMessage: "sample failure" });
+		return fauxAssistantMessage("Fixture response.");
+	});
+	const { runtime } = await test.server.manager.open(projectId);
+	const parent = await runtime.threads.create({ title: "Deliveries", area: "Courier pickup." }, "deliveries");
+	const task = await runtime.board.saveTask({ task: syntheticTask("Sample label audit"), ownerThreadId: parent.id }, "user");
+	const parentView = new ViewClient(client);
+	await parentView.start(projectId, { threadId: parent.id });
+	await submit(client, projectId, "Start the label audit.", parent.id);
+	await until(async () => (await thread(client, projectId, "label-audit"))?.parentThreadId === parent.id);
+	const job = (await runtime.threads.record("label-audit"))!;
+	expect((await runtime.board.get()).tasks.find(row => row.id === task.id)).toMatchObject({ ownerThreadId: job.id, coordinatorId: parent.id });
+	const jobView = new ViewClient(client);
+	await jobView.start(projectId, { threadId: job.id });
+	await submit(client, projectId, "Fail the audit.", job.id);
+	await parentView.waitForView(value => userEntries(value, "[thread label-audit failed:").length === 1);
+	await until(async () => (await runtime.board.get()).tasks.find(row => row.id === task.id)?.ownerThreadId === parent.id);
+	await submit(client, projectId, "Finish the audit.", job.id);
+	await parentView.waitForView(value => userEntries(value, "[thread label-audit finished]").length === 1);
+	expect(userEntries(general.view, "[thread label-audit")).toHaveLength(0);
+	const kept = await client.request({ type: "threads.update", projectId, threadId: job.id, promote: true, area: "Label standards.", operationId: "keep-audit" });
+	expect(kept).toMatchObject({ type: "threads.update", thread: { kind: "coordinator", id: job.id, conversationId: job.conversationId, status: "idle" } });
+	const promoted = await runtime.threads.record(job.id);
+	expect(promoted?.parentThreadId).toBeUndefined();
+	expect(promoted?.checkout).toBe(job.checkout);
+	const after = await context(client, projectId, { threadId: job.id });
+	expect(after.systemPrompt).toContain("Label standards.");
+	expect(after.tools.map(tool => tool.name)).not.toContain("thread_finish");
+	expect(userEntries(jobView.view, "Audit the sample labels.")).toHaveLength(1);
+});
+
+threadTest("keeps a live job’s task and refuses to archive its busy parent", async () => {
+	const test = await setup();
+	const { projectId } = await openProject(test);
+	const { runtime } = await test.server.manager.open(projectId);
+	const parent = await runtime.threads.create({ title: "Dispatch", area: "Dispatch routes." }, "dispatch");
+	script(test, () => fauxAssistantMessage("Fixture response."));
+	const task = await runtime.board.saveTask({ task: syntheticTask("Count courier bags"), ownerThreadId: parent.id }, "user");
+	const started = await runtime.threads.start({ title: "Count courier bags", brief: "Count bags.", model: null,
+		thinkingLevel: null, onFinish: "review", startedBy: "main", parentThreadId: parent.id, scheduleId: null, taskId: task.id, key: "bags" });
+	if (!started.ok) throw new Error(started.message);
+	await until(async () => (await runtime.threads.record(started.record.id))?.status === "idle");
+	await runtime.harness.commit(async tx => { (await tx.doc(ThreadsDoc, runtime.conversation.id)).threads[started.record.id]!.status = "running"; }, BACKGROUND_CONTEXT);
+	expect(await runtime.workers.runningThreads(parent.conversationId)).toBe(1);
+	expect(await runtime.workers.runningThreads(runtime.conversation.id)).toBe(0);
+	const digests = await runtime.threads.checkIns.digests(parent.id, Date.now(), 1000, BACKGROUND_CONTEXT);
+	expect(digests[0]).toContain(started.record.id);
+	await expect(runtime.threads.archive(parent.id, true)).rejects.toThrow("background jobs");
+	await runtime.threads.update(started.record.id, { promote: true, area: "Courier bag inventory." });
+	expect((await runtime.board.get()).tasks.find(row => row.id === task.id)).toMatchObject({ ownerThreadId: started.record.id, coordinatorId: started.record.id });
 });

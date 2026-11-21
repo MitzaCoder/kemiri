@@ -299,7 +299,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if (creatingCoordinator) CoordinatorEditor(context, null, dismiss = { creatingCoordinator = false })
         if (coordinator != null) CoordinatorArea(context, coordinator)
         if (coordinator == null && isBackgroundJobPage(context.route)) activeThread?.let {
-            BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get))
+            BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get), roster.find { row -> row.id == (it.parentThreadId ?: "main") }?.title ?: "Main chat")
         }
         val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles,messages)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null

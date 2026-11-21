@@ -72,6 +72,7 @@ export const ScheduleRunSchema = Type.Object({
 			description: "The board task the run was given: its own for an `event` run, the schedule's one task for a clock run.",
 		}),
 	),
+	ownerThreadId: Type.Optional(Type.String({ minLength: 1, description: "Coordinator at the time of the run; absent means General." })),
 });
 export type ScheduleRun = Static<typeof ScheduleRunSchema>;
 
@@ -90,14 +91,17 @@ export const ScheduleInputSchema = Type.Object({
 	kind: Type.Optional(
 		Type.Union([Type.Literal("worker"), Type.Literal("thread")], {
 			description:
-				'"worker" (default): the brief runs as one worker of main. "thread": the brief is the prompt of a new background thread (a coordinator with its own workers), whose summary reaches main per onReport; model and thinkingLevel are that thread\'s, and isolation is ignored.',
+				'"worker" (default): the brief runs as one worker of the owner. "thread": the brief is the prompt of a new background thread (a coordinator with its own workers), whose summary reaches its parent per onReport; model and thinkingLevel are that thread\'s, and isolation is ignored.',
 		}),
 	),
+	ownerThreadId: Type.Optional(Type.String({ minLength: 1, description: "Owning coordinator; absent means General on create and keeps the owner on edit." })),
 });
 export type ScheduleInput = Static<typeof ScheduleInputSchema>;
 
+const { ownerThreadId: scheduleOwnerSchema, ...scheduleSettings } = ScheduleInputSchema.properties;
+
 export const ScheduleSchema = Type.Object({
-	...ScheduleInputSchema.properties,
+	...scheduleSettings,
 	id: Type.String({ minLength: 1 }),
 	createdBy: Type.Union([Type.Literal("user"), Type.Literal("coordinator")]),
 	createdAt: Type.String(),
@@ -126,6 +130,7 @@ export const ScheduleSchema = Type.Object({
 		}),
 	),
 	runs: Type.Array(ScheduleRunSchema, { description: "Newest first, the last 20." }),
+	ownerThreadId: scheduleOwnerSchema,
 });
 export type Schedule = Static<typeof ScheduleSchema>;
 

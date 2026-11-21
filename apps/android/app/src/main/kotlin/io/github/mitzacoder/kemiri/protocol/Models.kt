@@ -1889,6 +1889,7 @@ data class ThreadsArchiveRequest(
     val `threadId`: String,
     val `archived`: Boolean,
     val `moveTasksTo`: String? = null,
+    val `schedules`: String? = null,
     val `operationId`: String? = null
 )
 
@@ -1922,6 +1923,7 @@ data class ThreadsUpdateRequest(
     val `threadId`: String,
     val `title`: String? = null,
     val `area`: String? = null,
+    val `promote`: Boolean? = null,
     val `paths`: List<String>? = null,
     val `color`: String? = null,
     val `model`: ModelRef? = null,
@@ -3897,7 +3899,8 @@ data class ScheduleRun(
     val `threadId`: String? = null,
     val `message`: String?,
     val `ref`: String? = null,
-    val `taskId`: String? = null
+    val `taskId`: String? = null,
+    val `ownerThreadId`: String? = null
 )
 
 @Serializable
@@ -3910,7 +3913,8 @@ data class ScheduleInput(
     val `isolation`: String,
     val `onReport`: String,
     val `enabled`: Boolean,
-    val `kind`: String? = null
+    val `kind`: String? = null,
+    val `ownerThreadId`: String? = null
 )
 
 @Serializable(with = ScheduleSpecSerializer::class)
@@ -3978,7 +3982,8 @@ data class Schedule(
     val `nextRunAt`: String?,
     val `eventState`: ScheduleEventState? = null,
     val `taskId`: String? = null,
-    val `runs`: List<ScheduleRun>
+    val `runs`: List<ScheduleRun>,
+    val `ownerThreadId`: String? = null
 )
 
 @Serializable

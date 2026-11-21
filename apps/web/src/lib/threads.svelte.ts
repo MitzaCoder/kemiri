@@ -101,8 +101,8 @@ export class ProjectThreads {
 		return this.#act(threadId, () => this.#client.holdCoordinator(this.projectId, threadId, held, operationId));
 	}
 
-	archiveCoordinator(threadId: string, archived: boolean, operationId: string, moveTasksTo?: string): Promise<boolean> {
-		return this.#act(threadId, () => this.#client.archiveThread(this.projectId, threadId, archived, { operationId, moveTasksTo }));
+	archiveCoordinator(threadId: string, archived: boolean, operationId: string, moveTasksTo?: string, schedules?: "move" | "disable"): Promise<boolean> {
+		return this.#act(threadId, () => this.#client.archiveThread(this.projectId, threadId, archived, { operationId, moveTasksTo, schedules }));
 	}
 
 	stop(): void {

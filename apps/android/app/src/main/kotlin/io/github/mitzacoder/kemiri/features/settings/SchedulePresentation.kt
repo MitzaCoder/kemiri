@@ -24,14 +24,14 @@ internal fun scheduleTriggerLabel(trigger: String): String = when (trigger) {
 }
 internal fun scheduleReportLabel(kind: String?, report: String): String = when (report) {
     "record" -> "Record only"
-    "review" -> if (kind == "thread") "Main reviews the summary" else "Coordinator reviews the report"
+    "review" -> if (kind == "thread") "Coordinator reviews the summary" else "Coordinator reviews the report"
     else -> report
 }
 
 /** A run's owner comes from the server, not the screen from which history is opened. */
 internal fun scheduleRunDestination(current: Destination.Chat, run: ScheduleRun): Destination.Chat? =
     if (run.outcome != "started" || (run.workerId == null && run.threadId == null)) null
-    else current.copy(threadId = run.threadId, workerId = run.workerId)
+    else current.copy(threadId = run.threadId ?: run.ownerThreadId?.takeUnless { it == "main" }, workerId = run.workerId)
 
 /** How often the backend checks GitHub for an event rule; the backend's own interval, told to the user. */
 const val EVENT_POLL_MINUTES = 2
@@ -124,4 +124,11 @@ fun scheduleLastRunText(schedule: Schedule, now: Long): String {
         "failed" -> "Failed $whenText — ${runReason(run) ?: "unknown reason"}"
         else -> "${run.outcome} $whenText"
     }
+}
+
+internal data class ScheduleOwnerPresentation(val id: String, val title: String, val thread: ThreadSummary?)
+internal fun scheduleOwnerPresentation(ownerThreadId: String?, roster: List<ThreadSummary>): ScheduleOwnerPresentation {
+    val id = ownerThreadId ?: "main"
+    val thread = roster.firstOrNull { it.id == id && (it.main || it.kind == "coordinator") }
+    return ScheduleOwnerPresentation(id, thread?.title ?: if (id == "main") "General" else id, thread)
 }

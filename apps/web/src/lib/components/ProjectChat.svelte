@@ -1124,6 +1124,7 @@
 			</header>
 			{#if isThread && thread && threads && !coordinatorChat}
 				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={supportsCoordinators ? coordinatorHref(backend.id, projectId, coordinatorId) : projectHref(backend.id, projectId)}
+					onpromote={backend.supports('coordinator-schedules') ? () => manager = thread : undefined}
 					parentTitle={supportsCoordinators ? viewingCoordinator?.title ?? 'General' : undefined} scheduleName={thread.scheduleId ? scheduleTitle(thread.scheduleId) : undefined} />
 			{/if}
 
@@ -1433,7 +1434,7 @@
 <svelte:window onkeydown={coordinatorKeys} />
 {#if manager && threads && supportsCoordinators}
 	{#key manager}
-		<CoordinatorManager messages={peerLog ? peerFeed : undefined} mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
+		<CoordinatorManager supportsSchedules={backend.supports('coordinator-schedules')} messages={peerLog ? peerFeed : undefined} mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
 			onclose={() => manager = undefined} oncreated={id => { manager = undefined; switchCoordinator(id); }}
 			onarchived={id => { const key = coordinatorStorageKey(backend.id, projectId, 'last'); if (readCoordinatorPreference(key) === id) projectsNav.rememberCoordinator(key, 'main'); if (threadId === id) { manager = undefined; switchCoordinator('main'); } }} />
 	{/key}

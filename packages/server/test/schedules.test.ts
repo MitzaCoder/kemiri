@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { afterEach, describe, expect, it } from "bun:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
@@ -748,4 +749,59 @@ describe("the schedule clock", () => {
 			reportEntries(value).some((entry) => entryText(entry).startsWith(`[worker ${run.workerId} reported]`)),
 		);
 	});
+});
+
+
+scheduledTest("routes owned worker reports, tasks, and paused runs without changing legacy ownership", async () => {
+	const clock = fakeClock();
+	const test = await setup({ now: clock.now, setTimer: clock.setTimer });
+	const client = await connect(test.server);
+	await greet(client);
+	const projectId = await addProject(client, test.projectDir);
+	await configure(client, projectId);
+	test.faux.setResponses(Array.from({ length: 30 }, () => script()));
+	const { runtime } = await test.server.manager.open(projectId);
+	const kitchen = await runtime.threads.create({ title: "Kitchen", area: "Count ingredients." }, "create-kitchen");
+	const stock = await saveSchedule(client, projectId, { title: "Count stock", brief: BRIEF, ownerThreadId: kitchen.id });
+	const legacy = await saveSchedule(client, projectId, { title: "Review orders", brief: BRIEF });
+	expect(legacy.ownerThreadId).toBeUndefined();
+	expect((await runtime.schedules.list(kitchen.id)).map(schedule => schedule.id)).toEqual([stock.id]);
+	await expect(runtime.schedules.runNow(legacy.id, kitchen.id)).rejects.toThrow("owning coordinator");
+	const mainView = new ViewClient(client);
+	await mainView.start(projectId);
+	const kitchenView = new ViewClient(client);
+	await kitchenView.start(projectId, { threadId: kitchen.id });
+	const run = await runSchedule(client, projectId, stock.id);
+	expect(run).toMatchObject({ outcome: "started", ownerThreadId: kitchen.id });
+	await kitchenView.waitForView(value => reportEntries(value).some(entry => entryText(entry).startsWith(`[worker ${run.workerId} reported]`)));
+	expect(reportEntries(mainView.view)).toHaveLength(0);
+	expect((await runtime.board.get()).tasks.find(task => task.id === run.taskId)).toMatchObject({ ownerThreadId: kitchen.id, coordinatorId: kitchen.id });
+	await (await runtime.threads.conversation(kitchen.id)).waitForIdle(BACKGROUND_CONTEXT);
+	await runtime.threads.hold(kitchen.id, true, "hold-kitchen");
+	clock.advance(60_000);
+	expect(await runSchedule(client, projectId, stock.id)).toMatchObject({ outcome: "skipped", message: "schedule owner is paused", workerId: null });
+	expect((await runtime.schedules.list()).find(schedule => schedule.id === stock.id)?.runs[0]?.outcome).toBe("skipped");
+});
+
+scheduledTest("moves schedules to General by default, or disables them on archive", async () => {
+	const test = await setup();
+	const client = await connect(test.server);
+	await greet(client);
+	const projectId = await addProject(client, test.projectDir);
+	await configure(client, projectId);
+	const { runtime } = await test.server.manager.open(projectId);
+	for (const disposition of ["move", "disable"] as const) {
+		const owner = await runtime.threads.create({ title: disposition, area: "Check sample orders." }, `create-${disposition}`);
+		const schedule = await saveSchedule(client, projectId, { title: `${disposition} orders`, brief: BRIEF, ownerThreadId: owner.id });
+		const archive = { type: "threads.archive", projectId, threadId: owner.id, archived: true, operationId: `archive-${disposition}`, ...(disposition === "disable" ? { schedules: disposition } : {}) };
+		expect(await client.request(archive)).toMatchObject({ type: "threads.archive", thread: { archived: true } });
+		expect(await client.request(archive)).toMatchObject({ type: "threads.archive", thread: { archived: true } });
+		const saved = (await runtime.schedules.list()).find(row => row.id === schedule.id)!;
+		if (disposition === "move") {
+			expect(saved.ownerThreadId).toBeUndefined();
+			expect(saved.enabled).toBe(true);
+		} else {
+			expect(saved).toMatchObject({ ownerThreadId: owner.id, enabled: false, nextRunAt: null });
+		}
+	}
 });

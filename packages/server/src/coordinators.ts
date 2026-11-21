@@ -69,9 +69,10 @@ export class Coordinators {
 	/** Register a background thread; listeners hear about a new one once. */
 	add(place: CoordinatorPlace): void {
 		const known = this.#byThread.get(place.threadId);
-		if (known !== undefined && known.conversationId === place.conversationId) return;
+		
 		this.#byConversation.set(place.conversationId, place);
 		this.#byThread.set(place.threadId, place);
+		if (known?.conversationId === place.conversationId) return;
 		// Called from inside the creating commit: listeners run once the caller's code yields, never inside it.
 		for (const listener of this.#listeners) {
 			queueMicrotask(() => {

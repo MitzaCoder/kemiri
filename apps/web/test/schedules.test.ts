@@ -30,6 +30,7 @@ import {
 	runsAsLabel,
 	scheduleInput,
 	scheduleRunsAs,
+	scheduleOwnerPresentation,
 	timezoneNote,
 	untilPhrase,
 	workerScheduleLabel,
@@ -426,4 +427,14 @@ describe("event rules", () => {
 			'"acme" is not a GitHub repository; write it as owner/name.',
 		]);
 	});
+});
+
+
+test("shows General for legacy schedules and the coordinator mark source for owned schedules", () => {
+	const kitchen = { id: "kitchen", title: "Kitchen API", kind: "coordinator" as const, color: "#279c8e" };
+	const job = { id: "stock", title: "Count stock", kind: "job" as const };
+	const roster = [kitchen, job] as Parameters<typeof scheduleOwnerPresentation>[1];
+	expect(scheduleOwnerPresentation(undefined, roster)).toEqual({ id: "main", title: "General", thread: undefined });
+	expect(scheduleOwnerPresentation(kitchen.id, roster)).toEqual({ id: kitchen.id, title: kitchen.title, thread: kitchen });
+	expect(scheduleOwnerPresentation(job.id, roster).thread).toBeUndefined();
 });

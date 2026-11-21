@@ -30,7 +30,7 @@ class SchedulePresentationTest {
         }
     }
     @Test fun reportAndHistoryLabelsExplainTheActualOperation() {
-        assertEquals("Main reviews the summary", scheduleReportLabel("thread", "review"))
+        assertEquals("Coordinator reviews the summary", scheduleReportLabel("thread", "review"))
         assertEquals("Coordinator reviews the report", scheduleReportLabel("worker", "review"))
         assertEquals("Record only", scheduleReportLabel("thread", "record"))
         assertEquals("Record only", scheduleReportLabel(null, "record"))
@@ -38,6 +38,12 @@ class SchedulePresentationTest {
         assertEquals(listOf("Scheduled", "Catch-up", "Run by hand"), listOf("schedule", "catch-up", "manual").map(::scheduleTriggerLabel))
         assertEquals("future-value", scheduleOutcomeLabel("future-value"))
         assertEquals("future-value", scheduleTriggerLabel("future-value"))
+    }
+    @Test fun legacyOwnerAndAreaRunUseTheirOwnRoutes() {
+        val route = Destination.Chat("backend", "bakery")
+        assertEquals("General", scheduleOwnerPresentation(null, emptyList()).title)
+        val run = ScheduleRun("now", "manual", "started", "stock-check", null, null, ownerThreadId = "kitchen-api")
+        assertEquals(route.copy(threadId = "kitchen-api", workerId = "stock-check"), scheduleRunDestination(route, run))
     }
     @Test fun failedOrSkippedRunDoesNotOfferASuccessDestination() {
         val route = Destination.Chat("backend", "project")

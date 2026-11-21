@@ -123,6 +123,7 @@ export const ThreadsArchiveRequestSchema = Type.Object({
 	threadId: Type.String({ minLength: 1 }),
 	archived: Type.Boolean({ description: "False brings it back." }),
 	moveTasksTo: Type.Optional(Type.String({ minLength: 1 })),
+	schedules: Type.Optional(Type.Union([Type.Literal("move"), Type.Literal("disable")])),
 	operationId: Type.Optional(RequestIdSchema),
 });
 export type ThreadsArchiveRequest = Static<typeof ThreadsArchiveRequestSchema>;
@@ -146,6 +147,7 @@ export type ThreadsCreateRequest = Static<typeof ThreadsCreateRequestSchema>;
 export const ThreadsUpdateRequestSchema = Type.Object({
 	type: Type.Literal("threads.update"), id: RequestIdSchema, projectId: ProjectIdSchema,
 	threadId: Type.String({ minLength: 1 }), title: Type.Optional(title), area: Type.Optional(area),
+	promote: Type.Optional(Type.Boolean({ description: "Keep a job as a coordinator. Requires an area." })),
 	...coordinatorSettings, operationId: Type.Optional(RequestIdSchema), order: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type ThreadsUpdateRequest = Static<typeof ThreadsUpdateRequestSchema>;

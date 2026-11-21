@@ -1,3 +1,4 @@
+import type { ThreadSummary } from "@kemiri/protocol";
 import { formatTime, formatDateTime, formatWallTime } from '#lib/time-format.ts';
 /**
  * How a scheduled task reads in the app: the schedule in plain words, when it next runs in the backend's timezone,
@@ -431,4 +432,11 @@ export function timezoneNote(timezone: string): string {
 	return timezone.length === 0
 		? "Times follow the backend's clock."
 		: `Times are in the backend's timezone, ${timezone}.`;
+}
+
+/** A removed or archived coordinator keeps its ID on historical runs and disabled schedules. */
+export function scheduleOwnerPresentation(ownerThreadId: string | undefined, roster: readonly ThreadSummary[]) {
+	const id = ownerThreadId ?? "main";
+	const thread = roster.find(thread => thread.id === id && (thread.main || thread.kind === "coordinator"));
+	return { id, thread, title: thread?.title ?? (id === "main" ? "General" : id) };
 }

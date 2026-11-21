@@ -7,7 +7,7 @@ import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
 import { boardAttention } from "./sidebar-attention.ts";
 import { stateKind } from "./state-identity.ts";
 /**
- * Background threads: full coordinators of a project, started by main (or a schedule) for big, long work. The contract
+ * Background threads: full coordinators of a project, started by a coordinator (or a schedule) for big, long work. The contract
  * is `packages/protocol/src/threads.ts`; the design is DESIGN.md "Threads".
  *
  * A background thread is a child conversation of main's, built like a worker: a background anchor task owns it, so it
@@ -125,7 +125,7 @@ type HeldInput = { entry?: InputSubmissionDraft["entry"]; content: import("@eare
 
 export type ThreadRecord = {
 	kind: ThreadKind;
-	parentThreadId: string;
+	parentThreadId?: string;
 	area?: string;
 	paths?: string[];
 	color?: string | null;
@@ -135,6 +135,7 @@ export type ThreadRecord = {
 	heldInputs?: HeldInput[];
 	heldInputReceipts?: string[];
 	lifecycleOperations?: string[];
+	archiveSchedules?: "move" | "disable";
 	id: string;
 	title: string;
 	brief: string;
@@ -187,7 +188,7 @@ export const ThreadsDoc = defineDoc<StoredThreadsState>({
 });
 
 function normalizeThreadRecord(record: Readonly<StoredThreadRecord>): ThreadRecord {
-	return { ...record, kind: record.kind ?? "job", parentThreadId: record.parentThreadId ?? MAIN_THREAD_ID };
+	return { ...record, kind: record.kind ?? "job", ...(record.kind === "coordinator" ? {} : { parentThreadId: record.parentThreadId ?? MAIN_THREAD_ID }) };
 }
 
 /** Default the service's read view only; drafts keep their persisted shape and unknown fields. */
@@ -269,7 +270,13 @@ Use the board to pass work (handoff), memory for facts that last, and a message 
 
 Before landing changes on the project's integration ref, or doing anything else the project's rules say needs the landing turn, take it with project_turn. If queued, end your turn and wait for the [turn] grant. Follow the project's own rules while holding it and release it right after. Never hold the landing turn while waiting for approval or anything else.`;
 
-export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. The owner talks to other coordinators directly. Land your own work with the same landing turn rules as the other coordinators. Use coordinator_start when the owner asks for an enduring area of work, and thread_start for a background job with one task and a complete brief. Use a worker for self-contained work. Review your own jobs' finish and failure reports as you would a worker's report. Use thread_list or thread_peek when the owner asks for a wider view.`;
+export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. Use coordinator_start when the owner asks for an enduring area of work. Other coordinators cannot call it.`;
+
+export function mainThreadInstructions(project: Project, { title, area }: { title: string; area: string }): string {
+	return `${MAIN_THREADS_SECTION}
+
+You coordinate the project ${JSON.stringify(project.name)} at ${project.path}. Your name is ${JSON.stringify(title)} (thread main). Your area: ${JSON.stringify(area)}`;
+}
 
 /** What a background thread is told about itself; its brief arrives as its first message. */
 export function threadInstructions(options: {
@@ -280,6 +287,7 @@ export function threadInstructions(options: {
 	checkoutKind: "jj" | "directory";
 	startedBy: ThreadStartedBy;
 	area?: string;
+	parentThreadId?: string;
 	/** The board task it was started for. */
 	taskId?: string | null;
 }): string {
@@ -300,12 +308,12 @@ ${workspace} Never edit the project checkout at ${project.path}: it belongs to t
 	const starter =
 		startedBy === "schedule"
 			? "A schedule started you with the user's prompt, your first message."
-			: "Main started you; your brief is your first message.";
+			: `Your parent coordinator (${options.parentThreadId ?? MAIN_THREAD_ID}) started you; your brief is your first message.`;
 	return `You are the background thread "${id}" of the project "${project.name}", working on: ${title}
 
 ${workspace} Never edit the project checkout at ${project.path}: it is main's.
 
-${starter} Only your summary (thread_finish) reaches main, so put everything main needs in it.
+${starter} Only your summary (thread_finish) reaches your parent coordinator, so put everything they need in it.
 
 A subtask is a required part of its parent; the parent goes to review/waiting only when its parts are done, in review or waiting. Follow-ups use foundWhile; wait for another task with status todo and blockedBy (freed when it closes), while blocked requires blockedReason for failure or being stuck.
 
@@ -401,7 +409,8 @@ export type ThreadServiceOptions = {
 	 * Extensions a background thread removes besides the thread-start tools: the schedule tools, which stay main's. A
 	 * function, since some are built after this service; read at each start.
 	 */
-	removedExtensions: () => readonly Extension[];
+	removedExtensions: (kind: ThreadKind) => readonly Extension[];
+	archiveSchedules?: (threadId: string, action: "move" | "disable") => Promise<void>;
 	/** Main's activity: its status in the list. */
 	mainActivity: () => ProjectActivity;
 	notifications?: Notifier;
@@ -417,6 +426,7 @@ type CoordinatorCreate = Pick<ThreadsCreateRequest, "title" | "area" | "paths" |
 
 export type ThreadStartInput = {
 	coordinator?: CoordinatorCreate;
+	parentThreadId?: string;
 	title: string;
 	brief: string;
 	model: ModelRef | null;
@@ -438,6 +448,7 @@ export type ThreadStartInput = {
 export type ThreadStartResult = { ok: true; record: ThreadRecord; existed: boolean; notices?: string[] } | { ok: false; message: string };
 
 export type ScheduledThreadInput = {
+	ownerThreadId?: string;
 	scheduleId: string;
 	title: string;
 	brief: string;
@@ -559,7 +570,7 @@ export class ThreadService {
 		return this.#options.coordinators.mainId as ConversationId;
 	}
 
-	/** Main's tools that start and end threads, its section on threads and the tasks; background threads remove it. */
+	/** Coordinator job tools and their durable start tasks; jobs remove this extension. */
 	get startExtension(): Extension {
 		this.#startExtension ??= createThreadStartExtension(this);
 		return this.#startExtension;
@@ -633,7 +644,7 @@ export class ThreadService {
 		}, 60_000);
 		this.#landingTurnNudge.unref();
 		for (const record of Object.values((await this.state()).threads)) {
-			if (record.archived) continue;
+			if (record.archived) { await this.#settleArchivedSchedules(record); continue; }
 			await this.#watch(record);
 		}
 	}
@@ -651,7 +662,7 @@ export class ThreadService {
 		return {
 			threadId: record.id,
 			kind: record.kind,
-			parentThreadId: record.parentThreadId,
+			...(record.parentThreadId === undefined ? {} : { parentThreadId: record.parentThreadId }),
 			conversationId: record.conversationId,
 			checkout: record.checkout,
 			workspacesDir: join(this.#options.threadsDir, record.id, "workers"),
@@ -706,7 +717,7 @@ export class ThreadService {
 			id: record.id,
 			title: record.title,
 			...this.#summaryFields(record.id, record.kind, this.#activities.get(record.id), record.status),
-			parentThreadId: record.parentThreadId,
+			...(record.parentThreadId === undefined ? {} : { parentThreadId: record.parentThreadId }),
 			...(record.area === undefined ? {} : { area: record.area }),
 			...(record.paths === undefined ? {} : { paths: record.paths }),
 			...(record.color === undefined ? {} : { color: record.color }),
@@ -1072,7 +1083,10 @@ export class ThreadService {
 			current.failure = reason;
 		}, true);
 		if (record.kind === "job") await this.#options.board.noteThreadOutcome(record.id, `failed:${key}`, "thread failed", record.taskId);
-		if (record.kind === "job") await this.#post(record, `[thread ${record.id} failed: ${reason}]`, `thread-failed:${key}`);
+		if (record.kind === "job") {
+			await this.#post(record, `[thread ${record.id} failed: ${reason}]`, `thread-failed:${key}`);
+			await this.#options.board.releaseThread(record.id, `failed:${key}`, record.taskId);
+		}
 		const project = this.project;
 		this.#options.notifications?.notify(
 			threadFailedNotification({
@@ -1084,16 +1098,18 @@ export class ThreadService {
 				failure: reason,
 				key,
 				scheduleId: record.scheduleId,
+				coordinatorId: record.parentThreadId,
 			}),
 		);
 	}
 
-	/** Post a thread's finish or failure to main: an input it reviews, or a write it reads at its next turn. */
+	/** Post a job’s finish or failure to its parent: an input it reviews, or a write it reads at its next turn. */
 	async #post(record: ThreadRecord, content: string, requestId: string): Promise<void> {
-		const main = this.#options.coordinators.main;
 		try {
+			const parentRecord = record.parentThreadId && await this.record(record.parentThreadId);
+			const parent = await this.conversation(parentRecord && !parentRecord.archived ? parentRecord.id : MAIN_THREAD_ID);
 			if (record.onFinish === "record") {
-				await main.submit(
+				await parent.submit(
 					{
 						type: "write",
 						entry: { kind: "pi.user", model: [{ role: "user", content, timestamp: this.#options.now() }] },
@@ -1102,10 +1118,10 @@ export class ThreadService {
 					BACKGROUND_CONTEXT,
 				);
 			} else {
-				await main.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
+				await this.submitHarness(parent, { type: "input", content, whenBusy: "followUp", requestId }, content, requestId);
 			}
 		} catch (error) {
-			this.#options.log(`thread ${record.id}: could not post to main: ${errorMessage(error)}`);
+			this.#options.log(`thread ${record.id}: could not post to its parent: ${errorMessage(error)}`);
 		}
 	}
 
@@ -1176,6 +1192,9 @@ export class ThreadService {
 	): Promise<ThreadStartResult> {
 		const project = this.project;
 		const state = await this.state();
+		const parentThreadId = input.parentThreadId ?? MAIN_THREAD_ID;
+		const parent = state.threads[parentThreadId];
+		const parentId = (parent?.conversationId ?? this.#mainId) as ConversationId;
 		const existing = Object.values(state.threads).find((record) => record.startedByKey === input.key);
 		if (existing !== undefined) return { ok: true, record: existing, existed: true };
 
@@ -1198,7 +1217,7 @@ export class ThreadService {
 			const task = (await this.#options.board.state()).tasks.find((candidate) => candidate.id === input.taskId);
 			if (task === undefined) return { ok: false, message: `No task "${input.taskId}" on the board (unknown_task). Add it with the board tool first.` };
 			const owner = task.ownerThreadId ?? null;
-			if (owner !== null && owner !== MAIN_THREAD_ID) {
+			if ((owner ?? MAIN_THREAD_ID) !== parentThreadId) {
 				return { ok: false, message: `Task ${task.id} is held by thread "${owner}". Start the thread on another task.` };
 			}
 			if (task.status === "done" || task.status === "dropped") {
@@ -1214,7 +1233,7 @@ export class ThreadService {
 		} catch (error) {
 			return { ok: false, message: errorMessage(error) };
 		}
-		const checkIn = input.coordinator === undefined && input.onFinish === "review" ? await this.#options.workers.checkInNeeded() : false;
+		const checkIn = input.coordinator === undefined && input.onFinish === "review" ? await this.#options.workers.checkInNeeded(BACKGROUND_CONTEXT, parentId) : false;
 		const title = input.title.trim().slice(0, 120) || id;
 		const { record, notices, existed } = await commit(async (tx) => {
 			// Reads before the first write: a transaction may not read tables after it.
@@ -1222,7 +1241,11 @@ export class ThreadService {
 			const existing = Object.values(doc.threads).find(record => record.startedByKey === input.key);
 			if (existing) return { record: normalizeThreadRecord(JSON.parse(JSON.stringify(existing)) as StoredThreadRecord), notices: [], existed: true };
 			if (doc.threads[id]) throw new ServerError("bad_request", `Thread ID ${id} is already in use. Try again.`);
-			const workers = await tx.doc(WorkersDoc, this.#mainId);
+			const currentParent = doc.threads[parentThreadId];
+			if (parentThreadId !== MAIN_THREAD_ID && (currentParent?.kind !== "coordinator" || currentParent.archived || currentParent.held)) {
+				throw new ServerError("bad_request", "The parent must be an unpaused, unarchived coordinator.");
+			}
+			const workers = await tx.doc(WorkersDoc, parentId);
 			// The thread claims its task (a schedule's run its schedule's one task) and the status change is snapshotted,
 			// all before the first table write.
 			const now = new Date(this.#options.now()).toISOString();
@@ -1230,8 +1253,8 @@ export class ThreadService {
 			const before = statusesOf(board);
    const linksBefore = linksOfBoard(board);
 			const taskId = input.coordinator ? null :
-				input.taskId ?? taskForSchedule(board, { scheduleId: input.scheduleId as string, title, now }).after.id;
-			const move = taskId === null ? undefined : claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, now });
+				input.taskId ?? taskForSchedule(board, { scheduleId: input.scheduleId as string, title, now, ownerThreadId: parentThreadId }).after.id;
+			const move = taskId === null ? undefined : claimTaskForThread(board, { key: `thread-start:${input.key}`, taskId, threadId: id, parentThreadId, now });
 			const moved = [...new Set(input.coordinator?.taskIds ?? [])].map(taskId => moveTaskToCoordinator(board, taskId, id, now));
 			for (const change of moved) queueUserMoveNotices(board, change, this.coordinators.coordinatorId(change.before?.ownerThreadId), id, title, false);
    await logLinkChanges(tx, this.#mainId, board, linksBefore, { by: HARNESS_WRITER, at: now });
@@ -1249,7 +1272,7 @@ export class ThreadService {
 				model,
 				thinkingLevel,
 				cwd: place.checkout,
-				extensions: { add: [mcpRoleExtension("background")], remove: [mcpRoleExtension("coordinator"), mcpRoleExtension("workers"), this.startExtension, ...(input.coordinator ? [this.finishExtension] : []), ...this.#options.removedExtensions()] },
+				extensions: this.extensionsFor(input.coordinator ? "coordinator" : "job"),
 				instructions: threadInstructions({
 					id,
 					title,
@@ -1257,6 +1280,7 @@ export class ThreadService {
 					checkout: place.checkout,
 					checkoutKind: place.kind,
 					startedBy: input.startedBy,
+					parentThreadId,
 					taskId,
 					...(input.coordinator ? { area: input.coordinator.area } : {}),
 				}),
@@ -1264,7 +1288,7 @@ export class ThreadService {
 			const created: ThreadRecord = {
 				id,
 				kind: input.coordinator ? "coordinator" : "job",
-				parentThreadId: MAIN_THREAD_ID,
+				parentThreadId,
 				...(input.coordinator ? { area: input.coordinator.area, paths: input.coordinator.paths ?? [], color: input.coordinator.color ?? null,
 					order: Math.max(0, ...Object.values(doc.threads).map(record => record.order ?? 0)) + 1, held: false, heldAt: null } : {}),
 				title,
@@ -1299,7 +1323,7 @@ export class ThreadService {
 				{ conversationId: conversation.id, content: input.coordinator ? moved.map(change => `[board] The user moved ${change.after.id} to you.`).join("\n") : input.brief, requestId: `thread-brief:${input.key}` },
 				background,
 			);
-			await this.#options.workers.startCheckIn(tx, workers, this.#mainId, checkIn);
+			await this.#options.workers.startCheckIn(tx, workers, parentId, checkIn);
 			return { record: JSON.parse(JSON.stringify(created)) as ThreadRecord, notices: move?.notices ?? [], existed: false };
 		});
 		// The kickoff is a background task; outside a run nothing would pick it up without this.
@@ -1356,6 +1380,7 @@ export class ThreadService {
 		await this.#options.harness.commit(async tx => {
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
 			if (threadId === MAIN_THREAD_ID) {
+				if (input.promote) throw new ServerError("bad_request", "General is already a coordinator.");
 				if ([model, thinkingLevel, paths, order].some(field => field !== undefined)) throw new ServerError("bad_request", "Only title, area and color can be edited for General here.");
 				if (title === undefined && area === undefined && color === undefined) return;
 				doc.main ??= { ...GENERAL };
@@ -1369,11 +1394,23 @@ export class ThreadService {
 					await this.#rosterNote(tx, threadId, this.#mainId, doc.main.title, "re-scoped", area);
 				}
 				if (color !== undefined) doc.main.color = color;
+				if (title !== undefined || area !== undefined) await configure(tx, this.#mainId, { instructions: mainThreadInstructions(this.project, doc.main) });
 				return;
 			}
 			const record = doc.threads[threadId];
-			if (!record || record.kind !== "coordinator") throw new ServerError("bad_request", "Choose a coordinator to edit.");
+			if (!record) throw new ServerError("bad_request", "Choose a coordinator or job.");
 			if (!applyLifecycleOperation(record, "update", input.operationId)) return;
+			const promoting = input.promote === true && record.kind !== "coordinator";
+			if (promoting) {
+				if (area === undefined || isThreadArchived(normalizeThreadRecord(record), this.now())) throw new ServerError("bad_request", "Choose an area and restore the job before keeping it as a coordinator.");
+				record.kind = "coordinator";
+				delete record.parentThreadId;
+				record.autoArchive = false;
+				record.order = Math.max(0, ...Object.values(doc.threads).map(thread => thread.order ?? 0)) + 1;
+				if (record.status !== "running") record.status = "idle";
+				record.finishedAt = null;
+				record.failure = null;
+			} else if (record.kind !== "coordinator") throw new ServerError("bad_request", "Choose a coordinator to edit.");
 			const before = JSON.stringify(record);
 			const renamed = title !== undefined && title !== record.title;
 			const rescoped = (area !== undefined && area !== record.area) || (paths !== undefined && JSON.stringify(paths) !== JSON.stringify(record.paths));
@@ -1385,17 +1422,20 @@ export class ThreadService {
 			if (model !== undefined) record.model = model;
 			if (thinkingLevel !== undefined) record.thinkingLevel = thinkingLevel;
 			if (before !== JSON.stringify(record)) record.updatedAt = new Date(this.now()).toISOString();
-			if (renamed) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "renamed");
-			if (rescoped) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "re-scoped", record.area);
-			if (title !== undefined || area !== undefined || model !== undefined || thinkingLevel !== undefined) {
+			if (promoting) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "kept as a coordinator", area);
+			else if (renamed) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "renamed");
+			if (rescoped && !promoting) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "re-scoped", record.area);
+			if (promoting || title !== undefined || area !== undefined || model !== undefined || thinkingLevel !== undefined) {
 				await configure(tx, record.conversationId as ConversationId, {
 					model: record.model, thinkingLevel: record.thinkingLevel,
+					...(promoting ? { extensions: this.extensionsFor("coordinator") } : {}),
 					instructions: threadInstructions({ ...record, project: this.project }),
 				});
 			}
 		}, BACKGROUND_CONTEXT);
-		this.#changed();
 		const state = await this.state();
+		if (input.promote && state.threads[threadId]?.kind === "coordinator") this.coordinators.add(this.placeFor(state.threads[threadId]!));
+		this.#changed();
 		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(state.threads[threadId]!);
 	}
 
@@ -1476,6 +1516,20 @@ export class ThreadService {
 		return this.summaryOf((await this.record(threadId)) ?? current);
 	}
 
+	extensionsFor(kind: ThreadKind) {
+		return {
+			add: [mcpRoleExtension(kind === "coordinator" ? "coordinator" : "background")],
+			remove: [mcpRoleExtension("workers"), ...this.#options.removedExtensions(kind),
+				...(kind === "coordinator" ? [mcpRoleExtension("background"), this.finishExtension] : [mcpRoleExtension("coordinator"), this.startExtension])],
+		};
+	}
+
+	async requireScheduleOwner(tx: Tx, threadId: string): Promise<void> {
+		if (threadId === MAIN_THREAD_ID) return;
+		const owner = (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId];
+		if (owner?.kind !== "coordinator" || owner.archived || owner.held) throw new ServerError("bad_request", "The schedule owner is paused or unavailable.");
+	}
+
 	async startScheduled(run: ScheduledThreadInput): Promise<ThreadStartResult> {
 		const safe = run.scheduleId.toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 32);
 		return this.start({
@@ -1485,6 +1539,7 @@ export class ThreadService {
 			thinkingLevel: run.thinkingLevel,
 			onFinish: run.onFinish,
 			startedBy: "schedule",
+			...(run.ownerThreadId === undefined ? {} : { parentThreadId: run.ownerThreadId }),
 			scheduleId: run.scheduleId,
 			taskId: run.event?.taskId ?? null,
 			key: `schedule:${run.scheduleId}:${run.event?.key ?? new Date(run.at).toISOString()}`,
@@ -1538,13 +1593,16 @@ export class ThreadService {
 	 * Archive a thread that no longer works, or bring one back (which also stops it archiving itself). Archiving removes
 	 * its checkout and its idle workers' workspaces in the background; its commits stay in the repository.
 	 */
-	async archive(threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string): Promise<ThreadSummary> {
+	async archive(threadId: string, archived: boolean, moveTasksTo?: string, operationId?: string, schedules: "move" | "disable" = "move"): Promise<ThreadSummary> {
 		const record = await this.#requireBackground(threadId);
 		if (moveTasksTo !== undefined && record.kind !== "coordinator") throw new ServerError("bad_request", "Only coordinators can move tasks on archive.");
 		if (record.kind === "job" && archived && isLive(record.status)) {
 			throw new ServerError("bad_request", `Thread "${threadId}" is still ${record.status}; stop it before archiving it.`, { threadId });
 		}
-		if (!archived) await this.#ensureCheckout(threadId);
+		if (!archived) {
+			await this.#settleArchivedSchedules(record);
+			await this.#ensureCheckout(threadId);
+		}
 		if (record.kind === "coordinator") {
 			const to = moveTasksTo ?? MAIN_THREAD_ID;
 			await this.#options.harness.commit(async tx => {
@@ -1556,6 +1614,13 @@ export class ThreadService {
 					const workers = await tx.doc(WorkersDoc, current.conversationId as ConversationId);
 					if (live.run || Object.values(workers.workers).some(worker => worker.status === "running")) throw new ServerError("bad_request", "Wait for this coordinator and its workers to finish before archiving.");
 					if (to === threadId || (to !== MAIN_THREAD_ID && (doc.threads[to]?.kind !== "coordinator" || doc.threads[to]?.archived))) throw new ServerError("bad_request", "Choose another unarchived coordinator.");
+					for (const job of Object.values(doc.threads)) {
+						if (job.kind === "coordinator" || job.parentThreadId !== threadId || job.archived) continue;
+						const child = await tx.doc(LiveDoc, job.conversationId as ConversationId);
+						const childWorkers = await tx.doc(WorkersDoc, job.conversationId as ConversationId);
+						if (job.status === "running" || child.run || Object.values(childWorkers.workers).some(worker => worker.status === "running")) throw new ServerError("bad_request", "Wait for this coordinator’s background jobs to finish before archiving.");
+					}
+					current.archiveSchedules = schedules;
 					const board = await openBoard(tx, this.#mainId);
 					const now = new Date(this.now()).toISOString();
 					for (const task of board.tasks) {
@@ -1576,6 +1641,7 @@ export class ThreadService {
 		}
 		const saved = (await this.record(threadId))!;
 		if (saved.archived !== archived) return this.summaryOf(saved);
+		if (archived) await this.#settleArchivedSchedules(saved);
 		const watch = this.#watches.get(threadId);
 		if (archived && watch !== undefined) {
 			this.#watches.delete(threadId);
@@ -1590,6 +1656,12 @@ export class ThreadService {
 			});
 		}
 		return this.summaryOf((await this.record(threadId)) as ThreadRecord);
+	}
+
+	async #settleArchivedSchedules(record: ThreadRecord): Promise<void> {
+		if (!record.archived || record.archiveSchedules === undefined) return;
+		await this.#options.archiveSchedules?.(record.id, record.archiveSchedules);
+		await this.#update(record.id, current => { if (current.archived) delete current.archiveSchedules; });
 	}
 
 	/**
@@ -1628,6 +1700,7 @@ export class ThreadService {
 	async finish(record: ThreadRecord, summary: string, callId: string): Promise<void> {
 		const now = new Date(this.#options.now()).toISOString();
 		await this.#update(record.id, (current) => {
+			if (current.kind === "coordinator") throw new ServerError("bad_request", "Only background jobs can finish.");
 			current.status = "done";
 			current.summary = summary;
 			current.failure = null;
@@ -1645,6 +1718,7 @@ export class ThreadService {
 				summary,
 				callId,
 				scheduleId: record.scheduleId,
+				coordinatorId: record.parentThreadId,
 			}),
 		);
 	}
@@ -1797,21 +1871,21 @@ export class ThreadService {
 		});
 	}
 
-	/** What main's check-ins cover: running threads whose summary main reviews (a `record` one must not wake it). */
-	async #checkInThreads(): Promise<ThreadRecord[]> {
+	/** What a coordinator’s check-ins cover: its running jobs whose summary it reviews (a `record` one must not wake it). */
+	async #checkInThreads(parentThreadId: string): Promise<ThreadRecord[]> {
 		const now = this.#options.now();
 		return Object.values((await this.state()).threads).filter(
-			(record) => record.kind === "job" && record.parentThreadId === MAIN_THREAD_ID && record.status === "running" && record.onFinish === "review" && !isThreadArchived(record, now),
+			(record) => record.kind === "job" && record.parentThreadId === parentThreadId && record.status === "running" && record.onFinish === "review" && !isThreadArchived(record, now),
 		);
 	}
 
-	/** Main's check-ins: how many threads run, and a short digest of each. Attached to the worker service. */
-	get checkIns(): { running(context: Context): Promise<number>; digests(now: number, maxChars: number, context: Context): Promise<string[]> } {
+	/** Each coordinator’s check-ins: its running jobs, and a short digest of each. Attached to the worker service. */
+	get checkIns(): { running(parentThreadId: string, context: Context): Promise<number>; digests(parentThreadId: string, now: number, maxChars: number, context: Context): Promise<string[]> } {
 		return {
-			running: async () => (await this.#checkInThreads()).length,
-			digests: async (now, maxChars) => {
+			running: async parentThreadId => (await this.#checkInThreads(parentThreadId)).length,
+			digests: async (parentThreadId, now, maxChars) => {
 				const digests: string[] = [];
-				for (const record of await this.#checkInThreads()) {
+				for (const record of await this.#checkInThreads(parentThreadId)) {
 					digests.push(
 						await this.#describe(
 							record,
@@ -1914,9 +1988,8 @@ function createThreadStartExtension(service: ThreadService): Extension {
 		}),
 		replay: "safe",
 		execute: async (args, api, context) => {
-			if (!service.coordinators.isMain(api.conversationId)) {
-				return toolText(onlyMain("thread_start"), { isError: true });
-			}
+			const parent = service.coordinators.placeOf(api.conversationId);
+			if (parent?.kind !== "coordinator") return toolText("Only coordinators can start background jobs; jobs cannot start jobs.", { isError: true });
 			const started = await service.start(
 				{
 					title: args.title,
@@ -1925,6 +1998,7 @@ function createThreadStartExtension(service: ThreadService): Extension {
 					thinkingLevel: args.thinkingLevel ?? null,
 					onFinish: args.onFinish ?? "review",
 					startedBy: "main",
+					parentThreadId: parent.threadId,
 					scheduleId: null,
 					taskId: args.taskId,
 					key: api.callId,
@@ -1954,8 +2028,9 @@ function createThreadStartExtension(service: ThreadService): Extension {
 		parameters: Type.Object({ id: Type.String({ minLength: 1, description: "The thread's ID." }) }),
 		replay: "unsafe",
 		execute: async (args, api, context) => {
-			if (!service.coordinators.isMain(api.conversationId)) {
-				return toolText(onlyMain("thread_stop"), { isError: true });
+			const caller = service.coordinators.placeOf(api.conversationId);
+			if (!service.coordinators.isMain(api.conversationId) && (caller?.kind !== "coordinator" || (await service.record(args.id))?.parentThreadId !== caller.threadId)) {
+				return toolText("thread_stop is for General or the coordinator that owns the job.", { isError: true });
 			}
 			try {
 				const summary = await service.stopThread(args.id);
@@ -1982,8 +2057,9 @@ function createThreadStartExtension(service: ThreadService): Extension {
 		}),
 		replay: "safe",
 		execute: async (args, api, context) => {
-			if (!service.coordinators.isMain(api.conversationId)) {
-				return toolText(onlyMain("thread_archive"), { isError: true });
+			const caller = service.coordinators.placeOf(api.conversationId);
+			if (!service.coordinators.isMain(api.conversationId) && (caller?.kind !== "coordinator" || (await service.record(args.id))?.parentThreadId !== caller.threadId)) {
+				return toolText("thread_archive is for General or the coordinator that owns the job.", { isError: true });
 			}
 			try {
 				const summary = await service.archive(args.id, args.archived !== false);
@@ -2000,13 +2076,6 @@ function createThreadStartExtension(service: ThreadService): Extension {
 		name: "thread-start-tools",
 		tasks: [ThreadAnchor, ThreadKickoff] as Task<unknown, { phase: string }, unknown, object>[],
 		tools: [coordinatorStart, startTool, stopTool, archiveTool] as ToolRegistration[],
-		sections: [
-			section("threads", async input => {
-				if (!service.coordinators.isMain(input.conversationId)) return undefined;
-				const { title, area } = (await service.state()).main;
-				return `${MAIN_THREADS_SECTION}\n\nYour name is ${JSON.stringify(title)} (thread main). Your area: ${JSON.stringify(area)}`;
-			}),
-		],
 	});
 }
 
@@ -2156,12 +2225,12 @@ function createThreadFinishExtension(service: ThreadService): Extension {
 		name: "thread_finish",
 		callers: ["model"],
 		description:
-			"End this background thread with a summary for main: outcome, where the work is (workspace, change IDs, branches, " +
-			'pull requests), open issues and anything the user must decide. It reaches main as "[thread <id> finished]"; ' +
+			"End this background thread with a summary for your parent coordinator: outcome, where the work is (workspace, change IDs, branches, " +
+			'pull requests), open issues and anything the user must decide. It reaches your parent as "[thread <id> finished]"; ' +
 			"nothing you write afterwards does. Call it when the work is done, not to wait: to wait for a report, an answer or a " +
 			"message, end your turn instead. Your running workers must have reported or been stopped first.",
 		parameters: Type.Object({
-			summary: Type.String({ minLength: 1, description: "Everything main needs: it sees nothing else of your work." }),
+			summary: Type.String({ minLength: 1, description: "Everything your parent needs: they see nothing else of your work." }),
 		}),
 		replay: "safe",
 		execute: async (args, api, context) => {

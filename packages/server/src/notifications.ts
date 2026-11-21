@@ -829,6 +829,7 @@ export function workerNotification(input: {
 export function threadFinishedNotification(input: {
 	projectId: string;
 	projectName: string;
+	coordinatorId?: string | undefined;
 	threadId: string;
 	title: string;
 	summary: string;
@@ -841,6 +842,7 @@ export function threadFinishedNotification(input: {
 		title: `Finished · ${input.title}`,
 		body: notificationLine(input.summary) || `${input.projectName}: a background thread finished.`,
 		projectId: input.projectId,
+		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		threadId: input.threadId,
 		...(input.scheduleId === undefined || input.scheduleId === null ? {} : { scheduleId: input.scheduleId }),
 		tag: `thread:${input.projectId}:${input.threadId}`,
@@ -852,6 +854,7 @@ export function threadFinishedNotification(input: {
 export function threadFailedNotification(input: {
 	projectId: string;
 	projectName: string;
+	coordinatorId?: string | undefined;
 	threadId: string;
 	title: string;
 	failure: string;
@@ -865,6 +868,7 @@ export function threadFailedNotification(input: {
 		...(input.coordinator ? { coordinatorId: input.threadId } : {}),
 		body: notificationLine(input.failure) || `${input.projectName}: a background thread failed.`,
 		projectId: input.projectId,
+		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		threadId: input.threadId,
 		...(input.scheduleId === undefined || input.scheduleId === null ? {} : { scheduleId: input.scheduleId }),
 		tag: `thread:${input.projectId}:${input.threadId}`,
@@ -876,6 +880,7 @@ export function threadFailedNotification(input: {
 export function scheduleDoneNotification(input: {
 	projectId: string;
 	projectName: string;
+	coordinatorId?: string | undefined;
 	scheduleId: string;
 	scheduleTitle: string;
 	workerId: string;
@@ -887,6 +892,7 @@ export function scheduleDoneNotification(input: {
 		title: `Scheduled task done · ${input.scheduleTitle}`,
 		body: notificationLine(input.text) || `${input.projectName}: the scheduled run finished.`,
 		projectId: input.projectId,
+		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		workerId: input.workerId,
 		scheduleId: input.scheduleId,
 		tag: `schedule:${input.scheduleId}`,
@@ -898,6 +904,7 @@ export function scheduleDoneNotification(input: {
 export function scheduleFailureNotification(input: {
 	projectId: string;
 	projectName: string;
+	coordinatorId?: string | undefined;
 	scheduleId: string;
 	scheduleTitle: string;
 	workerId: string;
@@ -909,6 +916,7 @@ export function scheduleFailureNotification(input: {
 		title: `Scheduled task failed · ${input.scheduleTitle}`,
 		body: notificationLine(input.failure) || "The scheduled run could not finish.",
 		projectId: input.projectId,
+		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		workerId: input.workerId,
 		scheduleId: input.scheduleId,
 		tag: `schedule:${input.scheduleId}`,
@@ -920,6 +928,7 @@ export function scheduleFailureNotification(input: {
 export function scheduleProblemNotification(input: {
 	projectId: string;
 	projectName: string;
+	coordinatorId?: string | undefined;
 	scheduleId: string;
 	scheduleTitle: string;
 	run: ScheduleRun;
@@ -933,6 +942,7 @@ export function scheduleProblemNotification(input: {
 			: `Scheduled task failed · ${input.scheduleTitle}`,
 		body: notificationLine(input.run.message) || (skipped ? "It was skipped." : "It could not start."),
 		projectId: input.projectId,
+		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		scheduleId: input.scheduleId,
 		tag: `schedule:${input.scheduleId}`,
 		key: `schedule:${input.projectId}:${input.scheduleId}:${input.run.at}${input.run.ref == null ? "" : `:${input.run.ref}`}:${input.run.outcome}`,

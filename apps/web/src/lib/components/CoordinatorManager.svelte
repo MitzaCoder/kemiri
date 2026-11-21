@@ -10,14 +10,14 @@
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 
-	let { mode, store, roster, tasks, models, onclose, oncreated, onarchived, messages }: {
+	let { mode, store, roster, tasks, models, onclose, oncreated, onarchived, messages, supportsSchedules }: {
 		mode: 'new' | 'manage' | ThreadSummary; store: ProjectThreads; roster: readonly ThreadSummary[];
 		tasks: readonly BoardTask[]; models: readonly ModelInfo[]; onclose: () => void;
-		messages?: Snippet;
+		messages?: Snippet; supportsSchedules: boolean;
 		oncreated: (id: string) => void; onarchived: (id: string) => void;
 	} = $props();
 
-	let screen = $state<'new' | 'manage' | 'edit' | 'archive'>('manage');
+	let screen = $state<'new' | 'manage' | 'edit' | 'archive' | 'promote'>('manage');
 	let editing = $state<ThreadSummary>();
 	let title = $state('');
 	let area = $state('');
@@ -27,18 +27,19 @@
 	let query = $state('');
 	let taskIds = $state<string[]>([]);
 	let moveTasksTo = $state('main');
+	let schedules = $state<'move' | 'disable'>('move');
 	let pending = $state(false);
 	let error = $state('');
 	const operationIds = new Map<string, string>();
 	const taskChoices = $derived(tasks.filter(task => !task.archived && task.status !== 'done' && task.status !== 'dropped' && `${task.id} ${task.title}`.toLowerCase().includes(query.trim().toLowerCase())));
 	const archived = $derived(store.archived.filter(thread => thread.kind === 'coordinator'));
-	const heading = $derived(screen === 'new' ? 'New coordinator' : screen === 'manage' ? 'Manage coordinators' : screen === 'archive' ? `Archive ${editing?.title}` : `Edit ${editing?.title}`);
+	const heading = $derived(screen === 'new' ? 'New coordinator' : screen === 'manage' ? 'Manage coordinators' : screen === 'promote' ? 'Keep as coordinator' : screen === 'archive' ? `Archive ${editing?.title}` : `Edit ${editing?.title}`);
 
 	function edit(thread: ThreadSummary) {
 		editing = thread;
 		title = thread.title; area = thread.area ?? ''; paths = thread.paths?.join('\n') ?? '';
 		color = coordinatorColor(thread); model = thread.model ? modelKey(thread.model) : '';
-		error = ''; screen = 'edit';
+		error = ''; screen = supportsSchedules && thread.kind !== 'coordinator' && !thread.main ? 'promote' : 'edit';
 	}
 	$effect(() => {
 		if (typeof mode !== 'string') edit(mode);
@@ -71,7 +72,14 @@
 		const chosen = models.find(entry => modelKey(entry) === model);
 		const fields = { title: title.trim(), area: area.trim(), color,
 			...(!editing?.main ? { paths: paths.split('\n').map(path => path.trim()).filter(Boolean), ...(chosen ? { model: { provider: chosen.provider, modelId: chosen.modelId } } : {}) } : {}) };
-		if (screen === 'new') {
+		if (screen === 'promote' && editing) {
+			const id = editing.id;
+			const fields = { promote: true, title: title.trim(), area: area.trim(), color };
+			void mutate(['promote', id, fields], async operationId => {
+				requireSuccess(await store.updateCoordinator(id, { ...fields, operationId }));
+				oncreated(id);
+			});
+		} else if (screen === 'new') {
 			const create = { ...fields, taskIds: [...taskIds].sort() };
 			void mutate(['create', create], async operationId => oncreated((await store.createCoordinator({ ...create, operationId })).id));
 		} else if (editing) {
@@ -84,8 +92,9 @@
 	}
 	function archive(thread: ThreadSummary, archived: boolean) {
 		const destination = archived ? moveTasksTo : undefined;
-		void mutate(['archive', thread.id, archived, destination], async operationId => {
-			requireSuccess(await store.archiveCoordinator(thread.id, archived, operationId, destination));
+		const disposition = archived && supportsSchedules ? schedules : undefined;
+		void mutate(['archive', thread.id, archived, destination, disposition], async operationId => {
+			requireSuccess(await store.archiveCoordinator(thread.id, archived, operationId, destination, disposition));
 			screen = 'manage';
 			if (archived) onarchived(thread.id);
 		});
@@ -108,7 +117,7 @@
 	<Dialog.Content class="max-h-[calc(100dvh-1.5rem)] overflow-y-auto sm:max-w-xl" onEscapeKeydown={event => { if (pending) event.preventDefault(); }} onInteractOutside={event => { if (pending) event.preventDefault(); }}>
 		<Dialog.Header>
 			<Dialog.Title>{heading}</Dialog.Title>
-			<Dialog.Description>{screen === 'new' ? 'Give this coordinator a clear area of work. It will have its own chat and share this project’s board.' : screen === 'archive' ? 'The chat and closed tasks stay in the project history.' : 'Set who does what in this project.'}</Dialog.Description>
+			<Dialog.Description>{screen === 'new' ? 'Give this coordinator a clear area of work. It will have its own chat and share this project’s board.' : screen === 'archive' ? 'The chat and closed tasks stay in the project history.' : screen === 'promote' ? 'The job keeps its chat, workspace, and assigned tasks.' : 'Set who does what in this project.'}</Dialog.Description>
 		</Dialog.Header>
 		{#if screen === 'manage'}
 			{@render messages?.()}
@@ -120,7 +129,7 @@
 							<Button size="sm" variant="ghost" disabled={pending} onclick={() => edit(coordinator)}>Edit</Button>
 							{#if !coordinator.main}
 								<Button size="sm" variant="ghost" disabled={pending} onclick={() => void mutate(['held', coordinator.id, !coordinator.held], async id => requireSuccess(await store.holdCoordinator(coordinator.id, !coordinator.held, id)))}>{coordinator.held ? 'Resume' : 'Pause'}</Button>
-								<Button size="sm" variant="ghost" disabled={pending || coordinatorBadges(coordinator).working} onclick={() => { editing = coordinator; moveTasksTo = 'main'; error = ''; screen = 'archive'; }}>Archive</Button>
+								<Button size="sm" variant="ghost" disabled={pending || coordinatorBadges(coordinator).working} onclick={() => { editing = coordinator; moveTasksTo = 'main'; schedules = 'move'; error = ''; screen = 'archive'; }}>Archive</Button>
 								<Button size="icon-sm" variant="ghost" aria-label="Move {coordinator.title} up" disabled={pending || index <= 1} onclick={() => reorder(index, -1)}><ArrowUp /></Button>
 								<Button size="icon-sm" variant="ghost" aria-label="Move {coordinator.title} down" disabled={pending || index === roster.length - 1} onclick={() => reorder(index, 1)}><ArrowDown /></Button>
 							{/if}
@@ -135,6 +144,7 @@
 		{:else if screen === 'archive' && editing}
 			{@const coordinator = editing}
 			<label>Move open tasks to<select bind:value={moveTasksTo} disabled={pending}>{#each roster.filter(thread => thread.id !== coordinator.id) as row (row.id)}<option value={row.id}>{row.title}</option>{/each}</select></label>
+			{#if supportsSchedules}<label>Schedules<select bind:value={schedules} disabled={pending}><option value="move">Move to {roster.find(thread => thread.main)?.title ?? 'General'}</option><option value="disable">Turn off schedules</option></select></label>{/if}
 			<div class="flex justify-end gap-2"><Button variant="outline" disabled={pending} onclick={() => { error = ''; screen = 'manage'; }}>Back</Button><Button variant="destructive" disabled={pending} onclick={() => archive(coordinator, true)}>Archive coordinator</Button></div>
 		{:else}
 			<form class="grid gap-4" onsubmit={save}>
@@ -144,7 +154,7 @@
 						{#each Object.entries(COORDINATOR_COLORS) as [label, tint] (label)}<button type="button" class="swatch" style:--swatch={tint} aria-label={label} title={label} aria-pressed={color === tint} onclick={() => color = tint}></button>{/each}
 					</div>
 					<label>Area<textarea bind:value={area} placeholder="What work belongs here?" rows="2" required maxlength="2000"></textarea></label>
-					{#if !editing?.main}
+					{#if !editing?.main && screen !== 'promote'}
 						<label>Paths <span class="font-normal text-(--chat-fg-muted)">· optional, one per line</span><textarea bind:value={paths} placeholder="apps/shop/**" rows="2"></textarea></label>
 						<label>Model<select bind:value={model}><option value="">{editing ? 'Keep current model' : 'Project default'}</option>{#each models as entry (modelKey(entry))}<option value={modelKey(entry)}>{entry.name}</option>{/each}</select></label>
 					{/if}
@@ -158,7 +168,7 @@
 				</fieldset>
 				<div class="flex justify-end gap-2">
 					<Button variant="outline" disabled={pending} onclick={() => { if (mode === 'manage') { error = ''; screen = 'manage'; } else onclose(); }}>Cancel</Button>
-					<Button type="submit" disabled={pending || !title.trim() || !area.trim()}>{pending ? 'Saving…' : screen === 'new' ? 'Create coordinator' : 'Save changes'}</Button>
+					<Button type="submit" disabled={pending || !title.trim() || !area.trim()}>{pending ? 'Saving…' : screen === 'new' ? 'Create coordinator' : screen === 'promote' ? 'Keep as coordinator' : 'Save changes'}</Button>
 				</div>
 			</form>
 		{/if}

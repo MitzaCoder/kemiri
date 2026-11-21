@@ -8,9 +8,9 @@
 	import type { ThreadSummary } from '@kemiri/protocol';
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
-	let { thread, projectName, mainHref, parentTitle = 'Main chat', threads, board, now, scheduleName }: {
+	let { thread, projectName, mainHref, parentTitle = 'Main chat', threads, board, now, scheduleName, onpromote }: {
 		thread: ThreadSummary; projectName: string; mainHref: string; parentTitle?: string; threads: ProjectThreads;
-		board?: ProjectBoard; now: number; scheduleName?: string;
+		board?: ProjectBoard; now: number; scheduleName?: string; onpromote?: () => void;
 	} = $props();
 	const text = $derived(backgroundJobBandText(thread, now, scheduleName, parentTitle));
 	const waiting = $derived(board?.board ? openQuestions(board.board).filter(question => inThread(question, thread.id)) : []);
@@ -28,6 +28,7 @@
 		</p>
 		<div class="ml-auto flex shrink-0 items-center gap-1">
 			<Button href={mainHref} variant="ghost" size="sm" class="min-h-11 px-2 text-xs">← {parentTitle}</Button>
+			{#if onpromote && !thread.archived}<Button variant="ghost" size="sm" class="min-h-11 px-2 text-xs" onclick={onpromote}>Keep as coordinator</Button>{/if}
 			{#if text.canStop}<ThreadStopButton {thread} {threads} class="min-h-11 px-2 text-xs" />{/if}
 		</div>
 	</div>

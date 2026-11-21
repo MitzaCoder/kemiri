@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import io.github.mitzacoder.kemiri.data.supports
+import io.github.mitzacoder.kemiri.features.coordinators.CoordinatorEditor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -28,18 +30,18 @@ internal fun backgroundJobComposerNote(route: Destination.Chat): String? = JOB_C
 internal fun openBackgroundJobLabel(route: Destination.Chat?, threads: List<ThreadSummary>): String? =
     route?.takeIf(::isBackgroundJobPage)?.threadId?.let { id -> "Open: ${threads.find { it.id == id }?.title?.takeIf(String::isNotBlank) ?: id}" }
 internal data class BackgroundJobBandText(val origin: String, val outcome: String, val canStop: Boolean)
-internal fun backgroundJobBandText(thread: ThreadSummary, now: Long, scheduleName: String? = null): BackgroundJobBandText {
+internal fun backgroundJobBandText(thread: ThreadSummary, now: Long, scheduleName: String? = null, parentTitle: String = "Main chat"): BackgroundJobBandText {
     val starter = when (thread.startedBy) {
         "schedule" -> scheduleName?.let { "schedule $it" } ?: "a schedule"
         "user" -> "you"
-        else -> "Main chat"
+        else -> parentTitle
     }
     val instant = Instant.ofEpochMilli(now)
     val ended = panelRelativeTime(thread.finishedAt ?: thread.updatedAt, instant)
     val state = threadState(thread)
     val outcome = when (state) {
-        "finished" -> "Finished $ended · its report is in Main chat"
-        "stopped" -> "Stopped $ended · Main chat keeps what it reported so far"
+        "finished" -> "Finished $ended · its report is in $parentTitle"
+        "stopped" -> "Stopped $ended · $parentTitle keeps what it reported so far"
         "failed" -> "Failed $ended · send a message to retry"
         else -> "reports back there when it finishes"
     }
@@ -48,14 +50,15 @@ internal fun backgroundJobBandText(thread: ThreadSummary, now: Long, scheduleNam
 internal fun backgroundJobQuestions(questions: List<BoardQuestion>, threadId: String) = questions.filter { it.status == "open" && it.threadId == threadId }
 
 @Composable
-internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSummary, projectName: String, scheduleName: String?) {
+internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSummary, projectName: String, scheduleName: String?, parentTitle: String = "Main chat") {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
-    val text = backgroundJobBandText(thread, now, scheduleName)
+    val text = backgroundJobBandText(thread, now, scheduleName, parentTitle)
     val board by context.board.view.collectAsStateWithLifecycle()
     val waiting = backgroundJobQuestions(board.questions, thread.id)
     var chosen by rememberSaveable(thread.id) { mutableStateOf<String?>(null) }
     val question = waiting.find { it.id == chosen } ?: waiting.firstOrNull()
+    var promoting by rememberSaveable(thread.id) { mutableStateOf(false) }
     var stopping by rememberSaveable(thread.id) { mutableStateOf(false) }
     var pending by remember(thread.id) { mutableStateOf(false) }
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .45f }
@@ -63,7 +66,8 @@ internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSumm
         .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
         Text("Background job of $projectName · ${text.origin} · ${text.outcome}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { context.navigate(context.route.copy(threadId = null, workerId = null, highlight = null)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("← Main chat") }
+            TextButton(onClick = { context.navigate(context.route.copy(threadId = thread.parentThreadId?.takeUnless { it == "main" }, workerId = null, highlight = null)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("← $parentTitle", maxLines = 1) }
+            if (!thread.archived && context.backend.client.supports("coordinator-schedules")) TextButton(onClick = { promoting = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep as coordinator") }
             if (text.canStop) TextButton(enabled = !pending, onClick = { stopping = true }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Stop ${thread.title}" }, colors = ButtonDefaults.textButtonColors(contentColor = Jarvis.colors.danger)) { Text("Stop") }
         }
         if (question != null) {
@@ -74,5 +78,6 @@ internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSumm
             key(question.id) { QuestionCard(context, question, compact = true, preview = true) }
         }
     }
+    if (promoting) CoordinatorEditor(context, thread, dismiss = { promoting = false }, promote = true)
     if (stopping) ThreadStopConfirmation(context, thread, onDismiss = { stopping = false }, onPending = { pending = it }, onStopped = { stopping = false })
 }

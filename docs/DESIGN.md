@@ -2641,14 +2641,14 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
 
 - **Roles.** The owner talks directly to each coordinator. Other coordinators and jobs
   use their own workspaces. A coordinator keeps the job tools except `thread_finish`.
-  General alone can create coordinators through `coordinator_start`, start jobs or manage
-  schedules. Each coordinator lands its own work under the shared landing-turn rules below.
+  General alone can create coordinators through `coordinator_start`. Every coordinator can
+  start jobs and manage its own schedules; General can manage every schedule. Each coordinator lands its own work under the shared landing-turn rules below.
 - **Lifecycle.** `threads.create` creates an idle thread unless open tasks move into it.
   `threads.update` edits metadata and can change the coordinator model and thinking level.
   `threads.hold` stashes incoming work without interrupting the running turn or workers.
   Explicit resume or owner input drains the saved inputs in one submission. Held coordinators
   stop keep-warm; all other coordinators keep the normal project settings. Archive requires idle
-  work, moves open tasks to `moveTasksTo` (default `main`) in the same commit, and retains
+  work, refuses running jobs, moves open tasks to `moveTasksTo` (default `main`) in the same commit, and retains
   closed-task owners and chat history. `threads.archive` with `archived: false` restores the
   workspace without moving tasks back. Lifecycle mutations accept an optional stable `operationId`
   across retries. The response `id` remains a correlation ID and is not a durable operation ID.
@@ -2660,9 +2660,15 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
 - **General is not a relay.** Its check-ins and finish and failure cards cover only its
   own jobs. All coordinators get the same static peer rules. General and area coordinators
   also share the direct-chat rules for the board, delegation, verification, and owner input.
-  Their workspace and schedule guidance differ. The live roster is a tool result, not part
+  Their tool definitions and shared prompt sections are byte-identical; identity and workspace
+  instructions come after the shared sections. The live roster is a tool result, not part
   of the prompt; renaming or re-scoping one coordinator changes only its own instructions.
   Roster changes reach peers at their next real input through the shared notes channel below.
+- **Jobs and promotion (stage 7).** Each job is one level below its parent coordinator. The
+  parent’s job check-ins, finish and failure inputs go to that parent. Open job tasks return
+  to it on finish, failure or stop. The owner can use **Keep as coordinator** on the job page:
+  `threads.update` with `promote: true` and an area keeps the chat, workspace and its task
+  assignments, removes the parent and `thread_finish`, and makes it a permanent coordinator.
 - **Shared state.** The board and memory are still shared. Tasks retain `ownerThreadId`
   and emit a derived `coordinatorId`. See Tasks board below for assignment and delivery.
 - **Messages.** `thread_send` keeps the `[from <thread>] …` input for the model. Requests
@@ -5059,10 +5065,16 @@ Status: protocol, app (`packages/client`, `apps/web`) and backend (`packages/ser
 
 Status: backend done (protocol, coordinator tools and CLI-less clock); the web side is built in parallel.
 
-A schedule is a brief that runs as a worker of the project's coordinator on a clock. It is not a separate kind of
+A schedule is a brief that runs as a worker or background job of its owner on a clock or event. It is not a separate kind of
 conversation: when it fires, the harness does what `worker_spawn` does — same model resolution, same isolation, same
 brief and instructions, same report — with the schedule's title, brief, model, thinking level and isolation.
 
+- **Owner (stage 7).** Optional `ownerThreadId` defaults to General. An old edit that omits it
+  preserves the stored owner. Reports, notifications, and new board tasks follow the owner;
+  thread runs are jobs of that coordinator. A paused owner skips the run and records why.
+  `threads.archive` moves its schedules to General by default or disables them with
+  `schedules: "disable"`. The optional archive disposition is recoverable across a restart.
+  Web and Android show the marks, owner picker and archive choice with `coordinator-schedules`.
 - Shapes: `interval` (every N minutes, 5 to 7 days, anchored to when the schedule was created so it does not drift),
   `daily` and `weekly` (a `HH:MM` wall-clock time, weekly with one or more weekdays), and `cron` (five fields; numbers,
   `*`, ranges, steps and lists, no month or weekday names so it means the same everywhere). All times are read in the

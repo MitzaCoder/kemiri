@@ -1919,12 +1919,12 @@ export function recordScheduledReport(
  */
 export function claimTaskForThread(
 	state: BoardState,
-	input: { key: string; taskId: string; threadId: string; now: string },
+	input: { key: string; taskId: string; threadId: string; parentThreadId?: string; now: string },
 ): TaskChange | undefined {
 	const task = state.tasks.find((candidate) => candidate.id === input.taskId);
 	if (task === undefined) throw unknownTask(input.taskId);
 	const owner = task.ownerThreadId ?? null;
-	if (owner !== null && owner !== "main" && owner !== input.threadId) {
+	if ((owner ?? "main") !== (input.parentThreadId ?? "main") && owner !== input.threadId) {
 		throw new ServerError("board_conflict", `Task ${task.id} is claimed by thread "${owner}". Give the new thread another task.`, {
 			id: task.id,
 			revision: task.revision,
@@ -1964,7 +1964,7 @@ function scheduleTaskDescription(scheduleId: string, title: string): string {
 
 function createScheduleTask(
 	state: BoardState,
-	input: { scheduleId: string; title: string; status: "todo" | "in_progress" | "blocked"; blockedReason: string | null; now: string },
+	input: { scheduleId: string; title: string; ownerThreadId?: string; status: "todo" | "in_progress" | "blocked"; blockedReason: string | null; now: string },
 ): BoardTask {
 	const change = saveTask(state, {
 		task: {
@@ -1977,6 +1977,7 @@ function createScheduleTask(
 			writeScopes: [],
 		},
 		author: "harness",
+		ownerThreadId: input.ownerThreadId === "main" ? null : input.ownerThreadId,
 		now: input.now,
 	});
 	const created = state.tasks.find((task) => task.id === change.after.id) as BoardTask;
@@ -1989,9 +1990,12 @@ function createScheduleTask(
  * blocked or review; a run's problem task counts), else a new `todo` task. The worker's spawn then moves it to
  * `in_progress`, so the status change is the spawn's. A task the user closed (done, dropped) or deleted gives a new one.
  */
-export function scheduleTaskForRun(state: BoardState, input: { scheduleId: string; title: string; now: string }): BoardTask {
+export function scheduleTaskForRun(state: BoardState, input: { scheduleId: string; title: string; ownerThreadId?: string; now: string }): BoardTask {
 	const open = state.tasks.find((task) => task.scheduleId === input.scheduleId && !isSettled(task));
-	if (open !== undefined) return plain(open);
+	if (open !== undefined) {
+		if (input.ownerThreadId !== undefined && (open.ownerThreadId ?? "main") !== input.ownerThreadId) moveTaskToCoordinator(state, open.id, input.ownerThreadId, input.now);
+		return plain(open);
+	}
 	return plain(createScheduleTask(state, { ...input, status: "todo", blockedReason: null }));
 }
 
@@ -1999,12 +2003,12 @@ export function scheduleTaskForRun(state: BoardState, input: { scheduleId: strin
  * The task a `thread` schedule's runs report on: the schedule's one task, the open one if there is, else a new one. Each
  * run puts it back to `in_progress` and unclaims it for the new thread.
  */
-export function taskForSchedule(state: BoardState, input: { scheduleId: string; title: string; now: string }): TaskChange {
+export function taskForSchedule(state: BoardState, input: { scheduleId: string; title: string; ownerThreadId?: string; now: string }): TaskChange {
 	const open = state.tasks.find((task) => task.scheduleId === input.scheduleId && !isSettled(task));
 	if (open !== undefined) {
 		const before = plain(open);
 		open.blockedReason = null;
-		open.ownerThreadId = null;
+		open.ownerThreadId = input.ownerThreadId === "main" ? null : input.ownerThreadId ?? null;
 		touchByHarness(state, open, "in_progress", input.now);
 		return { before, after: plain(open) };
 	}
@@ -2017,7 +2021,7 @@ export function taskForSchedule(state: BoardState, input: { scheduleId: string; 
  */
 export function recordScheduleProblem(
 	state: BoardState,
-	input: { key: string; scheduleId: string; title: string; reason: string; now: string },
+	input: { key: string; scheduleId: string; title: string; ownerThreadId?: string; reason: string; now: string },
 ): TaskChange | undefined {
 	if (!claimHarnessKey(state, input.key)) return undefined;
 	const open = state.tasks.find((task) => task.scheduleId === input.scheduleId && !isSettled(task));
@@ -2037,7 +2041,7 @@ export function recordScheduleProblem(
  */
 export function taskForEvent(
 	state: BoardState,
-	input: { title: string; description: string; marker: string; ref: string; now: string },
+	input: { title: string; description: string; marker: string; ref: string; ownerThreadId?: string; now: string },
 ): TaskChange {
 	const existing = state.tasks.find(
 		(task) => task.createdBy === "harness" && (task.refs ?? []).includes(input.ref) && task.description.split("\n").includes(input.marker),
@@ -2055,6 +2059,7 @@ export function taskForEvent(
 			writeScopes: [],
 		},
 		author: "harness",
+		ownerThreadId: input.ownerThreadId === "main" ? null : input.ownerThreadId,
 		now: input.now,
 	});
 }
@@ -2912,12 +2917,12 @@ export class BoardService {
 	}
 
 	/** The task a clock schedule's worker run is given: its one open task, or a new one. The worker's spawn moves it. */
-	async scheduleTaskForRun(input: { scheduleId: string; title: string }): Promise<BoardTask> {
+	async scheduleTaskForRun(input: { scheduleId: string; title: string; ownerThreadId?: string }): Promise<BoardTask> {
 		return this.#commit(HARNESS_WRITER, (state) => scheduleTaskForRun(state, { ...input, now: this.#iso() }));
 	}
 
 	/** The task of one event run, made once however often the run is retried. */
-	async taskForEvent(input: { title: string; description: string; marker: string; ref: string }): Promise<BoardTask> {
+	async taskForEvent(input: { title: string; description: string; marker: string; ref: string; ownerThreadId?: string }): Promise<BoardTask> {
 		return this.#commit(HARNESS_WRITER, (state) => taskForEvent(state, { ...input, now: this.#iso() }).after);
 	}
 
@@ -3047,13 +3052,14 @@ export class BoardService {
 	}
 
 	/** A scheduled run failed or was skipped: open (or update) the schedule's blocked task. */
-	async recordScheduleProblem(input: { scheduleId: string; title: string; runAt: string; reason: string }): Promise<void> {
+	async recordScheduleProblem(input: { scheduleId: string; title: string; ownerThreadId?: string; runAt: string; reason: string }): Promise<void> {
 		const now = this.#iso();
 		await this.#commit(HARNESS_WRITER, (state) =>
 			recordScheduleProblem(state, {
 				key: `schedule-run:${input.scheduleId}@${input.runAt}`,
 				scheduleId: input.scheduleId,
 				title: input.title,
+				ownerThreadId: input.ownerThreadId,
 				reason: input.reason,
 				now,
 			}),

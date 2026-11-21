@@ -916,7 +916,7 @@ export class ClientConnection {
 					return;
 				}
 				case "threads.update": {
-					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
+					if (!this.#features.includes("coordinators") || (request.promote && !this.#features.includes("coordinator-schedules"))) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					const thread = await runtime.threads.update(request.threadId, request);
 					this.#respond({ type: request.type, id: request.id, thread });
@@ -930,7 +930,7 @@ export class ClientConnection {
 					return;
 				}
 				case "threads.archive": {
-					const thread = await this.#manager.archiveThread(request.projectId, request.threadId, request.archived, this.#features.includes("coordinators") ? request.moveTasksTo : undefined, request.operationId);
+					const thread = await this.#manager.archiveThread(request.projectId, request.threadId, request.archived, this.#features.includes("coordinators") ? request.moveTasksTo : undefined, request.operationId, this.#features.includes("coordinator-schedules") ? request.schedules : undefined);
 					this.#respond({ type: "threads.archive", id: request.id, thread });
 					return;
 				}
