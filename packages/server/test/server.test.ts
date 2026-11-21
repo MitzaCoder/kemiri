@@ -96,9 +96,10 @@ describe("handshake", () => {
 		const test = await setup();
 		const client = await connect(test.server);
 		await client.hello(1);
-		const response = await client.request({ type: "files.search" } as never);
+		const unknownType = "example.unknown";
+		const response = await client.request({ type: unknownType } as never);
 		expect(errorOf(response).code).toBe("unknown_request");
-		expect(errorOf(response).message).toContain("files.search");
+		expect(errorOf(response).message).toContain(unknownType);
 	});
 });
 

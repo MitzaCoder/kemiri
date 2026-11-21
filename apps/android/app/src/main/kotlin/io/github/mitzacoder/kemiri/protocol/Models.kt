@@ -3349,6 +3349,103 @@ data class ChangeFileSide(
 )
 
 @Serializable
+data class FileListEntry(
+    val `name`: String,
+    val `kind`: String,
+    val `size`: Long,
+    val `modifiedAt`: String
+)
+
+@Serializable
+data class FilesListRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.list",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `root`: CodeRoot,
+    val `path`: String,
+    val `showHidden`: Boolean? = null
+)
+
+@Serializable(with = CodeRootSerializer::class)
+sealed interface CodeRoot { val `kind`: String }
+
+/** A CodeRoot variant this build does not know, kept as it came. */
+data class UnknownCodeRoot(override val raw: JsonObject) : CodeRoot, UnknownVariant {
+    override val `kind`: String get() = raw["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object CodeRootSerializer : UnionSerializer<CodeRoot>("CodeRoot", "kind", mapOf(
+    "project" to CodeRootProject.serializer(),
+    "worker" to CodeRootWorker.serializer(),
+    "thread" to CodeRootThread.serializer(),
+), { it.`kind` }, ::UnknownCodeRoot)
+
+@Serializable
+data class CodeRootProject(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "project"
+) : CodeRoot
+
+@Serializable
+data class CodeRootWorker(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "worker",
+    val `workerId`: String
+) : CodeRoot
+
+@Serializable
+data class CodeRootThread(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "thread",
+    val `threadId`: String
+) : CodeRoot
+
+@Serializable
+data class FilesListResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.list",
+    val `id`: String,
+    val `entries`: List<FileListEntry>,
+    val `truncated`: Boolean
+)
+
+@Serializable
+data class FilesSearchRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.search",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `root`: CodeRoot,
+    val `query`: String
+)
+
+@Serializable
+data class FilesSearchResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.search",
+    val `id`: String,
+    val `paths`: List<String>
+)
+
+@Serializable
+data class FilesReadRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.read",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `root`: CodeRoot,
+    val `path`: String,
+    val `reveal`: Boolean? = null
+)
+
+@Serializable
+data class FilesReadResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "files.read",
+    val `id`: String,
+    val `size`: Long,
+    val `modifiedAt`: String,
+    val `text`: String? = null,
+    val `hash`: String? = null,
+    @kotlinx.serialization.EncodeDefault val `binary`: Boolean = true,
+    val `mimeType`: String? = null,
+    @kotlinx.serialization.EncodeDefault val `tooLarge`: Boolean = true,
+    @kotlinx.serialization.EncodeDefault val `sensitive`: Boolean = true
+)
+
+@Serializable
 data class ChangesListRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "changes.list",
     val `id`: String = java.util.UUID.randomUUID().toString(),

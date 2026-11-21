@@ -26,6 +26,10 @@ import type {
 	ChangeSource,
 	ChangesListResponse,
 	ChangesFileResponse,
+	CodeRoot,
+	FilesListResponse,
+	FilesSearchResponse,
+	FilesReadResponse,
 	BoardFeedbackSetResponse,
 	BoardTimelineKind,
 	BoardFeedback,
@@ -1081,6 +1085,24 @@ export class HarnessClient {
 			...(response.groups === undefined ? {} : { groups: response.groups }),
 			...(response.timelineRevision === undefined ? {} : { timelineRevision: response.timelineRevision }),
 			...(response.delivery === undefined ? {} : { delivery: response.delivery }) };
+	}
+
+	/** List one directory. Needs `project-files`. Use an empty path for the checkout itself. */
+	async listFiles(projectId: string, root: CodeRoot, path: string, showHidden?: boolean): Promise<Omit<FilesListResponse, "type" | "id">> {
+		const { type: _, id: __, ...listing } = await this.#call<FilesListResponse>({ type: "files.list", projectId, root, path, showHidden });
+		return listing;
+	}
+
+	/** Find paths in a checkout (not their contents). Needs `project-files`. */
+	async searchFiles(projectId: string, root: CodeRoot, query: string): Promise<Omit<FilesSearchResponse, "type" | "id">> {
+		const { type: _, id: __, ...matches } = await this.#call<FilesSearchResponse>({ type: "files.search", projectId, root, query });
+		return matches;
+	}
+
+	/** Read one file, optionally revealing a sensitive name. Needs `project-files`. */
+	async readFile(projectId: string, root: CodeRoot, path: string, reveal?: boolean): Promise<Omit<FilesReadResponse, "type" | "id">> {
+		const { type: _, id: __, ...file } = await this.#call<FilesReadResponse>({ type: "files.read", projectId, root, path, reveal });
+		return file;
 	}
 
 	/** List committed changes for a task or a full commit hash. Needs `project-changes`. */

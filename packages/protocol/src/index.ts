@@ -1,4 +1,8 @@
 import {
+	CodeRootSchema, FileListEntrySchema, FilesListRequestSchema, FilesListResponseSchema,
+	FilesSearchRequestSchema, FilesSearchResponseSchema, FilesReadRequestSchema, FilesReadResponseSchema,
+} from "./project-files.ts";
+import {
 	ChangeSourceSchema, ChangeCommitSchema, ChangedFileSchema, ChangeFileSideSchema,
 	ChangesListRequestSchema, ChangesListResponseSchema, ChangesFileRequestSchema, ChangesFileResponseSchema,
 } from "./project-changes.ts";
@@ -891,6 +895,9 @@ export const ClientMessageSchema = Type.Union([
 	BoardTaskTimelineRequestSchema,
 	ChangesListRequestSchema,
 	ChangesFileRequestSchema,
+	FilesListRequestSchema,
+	FilesSearchRequestSchema,
+	FilesReadRequestSchema,
 	BoardFeedbackSetRequestSchema,
 	UsageValueRequestSchema,
 	UsageTaskRequestSchema,
@@ -1020,6 +1027,9 @@ export const ResponseSchema = Type.Union([
 	BoardTaskTimelineResponseSchema,
 	ChangesListResponseSchema,
 	ChangesFileResponseSchema,
+	FilesListResponseSchema,
+	FilesSearchResponseSchema,
+	FilesReadResponseSchema,
 	BoardFeedbackSetResponseSchema,
 	UsageValueResponseSchema,
 	UsageTaskResponseSchema,
@@ -1446,6 +1456,14 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	ChangeCommit: ChangeCommitSchema,
 	ChangedFile: ChangedFileSchema,
 	ChangeFileSide: ChangeFileSideSchema,
+	CodeRoot: CodeRootSchema,
+	FileListEntry: FileListEntrySchema,
+	FilesListRequest: FilesListRequestSchema,
+	FilesListResponse: FilesListResponseSchema,
+	FilesSearchRequest: FilesSearchRequestSchema,
+	FilesSearchResponse: FilesSearchResponseSchema,
+	FilesReadRequest: FilesReadRequestSchema,
+	FilesReadResponse: FilesReadResponseSchema,
 	ChangesListRequest: ChangesListRequestSchema,
 	ChangesListResponse: ChangesListResponseSchema,
 	ChangesFileRequest: ChangesFileRequestSchema,
@@ -1904,3 +1922,6 @@ export { ThreadStateSchema, threadState, backgroundJobCounts, type ThreadState }
 export { liveCounterLabels, livePlanProgress, LIVE_PLAN_MIN_STEPS, LIVE_PLAN_MAX_STEPS, LIVE_PLAN_STEP_MAX_CHARS, BoardLivePlanStatusSchema, BoardLivePlanStepSchema };
 
 export * from "./project-changes.ts";
+
+export * from "./project-files.ts";
+export * from "./search-fuzzy.ts";

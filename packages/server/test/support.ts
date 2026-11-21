@@ -42,6 +42,7 @@ export async function createSetup(options?: {
 	/** Installed SPA shell; still isolated under the fixture's owned paths. */
 	webDir?: StartServerOptions["webDir"];
 	features?: StartServerOptions["features"];
+	projectFiles?: StartServerOptions["projectFiles"];
 	/** Where the server reads AGENTS.md and skills; defaults to a directory under the test's own root. */
 	agentDir?: string;
 	/** Where the server reads its own SYSTEM.md and APPEND_SYSTEM.md; defaults to a directory under the test's root. */
@@ -112,6 +113,7 @@ export async function createSetup(options?: {
 			...(options?.allowedOrigins === undefined ? {} : { allowedOrigins: options.allowedOrigins }),
 			...(options?.webDir === undefined ? {} : { webDir: options.webDir }),
 			...(options?.features === undefined ? {} : { features: options.features }),
+			...(options?.projectFiles === undefined ? {} : { projectFiles: options.projectFiles }),
 			...(options?.now === undefined ? {} : { now: options.now }),
 			...(options?.setTimer === undefined ? {} : { setTimer: options.setTimer }),
 			...(options?.boardEditDebounceMs === undefined ? {} : { boardEditDebounceMs: options.boardEditDebounceMs }),

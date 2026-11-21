@@ -3182,6 +3182,31 @@ and commit range. Phones use a previous/next file bar and unified diffs. The edi
 CodeMirror merge surface used by artifact comparison. Binary files show a note and oversized files show the
 plain patch returned by the backend. Alt+[ / Alt+] move between files; Alt+Up / Alt+Down move between changes.
 
+### Code view: project-files
+
+The `project-files` hello capability adds read-only `files.list`, `files.search` and `files.read` to the authenticated
+WebSocket. Set `KEMIRI_PROJECT_FILES=off` on a backend to leave the capability out of hello and refuse its requests
+(`0`, `false` and `no` also work). A client names a registered project, an isolated worker with an existing workspace,
+or a background thread with an existing checkout. A shared worker or an ambiguous worker ID is not a file root.
+
+Paths are checkout-relative, slash-separated and limited to 4,096 UTF-8 bytes. Absolute paths, backslashes, `..`, NUL
+and `.git` or `.jj` segments are refused, including aliases into repository metadata. Files and directories are resolved
+inside the real checkout root. Linux uses descriptor-relative access and verifies the opened inode and its real path;
+other hosts recheck the canonical path and opened inode. Listings report symlinks as links without following them.
+Reads follow only contained links, open regular files without following a replacement link at the final component,
+and recheck the file descriptor before returning content. File contents are not logged.
+
+Listings use an empty path for the root, sort directories first and return at most 1,000 entries, with a truncation flag.
+Dotfiles and Git-ignored entries are hidden unless requested. Go to file ranks up to 20,000 tracked and non-ignored
+untracked paths with the task search fuzzy scorer and returns up to 50 paths. Inventories are cached for ten seconds.
+Projects without Git use a depth- and entry-bounded directory walk that skips hidden names and never follows links.
+Git calls use argument arrays and bounded output and time. Non-colocated Git-backed jj workspaces use a private
+scratch index based on their last snapshot; commands do not snapshot the workspace or alter its shared index.
+
+Reads return size and modification time, plus exact UTF-8 text and its SHA-256 up to 1 MiB. A NUL in the first 8 KiB
+or invalid UTF-8 gives a binary marker and MIME guess. Oversized reads return a marker without content. Sensitive
+names require explicit `reveal: true`, even when a benign link name points to one. This is a display safeguard, not
+an authorization boundary. The requests do not write files or serve downloads.
 
 ### Project deployment feeds (T125, stage 5 of T120)
 

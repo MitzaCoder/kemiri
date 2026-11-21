@@ -1,3 +1,4 @@
+import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
 import type { WorkerBrowserService } from "./worker-browser.ts";
 import { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
@@ -187,6 +188,8 @@ export type StartServerOptions = {
 	 * Tests hand in a plain-shell host or their own zellij sockets.
 	 */
 	terminals?: false | TerminalHostOptions;
+	/** Read-only code roots are advertised unless disabled here or with `KEMIRI_PROJECT_FILES=off`. */
+	projectFiles?: boolean;
 	log?: (message: string) => void;
 	/**
 	 * Where `server.status` reads the release and the deploy outcome. Default: discovered from where this code runs — the
@@ -367,11 +370,13 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const relaySetting = options.notifications?.relayEndpoint === undefined
 		? resolvePushRelayEndpoint() : options.notifications.relayEndpoint;
 	const relayEndpoint = relaySetting ? validatePushRelayEndpoint(relaySetting) : undefined;
+	const projectFiles = (options.projectFiles ?? projectFilesEnabled()) ? new ProjectFiles() : undefined;
 	const features = (options.features ?? HARNESS_FEATURES).filter(
 		(feature) =>
 			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
+			(feature !== "project-files" || projectFiles !== undefined) &&
    (feature !== "task-live-watcher" || (options.features ?? HARNESS_FEATURES).includes("task-live")) &&
 			(feature !== "fcm-relay-v1" || (relayEndpoint !== undefined &&
 				(options.features ?? HARNESS_FEATURES).includes("device-auth-v1"))),
@@ -764,6 +769,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	await manager.prepareAttention();
 	const connectionOptions = {
 		userSettings,
+		projectFiles,
 		manager,
 		credentials,
 		logins,

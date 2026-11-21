@@ -1,3 +1,5 @@
+import { resolveCodeRoot } from "./code-root.ts";
+import type { ProjectFiles } from "./project-files.ts";
 import { ProjectChanges } from "./project-changes.ts";
 import type { UserSettingsStore } from "./user-settings.ts";
 import type { UserSettings } from "@kemiri/protocol";
@@ -93,6 +95,7 @@ export type ClientConnectionOptions = {
 	userSettings?: UserSettingsStore;
 	deviceAuth?: { store: DeviceAuth; identity: Identity | undefined };
 	manager: ProjectManager;
+	projectFiles: ProjectFiles | undefined;
 	credentials: CredentialStore;
 	logins: OAuthLoginManager;
 	/** The user's devices: registration, the VAPID key, a test push, and where this connection is looking. */
@@ -174,6 +177,7 @@ export class ClientConnection {
 		this.#respond({ type: "user.settings.changed", settings });
 	}
 	readonly #manager: ProjectManager;
+	readonly #projectFiles: ProjectFiles | undefined;
 	readonly #deviceAuth: ClientConnectionOptions["deviceAuth"];
 	readonly #credentials: CredentialStore;
 	readonly #logins: OAuthLoginManager;
@@ -208,6 +212,7 @@ export class ClientConnection {
 		this.#userSettings = options.userSettings;
 		this.#deviceAuth = options.deviceAuth;
 		this.#manager = options.manager;
+		this.#projectFiles = options.projectFiles;
 		this.#credentials = options.credentials;
 		this.#logins = options.logins;
 		this.#notifications = options.notifications;
@@ -911,6 +916,16 @@ export class ClientConnection {
 				case "board.task.history": {
 					const snapshots = await this.#manager.boardTaskHistory(request.projectId, request.taskId);
 					this.#respond({ type: "board.task.history", id: request.id, taskId: request.taskId, snapshots });
+					return;
+				}
+				case "files.list":
+				case "files.search":
+				case "files.read": {
+					if (!this.#projectFiles || !this.#features.includes("project-files")) return this.#unknownRequest(request);
+					const root = await resolveCodeRoot(this.#manager, request.projectId, request.root);
+					if (request.type === "files.list") this.#respond({ type: request.type, id: request.id, ...await this.#projectFiles.list(root, request.path, request.showHidden) });
+					else if (request.type === "files.search") this.#respond({ type: request.type, id: request.id, ...await this.#projectFiles.search(root, request.query) });
+					else this.#respond({ type: request.type, id: request.id, ...await this.#projectFiles.read(root, request.path, request.reveal) });
 					return;
 				}
 				case "changes.list":
