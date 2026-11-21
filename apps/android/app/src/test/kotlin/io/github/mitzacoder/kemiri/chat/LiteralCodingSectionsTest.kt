@@ -3,6 +3,7 @@ package io.github.mitzacoder.kemiri.chat
 import io.github.mitzacoder.kemiri.features.chat.*
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
+import java.io.File
 import org.junit.Test
 
 class LiteralCodingSectionsTest {
@@ -13,7 +14,13 @@ class LiteralCodingSectionsTest {
         assertEquals("",literalContentForCopy(""))
     }
     @Test fun displayHighlighterAndAccessibleCopyLabelsKeepTheLiteralContract() = kotlinx.coroutines.runBlocking {
-        for(language in listOf("", "typescript")) assertEquals(literal,ChatHighlighter.highlight(literal,language,false).text)
+        val textMate = ChatTextMate { File("src/main/assets/$CHAT_TEXTMATE_ASSETS", it).inputStream() }
+        for (language in listOf("", "typescript")) {
+            val highlighted = ChatHighlighter.highlight(literal, language, false) { textMate }
+            assertEquals(literal, highlighted.text)
+        }
+        val oversized = "x".repeat(ChatHighlighter.MAX_CODE_CHARS + 1)
+        assertEquals(oversized, ChatHighlighter.highlight(oversized, "ts", false) { error("Oversized code must skip tm4e") }.text)
         for(title in listOf("Code","Command","Output","Error output","File contents","Diff","Script")) {
             assertEquals("Copy ${title.lowercase()}",literalCopyLabel(LiteralSection(title,literal)))
         }

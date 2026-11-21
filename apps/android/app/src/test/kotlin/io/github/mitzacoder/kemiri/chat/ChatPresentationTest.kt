@@ -4,6 +4,7 @@ import io.github.mitzacoder.kemiri.features.chat.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 
 class ChatPresentationTest {
     @Test fun boundedReadsDoNotConsumeBeyondLimit() {
@@ -19,9 +20,10 @@ class ChatPresentationTest {
     }
     @Test fun highlighterNeverDropsSource() = runBlocking {
         val source = "const answer = 42; // hello\nreturn \"done\";"
-        val highlighted = ChatHighlighter.highlight(source,"javascript",true)
+        val textMate = ChatTextMate { File("src/main/assets/$CHAT_TEXTMATE_ASSETS", it).inputStream() }
+        val highlighted = ChatHighlighter.highlight(source,"javascript",true) { textMate }
         assertEquals(source,highlighted.text)
         assertTrue(highlighted.spanStyles.isNotEmpty())
-        assertEquals(source,ChatHighlighter.highlight(source,"plaintext",false).text)
+        assertEquals(source,ChatHighlighter.highlight(source,"plaintext",false) { error("Plain text must skip tm4e") }.text)
     }
 }

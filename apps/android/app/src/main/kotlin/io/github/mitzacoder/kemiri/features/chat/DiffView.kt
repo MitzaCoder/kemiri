@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -41,12 +43,13 @@ fun editAsDiff(oldText: String, newText: String): String =
 @Composable internal fun DiffLines(diff: String, modifier: Modifier = Modifier) {
     val colors = Jarvis.colors
     val lines = remember(diff) { displayDiffLines(diff) }
+    val marks = remember(lines) { diffWordMarks(lines) }
     val style = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 20.sp)
     BoxWithConstraints(modifier.fillMaxWidth()) {
         SelectionContainer {
             // Every line as wide as the widest, so a line's tint runs to the end of the scrolled area.
             Column(Modifier.horizontalScroll(rememberScrollState()).widthIn(min = maxWidth).width(IntrinsicSize.Max).padding(vertical = 8.dp)) {
-                lines.forEach { line ->
+                lines.forEachIndexed { index, line ->
                     val (tint, marker) = when (line.kind) {
                         DisplayDiffLine.Kind.Add -> colors.success.copy(alpha = .13f) to colors.success
                         DisplayDiffLine.Kind.Del -> colors.danger.copy(alpha = .12f) to colors.danger
@@ -57,8 +60,14 @@ fun editAsDiff(oldText: String, newText: String): String =
                             Text(line.number, Modifier.width(40.dp).padding(end = 8.dp), style = style, color = colors.fgSubtle, textAlign = TextAlign.End, maxLines = 1)
                             Text(when (line.kind) { DisplayDiffLine.Kind.Add -> "+"; DisplayDiffLine.Kind.Del -> "−"; else -> "" }, Modifier.width(16.dp), style = style, color = marker, textAlign = TextAlign.Center)
                         }
-                        // Tabs as four columns, like the web's `tab-size: 4`; copying keeps the literal tabs.
-                        Text(line.text.replace("\t", "    "), Modifier.padding(end = 16.dp), style = style, color = if (line.kind == DisplayDiffLine.Kind.Gap) colors.fgSubtle else colors.fg, softWrap = false)
+                        // Mark display offsets after tab expansion. The explicit Copy diff action uses the original.
+                        val rendered = remember(line, marks[index], marker) {
+                            buildAnnotatedString {
+                                append(line.displayText())
+                                marks[index]?.forEach { addStyle(SpanStyle(background = marker.copy(alpha = .30f)), it.first, it.last + 1) }
+                            }
+                        }
+                        Text(rendered, Modifier.padding(end = 16.dp), style = style, color = if (line.kind == DisplayDiffLine.Kind.Gap) colors.fgSubtle else colors.fg, softWrap = false)
                     }
                 }
             }

@@ -198,7 +198,7 @@ tasks.register("checkNeutralRelease") {
         )
         for ((field, value) in expected) check(text.contains("""String $field = "$value";""")) { "Non-neutral release field: $field" }
         ZipFile(apkFile.get().asFile).use { archive ->
-            for (notice in listOf("Sora-NOTICE.txt", "LGPL-2.1-Sora.txt", "RELINKING.md", "OFL-JetBrainsMono.txt", "OFL-AtkinsonHyperlegibleNext.txt", "APACHE-2.0-termux-terminal.txt")) {
+            for (notice in listOf("Sora-NOTICE.txt", "LGPL-2.1-Sora.txt", "RELINKING.md", "OFL-JetBrainsMono.txt", "OFL-AtkinsonHyperlegibleNext.txt", "APACHE-2.0-termux-terminal.txt", "CHAT-TEXTMATE-NOTICE.txt")) {
                 check(archive.getEntry("assets/$notice") != null) { "Missing APK notice: $notice" }
             }
         }

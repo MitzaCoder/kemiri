@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -317,20 +318,24 @@ internal fun literalCopyLabel(section: LiteralSection): String = "Copy ${section
 @Composable internal fun LiteralCodeBlock(section: LiteralSection, modifier: Modifier = Modifier) {
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val code = section.content
-    val highlighted by produceState(AnnotatedString(code),code,section.language,dark) {
-        value = ChatHighlighter.highlight(code,section.language,dark)
+    val assets = LocalContext.current.applicationContext.assets
+    val highlighted = key(code, section.language, dark) {
+        produceState(AnnotatedString(code)) {
+            value = ChatHighlighter.highlight(code, section.language, dark, assets)
+        }.value
     }
+    val isDiff = fenceLanguageLabel(section.language) == "diff"
     val choice = LocalCodeWrap.current
-    val togglable = !section.wrap && section.language != "diff"
+    val togglable = !section.wrap && !isDiff
     val wrapped = section.wrap || (togglable && choice.wraps(section.wrapByDefault))
     val clipboard = LocalContext.current.getSystemService(android.content.ClipboardManager::class.java)
     var copied by remember(code) { mutableStateOf(false) }
     var copyFailed by remember(code) { mutableStateOf(false) }
     LaunchedEffect(copied) { if(copied) { kotlinx.coroutines.delay(1500); copied = false } }
-    Surface(modifier.fillMaxWidth(),color = MaterialTheme.colorScheme.surfaceContainerLow,shape = MaterialTheme.shapes.medium) {
+    Surface(modifier.fillMaxWidth(),color = if (dark || isDiff) MaterialTheme.colorScheme.surfaceContainerLow else Color.White,shape = MaterialTheme.shapes.medium) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(section.title + section.language.takeIf { it.isNotBlank() && it != "diff" }?.let { " · $it" }.orEmpty(),modifier = Modifier.weight(1f),style = MaterialTheme.typography.labelSmall,color = MaterialTheme.colorScheme.onSurfaceVariant,maxLines = 2,overflow = TextOverflow.Ellipsis)
+                Text(section.title + section.language.takeIf { it.isNotBlank() && !isDiff }?.let { " · $it" }.orEmpty(),modifier = Modifier.weight(1f),style = MaterialTheme.typography.labelSmall,color = MaterialTheme.colorScheme.onSurfaceVariant,maxLines = 2,overflow = TextOverflow.Ellipsis)
                 if(togglable) JarvisIconButton(Lucide.WrapText,"Wrap code",onClick = { choice.toggle(section.wrapByDefault) },pressed = wrapped)
                 JarvisIconButton(if(copied) Lucide.Check else Lucide.Copy,literalCopyLabel(section),onClick = {
                     runCatching { clipboard.setPrimaryClip(android.content.ClipData.newPlainText(section.title,literalContentForCopy(section.content))) }
@@ -340,7 +345,7 @@ internal fun literalCopyLabel(section: LiteralSection): String = "Copy ${section
             }
             if(copyFailed) Text("Could not copy. Select a smaller range or retry.",style = MaterialTheme.typography.bodySmall,color = MaterialTheme.colorScheme.error)
             // A diff reads as coloured lines with their numbers; everything else as highlighted text.
-            if(section.language == "diff") DiffLines(code)
+            if(isDiff) DiffLines(code)
             else if(wrapped) WrappedCode(highlighted)
             else ScrollingCode(highlighted)
         }

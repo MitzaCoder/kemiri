@@ -56,6 +56,7 @@ internal fun AboutSection(repository: HarnessRepository, navigator: SettingsNavi
                 "Atkinson Hyperlegible Next font" to "OFL-AtkinsonHyperlegibleNext.txt",
                 "JetBrains Mono font" to "OFL-JetBrainsMono.txt",
                 "Termux terminal" to "APACHE-2.0-termux-terminal.txt",
+                "Chat syntax grammars and Catppuccin themes" to "CHAT-TEXTMATE-NOTICE.txt",
             )) TextButton(onClick = { document = file }) { Text(label) }
         }
     }

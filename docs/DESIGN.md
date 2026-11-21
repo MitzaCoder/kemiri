@@ -5129,6 +5129,55 @@ Built as the section above describes, from the same rules and constants:
    was sent, so the server's clear is right.
 
 
+## Android chat code and diffs
+
+Android highlights fenced code and language-tagged tool output natively in Compose with the tm4e engine
+already shipped in Sora `language-textmate` 0.24.6. The APK bundles 33 fence languages and seven embedded
+TextMate grammars from `tm-grammars` 1.32.22 (the upstream source used by Shiki). An asset index maps fence
+aliases and embedded scopes to pinned grammars. Grammars are opened on demand on a background dispatcher,
+with a separate cached registry for each theme. There is no backend feature negotiation or download.
+`bundle-chat-textmate.mts` regenerates the assets from the pinned packages. The XML grammar's ASP comment rule
+and a JS/TS look-behind are adapted for tm4e. The optional C++ GLSL embed has no licence at its pinned source
+and is not bundled.
+Unbundled fences read as plain text. The offline About and licences screen lists the upstream notices.
+
+Catppuccin Latte and Mocha token styles come from `tm-themes` 1.12.12. Mocha is unchanged. Latte code sits
+on `#ffffff`: keep each source hue and saturation, then lower its HSL lightness by one percentage point at
+a time until its rounded sRGB channels give at least 4.5:1 against white. These are all Latte foregrounds:
+
+| Original | Android Latte | Contrast on white |
+|---|---|---:|
+| `#04a5e5` | `#037dae` | 4.62:1 |
+| `#179299` | `#148187` | 4.65:1 |
+| `#1e66f5` | `#1e66f5` | 4.91:1 |
+| `#209fb5` | `#1a8192` | 4.57:1 |
+| `#40a02b` | `#358423` | 4.69:1 |
+| `#4c4f69` | `#4c4f69` | 7.99:1 |
+| `#6c6f85` | `#6c6f85` | 4.94:1 |
+| `#7287fd` | `#4a65fc` | 4.61:1 |
+| `#7c7f93` | `#717489` | 4.60:1 |
+| `#8839ef` | `#8839ef` | 5.41:1 |
+| `#d20f39` | `#d20f39` | 5.43:1 |
+| `#dc8a78` | `#c94f34` | 4.51:1 |
+| `#dd7878` | `#d04343` | 4.60:1 |
+| `#df8e1d` | `#a46915` | 4.56:1 |
+| `#e64553` | `#e22a3a` | 4.54:1 |
+| `#ea76cb` | `#d421a4` | 4.61:1 |
+| `#fe640b` | `#cb4b01` | 4.62:1 |
+
+Chat shows the literal immediately and applies the finished colour spans without reopening the block.
+Grammar loading and tokenising run on a background dispatcher limited to one job at a time. Blocks longer
+than 50,000 UTF-16 units stay plain. The first pass allows 500 ms for the first line, 150 ms per subsequent
+line and 750 ms per block after grammar loading. Compilation can run out of time on any line, including the
+first embedded line. The formatter yields to other blocks and then resumes once from the last complete
+TextMate state with a shared 1,500 ms retry budget. If that expires, only the remainder stays plain. Neither
+pass truncates the source or changes its copy.
+`DiffLines` pairs adjacent runs of removed and added lines in order. It applies a bounded word-level
+longest common subsequence to up to 128 pairs, using at most 2,048 UTF-16 units per displayed line and
+4,096 LCS cells per pair. Changed words get a stronger tint. The `+`/`−` gutter and whole-line tints
+remain on all changed rows, including unpaired ones. The explicit Copy button still copies the original.
+
+
 ## Image attachments
 
 Every box where the user writes a message to the coordinator takes images: pasted from the clipboard, dropped on the
