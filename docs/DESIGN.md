@@ -3286,6 +3286,26 @@ or live Changes. Other local programs do not share the save queue, so the final 
 race with a concurrent external edit. Direct saves suit documents and settings. For code that needs checks, use a
 suggested edit so the agent can apply, test and commit it. A save itself does not commit or snapshot the checkout.
 
+### Code view on Android: Changes and line comments
+
+On Android, the shared Classic and Route task sheet exposes **Delivery → Changes** when the backend
+advertises `project-changes`. A commit row opens that commit; **Review changes** opens the task range.
+Changes is a native destination on the existing back stack, so Back returns to the originating task.
+The commit picker offers a combined diff only for contiguous ranges, and says why otherwise. The file
+sheet groups destination paths by folder and stores up to 500 Viewed marks on the device, scoped to the
+backend, project and exact commit range.
+
+The unified Compose diff uses compact 12 sp monospace lines with 19 sp line spacing. Long lines wrap
+and unchanged runs fold. It shows plain text first, then colours each complete side with TextMate
+in the background so folded and offscreen lines still carry syntax state. Word marks overlay the
+syntax colours. Binary files have no text diff; oversized files show the server's plain patch.
+The wide line-number gutter opens comments without increasing every row's height. Tap a number for
+the comment sheet, or long-press to start a range and tap its endpoint. A review
+can carry comments from the combined task diff and individual commits. Pins restore exact matched
+lines; outdated quotes remain in the review. Android reads the same formatter fixture and uses the
+artifact-review route to send one message or hand it to the chat draft. The saved request ID permits
+retrying an unconfirmed send without creating a second task note.
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

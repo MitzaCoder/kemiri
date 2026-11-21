@@ -17,8 +17,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 
-private class PreferenceReviewStorage(context: Context) : ReviewStorage {
-    private val preferences = context.getSharedPreferences("kemiri-artifact-reviews", Context.MODE_PRIVATE)
+internal class PreferenceReviewStorage(context: Context, name: String = "kemiri-artifact-reviews") : ReviewStorage {
+    private val preferences = context.getSharedPreferences(name, Context.MODE_PRIVATE)
     override fun get(key: String) = preferences.getString(key, null)
     override fun set(key: String, text: String) { check(preferences.edit().putString(key, text).commit()) }
     override fun remove(key: String) { check(preferences.edit().remove(key).commit()) }
@@ -142,8 +142,7 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
                     scope.launch {
                         try {
                             if (draft) appendArtifactReviewDraft(android, context, recipient, formatted, artifact.taskId)
-                            else context.backend.client.request(ConversationSubmitRequest(projectId = recipient.projectId, threadId = recipient.threadId,
-                                requestId = state.submission.requestIdFor(formatted), content = JsonPrimitive(formatted), taskId = artifact.taskId, whenBusy = "steer", keepDraft = true))
+                            else submitReview(context, recipient, formatted, artifact.taskId, state.submission.requestIdFor(formatted))
                             state.submission.accepted(); state.update(ArtifactReview()); state.closeTray()
                             context.navigate(recipient)
                         } catch (e: CancellationException) { throw e }
@@ -176,4 +175,11 @@ private class PreferenceReviewStorage(context: Context) : ReviewStorage {
             TextButton(onClick = dismiss) { Text("Cancel") }
         }
     }
+}
+
+/** Both review surfaces record feedback using the existing conversation submission, not a second board write. */
+internal suspend fun submitReview(context: ProjectScreenContext, recipient: io.github.mitzacoder.kemiri.navigation.Destination.Chat,
+                                  text: String, taskId: String?, requestId: String) {
+    context.backend.client.request(ConversationSubmitRequest(projectId = recipient.projectId, threadId = recipient.threadId,
+        requestId = requestId, content = JsonPrimitive(text), taskId = taskId, whenBusy = "steer", keepDraft = true))
 }

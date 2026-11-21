@@ -3441,10 +3441,10 @@ data class FilesReadResponse(
     val `modifiedAt`: String,
     val `text`: String? = null,
     val `hash`: String? = null,
-    @kotlinx.serialization.EncodeDefault val `binary`: Boolean = true,
+    val `binary`: Boolean? = null,
     val `mimeType`: String? = null,
-    @kotlinx.serialization.EncodeDefault val `tooLarge`: Boolean = true,
-    @kotlinx.serialization.EncodeDefault val `sensitive`: Boolean = true
+    val `tooLarge`: Boolean? = null,
+    val `sensitive`: Boolean? = null
 )
 
 @Serializable
@@ -3528,11 +3528,11 @@ data class ChangesFileResponse(
     val `id`: String,
     val `before`: ChangeFileSide? = null,
     val `after`: ChangeFileSide? = null,
-    @kotlinx.serialization.EncodeDefault val `binary`: Boolean = true,
-    @kotlinx.serialization.EncodeDefault val `tooLarge`: Boolean = true,
-    @kotlinx.serialization.EncodeDefault val `sensitive`: Boolean = true,
+    val `binary`: Boolean? = null,
+    val `tooLarge`: Boolean? = null,
+    val `sensitive`: Boolean? = null,
     val `patch`: String? = null,
-    @kotlinx.serialization.EncodeDefault val `patchTruncated`: Boolean = true
+    val `patchTruncated`: Boolean? = null
 )
 
 @Serializable
@@ -4038,7 +4038,7 @@ data class DeployStatus(
     val `description`: String,
     val `message`: String?,
     val `at`: String,
-    @kotlinx.serialization.EncodeDefault val `backendUnchanged`: Boolean = true,
+    val `backendUnchanged`: Boolean? = null,
     val `pending`: DeployStatusPending? = null
 )
 

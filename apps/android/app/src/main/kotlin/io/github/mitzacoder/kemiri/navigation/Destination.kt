@@ -31,6 +31,8 @@ sealed interface Destination {
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Artifact") data class Artifact(val chat: Chat, val artifactId: String) : Destination
     /** A task's sheet over the chat it was opened from (the web's `?task=` on main's or a thread's page); back closes it. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.Changes")
+    data class Changes(val chat: Chat, val taskId: String, val title: String, val commitHash: String? = null) : Destination
     /**
      * A backend's terminals (web `/b/<backend>/terminal`): [projectId] and [workerId] pick where a new terminal opens (the
      * project's folder, a worker's workspace); [session] attaches one by name. Not a chat: it has its own header.
@@ -58,6 +60,7 @@ fun Destination.chatRoute(): Destination.Chat? = when (this) {
     is Destination.ArtifactStudio -> chat.copy(highlight = null)
     is Destination.ProjectSettings -> chat.copy(highlight = null)
     is Destination.Task -> chat.copy(highlight = null)
+    is Destination.Changes -> chat.copy(highlight = null)
     Destination.Home, Destination.Usage, Destination.ArtifactLibrary, is Destination.Settings, is Destination.Terminal -> null
 }
 /** Keep the same panel window behind a chain of linked task sheets, including when Back returns to a parent. */

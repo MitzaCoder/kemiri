@@ -81,7 +81,7 @@ fun releaseView(release: ReleaseInfo, now: Long, deploy: DeployStatus? = null): 
         description = release.description,
         `when` = relativeTime(release.deployedAt, now),
         title = "${release.name}\n${release.commit}\n${release.description}\nDeployed ${exactTime(release.deployedAt)}",
-        unchanged = if (deploy?.state == "ok" && deploy.backendUnchanged && deploy.commit != release.commit) {
+        unchanged = if (deploy?.state == "ok" && deploy.backendUnchanged == true && deploy.commit != release.commit) {
             "${shortCommit(deploy.commit)} deployed, backend unchanged since $commit"
         } else null,
     )
@@ -100,7 +100,7 @@ fun deployProblem(status: ServerStatus?): DeployProblem? {
     val deploy = status?.deploy ?: return null
     if (deploy.state == "failed") return DeployProblem(DeployProblemKind.Failed, deploy, status.release)
     if (deploy.state == "rolled_back") return DeployProblem(DeployProblemKind.RolledBack, deploy, status.release)
-    if (status.release != null && status.release.commit != deploy.commit && !deploy.backendUnchanged) {
+    if (status.release != null && status.release.commit != deploy.commit && deploy.backendUnchanged != true) {
         return DeployProblem(DeployProblemKind.UnexpectedRelease, deploy, status.release)
     }
     return null

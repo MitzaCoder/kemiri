@@ -81,11 +81,12 @@ function emit(name: string, s: Schema, union?: { name: string; by: string }) {
         const opaqueReportPayload = (p === "blocks" || p === "sectionViews") && (name === "BoardTaskReport" || name === "BoardTaskSnapshotReport");
         let t = opaqueReportPayload ? "JsonElement" : type(v, name + cap(p));
         let fallback = "";
-        if (v.const !== undefined) fallback = " = " + (typeof v.const === "number" ? v.const + (t === "Long" ? "L" : "") : JSON.stringify(v.const));
+        const requiredLiteral = v.const !== undefined && required.has(p);
+        if (requiredLiteral) fallback = " = " + (typeof v.const === "number" ? v.const + (t === "Long" ? "L" : "") : JSON.stringify(v.const));
         else if (p === "id" && name.endsWith("Request")) fallback = " = java.util.UUID.randomUUID().toString()";
         else if (OLDER_BACKEND_DEFAULTS[name]?.[p] !== undefined) fallback = " = " + OLDER_BACKEND_DEFAULTS[name]![p];
         else if (!required.has(p)) { if (!t.endsWith("?")) t += "?"; fallback = " = null"; }
-        return `    ${v.const !== undefined ? "@kotlinx.serialization.EncodeDefault " : ""}${p === union?.by ? "override " : ""}val ${ident(p)}: ${t}${fallback}`;
+        return `    ${requiredLiteral ? "@kotlinx.serialization.EncodeDefault " : ""}${p === union?.by ? "override " : ""}val ${ident(p)}: ${t}${fallback}`;
     });
     const supertype = union ? ` : ${union.name}` : name.endsWith("Event") ? " : ProtocolEvent" : "";
     // Relay registration carries capabilities/HMACs; generated DTOs must not leak them through diagnostics.

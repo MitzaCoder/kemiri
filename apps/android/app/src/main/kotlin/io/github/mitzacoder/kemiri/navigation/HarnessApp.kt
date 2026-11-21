@@ -213,9 +213,9 @@ private fun HarnessNavigation(
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
     CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && current !is Destination.Changes && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
         Row(Modifier.fillMaxSize()) {
-        if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
+        if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio && current !is Destination.Changes) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
             sidebarCollapsed = !sidebarCollapsed
             navPreferences.edit { putBoolean("collapsed", sidebarCollapsed) }
         }, unknownBackend = unknownBackend, dismissUnknownBackend = { unknownBackend = null })
@@ -235,7 +235,7 @@ private fun HarnessNavigation(
                     modifier = Modifier.weight(1f),
                     topBar = {
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
-                        if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio) TopAppBar(
+                        if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && current !is Destination.Changes) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
                                 if (current.isSettings()) Text("Settings")
@@ -270,6 +270,7 @@ private fun HarnessNavigation(
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
+                            is Destination.Changes -> if (context != null) io.github.mitzacoder.kemiri.features.changes.ChangesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
                             is Destination.Terminal -> sessions.firstOrNull { it.config.key == current.backendKey }
                                 ?.let { TerminalScreen(it, current, onBack = ::pop, modifier = modifier) } ?: MissingBackend(modifier)
                         }

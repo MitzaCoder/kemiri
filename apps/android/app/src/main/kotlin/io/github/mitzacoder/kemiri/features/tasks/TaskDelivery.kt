@@ -1,14 +1,23 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.request
+import io.github.mitzacoder.kemiri.features.changes.*
+import io.github.mitzacoder.kemiri.navigation.Destination
+import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
+import kotlinx.coroutines.CancellationException
+import io.github.mitzacoder.kemiri.protocol.*
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import io.github.mitzacoder.kemiri.protocol.BoardTaskTimelineResponseDelivery
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -40,7 +49,7 @@ internal fun deliverySteps(delivery: BoardTaskTimelineResponseDelivery?): List<D
 }
 
 @Composable
-internal fun TaskDelivery(delivery: BoardTaskTimelineResponseDelivery) {
+internal fun TaskDelivery(context: ProjectScreenContext, task: BoardTask, delivery: BoardTaskTimelineResponseDelivery) {
     val colors = Jarvis.colors
     val steps = deliverySteps(delivery)
     if (steps.isEmpty()) return
@@ -58,7 +67,41 @@ internal fun TaskDelivery(delivery: BoardTaskTimelineResponseDelivery) {
         }
         var changesOpen by rememberSaveable { mutableStateOf(false) }
         TaskFold("Changes", changesOpen, { changesOpen = !changesOpen }) {
-            delivery.commits.forEach { Text(it.take(12), Modifier.padding(start = 24.dp), style = TaskType.metaMono, color = colors.fgMuted) }
+            val connection by context.backend.client.state.collectAsStateWithLifecycle()
+            if (connection.supports(PROJECT_CHANGES)) DeliveryCommitRows(context, task, delivery.commits)
+            else delivery.commits.forEach { Text(it.take(12), Modifier.padding(start = 24.dp), style = TaskType.metaMono, color = colors.fgMuted) }
         }
     }
 }
+
+@Composable
+private fun DeliveryCommitRows(context: ProjectScreenContext, task: BoardTask, hashes: List<String>) {
+    val client = context.backend.client
+    val project = context.route.projectId
+    val list by produceState<ChangesListResponse?>(null, client, project, task.id, hashes) {
+        value = readChanges { client.request(ChangesListRequest(projectId = project, source = ChangeRequestSourceTask(taskId = task.id))) }
+    }
+    val details = remember(client, project, hashes) { mutableStateMapOf<String, ChangesListResponse>() }
+    LaunchedEffect(client, project, hashes) {
+        for (hash in hashes) {
+            readChanges { client.request(ChangesListRequest(projectId = project, source = ChangeRequestSourceCommit(hash = hash))) }
+                ?.let { details[hash] = it }
+        }
+    }
+    fun open(hash: String? = null) = context.navigate(Destination.Changes(context.route, task.id, task.title, hash))
+    OutlinedButton(onClick = { open() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review changes") }
+    val commits = list?.commits.orEmpty().associateBy { it.hash }
+    for (hash in hashes) {
+        val detail = details[hash]
+        Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Review commit") { open(hash) }
+            .heightIn(min = 48.dp).padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(commits[hash]?.subject ?: detail?.commits?.firstOrNull()?.subject ?: hash.take(12), style = TaskType.sectionTitle)
+            Text(listOfNotNull(hash.take(12), detail?.let { changeCounts(it.files).label() + if (it.truncated) " · partial" else "" })
+                .joinToString(" · "), style = TaskType.metaMono, color = Jarvis.colors.fgMuted)
+        }
+    }
+}
+
+private suspend fun <T> readChanges(read: suspend () -> T): T? = try { read() }
+catch (e: CancellationException) { throw e }
+catch (_: Exception) { null }

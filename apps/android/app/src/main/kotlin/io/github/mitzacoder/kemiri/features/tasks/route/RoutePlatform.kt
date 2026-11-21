@@ -172,7 +172,7 @@ private fun RouteArrived(sheet: TaskSheetState, open: Boolean, wide: Boolean) {
                 TaskHeading("Files (${sheet.artifacts.size})")
                 TaskFiles(sheet.context, sheet.artifacts, onUpdateTags = sheet.onUpdateArtifactTags)
             }
-            sheet.record.delivery?.let { RouteDisclosure("Delivery", inline = wide) { TaskDelivery(it) } }
+            sheet.record.delivery?.let { RouteDisclosure("Delivery", inline = wide) { TaskDelivery(sheet.context, sheet.task, it) } }
         }
     }
     if (!open) results()

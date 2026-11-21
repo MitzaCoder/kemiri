@@ -21,7 +21,7 @@ internal fun TaskAbout(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider(color = Jarvis.colors.border)
         TaskHeading("About this task")
-        if (delivery != null) TaskDelivery(delivery)
+        if (delivery != null) TaskDelivery(context, task, delivery)
         else if (legacyDelivery?.kind == "delivery" || (legacyDelivery?.kind == "deploy" && task.status != "in_progress")) {
             TaskReadingSection("Delivery") { TaskActivityView(legacyDelivery, inlineAge = true) }
         }
