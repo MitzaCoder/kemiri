@@ -25,6 +25,7 @@
 		scheduleName,
 		now,
 		currentThreadId,
+		parentCoordinatorId,
 		questions = []
 	}: {
 		threads: ProjectThreads | undefined;
@@ -32,11 +33,12 @@
 		scheduleName?: (scheduleId: string) => string | undefined;
 		/** Ticks, so the relative times move on. */
 		now: number;
+		parentCoordinatorId?: string;
 		currentThreadId?: string;
 		questions?: readonly BoardQuestion[];
 	} = $props();
 
-	const ordered = $derived(sortThreads(threads?.background ?? []));
+	const ordered = $derived(sortThreads((threads?.background ?? []).filter(thread => parentCoordinatorId === undefined || (thread.kind !== 'coordinator' && (thread.parentThreadId ?? 'main') === parentCoordinatorId))));
 	const live = $derived(ordered.filter((thread) => !thread.archived));
 	const grouped = $derived(partitionFinishedJobs(live, now));
 	const archived = $derived(ordered.filter((thread) => thread.archived));

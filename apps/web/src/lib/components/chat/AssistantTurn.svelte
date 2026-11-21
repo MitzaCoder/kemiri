@@ -90,7 +90,7 @@
 	<div class="min-w-0 flex-1">
 		{#each rows as row (row.key)}
 			<!-- Each row rises as it lands, so a turn that grows while the model works assembles itself instead of jumping. -->
-			<div id={row.kind === 'part' && row.part.type === 'tool' && row.part.entryAnchor !== undefined ? `entry-${row.part.entryAnchor}` : undefined} class="animate-rise motion-reduce:animate-none">
+			<div id={row.kind === 'part' && (row.part.type === 'tool' || row.part.type === 'text') && row.part.entryAnchor !== undefined ? `entry-${row.part.entryAnchor}` : undefined} class="animate-rise motion-reduce:animate-none">
 				{#if row.kind === 'thinking'}
 					<ThinkingBlock steps={row.steps} active={row.steps.at(-1)?.streaming === true} />
 				{:else if row.kind === 'coding'}

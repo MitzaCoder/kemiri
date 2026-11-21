@@ -2699,6 +2699,27 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   On Android the chat title opens the same list in a modal bottom sheet (system Back closes it first; a
   chosen row pushes onto the back stack) and its All background jobs row opens the panel.
 
+**Web coordinator roster (T395).** On `coordinators` backends, General stays at the
+project address. New coordinator chats use the existing thread route and draft key.
+Project entry links use the last coordinator on that device, without redirecting the
+General route or overriding Back/Forward. The title menu (Alt+J) and scrollable chips
+(Alt+1–9) use roster order; jobs nest under their coordinator. Colour and letter marks
+identify owners across the sidebar, roster and tasks. An amber badge counts attention,
+while working, explicit pause and unread replies have independent marks. Reply stamps
+are local to the device. New and Manage use `operationId` again for a retry of the same
+mutation; no keep-warm control is exposed here.
+
+**Web task scope.** On `task-coordinator` backends, the Tasks panel defaults to the
+open coordinator. Its per-project device preference also supports All coordinators,
+with the same ownership filter for list, board and graph. The list keeps external
+parts as dashed links and shows the other coordinator on cross-coordinator blockers.
+The task sheet and board menu write `ownerThreadId` (`null` for General) with the
+row revision; moving a parent and its parts is a sequence of checked saves, not a
+batch. Replies keep the task-specific draft and submit `taskId` without fixing a
+recipient, so the backend resolves the latest owner at admission. Older backends keep
+the existing switcher, board and composer behavior. `coordinators-demo.ts` seeds an
+isolated bakery fixture for before/after web proof.
+
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 
 - **Shape.** A background thread is a child conversation of main's, owned by a background anchor task like a worker;

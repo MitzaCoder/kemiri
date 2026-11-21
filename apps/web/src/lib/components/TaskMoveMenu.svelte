@@ -18,12 +18,14 @@
 		position,
 		onmove,
 		onreorder,
+		oncoordinator,
 		class: className = ''
 	}: {
 		task: Pick<BoardTask, 'id' | 'title' | 'status' | 'state'>;
 		/** In To do: where the card is and how many there are, for the priority moves. */
 		position?: { index: number; count: number };
 		onmove: (target: MoveTarget) => void;
+		oncoordinator?: () => void;
 		onreorder?: (index: number) => void;
 		class?: string;
 	} = $props();
@@ -76,6 +78,7 @@
 				<ArrowDownIcon class="size-3.5 shrink-0 text-(--chat-fg-subtle)" />Down one
 			</button>
 		{/if}
+		{#if oncoordinator}<button type="button" class={itemClass} onclick={() => pick(oncoordinator!)}>Move to coordinator…</button>{/if}
 		<p class="px-2 pt-1.5 pb-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
 			The coordinator hears about every move. Only the agents put a task up for review.
 		</p>

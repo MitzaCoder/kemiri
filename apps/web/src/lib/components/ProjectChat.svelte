@@ -12,6 +12,14 @@
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import { onMount, untrack, type Component } from 'svelte';
 	import { page } from '$app/state';
+	import { projectsNav } from '#lib/projects-nav.svelte.js';
+	import { goto } from '$app/navigation';
+	import CoordinatorMark from './CoordinatorMark.svelte';
+	import CoordinatorBadges from './CoordinatorBadges.svelte';
+	import CoordinatorManager from './CoordinatorManager.svelte';
+	import { coordinatorBadges, coordinatorColor, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
+	import { provideCoordinatorTaskView } from '#lib/coordinator-task-view.js';
+	import type { ThreadSummary } from '@kemiri/protocol';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FilesHost from './files/FilesHost.svelte';
 	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
@@ -190,8 +198,6 @@
 	let refStatus = $state<ProjectRefStatus | undefined>(undefined);
 	const supportsRefStatus = $derived(backend.supports('ref-status'));
 	provideRefLinks(() => ({ links: project?.links, status: (ref) => refStatus?.status(ref) }));
-	const taskChoices = $derived(!isThread && supportsTaskReports && board !== undefined ? taskOptions(board.board?.tasks ?? []) : undefined);
-	const questionsWaiting = $derived(board?.openQuestionCount ?? 0);
 	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open') ?? false);
 	/** A mute toggle belongs in the header when this backend can push to this device at all. */
 	const supportsNotifications = $derived(backend.supports('notifications'));
@@ -202,13 +208,77 @@
 	const supportsThreads = $derived(backend.supports('threads'));
 	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true }));
 	/** This thread as the list has it; undefined on main's chat and while the list loads. */
-	const thread = $derived(threadId === undefined ? undefined : threads?.thread(threadId));
+	let archivedThread = $state<ThreadSummary>();
+	const thread = $derived(threadId === undefined ? undefined : threads?.thread(threadId) ?? (archivedThread?.id === threadId ? archivedThread : undefined));
 	const threadList = $derived(threads?.threads ?? []);
+	const supportsCoordinators = $derived(backend.supports('coordinators'));
+	const supportsAssignment = $derived(backend.supports('task-coordinator'));
+	const roster = $derived(coordinatorRoster(threadList, supportsCoordinators));
+	const coordinatorId = $derived(thread?.kind === 'coordinator' ? thread.id : coordinatorOfThread(threadId, threadList));
+	const viewingCoordinator = $derived(roster.find(row => row.id === coordinatorId));
+	const coordinatorChat = $derived(supportsCoordinators && (!isThread || thread?.kind === 'coordinator'));
+	const archivedCoordinator = $derived(coordinatorChat && thread?.archived === true);
+	const jobs = $derived(supportsCoordinators ? threadList.filter(row => row.kind !== 'coordinator' && (row.parentThreadId ?? 'main') === coordinatorId) : threadList);
+	let manager = $state<'new' | 'manage' | ThreadSummary>();
+	let taskScope = $state<'coordinator' | 'all'>('coordinator');
+	let hiddenCoordinators = $state<Set<string>>(new Set());
+	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, 'scope'));
+	const otherAttention = $derived(roster.filter(row => row.id !== coordinatorId).reduce((sum, row) => sum + coordinatorBadges(row).needsYou, 0));
+	const questionCounts = $derived(roster.filter(row => row.id !== coordinatorId).map(row => ({ row, count: scopedQuestions((board?.board?.questions ?? []).filter(q => q.status === 'open'), threadList, row.id).length })).filter(row => row.count));
+	provideCoordinatorTaskView(() => supportsAssignment && roster.length ? { roster: [...roster, ...(threads?.archived ?? []).filter(row => row.kind === 'coordinator')], threads: threadList, coordinatorId: taskScope === 'coordinator' ? coordinatorId : undefined, hidden: hiddenCoordinators } : undefined);
+	$effect(() => {
+		taskScope = readCoordinatorPreference(scopeKey) === 'all' ? 'all' : 'coordinator';
+		hiddenCoordinators = new Set();
+	});
+	function setTaskScope(scope: 'coordinator' | 'all') {
+		taskScope = scope;
+		if (scope === 'all') hiddenCoordinators = new Set();
+		saveCoordinatorPreference(scopeKey, scope);
+	}
+	function showAllTasks() { setTaskScope('all'); openBoard(); }
+	function seen(id: string): string | null {
+		return projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${id}`));
+	}
+	$effect(() => {
+		if (!coordinatorChat || viewingCoordinator?.id !== (threadId ?? 'main') || !viewingCoordinator) return;
+		projectsNav.rememberCoordinator(coordinatorStorageKey(backend.id, projectId, 'last'), viewingCoordinator.id);
+		if (viewingCoordinator.lastReplyAt) projectsNav.markCoordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${viewingCoordinator.id}`), viewingCoordinator.lastReplyAt);
+	});
+	function switchCoordinator(id: string) {
+		const href = coordinatorHref(backend.id, projectId, id);
+		if (href !== page.url.pathname) void goto(href);
+	}
+	function coordinatorKeys(event: KeyboardEvent) {
+		if (event.defaultPrevented || manager || roster.length < 2) return;
+		const index = coordinatorShortcut(event);
+		const target = index === undefined ? undefined : roster[index];
+		if (target) { event.preventDefault(); switchCoordinator(target.id); }
+	}
+	const panelWorkers = $derived(supportsAssignment && taskScope === 'coordinator'
+		? (workers?.allWorkers ?? []).filter(worker => coordinatorOfThread(worker.threadId, threadList) === coordinatorId)
+		: supportsAssignment ? (workers?.allWorkers ?? []).filter(worker => !hiddenCoordinators.has(coordinatorOfThread(worker.threadId, threadList))) : workers?.workers ?? []);
+	const taskChoices = $derived((!isThread || coordinatorChat) && supportsTaskReports && board !== undefined ? taskOptions(supportsAssignment ? scopedTasks(board.tasks, coordinatorId) : board.tasks) : undefined);
+	const questionsWaiting = $derived(supportsAssignment && roster.length ? (viewingCoordinator ? coordinatorBadges(viewingCoordinator).needsYou : 0) : board?.openQuestionCount ?? 0);
+	$effect(() => {
+		const id = threadId;
+		const project = projectId;
+		const backendId = backend.id;
+		if (!supportsCoordinators || !id || !threads?.loaded || threadList.some(row => row.id === id) || !backend.ready) return;
+		let keep = true;
+		void backend.client.listThreads(project, { includeArchived: true }).then(snapshot => {
+			if (!keep) return;
+			archivedThread = snapshot.threads.find(row => row.id === id && row.archived);
+			const key = coordinatorStorageKey(backendId, project, 'last');
+			if (readCoordinatorPreference(key) === id) projectsNav.rememberCoordinator(key, 'main');
+			if (!archivedThread && !snapshot.threads.some(row => row.id === id)) void goto(projectHref(backendId, project), { replaceState: true });
+		}).catch(() => { /* A reconnect refreshes the roster and retries. */ });
+		return () => { keep = false; };
+	});
 	const jobCounts = $derived(project?.activity?.backgroundJobs ?? backgroundJobCounts(threadList));
 	const threadCards = $derived<ThreadCards | undefined>(
 		supportsThreads
 			? {
-					threads: threadList,
+					threads: jobs,
 					questions: board?.board?.questions ?? [],
 					href: (id) => threadHref(backend.id, projectId, id),
 					scheduleName: scheduleTitle,
@@ -243,9 +313,10 @@
 	/** Messages sent while a run was busy, drawn at the end of the transcript until the run places them. */
 	let waiting = $state<WaitingMessages | undefined>(undefined);
 	const waitingList = $derived(waiting?.supported === true ? waiting.messages(session?.view?.queued) : []);
+	const replyAnchor = $derived(/^#entry-(\d+)$/.exec(page.url.hash)?.[1]);
 	const items = $derived(
 		withWaiting(
-			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes') }),
+			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), entryAnchor: replyAnchor ? Number(replyAnchor) : undefined }),
 			waitingList,
 			waiting?.pending
 		)
@@ -255,7 +326,7 @@
 	const working = $derived(busy && !items.some((item) => item.kind === 'turn' && item.live === true));
 	const empty = $derived(session !== undefined && session.status === 'live' && items.length === 0);
 	const canChat = $derived(project !== undefined && (isThread || project.coordinator.model !== null));
-	const canSend = $derived(canChat && backend.ready && backend.supports('conversation'));
+	const canSend = $derived(canChat && !archivedCoordinator && backend.ready && backend.supports('conversation'));
 
 	/** The coordinator's current tool call, for the header's "Running bash · 3m"; ticks with `now`. */
 	let now = $state(Date.now());
@@ -323,7 +394,7 @@
 			actions.push({
 				id: 'board',
 				kind: 'tab',
-				name: `${boardTabName}${questionsWaiting > 0 ? ` (${questionsWaitingLabel(questionsWaiting)})` : ''}`,
+				name: `${boardTabName}${questionsWaiting > 0 ? ` (${supportsAssignment ? `${questionsWaiting} need attention` : questionsWaitingLabel(questionsWaiting)})` : ''}`,
 				label: boardTabName,
 				icon: ClipboardListIcon,
 				count: questionBadgeText(questionsWaiting),
@@ -621,18 +692,13 @@
 		return memory?.undoError?.commit === commit ? memory.undoError.message : undefined;
 	}
 
-	// A history row's "compaction at entry #N" link lands on that marker: `#entry-<id>` is its id in the transcript.
+	// A reply push and a compaction history link both name a transcript entry.
 	$effect(() => {
-		const jump = (): void => {
-			const match = /^#entry-(\d+)$/.exec(window.location.hash);
-			if (match === null) return;
-			requestAnimationFrame(() => {
-				document.getElementById(`entry-${match[1]}`)?.scrollIntoView({ block: 'center' });
-			});
-		};
-		jump();
-		window.addEventListener('hashchange', jump);
-		return () => window.removeEventListener('hashchange', jump);
+		const current = session;
+		const id = replyAnchor;
+		if (!id || !current || !items.length) return;
+		const frame = requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: 'center' }));
+		return () => cancelAnimationFrame(frame);
 	});
 
 	/**
@@ -707,7 +773,7 @@
 	}
 
 	function workerLink(worker: { id: string; threadId?: string }): string {
-		return workerHref(backend.id, projectId, worker.id, worker.threadId ?? threadId);
+		return workerHref(backend.id, projectId, worker.id, worker.threadId === 'main' ? undefined : worker.threadId ?? threadId);
 	}
 
 	function taskLink(taskId: string): string {
@@ -825,10 +891,13 @@
 </script>
 
 {#snippet emptyState()}
-	{#if isThread}
+	{#if coordinatorChat}
+		<EmptyState title={(archivedCoordinator ? thread : viewingCoordinator)?.title ?? 'General'}
+			subtitle={archivedCoordinator ? 'This coordinator is archived.' : 'Send a message to start this chat.'} />
+	{:else if isThread}
 		<EmptyState
 			title={thread?.title || 'Background job'}
-			subtitle="A background job. It reports to Main chat when it finishes; type here to steer it directly."
+			subtitle={supportsCoordinators ? `A background job. It reports to ${viewingCoordinator?.title ?? 'General'} when it finishes.` : 'A background job. It reports to Main chat when it finishes; type here to steer it directly.'}
 		/>
 	{:else}
 		<EmptyState
@@ -915,14 +984,14 @@
 							variant="ghost"
 							size="icon-sm"
 							onclick={(event) => conversationBack(event, projectHref(backend.id, projectId))}
-							aria-label="Back to Main chat"
-							title="Back to Main chat"
+							aria-label={supportsCoordinators ? `Back to ${roster[0]?.title ?? 'General'}` : 'Back to Main chat'}
+							title={supportsCoordinators ? `Back to ${roster[0]?.title ?? 'General'}` : 'Back to Main chat'}
 						>
 							<ArrowLeftIcon />
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
+						<ConversationSwitcher roster={supportsCoordinators ? roster : undefined} {seen} onnew={() => manager = 'new'} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
@@ -962,7 +1031,7 @@
 						{@render headerButton(action)}
 					{/each}
 				</div>
-				{#if !isThread}
+				{#if !isThread && !supportsCoordinators}
 					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
 						<span class="min-w-0 truncate">Main chat · {backend.name}</span>
 						{#if project}
@@ -986,9 +1055,29 @@
 						{/if}
 					</div>
 				{/if}
+				{#if coordinatorChat && (viewingCoordinator || archivedCoordinator)}
+					{@const chatCoordinator = archivedCoordinator ? thread : viewingCoordinator}
+					<div class="flex min-w-0 items-center gap-2 rounded-lg border border-(--chat-border) px-2.5 py-1 text-xs" style:background={`color-mix(in srgb, ${coordinatorColor(chatCoordinator)} 8%, var(--chat-bg))`}>
+						<span class="min-w-0 flex-1 truncate text-(--chat-fg-muted)" title={chatCoordinator?.area}>{chatCoordinator?.area || 'No area set'}</span>
+						{#if chatCoordinator && !archivedCoordinator}<button class="shrink-0 rounded px-1 py-1 font-medium text-(--accent-2) hover:underline" onclick={() => manager = chatCoordinator}>Edit area</button>{:else}<span>Archived</span>{/if}
+					</div>
+				{/if}
+				{#if roster.length > 1}
+					<nav aria-label="Coordinators" class="flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 py-1.5 [scrollbar-width:thin]">
+						{#each roster as row, index (row.id)}
+							{@const here = row.id === (threadId ?? 'main')}
+							<a href={coordinatorHref(backend.id, projectId, row.id)} aria-current={here ? 'page' : undefined} aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
+								class="flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-(--chat-surface-2)" style:border-color={here ? coordinatorColor(row) : 'var(--chat-border)'}>
+								<CoordinatorMark thread={row} />{row.title}<CoordinatorBadges thread={row} seen={seen(row.id)} />
+							</a>
+						{/each}
+						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" onclick={() => manager = 'new'}>+ New</button>
+					</nav>
+				{/if}
 			</header>
-			{#if isThread && thread && threads}
-				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={projectHref(backend.id, projectId)} scheduleName={thread.scheduleId ? scheduleTitle(thread.scheduleId) : undefined} />
+			{#if isThread && thread && threads && !coordinatorChat}
+				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={supportsCoordinators ? coordinatorHref(backend.id, projectId, coordinatorId) : projectHref(backend.id, projectId)}
+					parentTitle={supportsCoordinators ? viewingCoordinator?.title ?? 'General' : undefined} scheduleName={thread.scheduleId ? scheduleTitle(thread.scheduleId) : undefined} />
 			{/if}
 
 				{#key session}
@@ -1082,15 +1171,21 @@
 						{#if sendError}
 							<Banner tone="error">{sendError}</Banner>
 						{/if}
-						{#if !isThread && board !== undefined && hasOpenQuestions && !(sidebarOpen && sidebarTab === 'board')}
+						{#if (!isThread || coordinatorChat) && board !== undefined && hasOpenQuestions && !(sidebarOpen && sidebarTab === 'board')}
 							<BoardQuestionPin
 								{board}
 								threads={threadList}
 								{threadId}
+								coordinatorId={coordinatorChat ? coordinatorId : undefined}
 								tasksView={supportsTasks}
 								taskHref={supportsTasks ? taskLink : undefined}
 								onopenboard={openBoard}
 							/>
+						{/if}
+						{#if coordinatorChat && questionCounts.length}
+							<div class="flex flex-wrap gap-x-3 px-2 pt-1 text-xs text-(--chat-fg-muted)">
+								{#each questionCounts as { row, count } (row.id)}<a class="hover:underline" href={coordinatorHref(backend.id, projectId, row.id)}>{count} more {count === 1 ? 'question' : 'questions'} in {row.title} →</a>{/each}
+							</div>
 						{/if}
 					</div>
 
@@ -1126,6 +1221,8 @@
 								? 'Choose a main chat model first'
 								: !backend.ready
 									? 'Reconnecting…'
+									: archivedCoordinator ? 'This coordinator is archived'
+									: coordinatorChat ? `Message ${viewingCoordinator?.title ?? 'General'}…`
 									: isThread
 										? 'Message this background job…'
 										: undefined}
@@ -1138,7 +1235,7 @@
 							onstop={stop}
 						/>
 						{/key}
-						{#if isThread}<p class="px-3 pb-1 text-xs text-(--chat-fg-subtle)" data-job-steering-note>The main chat does not see what you write here, only the job's report.</p>{/if}
+						{#if isThread && !coordinatorChat}<p class="px-3 pb-1 text-xs text-(--chat-fg-subtle)" data-job-steering-note>{supportsCoordinators ? `${viewingCoordinator?.title ?? 'General'} sees only the job’s report.` : "The main chat does not see what you write here, only the job's report."}</p>{/if}
 					{/if}
 				</div>
 			</div>
@@ -1153,11 +1250,23 @@
 					label="Project sidebar"
 				>
 					{#snippet boardPanel(fullWidth: boolean)}
+						{#if supportsAssignment && roster.length > 1}
+							<div class="shrink-0 space-y-2 border-b border-(--chat-border) px-3 py-2">
+								<div class="flex gap-1 rounded-lg bg-(--chat-surface-2) p-1" role="group" aria-label="Task scope">
+									{#each [{ id: 'coordinator', label: 'This coordinator' }, { id: 'all', label: 'All coordinators' }] as option (option.id)}
+										<button class="flex-1 rounded-md px-2 py-1.5 text-xs font-semibold {taskScope === option.id ? 'bg-(--chat-bg) shadow-sm' : 'text-(--chat-fg-muted)'}" aria-pressed={taskScope === option.id} onclick={() => setTaskScope(option.id === 'all' ? 'all' : 'coordinator')}>{option.label}</button>
+									{/each}
+								</div>
+								{#if taskScope === 'all'}<div class="flex flex-wrap gap-1" role="group" aria-label="Filter by coordinator">
+									{#each roster as row (row.id)}<button aria-pressed={!hiddenCoordinators.has(row.id)} class="flex items-center gap-1 rounded-lg border border-(--chat-border) px-1.5 py-0.5 text-xs aria-pressed:bg-(--chat-surface-2) aria-pressed:text-(--chat-fg) text-(--chat-fg-subtle)" onclick={() => { const next = new Set(hiddenCoordinators); if (!next.delete(row.id)) next.add(row.id); hiddenCoordinators = next; }}><CoordinatorMark thread={row} />{row.title}</button>{/each}
+								</div>{/if}
+							</div>
+						{/if}
 						{#if supportsTasks && fullWidth}
 							<TasksView
 								{board}
-								workers={workerList}
-								graphWorkers={workers?.allWorkers ?? []}
+								workers={panelWorkers}
+								graphWorkers={supportsAssignment ? panelWorkers : workers?.allWorkers ?? []}
 								selectedTaskId={taskFromUrl(page.url)}
 								scope={`${backend.id}:${projectId}`}
 								backendId={backend.id}
@@ -1169,15 +1278,19 @@
 								onsendreason={backend.supports('conversation') ? sendTaskReason : undefined}
 							/>
 						{:else if supportsTasks}
-							<TasksPanel {board} threads={threadList} workers={workerList} workerHref={(worker) => workerLink(worker)} taskHref={taskLink} />
+							<TasksPanel {board} threads={threadList} workers={panelWorkers} workerHref={(worker) => workerLink(worker)} taskHref={taskLink} />
 						{:else}
 							<BoardPanel {board} workers={workerList} threads={threadList} hrefOf={(worker) => workerLink(worker)} />
+						{/if}
+						{#if supportsAssignment && taskScope === 'coordinator' && otherAttention}
+							<p class="shrink-0 border-t border-(--chat-border) px-3 py-2 text-xs text-(--chat-fg-muted)">{otherAttention} need attention in other coordinators · <button class="font-semibold text-(--accent-2) hover:underline" onclick={showAllTasks}>Show all</button></p>
 						{/if}
 					{/snippet}
 					{#snippet backgroundPanel()}
 						<BackgroundPanel
 							{threads}
 							currentThreadId={threadId}
+							parentCoordinatorId={supportsCoordinators ? coordinatorId : undefined}
 							questions={board?.board?.questions ?? []}
 							hrefOf={(id) => threadHref(backend.id, projectId, id)}
 							scheduleName={scheduleTitle}
@@ -1247,3 +1360,12 @@
 		background: var(--primary);
 	}
 </style>
+
+<svelte:window onkeydown={coordinatorKeys} />
+{#if manager && threads && supportsCoordinators}
+	{#key manager}
+		<CoordinatorManager mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
+			onclose={() => manager = undefined} oncreated={id => { manager = undefined; switchCoordinator(id); }}
+			onarchived={id => { const key = coordinatorStorageKey(backend.id, projectId, 'last'); if (readCoordinatorPreference(key) === id) projectsNav.rememberCoordinator(key, 'main'); if (threadId === id) { manager = undefined; switchCoordinator('main'); } }} />
+	{/key}
+{/if}

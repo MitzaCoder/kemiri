@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
+	import { externalParts, taskCoordinator } from '#lib/coordinators.js';
+	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import { taskRowActivity } from '#lib/task-activity.js';
@@ -136,8 +139,13 @@
 	let decisionsOpen = $state(false);
 
 	const tasks = $derived(board?.tasks ?? []);
+	const getTaskView = useCoordinatorTaskView();
+	const coordinatorView = $derived(getTaskView?.());
+	const scoped = $derived(tasksInCoordinatorView(tasks, coordinatorView));
+	const questions = $derived(questionsInCoordinatorView(board?.board?.questions ?? [], coordinatorView));
+	const shownIds = $derived(new Set(scoped.map(task => task.id)));
 	/** The tasks the focus filter lets through; every other count reads the whole board. */
-	const shownTasks = $derived(applyTaskFilter(tasks, taskFilter.current));
+	const shownTasks = $derived(applyTaskFilter(scoped, taskFilter.current));
 	const search = useTaskSearch(() => tasks, () => board);
 	const searching = $derived(search.query.trim().length > 0);
 	const searchHits = $derived(search.search(new Set(shownTasks.filter(task => (board?.showArchived || !task.archived) && (sectionOpen.closed === true || !['done', 'dropped'].includes(task.status))).map(task => task.id))));
@@ -149,14 +157,14 @@
 	const sections = $derived(
 		board?.board === undefined
 			? []
-			: taskSections({ tasks: shownTasks, questions: board.board.questions }, { includeArchived: board.showArchived })
+			: taskSections({ tasks: shownTasks, questions }, { includeArchived: board.showArchived })
 	);
 	const familySections = $derived(taskFamilySections(sections).map((section) => ({ section, families: taskFamilies(section, expansion) })));
-	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks, questions: board.board.questions }));
-	const answered = $derived(board?.board === undefined ? [] : answeredQuestions(board.board));
+	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks: scoped, questions }));
+	const answered = $derived(board?.board === undefined ? [] : answeredQuestions({ ...board.board, questions }));
 	const decisions = $derived(board?.board?.decisions ?? []);
-	const empty = $derived(board?.loaded === true && tasks.length === 0 && loose.length === 0);
-	const archivedShown = $derived(board?.showArchived === true ? tasks.filter((task) => task.archived).length : 0);
+	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0);
+	const archivedShown = $derived(board?.showArchived === true ? scoped.filter((task) => task.archived).length : 0);
 	const openCount = $derived(shownTasks.filter((task) => !task.archived && task.status !== 'done' && task.status !== 'dropped').length);
 
 	function isOpen(section: TaskSection): boolean {
@@ -210,6 +218,14 @@
 			animate:flip={{ duration: searching || reducedMotion.current ? 0 : 180 }}
 			out:slide={{ duration: searching || reducedMotion.current ? 0 : 180 }}>
 			{@render taskRow(family, depth)}
+			{#if coordinatorView?.coordinatorId && family.role === 'task'}
+				{#each externalParts(family.row.task, tasks, shownIds) as part (part.id)}
+					{@const owner = coordinatorView.roster.find(thread => thread.id === taskCoordinator(part))}
+					<a href={taskHref(part.id)} onclick={() => onopentask?.(part.id)} class="my-1 mr-1 ml-6 flex items-center gap-1.5 rounded-lg border border-dashed border-(--chat-border) px-2 py-1 text-xs hover:bg-(--chat-surface-2)" aria-label={`Part ${part.id}: ${part.title}${owner ? ` · ${owner.title}` : ''}`}>
+						{#if owner}<CoordinatorMark thread={owner} />{/if}<span class="min-w-0 flex-1 truncate">{part.title}</span><span class="text-(--chat-fg-muted)"><TaskStateLabel task={part} {tasks} /></span><TaskIdChip taskId={part.id} />
+					</a>
+				{/each}
+			{/if}
 			{#if family.children.length > 0}
 				<ul class="family-children" class:family-depth-limit={depth >= 3} aria-label="Parts of {family.row.task.id}"
 					transition:slide={{ duration: reducedMotion.current ? 0 : 160 }}>
@@ -226,6 +242,7 @@
 	{@const gist = rowGist(row, board?.activityEnabled === true)}
 	{@const activity = taskRowActivity(row.task, board?.activityEnabled === true, tasks)}
 	{@const refs = taskRefs(row.task)}
+	{@const owner = coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(thread => thread.id === taskCoordinator(row.task)) : undefined}
 	{@const needsYou = row.section === 'needs_you'}
 	{#if family.role === 'parentHeader'}
 		<a class="task-row family-compact family-header flex items-center gap-2.5 px-3 text-xs text-(--chat-fg-subtle)"
@@ -264,7 +281,7 @@
 			class:task-row-jump={jumpedTask === row.task.id}
 			data-task={row.task.id}
 		>
-			{@render taskRowIcon(row, needsYou, warned)}
+			{#if owner}<CoordinatorMark thread={owner} />{:else}{@render taskRowIcon(row, needsYou, warned)}{/if}
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
 				<a
 					href={taskHref(row.task.id)}

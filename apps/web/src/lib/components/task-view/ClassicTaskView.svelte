@@ -288,7 +288,7 @@
 		<footer class="max-h-[45%] shrink-0 overflow-y-auto border-t border-(--chat-border)" data-task-reply>
 			<div class="mx-auto w-full max-w-3xl">
 				{#key model.viewTaskKey}
-					<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} />
+					<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} />
 				{/key}
 			</div>
 		</footer>

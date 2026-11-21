@@ -37,14 +37,14 @@ test('job questions exclude other askers and switch the chosen question', () => 
  expect(questionPin(own,'Q2').others.map(question=>question.id)).toEqual(['Q1']);
 });
 
-test('job band owns the question, main link and shared stop flow; composer pin stays on main only', async () => {
+test('job band owns the question, main link and shared stop flow; composer pin stays outside jobs', async () => {
  const chat=await source('ProjectChat'), band=await source('BackgroundJobBand'), panel=await source('BackgroundPanel'), stop=await source('ThreadStopButton');
- expect(chat).toContain('{#if isThread && thread && threads}');
+ expect(chat).toContain('{#if isThread && thread && threads && !coordinatorChat}');
  expect(chat).toContain('<BackgroundJobBand');
  expect(chat).not.toContain('Background job of');
- expect(chat).toContain('{#if !isThread && board !== undefined && hasOpenQuestions');
+ expect(chat).toContain('{#if (!isThread || coordinatorChat) && board !== undefined && hasOpenQuestions');
  expect(chat).toContain("questions.some(question => question.status === 'open')");
- expect(chat).toContain('{#if isThread}<p');
+ expect(chat).toContain('{#if isThread && !coordinatorChat}<p');
  expect(chat).toContain("The main chat does not see what you write here, only the job's report.");
  expect(band).toContain('It is waiting for your answer');
  expect(band).toContain('compact strip');

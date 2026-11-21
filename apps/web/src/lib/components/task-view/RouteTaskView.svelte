@@ -278,7 +278,7 @@
 			<div class="route-reply" class:route-reply-open={replyOpen}>
 				{#if replyOpen}
 					<div class="route-reply-heading"><strong>Reply</strong><Button variant="ghost" size="icon-sm" aria-label="Collapse reply" onclick={collapseReply}><XIcon /></Button></div>
-					{#key model.viewTaskKey}<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} />{/key}
+					{#key model.viewTaskKey}<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} />{/key}
 				{:else}
 					<button bind:this={replyTrigger} class="route-reply-button" type="button" onfocus={openReply} onclick={openReply}><MessageCircleIcon aria-hidden="true" /> Reply</button>
 				{/if}

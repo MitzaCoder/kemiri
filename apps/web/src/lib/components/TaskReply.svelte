@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
 	import TaskDetailText from './TaskDetailText.svelte';
 	import { untrack } from 'svelte';
 	import Composer from '#lib/components/chat/Composer.svelte';
@@ -9,7 +10,9 @@
 	import type { ChatFile } from '@kemiri/protocol';
 
 	/** Keyed by task in TaskSheet: its draft and send result cannot leak to the next opened task. */
-	let { backend, projectId, taskId }: { backend: BackendConnection; projectId: string; taskId: string } = $props();
+	let { backend, projectId, taskId, coordinatorId }: { backend: BackendConnection; projectId: string; taskId: string; coordinatorId?: string } = $props();
+	const coordinatorView = useCoordinatorTaskView();
+	const recipient = $derived(coordinatorView?.()?.roster.find(row => row.id === (coordinatorId ?? 'main')));
 	const draftId = untrack(() => `task-reply:${taskId}`);
 	let composer = $state<{ focus(): void }>();
 	export function focus(): void { composer?.focus(); }
@@ -21,6 +24,7 @@
 		problem = undefined;
 		sent = false;
 		try {
+			// The server resolves taskId against the board at admission; do not pin a stale thread here.
 			// The task's own draft is cleared by Composer. Never clear the coordinator's separate chat draft.
 			await backend.client.submit(projectId, inputContent(text, images), { whenBusy: 'steer', taskId, keepDraft: true, fileIds: files.map(file => file.id) });
 			sent = true;
@@ -54,7 +58,7 @@
 		onsend={send}
 	/>
 	<p class="mt-1.5 truncate px-2 text-xs text-(--chat-fg-subtle)">
-		To the coordinator · <TaskDetailText text={taskId} />
+		To {recipient?.title ?? 'the coordinator'} · <TaskDetailText text={taskId} />
 	</p>
 	<span class="sr-only" role="status" data-reply-sent={sent ? '' : undefined}>{sent ? 'Sent. The reply appears in chat.' : ''}</span>
 	{#if problem}<p class="mt-1.5 text-xs break-words text-(--chat-danger)" role="alert"><TaskDetailText text={problem} /></p>{/if}

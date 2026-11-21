@@ -2,6 +2,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import TaskCoordinatorRow from './TaskCoordinatorRow.svelte';
 	import BoardTaskEditor from './BoardTaskEditor.svelte';
 	import SelectionQuote from './chat/SelectionQuote.svelte';
 	import { provideOpenTaskId } from '#lib/task-detail-context.js';
@@ -70,6 +71,7 @@
 				<div class="px-4 py-6 text-sm text-(--chat-fg-subtle)">{taskId} is not on the board any more.</div>
 			{/if}
 		{:else}
+			{#key task.id}<TaskCoordinatorRow {task} board={model.board} />{/key}
 			<Design {model} {editor} />
 		{/if}
 		{#if props.onquote}

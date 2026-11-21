@@ -5,7 +5,7 @@
  * archive go through here and put the answer in the list at once, so a row changes without waiting for the push.
  */
 import { backgroundThreads, threadsStateIsFor, type HarnessClient } from "@kemiri/client";
-import type { ThreadSummary } from "@kemiri/protocol";
+import type { ThreadSummary, ThreadsCreateRequest, ThreadsUpdateRequest } from "@kemiri/protocol";
 
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -82,6 +82,24 @@ export class ProjectThreads {
 
 	async archive(threadId: string, archived = true): Promise<boolean> {
 		return this.#act(threadId, () => this.#client.archiveThread(this.projectId, threadId, archived));
+	}
+
+	async createCoordinator(fields: Omit<ThreadsCreateRequest, "type" | "id" | "projectId">): Promise<ThreadSummary> {
+		const thread = await this.#client.createCoordinator(this.projectId, fields);
+		if (!this.#stopped) this.#upsert(thread);
+		return thread;
+	}
+
+	updateCoordinator(threadId: string, fields: Omit<ThreadsUpdateRequest, "type" | "id" | "projectId" | "threadId">): Promise<boolean> {
+		return this.#act(threadId, () => this.#client.updateCoordinator(this.projectId, threadId, fields));
+	}
+
+	holdCoordinator(threadId: string, held: boolean, operationId: string): Promise<boolean> {
+		return this.#act(threadId, () => this.#client.holdCoordinator(this.projectId, threadId, held, operationId));
+	}
+
+	archiveCoordinator(threadId: string, archived: boolean, operationId: string, moveTasksTo?: string): Promise<boolean> {
+		return this.#act(threadId, () => this.#client.archiveThread(this.projectId, threadId, archived, { operationId, moveTasksTo }));
 	}
 
 	stop(): void {

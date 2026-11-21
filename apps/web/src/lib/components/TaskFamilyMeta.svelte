@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { taskPartProgress, taskUsesPartsSentence } from '#lib/task-parts.js';
+	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
+	import { taskCoordinator } from '#lib/coordinators.js';
+	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskPartsProgress from './TaskPartsProgress.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
@@ -28,6 +31,12 @@
 		foldedCount?: number;
 		ontoggle?: () => void;
 	} = $props();
+	const getTaskView = useCoordinatorTaskView();
+	function relationCoordinator(id: string) {
+		const view = getTaskView?.();
+		const related = tasks.find(row => row.id === id);
+		return view && related && taskCoordinator(related) !== taskCoordinator(task) ? view.roster.find(row => row.id === taskCoordinator(related)) : undefined;
+	}
 	const parent = $derived(task.parent == null ? undefined : linkTarget(task.parent, tasks, archivedLinks));
 	const progress = $derived(task.subtaskCount);
 	const parts = $derived(taskPartProgress(task));
@@ -50,15 +59,17 @@
 	<span class="family-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
 		{#if activity && !partsSentence}<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />{:else if summary && !partsSentence}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
 		{#if parent && !nested}
-			{@const label = relationLabel('Subtask of', parent)}
-			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>↳ <TaskIdChip taskId={parent.id} /></a>
+			{@const coordinator = relationCoordinator(parent.id)}
+			{@const label = relationLabel(coordinator ? 'Part of' : 'Subtask of', parent)}
+			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>{#if coordinator}Part of {:else}↳ {/if}<TaskIdChip taskId={parent.id} /></a>
 		{/if}
 		{#each hints as group (group.kind)}
 			{@const label = group.items.map(target => relationLabel(group.label, target)).join('; ')}
 			{#if group.items.length === 1}
 				{@const target = group.items[0]!}
+				{@const coordinator = group.kind === 'blockedBy' ? relationCoordinator(target.id) : undefined}
 				<a href={taskHref(target.id)} onclick={() => onopen?.(target.id)} title={label} aria-label={label} class="family-link inline-flex items-center" class:opacity-60={target.closed}>
-					{@render relationIcon(group.kind)}
+					{#if coordinator}<CoordinatorMark thread={coordinator} /> Waits for {target.id}{:else}{@render relationIcon(group.kind)}{/if}
 				</a>
 			{:else}
 				<Popover.Root open={openGroup === group.kind} onOpenChange={(open) => openGroup = open ? group.kind : null}>

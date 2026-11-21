@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { projectsNav } from '#lib/projects-nav.svelte.js';
+	import { projectEntryHref } from '#lib/coordinators.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { onMount } from 'svelte';
@@ -14,7 +16,6 @@
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
-	import { projectHref } from '#lib/backends.js';
 	import { backendSettingsHref, generalSettingsHref, projectSettingsHref } from '#lib/settings.js';
 	import { harness, modelLabel, type BackendConnection } from '#lib/harness.svelte.js';
 	import { activeProjects, archivedProjects } from '#lib/projects.js';
@@ -165,7 +166,7 @@
 											<div class="flex flex-wrap items-start gap-2">
 												<div class="flex min-w-0 flex-1 flex-col gap-1">
 													<h3 class="text-base font-semibold">
-														<a class="hover:underline" href={projectHref(backend.id, project.id)}
+														<a class="hover:underline" href={projectEntryHref(backend.id, project.id, backend.supports('coordinators'), projectsNav.lastCoordinator)}
 															>{project.name}</a
 														>
 													</h3>

@@ -127,7 +127,7 @@ export type ToolPart = {
 /** A piece of a turn, in the order the model produced it. */
 export type TurnPart =
 	| { type: "thinking"; key: string; text: string; streaming?: boolean }
-	| { type: "text"; key: string; text: string }
+	| { type: "text"; key: string; text: string; entryAnchor?: number }
 	| ToolPart
 	| { type: "error"; key: string; message: string }
 	| { type: "stopped"; key: string };
@@ -803,7 +803,9 @@ export function buildTranscript(
 						} else if (block.type === "text") {
 							const text = (block as TextBlock).text;
 							if (text.trim().length > 0) {
-								ensureTurn().parts.push({ type: "text", key: part(), text });
+								const entryAnchor = entry.id === options.entryAnchor && !anchored ? entry.id : undefined;
+								if (entryAnchor !== undefined) anchored = true;
+								ensureTurn().parts.push({ type: "text", key: part(), text, ...(entryAnchor === undefined ? {} : { entryAnchor }) });
 							}
 						} else if (block.type === "toolCall") {
 							pushTool(block as ToolCallBlock, { entryId: entry.id });

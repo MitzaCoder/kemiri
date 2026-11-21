@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
+	import { coordinatorColor, taskCoordinator } from '#lib/coordinators.js';
 	import CircleIcon from '@lucide/svelte/icons/circle';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
@@ -41,7 +43,11 @@
 	let showClosed = $state(false);
 	let showResting = $state(false), allLinks = $state(false), showLegend = $state(false);
 	let viewOpen = $state(false), restingOpen = $state(false);
-	const source = $derived(buildTaskGraph(board?.tasks ?? [], board?.board?.questions ?? [], workers, threads, showClosed, showResting));
+	const getTaskView = useCoordinatorTaskView();
+	const coordinatorView = $derived(getTaskView?.());
+	const scopedTasks = $derived(tasksInCoordinatorView(board?.tasks ?? [], coordinatorView));
+	const scopedQuestions = $derived(questionsInCoordinatorView(board?.board?.questions ?? [], coordinatorView));
+	const source = $derived(buildTaskGraph(scopedTasks, scopedQuestions, workers.filter(worker => !coordinatorView || !worker.taskId || scopedTasks.some(task => task.id === worker.taskId)), threads, showClosed, showResting));
 	let graph = $state<TaskGraph>({nodes:[],edges:[],resting:[]});
 	let mode = $state<GraphMode>('live');
 	let expandedFolds = $state(new Set<GraphFoldKind>());
@@ -290,7 +296,8 @@
 							<g class="node {node.kind} status-{node.status}" class:closed={node.kind==='task'&&(node.status==='done'||node.status==='dropped')}>
 								{#if node.kind==='task'&&node.attention}<circle class="attention-halo" r={node.radius+12}/>{/if}
 								{#if node.kind==='task'}
-									<circle class="task-body" r={node.radius}/><circle r={node.radius-2} fill="url(#task-graph-shine)"/>
+									{@const coordinator = coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(row => row.id === taskCoordinator(node.task!)) : undefined}
+									<circle class="task-body" r={node.radius} style:stroke={coordinator ? coordinatorColor(coordinator) : undefined}/><circle r={node.radius-2} fill="url(#task-graph-shine)"/>
 									{@const parts=taskPartProgress(node.task!)}
 									{#if parts}
 										{@const total=parts.segments.reduce((sum,segment)=>sum+segment.count,0)}

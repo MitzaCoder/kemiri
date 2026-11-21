@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
+	import { ownerThreadId } from '#lib/coordinators.js';
+	import { untrack } from 'svelte';
+	import type { TaskSaveOptions } from '#lib/task-close.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -38,7 +42,7 @@
 		/** The task to edit, or undefined to add one. */
 		task: BoardTask | undefined;
 		tasks: readonly BoardTask[];
-		onsave: (input: BoardTaskInput, options: { taskId?: string; expectedRevision?: number }) => Promise<SaveOutcome>;
+		onsave: (input: BoardTaskInput, options: TaskSaveOptions) => Promise<SaveOutcome>;
 		onback: () => void;
 	} = $props();
 
@@ -53,6 +57,9 @@
 	let problem = $state<string | undefined>(undefined);
 	let conflict = $state<{ newer: BoardTask | undefined } | undefined>(undefined);
 
+	const getTaskView = useCoordinatorTaskView();
+	const coordinatorView = $derived(getTaskView?.());
+	let newOwner = $state(untrack(() => getTaskView?.()?.coordinatorId ?? 'main'));
 	const taskId = $derived(shown?.id);
 	const artifacts = artifactScope();
 	const artifactTarget = $derived(artifacts?.());
@@ -68,7 +75,7 @@
 		saving = true;
 		problem = undefined;
 		const outcome = await onsave(draftToInput(draft), {
-			...(taskId === undefined ? {} : { taskId }),
+			...(taskId === undefined ? (coordinatorView ? { ownerThreadId: ownerThreadId(newOwner) } : {}) : { taskId }),
 			...(baseRevision === undefined ? {} : { expectedRevision: baseRevision })
 		});
 		saving = false;
@@ -151,6 +158,9 @@
 		</p>
 	{/if}
 
+	{#if !taskId && coordinatorView && !coordinatorView.coordinatorId}
+		<label class="grid gap-1 text-sm">Coordinator<NativeSelect bind:value={newOwner}>{#each coordinatorView.roster.filter(row => !row.archived) as row (row.id)}<NativeSelectOption value={row.id}>{row.title}</NativeSelectOption>{/each}</NativeSelect></label>
+	{/if}
 	<label class="flex flex-col gap-1">
 		<span class={label}>Title</span>
 		<Input bind:value={draft.title} class="h-8 {field}" aria-invalid={validation === 'A task needs a title.'} />

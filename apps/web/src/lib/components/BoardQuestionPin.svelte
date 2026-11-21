@@ -7,6 +7,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import { coordinatorOfThread } from '#lib/coordinators.js';
 	import { openQuestions } from '#lib/board.js';
 	import { isWarning, itemsWaitingLabel } from '#lib/tasks.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
@@ -27,6 +28,7 @@
 		board,
 		threads = [],
 		threadId,
+		coordinatorId,
 		tasksView = false,
 		taskHref,
 		onopenboard
@@ -36,6 +38,7 @@
 		threads?: readonly ThreadSummary[];
 		/** Pin only this background job's questions; undefined on main, which pins every thread's. */
 		threadId?: string;
+		coordinatorId?: string;
 		/** The Board tab is the Tasks view: the footer says so, and a question's task label opens that task. */
 		tasksView?: boolean;
 		taskHref?: (taskId: string) => string;
@@ -51,7 +54,7 @@
 	const waiting = $derived(
 		board.board === undefined
 			? []
-			: openQuestions(board.board).filter((question) => threadId === undefined || inThread(question, threadId))
+			: openQuestions(board.board).filter((question) => coordinatorId !== undefined ? coordinatorOfThread(question.threadId, threads) === coordinatorId : threadId === undefined || inThread(question, threadId))
 	);
 	const pin = $derived(questionPin(waiting, chosen));
 	/** A warning anywhere in the waiting list colours the closed line, not only when it is the one on top. */

@@ -20,7 +20,9 @@
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
-	import { projectHref } from '#lib/backends.js';
+	import { coordinatorHref, coordinatorRoster, coordinatorStorageKey, projectEntryHref } from '#lib/coordinators.js';
+	import CoordinatorBadges from './CoordinatorBadges.svelte';
+	import CoordinatorMark from './CoordinatorMark.svelte';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { harness, type BackendConnection } from '#lib/harness.svelte.js';
 	import { openBackgroundJobLabel } from '#lib/background-job-page.js';
@@ -56,10 +58,11 @@
 	const wide = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
 	const current = $derived(currentProject(page.url.pathname));
 	let openJobThreads = $state<ProjectThreads | undefined>(undefined);
-	const openJob = $derived(openBackgroundJobLabel(page.params.threadId, openJobThreads?.threads ?? []));
+	const openJob = $derived(openJobThreads?.threads.some(thread => thread.id === page.params.threadId && thread.kind === 'coordinator') ? undefined : openBackgroundJobLabel(page.params.threadId, openJobThreads?.threads ?? []));
+	const currentRoster = $derived(coordinatorRoster(openJobThreads?.threads ?? []));
 	$effect(() => {
 		const backend = harness.backends.find(backend => backend.id === current?.backendId);
-		if (!current || !page.params.threadId || !backend?.supports('threads')) return;
+		if (!current || !backend?.supports('threads') || (!page.params.threadId && !backend.supports('coordinators'))) return;
 		const watch = backend.watchThreads(current.projectId);
 		openJobThreads = watch;
 		return () => { watch.stop(); if (openJobThreads === watch) openJobThreads = undefined; };
@@ -233,10 +236,10 @@
 						{@const status = row(backend, project)}
 						{@const count = attentionCount(project)}
 						{@const summary = sidebarStatus(project, status)}
-						{@const jobsNote = backgroundJobsText(project.activity?.backgroundJobs, project.activity?.backgroundThreads)}
+						{@const jobsNote = backend.supports('coordinators') ? (count ? `${count} need attention` : '') : backgroundJobsText(project.activity?.backgroundJobs, project.activity?.backgroundThreads)}
 						{#if rail}
 							<a
-								href={projectHref(backend.id, project.id)}
+								href={projectEntryHref(backend.id, project.id, backend.supports('coordinators'), projectsNav.lastCoordinator)}
 								onclick={() => projectsNav.closeDrawer()}
 								class="relative grid size-9 shrink-0 place-items-center rounded-lg text-xs font-semibold transition-colors hover:bg-(--chat-surface-2)"
 								class:bg-(--chat-surface-2)={isCurrent(backend.id, project.id)}
@@ -268,7 +271,7 @@
 							</a>
 						{:else}
 							<a
-								href={projectHref(backend.id, project.id)}
+								href={projectEntryHref(backend.id, project.id, backend.supports('coordinators'), projectsNav.lastCoordinator)}
 								onclick={() => projectsNav.closeDrawer()}
 								class="project-link"
 								class:selected={isCurrent(backend.id, project.id)}
@@ -280,6 +283,18 @@
 								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if isCurrent(backend.id, project.id) && openJob}<small data-open-background-job>{openJob}</small>{/if}{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
 								{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
 							</a>
+						{/if}
+						{#if !rail && backend.supports('coordinators') && isCurrent(backend.id, project.id) && currentRoster.length > 1}
+							<div class="ml-5 grid gap-0.5 border-l border-(--chat-border) pl-1.5" aria-label="Project coordinators">
+								{#each currentRoster as coordinator (coordinator.id)}
+									{@const here = coordinator.id === (page.params.threadId ?? 'main')}
+									<a href={coordinatorHref(backend.id, project.id, coordinator.id)} aria-current={here ? 'page' : undefined} onclick={() => projectsNav.closeDrawer()}
+										class="flex min-h-8 items-center gap-1.5 rounded-md px-1.5 text-xs hover:bg-(--chat-surface-2) aria-[current=page]:bg-(--chat-surface-2)">
+										<CoordinatorMark thread={coordinator} /><span class="min-w-0 flex-1 truncate">{coordinator.title}</span>
+										<CoordinatorBadges thread={coordinator} seen={projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, project.id, `seen:${coordinator.id}`))} />
+									</a>
+								{/each}
+							</div>
 						{/if}
 					{/each}
 					{#if !rail}

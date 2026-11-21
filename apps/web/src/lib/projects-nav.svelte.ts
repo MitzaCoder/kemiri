@@ -5,6 +5,7 @@
  *
  * Everything that can be decided without state lives in `projects.ts`.
  */
+import { readCoordinatorPreference, saveCoordinatorPreference } from './coordinators.js';
 import type { ProjectActivity } from "@kemiri/protocol";
 import {
 	loadProjectSeens,
@@ -24,6 +25,23 @@ class ProjectsNavigation {
 	drawerOpen = $state(false);
 	/** The reply each project had reached when this browser last showed it, keyed by `projectSeenKey`. */
 	seens = $state<ProjectSeens>({});
+
+	#coordinatorSeens = $state<Record<string, string>>({});
+	coordinatorSeen(key: string): string | null { return this.#coordinatorSeens[key] ?? readCoordinatorPreference(key); }
+	markCoordinatorSeen(key: string, at: string) {
+		const seen = this.coordinatorSeen(key);
+		if (seen && seen >= at) return;
+		this.#coordinatorSeens = { ...this.#coordinatorSeens, [key]: at };
+		saveCoordinatorPreference(key, at);
+	}
+
+	#lastCoordinators = $state<Record<string, string>>({});
+	lastCoordinator = (key: string): string | null => this.#lastCoordinators[key] ?? readCoordinatorPreference(key);
+	rememberCoordinator(key: string, id: string) {
+		if (this.#lastCoordinators[key] === id) return;
+		this.#lastCoordinators = { ...this.#lastCoordinators, [key]: id };
+		saveCoordinatorPreference(key, id);
+	}
 
 	#loaded = false;
 

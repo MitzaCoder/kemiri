@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
+	import TaskCoordinatorPicker from './TaskCoordinatorPicker.svelte';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import ArchiveIcon from '@lucide/svelte/icons/archive';
 	import BanIcon from '@lucide/svelte/icons/ban';
@@ -98,15 +100,18 @@
 
 	const oneColumn = $derived(boardWidth > 0 && boardWidth < 640);
 
-	const tasks = $derived.by((): BoardTask[] => {
-		const all = board?.tasks ?? [];
+	const getTaskView = useCoordinatorTaskView();
+	const coordinatorView = $derived(getTaskView?.());
+	let movingCoordinator = $state<BoardTask>();
+	const tasks = $derived.by(() => {
+		const all = tasksInCoordinatorView(board?.tasks ?? [], coordinatorView);
 		if (pending.size === 0) return all;
 		return all.map((task) => {
 			const status = pending.get(task.id);
 			return status === undefined ? task : { ...task, status, state: undefined };
 		});
 	});
-	const questions = $derived(board?.board?.questions ?? []);
+	const questions = $derived(questionsInCoordinatorView(board?.board?.questions ?? [], coordinatorView));
 	/** The tasks the focus filter lets through; the "needs you" count and the To do order read every task. */
 	const filtered = $derived(applyTaskFilter(tasks, taskFilter.current));
 	const search = useTaskSearch(() => tasks, () => board);
@@ -329,7 +334,11 @@
 		const index = beforeId === null ? rest.length : Math.max(0, rest.indexOf(beforeId));
 		const order = todoOrderWith(todoIds, taskId, index);
 		if (order.join() === todoIds.join()) return;
-		const problem = await board.reorder(order);
+		// Replace the visible slots, preserving the order of other coordinators' tasks.
+		const affected = new Set(todoIds);
+		let at = 0;
+		const merged = coordinatorView ? board.tasks.filter(task => columnOfTask(task) === 'todo' && !task.archived).sort((a, b) => a.order - b.order).map(task => affected.has(task.id) ? order[at++]! : task.id) : order;
+		const problem = await board.reorder(merged);
 		if (problem !== undefined) say(`Could not reorder: ${problem}`, 'error');
 	}
 
@@ -566,6 +575,7 @@
 		position={card.column === 'todo' ? { index, count } : undefined}
 		onmove={(target) => requestMove(card.task, target)}
 		onreorder={(to) => reorderTo(card, to)}
+		oncoordinator={coordinatorView && !card.task.archived ? () => movingCoordinator = card.task : undefined}
 	/>
 {/snippet}
 
@@ -991,3 +1001,7 @@
 		}
 	}
 </style>
+
+{#if movingCoordinator && board && coordinatorView}
+	<TaskCoordinatorPicker task={movingCoordinator} {board} roster={coordinatorView.roster} onclose={() => movingCoordinator = undefined} />
+{/if}

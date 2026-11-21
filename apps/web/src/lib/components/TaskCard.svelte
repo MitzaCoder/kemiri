@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
+	import { coordinatorColor, taskCoordinator } from '#lib/coordinators.js';
+	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
@@ -68,6 +71,9 @@
 	const refLinks = useRefLinks();
 
 	const task = $derived(card.task);
+	const getTaskView = useCoordinatorTaskView();
+	const coordinatorView = $derived(getTaskView?.());
+	const coordinator = $derived(coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(row => row.id === taskCoordinator(task)) : undefined);
 	const needsYou = $derived(task.state ? task.state.group === 'needs_you' : card.waiting.length > 0 && card.column !== 'done');
 	const warned = $derived(card.waiting.some(isWarning));
 	const gist = $derived(cardGist(card, activityEnabled));
@@ -80,7 +86,12 @@
 	);
 	const waitsFor = $derived(task.status === 'done' || task.status === 'dropped' ? [] : blockersOf(task, tasks).filter((blocker) => !blocker.settled));
 	const owner = $derived(taskOwner(task, threads));
-	const ownerShown = $derived(owner?.claimed === true && !owner.main);
+	const ownerShown = $derived(owner?.claimed === true && !owner.main && (!coordinatorView || task.ownerThreadId !== taskCoordinator(task)));
+	const foreignBlockers = $derived(coordinatorView ? waitsFor.flatMap(blocker => {
+		const row = tasks.find(task => task.id === blocker.id);
+		const coordinator = row && taskCoordinator(row) !== taskCoordinator(task) ? coordinatorView.roster.find(owner => owner.id === taskCoordinator(row)) : undefined;
+		return coordinator ? [{ blocker, coordinator }] : [];
+	}) : []);
 </script>
 
 <article
@@ -93,6 +104,7 @@
 	class:task-card-lifted={lifted}
 	class:search-context={searchHit?.context === true}
 	data-task={task.id}
+	style:border-inline-start={coordinator ? `3px solid ${coordinatorColor(coordinator)}` : undefined}
 	aria-hidden={ghost ? 'true' : undefined}
 >
 	<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
@@ -107,6 +119,7 @@
 		{/if}
 	</span>
 	<div class="flex min-w-0 flex-1 flex-col gap-1">
+		{#if coordinator}<span class="flex items-center gap-1.5 text-xs text-(--chat-fg-muted)"><CoordinatorMark thread={coordinator} />{coordinator.title}</span>{/if}
 		<a
 			{href}
 			draggable="false"
@@ -149,7 +162,8 @@
 						<span class="truncate"><span class="text-(--chat-fg-subtle)">Worker</span> {worker.id}</span>
 					</li>
 				{/each}
-				{#if waitsFor.length > 0 && task.state?.kind !== 'blocked_by_task'}
+				{#each foreignBlockers as { blocker, coordinator } (blocker.id)}<li class="flex items-center gap-1"><CoordinatorMark thread={coordinator} /> Waits for {blocker.id}</li>{/each}
+				{#if waitsFor.length > 0 && !foreignBlockers.length && task.state?.kind !== 'blocked_by_task'}
 					<li class="flex min-w-0 items-center gap-1.5" title={waitsFor.map((blocker) => `${blocker.id} · ${blocker.title}`).join('\n')}>
 						<LinkIcon class="size-3 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 						<span class="truncate"

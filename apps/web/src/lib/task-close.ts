@@ -2,7 +2,7 @@ import type { BoardTask, BoardTaskInput } from '@kemiri/protocol';
 import { taskStatusWords } from './tasks.js';
 
 export type OpenPartsChoice = 'close' | 'follow_up';
-export type TaskSaveOptions = { taskId?: string; expectedRevision?: number; note?: string; openParts?: OpenPartsChoice };
+export type TaskSaveOptions = { taskId?: string; expectedRevision?: number; note?: string; ownerThreadId?: string | null; openParts?: OpenPartsChoice };
 export function openDirectParts(tasks: readonly BoardTask[], taskId: string): BoardTask[] {
 	return tasks.filter(task => task.parent === taskId && task.status !== 'done' && task.status !== 'dropped');
 }

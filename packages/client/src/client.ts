@@ -141,6 +141,11 @@ import type {
 	ThinkingLevel,
 	ThreadSummary,
 	ThreadsArchiveResponse,
+	ThreadsCreateRequest,
+	ThreadsCreateResponse,
+	ThreadsUpdateRequest,
+	ThreadsUpdateResponse,
+	ThreadsHoldResponse,
 	ThreadsListResponse,
 	ThreadsStopResponse,
 	TerminalCloseResponse,
@@ -1030,7 +1035,7 @@ export class HarnessClient {
 	async saveBoardTask(
 		projectId: string,
 		task: BoardTaskInput,
-		options: { taskId?: string; expectedRevision?: number; note?: string; openParts?: "close" | "follow_up" } = {},
+		options: { taskId?: string; expectedRevision?: number; note?: string; openParts?: "close" | "follow_up"; ownerThreadId?: string | null } = {},
 	): Promise<BoardTask> {
 		const response = await this.#call<BoardTaskSaveResponse>({
 			type: "board.task.save",
@@ -1039,6 +1044,7 @@ export class HarnessClient {
 			...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
 			...(options.note === undefined ? {} : { note: options.note }),
 			...(options.openParts === undefined ? {} : { openParts: options.openParts }),
+			...(options.ownerThreadId === undefined ? {} : { ownerThreadId: options.ownerThreadId }),
 			task,
 		});
 		return response.task;
@@ -1172,13 +1178,26 @@ export class HarnessClient {
 		return response.thread;
 	}
 
+	async createCoordinator(projectId: string, fields: Omit<ThreadsCreateRequest, "type" | "id" | "projectId">): Promise<ThreadSummary> {
+		return (await this.#call<ThreadsCreateResponse>({ type: "threads.create", projectId, ...fields })).thread;
+	}
+
+	async updateCoordinator(projectId: string, threadId: string, fields: Omit<ThreadsUpdateRequest, "type" | "id" | "projectId" | "threadId">): Promise<ThreadSummary> {
+		return (await this.#call<ThreadsUpdateResponse>({ type: "threads.update", projectId, threadId, ...fields })).thread;
+	}
+
+	async holdCoordinator(projectId: string, threadId: string, held: boolean, operationId: string): Promise<ThreadSummary> {
+		return (await this.#call<ThreadsHoldResponse>({ type: "threads.hold", projectId, threadId, held, operationId })).thread;
+	}
+
 	/** Archive a background thread, or bring it back with `archived: false`. */
-	async archiveThread(projectId: string, threadId: string, archived = true): Promise<ThreadSummary> {
+	async archiveThread(projectId: string, threadId: string, archived = true, options: { moveTasksTo?: string; operationId?: string } = {}): Promise<ThreadSummary> {
 		const response = await this.#call<ThreadsArchiveResponse>({
 			type: "threads.archive",
 			projectId,
 			threadId,
 			archived,
+			...options,
 		});
 		return response.thread;
 	}
