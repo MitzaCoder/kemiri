@@ -17,7 +17,6 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { describeOfficialAgent, isWorkerOnlyModel } from "./official-agents/provider.ts";
-import { withModelCatalogExtensions } from "./model-catalog-extensions.ts";
 import {
 	THINKING_LEVELS,
 	type ModelInfo,
@@ -33,14 +32,14 @@ import {
  */
 export const HARNESS_PROVIDERS = ["opencode-go", "anthropic", "openai", "openai-codex"] as const;
 
-/** Claude Code version sent with Anthropic requests; kept aligned with pi-ai's OAuth identity (1.5.2: 2.1.322). */
+/** Claude Code version sent with Anthropic requests; kept aligned with pi-ai's OAuth identity (1.6.0: 2.1.322). */
 export const CLAUDE_CODE_VERSION = "2.1.322";
 
 export function createHarnessModels(options: { credentials: CredentialStore; officialAgent?: Provider }): Models {
 	const models = createModels({ credentials: options.credentials });
 	// Side-effect free factories: their API SDKs load lazily on the first request.
 	models.setProvider(opencodeGoProvider());
-	const anthropic = withModelCatalogExtensions(anthropicProvider());
+	const anthropic = anthropicProvider();
 	// Provider-side model switches require an explicit product choice, not a catalog upgrade.
 	const withoutFallbacks = <T extends Model<Api>>(model: T): T => model.compat && "allowedFallbackModels" in model.compat && model.compat.allowedFallbackModels?.length
 		? { ...model, compat: { ...model.compat, allowedFallbackModels: [] } } : model;
@@ -54,10 +53,27 @@ export function createHarnessModels(options: { credentials: CredentialStore; off
 		getAllModels: () => (anthropic.getAllModels?.() ?? anthropic.getModels()).map(model =>
 			model.type === undefined || model.type === "chat" ? anthropicChatModel(model) : model),
 	});
-	models.setProvider(withModelCatalogExtensions(openaiProvider()));
-	models.setProvider(withModelCatalogExtensions(openaiCodexProvider()));
+	models.setProvider(withGpt62CatalogPolicy(openaiProvider()));
+	models.setProvider(withGpt62CatalogPolicy(openaiCodexProvider()));
 	if (options.officialAgent) models.setProvider(options.officialAgent);
 	return models;
+}
+
+/** Keep the existing Kemiri limits and choices while using the native prices and request capabilities. */
+function withGpt62CatalogPolicy(provider: Provider): Provider {
+	const applyPolicy = (model: Model<Api>): Model<Api> => {
+		if (model.id !== "gpt-6.2-astra" && model.id !== "gpt-6.2-sol") return model;
+		// pi caps the direct API at the short pricing tier; Kemiri deliberately offers the full API context.
+		if (provider.id === "openai") return { ...model, contextWindow: 1_050_000 };
+		// Codex aliases minimal to low; do not offer a duplicate effort in the picker.
+		return { ...model, thinkingLevelMap: { ...model.thinkingLevelMap, minimal: null } };
+	};
+	return {
+		...provider,
+		getModels: () => provider.getModels().map(applyPolicy),
+		getAllModels: () => (provider.getAllModels?.() ?? provider.getModels()).map(model =>
+			model.type === undefined || model.type === "chat" ? applyPolicy(model) : model),
+	};
 }
 
 export type ModelCatalog = {

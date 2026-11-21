@@ -1504,6 +1504,7 @@ function createScheduleExtension(service: SchedulesService): Extension {
 
 	return defineExtension({
 		name: "schedule-tools",
+		namespace: { name: "schedules", description: "List the project's scheduled tasks." },
 		tools: [listTool, saveTool, deleteTool, runTool] as ToolRegistration[],
 	});
 }

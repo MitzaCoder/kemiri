@@ -13,6 +13,6 @@
 		"@kemiri/protocol": "workspace:*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-ai": "1.5.2"
+		"@earendil-works/pi-ai": "1.6.0"
 	}
 }

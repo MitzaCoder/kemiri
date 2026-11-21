@@ -2645,6 +2645,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 	return defineExtension({
 		name: "worker-tools",
+		namespace: { name: "workers", description: "List and inspect the project's workers." },
 		tasks: [WorkerAnchor, service.reporterTask, service.checkInTask],
 		tools: [spawnTool, sendTool, stopTool, peekTool, listTool, forgetTool] as ToolRegistration[],
 		// Main's section is unchanged; a background thread gets its own variant, and a worker that kept this extension none.

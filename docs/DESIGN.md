@@ -843,7 +843,7 @@ first PDF use and remains embedded in Bun-compiled executables. Extraction walks
 at most 200 pages and inlines at most 100 KiB UTF-8, with page count, truncation
 notice and original tool path. Image-only, encrypted or malformed PDFs keep their
 original path without extracted text; no OCR, rendering or archive expansion.
-Installed pi-ai 1.5.2's `UserMessage.content` is text/image only and its
+Installed pi-ai 1.6.0's `UserMessage.content` is text/image only and its
 `MODEL_INPUT_MODALITIES` is `["text", "image"]`. Its Anthropic, OpenAI and Codex
 adapters expose no document/file content block. Therefore **no current model gets
 native PDFs**. Upstream would need document/file user-content types, catalog PDF
@@ -1526,7 +1526,7 @@ of the exact executable, argument array, working directory and environment names
 (values masked). Changing the executable or arguments requires confirmation again.
 Commands run directly, never through a shell, with the backend user's PATH via
 `childEnvironment`. Environment overrides live only in `mcp:<id>` credentials,
-not definitions, diagnostics or prompts. The installed pi-mcp 1.5.2
+not definitions, diagnostics or prompts. The installed pi-mcp 1.6.0
 `StdioTransport` provides process-group shutdown, bounded framing and stderr capture.
 Connections start lazily on discovery/use or explicit refresh; idle children stop
 after five minutes. Crashes reconnect with 500 ms–30 s exponential backoff, never
@@ -1653,6 +1653,11 @@ Tools register before scripts as deferred, tools-only durable tools under
 `mcp__<server>__<tool>`. Discovery is namespaced; no schemas enter the 3,000-token
 inline catalogue. A short, harness-written server summary names connected servers
 only. Registration filters project and role; execution rechecks live policy.
+With pi-durable 1.6.0, extensions declare their own code-mode namespaces. Code
+mode sees one discovery-only extension per active MCP server in the selected
+role. The role extensions and live permission checks still control execution.
+The namespace heading stays stable when deferred tools appear. pi-mcp's new
+`mcpServerSummary` is not used because it can surface remote instructions.
 
 Off refuses, Allow executes once, and Ask returns immediately with a board question.
 The owner confirmed this nonblocking flow (Q147). Options are Approve once, Always
@@ -1663,8 +1668,8 @@ never automatically retried after an ambiguous failure. Approval storage and boa
 routing sit behind a small interface. D72 permits command provisioning from any
 paired device after confirmation.
 
-Compatibility: standalone `@earendil-works/pi-mcp` 1.5.2 imports and runs under
-Bun with pi-ai/pi-durable/pi-codemode 1.5.2. Its client follows catalogue
+Compatibility: standalone `@earendil-works/pi-mcp` 1.6.0 imports and runs under
+Bun with pi-ai/pi-durable/pi-codemode 1.6.0. Its client follows catalogue
 pagination and its Streamable HTTP transport accepts an injected `AuthProvider`.
 The fake peer proves initialization, bearer auth, GET-stream list notifications,
 search/describe/call and restart. No CLI extension or fallback SDK is installed.
@@ -1733,16 +1738,17 @@ tool definitions, with the inline catalogue included exactly once:
 
 | Case | Estimated tokens |
 | --- | ---: |
-| No MCP enabled | 14,223 |
-| One connected 71-tool synthetic Notion-sized server | 14,275 |
-| Increment (summary plus prompt section framing) | 52 |
+| No MCP enabled | 16,512 |
+| One connected 71-tool synthetic Notion-sized server | 16,574 |
+| Increment (summary, framing and namespace heading) | 62 |
 | Summary text alone | 45 |
 | Full synthetic catalogue (234,473 characters, never inlined) | 58,619 |
 | Actual `searchTools("page search", {namespace:"notion", limit:3})` result (8,985 characters) | 2,247 |
 
 Fixture descriptions plus schemas are 2–4 KB/tool. The inline codemode section
-is byte-identical with and without these tools: deferred tools consume none of
-its 3,000-token declaration budget. Baseline is the full Kemiri prompt, not the
+adds only a heading when the server is enabled and stays byte-identical when its
+catalogue fills. Deferred tools consume none of its 3,000-token declaration budget.
+Baseline is the full Kemiri prompt, not the
 inline budget. Search cost is incurred only if the script returns/prints those
 three results; scripts may instead retain them privately and return filtered data.
 These are heuristic context costs, not provider billing/tokenizer measurements.
@@ -6119,32 +6125,19 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 ## Models
 
 - Model catalogs come from the pinned `@earendil-works/pi-ai` provider factories in server
-  `models.ts`. `model-catalog-extensions.ts` holds a small temporary extra-model table for
-  releases pi-ai has not shipped yet. Its provider wrapper extends both chat/all-model lists,
-  so runtime lookup, `models.list`, web/Android pickers, usage costs and cache stats agree.
-  A native entry with the same ID always wins, including its thinking map and compat flags.
-  With pi-ai 1.5.2 the table adds GPT-6.2 Astra/Sol for OpenAI, OpenAI Codex and Azure
-  (pi main e56d35ce + cead615b); Azure remains outside the harness provider set.
-  Both inherit text/image input, reasoning, 128K output and provider-specific compat/input limits
-  from GPT-6 Astra / GPT-6.1 Sol. Context: OpenAI/Azure 1.05M, Codex Astra 272K / Sol 500K.
-  OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and
-  [Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) pages (checked 2026-11-17 UTC)
-  take precedence over pi's intentional OpenAI 272K short-tier cap; max output remains 128K.
-  OpenAI's [Codex docs](https://developers.openai.com/codex/models) confirm the Codex defaults.
-  Per-million input/cache-read/cache-write/output prices are $8/$0.40/$10/$40 for Astra and
-  $2/$0.10/$2.50/$10 for Sol. Above 272K input tokens, input/cache rates double and output is 1.5×, matching
-  OpenAI's [pricing](https://developers.openai.com/api/docs/pricing) (30-minute cache writes).
-  The [migration guide](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
-  directs callers using none/minimal to low.
-  The server sends low/medium/high/xhigh/max to both clients, with no Off or Minimal; Codex's
-  upstream Minimal → Low alias is deliberately hidden by a merged thinking-map override.
-  Web and Android use that server-supplied list; neither needs a client change.
-  pi-ai 1.5.2 itself adds chat models `meta/muse-ember-1.0`, `opencode/minimax-m3.1-flash-free`,
-  `openrouter/nex-agi/nex-n2.6`, `radius/claude-fable-5-2` and classifier
-  `openrouter/nace-ai/drex-max-finance` upstream; those additions do not affect the harness provider catalogs.
-  The harness's Anthropic user-agent override matches pi-ai's Claude Code identity, 2.1.322.
-  Chord's new host-keyed members preserve existing contract fingerprints; a stopped synthetic
-  1.5.1 durable-store copy loads and continues conversations under 1.5.2 without migration errors.
+  `models.ts`. Pi-ai 1.6.0 ships native GPT-6.2 Astra and Sol on OpenAI, OpenAI Codex and Azure.
+  Azure remains outside the harness provider set. Pi's provider defaults move from GPT-6.1 Sol to
+  GPT-6.2 Sol at the same price, but Kemiri keeps each conversation's explicitly selected model.
+  Both models accept text/image and offer 128K output. Context: OpenAI/Azure 1.05M,
+  Codex Astra 272K / Sol 500K. Kemiri keeps the full OpenAI context from the
+  [Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and
+  [Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) model pages rather than pi's
+  272K short-tier cap. OpenAI's [Codex docs](https://developers.openai.com/codex/models) confirm the Codex limits.
+  Native per-million input/cache-read/cache-write/output prices are $8/$0.40/$10/$40 for Astra and
+  $2/$0.10/$2.50/$10 for Sol. Above 272K input tokens, input/cache rates double and output is 1.5×,
+  matching OpenAI's [pricing](https://developers.openai.com/api/docs/pricing) (30-minute cache writes).
+  Both pickers get low/medium/high/xhigh/max from the server. Kemiri still hides Codex's duplicate
+  Minimal → Low alias. The Anthropic user-agent override still matches pi-ai's Claude Code identity, 2.1.322.
 
   Native Fable 5.2 supplies $8/$40 input/output, $0.20 cache reads, $10 short writes ($16 long writes),
   1M context and 128K output. Managed effort suppresses temperature without a local compat override.
@@ -6153,9 +6146,16 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   pi-ai otherwise enables Fable 5.2 → Opus 5 server-side fallback automatically. No silent model switches.
   Anthropic message threads are enabled by pi-ai on its native endpoint; cache maintenance strips `thread`
   and sets `disableContinuation`, keeping the full cached prefix without replacing a real reply's thread.
-  pi-durable migrates old live documents and task checkpoints; the SQLite schema remains version 2.
-  The 1.4.0 → 1.5.1 upgrade migrates pi.live v1 → v3, generation v1 → v2 and tool v1/v2 → v3.
-  Downgrading active upgraded tasks is not safe; a stopped-store forward-compatibility check is not rollback proof.
+  Codex now sends the system prompt as the leading developer item and sends thinking changes as input
+  updates, so both are better preserved by the prompt cache. An upgraded request can miss the old prefix
+  once. OpenAI can drop replayed reasoning after a prefix edit such as compaction and now reports why.
+  Kemiri's compaction policy and Anthropic-only zero-output keep-warm are unchanged.
+  Pi-durable 1.6.0 migrates generation checkpoints to v3 and tool checkpoints to v4. SQLite's schema
+  stays at version 2. A tool result's duration now spans the whole task, including hooks, waits and
+  retries, not just its last attempt. The earlier 1.4.0 → 1.5.1 upgrade moved pi.live from v1 to v3,
+  generation from v1 to v2 and tools from v1/v2 to v3.
+  Downgrading after writing newer checkpoints is not safe. Drain work and take a stopped-state backup
+  before upgrading so a rollback can restore the pre-upgrade store.
   The thinking-binding beta still uses `drop_block` for prefix edits; dropped thinking can raise
   costs. See [release facts and compatibility](research/fable-5-2.md)
   for the prefix-binding migration, 30-day retention and subscription quota caveats.
@@ -7218,7 +7218,7 @@ interaction; an interaction in that time means they are using the app and a noti
   `@earendil-works/chord/delta`.
 
 - TypeScript on Bun. No Nix flake for now.
-- `@earendil-works/pi-durable` is experimental; pin its exact version (currently 1.5.2).
+- `@earendil-works/pi-durable` is experimental; pin its exact version (currently 1.6.0).
 - Bun 1.4.2 on the host provides `node:sqlite`, so the Node SQLite
   storage may work as is. Not verified yet.
 

@@ -17,21 +17,13 @@
  */
 import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
 import { packagedResources } from "./packaged-resources.ts";
-import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
-import type { Extension } from "@earendil-works/pi-durable";
+import type { Agent, Extension } from "@earendil-works/pi-durable";
 import { flagOneCallScriptWrap } from "./codemode-wrap.ts";
+import { mcpCodemodeExtensions } from "./mcp.ts";
 
 /** Generous enough for a script that reads or searches a lot; small enough to bound one runaway process. */
 export const DEFAULT_CODEMODE_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
-
-/** Groups the coordinator's own tools in the `codemode` section, so a script finds them by what they do. */
-const CODEMODE_NAMESPACES: CodemodeNamespace[] = [
-	{ name: "workers", description: "List and inspect the project's workers.", prefix: "worker_" },
-	{ name: "memory", description: "Search, read, write and archive durable memory.", prefix: "memory_" },
-	{ name: "schedules", description: "List the project's scheduled tasks.", prefix: "schedule_" },
-	{ name: "artifacts", description: "Keep files for the user as artifacts.", prefix: "artifact_" },
-];
 
 /** One sandbox per `ProjectManager`: a worker-thread pool shared by every project it opens, not per-project state. */
 export function createCodemodeSandbox(options?: { memoryLimitBytes?: number }): CodemodeSandbox {
@@ -43,7 +35,26 @@ export function createCodemodeSandbox(options?: { memoryLimitBytes?: number }): 
 }
 
 /** The `codemode` extension: installed for the coordinator and every worker, and never removed for either. */
-export function createHarnessCodemodeExtension(sandbox: CodemodeSandbox, namespaces: CodemodeNamespace[] = []): Extension {
-	const extension = createCodemodeExtension({ sandbox, namespaces: [...CODEMODE_NAMESPACES, ...namespaces], models: false });
-	return { ...extension, wraps: [...(extension.wraps ?? []), flagOneCallScriptWrap] };
+export function createHarnessCodemodeExtension(sandbox: CodemodeSandbox): Extension {
+	const extension = createCodemodeExtension({ sandbox, models: false });
+	return {
+		...extension,
+		sections: extension.sections?.map(section => ({
+			...section,
+			render: (input, context) => section.render({ ...input, agent: agentWithMcpNamespaces(input.agent) }, context),
+		})) ?? [],
+		tools: extension.tools?.map(tool => ({
+			...tool,
+			execute: (args, api, context) => tool.execute(args, {
+				...api,
+				agent: async callContext => agentWithMcpNamespaces(await api.agent(callContext)),
+			}, context),
+		})) ?? [],
+		wraps: [...(extension.wraps ?? []), flagOneCallScriptWrap],
+	};
+}
+
+/** Only discovery sees the per-server extension boundaries. Tool selection and execution still use the role's agent. */
+function agentWithMcpNamespaces(agent: Agent): Agent {
+	return { ...agent, extensions: agent.extensions.flatMap(mcpCodemodeExtensions) };
 }

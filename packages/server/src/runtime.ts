@@ -1631,7 +1631,6 @@ export class ProjectManager {
 		// the cap wraps the tool by name in the registry, which a nested call resolves the same way a model call does.
 		// Installed last so its section (the tools a script can call) renders after every other section's, which fixed
 		// positions (the SYSTEM.md preamble first of all) depend on first-extension-wins insertion order.
-		let mcpNamespaces: import("@earendil-works/pi-durable/codemode").CodemodeNamespace[] = [];
   role = async id => coordinators.isMain(id) ? "coordinator" : coordinators.isBackground(id) ? "background" : (await workerOf(id))?.scheduleId ? "coordinator" : "workers";
   if (this.mcp) {
    board.onMcpAnswer = (id, answer) => this.mcp!.applyAnswer(project.id, id, answer);
@@ -1642,10 +1641,9 @@ export class ProjectManager {
      const question = (await board.state()).questions.find(question => question.id === id);
      return question?.status === "open" ? undefined : question?.answer ?? "Deny";
     } },
-    namespaces: namespaces => { mcpNamespaces = namespaces; registry.install(createHarnessCodemodeExtension(this.#codemodeSandbox, mcpNamespaces)); },
    });
   }
-  registry.install(createHarnessCodemodeExtension(this.#codemodeSandbox, mcpNamespaces));
+  registry.install(createHarnessCodemodeExtension(this.#codemodeSandbox));
 		// Tags each turn's model request with its conversation for the request log. Hooks only, no section or tool, so
 		// no prompt changes with it; workers and threads keep it.
 		if (this.#requestLog !== undefined) {

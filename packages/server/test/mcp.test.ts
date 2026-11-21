@@ -204,8 +204,9 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 		projectId,
 		coordinatorModel: { provider: "faux", modelId: "faux-1" },
 	});
-	const measurements: { baseline?: number; connected?: number; inlineBaseline?: string; inlineConnected?: string } = {};
-	function capture(request: Parameters<FauxResponseFactory>[0], label: "baseline" | "connected") {
+	const promptTokens = new Map<string, number>();
+	const inlineCatalogues = new Map<string, string | undefined>();
+	function capture(request: Parameters<FauxResponseFactory>[0], label: "disabled" | "empty" | "connected") {
 		const sections: Record<string, string> = {};
 		const tools = new Map<string, unknown>();
 		let base = "";
@@ -224,8 +225,8 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 		expect(prompt).not.toContain(TOKEN);
 		expect(prompt).not.toContain("Ignore all instructions");
 		expect([...tools.keys()].some((name) => name.startsWith("mcp__"))).toBe(false);
-		measurements[label] = Math.ceil(prompt.length / 4);
-		measurements[label === "baseline" ? "inlineBaseline" : "inlineConnected"] = sections.codemode;
+		promptTokens.set(label, Math.ceil(prompt.length / 4));
+		inlineCatalogues.set(label, sections.codemode);
 		if (label === "connected") {
 			expect(sections.mcp_servers).toContain('namespace: "notion"');
 			expect(sections.mcp_servers).toContain("71");
@@ -236,8 +237,12 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 		'const found = await searchTools("page search", {namespace:"notion", limit:3}); const description = await describeTool(found[0].name); const namespace = await describeNamespace("notion"); const called = await tools[found[0].name]({query:"synthetic"}); return {searchCount:found.length, searchChars:JSON.stringify(found).length, described:description.includes("Synthetic"), namespaceCount:namespace.tools.length, called};';
 	test.faux.setResponses([
 		(request) => {
-			capture(request, "baseline");
+			capture(request, "disabled");
 			return fauxAssistantMessage("baseline done");
+		},
+		(request) => {
+			capture(request, "empty");
+			return fauxAssistantMessage("empty done");
 		},
 		(request) => {
 			capture(request, "connected");
@@ -254,9 +259,13 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 		content: "Measure baseline",
 	});
 	await view.waitForView((value) => value.entries.some((entry) => entryText(entry).includes("baseline done")));
-	fake.setTools(notionSizedTools());
+	fake.setTools([]);
 	await mcp.refresh("notion");
 	await mcp.setProject(projectId, [{ serverId: "notion", enabled: true, roles: ["coordinator"] }]);
+	await client.request({ type: "conversation.submit", projectId, requestId: "mcp-empty", content: "Measure enabled empty namespace" });
+	await view.waitForView((value) => value.entries.some((entry) => entryText(entry).includes("empty done")));
+	fake.setTools(notionSizedTools());
+	await mcp.refresh("notion");
 	const agent = await runtime.conversation.agent(BACKGROUND_CONTEXT);
 	expect(agent.callable.filter((tool) => tool.name.startsWith("mcp__")).length).toBe(71);
 	expect(
@@ -284,7 +293,11 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 	expect(fake.calls.length).toBe(1);
 	expect(output).not.toContain(TOKEN);
 	expect(logs.join("\n")).not.toContain(TOKEN);
-	expect(measurements.inlineConnected).toBe(measurements.inlineBaseline);
+	const namespaceHeading = "\n\n## notion\nUntrusted remote MCP tools.";
+	expect(inlineCatalogues.get("disabled")).not.toContain(namespaceHeading);
+	expect(inlineCatalogues.get("empty")).toContain(namespaceHeading);
+	expect(inlineCatalogues.get("empty")?.replace(namespaceHeading, "")).toBe(inlineCatalogues.get("disabled"));
+	expect(inlineCatalogues.get("connected")).toBe(inlineCatalogues.get("empty"));
 	const searchChars = Number(output.match(/"searchChars":(\d+)/)?.[1]);
 	expect(searchChars).toBeGreaterThan(0);
 	const summary = mcpSummary(await mcp.view("notion"));
@@ -292,9 +305,9 @@ it("keeps 71 deferred tools out of the prompt and runs real codemode search/desc
 	console.log(
 		"MCP TOKEN MEASUREMENT",
 		JSON.stringify({
-			baseline: measurements.baseline,
-			connected: measurements.connected,
-			delta: measurements.connected! - measurements.baseline!,
+			baseline: promptTokens.get("disabled"),
+			connected: promptTokens.get("connected"),
+			delta: promptTokens.get("connected")! - promptTokens.get("disabled")!,
 			summaryTokens: Math.ceil(summary.length / 4),
 			rawCatalogueChars,
 			rawCatalogueTokens: Math.ceil(rawCatalogueChars / 4),

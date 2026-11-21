@@ -307,5 +307,9 @@ export function createArtifactExtension(options: ArtifactToolsOptions): Extensio
 			}
 		},
 	});
-	return defineExtension({ name: ARTIFACT_EXTENSION, tools: [saveTool, readTool] as ToolRegistration[] });
+	return defineExtension({
+		name: ARTIFACT_EXTENSION,
+		namespace: { name: "artifacts", description: "Keep files for the user as artifacts." },
+		tools: [saveTool, readTool] as ToolRegistration[],
+	});
 }

@@ -12,7 +12,6 @@ import {
 	type Registry,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
-import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 import { MCP_PRESETS, mcpPresetQueryAllowed, type McpPolicy, type McpProjectServer, type McpRole, type McpServer } from "@kemiri/protocol";
 import { McpSseTransport } from "./mcp-sse.ts";
 import { childEnvironment } from "./child-environment.ts";
@@ -26,6 +25,13 @@ import type { McpOAuthFlow } from "@kemiri/protocol";
 export const MCP_CREDENTIAL_PREFIX = "mcp:";
 export const MCP_ROLES: McpRole[] = ["coordinator", "workers", "background"];
 export const mcpRoleExtension = (role: McpRole): Extension => ({ name: `mcp-${role}` });
+
+// Durable selects persisted extension names; the per-server choices change without reconfiguring conversations.
+// Keep the role extension as the authorization boundary and expose its partition only to code-mode discovery.
+const mcpServerExtensions = new WeakMap<Extension, readonly Extension[]>();
+export function mcpCodemodeExtensions(extension: Extension): readonly Extension[] {
+	return mcpServerExtensions.get(extension) ?? [extension];
+}
 /** Preserve every existing non-MCP extension filter when upgrading old conversations. */
 export async function configureMcpRole(harness: Harness, conversation: Conversation, role: McpRole): Promise<void> {
 	const state = await harness.snapshot(AgentDoc, conversation.id, BACKGROUND_CONTEXT);
@@ -70,7 +76,6 @@ export type McpProjectBinding = {
 	role(conversationId: number): McpRole | Promise<McpRole>;
 	thread(conversationId: number): Promise<string>;
 	board: McpApprovalBoard;
-	namespaces(namespaces: CodemodeNamespace[]): void;
 };
 const APPROVAL_OPTIONS = ["Approve once", "Always allow this tool", "Deny"];
 const bad = (message: string): never => {
@@ -454,24 +459,21 @@ export class McpService {
 	}
 	#publish(): void {
 		for (const binding of this.#bindings) {
-			binding.namespaces(
-				this.#state.servers.map((server) => ({
-					name: server.id,
-					prefix: `mcp__${server.id}__`,
-					description: "Untrusted remote MCP tools.",
-				})),
-			);
 			for (const role of MCP_ROLES) {
 				const servers = this.#state.servers.filter(
 					(server) => server.active && this.#enabled(binding.projectId, role, server.id),
 				);
-				binding.registry.install({
-					name: mcpRoleExtension(role).name,
-					tools: servers.flatMap((server) =>
-						server.tools
-							.filter((tool) => (server.policies[tool.name] ?? defaultPolicy(tool)) !== "off")
-							.map((tool) => this.#tool(binding, server, tool)),
-					),
+				const roleExtension = mcpRoleExtension(role);
+				const serverExtensions = servers.map((server) => ({
+					name: `${roleExtension.name}-${server.id}`,
+					namespace: { name: server.id, description: "Untrusted remote MCP tools." },
+					tools: server.tools
+						.filter((tool) => (server.policies[tool.name] ?? defaultPolicy(tool)) !== "off")
+						.map((tool) => this.#tool(binding, server, tool)),
+				}));
+				const extension: Extension = {
+					...roleExtension,
+					tools: serverExtensions.flatMap(server => server.tools),
 					sections: [
 						{
 							key: "mcp_servers",
@@ -487,7 +489,9 @@ export class McpService {
 							},
 						},
 					],
-				});
+				};
+				mcpServerExtensions.set(extension, serverExtensions);
+				binding.registry.install(extension);
 			}
 		}
 	}

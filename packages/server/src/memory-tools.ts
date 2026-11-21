@@ -485,6 +485,7 @@ function createMemoryExtension(service: MemoryService): Extension {
 
 	return defineExtension({
 		name: MEMORY_EXTENSION,
+		namespace: { name: "memory", description: "Search, read, write and archive durable memory." },
 		tools: [searchTool, readTool, writeTool, archiveTool] as ToolRegistration[],
 		sections: [
 			section(MEMORY_SECTION, (input, context) => service.renderSection(input, context), { tag: false }),

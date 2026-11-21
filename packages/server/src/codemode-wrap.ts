@@ -111,6 +111,7 @@ export const flagOneCallScriptWrap: Wrap = {
 		async execute(args, api, context) {
 			const result = await tool.execute(args, api, context);
 			const code = (args as { code?: unknown }).code;
+			if (result.sleep !== undefined || result.wait !== undefined) return result;
 			return typeof code === "string" ? flagOneCallScript(code, result) : result;
 		},
 	}),
