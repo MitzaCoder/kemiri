@@ -2,6 +2,7 @@
  * The full-width Tasks view's List | Board | Graph choice, scoped per backend/project on this device and kept in `localStorage`
  * (`kanban.ts` reads and writes it). The narrow sidebar always shows the list.
  */
+import { getContext, setContext } from "svelte";
 import { loadTasksViewMode, saveTasksViewMode, type TasksViewMode } from "./kanban.ts";
 import type { TaskFilter } from "./task-relations.ts";
 
@@ -41,4 +42,7 @@ class TaskFilterChoice {
 	}
 }
 
+const TASK_FILTER = Symbol("conversation task filter");
 export const taskFilter = new TaskFilterChoice();
+export function provideTaskFilter(): TaskFilterChoice { return setContext(TASK_FILTER, new TaskFilterChoice()); }
+export function useTaskFilter(): TaskFilterChoice { return getContext(TASK_FILTER) ?? taskFilter; }

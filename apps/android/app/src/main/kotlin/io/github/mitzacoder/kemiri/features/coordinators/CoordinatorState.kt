@@ -105,7 +105,9 @@ internal fun rememberCoordinatorMessages(context: ProjectScreenContext, enabled:
 }
 
 internal fun setAllCoordinators(android: Context, chat: Destination.Chat, all: Boolean) {
-    android.coordinatorPreferences().edit().putBoolean(chat.preferenceKey("all-tasks"), all).apply()
+    android.coordinatorPreferences().edit().putBoolean(chat.preferenceKey("all-tasks:${(chat.threadId ?: MAIN_THREAD_ID)}"), all).apply()
 }
 
-internal fun allCoordinators(android: Context, chat: Destination.Chat) = android.coordinatorPreferences().getBoolean(chat.preferenceKey("all-tasks"), false)
+internal fun allCoordinators(android: Context, chat: Destination.Chat) = android.coordinatorPreferences().let { preferences ->
+    preferences.getBoolean(chat.preferenceKey("all-tasks:${(chat.threadId ?: MAIN_THREAD_ID)}"), preferences.getBoolean(chat.preferenceKey("all-tasks"), false))
+}

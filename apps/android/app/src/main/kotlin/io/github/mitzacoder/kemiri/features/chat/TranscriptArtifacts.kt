@@ -14,24 +14,26 @@ import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.coroutines.CancellationException
 
 @Composable internal fun rememberTranscriptArtifacts(context: ProjectScreenContext): List<Artifact> {
-    var items by remember(context.route) { mutableStateOf<List<Artifact>>(emptyList()) }
-    var revision by remember(context.route) { mutableIntStateOf(0) }
-    val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    LaunchedEffect(context.route,context.backend.client) {
-        context.backend.client.events.collect { event ->
-            if(event is ArtifactsChangedEvent && event.projectId == context.route.projectId) {
-                if(event.deleted) ChatArtifactMetadata.remove(context.backend.config.key,context.route.projectId,event.artifact.id)
+    val client = context.backend.client
+    val project = context.route.projectId
+    var items by remember(client, project) { mutableStateOf<List<Artifact>>(emptyList()) }
+    var revision by remember(client, project) { mutableIntStateOf(0) }
+    val connection by client.state.collectAsStateWithLifecycle()
+    LaunchedEffect(client,project) {
+        client.events.collect { event ->
+            if(event is ArtifactsChangedEvent && event.projectId == project) {
+                if(event.deleted) ChatArtifactMetadata.remove(context.backend.config.key,project,event.artifact.id)
                 else ChatArtifactMetadata.keep(context.backend.config.key,event.artifact)
                 revision++
                 items = items.filterNot { it.id == event.artifact.id } + if(event.deleted) emptyList() else listOf(event.artifact)
             }
         }
     }
-    LaunchedEffect(context.route,connection,revision) {
+    LaunchedEffect(client,project,connection,revision) {
         if(connection.status == ConnectionStatus.Ready && connection.supports("artifacts")) {
             val before = revision
             try {
-                val loaded = context.backend.client.request(ArtifactsListRequest(projectId = context.route.projectId,limit = 500)).artifacts
+                val loaded = client.request(ArtifactsListRequest(projectId = project,limit = 500)).artifacts
                 if(before == revision) { items = loaded; loaded.forEach { ChatArtifactMetadata.keep(context.backend.config.key,it) } }
             } catch(e: CancellationException) { throw e }
             catch(_: Exception) { /* The artifact panel exposes retry/errors; retain last known metadata here. */ }

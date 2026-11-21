@@ -2722,7 +2722,7 @@ are local to the device. New and Manage use `operationId` again for a retry of t
 mutation; no keep-warm control is exposed here.
 
 **Web task scope.** On `task-coordinator` backends, the Tasks panel defaults to the
-open coordinator. Its per-project device preference also supports All coordinators,
+open coordinator. Its per-coordinator device preference also supports All coordinators,
 with the same ownership filter for list, board and graph. The list keeps external
 parts as dashed links and shows the other coordinator on cross-coordinator blockers.
 The task sheet and board menu write `ownerThreadId` (`null` for General) with the
@@ -2735,7 +2735,7 @@ isolated bakery fixture for before/after web proof.
 **Android coordinator roster and tasks (T398).** The chat title opens a native roster
 sheet with nested jobs. Projects with several coordinators have horizontally scrollable
 switch chips, and coordinator chats show their area and their own question pin. The
-last chat, reply marks and task scope are device-local and keyed by backend and project.
+last chat and reply marks are device-local. Task scope is also keyed by coordinator.
 The scope filters list, board and graph with the server's derived `coordinatorId`;
 external parts and blockers are links in the list. The task sheet moves a task and
 optionally its parts with their individual revisions. Task replies submit `taskId`,
@@ -2745,6 +2745,22 @@ Memory and roster notes render as one muted line; Memory shows the writer when k
 Coordinator push titles come from the backend; Android groups by backend and project
 and opens the coordinator chat at the reply entry when supplied. These surfaces are
 feature-gated and require no server document version changes.
+
+**Switching between coordinators (T403).** The project layout on web owns the chat
+surface across the General and thread URLs. The chip strip, title menu, sidebar
+and Back/Forward still use those URLs. The four most recent coordinators keep
+mounted, inert when hidden, so transcript nodes, scroll containers, composers
+and task filters do not reset. Mouse hover can open a watch in an unused slot
+without evicting a visited chat. Board, roster and peer messages are read once
+per project, not on each switch. Only the visible chat handles route anchors,
+shortcuts, dialogs and seen marks.
+
+Android keeps one project chat screen and up to four coordinator states. Each slot
+holds a live watch, cached transcript rows, draft and LazyList position and follow
+mode. The board remains project-wide. Hidden chats keep receiving updates on both
+clients. A first visit or return after eviction still opens a normal watch, which
+handles reconnects using the existing protocol. Use `coordinators-demo.ts` for
+isolated web and emulator comparisons.
 
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins

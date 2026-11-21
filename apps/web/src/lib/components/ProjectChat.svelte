@@ -16,7 +16,7 @@
 	import { goto } from '$app/navigation';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import CoordinatorBadges from './CoordinatorBadges.svelte';
-	import { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
+	import type { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
 	import { threadMessageHref, threadMessageAnchor, type ThreadMessageLinks } from '#lib/thread-messages.js';
 	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
 	import LandingTurn from './LandingTurn.svelte';
@@ -46,11 +46,10 @@
 	import RefCardHost from '#lib/components/RefCardHost.svelte';
 	import TasksPanel from '#lib/components/TasksPanel.svelte';
 	import TasksView from '#lib/components/TasksView.svelte';
-	import { taskFilter, tasksView } from '#lib/tasks-view.svelte.js';
+	import { provideTaskFilter, tasksView } from '#lib/tasks-view.svelte.js';
 	import ConversationSidebar from '#lib/components/ConversationSidebar.svelte';
 	import DeployBanner from '#lib/components/DeployBanner.svelte';
 	import DiskBanner from '#lib/components/DiskBanner.svelte';
-	import { SERVER_STATUS_REFRESH_MS } from '#lib/server-status.js';
 	import MemoryPanel from '#lib/components/MemoryPanel.svelte';
 	import ProjectsMenuButton from '#lib/components/ProjectsMenuButton.svelte';
 	import ReleaseLine from '#lib/components/ReleaseLine.svelte';
@@ -72,7 +71,7 @@
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { taskOptions } from '#lib/task-chat.js';
 	import { boardTaskLinks, provideTaskLinks } from '#lib/task-links.svelte.js';
-	import { ProjectRefStatus, provideRefLinks } from '#lib/ref-links.svelte.js';
+	import { type ProjectRefStatus, provideRefLinks } from '#lib/ref-links.svelte.js';
 	import { projectHref, threadHref, workerHref } from '#lib/backends.js';
 	import { projectAdvancedHref, projectSettingsHref } from '#lib/settings.js';
 	import { terminalHref } from '#lib/terminal.js';
@@ -89,7 +88,7 @@
 	import { visibleSidebarTabs, type SidebarTab } from '#lib/sidebar.js';
 	import { questionBadgeText, questionsWaitingLabel } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
-	import { taskFromUrl, taskRefs, withTask } from '#lib/tasks.js';
+	import { taskFromUrl, withTask } from '#lib/tasks.js';
 	import { notifications } from '#lib/notifications.svelte.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { headerActionShowsLabel, headerLayout, visibleHeaderActions } from '#lib/chat/header.js';
@@ -119,12 +118,13 @@
 	let {
 		backend,
 		projectId,
-		threadId: threadParam
-	}: { backend: BackendConnection; projectId: string; threadId?: string } = $props();
+		threadId: threadParam, shown, projectReads, prefetchCoordinator
+	}: { backend: BackendConnection; projectId: string; threadId?: string; shown: boolean; projectReads: { board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }; prefetchCoordinator: (id: string) => void } = $props();
 
 	/** The background job this chat is; undefined for main ("main" in the route reads as main too). */
 	const threadId = $derived(isMainThread(threadParam) ? undefined : threadParam);
 	const isThread = $derived(threadId !== undefined);
+	const taskFilter = provideTaskFilter();
 	$effect(() => tasksView.useProject(`${backend.id}:${projectId}`));
 
 	/** The parts of the transcript column the chat drives: following new output. */
@@ -134,7 +134,7 @@
 	};
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
-	const filesNavigation = provideFilesNavigation(() => backend.features?.includes('project-files') === true,
+	const filesNavigation = provideFilesNavigation(() => shown && backend.features?.includes('project-files') === true,
 		() => threadId ? { kind: 'thread', threadId } : PROJECT_ROOT, () => threadId ? undefined : project?.path);
 
 	provideFileDownload(async file => {
@@ -152,10 +152,10 @@
 	let session = $state<ChatSession | undefined>(undefined);
 	let workers = $state<ProjectWorkers | undefined>(undefined);
 	let projectContext = $state<ProjectContext | undefined>(undefined);
-	let memory = $state<ProjectMemory | undefined>(undefined);
-	let schedules = $state<ProjectSchedules | undefined>(undefined);
-	let board = $state<ProjectBoard | undefined>(undefined);
-	let threads = $state<ProjectThreads | undefined>(undefined);
+	const memory = $derived(projectReads.memory);
+	const schedules = $derived(projectReads.schedules);
+	const board = $derived(projectReads.board);
+	const threads = $derived(projectReads.threads);
 	let aborting = $state(false);
 	let sendError = $state<string | undefined>(undefined);
 	let modelError = $state<string | undefined>(undefined);
@@ -170,7 +170,7 @@
 	});
 	let discussionNotice = $state<string>();
 	$effect(() => {
-		if (discussionNavigation.path !== page.url.pathname || isThread || !claimDiscussionNavigation(discussionNavigation.sequence)) return;
+		if (!shown || discussionNavigation.path !== page.url.pathname || isThread || !claimDiscussionNavigation(discussionNavigation.sequence)) return;
 		const name = discussionNavigation.projectName;
 		discussionNotice = name ? `Opened main chat in ${name}.` : undefined;
 		sidebarOpen = false;
@@ -187,7 +187,7 @@
 		sidebarOpen = saved.open; sidebarTab = saved.tab; sidebarExpanded = saved.expanded;
 		if (saved.tasksMode) tasksView.set(saved.tasksMode);
 		if (saved.taskFocus) taskFilter.focusOn(saved.taskFocus); else taskFilter.clearFocus();
-	});
+	}, () => shown);
 
 	const supportsWorkers = $derived(backend.supports('workers'));
 	const supportsMemory = $derived(backend.supports('memory'));
@@ -200,15 +200,13 @@
 	const taskLinks = $derived(supportsTaskReports && board !== undefined ? boardTaskLinks(() => board?.board?.tasks ?? []) : undefined);
 	provideTaskLinks(() => taskLinks);
 	/** Keys and PR numbers link through the project's settings; the board's refs show the state the backend reads. */
-	let refStatus = $state<ProjectRefStatus | undefined>(undefined);
-	const supportsRefStatus = $derived(backend.supports('ref-status'));
+	const refStatus = $derived(projectReads.refStatus);
 	provideRefLinks(() => ({ links: project?.links, status: (ref) => refStatus?.status(ref) }));
 	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open') ?? false);
 	/** A mute toggle belongs in the header when this backend can push to this device at all. */
 	const supportsNotifications = $derived(backend.supports('notifications'));
 	const muted = $derived(notifications.isMuted(backend.id, projectId));
 	/** A worker a schedule started says which schedule; the names come from the project's schedule list. */
-	const supportsSchedules = $derived(backend.supports('schedules'));
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
 	const supportsThreads = $derived(backend.supports('threads'));
 	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true }));
@@ -218,15 +216,9 @@
 	const threadList = $derived(threads?.threads ?? []);
 	const supportsCoordinators = $derived(backend.supports('coordinators'));
 	const supportsAssignment = $derived(backend.supports('task-coordinator'));
-	const roster = $derived(coordinatorRoster(threadList, supportsCoordinators));
-	let peerLog = $state<ProjectThreadMessages>();
 	const supportsPeerMessages = $derived(backend.supports('coordinator-messages'));
-	$effect(() => {
-		if (!supportsPeerMessages) { peerLog = undefined; return; }
-		const log = new ProjectThreadMessages(backend.client, projectId);
-		peerLog = log;
-		return () => log.stop();
-	});
+	const roster = $derived(coordinatorRoster(threadList, supportsCoordinators));
+	const peerLog = $derived(projectReads.peerLog);
 	const peerMessages = $derived(peerLog ? new Map(peerLog.messages.map(message => [message.id, message])) : undefined);
 	const peerLinks: ThreadMessageLinks = {
 		thread: id => threads?.thread(id) ?? (archivedThread?.id === id ? archivedThread : undefined),
@@ -235,7 +227,7 @@
 	};
 	let peerPanel = $state(false);
 	const peerAnchor = $derived.by(() => {
-		if (!page.url.hash.startsWith('#peer-')) return undefined;
+		if (!shown || !page.url.hash.startsWith('#peer-')) return undefined;
 		try { return decodeURIComponent(page.url.hash.slice(6)); } catch { return undefined; }
 	});
 
@@ -247,14 +239,14 @@
 	let manager = $state<'new' | 'manage' | ThreadSummary>();
 	let taskScope = $state<'coordinator' | 'all'>('coordinator');
 	let hiddenCoordinators = $state<Set<string>>(new Set());
-	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, 'scope'));
+	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, `scope:${threadId ?? 'main'}`));
 	const otherAttention = $derived(roster.filter(row => row.id !== coordinatorId).reduce((sum, row) => sum + coordinatorBadges(row).needsYou, 0));
 	const questionCounts = $derived(roster.filter(row => row.id !== coordinatorId).map(row => ({ row, count: scopedQuestions((board?.board?.questions ?? []).filter(q => q.status === 'open'), threadList, row.id).length })).filter(row => row.count));
 	const landingTurn = $derived(landingTurnPresentation(backend.supports('landing-turn') ? threads?.landingTurn : undefined, roster));
 	provideLandingTurn(() => ({ turn: landingTurn, threads: threadList }));
 	provideCoordinatorTaskView(() => supportsAssignment && roster.length ? { roster: [...roster, ...(threads?.archived ?? []).filter(row => row.kind === 'coordinator')], threads: threadList, coordinatorId: taskScope === 'coordinator' ? coordinatorId : undefined, hidden: hiddenCoordinators } : undefined);
 	$effect(() => {
-		taskScope = readCoordinatorPreference(scopeKey) === 'all' ? 'all' : 'coordinator';
+		taskScope = (readCoordinatorPreference(scopeKey) ?? readCoordinatorPreference(coordinatorStorageKey(backend.id, projectId, 'scope'))) === 'all' ? 'all' : 'coordinator';
 		hiddenCoordinators = new Set();
 	});
 	function setTaskScope(scope: 'coordinator' | 'all') {
@@ -267,7 +259,7 @@
 		return projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${id}`));
 	}
 	$effect(() => {
-		if (!coordinatorChat || viewingCoordinator?.id !== (threadId ?? 'main') || !viewingCoordinator) return;
+		if (!shown || !coordinatorChat || viewingCoordinator?.id !== (threadId ?? 'main') || !viewingCoordinator) return;
 		projectsNav.rememberCoordinator(coordinatorStorageKey(backend.id, projectId, 'last'), viewingCoordinator.id);
 		if (viewingCoordinator.lastReplyAt) projectsNav.markCoordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${viewingCoordinator.id}`), viewingCoordinator.lastReplyAt);
 	});
@@ -276,7 +268,7 @@
 		if (href !== page.url.pathname) void goto(href);
 	}
 	function coordinatorKeys(event: KeyboardEvent) {
-		if (event.defaultPrevented || manager || roster.length < 2) return;
+		if (!shown || event.defaultPrevented || manager || roster.length < 2) return;
 		const index = coordinatorShortcut(event);
 		const target = index === undefined ? undefined : roster[index];
 		if (target) { event.preventDefault(); switchCoordinator(target.id); }
@@ -290,7 +282,7 @@
 		const id = threadId;
 		const project = projectId;
 		const backendId = backend.id;
-		if (!supportsCoordinators || !id || !threads?.loaded || threadList.some(row => row.id === id) || !backend.ready) return;
+		if (!shown || !supportsCoordinators || !id || !threads?.loaded || threadList.some(row => row.id === id) || !backend.ready) return;
 		let keep = true;
 		void backend.client.listThreads(project, { includeArchived: true }).then(snapshot => {
 			if (!keep) return;
@@ -340,7 +332,7 @@
 	/** Messages sent while a run was busy, drawn at the end of the transcript until the run places them. */
 	let waiting = $state<WaitingMessages | undefined>(undefined);
 	const waitingList = $derived(waiting?.supported === true ? waiting.messages(session?.view?.queued) : []);
-	const replyAnchor = $derived(/^#entry-(\d+)$/.exec(page.url.hash)?.[1]);
+	const replyAnchor = $derived(shown ? /^#entry-(\d+)$/.exec(page.url.hash)?.[1] : undefined);
 	const items = $derived(
 		withWaiting(
 			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), threadMessages: peerMessages, entryAnchor: replyAnchor ? Number(replyAnchor) : undefined }),
@@ -401,6 +393,7 @@
 	};
 
 	/** The header row, measured: the chat column narrows when the sidebar opens, so the row, not the window, decides. */
+	let chatRoot: HTMLDivElement;
 	let headerRow = $state<HTMLDivElement | null>(null);
 	let headerWidth = $state(0);
 	let headerMenuOpen = $state(false);
@@ -517,16 +510,8 @@
 	}
 
 	onMount(() => {
-		void backend.ensureLoaded();
 		const timer = setInterval(() => (now = Date.now()), 15_000);
-		// The server does not push its status, and a disk fills during a long run: read it again now and then.
-		const statusTimer = setInterval(() => {
-			if (backend.ready && backend.supports('server-status')) void backend.refreshServerStatus();
-		}, SERVER_STATUS_REFRESH_MS);
-		return () => {
-			clearInterval(timer);
-			clearInterval(statusTimer);
-		};
+		return () => clearInterval(timer);
 	});
 
 	$effect(() => {
@@ -599,69 +584,7 @@
 		};
 	});
 
-	// `supportsMemory` is derived, so a reconnect's identical feature list does not recreate the panel and drop the
-	// open file and the archived toggle.
-	$effect(() => {
-		const id = projectId;
-		if (id.length === 0 || !supportsMemory) {
-			memory = undefined;
-			return;
-		}
-		const created = backend.watchMemory(id, { maintenance: backend.supports('memory-maintenance') });
-		memory = created;
-		return () => {
-			created.stop();
-			if (memory === created) memory = undefined;
-		};
-	});
 
-	// `supportsBoard` is derived, so a reconnect's identical feature list does not recreate the board.
-	$effect(() => {
-		const id = projectId;
-		if (id.length === 0 || !supportsBoard) {
-			board = undefined;
-			return;
-		}
-		const created = backend.watchBoard(id);
-		board = created;
-		return () => {
-			created.stop();
-			if (board === created) board = undefined;
-		};
-	});
-
-	$effect(() => {
-		const id = projectId;
-		if (id.length === 0 || !supportsRefStatus) {
-			refStatus = undefined;
-			return;
-		}
-		const created = new ProjectRefStatus(backend.client, id);
-		refStatus = created;
-		return () => {
-			created.stop();
-			if (refStatus === created) refStatus = undefined;
-		};
-	});
-
-	$effect(() => {
-		refStatus?.want((board?.tasks ?? []).flatMap((task) => taskRefs(task)));
-	});
-
-	// `supportsThreads` is derived, so a reconnect's identical feature list does not recreate the list.
-	$effect(() => {
-		const id = projectId;
-		if (id.length === 0 || !supportsThreads) {
-			threads = undefined;
-			return;
-		}
-		const created = backend.watchThreads(id);
-		threads = created;
-		return () => {
-			created.stop();
-			if (threads === created) threads = undefined;
-		};
-	});
 
 	function openBoard(): void {
 		sidebarTab = 'board';
@@ -669,20 +592,6 @@
 		sidebarExpanded = false;
 	}
 
-	// `supportsSchedules` is derived, so a reconnect's identical feature list does not recreate the list.
-	$effect(() => {
-		const id = projectId;
-		if (id.length === 0 || !supportsSchedules) {
-			schedules = undefined;
-			return;
-		}
-		const created = backend.watchSchedules(id);
-		schedules = created;
-		return () => {
-			created.stop();
-			if (schedules === created) schedules = undefined;
-		};
-	});
 
 	function scheduleTitle(scheduleId: string): string | undefined {
 		return schedules?.title(scheduleId);
@@ -724,7 +633,7 @@
 		const current = session;
 		const id = replyAnchor;
 		if (!id || !current || !items.length) return;
-		const frame = requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: 'center' }));
+		const frame = requestAnimationFrame(() => chatRoot?.querySelector(`#entry-${id}`)?.scrollIntoView({ block: 'center' }));
 		return () => cancelAnimationFrame(frame);
 	});
 
@@ -737,7 +646,7 @@
 			while (!cancelled) {
 				await new Promise(requestAnimationFrame);
 				if (cancelled) return;
-				const card = document.getElementById(threadMessageAnchor(id));
+				const card = chatRoot?.querySelector(`#${CSS.escape(threadMessageAnchor(id))}`);
 				if (card) { card.scrollIntoView({ block: 'center' }); return; }
 				if (!current.canLoadEarlier || current.loadingEarlier) return;
 				const count = current.entries.length;
@@ -754,7 +663,7 @@
 	 */
 	let highlightedThread = $state<string | undefined>(undefined);
 	$effect(() => {
-		if (isThread) return;
+		if (!shown || isThread) return;
 		const jump = (): void => {
 			const target = threadFromAnchor(window.location.hash);
 			if (target !== undefined) highlightedThread = target;
@@ -766,14 +675,14 @@
 	$effect(() => {
 		const target = highlightedThread;
 		const current = session;
-		if (target === undefined || current === undefined || current.status !== 'live') return;
+		if (!shown || target === undefined || current === undefined || current.status !== 'live') return;
 		let cancelled = false;
 		let pages = 0;
 		const find = async (): Promise<void> => {
 			while (!cancelled) {
 				await new Promise((resolve) => requestAnimationFrame(resolve));
-				const cards = document.querySelectorAll<HTMLElement>(`[data-thread-card="${CSS.escape(target)}"]`);
-				const card = cards[cards.length - 1];
+				const cards = chatRoot?.querySelectorAll<HTMLElement>(`[data-thread-card="${CSS.escape(target)}"]`);
+				const card = cards?.[cards.length - 1];
 				if (card !== undefined) {
 					card.scrollIntoView({ block: 'center', behavior: 'smooth' });
 					card.classList.remove('thread-glow');
@@ -1018,7 +927,7 @@
 	</Button>
 {/snippet}
 
-<div class="flex h-full w-full overflow-hidden">
+<div class="flex h-full w-full overflow-hidden" bind:this={chatRoot}>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			<header
 				class="relative z-10 flex {CHAT_COLUMN_CLASS} shrink-0 flex-col gap-0.5 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 sm:px-3"
@@ -1038,7 +947,7 @@
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher roster={supportsCoordinators ? roster : undefined} {seen} onnew={() => manager = 'new'} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
+						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={() => manager = 'new'} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
@@ -1113,7 +1022,7 @@
 					<nav aria-label="Coordinators" class="flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 py-1.5 [scrollbar-width:thin]">
 						{#each roster as row, index (row.id)}
 							{@const here = row.id === (threadId ?? 'main')}
-							<a href={coordinatorHref(backend.id, projectId, row.id)} aria-current={here ? 'page' : undefined} aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
+							<a href={coordinatorHref(backend.id, projectId, row.id)} aria-current={here ? 'page' : undefined} onpointerenter={event => { if (event.pointerType === 'mouse') prefetchCoordinator(row.id); }} aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
 								class="flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-(--chat-surface-2)" style:border-color={here ? coordinatorColor(row) : 'var(--chat-border)'}>
 								<CoordinatorMark thread={row} />{row.title}<CoordinatorBadges thread={row} seen={seen(row.id)} />
 							</a>
@@ -1328,7 +1237,7 @@
 								{board}
 								workers={panelWorkers}
 								graphWorkers={supportsAssignment ? panelWorkers : workers?.allWorkers ?? []}
-								selectedTaskId={taskFromUrl(page.url)}
+								selectedTaskId={shown ? taskFromUrl(page.url) : null}
 								scope={`${backend.id}:${projectId}`}
 								backendId={backend.id}
 								{projectId}
@@ -1387,6 +1296,7 @@
 		{/if}
 	</div>
 
+{#if shown}
 	<RefCardHost
 		readDetails={backend.supports('ref-details') ? (ref) => backend.client.readRefDetails(projectId, ref) : undefined}
 		tasks={() => board?.tasks ?? []}
@@ -1397,9 +1307,10 @@
 		<TaskSheet peerMessages={peerLog} {peerLinks} {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
-<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} repository={project?.repository} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
+	<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} repository={project?.repository} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
 
 <ChangesHost {backend} {projectId} projectName={project?.name ?? 'Project'} repository={project?.repository} {board} navigation={filesNavigation} {threadId} workers={workerList} threads={threadList} />
+{/if}
 
 <style>
 	/* Scoped to panel actions: utility toggles retain their own pressed state. */
@@ -1432,7 +1343,7 @@
 </style>
 
 <svelte:window onkeydown={coordinatorKeys} />
-{#if manager && threads && supportsCoordinators}
+{#if shown && manager && threads && supportsCoordinators}
 	{#key manager}
 		<CoordinatorManager supportsSchedules={backend.supports('coordinator-schedules')} messages={peerLog ? peerFeed : undefined} mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
 			onclose={() => manager = undefined} oncreated={id => { manager = undefined; switchCoordinator(id); }}

@@ -39,8 +39,8 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
     val board by context.board.view.collectAsStateWithLifecycle()
     val android = LocalContext.current
     val chat = context.route
-    var all by remember(chat.backendKey, chat.projectId) { mutableStateOf(allCoordinators(android, chat)) }
-    var hidden by rememberSaveable(chat.backendKey, chat.projectId) { mutableStateOf(emptyList<String>()) }
+    var all by remember(chat.backendKey, chat.projectId, chat.threadId) { mutableStateOf(allCoordinators(android, chat)) }
+    var hidden by rememberSaveable(chat.backendKey, chat.projectId, chat.threadId) { mutableStateOf(emptyList<String>()) }
     fun selectAll(value: Boolean) { all = value; setAllCoordinators(android, chat, value) }
     val selector = if (enabled) CoordinatorTaskScope(threads, (if (threads.isEmpty()) chat.threadId ?: MAIN_THREAD_ID else coordinatorOfThread(chat.threadId, threads)).takeUnless { all }, hidden.toSet()) else null
     Column(modifier) {

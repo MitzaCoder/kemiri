@@ -14,29 +14,32 @@ export interface ConversationView {
 }
 type PanelView = Omit<ConversationView, 'scroll'>;
 let stopRestoring: (() => void) | undefined;
-let conversation: { read: () => PanelView; restore: (view: ConversationView) => void } | undefined;
+const conversations = new Set<{ read: () => PanelView; restore: (view: ConversationView) => void; shown: () => boolean }>();
+const shownConversation = () => [...conversations].reverse().find(conversation => conversation.shown());
+const scrollRegions = () => [...document.querySelectorAll<HTMLElement>('[data-navigation-scroll]')].filter(element => !element.closest('[inert]'));
 
-export function rememberConversationView(read: () => PanelView, restore: (view: ConversationView) => void): void {
-	const registered = { read, restore };
-	conversation = registered;
-	onDestroy(() => { if (conversation === registered) conversation = undefined; });
+export function rememberConversationView(read: () => PanelView, restore: (view: ConversationView) => void, shown = () => true): void {
+	const registered = { read, restore, shown };
+	conversations.add(registered);
+	onDestroy(() => { conversations.delete(registered); });
 }
 
 /** Export this on every coordinator, thread and worker page. The router captures before leaving and restores on pop. */
 export const conversationSnapshot = {
 	capture(): ConversationView | undefined {
 		stopRestoring?.();
+		const conversation = shownConversation();
 		if (!conversation) return undefined;
-		return { ...conversation.read(), scroll: [...document.querySelectorAll<HTMLElement>('[data-navigation-scroll]')].map(element => ({ name: element.dataset.navigationScroll!, top: element.scrollTop, left: element.scrollLeft, follow: element.scrollHeight - element.scrollTop - element.clientHeight < 80 })) };
+		return { ...conversation.read(), scroll: scrollRegions().map(element => ({ name: element.dataset.navigationScroll!, top: element.scrollTop, left: element.scrollLeft, follow: element.scrollHeight - element.scrollTop - element.clientHeight < 80 })) };
 	},
 	restore(saved: ConversationView | undefined): void {
 		stopRestoring?.();
 		if (!saved) return;
-		conversation?.restore(saved);
+
 		const pending = new Map(saved.scroll.map(position => [position.name, position]));
 		const notified = new Set<string>();
 		const apply = () => {
-			for (const element of document.querySelectorAll<HTMLElement>('[data-navigation-scroll]')) {
+			for (const element of scrollRegions()) {
 				const position = pending.get(element.dataset.navigationScroll!);
 				if (!position) continue;
 				if (!notified.has(position.name)) {
@@ -48,7 +51,9 @@ export const conversationSnapshot = {
 				pending.delete(position.name);
 			}
 		};
-		void tick().then(() => {
+		void tick().then(async () => {
+			shownConversation()?.restore(saved);
+			await tick();
 			apply();
 			if (!pending.size) return;
 			const stop = () => {

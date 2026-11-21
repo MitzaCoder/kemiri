@@ -60,16 +60,20 @@ import kotlinx.serialization.json.*
 @Composable
 fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val artifacts = rememberTranscriptArtifacts(context)
-    val watch = remember(context.backend.client, context.target) { ConversationWatch(context.backend.client, context.target) }
-    DisposableEffect(watch) { onDispose { watch.close() } }
-    val state by watch.state.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val projectId = context.route.projectId
+    val threads = rememberCoordinatorThreads(context, connection.supports("threads"))
+    val coordinator = threads.firstOrNull { connection.supports("coordinators") && context.route.workerId == null &&
+        it.id == (context.route.threadId ?: "main") && (it.main || it.kind == "coordinator") }
+    val messages = rememberCoordinatorMessages(context, connection.supports("coordinator-messages"), loadHistory = true).messages
+    val (chat, rows) = rememberCoordinatorChat(context, coordinator != null && !coordinator.archived, messages, connection.supports("memory-notes"))
+    val watch = chat.watch
+    val state by chat.watchState
+    val scope = chat.scope
     val android = LocalContext.current
-    // What the composer holds (text, task, quotes, images) is the chat's draft: kept on this device and on the backend.
-    val chatDraft = rememberChatDraft(context)
+    val chatDraft = chat.draft
     val reviewFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(chatDraft.reviewFocus) {
+    LaunchedEffect(chatDraft, chatDraft.reviewFocus) {
         if (chatDraft.reviewFocus) { reviewFocus.requestFocus(); chatDraft.reviewFocus = false }
     }
     // Typing on the soft keyboard never reaches the activity's key dispatch; the field says it instead.
@@ -87,14 +91,14 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     var dismissedAt by remember(context.route) { mutableStateOf<Int?>(null) }
     val admissionScope = "${context.backend.config.key}|${context.route.projectId}|${context.route.threadId ?: "main"}"
     val images = chatDraft.images
-    var submitting by remember(context.route) { mutableStateOf(false) }
-    var attaching by remember(context.route) { mutableStateOf(false) }
-    var error by remember(context.route) { mutableStateOf<String?>(null) }
+    var submitting by chat.submitting
+    var attaching by chat.attaching
+    var error by chat.error
     // Persist identity before sending. An ambiguous response never authorizes a new UUID.
-    var pendingSaved by rememberSaveable(admissionScope) { mutableStateOf<String?>(null) }
+    var pendingSaved by chat::pending
     val pending = remember(pendingSaved) { PendingAdmission.restore(pendingSaved) }
-    var discardPending by remember { mutableStateOf(false) }
-    var savedFiles by rememberSaveable(admissionScope) { mutableStateOf("[]") }
+    var discardPending by remember(context.target) { mutableStateOf(false) }
+    var savedFiles by chat::files
     val files = remember(savedFiles) { runCatching { wireJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatFile.serializer()), savedFiles) }.getOrDefault(emptyList()) }
     fun setFiles(next: List<ChatFile>) { savedFiles = wireJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatFile.serializer()), next) }
     val fileIds = files.map { it.id }
@@ -139,49 +143,29 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             scope.launch { attachUris(uris) }
         }
     }
-    LaunchedEffect(state.entries.lastOrNull()?.id) {
+    LaunchedEffect(watch, state.entries.lastOrNull()?.id) {
         state.entries.lastOrNull { it.kind == "pi.assistant" }?.let { context.repository.markSeen(context.backend.config.key, context.route.projectId, it.id) }
     }
-    var threads by remember(context.route) { mutableStateOf<List<ThreadSummary>>(emptyList()) }
-    var threadsRevision by remember(context.route) { mutableIntStateOf(0) }
-    LaunchedEffect(context.backend.client,context.route) {
-        context.backend.client.events.collect { event -> if(event is ThreadsStateEvent && event.projectId == context.route.projectId) { threadsRevision++; threads = event.threads } }
-    }
-    LaunchedEffect(connection,context.route) {
-        if(connection.status == ConnectionStatus.Ready && connection.supports("threads")) {
-            val revision = threadsRevision
-            try {
-                val loaded = context.backend.client.request(ThreadsListRequest(projectId = context.route.projectId,includeArchived = true)).threads
-                if(revision == threadsRevision) threads = loaded
-            } catch(e: CancellationException) { throw e }
-            catch(_: Exception) { /* Retain transcript IDs when the optional live names are unavailable. */ }
-        }
-    }
-    var workers by remember(context.route) { mutableStateOf<List<WorkerSummary>>(emptyList()) }
-    var workersLoaded by remember(context.route) { mutableStateOf(false) }
-    var workersRevision by remember(context.route) { mutableIntStateOf(0) }
-    LaunchedEffect(context.backend.client,context.route) {
+    var workers by remember(context.backend.client, projectId) { mutableStateOf<List<WorkerSummary>>(emptyList()) }
+    var workersLoaded by remember(context.backend.client, projectId) { mutableStateOf(false) }
+    var workersRevision by remember(context.backend.client, projectId) { mutableIntStateOf(0) }
+    LaunchedEffect(context.backend.client, projectId) {
         context.backend.client.events.collect { event -> if(event is WorkersStateEvent && event.projectId == context.route.projectId) { workersRevision++; workers = event.workers; workersLoaded = true } }
     }
-    LaunchedEffect(connection,context.route) {
+    LaunchedEffect(connection,context.backend.client, projectId) {
         if(connection.status == ConnectionStatus.Ready && connection.supports("workers")) {
             val revision = workersRevision
             runCatching { context.backend.client.request(WorkersListRequest(projectId = context.route.projectId)).workers }.onSuccess { if(revision == workersRevision) { workers = it; workersLoaded = true } }
         }
     }
-    var scheduleTitles by remember(context.route) { mutableStateOf<Map<String,String>>(emptyMap()) }
-    LaunchedEffect(connection.status,context.route,(workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null })) {
+    var scheduleTitles by remember(context.backend.client, projectId) { mutableStateOf<Map<String,String>>(emptyMap()) }
+    LaunchedEffect(connection.status, projectId,(workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null })) {
         // Scheduled jobs and workers share the catalog of display names.
         if(connection.status == ConnectionStatus.Ready && connection.supports("schedules") && (workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null }))
             runCatching { context.backend.client.request(SchedulesListRequest(projectId = context.route.projectId)).schedules }.onSuccess { list -> scheduleTitles = list.associate { it.id to it.title } }
     }
     val roster = coordinatorRoster(threads.takeIf { connection.supports("coordinators") }.orEmpty())
-    val coordinator = threads.firstOrNull { connection.supports("coordinators") && context.route.workerId == null &&
-        it.id == (context.route.threadId ?: "main") && (it.main || it.kind == "coordinator") }
     rememberCoordinatorVisit(context, coordinator, context.activePanel == null)
-    val messages = rememberCoordinatorMessages(context, context.route.workerId == null && connection.supports("coordinator-messages"), loadHistory = true).messages
-    val memoryNotes = connection.supports("memory-notes") && context.route.workerId == null
-    val rows = remember(state.entries, state.view, messages, memoryNotes) { transcript(state.entries, state.view?.docs?.get("pi.live"), state.view?.keepWarm.orEmpty(), messages, memoryNotes) }
     val realRows = remember(rows) { rows.filter { it.parts.firstOrNull()?.kind != "cacheWarm" } }
     val titlesBefore = remember(rows,workers) { workerTitlesBeforeSend(rows,workers) }
     val lineRows = remember(rows) { rows.map(::isTaskLineRow) }
@@ -204,7 +188,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val runFailed = rows.lastOrNull()?.parts?.any { it.kind == "error" || it.status == "error" || it.text == "Stopped." } == true || state.view?.docs?.get("pi.live").obj()?.get("runFailure") != null
     var previouslyRunning by remember(context.route) { mutableStateOf(busy) }
     var completed by remember(context.route) { mutableStateOf(false) }
-    LaunchedEffect(busy,waitingForUser,state.status,runFailed) {
+    LaunchedEffect(watch,busy,waitingForUser,state.status,runFailed) {
         val finished = agentFinished(previouslyRunning,busy,waitingForUser,state.status == WatchStatus.Live,runFailed)
         previouslyRunning = busy && state.status == WatchStatus.Live
         if(finished) { completed = true; delay(1300); completed = false }
@@ -213,18 +197,18 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     // Rows that arrive while the chat is open rise in, as on the web; never with animations off.
     val reducedMotion = rememberReducedMotion()
     val live = state.status == WatchStatus.Live
-    val shown = remember(context.route) { ShownRows() }
-    val arrived = remember(rows,live) { if(live) arrivedRows(shown.keys,realRows.map { it.key }) else emptySet() }
+    val shown = chat.shownRows
+    val arrived = remember(shown,rows,live) { if(live) arrivedRows(shown.keys,realRows.map { it.key }) else emptySet() }
     SideEffect { if(live) shown.keys = rows.map { it.key } }
     val projects by context.backend.projects.collectAsStateWithLifecycle()
-    val list = rememberLazyListState()
-    var follow by remember(context.route) { mutableStateOf(true) }
+    val list = chat.list
+    var follow by chat.follow
     LaunchedEffect(list) { snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling,canScroll) -> if(scrolling) follow = !canScroll } }
     // A link to a spot (`#entry-N`, a thread's newest card) scrolls there once and flashes the row.
-    var highlightDone by remember(context.highlight) { mutableStateOf(false) }
-    var flashKey by remember { mutableStateOf<String?>(null) }
+    var highlightDone by remember(watch, context.highlight) { mutableStateOf(false) }
+    var flashKey by remember(watch) { mutableStateOf<String?>(null) }
     val earlierRow = state.canLoadEarlier || state.loadingEarlier || state.earlierError != null
-    LaunchedEffect(context.highlight,rows,state.canLoadEarlier,state.loadingEarlier,state.earlierError) {
+    LaunchedEffect(watch,context.highlight,rows,state.canLoadEarlier,state.loadingEarlier,state.earlierError) {
         val target = context.highlight ?: return@LaunchedEffect
         if(highlightDone || rows.isEmpty()) return@LaunchedEffect
         val index = highlightIndex(rows,target)
@@ -243,7 +227,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         delay(1600)
         flashKey = null
     }
-    LaunchedEffect(realRows,working) {
+    LaunchedEffect(watch,realRows,working) {
         if(context.highlight != null && !highlightDone) return@LaunchedEffect
         if(follow && rows.isNotEmpty() && !state.loadingEarlier) {
             // Keys preserve the visual anchor when prepending history; only tail-follow scrolls.
@@ -294,7 +278,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             activeWorker?.let { WorkerFacts(it,models,Modifier.padding(horizontal = 16.dp,vertical = 4.dp)) }
             ChatBanners()
         }
-        var creatingCoordinator by rememberSaveable { mutableStateOf(false) }
+        var creatingCoordinator by rememberSaveable(context.target) { mutableStateOf(false) }
         if (context.route.workerId == null) CoordinatorChipRow(context, roster, context.route.threadId ?: "main") { creatingCoordinator = true }
         if (creatingCoordinator) CoordinatorEditor(context, null, dismiss = { creatingCoordinator = false })
         if (coordinator != null) CoordinatorArea(context, coordinator)
@@ -321,7 +305,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 }
             }
             if (rows.isEmpty()) item { Text(if (state.status == WatchStatus.Live) "Nothing here yet." else "Connecting…",color = Jarvis.colors.fgMuted) }
-            itemsIndexed(rows, key = { _,row -> row.key }) { index,row ->
+            itemsIndexed(rows, key = { _,row -> "${context.route.threadId}:${context.route.workerId}:${row.key}" }) { index,row ->
                 // Task lines that follow each other sit close together; everything else keeps the chat's rhythm.
                 val gap = when { index == 0 -> 0.dp; lineRows[index] && lineRows[index - 1] -> 6.dp; else -> 16.dp }
                 val flash by animateColorAsState(if(flashKey == row.key) Jarvis.colors.accent2.copy(alpha = .14f) else Color.Transparent,tween(400),label = "highlight")

@@ -261,7 +261,12 @@ private fun HarnessNavigation(
                 ) { padding ->
                     val modifier = if (current is Destination.ArtifactStudio) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(padding)
                     if (!loaded) Box(modifier) { CircularProgressIndicator() }
-                    else screenState.SaveableStateProvider(current.screenStateKey()) {
+                    else screenState.SaveableStateProvider(
+                        // Switching chats changes the coordinator state, not the project screen.
+                        if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task))
+                            "chats:${Destination.Chat(context.route.backendKey, context.route.projectId).screenStateKey()}"
+                        else current.screenStateKey()
+                    ) {
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier, navigate)

@@ -38,7 +38,8 @@
 	import RefChip from '#lib/components/RefChip.svelte';
 	import TaskFilters from '#lib/components/TaskFilters.svelte';
 	import { applyTaskFilter } from '#lib/task-relations.js';
-	import { taskFilter } from '#lib/tasks-view.svelte.js';
+	import { useTaskFilter } from '#lib/tasks-view.svelte.js';
+	const taskFilter = useTaskFilter();
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { relativeTime } from '#lib/relative-time.js';
 	import { answeredQuestions } from '#lib/board.js';

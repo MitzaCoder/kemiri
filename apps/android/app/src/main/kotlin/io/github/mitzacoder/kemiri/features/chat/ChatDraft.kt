@@ -179,7 +179,7 @@ internal fun rememberChatDraft(context: ProjectScreenContext): ChatDraftState {
     val chatId = if (sameThread(context.route.threadId, null)) MAIN_THREAD_ID else context.route.threadId!!
     val key = "${context.backend.config.key}|${context.route.projectId}|$chatId"
     val state = remember(key) { ChatDraftState().also { it.show(cache.load(key).draft); it.last = it.content() } }
-    DisposableEffect(key, state) {
+    if (context.route.workerId == null) DisposableEffect(key, state) {
         ArtifactReviewDrafts.mounted[key] = state
         if (ArtifactReviewDrafts.focus.remove(key)) state.reviewFocus = true
         onDispose { if (ArtifactReviewDrafts.mounted[key] === state) ArtifactReviewDrafts.mounted.remove(key) }

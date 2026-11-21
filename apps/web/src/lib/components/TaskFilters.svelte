@@ -1,6 +1,7 @@
 <script lang="ts">
 	import XIcon from '@lucide/svelte/icons/x';
-	import { taskFilter } from '#lib/tasks-view.svelte.js';
+	import { useTaskFilter } from '#lib/tasks-view.svelte.js';
+	const taskFilter = useTaskFilter();
 
 	/** Focus is set from a task's sheet; no chip or empty row when it is clear. */
 	let { class: className = '' }: { class?: string } = $props();

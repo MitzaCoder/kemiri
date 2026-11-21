@@ -40,7 +40,8 @@
 	} from '#lib/kanban.js';
 	import LooseWorkers from '#lib/components/LooseWorkers.svelte';
 	import { applyTaskFilter } from '#lib/task-relations.js';
-	import { taskFilter } from '#lib/tasks-view.svelte.js';
+	import { useTaskFilter } from '#lib/tasks-view.svelte.js';
+	const taskFilter = useTaskFilter();
 	import { looseWaiting, type TaskStatusTone } from '#lib/tasks.js';
 	import { questionAskedBy } from '#lib/threads.js';
 	import type { BoardQuestion, BoardTask, BoardTaskStatus, ThreadSummary, WorkerSummary } from '@kemiri/protocol';

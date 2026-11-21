@@ -11,8 +11,8 @@
 	import { coordinatorBadges, coordinatorHref, coordinatorStatus } from '#lib/coordinators.js';
 	import { threadActivityLine } from '#lib/threads.js';
 	import type { BoardQuestion, ThreadSummary } from '@kemiri/protocol';
-	let { projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage }: {
-		projectName: string; backendId: string; projectId: string; threadId?: string;
+	let { shown = true, projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage }: {
+		shown?: boolean; projectName: string; backendId: string; projectId: string; threadId?: string;
 		threads: readonly ThreadSummary[]; questions: readonly BoardQuestion[]; now: number;
 		counts: { needsYou: number; working: number }; onshowall: () => void;
 		roster?: readonly ThreadSummary[]; seen?: (id: string) => string | null;
@@ -21,6 +21,7 @@
 	const phone = new MediaQuery('(max-width: 639px)');
 	let open = $state(false);
 	let expanded = $state(false);
+	$effect(() => { if (!shown) open = false; });
 	let trigger = $state<HTMLButtonElement | null>(null);
 	const choices = $derived(conversationChoices(roster ? threads.filter(row => row.kind !== 'coordinator') : threads, backendId, projectId, threadId, now));
 	const thread = $derived(threads.find(thread => thread.id === (threadId ?? (roster ? 'main' : undefined))));
@@ -42,7 +43,7 @@
 		document.querySelector<HTMLElement>('[data-conversation-menu] [role="menuitem"]')?.focus();
 	}
 	function shortcut(event: KeyboardEvent) {
-		if (!event.defaultPrevented && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
+		if (shown && !event.defaultPrevented && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
 			event.preventDefault(); open = true;
 		}
 	}

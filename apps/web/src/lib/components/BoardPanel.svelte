@@ -40,7 +40,8 @@
 		type TaskGroup
 	} from '#lib/board.js';
 	import { applyTaskFilter } from '#lib/task-relations.js';
-	import { taskFilter } from '#lib/tasks-view.svelte.js';
+	import { useTaskFilter } from '#lib/tasks-view.svelte.js';
+	const taskFilter = useTaskFilter();
 	import { taskStatusToneClass } from '#lib/tasks.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { questionAskedBy, taskOwner } from '#lib/threads.js';
