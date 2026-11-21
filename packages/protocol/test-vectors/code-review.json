@@ -1,0 +1,59 @@
+[
+  {
+    "source": {
+      "kind": "task",
+      "taskId": "T12"
+    },
+    "review": {
+      "comments": [
+        {
+          "id": "baker-1",
+          "source": {
+            "kind": "task",
+            "taskId": "T12"
+          },
+          "anchor": {
+            "path": "src/hours.ts",
+            "side": "after",
+            "startLine": 14,
+            "endLine": 14,
+            "quotedText": "  saturday: '08:00–16:00',"
+          },
+          "intent": "Change",
+          "note": "Close at 15:00 instead.",
+          "replacement": "  saturday: '08:00–15:00',"
+        }
+      ],
+      "overall": "Check the public schedule too."
+    },
+    "expected": "Code review (task T12)\n\n1. Change · src/hours.ts · after line 14\n>   saturday: '08:00–16:00',\n\nClose at 15:00 instead.\n\nSuggested edit:\n```diff\n--- a/src/hours.ts\n+++ b/src/hours.ts\n@@ -14,1 +14,1 @@\n-  saturday: '08:00–16:00',\n+  saturday: '08:00–15:00',\n```\n\nOverall: Check the public schedule too."
+  },
+  {
+    "source": {
+      "kind": "artifact",
+      "versionId": "demo-schedule~2"
+    },
+    "review": {
+      "comments": [
+        {
+          "id": "baker-2",
+          "source": {
+            "kind": "artifact",
+            "versionId": "demo-schedule~2"
+          },
+          "anchor": {
+            "path": "schedule.md",
+            "side": "file",
+            "startLine": 5,
+            "endLine": 6,
+            "quotedText": "  Friday\n  Saturday"
+          },
+          "note": "Confirm which days this applies to.",
+          "outdated": true
+        }
+      ],
+      "overall": ""
+    },
+    "expected": "Code review (artifact demo-schedule~2)\n\n1. Note · schedule.md · file lines 5–6 · Outdated\n>   Friday\n>   Saturday\n\nConfirm which days this applies to."
+  }
+]

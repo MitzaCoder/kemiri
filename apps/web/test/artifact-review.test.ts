@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import fixtures from './fixtures/artifact-review.json';
+import fixtures from '../../../packages/protocol/test-vectors/artifact-review.json';
 import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, formatArtifactReview, loadArtifactReview, reviewText, saveArtifactReview, validateArtifactSelection, REVIEW_BLOCKS, REVIEW_SELECTION_TYPE, type ArtifactReview } from '../src/lib/artifact-review.ts';
 import { ARTIFACT_REVIEW_PRELUDE } from '../src/lib/artifact-review-frame.ts';
 import { artifactPageDocument } from '../src/lib/artifact-page.ts';

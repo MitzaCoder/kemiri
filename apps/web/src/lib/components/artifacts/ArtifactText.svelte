@@ -21,6 +21,7 @@
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import { page as route } from '$app/state';
 	import { loadCodeViewer } from '#lib/code/load-viewer.js';
 	import { fitsCodeView } from '#lib/code/limits.js';
 	import type { SourceReview } from '#lib/code/source-review.js';
@@ -98,7 +99,9 @@
 	let readingBody = $state<HTMLElement>();
 	let review = $state<ArtifactReview>();
 	let sourceReview = $state.raw<SourceReview>();
+	const backendId = $derived(harness.backends.find(backend => backend.client === client)?.id);
 	const fitsViewer = $derived(content !== undefined && fitsCodeView(content));
+	const codeReview = $derived(!!(roomy && backendId && fitsViewer && !rendered && !page));
 	let menuOpen = $state(false);
 	let copyStatus = $state('');
 	async function copySource(): Promise<void> {
@@ -168,7 +171,7 @@
 	}
 </script>
 
-<div bind:this={layout} class:review-layout={roomy}>
+<div bind:this={layout} class:review-layout={roomy} class:code-review={codeReview}>
 <div class={fullSpace ? 'html-viewport' : 'overflow-hidden rounded-2xl border border-(--chat-border) bg-(--chat-bg)/60'} data-artifact-text>
 	{#if fullSpace}
 		<div class="html-actions">
@@ -261,7 +264,17 @@
 			</div>
 		{:else}
 			<div bind:this={readingSurface} class:html-source={fullSpace} class="relative reading-document">
-			{#if fitsViewer}
+			{#if codeReview && backendId}
+				{#await import('#lib/code/ReviewedSource.svelte')}
+					<p class="p-3 text-xs" role="status">Opening Source review…</p>
+				{:then { default: ReviewedSource }}
+					{#key `${artifact.id}:${artifact.version ?? 1}`}
+						<ReviewedSource text={content} path={artifact.name} languageHint={html ? 'html' : markdown ? 'markdown' : undefined} {backendId} projectId={artifact.projectId} artifactId={artifact.id} version={artifact.version ?? 1} {client} threadId={reviewSourceThreadId ?? route.params.threadId} taskId={artifact.taskId ?? undefined} {onclose} />
+					{/key}
+				{:catch}
+					<pre class="p-3 text-xs whitespace-pre-wrap">{content}</pre>
+				{/await}
+			{:else if fitsViewer}
 				{#await loadCodeViewer()}
 					<p class="p-3 text-xs" role="status">Opening source…</p>
 				{:then { default: CodeViewer }}
@@ -291,12 +304,13 @@
 		<p class="px-3 py-3 text-xs text-(--chat-fg-subtle)">Reading…</p>
 	{/if}
 </div>
-{#if roomy}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} sourceReview={!page && !rendered ? sourceReview : undefined} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {reviewSourceThreadId} {onclose} />{/key}{/if}
+{#if roomy && !codeReview}{#key `${artifact.id}:${artifact.version ?? 1}`}<ArtifactReview bind:this={review} {artifact} {client} {layout} surface={page ? frame : readingSurface} textRoot={page ? undefined : readingBody} sourceReview={!page && !rendered ? sourceReview : undefined} anchorKind={page ? 'p' : rendered ? 'm' : 's'} {frame} {reviewSourceThreadId} {onclose} />{/key}{/if}
 </div>
 
 <style>
 	.review-layout { container:artifact-review / inline-size; position:relative; display:flex; flex:1; min-height:0; min-width:0; }
 	.review-layout > :first-child { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; padding-bottom:65px; }
+	.review-layout.code-review > :first-child { padding-bottom: 0; }
 	.review-layout .reading-document { flex:1; min-height:0; overflow:auto; }
 	.review-layout .html-document { padding-bottom:64px; }
 	.review-layout .html-viewport { padding-bottom:0; }

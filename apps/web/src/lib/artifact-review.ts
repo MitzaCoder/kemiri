@@ -1,8 +1,7 @@
 /** Device-local artifact reviews. Plain text contracts shared with a future native client. */
-import { quoteFromSelection } from './chat/quotes.ts';
-
-export const REVIEW_INTENTS = ['Clarify', 'Change', 'Show differently', 'Cut', 'Keep'] as const;
-export type ReviewIntent = typeof REVIEW_INTENTS[number];
+import { REVIEW_INTENTS, reviewText, type ReviewIntent, type ReviewNote, type ReviewStorage } from './review.js';
+export { REVIEW_INTENTS, ReviewSubmission as ArtifactReviewSubmission, reviewThreadId, reviewText, reviewCommentCount } from './review.js';
+export type { ReviewIntent, ReviewStorage } from './review.js';
 export const REVIEW_BLOCKS = ['chart', 'table row', 'figure', 'image', 'code', 'list item', 'paragraph', 'block'] as const;
 export type ReviewBlock = typeof REVIEW_BLOCKS[number];
 /**
@@ -10,34 +9,14 @@ export type ReviewBlock = typeof REVIEW_BLOCKS[number];
  * page, `m:` one in rendered Markdown, `s:` a character offset in plain text or source.
  */
 export interface ArtifactSelection { text: string; section?: string; elementId?: string; block?: ReviewBlock; anchor?: string }
-export interface ReviewComment extends ArtifactSelection { intent?: ReviewIntent; note: string }
+export interface ReviewComment extends ArtifactSelection, ReviewNote {}
 export interface ArtifactReview { comments: ReviewComment[]; overall: string }
-/** Task replies always go to main, matching TaskReply; other reviews stay in their source chat. */
-export function reviewThreadId(taskId: string | null | undefined, sourceThreadId?: string): string | undefined {
-	return taskId ? undefined : sourceThreadId;
-}
-
-/** Preserve idempotency through uncertain failures, but never reuse an accepted review's request ID. */
-export class ArtifactReviewSubmission {
-	#attempted?: { text: string; requestId: string };
-	constructor(private readonly createId: () => string = () => `review-${crypto.randomUUID()}`) {}
-	requestIdFor(text: string): string {
-		if (this.#attempted?.text !== text) this.#attempted = { text, requestId: this.createId() };
-		return this.#attempted.requestId;
-	}
-	accepted(): void { this.#attempted = undefined; }
-}
 export const REVIEW_SELECTION_TYPE = 'kemiri:artifact-selection';
 const ALLOWED_KEYS = ['type', 'text', 'section', 'elementId', 'block', 'anchor'];
 /** Child indexes from the document body: at most 40 levels of at most five digits. */
 export const REVIEW_PATH = /^\d{1,5}(?:\.\d{1,5}){0,39}$/;
 const STORED_ANCHOR = /^(?:[pm]:\d{1,5}(?:\.\d{1,5}){0,39}|s:\d{1,9})$/;
 export function isReviewAnchor(anchor: unknown): anchor is string { return typeof anchor === 'string' && STORED_ANCHOR.test(anchor); }
-
-export function reviewText(text: string, limit: number): string {
-	const clean = quoteFromSelection(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '').trim();
-	return clean.length > limit ? clean.slice(0, limit - 1) + '…' : clean;
-}
 
 /** Accept only the mounted viewer frame, exact text-only fields and the fixed block vocabulary. */
 export function validateArtifactSelection(source: unknown, frameWindow: unknown, input: unknown): ArtifactSelection | undefined {
@@ -73,7 +52,6 @@ export function formatArtifactReview(artifact: { title: string; id: string; vers
 export function artifactReviewKey(backend: string, project: string, id: string, version: number): string {
 	return 'kemiri.artifact-review.v1:' + JSON.stringify([backend, project, id.replace(/~\d+$/, ''), version]);
 }
-export interface ReviewStorage { getItem(key: string): string | null; setItem(key: string, text: string): void; removeItem(key: string): void }
 export function loadArtifactReview(storage: ReviewStorage, key: string): ArtifactReview {
 	try {
 		const saved = JSON.parse(storage.getItem(key) ?? 'null');
@@ -106,8 +84,6 @@ export function precedingArtifactHeading(scope: Element, node: Node): string {
 	}
 	return reviewText(heading, 300);
 }
-
-export function reviewCommentCount(count: number): string { return `${count} ${count === 1 ? 'comment' : 'comments'}`; }
 
 /** An unfinished editor is local to this version and separate from the review that can be sent. */
 export interface ArtifactCommentDraft { selection: ArtifactSelection; intent?: ReviewIntent; note: string; index?: number }

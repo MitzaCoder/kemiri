@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { projectHref, threadHref } from '#lib/backends.js';
+	import { CodeReviewSession, sameReviewSource } from '#lib/code/code-review-session.svelte.js';
+	import { codeLineDocument } from '#lib/code/code-review.js';
+	import type { LineReviewTarget } from '#lib/code/line-review-editor.js';
+	import CodeReviewTray from '../review/CodeReviewTray.svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { HarnessClient } from '@kemiri/client';
 	import type { ChangedFile, ChangeSource } from '@kemiri/protocol';
@@ -13,11 +19,13 @@
 	import { changeCommitPicker, changeCounts, changeFileDisplay, changeReadProblem, groupChangedFiles,
 		readViewedChanges, setChangeViewed, viewedChangePrefix, type ChangeFile, type ChangeList } from '#lib/code/project-changes.js';
 
-	let { backendId, client, projectId, repository, source, taskTitle, onclose }: {
+	let { backendId, client, projectId, repository, source, taskTitle, taskId, sourceThreadId, onclose }: {
 		backendId: string; client: HarnessClient; projectId: string; repository?: boolean; source: ChangeSource;
-		taskTitle?: string; onclose: () => void;
+		taskTitle?: string; taskId?: string; sourceThreadId?: string; onclose: () => void;
 	} = $props();
 
+	const review = untrack(() => new CodeReviewSession(source, backendId, projectId, client, source.kind === 'task' ? source.taskId : taskId, sourceThreadId));
+	$effect(() => { review.persist(); });
 	const wide = new MediaQuery('(min-width: 641px)');
 	let preferSplit = $state(false);
 	const layout = $derived(wide.current && preferSplit ? 'split' : 'unified');
@@ -51,6 +59,42 @@
 	const viewedCount = $derived(files.filter(row => viewed.has(prefix + row.path)).length);
 	const isViewed = $derived(selected ? viewed.has(prefix + selected.path) : false);
 	const display = $derived(file ? changeFileDisplay(file) : undefined);
+	const lineReview = $derived.by((): LineReviewTarget | undefined => {
+		if (!activeSource || !selected || !file || display?.kind !== 'compare') return;
+		return { session: review, source: activeSource, path: selected.path, previousPath: selected.previousPath,
+			disabledSides: [...(file.before ? [] : ['before'] as const), ...(file.after ? [] : ['after'] as const)] };
+	});
+	/** Only a task range can move. Commit comments are pinned to immutable Git objects. */
+	async function recheckTaskComments(): Promise<void> {
+		if (source.kind !== 'task') return;
+		const taskSource = source;
+		const paths = [...new Set([...review.comments, ...(review.editor ? [review.editor] : [])]
+			.filter(comment => sameReviewSource(comment.source, taskSource)).map(comment => comment.anchor.path))];
+		if (!paths.length) return;
+		let fresh: ChangeList;
+		try { fresh = await client.listChanges(projectId, taskSource); }
+		catch { return; } // A failed read is not evidence that a line disappeared.
+		for (const path of paths) {
+			const row = fresh.files.find(file => file.path === path || file.previousPath === path);
+			if (!row && fresh.truncated) continue;
+			let current: ChangeFile | undefined;
+			if (row && !row.binary) {
+				try { current = await client.readChangeFile(projectId, taskSource, row.path); }
+				catch { continue; }
+			}
+			for (const side of ['before', 'after'] as const) {
+				const text = current?.[side]?.text;
+				review.reconcile(taskSource, row?.path ?? path, side, text === undefined ? undefined : codeLineDocument(text), path);
+			}
+		}
+	}
+
+	async function draftInChat(): Promise<void> {
+		const href = review.recipient ? threadHref(backendId, projectId, review.recipient) : projectHref(backendId, projectId);
+		await goto(href, { reset: false });
+		requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus());
+	}
+
 	const heading = $derived(source.kind === 'task' ? taskTitle ?? `Task ${source.taskId}` : commitList?.commits[0]?.subject || `Commit ${source.hash.slice(0, 12)}`);
 	const statusLetter = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
@@ -105,6 +149,7 @@
 	}
 
 	function fileShortcut(event: KeyboardEvent): void {
+		if (event.key === 'Escape' && review.editor) { event.preventDefault(); event.stopPropagation(); review.cancel(); return; }
 		if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof HTMLElement) ||
 			event.target.closest('select, input:not([type=checkbox]), textarea')) return;
 		// Avoid Alt+Left/Right, the browser's Back and Forward keys.
@@ -241,15 +286,17 @@
 							{#await loadCodeComparison()}
 								<p class="empty-state" role="status">Opening diff…</p>
 							{:then { default: CodeComparison }}
-								<CodeComparison path={selected.path} {layout} beforeLabel="Before" afterLabel="After" before={{ content: display.before, truncated: false }} after={{ content: display.after, truncated: false }} />
+								<CodeComparison path={selected.path} {layout} {lineReview} beforeLabel="Before" afterLabel="After" before={{ content: display.before, truncated: false }} after={{ content: display.after, truncated: false }} />
 							{:catch}
 								<p class="empty-state" role="alert">Could not load the diff viewer. Reload the app to try again.</p>
 							{/await}
 						{/key}
 					{/if}
 				</section>
+				<CodeReviewTray session={review} onrecheck={recheckTaskComments} ondraft={() => void draftInChat()} inlineEditor={!!lineReview && !!review.editor && sameReviewSource(lineReview.source, review.editor.source) && lineReview.path === review.editor.anchor.path} />
 			</div>
 		{/if}
+		{#if (!files.length || !selected) && (review.comments.length || review.editor)}<CodeReviewTray session={review} onrecheck={recheckTaskComments} ondraft={() => void draftInChat()} />{/if}
 	</Dialog.Content>
 </Dialog.Root>
 

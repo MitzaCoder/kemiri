@@ -3,6 +3,8 @@
 	import { EditorView } from '@codemirror/view';
 	import { openSearchPanel } from '@codemirror/search';
 	import { untrack } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { commentOnVisibleCode, drawLineReview, lineReviewExtensions, reviewLineNumbers, type LineReviewTarget } from './line-review-editor.js';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { codeLanguageForPath } from './languages.js';
@@ -10,10 +12,11 @@
 	import { readonlyCodeExtensions } from './readonly-editor.js';
 	import { sourceOffsets, sourceSelection, type SourceReview } from './source-review.js';
 
-	let { text, path, languageHint, compact = false, roomy = false, review = $bindable(), oncomment, ongeometry }: {
+	let { text, path, languageHint, compact = false, roomy = false, review = $bindable(), oncomment, ongeometry, lineReview }: {
 		text: string; path: string; languageHint?: string; compact?: boolean; roomy?: boolean; review?: SourceReview;
-		oncomment?: () => void; ongeometry?: () => void;
+		oncomment?: () => void; ongeometry?: () => void; lineReview?: LineReviewTarget;
 	} = $props();
+	const phone = new MediaQuery('(max-width: 640px)');
 	let host = $state<HTMLDivElement>();
 	let editor = $state.raw<EditorView>();
 	let wrap = $state(true);
@@ -26,22 +29,25 @@
 		const parent = host;
 		const source = text;
 		const label = `${path} source`;
+		const target = lineReview;
 		if (!parent) return;
 		const offsets = sourceOffsets(source);
 		let lastSelection: { from: number; to: number } | undefined;
 		const view = new EditorView({ parent, state: EditorState.create({ doc: source, extensions: readonlyCodeExtensions(label, languageExtension.of([]), [
+			...(target ? [lineReviewExtensions(target, 'file')] : []),
 			wrapExtension.of(untrack(() => wrap) ? EditorView.lineWrapping : []),
 			EditorView.updateListener.of(update => {
 				if (update.selectionSet) hasSelection = !update.state.selection.main.empty;
 				if (update.geometryChanged || update.viewportChanged) ongeometry?.();
 			}),
-		]) }) });
+		], target ? reviewLineNumbers(target, 'file') : undefined) }) });
 		const position = (anchor: string) => {
 			if (!/^s:\d{1,9}$/.test(anchor)) return;
 			const offset = Number(anchor.slice(2));
 			if (offset < source.length) return offsets.normalizedOffset(offset);
 		};
 		editor = view;
+		if (target) untrack(() => target.session.reconcile(target.source, target.path, 'file', view.state.doc));
 		hasSelection = false;
 		review = {
 			selection() {
@@ -78,6 +84,12 @@
 		});
 		return () => { disposed = true; };
 	});
+		$effect(() => {
+		const target = lineReview, view = editor, isPhone = phone.current;
+		if (!target || !view) return;
+		target.session.comments; target.session.editor?.id; target.session.editor?.anchor; target.session.editor?.outdated;
+		untrack(() => drawLineReview(view, target, 'file', isPhone));
+	});
 	$effect(() => { editor?.dispatch({ effects: wrapExtension.reconfigure(wrap ? EditorView.lineWrapping : []) }); });
 </script>
 
@@ -86,7 +98,7 @@
 		<span class="mr-auto text-xs text-(--chat-fg-muted)">{language} · Read-only</span>
 		<Button size="sm" variant="ghost" onclick={() => editor && openSearchPanel(editor)}>Find</Button>
 		<Button size="sm" variant="ghost" aria-pressed={wrap} onclick={() => wrap = !wrap}>Wrap</Button>
-		{#if oncomment}<Button size="sm" variant="ghost" disabled={!hasSelection} onclick={oncomment} title="Select text to comment">Comment<span class="sr-only"> on selection</span></Button>{/if}
+		{#if lineReview}<Button size="sm" variant="ghost" aria-keyshortcuts="Alt+C" onclick={() => editor && lineReview && commentOnVisibleCode(editor, lineReview, 'file')}>Comment</Button>{:else if oncomment}<Button size="sm" variant="ghost" disabled={!hasSelection} onclick={oncomment} title="Select text to comment">Comment<span class="sr-only"> on selection</span></Button>{/if}
 		<CopyButton {text} label="Copy source" />
 	</div>
 	<div class="code-document" bind:this={host}></div>

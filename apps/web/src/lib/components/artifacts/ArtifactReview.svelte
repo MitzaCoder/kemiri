@@ -20,6 +20,7 @@
 	import { ArtifactReviewSubmission, reviewThreadId, artifactReviewKey, loadArtifactReview, saveArtifactReview, formatArtifactReview, precedingArtifactHeading, reviewText, reviewLocation, validateArtifactSelection, loadArtifactCommentDraft, saveArtifactCommentDraft, reviewCommentCount, type ArtifactSelection, type ArtifactCommentDraft, type ReviewComment, type ReviewIntent } from '#lib/artifact-review.js';
 	import { SELECTION_RECT, validateArtifactRects, watchAnchorsMessage, reviewPins, placeReviewCard, blockPath, textOffset, anchorClientRect, type ReviewRect } from '#lib/artifact-review-anchors.js';
 
+	import { reviewSubmitOptions } from '#lib/review.js';
 	import type { SourceReview } from '#lib/code/source-review.js';
 
 	let { artifact, client, layout, surface, textRoot, sourceReview, frame, anchorKind, reviewSourceThreadId, onclose }: {
@@ -391,7 +392,7 @@
 		sending = true; problem = ''; status = '';
 		const text = formatted();
 		try {
-			await client.submit(artifact.projectId, text, { whenBusy: 'steer', taskId: artifact.taskId ?? undefined, threadId: recipient, keepDraft: true, requestId: submission.requestIdFor(text) });
+			await client.submit(artifact.projectId, text, reviewSubmitOptions(artifact.taskId, recipient, submission.requestIdFor(text)));
 			clear(); status = 'Sent. The review appears in chat.';
 		} catch (error) { problem = `${error instanceof Error ? error.message : String(error)} Your comments are kept. Try Send again.`; }
 		finally { sending = false; }

@@ -1212,7 +1212,7 @@
 	{#await import('./changes/ProjectChanges.svelte') then { default: ProjectChanges }}
 		{#key `${backend.id}:${projectId}:${changeSource.kind === 'task' ? changeSource.taskId : changeSource.hash}`}
 			<ProjectChanges backendId={backend.id} client={backend.client} {projectId} repository={project?.repository} source={changeSource}
-				taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} />
+				taskId={taskFromUrl(page.url) ?? undefined} sourceThreadId={threadId} taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} />
 		{/key}
 	{:catch}
 		<div class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-(--chat-surface) p-4" role="alert">

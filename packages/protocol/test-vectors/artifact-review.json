@@ -1,0 +1,32 @@
+[
+  {
+    "name": "owner example",
+    "artifact": { "title": "Atlas release readiness", "id": "mx81k2ab-0123456789", "version": 2, "name": "release-readiness.html" },
+    "review": {
+      "comments": [
+        { "text": "One shared validation path replaces three copies.", "section": "What changed", "intent": "Clarify", "note": "Which three copies? Name them." },
+        { "text": "Before 410 After 312", "section": "Response time", "block": "chart", "intent": "Show differently", "note": "One number is enough here." }
+      ],
+      "overall": "Good direction, too long for a phone."
+    },
+    "expected": "Comments on \"Atlas release readiness\"\n(artifact mx81k2ab-0123456789~2, release-readiness.html)\n\n1. Clarify · What changed\n> One shared validation path replaces three copies.\n\nWhich three copies? Name them.\n\n2. Show differently · Response time (chart)\n> Before 410 After 312\n\nOne number is enough here.\n\nOverall: Good direction, too long for a phone."
+  },
+  {
+    "name": "note alone, multiline quote, no location",
+    "artifact": { "title": "Atlas \"ready\"", "id": "sample~7", "version": 7, "name": "report.md" },
+    "review": { "comments": [{ "text": "First line\n\nLast line", "note": "Explain this." }], "overall": "" },
+    "expected": "Comments on \"Atlas ′ready′\"\n(artifact sample~7, report.md)\n\n1. Note\n> First line\n>\n> Last line\n\nExplain this."
+  },
+  {
+    "name": "intent alone, block without heading",
+    "artifact": { "title": "Atlas", "id": "sample", "version": 1, "name": "report.html" },
+    "review": { "comments": [{ "text": "Workflow Pass", "block": "table row", "intent": "Keep", "note": "" }], "overall": "" },
+    "expected": "Comments on \"Atlas\"\n(artifact sample~1, report.html)\n\n1. Keep · (table row)\n> Workflow Pass"
+  },
+  {
+    "name": "whole page alone",
+    "artifact": { "title": "Atlas", "id": "sample", "version": 3, "name": "log.txt" },
+    "review": { "comments": [], "overall": "  Good direction.  " },
+    "expected": "Comments on \"Atlas\"\n(artifact sample~3, log.txt)\n\nOverall: Good direction."
+  }
+]

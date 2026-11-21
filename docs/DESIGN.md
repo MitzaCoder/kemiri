@@ -3226,6 +3226,24 @@ or invalid UTF-8 gives a binary marker and MIME guess. Oversized reads return a 
 names require explicit `reveal: true`, even when a benign link name points to one. This is a display safeguard, not
 an authorization boundary. The requests do not write files or serve downloads.
 
+### Code review comments and suggested edits
+
+The web Changes and artifact Source editors use one review contract: source (task, full commit, or
+pinned artifact version), path, side, a one-based inclusive line range, and the exact quote. The
+line number opens a block widget on desktop and a bottom sheet on phones. Desktop shows a plus
+only on the hovered or focused line, in the existing line-number gutter. Touch screens show only
+numbered pins for saved comments. The Comment button uses the selection or first visible line;
+Alt+C works from the selection or cursor. The Review tray collects saved comments and an
+overall note. Device-local reviews keep up to 40 comments and 96 KiB of serialized draft text per
+review. Near the old line, exact unambiguous matches follow the quote; missing matches are marked
+Outdated and remain sendable with their original quote.
+
+A suggestion makes only the quoted range editable in the card. It sends a fenced unified patch,
+never writes a file. Code review Markdown is pinned in `packages/protocol/test-vectors/code-review.json`.
+Existing artifact-page review Markdown remains byte-for-byte compatible. Send uses a single idempotent
+`conversation.submit` with `whenBusy: steer` and `keepDraft: true`. Task feedback goes to the coordinator;
+standalone commits stay in their opening chat. Add to chat draft uses the same handoff as artifact review.
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

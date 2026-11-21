@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { EditorState } from '@codemirror/state';
+	import { EditorState, Text } from '@codemirror/state';
+	import { untrack } from 'svelte';
+	import { commentOnVisibleCode, drawLineReview, lineReviewExtensions, reviewLineNumbers, type LineReviewTarget } from './line-review-editor.js';
+	import type { CodeSide } from './code-review.js';
 	import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
 	import { getChunks, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from '@codemirror/merge';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -9,8 +12,8 @@
 	import { readonlyCodeExtensions } from './readonly-editor.js';
 	import { comparisonState, type ComparisonText } from './artifact-comparison.js';
 
-	let { before, after, path, beforeLabel, afterLabel, layout }: {
-		before: ComparisonText; after: ComparisonText; path: string; beforeLabel: string; afterLabel: string; layout?: 'unified' | 'split';
+	let { before, after, path, beforeLabel, afterLabel, layout, lineReview }: {
+		before: ComparisonText; after: ComparisonText; path: string; beforeLabel: string; afterLabel: string; layout?: 'unified' | 'split'; lineReview?: LineReviewTarget;
 	} = $props();
 	const wide = new MediaQuery('(min-width: 768px)');
 	let preferSplit = $state(false);
@@ -18,6 +21,8 @@
 	const comparison = $derived(comparisonState(before, after));
 	let host = $state<HTMLDivElement>();
 	let editor = $state.raw<EditorView>();
+	let beforeEditor = $state.raw<EditorView>();
+	const phone = new MediaQuery('(max-width: 640px)');
 	let precise = $state(true);
 	let count = $state(0);
 	let navigation = $state('');
@@ -57,7 +62,7 @@
 
 	$effect(() => {
 		const parent = host, oldText = before.content, newText = after.content, showSplit = split;
-		const oldLabel = beforeLabel, newLabel = afterLabel, language = codeLanguageForPath(path);
+		const oldLabel = beforeLabel, newLabel = afterLabel, language = codeLanguageForPath(path), target = lineReview;
 		if (!parent) return;
 		let disposed = false;
 		let destroy: (() => void) | undefined;
@@ -66,28 +71,44 @@
 		failed = false;
 		void loadCodeLanguage(language).then(extension => {
 			if (disposed) return;
-			const extensions = (label: string) => readonlyCodeExtensions(label, extension, [EditorView.lineWrapping, accessibleCollapse,
-				keymap.of([{ key: 'Alt-ArrowDown', run: goToNextChunk }, { key: 'Alt-ArrowUp', run: goToPreviousChunk }])]);
+			const extensions = (label: string, side: CodeSide) => readonlyCodeExtensions(label, extension, [EditorView.lineWrapping, accessibleCollapse,
+				keymap.of([{ key: 'Alt-ArrowDown', run: goToNextChunk }, { key: 'Alt-ArrowUp', run: goToPreviousChunk }]),
+				...(target ? [lineReviewExtensions(target, side, !showSplit)] : [])], target ? reviewLineNumbers(target, side) : undefined);
 			if (showSplit) {
 				const merge = new MergeView({ parent,
-					a: { doc: oldText, extensions: extensions(oldLabel) }, b: { doc: newText, extensions: extensions(newLabel) },
+					a: { doc: oldText, extensions: extensions(oldLabel, 'before') }, b: { doc: newText, extensions: extensions(newLabel, 'after') },
 					diffConfig, collapseUnchanged, gutter: true });
 				editor = merge.b;
+				beforeEditor = merge.a;
 				destroy = () => merge.destroy();
 			} else {
 				const view = new EditorView({ parent, state: EditorState.create({ doc: newText, extensions: [
-					extensions(`${oldLabel} to ${newLabel}, unified changes`),
+					extensions(`${oldLabel} to ${newLabel}, unified changes`, 'after'),
 					unifiedMergeView({ original: oldText, diffConfig, collapseUnchanged, mergeControls: false, gutter: true }),
 				] }) });
 				editor = view;
 				destroy = () => view.destroy();
 			}
 			const chunks = getChunks(editor.state)?.chunks ?? [];
+			if (target) {
+				target.session.reconcile(target.source, path, 'before', target.disabledSides?.includes('before') ? undefined : Text.of(oldText.split(/\r\n?|\n/)), target.previousPath);
+				target.session.reconcile(target.source, path, 'after', target.disabledSides?.includes('after') ? undefined : editor.state.doc, target.previousPath);
+			}
 			count = chunks.length;
 			precise = chunks.every(chunk => chunk.precise);
 			ready = true;
 		}).catch(() => { if (!disposed) failed = true; });
-		return () => { disposed = true; destroy?.(); editor = undefined; };
+		return () => { disposed = true; destroy?.(); editor = undefined; beforeEditor = undefined; };
+	});
+
+	$effect(() => {
+		const target = lineReview, view = editor, oldView = beforeEditor, isPhone = phone.current, unified = !split;
+		if (!target || !view) return;
+		target.session.comments; target.session.editor?.id; target.session.editor?.anchor; target.session.editor?.outdated;
+		untrack(() => {
+			drawLineReview(view, target, 'after', isPhone, unified);
+			if (oldView) drawLineReview(oldView, target, 'before', isPhone);
+		});
 	});
 
 	function goToChange(direction: 'previous' | 'next') {
@@ -117,7 +138,7 @@
 {#if comparison === 'too-large' || failed}
 	<p class="px-4 py-2 text-sm" role="status">{failed ? 'The comparison could not be drawn.' : 'These versions exceed the comparison limits.'} Showing plain text previews instead.</p>
 	{@render plainVersions()}
-{:else if comparison === 'same'}
+{:else if comparison === 'same' && !lineReview}
 	<p class="px-4 py-8 text-sm" role="status">{layout ? 'There are no text changes in this file.' : 'There are no text changes between these versions.'}</p>
 {:else}
 	<div class="comparison-controls" role="group" aria-label="Compare controls">
@@ -126,6 +147,11 @@
 			<Button size="sm" variant="ghost" aria-pressed={!split} onclick={() => preferSplit = false}>Unified</Button>
 			<Button size="sm" variant="ghost" aria-pressed={split} onclick={() => preferSplit = true}>Split</Button>
 		{/if}
+		{#if lineReview}<Button size="sm" variant="ghost" disabled={!ready} title="Comment on selected or first visible lines (Alt+C)" aria-keyshortcuts="Alt+C" onclick={() => {
+			const old = beforeEditor?.hasFocus || lineReview?.disabledSides?.includes('after');
+			const view = old ? beforeEditor ?? editor : editor;
+			if (view && lineReview) commentOnVisibleCode(view, lineReview, old && beforeEditor ? 'before' : 'after');
+		}}>Comment</Button>{/if}
 		<Button size="sm" variant="ghost" disabled={!ready} onclick={() => goToChange('previous')} aria-label="Previous change" title="Previous change (Alt+↑)">↑ Previous</Button>
 		<Button size="sm" variant="ghost" disabled={!ready} onclick={() => goToChange('next')} aria-label="Next change" title="Next change (Alt+↓)">↓ Next</Button>
 	</div>
