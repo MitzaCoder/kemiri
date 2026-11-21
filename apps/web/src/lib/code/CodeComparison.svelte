@@ -9,12 +9,12 @@
 	import { readonlyCodeExtensions } from './readonly-editor.js';
 	import { comparisonState, type ComparisonText } from './artifact-comparison.js';
 
-	let { before, after, path, beforeLabel, afterLabel }: {
-		before: ComparisonText; after: ComparisonText; path: string; beforeLabel: string; afterLabel: string;
+	let { before, after, path, beforeLabel, afterLabel, layout }: {
+		before: ComparisonText; after: ComparisonText; path: string; beforeLabel: string; afterLabel: string; layout?: 'unified' | 'split';
 	} = $props();
 	const wide = new MediaQuery('(min-width: 768px)');
 	let preferSplit = $state(false);
-	const split = $derived(wide.current && preferSplit);
+	const split = $derived(layout !== undefined ? layout === 'split' : wide.current && preferSplit);
 	const comparison = $derived(comparisonState(before, after));
 	let host = $state<HTMLDivElement>();
 	let editor = $state.raw<EditorView>();
@@ -34,6 +34,11 @@
 					widget.tabIndex = 0;
 					widget.setAttribute('role', 'button');
 					widget.setAttribute('aria-label', `Show ${widget.textContent}`);
+					const show = document.createElement('span');
+					show.className = 'cm-showUnchanged';
+					show.textContent = ' · Show';
+					show.style.pointerEvents = 'none';
+					widget.append(show);
 					widget.addEventListener('keydown', event => {
 						if (event.key !== 'Enter' && event.key !== ' ') return;
 						event.preventDefault();
@@ -113,11 +118,11 @@
 	<p class="px-4 py-2 text-sm" role="status">{failed ? 'The comparison could not be drawn.' : 'These versions exceed the comparison limits.'} Showing plain text previews instead.</p>
 	{@render plainVersions()}
 {:else if comparison === 'same'}
-	<p class="px-4 py-8 text-sm" role="status">There are no text changes between these versions.</p>
+	<p class="px-4 py-8 text-sm" role="status">{layout ? 'There are no text changes in this file.' : 'There are no text changes between these versions.'}</p>
 {:else}
 	<div class="comparison-controls" role="group" aria-label="Compare controls">
 		<span class="mr-auto px-1 text-xs text-(--chat-fg-muted)" role="status">{ready ? `${count} ${count === 1 ? 'change' : 'changes'}${precise ? '' : ' · approximate'}` : 'Calculating changes…'}</span>
-		{#if wide.current}
+		{#if layout === undefined && wide.current}
 			<Button size="sm" variant="ghost" aria-pressed={!split} onclick={() => preferSplit = false}>Unified</Button>
 			<Button size="sm" variant="ghost" aria-pressed={split} onclick={() => preferSplit = true}>Split</Button>
 		{/if}
@@ -141,7 +146,9 @@
 	.comparison-controls :global(button[aria-pressed='true']) { background: var(--chat-surface-2); color: var(--chat-fg); }
 	.comparison-content :global(.cm-changeGutter) { width: 1.4ch !important; }
 	.comparison-content :global(.cm-changedLineGutter), .comparison-content :global(.cm-deletedLineGutter) { width: 1.4ch; background: none !important; }
+	.comparison-content :global(.cm-showUnchanged) { font-weight: 700; }
+	.comparison-content :global(.cm-mergeSpacer) { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--chat-border) 5px 6px); }
 	.plain-versions { overflow: auto; display: grid; gap: 8px; padding: 8px 16px 16px; }
 	@media (min-width: 768px) { .plain-versions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-	@media (pointer: coarse) { .comparison-controls :global(button) { min-height: 44px; } }
+	@media (max-width: 640px), (pointer: coarse) { .comparison-controls :global(button) { min-height: 44px; } }
 </style>

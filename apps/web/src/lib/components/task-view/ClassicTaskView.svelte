@@ -263,7 +263,7 @@
 
 						<aside class="task-about" aria-label="About this task">
 							<h2 class="task-detail-heading">About this task</h2>
-							{#if delivery}<TaskDelivery {delivery} />{/if}
+							{#if delivery}{#key task.id}<TaskDelivery {delivery} {projectId} taskId={task.id} changesClient={model.changesClient} />{/key}{/if}
 							<dl class="task-facts">
 								{#if owner}<div><dt>Owner thread</dt><dd>{#if owner.threadId}<a class="task-fact-link underline" href={model.threadHref(owner.threadId)}>{owner.label}</a>{:else}{owner.label}{/if}</dd></div>{/if}
 								{#if task.status === 'waiting' && task.waiting}<div><dt>Waiting details</dt><dd><TaskDetailText text={waitingSummary(task)} /></dd></div>{/if}

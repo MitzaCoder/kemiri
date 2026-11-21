@@ -12,6 +12,8 @@
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import { onMount, untrack, type Component } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { changesFromUrl, withChanges } from '#lib/code/project-changes.js';
 	import ArchivedBanner from '#lib/components/ArchivedBanner.svelte';
 	import Banner from '#lib/components/Banner.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
@@ -115,6 +117,12 @@
 	};
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
+	const changeSource = $derived(backend.features?.includes('project-changes') ? changesFromUrl(page.url) : undefined);
+	function closeChanges(): void {
+		const returnUrl = withChanges(page.url);
+		if (page.state.changesFrom === returnUrl) history.back();
+		else void goto(returnUrl, { replace: true, reset: false, persistState: true, state: page.state });
+	}
 	provideFileDownload(async file => {
 		const response = await backend.attachmentRequest(file.url);
 		const url = URL.createObjectURL(await response.blob());
@@ -1199,6 +1207,19 @@
 		<TaskCloseDialog {board} />
 		<TaskSheet {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
+
+{#if changeSource}
+	{#await import('./changes/ProjectChanges.svelte') then { default: ProjectChanges }}
+		{#key `${backend.id}:${projectId}:${changeSource.kind === 'task' ? changeSource.taskId : changeSource.hash}`}
+			<ProjectChanges backendId={backend.id} client={backend.client} {projectId} repository={project?.repository} source={changeSource}
+				taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} />
+		{/key}
+	{:catch}
+		<div class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-(--chat-surface) p-4" role="alert">
+			Could not load Changes. <button type="button" class="underline" onclick={closeChanges}>Close</button>
+		</div>
+	{/await}
+{/if}
 
 <style>
 	/* Scoped to panel actions: utility toggles retain their own pressed state. */

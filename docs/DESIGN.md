@@ -3173,6 +3173,16 @@ omit text. Oversized text uses a unified patch capped at 256 KiB and marks a cli
 Git calls use argument arrays, no optional locks or external diff tools, a 10-second timeout and bounded output.
 Git errors never include file contents or subprocess output in logs.
 
+On web, Delivery → Changes reads commit subjects and counts when the fold opens, only on backends
+advertising `project-changes`. Review changes opens a lazy full-screen view at `?changes=T12` or
+`?changes=<full hash>`, preserving the underlying task. Back closes the view. A task can select All commits
+only for a contiguous range; otherwise the picker shows individual commits and why the combined view is absent.
+The file rail groups paths by directory, and Viewed marks are local, bounded, and scoped by backend, project,
+and commit range. Phones use a previous/next file bar and unified diffs. The editor is the same read-only
+CodeMirror merge surface used by artifact comparison. Binary files show a note and oversized files show the
+plain patch returned by the backend. Alt+[ / Alt+] move between files; Alt+Up / Alt+Down move between changes.
+
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

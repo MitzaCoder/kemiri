@@ -159,6 +159,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 	const liveNow = $derived(taskLiveEnabled && task?.live && task.state?.kind === 'working'
 		? task.state.sentence ?? activity : undefined);
 	const supportsDelivery = $derived(backend.supports('task-delivery'));
+	const changesClient = $derived(backend.supports('project-changes') ? backend.client : undefined);
 	const supportsLinks = $derived(backend.supports('task-links'));
 	const staleReport = $derived(Boolean(task && reportFreshnessEnabled(backend.supports('task-freshness'), task) &&
 		(task.report.freshness?.results.stale || task.report.freshness?.next.stale)));
@@ -275,6 +276,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 
 	return {
 		get backend() { return backend; },
+		get changesClient() { return changesClient; },
 		get projectId() { return projectId; },
 		get projectName() { return projectName; },
 		get board() { return board; },

@@ -311,7 +311,7 @@
 {/snippet}
 
 {#snippet deliveryDetails()}
-	{#if model.delivery}<TaskDelivery delivery={model.delivery} />{/if}
+	{#if model.delivery && task}{#key task.id}<TaskDelivery delivery={model.delivery} projectId={model.projectId} taskId={task.id} changesClient={model.changesClient} />{/key}{/if}
 {/snippet}
 
 {#snippet connections()}
