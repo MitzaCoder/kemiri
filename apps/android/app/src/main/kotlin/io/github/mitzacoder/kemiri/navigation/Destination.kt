@@ -4,6 +4,8 @@ import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.settings.AdvancedGroup
 import io.github.mitzacoder.kemiri.features.settings.GeneralPage
 import io.github.mitzacoder.kemiri.features.settings.ProjectSection
+import io.github.mitzacoder.kemiri.protocol.CodeRoot
+import io.github.mitzacoder.kemiri.protocol.CodeRootProject
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 
@@ -33,6 +35,15 @@ sealed interface Destination {
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null) : Destination
     @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.Changes")
     data class Changes(val chat: Chat, val taskId: String, val title: String, val commitHash: String? = null) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.Files")
+    data class Files(val chat: Chat, val root: CodeRoot = CodeRootProject(), val folder: String = "", val path: String? = null,
+                     val line: Int? = null, val taskId: String? = null) : Destination {
+        fun browse(folder: String) = copy(folder = folder, path = null, line = null)
+        fun open(path: String, line: Int? = null) = copy(folder = path.substringBeforeLast('/', ""), path = path, line = line)
+        fun switchRoot(root: CodeRoot) = copy(root = root, folder = "", path = null, line = null)
+    }
+    @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.WorkingChanges")
+    data class WorkingChanges(val chat: Chat, val root: CodeRoot, val title: String, val taskId: String? = null) : Destination
     /**
      * A backend's terminals (web `/b/<backend>/terminal`): [projectId] and [workerId] pick where a new terminal opens (the
      * project's folder, a worker's workspace); [session] attaches one by name. Not a chat: it has its own header.
@@ -61,6 +72,8 @@ fun Destination.chatRoute(): Destination.Chat? = when (this) {
     is Destination.ProjectSettings -> chat.copy(highlight = null)
     is Destination.Task -> chat.copy(highlight = null)
     is Destination.Changes -> chat.copy(highlight = null)
+    is Destination.Files -> chat.copy(highlight = null)
+    is Destination.WorkingChanges -> chat.copy(highlight = null)
     Destination.Home, Destination.Usage, Destination.ArtifactLibrary, is Destination.Settings, is Destination.Terminal -> null
 }
 /** Keep the same panel window behind a chain of linked task sheets, including when Back returns to a parent. */

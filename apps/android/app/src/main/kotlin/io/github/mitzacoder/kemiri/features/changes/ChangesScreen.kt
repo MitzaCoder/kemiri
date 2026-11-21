@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.chat.*
+import io.github.mitzacoder.kemiri.features.files.*
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
@@ -27,24 +28,32 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-private sealed interface ChangesRead<out T> {
+internal sealed interface ChangesRead<out T> {
     data object Loading : ChangesRead<Nothing>
     data class Ready<T>(val document: T) : ChangesRead<T>
     data class Failed(val message: String) : ChangesRead<Nothing>
 }
-private suspend fun <T> fetchChanges(read: suspend () -> T): ChangesRead<T> = try { ChangesRead.Ready(read()) }
+internal suspend fun <T> fetchChanges(read: suspend () -> T): ChangesRead<T> = try { ChangesRead.Ready(read()) }
 catch (e: CancellationException) { throw e }
 catch (e: Exception) { ChangesRead.Failed(e.message?.take(300) ?: "Could not read these changes.") }
 
+@Composable internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Changes, modifier: Modifier, onBack: () -> Unit) =
+    ChangesScreen(context, route.taskId, route.title, route.commitHash, null, modifier, onBack)
+
+@Composable internal fun WorkingChangesScreen(context: ProjectScreenContext, route: Destination.WorkingChanges, modifier: Modifier, onBack: () -> Unit) =
+    ChangesScreen(context, route.taskId, route.title, null, route.root, modifier, onBack)
+
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Changes, modifier: Modifier, onBack: () -> Unit) {
+@Composable private fun ChangesScreen(context: ProjectScreenContext, taskId: String?, title: String, initialCommit: String?,
+                                      workingRoot: CodeRoot?, modifier: Modifier, onBack: () -> Unit) {
     val backend = context.backend
     val connection by backend.client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
     val android = LocalContext.current
     val storage = remember(android) { PreferenceReviewStorage(android.applicationContext, "kemiri-code-reviews") }
-    val reviewKey = remember(backend.config.key, project, route.taskId) { codeReviewKey(backend.config.key, project, route.taskId) }
+    val reviewKey = remember(backend.config.key, project, taskId, workingRoot) {
+        codeReviewKey(backend.config.key, project, workingRoot?.let { "working:${it.rootKey()}" } ?: requireNotNull(taskId))
+    }
     var review by remember(reviewKey) { mutableStateOf(loadCodeReview(storage, reviewKey)) }
     var status by remember(reviewKey) { mutableStateOf<String?>(null) }
     var sending by remember(reviewKey) { mutableStateOf(false) }
@@ -52,27 +61,31 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     var filesOpen by rememberSaveable { mutableStateOf(false) }
     var editor by remember { mutableStateOf<CodeComment?>(null) }
     var extending by remember { mutableStateOf<CodeComment?>(null) }
-    var chosenCommit by rememberSaveable { mutableStateOf(route.commitHash) }
+    var chosenCommit by rememberSaveable { mutableStateOf(initialCommit) }
     var chosenPath by rememberSaveable { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     val viewedStore = remember(storage) { ViewedChanges(storage) }
     var viewed by remember(viewedStore) { mutableStateOf(viewedStore.load()) }
     val scope = rememberCoroutineScope()
-    val taskSource = remember(route.taskId) { CodeReviewSource("task", taskId = route.taskId) }
-    val taskRequest = remember(route.taskId) { ChangeRequestSourceTask(taskId = route.taskId) }
-    val supported = connection.supports(PROJECT_CHANGES)
+    val reviewSource = remember(taskId, workingRoot, title) {
+        if (workingRoot == null) CodeReviewSource("task", taskId = taskId) else CodeReviewSource("working", root = workingRoot.rootKey(), name = title)
+    }
+    val initialRequest = remember(taskId, workingRoot) {
+        if (workingRoot == null) ChangeRequestSourceTask(taskId = requireNotNull(taskId)) else ChangeRequestSourceWorking(root = workingRoot)
+    }
+    val supported = connection.supports(PROJECT_CHANGES) && (workingRoot == null || connection.supports(WORKING_CHANGES))
     suspend fun list(source: ChangeRequestSource) = backend.client.request(ChangesListRequest(projectId = project, source = source))
     suspend fun file(source: ChangeRequestSource, path: String) = backend.client.request(ChangesFileRequest(projectId = project, source = source, path = path))
 
-    val taskRead by produceState<ChangesRead<ChangesListResponse>>(ChangesRead.Loading, backend, project, taskRequest, supported, attempt) {
+    val taskRead by produceState<ChangesRead<ChangesListResponse>>(ChangesRead.Loading, backend, project, initialRequest, supported, attempt) {
         value = ChangesRead.Loading
-        if (supported) value = fetchChanges { list(taskRequest) }
+        if (supported) value = fetchChanges { list(initialRequest) }
     }
     val taskList = (taskRead as? ChangesRead.Ready)?.document
-    val picker = taskList?.let { commitPicker(it, chosenCommit) }
+    val picker = taskList?.takeIf { workingRoot == null }?.let { commitPicker(it, chosenCommit) }
     val hash = picker?.hash
-    val source = remember(hash, taskSource) { hash?.let { CodeReviewSource("commit", hash = it) } ?: taskSource }
-    val request = remember(hash, taskRequest) { hash?.let { ChangeRequestSourceCommit(hash = it) } ?: taskRequest }
+    val source = remember(hash, reviewSource) { hash?.let { CodeReviewSource("commit", hash = it) } ?: reviewSource }
+    val request = remember(hash, initialRequest) { hash?.let { ChangeRequestSourceCommit(hash = it) } ?: initialRequest }
     val commitRead by key(hash) {
         produceState<ChangesRead<ChangesListResponse>>(ChangesRead.Loading, backend, project, supported, attempt) {
             value = ChangesRead.Loading
@@ -83,7 +96,7 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     val listing = (listRead as? ChangesRead.Ready)?.document
     val files = listing?.files.orEmpty()
     val counts = remember(files) { changeCounts(files) }
-    val selected = files.find { it.path == chosenPath } ?: files.firstOrNull { !it.binary } ?: files.firstOrNull()
+    val selected = selectChangedFile(files, chosenPath)
     val index = selected?.let(files::indexOf) ?: -1
     val fileRead by key(request, selected?.path) {
         produceState<ChangesRead<ChangesFileResponse>>(ChangesRead.Loading, backend, project, supported, attempt) {
@@ -106,16 +119,20 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     LaunchedEffect(response, diff, source, selected) {
         if (response == null || selected == null || sending) return@LaunchedEffect
         // Do not change the text of an unconfirmed request just by reopening a file.
-        if (review.hasUnconfirmedAttempt(taskSource)) return@LaunchedEffect
+        if (review.hasUnconfirmedAttempt(reviewSource)) return@LaunchedEffect
         if (diff == null && response.binary != true && response.tooLarge != true && response.sensitive != true) return@LaunchedEffect
         val comments = reconcileCodeComments(review.comments, source, selected.path, selected.previousPath, diff?.before.orEmpty(), diff?.after.orEmpty())
         if (comments != review.comments) update(review.copy(comments = comments))
     }
     fun select(path: String) { chosenPath = path; extending = null; filesOpen = false }
+    var workingViewed by remember(attempt) { mutableStateOf(emptySet<String>()) }
     val viewedKeys = remember(backend, project, source, listing) {
-        listing?.files?.associate { it.path to viewedChangeKey(backend.config.key, project, source, listing, it.path) }.orEmpty()
+        listing?.takeIf { workingRoot == null }?.files?.associate { it.path to viewedChangeKey(backend.config.key, project, source, listing, it.path) }.orEmpty()
     }
-    fun setViewed(path: String, checked: Boolean) { viewedKeys[path]?.let { viewed = viewedStore.set(viewed, it, checked) } }
+    fun setViewed(path: String, checked: Boolean) {
+        if (workingRoot != null) workingViewed = if (checked) workingViewed + path else workingViewed - path
+        else viewedKeys[path]?.let { viewed = viewedStore.set(viewed, it, checked) }
+    }
     fun openComment(line: ChangeLine, range: Boolean) {
         if (sending || diff == null || selected == null) return
         val previous = extending
@@ -129,11 +146,7 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
         val anchor = anchorCodeLines(doc, selected.path, side, minOf(from, number), maxOf(from, number))
         if (anchor == null) { status = "Select up to 100 lines and 4,000 characters."; return }
         val comment = if (previous == null) CodeComment(UUID.randomUUID().toString(), source, anchor) else {
-            val replacement = previous.replacement?.let { edit ->
-                val before = doc.subList(anchor.startLine - 1, previous.anchor.startLine - 1)
-                val after = doc.subList(previous.anchor.endLine.coerceAtMost(anchor.endLine), anchor.endLine)
-                (before + (if (edit.isEmpty()) emptyList() else codeLines(edit)) + after).joinToString("\n")
-            }
+            val replacement = extendReplacement(doc, anchor, previous)
             if (replacement != null && replacement.length > MAX_CODE_QUOTE) { status = "The replacement would be too long for this range."; return }
             previous.copy(anchor = anchor, replacement = replacement)
         }
@@ -143,20 +156,20 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     fun transfer(toDraft: Boolean) {
         if (sending || review.comments.isEmpty()) return
         sending = true; status = null
-        val recipient = context.route.copy(threadId = reviewThreadId(route.taskId, context.route.threadId), workerId = null, highlight = null)
+        val recipient = context.route.copy(threadId = reviewThreadId(taskId, (workingRoot as? CodeRootThread)?.threadId ?: context.route.threadId), workerId = null, highlight = null)
         scope.launch {
             try {
                 // First establish whether the exact previous submission was accepted. Keep its payload on retry.
-                if (!review.hasUnconfirmedAttempt(taskSource)) {
-                    val reconciled = recheckTaskComments(review.comments, taskSource, { list(taskRequest) }) { file(taskRequest, it) }
+                if (!review.hasUnconfirmedAttempt(reviewSource)) {
+                    val reconciled = recheckChangeComments(review.comments, reviewSource, { list(initialRequest) }) { file(initialRequest, it) }
                     if (reconciled != review.comments) update(review.copy(comments = reconciled))
                 }
-                val message = formatCodeReview(taskSource, review)
-                if (toDraft) appendArtifactReviewDraft(android, context, recipient, message, route.taskId)
+                val message = formatCodeReview(reviewSource, review)
+                if (toDraft) appendArtifactReviewDraft(android, context, recipient, message, taskId)
                 else {
                     val submission = codeReviewAttempt(review.attempt, message)
                     update(review.copy(attempt = submission))
-                    submitReview(context, recipient, message, route.taskId, submission.requestId)
+                    submitReview(context, recipient, message, taskId, submission.requestId)
                 }
                 update(CodeReview()); tray = false
                 if (toDraft) context.navigate(recipient) else onBack()
@@ -169,9 +182,13 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     Scaffold(modifier = modifier, topBar = {
         Column {
             TopAppBar(title = { Text("Changes", Modifier.semantics { heading() }) }, navigationIcon = {
-                JarvisIconButton(Lucide.ArrowLeft, "Back to task", onClick = onBack, enabled = !sending)
+                JarvisIconButton(Lucide.ArrowLeft, if (workingRoot == null) "Back to task" else "Back", onClick = onBack, enabled = !sending)
             }, actions = {
-                TextButton(onClick = { filesOpen = true }, enabled = files.isNotEmpty() && !sending) { Text("Files") }
+                if (connection.supports(PROJECT_FILES)) TextButton(onClick = {
+                    val root = workingRoot ?: CodeRootProject()
+                    context.navigate(Destination.Files(context.route, root = root, taskId = taskId))
+                }, enabled = !sending) { Text("Files") }
+                else TextButton(onClick = { filesOpen = true }, enabled = files.isNotEmpty() && !sending) { Text("Files") }
             })
             Box(Modifier.fillMaxWidth().height(2.dp).background(Jarvis.colors.grad()))
         }
@@ -186,12 +203,19 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                Text(route.taskId, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                Text(route.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (taskList != null && listing != null) {
-                    val commits = taskList.commits.size
-                    Text("$commits ${if (commits == 1) "commit" else "commits"} · ${counts.label()}${if (listing.truncated) " · partial" else ""}",
-                        color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
+                if (workingRoot != null) {
+                    Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("Uncommitted changes", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    workingChangeMetadata(listing).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
+                    TextButton({ extending = null; attempt++ }, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) { Text("Refresh") }
+                } else {
+                    Text(taskId.orEmpty(), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (taskList != null && listing != null) {
+                        val commits = taskList.commits.size
+                        Text("$commits ${if (commits == 1) "commit" else "commits"} · ${counts.label()}${if (listing.truncated) " · partial" else ""}",
+                            color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 if (picker != null && taskList.commits.isNotEmpty()) ChangeCommitMenu(taskList, picker, sending) {
                     chosenCommit = it; chosenPath = null; extending = null
@@ -229,7 +253,7 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
             }
         }
     }
-    if (filesOpen && supported) ChangeFilesSheet(files, selected?.path, { path -> viewedKeys[path] in viewed }, ::setViewed, ::select) { filesOpen = false }
+    if (filesOpen && supported) ChangeFilesSheet(files, selected?.path, { path -> if (workingRoot == null) viewedKeys[path] in viewed else path in workingViewed }, ::setViewed, ::select) { filesOpen = false }
     val comment = editor
     if (comment != null && supported) {
         CodeCommentSheet(comment, review.comments.any { it.id == comment.id }, status, { editor = null; status = null },
@@ -241,13 +265,13 @@ internal fun ChangesScreen(context: ProjectScreenContext, route: Destination.Cha
                 else status = "This review is full. Send or remove a saved comment first."
             })
     } else if (tray && supported) {
-        CodeReviewSheet(route.taskId, review, sending, status, { if (!sending) { tray = false; status = null } },
+        CodeReviewSheet(taskId, review, sending, status, { if (!sending) { tray = false; status = null } },
             overall = { update(review.copy(overall = it)) }, edit = { editor = it; status = null },
             remove = { update(review.copy(comments = review.comments.filterNot { row -> row.id == it.id })) }, send = { transfer(false) }, draft = { transfer(true) })
     }
 }
 
-private suspend fun recheckTaskComments(comments: List<CodeComment>, source: CodeReviewSource,
+private suspend fun recheckChangeComments(comments: List<CodeComment>, source: CodeReviewSource,
                                         list: suspend () -> ChangesListResponse, file: suspend (String) -> ChangesFileResponse): List<CodeComment> {
     val paths = comments.filter { it.source == source }.map { it.anchor.path }.distinct()
     if (paths.isEmpty()) return comments
@@ -286,6 +310,6 @@ private suspend fun recheckTaskComments(comments: List<CodeComment>, source: Cod
         if (retry != null) OutlinedButton(onClick = retry) { Text("Retry") }
     }
 }
-@Composable private fun ChangesLoading() {
+@Composable internal fun ChangesLoading() {
     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 }

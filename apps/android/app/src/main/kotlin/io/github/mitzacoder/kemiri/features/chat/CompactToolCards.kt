@@ -97,13 +97,14 @@ internal fun thinkingHeaderText(steps: Int, active: Boolean): String =
         }
     }
 }
-@Composable private fun CodingBody(part: ChatPart) {
+@Composable private fun CodingBody(part: ChatPart, scope: TranscriptScope) {
     if(part.kind == "thinking") RichMarkdown(part.text)
     else codingSections(part).forEach { LiteralCodeBlock(it) }
+    OpenReadFile(part, scope)
     part.viaScript?.let { ScriptDisclosure(it,"Original script") }
     if(part.kind == "tool") ToolDiagnostics(part)
 }
-@Composable internal fun CompactCodingCard(row: ChatRow) {
+@Composable internal fun CompactCodingCard(row: ChatRow, scope: TranscriptScope) {
     var open by rememberSaveable(row.key) { mutableStateOf(false) }
     var selected by rememberSaveable(row.key) { mutableStateOf<String?>(null) }
     val calls = row.parts.filter { it.kind == "tool" }
@@ -113,14 +114,14 @@ internal fun thinkingHeaderText(steps: Int, active: Boolean): String =
     TranscriptSurface(title = if(calls.size == 1) compactToolHeadline(calls.first()) else group.label,icon = if(calls.first().name == "bash") Lucide.Terminal else Lucide.Code,
         expanded = open,onToggle = { open = !open },subtitle = if(calls.size == 1) toolSummary(calls.first()) else null,status = if(calls.size == 1) friendlyStatus(worst) else group.detail ?: friendlyStatus(worst),tone = callTone(worst),compactHeader = true) {
         ToolDisclosure(open) {
-            if(row.parts.size == 1) CodingBody(calls.first())
+            if(row.parts.size == 1) CodingBody(calls.first(), scope)
             else row.parts.forEach { part ->
                 key(part.key) {
                     val itemOpen = selected == part.key
                     DisclosureLine(if(part.kind == "thinking") part.text.lineSequence().firstOrNull().orEmpty().ifBlank { "Thought" } else toolSummary(part).ifBlank { compactToolHeadline(part) },
                         if(part.kind == "thinking") Lucide.Brain else when(part.name) { "bash" -> Lucide.Terminal; "write","edit" -> Lucide.FilePenLine; else -> Lucide.FileText },
                         itemOpen,{ selected = if(itemOpen) null else part.key },if(part.kind == "thinking") null else listOfNotNull(friendlyStatus(part),part.durationMs?.let { if(it < 1000) "<1s" else "${it / 1000}s" }).joinToString(" · "),mono = part.kind == "tool",tone = callTone(part))
-                    ToolDisclosure(itemOpen) { CodingBody(part) }
+                    ToolDisclosure(itemOpen) { CodingBody(part, scope) }
                 }
             }
         }
@@ -206,4 +207,27 @@ internal fun codingSections(part: ChatPart): List<LiteralSection> {
             if(failed) "Error output" else if(part.name == "read") "File contents" else "Output",
             part.text,if(part.name == "read" && !failed) language else "",wrap = true))
     }
+}
+
+@Composable private fun OpenReadFile(part: ChatPart, scope: TranscriptScope) {
+    val context = scope.context ?: return
+    if (part.name != "read" || part.status != "done") return
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    if (!connection.supports(io.github.mitzacoder.kemiri.features.files.PROJECT_FILES)) return
+    val args = part.arguments.obj() ?: return
+    val worker = scope.workers.firstOrNull { it.id == context.route.workerId }
+    // A removed isolated worker's old relative path must not silently become a project file.
+    if (context.route.workerId != null && (worker == null || (worker.isolation == "workspace" && worker.workspacePath.isNullOrBlank()))) return
+    val root = io.github.mitzacoder.kemiri.features.files.preferredCheckout(worker, worker?.threadId ?: context.route.threadId)
+    val projects by context.backend.projects.collectAsStateWithLifecycle()
+    val checkout = when (root) {
+        is io.github.mitzacoder.kemiri.protocol.CodeRootWorker -> worker?.workspacePath
+        is io.github.mitzacoder.kemiri.protocol.CodeRootProject -> projects.firstOrNull { it.id == context.route.projectId }?.path
+        else -> null // Threads do not publish a checkout path; relative tool paths still work.
+    }
+    val path = io.github.mitzacoder.kemiri.features.files.pathInCheckout(args.s("path"), checkout) ?: return
+    val line = args["offset"]?.toString()?.trim('"')?.toIntOrNull()?.takeIf { it in 1..999_999_999 } ?: 1
+    TextButton(onClick = {
+        context.navigate(Destination.Files(context.route, root = root, taskId = context.taskOrigin ?: worker?.taskId).open(path, line))
+    }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open file") }
 }

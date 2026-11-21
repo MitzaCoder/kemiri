@@ -164,7 +164,7 @@ private const val ORB_MIN_WIDTH_DP = 640
             first.kind == "notice" -> injectedInput(first.text)?.let { InjectedLine(first,it,scope.context,scope.workers,scope.threads,scope.artifacts) } ?: TurnNotice(first)
             first.kind == "thinking" -> ThinkingCard(row)
             row.isSteps -> StepsRow(row,scope)
-            first.kind == "tool" && first.name in codingTools -> CompactCodingCard(row)
+            first.kind == "tool" && first.name in codingTools -> CompactCodingCard(row, scope)
             first.kind == "tool" -> ToolCallCard(first,scope)
             first.kind == "compaction" -> CompactionMarker(first,scope.context)
             first.kind == "image" -> Box(Modifier.fillMaxWidth(),contentAlignment = Alignment.CenterEnd) {
@@ -191,7 +191,7 @@ private const val ORB_MIN_WIDTH_DP = 640
         part.name == "codemode" -> CodeModeCard(part)
         part.name.startsWith("memory_") -> MemoryCallCard(part,context)
         board != null -> BoardCallLine(part,board,context)
-        part.name in codingTools -> CompactCodingCard(ChatRow(part.key,listOf(part)))
+        part.name in codingTools -> CompactCodingCard(ChatRow(part.key,listOf(part)), scope)
         else -> GenericToolCard(part,scope)
     }
 }

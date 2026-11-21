@@ -1,9 +1,14 @@
 package io.github.mitzacoder.kemiri.features.changes
 
+import io.github.mitzacoder.kemiri.data.localizedTimeFormatter
 import io.github.mitzacoder.kemiri.features.chat.changedWords
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
+import java.time.DateTimeException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 internal const val PROJECT_CHANGES = "project-changes"
 internal data class ChangeCounts(val files: Int, val additions: Long, val deletions: Long) {
@@ -140,4 +145,19 @@ internal fun diffBands(lines: List<ChangeLine>, pinned: Set<Int>): List<DiffBand
             for (i in foldTo until at) add(DiffBand(i, i + 1))
         } else for (i in start until at) add(DiffBand(i, i + 1))
     }
+}
+
+internal fun selectChangedFile(files: List<ChangedFile>, path: String?): ChangedFile? =
+    files.firstOrNull { it.path == path } ?: files.firstOrNull { !it.binary } ?: files.firstOrNull()
+
+internal fun workingChangeMetadata(
+    listing: ChangesListResponse?,
+    clock: DateTimeFormatter = localizedTimeFormatter().withZone(ZoneId.systemDefault()),
+): List<String> = if (listing == null) emptyList() else buildList {
+    add(changeCounts(listing.files).label() + if (listing.truncated) " · partial" else "")
+    val base = listing.baseCommit?.take(8) ?: "empty base"
+    val readTime = listing.readAt?.let { at ->
+        try { clock.format(Instant.parse(at)) } catch (_: DateTimeException) { null }
+    }
+    add("against $base" + if (readTime != null) " · as of $readTime" else "")
 }

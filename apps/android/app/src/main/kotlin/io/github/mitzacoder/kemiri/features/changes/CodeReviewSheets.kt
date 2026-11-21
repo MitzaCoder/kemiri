@@ -71,7 +71,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun CodeReviewSheet(taskId: String, review: CodeReview, sending: Boolean, problem: String?, close: () -> Unit,
+@Composable internal fun CodeReviewSheet(taskId: String?, review: CodeReview, sending: Boolean, problem: String?, close: () -> Unit,
                                          overall: (String) -> Unit, edit: (CodeComment) -> Unit, remove: (CodeComment) -> Unit,
                                          send: () -> Unit, draft: () -> Unit) {
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
@@ -79,7 +79,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Review · ${reviewCommentCount(review.comments.size)}", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-            Text("Send one message to the agent. It appears under Your notes on $taskId.", color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
+            Text(if (taskId == null) "Send one message to the agent in chat." else "Send one message to the agent. It appears under Your notes on $taskId.", color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
             problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (review.comments.isEmpty()) Text("Tap a line number in the diff to add a comment.")
             for ((index, comment) in review.comments.withIndex()) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {

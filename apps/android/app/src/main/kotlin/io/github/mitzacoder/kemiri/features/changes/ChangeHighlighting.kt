@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private val changeLanguageAliases = mapOf("kt" to "kotlin", "kts" to "kotlin", "rs" to "rust", "h" to "c", "hpp" to "cpp", "rb" to "ruby", "exs" to "elixir", "cs" to "csharp", "ps1" to "powershell")
-private fun changeLanguage(path: String): String {
+internal fun changeLanguage(path: String): String {
     val name = path.substringAfterLast('/').lowercase(Locale.ROOT)
     if (name == "dockerfile" || name == "makefile") return name
     val extension = name.substringAfterLast('.', "")

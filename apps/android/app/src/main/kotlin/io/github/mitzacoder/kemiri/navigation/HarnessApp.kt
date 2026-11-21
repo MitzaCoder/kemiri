@@ -175,6 +175,7 @@ private fun HarnessNavigation(
     ReportScreenPresence(chat?.backendKey, chat?.projectId)
     val backend = sessions.firstOrNull { it.config.key == chat?.backendKey }
     val terminal = current as? Destination.Terminal
+    val codeView = current is Destination.Changes || current is Destination.WorkingChanges || current is Destination.Files
     val highlight = (current as? Destination.Chat)?.highlight
     val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight, goBack = if (backStack.canGoBack) ::pop else null, taskOrigin = (current as? Destination.Task)?.taskId) else null
     // A task sheet opened from a panel keeps the panel under it, so closing the sheet returns to the panel as it was.
@@ -213,9 +214,9 @@ private fun HarnessNavigation(
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
     CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets) {
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && current !is Destination.Changes && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && !codeView && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
         Row(Modifier.fillMaxSize()) {
-        if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio && current !is Destination.Changes) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
+        if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
             sidebarCollapsed = !sidebarCollapsed
             navPreferences.edit { putBoolean("collapsed", sidebarCollapsed) }
         }, unknownBackend = unknownBackend, dismissUnknownBackend = { unknownBackend = null })
@@ -235,7 +236,7 @@ private fun HarnessNavigation(
                     modifier = Modifier.weight(1f),
                     topBar = {
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
-                        if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && current !is Destination.Changes) TopAppBar(
+                        if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
                                 if (current.isSettings()) Text("Settings")
@@ -271,6 +272,8 @@ private fun HarnessNavigation(
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
                             is Destination.Changes -> if (context != null) io.github.mitzacoder.kemiri.features.changes.ChangesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
+                            is Destination.Files -> if (context != null) io.github.mitzacoder.kemiri.features.files.FilesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
+                            is Destination.WorkingChanges -> if (context != null) io.github.mitzacoder.kemiri.features.changes.WorkingChangesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
                             is Destination.Terminal -> sessions.firstOrNull { it.config.key == current.backendKey }
                                 ?.let { TerminalScreen(it, current, onBack = ::pop, modifier = modifier) } ?: MissingBackend(modifier)
                         }

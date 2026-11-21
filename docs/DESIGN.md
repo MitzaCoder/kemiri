@@ -3317,6 +3317,26 @@ lines; outdated quotes remain in the review. Android reads the same formatter fi
 artifact-review route to send one message or hand it to the chat draft. The saved request ID permits
 retrying an unconfirmed send without creating a second task note.
 
+### Code view on Android: Files and uncommitted changes
+
+On a backend advertising `project-files`, **Files** in the project header or the Changes screen opens
+an Android back-stack destination. A successful chat read also links to its checkout-relative path and
+starting line. The root picker uses the project folder, isolated worker workspaces, and background job
+checkouts. The backend remains authoritative about whether a checkout still exists. Each folder is loaded
+as it opens. The breadcrumb, **Show hidden**, and checkout-scoped **Go to file** work without loading
+the project tree up front.
+
+Files are read-only on Android even when direct saves are enabled on the backend. Source uses the same
+compact TextMate line rows as Changes. Markdown opens in native Preview with a Source toggle. Binary
+files show their MIME type; oversized files show their size. Sensitive names require **Show** on each
+visit before the app asks for the text. File-line comments reuse the code review sheets and shared message
+format, with exact quotes and device-local storage scoped to the backend, project, checkout and file.
+
+When `project-changes-working` is also advertised, **Uncommitted changes** opens the same unified
+Changes view for that root. The header shows `against <short hash> · as of <local time>`, using the
+device’s 12/24-hour preference. Refresh rereads the checkout without writing or snapshotting it.
+Viewed marks for working changes reset on refresh.
+
 ### Project deployment feeds (T125, stage 5 of T120)
 
 Feature `task-deploys` adds optional `projects.configure.deployFeed`: an absolute trusted local

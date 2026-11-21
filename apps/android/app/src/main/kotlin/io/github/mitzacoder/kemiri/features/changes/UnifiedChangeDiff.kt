@@ -34,7 +34,7 @@ internal val changeCodeStyle = TextStyle(fontFamily = FontFamily.Monospace, font
     lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))
 private val changeLineHeight = 19.dp
 
-@Composable private fun highlightedChangeLines(lines: List<String>, path: String): List<AnnotatedString> {
+@Composable internal fun highlightedChangeLines(lines: List<String>, path: String): List<AnnotatedString> {
     val assets = LocalContext.current.assets
     val dark = Jarvis.colors.dark
     return key(path, dark) {
@@ -94,36 +94,44 @@ private val changeLineHeight = 19.dp
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable private fun ChangeDiffLine(line: ChangeLine, highlighted: AnnotatedString?, marks: List<IntRange>, pins: List<Int>,
                                        selected: Boolean, onComment: (ChangeLine, Boolean) -> Unit, onPin: () -> Unit) {
     val colors = Jarvis.colors
-    val primary = MaterialTheme.colorScheme.primary
     val accent = if (line.unchanged) Color.Transparent else if (line.after == null) colors.danger else colors.success
     val description = "${line.side.replaceFirstChar(Char::titlecase)} line ${line.number}" + when {
         line.unchanged -> ""
         line.after == null -> ", removed"
         else -> ", added"
     }
-    val marked = remember(highlighted, line.text, marks, accent) {
-        changeLineText(line.text, highlighted, marks, accent.copy(alpha = 0.28f))
+    ReviewCodeLine(line.number, line.text, description, highlighted, marks, line.sign, accent, pins, selected,
+        onComment = { onComment(line, it) }, onPin = onPin)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable internal fun ReviewCodeLine(number: Int, text: String, description: String, highlighted: AnnotatedString?,
+                                       marks: List<IntRange> = emptyList(), sign: String? = null, accent: Color = Color.Transparent,
+                                       pins: List<Int> = emptyList(), selected: Boolean = false, onComment: (Boolean) -> Unit, onPin: () -> Unit) {
+    val colors = Jarvis.colors
+    val primary = MaterialTheme.colorScheme.primary
+    val marked = remember(highlighted, text, marks, accent) {
+        changeLineText(text, highlighted, marks, accent.copy(alpha = 0.28f))
     }
     Row(Modifier.fillMaxWidth().heightIn(min = changeLineHeight)
-        .background(if (selected) primary.copy(alpha = 0.15f) else accent.copy(alpha = if (line.unchanged) 0f else 0.10f))
+        .background(if (selected) primary.copy(alpha = 0.15f) else accent.copy(alpha = if (accent == Color.Transparent) 0f else 0.10f))
         .semantics(mergeDescendants = true) {
             contentDescription = description
             if (selected) stateDescription = "Range start"
-            onClick(label = "Comment on line") { onComment(line, false); true }
-            onLongClick(label = "Start line range") { onComment(line, true); true }
+            onClick(label = "Comment on line") { onComment(false); true }
+            onLongClick(label = "Start line range") { onComment(true); true }
             if (pins.isNotEmpty()) customActions = listOf(CustomAccessibilityAction(
-                "Review comments ${pins.joinToString()} on line ${line.number}", { onPin(); true },
+                "Review comments ${pins.joinToString()} on line $number", { onPin(); true },
             ))
         }, verticalAlignment = Alignment.Top) {
         // Widen the gutter instead of reserving a 48 dp vertical control on every code line.
-        Text(line.number.toString(), Modifier.alignByBaseline().widthIn(min = 56.dp).clearAndSetSemantics {}
-            .combinedClickable(onClick = { onComment(line, false) }, onLongClick = { onComment(line, true) }),
+        Text(number.toString(), Modifier.alignByBaseline().widthIn(min = 56.dp).clearAndSetSemantics {}
+            .combinedClickable(onClick = { onComment(false) }, onLongClick = { onComment(true) }),
             color = colors.fgMuted, style = changeCodeStyle, textAlign = TextAlign.Center)
-        Text(line.sign, Modifier.alignByBaseline().padding(end = 6.dp).clearAndSetSemantics {}, style = changeCodeStyle, color = accent)
+        if (sign != null) Text(sign, Modifier.alignByBaseline().padding(end = 6.dp).clearAndSetSemantics {}, style = changeCodeStyle, color = accent)
         Text(marked, Modifier.alignByBaseline().weight(1f).padding(end = 10.dp), style = changeCodeStyle, color = colors.fg)
         if (pins.isNotEmpty()) Text(pins.take(2).joinToString(",") + if (pins.size > 2) "…" else "",
             Modifier.alignByBaseline().widthIn(min = 48.dp).clearAndSetSemantics {}.clickable(onClick = onPin),

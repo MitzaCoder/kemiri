@@ -246,6 +246,20 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
         if (PanelTab.Memory in tabs) add(HeaderAction("memory", "Memory", "Memory", StatusGlyphs.BookOpen, pressed = panel?.tab == PanelTab.Memory) { toggle(PanelTab.Memory) })
         // The old panel tabs were the only route to Artifacts. Keep it reachable from the header too.
         if (PanelTab.Artifacts in tabs) add(HeaderAction("artifacts", "Artifacts", "Artifacts", Lucide.Paperclip, pressed = panel?.tab == PanelTab.Artifacts) { toggle(PanelTab.Artifacts) })
+        val checkoutWorker = workers.firstOrNull { it.id == route.workerId }
+        val checkout = io.github.mitzacoder.kemiri.features.files.preferredCheckout(checkoutWorker, checkoutWorker?.threadId ?: route.threadId)
+        if (connection.supports("project-files")) {
+            add(HeaderAction("files", "Browse files in this checkout", "Files", Lucide.FileText) {
+                context.navigate(Destination.Files(route, root = checkout, taskId = context.taskOrigin))
+            })
+            if ((worker || route.threadId != null) && connection.supports("project-changes-working") && connection.supports("project-changes")) {
+                val title = checkoutWorker?.title?.takeIf { it.isNotBlank() }?.let { "Workspace · $it" }
+                    ?: if (route.threadId != null) "Background job checkout" else "Project folder"
+                add(HeaderAction("working-changes", "Uncommitted changes", "Uncommitted changes", Lucide.Code) {
+                    context.navigate(Destination.WorkingChanges(route, checkout, title, taskId = checkoutWorker?.taskId))
+                })
+            }
+        }
         // A shell on this backend in the project's folder (a worker's page: in its workspace), on a screen of its own.
         if (connection.supports(HarnessFeature.TERMINAL)) {
             val workspace = route.workerId?.let { id -> workers.firstOrNull { it.id == id }?.workspacePath }

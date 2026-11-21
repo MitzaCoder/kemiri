@@ -12,9 +12,9 @@ internal const val MAX_CODE_QUOTE = 4000
 internal const val MAX_CODE_COMMENTS = 40
 private const val MAX_REVIEW_CHARS = 96 * 1024
 
-@Serializable internal data class CodeReviewSource(val kind: String, val taskId: String? = null, val hash: String? = null, val versionId: String? = null) {
-    fun key() = when (kind) { "task" -> taskId.orEmpty(); "commit" -> hash.orEmpty(); else -> versionId.orEmpty() }
-    fun label() = "$kind ${key()}"
+@Serializable internal data class CodeReviewSource(val kind: String, val taskId: String? = null, val hash: String? = null, val versionId: String? = null, val root: String? = null, val path: String? = null, val name: String? = null) {
+    fun key() = when (kind) { "task" -> taskId.orEmpty(); "commit" -> hash.orEmpty(); "file" -> "$root/$path@$hash"; "working" -> root.orEmpty(); else -> versionId.orEmpty() }
+    fun label() = if (kind == "working") "uncommitted lines in ${reviewText(name.orEmpty(), 256).replace(Regex("\\s+"), " ")} ($root)" else "$kind ${key()}"
 }
 @Serializable internal data class CodeAnchor(val path: String, val side: String, val startLine: Int, val endLine: Int, val quotedText: String) {
     fun location() = "${path.replace(Regex("[\r\n\t]"), " ")} · $side " +
@@ -104,10 +104,10 @@ internal fun loadCodeReview(storage: ReviewStorage, key: String): CodeReview = r
     val review = storage.get(key)?.takeIf { it.length <= MAX_REVIEW_CHARS }?.let { Json.decodeFromString<CodeReview>(it) } ?: return CodeReview()
     review.copy(overall = review.overall.take(4000), comments = review.comments.filter { comment ->
         val a = comment.anchor
-        a.path.length in 1..4096 && a.side in listOf("before", "after") && a.startLine in 1..1_048_577 && a.endLine in a.startLine..a.startLine + 99 &&
+        a.path.length in 1..4096 && a.side in listOf("before", "after", "file") && a.startLine in 1..1_048_577 && a.endLine in a.startLine..a.startLine + 99 &&
             a.quotedText.length <= MAX_CODE_QUOTE && a.quotedText.count { it == '\n' } == a.endLine - a.startLine &&
             comment.id.length in 1..100 && comment.note.length <= 4000 && (comment.intent == null || comment.intent in REVIEW_INTENTS) &&
-            (comment.replacement?.length ?: 0) <= MAX_CODE_QUOTE && comment.source.kind in listOf("task", "commit")
+            (comment.replacement?.length ?: 0) <= MAX_CODE_QUOTE && comment.source.kind in listOf("task", "commit", "file", "working")
     }.distinctBy { it.id }.take(MAX_CODE_COMMENTS))
 }.getOrDefault(CodeReview())
 internal fun saveCodeReview(storage: ReviewStorage, key: String, review: CodeReview): Boolean = runCatching {
@@ -124,3 +124,9 @@ internal fun codeReviewAttempt(previous: CodeReviewAttempt?, text: String, creat
 
 internal fun CodeReview.hasUnconfirmedAttempt(source: CodeReviewSource): Boolean =
     attempt?.let { it.contentHash == sha256Hex(formatCodeReview(source, this).toByteArray()) } == true
+
+internal fun extendReplacement(lines: List<String>, anchor: CodeAnchor, previous: CodeComment): String? = previous.replacement?.let { edit ->
+    val before = lines.subList(anchor.startLine - 1, previous.anchor.startLine - 1)
+    val after = lines.subList(previous.anchor.endLine.coerceAtMost(anchor.endLine), anchor.endLine)
+    (before + (if (edit.isEmpty()) emptyList() else codeLines(edit)) + after).joinToString("\n")
+}
