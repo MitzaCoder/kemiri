@@ -1,3 +1,5 @@
+import { threadMessageId } from "./thread-messages.ts";
+import type { ThreadMessage } from "@kemiri/protocol";
 import type { CacheWarmStretch } from "@kemiri/protocol";
 import { cacheWarmByAnchor } from "./chat/cache-warm.js";
 /**
@@ -409,6 +411,7 @@ export type WaitingInfo = {
 const coordinatorNoteLabels = { memory: "Memory changed elsewhere", coordinators: "Coordinator roster changed", repository: "Repository changed" } as const;
 
 export type TranscriptItem =
+	| { kind: "threadMessage"; key: string; message: ThreadMessage }
 	| { kind: "coordinatorNote"; key: string; label: string; summary: string }
 	| { kind: "cacheWarm"; key: string; stretch: CacheWarmStretch }
 	| {
@@ -623,6 +626,7 @@ export type BuildOptions = {
  entryAnchor?: number;
 	keepWarm?: readonly CacheWarmStretch[];
 	showCoordinatorNotes?: boolean;
+	threadMessages?: ReadonlyMap<string, ThreadMessage>;
 	/**
 	 * The key a message sent from this screen keeps from waiting to placed, by the submission it was: with it the
 	 * waiting bubble and the entry it becomes are one element. Without one, an entry a watch saw placed from a queue
@@ -674,6 +678,12 @@ export function buildTranscript(
 		const targeted = !anchored && anchor !== undefined && (anchor === toolOptions.entryId || anchor === result?.entryId);
 		if (targeted) anchored = true;
 		if (result !== undefined) renderedResults.add(result.entryId);
+		const message = call.name === "thread_send" ? options.threadMessages?.get(threadMessageId(result?.details) ?? `thread-message:${call.id}`) : undefined;
+		if (message) {
+			flush();
+			items.push({ kind: "threadMessage", key: message.id, message });
+			return;
+		}
 		const diagnostics: Diagnostic[] = [
 			...(result?.diagnostics ?? []),
 			...(call.argumentsError === undefined ? [] : [{ severity: "error" as const, message: call.argumentsError }]),
@@ -713,7 +723,20 @@ export function buildTranscript(
 			}
 			case "pi.user": {
 				flush();
+				const peer = options.threadMessages?.get(threadMessageId(entry.data) ?? "");
+				if (peer) {
+					items.push({ kind: "threadMessage", key: peer.id, message: peer });
+					break;
+				}
+				const held = entry.data as { threadMessageIds?: string[]; peerDisplayContent?: unknown } | undefined;
+				const heldPeers = options.threadMessages && Array.isArray(held?.threadMessageIds)
+					? held.threadMessageIds.map(id => options.threadMessages?.get(id)) : undefined;
+				const hasHeldPeers = heldPeers?.length && heldPeers.every(message => message !== undefined);
+				if (hasHeldPeers) for (const message of heldPeers!) {
+					items.push({ kind: "threadMessage", key: message!.id, message: message! });
+				}
 				const messages = messagesOf(entry).filter((message) => message.role === "user");
+				if (hasHeldPeers && messages[0]) messages[0] = { ...messages[0], content: held?.peerDisplayContent };
 				const text = messages.map((message) => textOf(message.content)).filter((value) => value.length > 0).join("\n");
 				const images = messages.flatMap((message) => imagesOf(message.content));
 				const timestamp = messages.find((message) => typeof message.timestamp === "number")?.timestamp;

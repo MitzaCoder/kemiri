@@ -2,6 +2,9 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
+	import type { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
+	import type { ThreadMessageLinks } from '#lib/thread-messages.js';
 	import TaskCoordinatorRow from './TaskCoordinatorRow.svelte';
 	import BoardTaskEditor from './BoardTaskEditor.svelte';
 	import SelectionQuote from './chat/SelectionQuote.svelte';
@@ -12,7 +15,7 @@
 	import '#lib/task-sheet.css';
 
 	/** Task details over the project chat. Linked tasks keep a return trail; quoted text returns to chat. */
-	let props: TaskViewInputs & { onquote?: (quote: string) => void } = $props();
+	let props: TaskViewInputs & { peerMessages?: ProjectThreadMessages; peerLinks?: ThreadMessageLinks; onquote?: (quote: string) => void } = $props();
 	let sheet = $state<HTMLElement | null>(null);
 	const model = createTaskViewModel(() => props, () => sheet);
 	const { task, taskId, loading } = $derived(model);
@@ -73,6 +76,13 @@
 		{:else}
 			{#key task.id}<TaskCoordinatorRow {task} board={model.board} />{/key}
 			<Design {model} {editor} />
+			{#if props.peerMessages && props.peerLinks && props.peerMessages.messages.some(message => message.taskId === task.id)}
+				<div class="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-(--chat-border)">
+					<div class="task-reading mx-auto">
+						<ThreadMessagesFeed messages={props.peerMessages.messages} links={props.peerLinks} loaded={props.peerMessages.loaded} error={props.peerMessages.error} taskId={task.id} />
+					</div>
+				</div>
+			{/if}
 		{/if}
 		{#if props.onquote}
 			<SelectionQuote scope={model.quoteScope} onquote={quote} />

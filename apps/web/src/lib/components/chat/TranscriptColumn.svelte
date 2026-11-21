@@ -15,6 +15,8 @@
 	import AssistantTurn from './AssistantTurn.svelte';
 	import CompactionMarker from './CompactionMarker.svelte';
 	import TurnNotice from './TurnNotice.svelte';
+	import type { ThreadMessageLinks } from '#lib/thread-messages.js';
+	import ThreadMessageCard from '../ThreadMessageCard.svelte';
 	import UserMessage from './UserMessage.svelte';
 	import BoardNotice from './BoardNotice.svelte';
 	import ReportsNotice from './ReportsNotice.svelte';
@@ -55,7 +57,8 @@
 		empty,
 		onquote,
 		onwaiting,
-		waitingTarget = 'coordinator'
+		waitingTarget = 'coordinator',
+		messageLinks, viewingThread = 'main', messageAnchor
 	}: {
 		items: readonly TranscriptItem[];
 		/** The directory tool cards shorten paths against. */
@@ -95,6 +98,9 @@
 		onwaiting?: (key: string, action: 'edit' | 'cancel' | 'retry') => void;
 		/** Who a waiting message is for, in its status line. */
 		waitingTarget?: 'coordinator' | 'thread';
+		messageLinks?: ThreadMessageLinks;
+		viewingThread?: string;
+		messageAnchor?: string;
 	} = $props();
 
 	const lastTurn = $derived(items.filter(item => item.kind === 'turn').at(-1));
@@ -268,6 +274,8 @@
 								oncancel={onwaiting && (() => onwaiting(item.key, 'cancel'))}
 								onretry={onwaiting && (() => onwaiting(item.key, 'retry'))}
 							/>
+						{:else if item.kind === 'threadMessage'}
+							{#if messageLinks}<ThreadMessageCard message={item.message} viewing={viewingThread} links={messageLinks} highlighted={messageAnchor === item.message.id} />{/if}
 						{:else if item.kind === 'coordinatorNote'}
 							<p class="truncate px-1 py-1 text-xs leading-5 text-(--chat-fg-muted)" title={`${item.label} · ${item.summary}`}>
 								<span class="font-medium">{item.label}</span> · {item.summary}

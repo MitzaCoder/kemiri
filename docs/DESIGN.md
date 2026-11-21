@@ -2665,8 +2665,14 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   Roster changes reach peers at their next real input through the shared notes channel below.
 - **Shared state.** The board and memory are still shared. Tasks retain `ownerThreadId`
   and emit a derived `coordinatorId`. See Tasks board below for assignment and delivery.
-- **Messages.** `thread_send` delivers `[from <thread>] …` at the receiver's next step. A reply never wakes an idle
-  receiver. Requests and hand-overs only.
+- **Messages.** `thread_send` keeps the `[from <thread>] …` input for the model. Requests
+  wake an idle receiver; `awaitReply` marks the asker as waiting. `kind: "reply"` (or legacy
+  `reply: true`) answers the newest outstanding awaited request from that peer, narrowed by
+  `taskId` when supplied. A matched reply wakes the asker; a plain reply steers a busy turn
+  or is written silently. A `note` never wakes. Held coordinators stay held. The static peer
+  prompt asks for `awaitReply` when ending a turn to wait, and `kind: "reply"` in answer.
+  Peer-only coordinator turns do not set the unread reply mark or send a reply notification.
+  There is no back-and-forth counter or warning.
 - **Finishing.** A background thread ends with `thread_finish` and a summary, which reaches the thread that started
   it (main for schedules) as `[thread <id> finished] …`, reviewed or recorded (`onFinish`). Threads started by a
   schedule archive 7 days after finishing; others stay until archived. Unlike worker submissions, summaries come from
@@ -2745,8 +2751,16 @@ Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-
   posted once per error entry). Writing to a done or stopped thread (the user in the app, a non-reply message, a
   board answer to its question, a task handed to it, an unblocked task it owns) revives it. Stopping or finishing
   releases the open board tasks it held; a settled task keeps its owner.
-- **Messages.** Each `thread_send` uses a request ID derived from the tool call so a replay does not duplicate the
-  message. A reply (`reply: true`) to an idle receiver is written without starting a turn.
+- **Message history (T397).** `thread_send` atomically admits the delivery, updates any answered
+  request, and adds task history when linked by `taskId`. The request ID is derived from the
+  tool call; replay does not deliver or log twice. A new `thread-messages` document keeps
+  the newest 300 rows, with no version change to existing documents. The `coordinator-messages`
+  feature adds `threads.messages` (newest first, exclusive `before` cursor, optional `taskId`)
+  and the opt-in `threads.message` event (new `message`, optional updated `answeredRequest`).
+  On the wire the receiver still gets `pi.user` and the sender still gets the tool result;
+  their optional `threadMessageId` metadata pairs the entries with the log. Web renders the
+  linked cards, the All coordinators feed (rail or tab), the Manage feed, and task messages.
+  An older client keeps the ordinary tool card and `[from …]` bubble.
 - **Schedules.** `kind: "thread"` runs as `<scheduleId>-<yyyy-mm-dd-hhmm>`; the next run is skipped while the
   previous thread is `running` or `idle` (a failed or stopped one does not block). `onReport` is `onFinish`, and a
   `record` thread does not keep main's check-ins going.

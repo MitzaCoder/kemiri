@@ -1182,7 +1182,7 @@ threadTest("keeps coordinator lifecycle, routing and prompt bytes across restart
 	({ runtime } = await test.server.manager.open(projectId));
 	expect((await client.request(request))).toMatchObject({ type: "threads.create", thread: { id: packing, title: "Packing desk", held: true } });
 	const ownerReply = await client.request({ type: "conversation.submit", projectId, taskId: task.id, content: "Owner task reply.", requestId: "owner-reply" });
-	expect(ownerReply.type).toBe("conversation.submit");
+	if (ownerReply.type !== "conversation.submit") throw new Error(JSON.stringify(ownerReply));
 	await (await runtime.threads.conversation(packing)).waitForIdle(BACKGROUND_CONTEXT);
 	expect(received.get(packing)).toHaveLength(2);
 	expect(received.get(packing)?.at(-1)).toContain("Owner task reply.");
@@ -1239,4 +1239,57 @@ threadTest("releases a job's open tasks to its parent coordinator", async () => 
 	expect(await runtime.board.releaseThread(child.id, "fixture-release")).toEqual(["T1"]);
 	expect((await runtime.board.get()).tasks[0]).toMatchObject({ ownerThreadId: parent.id, coordinatorId: parent.id });
 	expect(await runtime.board.releaseThread(child.id, "fixture-release")).toEqual([]);
+});
+
+threadTest("awaited peer replies wake idle askers, with durable task history and no duplicate delivery", async () => {
+	const test = await setup();
+	let peerTurns = 0;
+	script(test, turn => {
+		if (turn.role !== "user") return undefined;
+		if (turn.text.includes("[from ")) peerTurns++;
+		return fauxAssistantMessage("Peer work complete.");
+	});
+	const { client: legacy, projectId } = await openProject(test);
+	const client = await connect(test.server);
+	await client.request({ type: "hello", protocolVersion: 1, client: { name: "test", features: ["coordinator-messages"] } });
+	let { runtime } = await test.server.manager.open(projectId);
+	const { id: packing } = await runtime.threads.create({ title: "Packing", area: "Pack orders." }, "peer-packing");
+	const { id: stock } = await runtime.threads.create({ title: "Stock", area: "Count orders." }, "peer-stock");
+	const taskId = await runtime.harness.commit(async tx => saveTask(await openBoard(tx, runtime.conversation.id), {
+		task: { title: "Stock sample boxes", description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] },
+		author: "user", now: new Date().toISOString(),
+	}).after.id, BACKGROUND_CONTEXT);
+	const packed = await runtime.threads.conversation(packing);
+	const counted = await runtime.threads.conversation(stock);
+	const ask = { sender: packing, receiver: stock, message: "How many boxes?", kind: "request", awaitReply: true, taskId, callId: "ask-boxes" } as const;
+	const answer = { sender: stock, receiver: packing, message: "Twelve boxes.", kind: "reply", taskId, callId: "reply-boxes" } as const;
+	await runtime.threads.deliver(ask);
+	await counted.waitForIdle(BACKGROUND_CONTEXT);
+	expect(peerTurns).toBe(1);
+	await runtime.threads.deliver(answer);
+	await packed.waitForIdle(BACKGROUND_CONTEXT);
+	expect(peerTurns).toBe(2);
+	const event = await client.waitFor(event => event.type === "threads.message" && event.message.id === "thread-message:reply-boxes");
+	expect(event).toMatchObject({ answeredRequest: { id: "thread-message:ask-boxes", replied: true, replyId: "thread-message:reply-boxes" } });
+	await runtime.threads.deliver(answer);
+	for (let n = 0; n < 12; n++) await runtime.threads.deliver({ ...answer, reply: true, kind: undefined, callId: `plain-${n}`, message: `Box update ${n}.` });
+	await runtime.threads.deliver({ ...answer, kind: "note", callId: "note-boxes", message: "Use the paper boxes." });
+	await packed.waitForIdle(BACKGROUND_CONTEXT);
+	expect(peerTurns).toBe(2);
+	const oldView = new ViewClient(legacy);
+	await oldView.start(projectId, { threadId: packing });
+	expect(userEntries(oldView.view, "[from stock]")).toHaveLength(14);
+	expect((await runtime.threads.list(false)).find(t => t.id === packing)?.lastReplyAt).toBeNull();
+	const page = await client.request({ type: "threads.messages", projectId, taskId, limit: 4 });
+	if (page.type !== "threads.messages") throw new Error(JSON.stringify(page));
+	expect(page.messages).toHaveLength(4);
+	const tail = await client.request({ type: "threads.messages", projectId, taskId, before: page.nextBefore });
+	expect(tail).toMatchObject({ messages: expect.arrayContaining([expect.objectContaining({ id: "thread-message:ask-boxes", replied: true })]) });
+	const timeline = await client.request({ type: "board.task.timeline", projectId, taskId, grouped: true });
+	expect(timeline).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ detail: "How many boxes?" })]) });
+	runtime = (await (await test.restart()).manager.open(projectId)).runtime;
+	await runtime.threads.deliver(ask);
+	await runtime.threads.deliver(answer);
+	expect((await runtime.threads.messages({ taskId })).messages).toHaveLength(15);
+	expect(peerTurns).toBe(2);
 });

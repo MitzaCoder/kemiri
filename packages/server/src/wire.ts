@@ -6,6 +6,8 @@ import type {
 import type { ConversationRecord, EntryRecord } from "@kemiri/protocol";
 import { acpToolLabel, acpToolStep } from "./official-agents/acp-activity.ts";
 
+import { THREAD_MESSAGE_ENTRY } from "./thread-messages.ts";
+
 /** Durable provenance for chat submitted by a client, projected as the existing user entry on the wire. */
 export const OWNER_CHAT_ENTRY = "kemiri.owner-chat";
 
@@ -19,7 +21,7 @@ export function wireEntry(entry: DurableEntryRecord): EntryRecord {
 	return {
 		id: entry.id,
 		conversationId: entry.conversationId,
-		kind: entry.kind === OWNER_CHAT_ENTRY ? "pi.user" : entry.kind,
+		kind: (entry.kind === OWNER_CHAT_ENTRY || entry.kind === THREAD_MESSAGE_ENTRY) ? "pi.user" : entry.kind,
 		...(entry.model === undefined ? {} : { model: entry.model as unknown[] }),
 		...(entry.data === undefined ? {} : { data: entry.data }),
 		...(entry.head === undefined ? {} : { head: entry.head }),

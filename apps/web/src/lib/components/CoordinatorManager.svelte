@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { BoardTask, ModelInfo, ThreadSummary } from '@kemiri/protocol';
 	import { Button } from './ui/button/index.js';
 	import * as Dialog from './ui/dialog/index.js';
@@ -9,9 +10,10 @@
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 
-	let { mode, store, roster, tasks, models, onclose, oncreated, onarchived }: {
+	let { mode, store, roster, tasks, models, onclose, oncreated, onarchived, messages }: {
 		mode: 'new' | 'manage' | ThreadSummary; store: ProjectThreads; roster: readonly ThreadSummary[];
 		tasks: readonly BoardTask[]; models: readonly ModelInfo[]; onclose: () => void;
+		messages?: Snippet;
 		oncreated: (id: string) => void; onarchived: (id: string) => void;
 	} = $props();
 
@@ -109,6 +111,7 @@
 			<Dialog.Description>{screen === 'new' ? 'Give this coordinator a clear area of work. It will have its own chat and share this project’s board.' : screen === 'archive' ? 'The chat and closed tasks stay in the project history.' : 'Set who does what in this project.'}</Dialog.Description>
 		</Dialog.Header>
 		{#if screen === 'manage'}
+			{@render messages?.()}
 			<ul class="grid gap-2">
 				{#each roster as coordinator, index (coordinator.id)}
 					<li class="rounded-lg border border-(--chat-border) p-2.5">

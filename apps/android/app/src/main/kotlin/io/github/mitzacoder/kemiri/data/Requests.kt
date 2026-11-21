@@ -248,6 +248,10 @@ suspend fun HarnessClient.request(value: ThreadsListRequest, explicitNulls: Set<
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsListRequest.serializer(), value).jsonObject, explicitNulls), ThreadsListResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: ThreadsMessagesRequest, explicitNulls: Set<String> = emptySet()): ThreadsMessagesResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsMessagesRequest.serializer(), value).jsonObject, explicitNulls), ThreadsMessagesResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: ThreadsStopRequest, explicitNulls: Set<String> = emptySet()): ThreadsStopResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsStopRequest.serializer(), value).jsonObject, explicitNulls), ThreadsStopResponse.serializer()
 )

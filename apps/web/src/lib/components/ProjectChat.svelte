@@ -16,6 +16,9 @@
 	import { goto } from '$app/navigation';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import CoordinatorBadges from './CoordinatorBadges.svelte';
+	import { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
+	import { threadMessageHref, threadMessageAnchor, type ThreadMessageLinks } from '#lib/thread-messages.js';
+	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
 	import CoordinatorManager from './CoordinatorManager.svelte';
 	import { coordinatorBadges, coordinatorColor, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
 	import { provideCoordinatorTaskView } from '#lib/coordinator-task-view.js';
@@ -214,6 +217,26 @@
 	const supportsCoordinators = $derived(backend.supports('coordinators'));
 	const supportsAssignment = $derived(backend.supports('task-coordinator'));
 	const roster = $derived(coordinatorRoster(threadList, supportsCoordinators));
+	let peerLog = $state<ProjectThreadMessages>();
+	const supportsPeerMessages = $derived(backend.supports('coordinator-messages'));
+	$effect(() => {
+		if (!supportsPeerMessages) { peerLog = undefined; return; }
+		const log = new ProjectThreadMessages(backend.client, projectId);
+		peerLog = log;
+		return () => log.stop();
+	});
+	const peerMessages = $derived(peerLog ? new Map(peerLog.messages.map(message => [message.id, message])) : undefined);
+	const peerLinks: ThreadMessageLinks = {
+		thread: id => threads?.thread(id) ?? (archivedThread?.id === id ? archivedThread : undefined),
+		chat: (id, message) => threadMessageHref(backend.id, projectId, id, message),
+		task: id => taskLink(id),
+	};
+	let peerPanel = $state(false);
+	const peerAnchor = $derived.by(() => {
+		if (!page.url.hash.startsWith('#peer-')) return undefined;
+		try { return decodeURIComponent(page.url.hash.slice(6)); } catch { return undefined; }
+	});
+
 	const coordinatorId = $derived(thread?.kind === 'coordinator' ? thread.id : coordinatorOfThread(threadId, threadList));
 	const viewingCoordinator = $derived(roster.find(row => row.id === coordinatorId));
 	const coordinatorChat = $derived(supportsCoordinators && (!isThread || thread?.kind === 'coordinator'));
@@ -316,7 +339,7 @@
 	const replyAnchor = $derived(/^#entry-(\d+)$/.exec(page.url.hash)?.[1]);
 	const items = $derived(
 		withWaiting(
-			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), entryAnchor: replyAnchor ? Number(replyAnchor) : undefined }),
+			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), threadMessages: peerMessages, entryAnchor: replyAnchor ? Number(replyAnchor) : undefined }),
 			waitingList,
 			waiting?.pending
 		)
@@ -699,6 +722,26 @@
 		if (!id || !current || !items.length) return;
 		const frame = requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: 'center' }));
 		return () => cancelAnimationFrame(frame);
+	});
+
+	$effect(() => {
+		const id = peerAnchor;
+		const current = session;
+		if (!id || !current || current.status !== 'live' || !peerMessages?.has(id)) return;
+		let cancelled = false;
+		void (async () => {
+			while (!cancelled) {
+				await new Promise(requestAnimationFrame);
+				if (cancelled) return;
+				const card = document.getElementById(threadMessageAnchor(id));
+				if (card) { card.scrollIntoView({ block: 'center' }); return; }
+				if (!current.canLoadEarlier || current.loadingEarlier) return;
+				const count = current.entries.length;
+				try { await loadEarlier(); } catch { return; }
+				if (current.entries.length <= count) return;
+			}
+		})();
+		return () => { cancelled = true; };
 	});
 
 	/**
@@ -1084,6 +1127,7 @@
 				<TranscriptColumn
 					bind:this={transcript}
 					{items}
+					messageLinks={peerLinks} viewingThread={threadId ?? 'main'} messageAnchor={peerAnchor}
 					cwd={project?.path}
 					workers={workerList}
 					workerHref={(worker) => workerLink(worker)}
@@ -1250,6 +1294,7 @@
 					label="Project sidebar"
 				>
 					{#snippet boardPanel(fullWidth: boolean)}
+						<div class="@container/peer-panel flex min-h-0 flex-1 flex-col">
 						{#if supportsAssignment && roster.length > 1}
 							<div class="shrink-0 space-y-2 border-b border-(--chat-border) px-3 py-2">
 								<div class="flex gap-1 rounded-lg bg-(--chat-surface-2) p-1" role="group" aria-label="Task scope">
@@ -1262,6 +1307,14 @@
 								</div>{/if}
 							</div>
 						{/if}
+						{#if taskScope === 'all' && supportsPeerMessages}
+							<div class="flex shrink-0 gap-2 border-b border-(--chat-border) px-3 py-2 text-xs @min-[54rem]/peer-panel:hidden" role="group" aria-label="All coordinators view">
+								<button class="rounded-md px-2 py-1 aria-pressed:bg-(--chat-surface-2) aria-pressed:font-semibold" aria-pressed={!peerPanel} onclick={() => peerPanel = false}>Tasks</button>
+								<button class="rounded-md px-2 py-1 aria-pressed:bg-(--chat-surface-2) aria-pressed:font-semibold" aria-pressed={peerPanel} onclick={() => peerPanel = true}>Between coordinators</button>
+							</div>
+						{/if}
+						<div class="flex min-h-0 flex-1">
+						<div class="min-w-0 flex-1 flex-col {taskScope === 'all' && supportsPeerMessages && peerPanel ? 'hidden @min-[54rem]/peer-panel:flex' : 'flex'}">
 						{#if supportsTasks && fullWidth}
 							<TasksView
 								{board}
@@ -1282,9 +1335,17 @@
 						{:else}
 							<BoardPanel {board} workers={workerList} threads={threadList} hrefOf={(worker) => workerLink(worker)} />
 						{/if}
+						</div>
+						{#if taskScope === 'all' && peerLog}
+							<aside class="min-w-0 flex-1 overflow-y-auto @min-[54rem]/peer-panel:block @min-[54rem]/peer-panel:w-72 @min-[54rem]/peer-panel:flex-none @min-[54rem]/peer-panel:border-l @min-[54rem]/peer-panel:border-(--chat-border) {peerPanel ? 'block' : 'hidden'}">
+								{@render peerFeed()}
+							</aside>
+						{/if}
+						</div>
 						{#if supportsAssignment && taskScope === 'coordinator' && otherAttention}
 							<p class="shrink-0 border-t border-(--chat-border) px-3 py-2 text-xs text-(--chat-fg-muted)">{otherAttention} need attention in other coordinators · <button class="font-semibold text-(--accent-2) hover:underline" onclick={showAllTasks}>Show all</button></p>
 						{/if}
+						</div>
 					{/snippet}
 					{#snippet backgroundPanel()}
 						<BackgroundPanel
@@ -1324,7 +1385,7 @@
 
 	{#if supportsTasks}
 		<TaskCloseDialog {board} />
-		<TaskSheet {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
+		<TaskSheet peerMessages={peerLog} {peerLinks} {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
 <FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} repository={project?.repository} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
@@ -1364,8 +1425,12 @@
 <svelte:window onkeydown={coordinatorKeys} />
 {#if manager && threads && supportsCoordinators}
 	{#key manager}
-		<CoordinatorManager mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
+		<CoordinatorManager messages={peerLog ? peerFeed : undefined} mode={manager} store={threads} {roster} tasks={board?.tasks ?? []} models={backend.models.filter(model => !model.workerOnly && model.configured)}
 			onclose={() => manager = undefined} oncreated={id => { manager = undefined; switchCoordinator(id); }}
 			onarchived={id => { const key = coordinatorStorageKey(backend.id, projectId, 'last'); if (readCoordinatorPreference(key) === id) projectsNav.rememberCoordinator(key, 'main'); if (threadId === id) { manager = undefined; switchCoordinator('main'); } }} />
 	{/key}
 {/if}
+
+{#snippet peerFeed()}
+	{#if peerLog}<ThreadMessagesFeed messages={peerLog.messages} links={peerLinks} loaded={peerLog.loaded} error={peerLog.error} />{/if}
+{/snippet}

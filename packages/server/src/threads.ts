@@ -1,3 +1,4 @@
+import { THREAD_MESSAGE_ENTRY, THREAD_MESSAGE_LIMIT, ThreadMessagesDoc } from "./thread-messages.ts";
 import { enqueueCoordinatorNotes, noteField, type PendingCoordinatorNote } from "./coordinator-notes.ts";
 import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
@@ -22,7 +23,7 @@ import { stateKind } from "./state-identity.ts";
  *
  * Everything a thread posts elsewhere is marked: its summary reaches main as `[thread <id> finished]`, a failure as
  * `[thread <id> failed: <reason>]`, both reviewed (an input) or recorded (a write that starts no turn) per `onFinish`;
- * `thread_send` delivers `[from <thread>] <message>`, and a reply never wakes an idle receiver. Every request ID derives
+ * `thread_send` delivers `[from <thread>] <message>`, and only requests and awaited replies wake an idle receiver. Every request ID derives
  * from the tool call or the failing entry, so a rerun after a crash posts nothing twice.
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -61,6 +62,10 @@ import {
 	type ThinkingLevel,
 	type ThreadStartedBy,
 	type ThreadKind,
+	type ThreadMessage,
+	type ThreadMessageKind,
+	type ThreadsMessageEvent,
+	type ThreadsMessagesRequest,
 	type ThreadsCreateRequest,
 	type ThreadsUpdateRequest,
 	type ThreadStatus,
@@ -114,7 +119,7 @@ const THREAD_CHECK_IN_LINE_CHARS = 110;
 
 const GENERAL = { title: "General", area: "Everything without a home.", color: null };
 type MainThreadRecord = { title: string; area: string; color: string | null; lifecycleOperations?: string[] };
-type HeldInput = { content: import("@earendil-works/chord/json").JsonRepresentation<UserInput>; requestId: string };
+type HeldInput = { entry?: InputSubmissionDraft["entry"]; content: import("@earendil-works/chord/json").JsonRepresentation<UserInput>; requestId: string };
 
 export type ThreadRecord = {
 	kind: ThreadKind;
@@ -258,7 +263,7 @@ const ThreadKickoff = defineTask<KickoffInput, { phase: "deliver" }, null>({
  */
 export const PEER_THREADS_SECTION = `Work inside your area. Use thread_list to find the other coordinators and their areas; paths are hints, not locks. When the owner raises work that belongs to another area, add the task, hand it to that coordinator and say where it went. When ownership is unclear, keep it and ask. General takes work without a home.
 
-Use the board to pass work (handoff), memory for facts that last, and a message only when another coordinator must do or answer something. Say what is needed and by when. Do not thank or acknowledge. When the owner moves a task away, stop work on it, let running workers finish or stop them, and send the new coordinator what it needs to carry on. Only General lands changes or asks for deploy approval. Other coordinators send General a request to land their change, with the change and its task.`;
+Use the board to pass work (handoff), memory for facts that last, and a message only when another coordinator must do or answer something. Say what is needed and by when. Do not thank or acknowledge. In thread_send, use awaitReply when you end your turn waiting for an answer. Answer such a request with kind "reply" and copy its taskId if present. When the owner moves a task away, stop work on it, let running workers finish or stop them, and send the new coordinator what it needs to carry on. Only General lands changes or asks for deploy approval. Other coordinators send General a request to land their change, with the change and its task.`;
 
 export const MAIN_THREADS_SECTION = `You are the default coordinator and keep the project checkout. The owner talks to other coordinators directly. Use coordinator_start when the owner asks for an enduring area of work, and thread_start for a background job with one task and a complete brief. Use a worker for self-contained work. Review your own jobs' finish and failure reports as you would a worker's report. Use thread_list or thread_peek when the owner asks for a wider view.`;
 
@@ -399,6 +404,7 @@ export type ThreadServiceOptions = {
 	now(): number;
 	/** Called whenever the list (without archived threads) may have changed; the caller compares and pushes. */
 	onChange?: () => void;
+	onMessage?: (event: ThreadsMessageEvent) => void;
 	log(message: string): void;
 };
 
@@ -457,21 +463,33 @@ function requiredText(value: string, field: string): string {
 	return text;
 }
 
-function queueHeldInput(record: StoredThreadRecord, content: UserInput, requestId: string): boolean {
+function queueHeldInput(record: StoredThreadRecord, content: UserInput, requestId: string, entry?: InputSubmissionDraft["entry"]): boolean {
 	if (record.heldInputReceipts?.includes(requestId)) return true;
 	if (!record.held) return false;
 	record.heldInputs ??= [];
-	record.heldInputs.push({ content, requestId });
+	record.heldInputs.push({ content, requestId, ...(entry ? { entry } : {}) });
 	record.heldInputReceipts ??= [];
 	record.heldInputReceipts.push(requestId);
 	return true;
 }
 
-function heldText(record: StoredThreadRecord): UserInput | undefined {
-	const items = record.heldInputs ?? [];
+function heldText(items: HeldInput[]): UserInput | undefined {
 	if (items.length === 0) return undefined;
 	if (items.every(item => typeof item.content === "string")) return items.map(item => item.content).join("\n\n");
 	return items.flatMap(({ content }) => typeof content === "string" ? [{ type: "text" as const, text: content }] : content);
+}
+
+/** Keep the paused inbox in one model input, with optional per-message presentation anchors. */
+function heldPeerData(items: HeldInput[], ownerContent?: UserInput) {
+	const ids = items.flatMap(item => {
+		const id = (item.entry?.data as { threadMessageId?: string } | undefined)?.threadMessageId;
+		return id ? [id] : [];
+	});
+	if (!ids.length) return undefined;
+	const ordinary = items.filter(item => item.entry?.kind !== THREAD_MESSAGE_ENTRY);
+	const displayed = ownerContent === undefined ? heldText(ordinary) : heldText([{ content: ownerContent, requestId: "" }, ...ordinary]);
+	return { threadMessageIds: ids, peerWake: ownerContent === undefined && ordinary.length === 0,
+		peerDisplayContent: Array.isArray(displayed) ? displayed.map(part => ({ ...part })) : displayed ?? "" };
 }
 
 function slugify(title: string): string {
@@ -1234,10 +1252,12 @@ export class ThreadService {
 			const existing = requestId ? await tx.submissionByRequest(conversation.id, requestId) : undefined;
 			if (existing) return existing.id;
 			if (record.held) {
-				const queued = heldText(record);
+				const items = record.heldInputs ?? [];
+				const queued = heldText(items);
+				const peerData = heldPeerData(items, draft.content);
 				this.#clearHold(record);
 				await this.#rosterNote(tx, place.threadId, conversation.id, record.title, "resumed");
-				if (queued) return conversation.submit(tx, { ...draft, whenBusy: "followUp", content: typeof draft.content === "string"
+				if (queued) return conversation.submit(tx, { ...draft, ...(peerData && draft.entry ? { entry: { ...draft.entry, data: peerData } } : {}), whenBusy: "followUp", content: typeof draft.content === "string"
 					? typeof queued === "string" ? `${draft.content}\n\n${queued}` : [{ type: "text", text: draft.content }, ...queued]
 					: [...draft.content, ...(typeof queued === "string" ? [{ type: "text" as const, text: queued }] : queued)] });
 			}
@@ -1270,14 +1290,16 @@ export class ThreadService {
 				for (const item of inbox.items) {
 					if (item.mode === "write") continue;
 					record.heldInputs ??= [];
-					record.heldInputs.push({ content: item.content, requestId: `submission:${item.id}` });
+					record.heldInputs.push({ content: item.content, requestId: `submission:${item.id}`, ...(item.entry ? { entry: item.entry } : {}) });
 					tx.settleSubmission(item.id, { status: "unanswered", reason: "held" });
 				}
 				inbox.items = inbox.items.filter(item => item.mode === "write");
 			} else {
-				const content = heldText(record);
+				const items = record.heldInputs ?? [];
+				const content = heldText(items);
+				const peerData = heldPeerData(items);
 				this.#clearHold(record);
-				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}` });
+				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}`, ...(peerData ? { entry: { kind: THREAD_MESSAGE_ENTRY, data: peerData } } : {}) });
 			}
 		}, BACKGROUND_CONTEXT);
 		if (!held) this.#options.harness.resume();
@@ -1457,23 +1479,75 @@ export class ThreadService {
 		);
 	}
 
-	/**
-	 * Deliver `[from <sender>] <message>` at the receiver's next step. A request wakes an idle receiver; a reply only
-	 * steers a busy one and is written without a turn into an idle one.
-	 */
-	async deliver(input: { sender: string; receiver: string; message: string; reply: boolean; callId: string }): Promise<"steered" | "written"> {
+	async messages({ before, limit = 50, taskId }: Pick<ThreadsMessagesRequest, "before" | "limit" | "taskId">) {
+		const doc = await this.#options.harness.snapshot(ThreadMessagesDoc, this.#mainId, BACKGROUND_CONTEXT);
+		const messages = doc?.messages ?? [];
+		const end = before === undefined ? messages.length : messages.findIndex(message => message.id === before);
+		const matching = messages.slice(0, Math.max(end, 0)).reverse().filter(message => taskId === undefined || message.taskId === taskId);
+		const page = matching.slice(0, limit);
+		return { messages: page, ...(matching.length > page.length ? { nextBefore: page.at(-1)!.id } : {}) };
+	}
+
+	/** Commit delivery admission, reply matching and task history together. The submission also deduplicates pruned rows. */
+	async deliver(input: { sender: string; receiver: string; message: string; kind?: ThreadMessageKind; awaitReply?: boolean; taskId?: string; reply?: boolean; callId: string }): Promise<"steered" | "written"> {
+		const { harness } = this.#options;
 		const conversation = await this.conversation(input.receiver);
-		const content = `[from ${input.sender}] ${input.message}`;
-		const requestId = `thread-message:${input.callId}`;
-		const live = await this.#options.harness.snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
-		const written = input.reply && live?.run === undefined;
-		if (!input.reply) await this.revive(input.receiver);
-		const submission = await this.submitHarness(conversation, written ? {
-			type: "write", entry: { kind: "pi.user", model: [{ role: "user", content, timestamp: this.#options.now() }] }, requestId,
-		} : { type: "input", content, whenBusy: "steer", requestId }, content, requestId);
-		await this.#options.board.recordReportChat(input.sender, input.message, requestId);
-		if (!submission || written) return "written";
-		return "steered";
+		const id = `thread-message:${input.callId}`;
+		const kind = input.kind ?? (input.reply ? "reply" : "request");
+		const awaitReply = kind === "request" && input.awaitReply === true;
+		const result = await harness.commit(async tx => {
+			const doc = await tx.doc(ThreadMessagesDoc, this.#mainId);
+			const roster = await tx.doc(ThreadsDoc, this.#mainId);
+			const receiver = roster.threads[input.receiver];
+			if (doc.messages.some(message => message.id === id) || await tx.submissionByRequest(conversation.id, id)
+				|| receiver?.heldInputReceipts?.includes(id)) return undefined;
+			if (receiver?.archived) throw new ServerError("bad_request", "The receiving thread is archived.");
+			const answeredRequest = kind === "reply" ? doc.messages.findLast(message => message.kind === "request"
+				&& message.awaitReply && !message.replied && message.from === input.receiver && message.to === input.sender
+				&& (input.taskId === undefined || message.taskId === input.taskId)) : undefined;
+			const taskId = input.taskId ?? answeredRequest?.taskId;
+			const board = taskId === undefined ? undefined : await openBoard(tx, this.#mainId);
+			const task = board?.tasks.find(task => task.id === taskId);
+			if (taskId !== undefined && task === undefined) throw new ServerError("unknown_task", `No task "${taskId}" in this project.`);
+			const now = this.now();
+			const message: ThreadMessage = { id, from: input.sender, to: input.receiver, kind,
+				...(awaitReply ? { awaitReply, replied: false } : {}), ...(taskId === undefined ? {} : { taskId }),
+				firstLine: input.message.trim().split(/\r?\n/, 1)[0]!.slice(0, 240), text: input.message, at: new Date(now).toISOString() };
+			const metadata = [awaitReply ? "request awaits reply" : kind === "note" ? "note" : "", taskId ? `task ${taskId}` : ""].filter(Boolean);
+			const content = `[from ${input.sender}] ${metadata.length ? `[${metadata.join("; ")}]\n` : ""}${input.message}`;
+			const wakes = kind === "request" || answeredRequest !== undefined;
+			const live = await tx.doc(LiveDoc, conversation.id);
+			const peerWake = wakes && live.run === undefined && (input.sender === MAIN_THREAD_ID || roster.threads[input.sender]?.kind === "coordinator")
+				&& (input.receiver === MAIN_THREAD_ID || receiver?.kind === "coordinator");
+			const entry = { kind: THREAD_MESSAGE_ENTRY, data: { threadMessageId: id, peerWake } };
+			const written = kind === "note" || (!wakes && live.run === undefined);
+			const held = receiver?.held === true && !written;
+			if (held) queueHeldInput(receiver, content, id, entry);
+			else await conversation.submit(tx, written ? {
+				type: "write", entry: { ...entry, model: [{ role: "user", content, timestamp: now }] }, requestId: id,
+			} : { type: "input", content, whenBusy: "steer", entry, requestId: id });
+			if (answeredRequest) Object.assign(answeredRequest, { replied: true, replyId: id });
+			doc.messages.push(message);
+			if (doc.messages.length > THREAD_MESSAGE_LIMIT) doc.messages.splice(0, doc.messages.length - THREAD_MESSAGE_LIMIT);
+			if (task) {
+				const history = await openTaskHistory(tx, this.#mainId, task.id);
+				const title = (threadId: string) => threadId === MAIN_THREAD_ID ? roster.main?.title ?? GENERAL.title : roster.threads[threadId]?.title ?? threadId;
+				upsertTimelineFact(history, task, { id: timelineId(task.id, id), at: message.at, endAt: message.at,
+					kind: "milestone", group: "work", source: "thread-message", outcome: kind,
+					label: `${title(input.sender)} → ${title(input.receiver)}`, detail: message.firstLine, ref: id, by: HARNESS_WRITER });
+			}
+			return { message: { ...message }, answeredRequest: answeredRequest && { ...answeredRequest }, wakes: wakes && !held, written: written || held };
+		}, BACKGROUND_CONTEXT);
+		if (!result) return "written";
+		try {
+			if (result.wakes) await this.revive(input.receiver);
+		} finally {
+			harness.resume();
+			this.#options.onMessage?.({ type: "threads.message", projectId: this.project.id, message: result.message,
+				...(result.answeredRequest ? { answeredRequest: result.answeredRequest } : {}) });
+		}
+		await this.#options.board.recordReportChat(input.sender, input.message, id);
+		return result.written ? "written" : "steered";
 	}
 
 	/** A bounded digest of one thread (or main), for `thread_peek`. */
@@ -1826,13 +1900,16 @@ function createThreadExtension(service: ThreadService): Extension {
 		name: "thread_send",
 		callers: ["model"],
 		description:
-			'Send a message to another thread ("main" for main); it arrives as "[from <you>] ..." at its next step and wakes ' +
-			"it if it is idle. Mark an answer to a message you got with `reply: true`: a reply never wakes an idle thread, it " +
-			"is read at its next turn. Requests and hand-overs only.",
+			'Send a message to another coordinator or job ("main" for General). A request wakes it; use awaitReply if you end your turn waiting for the answer. ' +
+			'Answer with kind "reply" and the same taskId if present: it wakes only an asker who was waiting. A note never wakes. ' +
+			'Use the board to hand off work and memory for lasting facts.',
 		parameters: Type.Object({
-			id: Type.String({ minLength: 1, description: 'The receiving thread; "main" for main.' }),
+			id: Type.String({ minLength: 1, description: 'The receiving thread; "main" for General.' }),
 			message: Type.String({ minLength: 1 }),
-			reply: Type.Optional(Type.Boolean({ description: "This answers a message you got. Default false." })),
+			kind: Type.Optional(Type.Union([Type.Literal("request"), Type.Literal("reply"), Type.Literal("note")], { description: 'Defaults to "request".' })),
+			awaitReply: Type.Optional(Type.Boolean({ description: 'On a request, let its reply wake you.' })),
+			taskId: Type.Optional(Type.String({ minLength: 1, description: 'The board task the message is about.' })),
+			reply: Type.Optional(Type.Boolean({ description: 'Legacy alias for kind "reply" when kind is omitted.' })),
 		}),
 		replay: "safe",
 		execute: async (args, api, context) => {
@@ -1856,10 +1933,13 @@ function createThreadExtension(service: ThreadService): Extension {
 					sender,
 					receiver: args.id,
 					message: args.message,
+					kind: args.kind,
+					awaitReply: args.awaitReply,
+					taskId: args.taskId,
 					reply: args.reply === true,
 					callId: api.callId,
 				});
-				const details = { threadId: args.id };
+				const details = { threadId: args.id, threadMessageId: `thread-message:${api.callId}` };
 				await api.details(details, context);
 				return toolText(
 					how === "written"

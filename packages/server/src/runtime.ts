@@ -44,6 +44,8 @@ import {
 	type MemorySearchHit,
 	type ModelRef,
 	type ProjectActivity,
+	type ThreadsMessageEvent,
+	type ThreadsMessagesRequest,
 	type ProjectSummary,
 	type Schedule,
 	type ScheduleInput,
@@ -237,6 +239,7 @@ export type ProjectManagerOptions = {
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
 	onBoardState?: (projectId: string, board: Board) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
+	onThreadsMessage?: (event: ThreadsMessageEvent) => void;
 	onThreadsState?: (projectId: string, threads: ThreadSummary[]) => void;
 	/** How long the user's board edits wait for another before they reach the coordinator. Default 3 s. */
 	boardEditDebounceMs?: number;
@@ -336,6 +339,7 @@ export class ProjectManager {
 	readonly #onProjectState: ((summary: ProjectSummary) => void) | undefined;
 	readonly #onArchivedChange: ((projectId: string, archived: boolean) => void) | undefined;
 	readonly #onBoardState: ((projectId: string, board: Board) => void) | undefined;
+	readonly #onThreadsMessage: ProjectManagerOptions["onThreadsMessage"];
 	readonly #onThreadsState: ((projectId: string, threads: ThreadSummary[]) => void) | undefined;
 	readonly #boardEditDebounceMs: number | undefined;
 	readonly #taskFreshness: boolean;
@@ -405,6 +409,7 @@ export class ProjectManager {
 		this.#onWorkersState = options.onWorkersState;
 		this.#onBoardState = options.onBoardState;
 		this.#onThreadsState = options.onThreadsState;
+		this.#onThreadsMessage = options.onThreadsMessage;
 		this.#boardEditDebounceMs = options.boardEditDebounceMs;
 		this.#taskFreshness = options.taskFreshness !== false;
   this.#taskActivity = options.taskActivity !== false;
@@ -646,6 +651,11 @@ export class ProjectManager {
 	async threads(projectId: string, includeArchived: boolean): Promise<ThreadSummary[]> {
 		const { runtime } = await this.open(projectId);
 		return runtime.threads.list(includeArchived);
+	}
+
+	async threadMessages(request: ThreadsMessagesRequest) {
+		const { runtime } = await this.open(request.projectId);
+		return runtime.threads.messages(request);
 	}
 
 	async stopThread(projectId: string, threadId: string): Promise<ThreadSummary> {
@@ -1528,6 +1538,7 @@ export class ProjectManager {
 			...(this.#notifications === undefined ? {} : { notifications: this.#notifications }),
 			now: () => this.#clock(),
 			onChange: () => pushThreads(),
+			onMessage: this.#onThreadsMessage,
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
 		workers.attachThreadCheckIns(threads.checkIns);

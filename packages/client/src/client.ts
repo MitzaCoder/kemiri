@@ -147,6 +147,8 @@ import type {
 	ThreadsUpdateResponse,
 	ThreadsHoldResponse,
 	ThreadsListResponse,
+	ThreadsMessageEvent,
+	ThreadsMessagesResponse,
 	ThreadsStopResponse,
 	TerminalCloseResponse,
 	TerminalKillResponse,
@@ -343,6 +345,7 @@ export class HarnessClient {
 	readonly #memoryListeners = new Set<(event: MemoryChangedEvent) => void>();
 	readonly #scheduleListeners = new Set<(state: SchedulesSnapshot & { projectId: string }) => void>();
 	readonly #boardListeners = new Set<(state: { projectId: string; board: Board }) => void>();
+	readonly #threadMessageListeners = new Set<(event: ThreadsMessageEvent) => void>();
 	readonly #threadListeners = new Set<(state: ThreadsSnapshot & { projectId: string }) => void>();
 	readonly #subscriptionUsageListeners = new Set<(subscriptions: SubscriptionUsage[]) => void>();
 	readonly #artifactListeners = new Set<(event: ArtifactsChangedEvent) => void>();
@@ -481,6 +484,11 @@ export class HarnessClient {
 	onBoardState(listener: (state: { projectId: string; board: Board }) => void): () => void {
 		this.#boardListeners.add(listener);
 		return () => this.#boardListeners.delete(listener);
+	}
+
+	onThreadMessage(listener: (event: ThreadsMessageEvent) => void): () => void {
+		this.#threadMessageListeners.add(listener);
+		return () => this.#threadMessageListeners.delete(listener);
 	}
 
 	/**
@@ -1163,6 +1171,11 @@ export class HarnessClient {
 	 * A project's threads, main first. Archived background threads only with `includeArchived`. Follow changes with
 	 * `onThreadsState`.
 	 */
+	async threadMessages(projectId: string, options: { before?: string; limit?: number; taskId?: string } = {}) {
+		const { messages, nextBefore } = await this.#call<ThreadsMessagesResponse>({ type: "threads.messages", projectId, ...options });
+		return { messages, nextBefore };
+	}
+
 	async listThreads(projectId: string, options: { includeArchived?: boolean } = {}): Promise<ThreadsSnapshot> {
 		const response = await this.#call<ThreadsListResponse>({
 			type: "threads.list",
@@ -1919,6 +1932,12 @@ export class HarnessClient {
 					} catch {
 						// A consumer's listener must not break message handling.
 					}
+				}
+				return;
+			}
+			case "threads.message": {
+				for (const listener of this.#threadMessageListeners) {
+					try { listener(message); } catch { /* Isolate consumers. */ }
 				}
 				return;
 			}

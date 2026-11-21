@@ -1060,6 +1060,10 @@ export function buildTimeline(
 		});
 	}
 	entries.push(...(state.taskLiveEnabled ? foldedLiveEntries(history) : history?.events ?? []));
+	for (const entry of history?.timelineEntries ?? []) if (entry.source === "thread-message") {
+		const { at, kind, label, detail, ref, by } = entry;
+		entries.push({ at, kind, label, detail, ref, by });
+	}
 	for (const question of state.questions.filter((candidate) => candidate.taskId === task.id)) {
 		for (const exchange of question.exchanges ?? []) entries.push({ at: exchange.at, kind: "question", label: `${question.id}${exchange.author.author === "user" ? ": you asked back" : exchange.previousWording ? " revised" : " clarified"}`, detail: exchange.text, ref: question.id, by: exchange.author });
   const word = question.kind === "warning" ? "Warning" : "Question";

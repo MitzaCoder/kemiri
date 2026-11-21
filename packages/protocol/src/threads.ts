@@ -225,3 +225,47 @@ export function backgroundJobCounts(threads: readonly ThreadSummary[], _now?: nu
  }
  return counts;
 }
+
+export const ThreadMessageKindSchema = Type.Union([Type.Literal("request"), Type.Literal("reply"), Type.Literal("note")]);
+export type ThreadMessageKind = Static<typeof ThreadMessageKindSchema>;
+
+export const ThreadMessageSchema = Type.Object({
+	id: Type.String(),
+	from: Type.String(),
+	to: Type.String(),
+	kind: ThreadMessageKindSchema,
+	awaitReply: Type.Optional(Type.Boolean()),
+	replied: Type.Optional(Type.Boolean()),
+	replyId: Type.Optional(Type.String()),
+	taskId: Type.Optional(Type.String()),
+	firstLine: Type.String(),
+	text: Type.String(),
+	at: Type.String(),
+});
+export type ThreadMessage = Static<typeof ThreadMessageSchema>;
+
+export const ThreadsMessagesRequestSchema = Type.Object({
+	type: Type.Literal("threads.messages"),
+	id: RequestIdSchema,
+	projectId: ProjectIdSchema,
+	before: Type.Optional(Type.String({ description: "Exclusive cursor: the message ID returned as nextBefore." })),
+	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 300 })),
+	taskId: Type.Optional(Type.String({ minLength: 1 })),
+});
+export type ThreadsMessagesRequest = Static<typeof ThreadsMessagesRequestSchema>;
+
+export const ThreadsMessagesResponseSchema = Type.Object({
+	type: Type.Literal("threads.messages"),
+	id: RequestIdSchema,
+	messages: Type.Array(ThreadMessageSchema, { description: "Newest messages first." }),
+	nextBefore: Type.Optional(Type.String()),
+});
+export type ThreadsMessagesResponse = Static<typeof ThreadsMessagesResponseSchema>;
+
+export const ThreadsMessageEventSchema = Type.Object({
+	type: Type.Literal("threads.message"),
+	projectId: ProjectIdSchema,
+	message: ThreadMessageSchema,
+	answeredRequest: Type.Optional(ThreadMessageSchema),
+});
+export type ThreadsMessageEvent = Static<typeof ThreadsMessageEventSchema>;

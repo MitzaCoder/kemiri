@@ -1,3 +1,4 @@
+import type { ThreadsMessageEvent } from "@kemiri/protocol";
 import { resolveCodeRoot } from "./code-root.ts";
 import type { ProjectFileWrites } from "./project-file-writes.ts";
 import type { ProjectFiles } from "./project-files.ts";
@@ -204,6 +205,7 @@ export class ClientConnection {
 	readonly #terminals = new Map<number, TerminalAttachment>();
 	#terminalSequence = 0;
 	#ready = false;
+	#clientSupportsThreadMessages = false;
 	#clientSupportsTaskSteps = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
@@ -262,6 +264,10 @@ export class ClientConnection {
 	/** Push a project's threads (without archived ones) when any changes. */
 	notifyThreads(projectId: string, threads: ThreadSummary[]): void {
 		this.#respond({ type: "threads.state", projectId, threads });
+	}
+
+	notifyThreadMessage(event: ThreadsMessageEvent): void {
+		if (this.#clientSupportsThreadMessages) this.#respond(event);
 	}
 
 	/** Push a project's whole schedule list when a schedule or its runs change. */
@@ -874,6 +880,11 @@ export class ClientConnection {
 				case "workers.defaults.set": {
 					const defaults = await this.#manager.setWorkerDefaults(request.projectId, request.defaults);
 					this.#respond({ type: "workers.defaults.set", id: request.id, defaults });
+					return;
+				}
+				case "threads.messages": {
+					if (!this.#features.includes("coordinator-messages")) return this.#unknownRequest(request);
+					this.#respond({ type: "threads.messages", id: request.id, ...await this.#manager.threadMessages(request) });
 					return;
 				}
 				case "threads.list": {
@@ -1508,6 +1519,7 @@ export class ClientConnection {
 			return;
 		}
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
+		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#ready = true;
 		this.#respond({

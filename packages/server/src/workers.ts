@@ -791,7 +791,7 @@ ${ARTIFACT_REVIEW_RULES}
 ${REPORT_RULES}
 
 When only the user can decide something, ask it on the board (action \`ask\`) and carry on with the rest; never stop to wait for the answer, which arrives as a "[board]" message. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.
-Messages from main or another thread arrive as "[from <thread>] ..."; answer with thread_send (reply: true) when one asks you something, and keep messages to requests and hand-overs.
+Messages from main or another thread arrive as "[from <thread>] ..."; answer requests with thread_send (kind: "reply").
 
 ${uiProofParagraph(project, "coordinator")}${checkIns}
 

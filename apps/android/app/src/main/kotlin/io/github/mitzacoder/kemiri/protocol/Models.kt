@@ -1843,6 +1843,16 @@ data class ThreadsListRequest(
 )
 
 @Serializable
+data class ThreadsMessagesRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.messages",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `before`: String? = null,
+    val `limit`: Long? = null,
+    val `taskId`: String? = null
+)
+
+@Serializable
 data class ThreadsStopRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.stop",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -1928,6 +1938,29 @@ data class ThreadsListResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.list",
     val `id`: String,
     val `threads`: List<ThreadSummary>
+)
+
+@Serializable
+data class ThreadsMessagesResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.messages",
+    val `id`: String,
+    val `messages`: List<ThreadsMessagesResponseMessagesItem>,
+    val `nextBefore`: String? = null
+)
+
+@Serializable
+data class ThreadsMessagesResponseMessagesItem(
+    val `id`: String,
+    val `from`: String,
+    val `to`: String,
+    val `kind`: String,
+    val `awaitReply`: Boolean? = null,
+    val `replied`: Boolean? = null,
+    val `replyId`: String? = null,
+    val `taskId`: String? = null,
+    val `firstLine`: String,
+    val `text`: String,
+    val `at`: String
 )
 
 @Serializable
@@ -2181,6 +2214,14 @@ data class ThreadsStateEvent(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.state",
     val `projectId`: String,
     val `threads`: List<ThreadSummary>
+) : ProtocolEvent
+
+@Serializable
+data class ThreadsMessageEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.message",
+    val `projectId`: String,
+    val `message`: ThreadsMessagesResponseMessagesItem,
+    val `answeredRequest`: ThreadsMessagesResponseMessagesItem? = null
 ) : ProtocolEvent
 
 @Serializable
@@ -4563,6 +4604,7 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "terminal.resync" -> json.decodeFromJsonElement(TerminalResyncEvent.serializer(), raw)
     "drafts.changed" -> json.decodeFromJsonElement(DraftsChangedEvent.serializer(), raw)
     "threads.state" -> json.decodeFromJsonElement(ThreadsStateEvent.serializer(), raw)
+    "threads.message" -> json.decodeFromJsonElement(ThreadsMessageEvent.serializer(), raw)
     "subscriptions.usage.changed" -> json.decodeFromJsonElement(SubscriptionsUsageEvent.serializer(), raw)
     "board.state" -> json.decodeFromJsonElement(BoardStateEvent.serializer(), raw)
     "schedules.state" -> json.decodeFromJsonElement(SchedulesStateEvent.serializer(), raw)

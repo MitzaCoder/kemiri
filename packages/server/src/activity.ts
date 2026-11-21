@@ -1,3 +1,5 @@
+import { THREAD_MESSAGE_ENTRY } from "./thread-messages.ts";
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 /**
  * Project activity: what a project is doing, for `ProjectSummary.activity` and its `project.state` pushes.
  *
@@ -205,12 +207,21 @@ function finalAnswer(entry: EntryRecord): { at: string; id: number } | undefined
 	return { at, id: entry.id };
 }
 
-function newestFinalAnswer(entries: readonly EntryRecord[]): { at: string; id: number } | undefined {
-	for (let index = entries.length - 1; index >= 0; index--) {
-		const reply = finalAnswer(entries[index]!);
-		if (reply !== undefined) return reply;
+/** A peer-only turn is not a reply to the owner. A following real input takes precedence. */
+function newestFinalAnswer(entries: readonly EntryRecord[]) {
+	let peerTurn = false;
+	let latest: ({ at: string; id: number; entry: EntryRecord }) | undefined;
+	for (const entry of entries) {
+		if (entry.kind === THREAD_MESSAGE_ENTRY) {
+			if ((entry.data as { peerWake?: boolean } | undefined)?.peerWake) peerTurn = true;
+		} else if (entry.kind === OWNER_CHAT_ENTRY || entry.kind === "pi.user" || entry.kind === "pi.reset") peerTurn = false;
+		const reply = finalAnswer(entry);
+		if (reply) {
+			if (!peerTurn && finalAnswerText(entry).trim()) latest = { ...reply, entry };
+			peerTurn = false;
+		}
 	}
-	return undefined;
+	return latest;
 }
 
 /** The coordinator's state from a view: a live run wins; otherwise the newest assistant entry decides. */
@@ -497,11 +508,7 @@ export class ProjectActivityService {
 	async #findLastReply(context: Context): Promise<{ at: string; id: number; entry: EntryRecord } | undefined> {
 		try {
 			const page = await this.#conversation.entries({ order: "descending" }, 100, undefined, context);
-			for (const entry of page.items) {
-				const reply = finalAnswer(entry);
-				if (reply !== undefined) return { ...reply, entry };
-			}
-			return undefined;
+			return newestFinalAnswer([...page.items].reverse());
 		} catch (error) {
 			this.#log(`activity could not read the last reply: ${error instanceof Error ? error.message : String(error)}`);
 			return undefined;

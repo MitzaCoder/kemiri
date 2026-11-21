@@ -640,6 +640,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		onBoardState: (projectId, board) => {
 			for (const connection of connections) connection.notifyBoard(projectId, board);
 		},
+		onThreadsMessage: event => {
+			for (const connection of connections) connection.notifyThreadMessage(event);
+		},
 		onThreadsState: (projectId, threads) => {
 			for (const connection of connections) connection.notifyThreads(projectId, threads);
 		},
