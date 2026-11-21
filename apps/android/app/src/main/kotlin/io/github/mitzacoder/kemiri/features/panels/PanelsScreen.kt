@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -63,8 +65,9 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     val threads = if (connection.supports("threads")) panelData(context, "task-threads", { it is ThreadsStateEvent && it.projectId == project }) {
         context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
     }.value.orEmpty() else emptyList()
+    CoordinatorTaskScopeLayout(context, modifier) {
     TasksView(
-        context, modifier,
+        context, Modifier.fillMaxSize(),
         looseQuestion = { question ->
             QuestionCard(
                 context, question,
@@ -80,6 +83,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
             }
         },
     ) { start -> TasksPanel(context, toolbarStart = start) }
+    }
 }
 
 /** Relative times in a panel move on while it is open. */
@@ -107,6 +111,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     var showArchived by rememberSaveable(context.route) { mutableStateOf(false) }
     var showFinished by rememberSaveable(context.route) { mutableStateOf(false) }
     val client = context.backend.client
+    val connection by client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
     val data = panelData(context, showArchived, { it is ThreadsStateEvent && it.projectId == project }) {
         client.request(ThreadsListRequest(projectId = project, includeArchived = showArchived)).threads
@@ -133,7 +138,11 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
             Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         PanelBody(data) { threads ->
-            val ordered = io.github.mitzacoder.kemiri.features.chat.orderedBackgroundJobs(threads)
+            val jobThreads = if (connection.supports("coordinators")) {
+                val owner = coordinatorOfThread(context.route.threadId, threads)
+                threads.filter { it.kind != "coordinator" && (it.parentThreadId ?: "main") == owner }
+            } else threads
+            val ordered = io.github.mitzacoder.kemiri.features.chat.orderedBackgroundJobs(jobThreads)
             val live = ordered.filter { !it.archived }
             val archived = ordered.filter { it.archived }
             @Composable fun Row(thread: ThreadSummary) = key(thread.id) {

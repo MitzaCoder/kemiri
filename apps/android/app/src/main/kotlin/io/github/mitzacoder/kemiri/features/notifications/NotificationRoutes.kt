@@ -117,6 +117,7 @@ fun appLinkFromUri(value: String, backends: List<BackendConfig>): AppLink? {
     val fragment = uri.rawFragment?.let(::decode).orEmpty()
     val highlight = when {
         fragment.startsWith("thread-") && fragment.length > 7 -> ChatHighlight.Thread(fragment.removePrefix("thread-"))
+        fragment.startsWith("peer-") && fragment.length > 5 -> ChatHighlight.PeerMessage(fragment.removePrefix("peer-"))
         fragment.startsWith("entry-") -> fragment.removePrefix("entry-").toLongOrNull()?.let { ChatHighlight.Entry(it) }
         else -> null
     }
@@ -156,7 +157,12 @@ fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>
     val projectId = payload.projectId ?: return AppLink.Open(listOf(Destination.Home))
     val main = Destination.Chat(backend.key, projectId)
     val thread = payload.threadId?.takeUnless { it == MAIN_THREAD_ID }
+    val coordinator = payload.coordinatorId?.let { id ->
+        main.copy(threadId = id.takeUnless { it == MAIN_THREAD_ID }, highlight = payload.entryId?.let { ChatHighlight.Entry(it) })
+    }
     return AppLink.Open(when {
+        coordinator != null && payload.taskId != null && payload.entryId == null -> listOf(coordinator, Destination.Task(coordinator, payload.taskId))
+        coordinator != null -> listOf(coordinator)
         payload.taskId != null -> listOf(main, Destination.Task(main, payload.taskId))
         payload.workerId != null -> listOf(main.copy(threadId = thread, workerId = payload.workerId))
         // A thread's news opens main, where its card is: the user talks to Main chat, not to the thread.

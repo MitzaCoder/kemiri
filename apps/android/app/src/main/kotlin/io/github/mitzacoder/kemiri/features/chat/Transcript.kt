@@ -3,6 +3,8 @@ package io.github.mitzacoder.kemiri.features.chat
 import io.github.mitzacoder.kemiri.protocol.EntryRecord
 import io.github.mitzacoder.kemiri.protocol.CacheWarmStretch
 import kotlinx.serialization.json.*
+import io.github.mitzacoder.kemiri.features.coordinators.transcriptMessageIds
+import io.github.mitzacoder.kemiri.protocol.ThreadsMessagesResponseMessagesItem
 
 internal fun JsonElement?.obj() = this as? JsonObject
 internal fun JsonElement?.objects() = (this as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
@@ -12,7 +14,7 @@ internal fun contentText(content: JsonElement?): String = when(content) {
     is JsonArray -> content.objects().filter { it.s("type") == "text" }.joinToString("\n") { it.s("text") }
     else -> ""
 }
-data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null)
+data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null, val peerMessageId: String? = null)
 /**
  * What a turn (everything the coordinator did between two user messages) took, for the footer under its last row: its
  * start and end, the model, the tokens and cost summed over its requests, the requests that re-billed much of the
@@ -48,7 +50,8 @@ fun groupParts(parts: List<ChatPart>): List<ChatRow> {
 }
 
 /** Pure projection over retained history. Results and live slots enrich a single stable call identity. */
-fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: List<CacheWarmStretch> = emptyList()): List<ChatRow> {
+fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: List<CacheWarmStretch> = emptyList(),
+    peerMessages: Map<String, ThreadsMessagesResponseMessagesItem> = emptyMap(), showCoordinatorNotes: Boolean = false): List<ChatRow> {
     val warmByAnchor = cacheWarmByAnchor(keepWarm, entries.map { it.id }.toSet())
     val live = liveValue.obj()
     val results = mutableMapOf<String,Pair<JsonObject,JsonElement?>>()
@@ -98,6 +101,11 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
         }
         val details = message?.get("details") ?: slot?.get("details")
         val children = if(message != null) details.obj()?.get("calls").objects() else nested.filter { it.s("parentCallId") == id }
+        val peers = (transcriptMessageIds(result?.second) + transcriptMessageIds(details)).distinct()
+        if (peers.isNotEmpty() && peers.all(peerMessages::containsKey)) {
+            peers.forEach { parts += ChatPart("call-$id-peer-$it", "peerMessage", peerMessageId = it) }
+            return
+        }
         parts += unwrapScript(ChatPart("call-$id","tool",output,call.s("name").ifBlank { message?.s("toolName") ?: "tool" },status,call["arguments"],details,children,diagnostics = diagnostics, timestamp = (message?.get("timestamp") as? JsonPrimitive)?.longOrNull, durationMs = (message?.get("durationMs") as? JsonPrimitive)?.longOrNull))
     }
     fun assistant(message: JsonObject, key: String, active: Boolean = false) {
@@ -122,13 +130,33 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
         if(e.kind != "pi.assistant") cache.observeEntry(e.kind,e.model)
         if(e.kind in setOf("pi.user","pi.reset","pi.compaction")) flush()
         when(e.kind) {
+            "kemiri.coordinator-note" -> if (showCoordinatorNotes) {
+                val data = e.data.obj()
+                val label = when (data?.s("channel")) {
+                    "memory" -> "Memory changed elsewhere"
+                    "coordinators" -> "Coordinators changed"
+                    "repository" -> "Integration ref moved"
+                    else -> null
+                }
+                val summary = data?.s("summary").orEmpty()
+                if (label != null && summary.isNotBlank()) {
+                    flush()
+                    val plain = Regex("&(amp|lt|gt|quot);").replace(summary) { match ->
+                        when (match.groupValues[1]) { "amp" -> "&"; "lt" -> "<"; "gt" -> ">"; else -> "\"" }
+                    }
+                    parts += ChatPart("entry-${e.id}", "coordinatorNote", "$label · $plain")
+                }
+            }
             "pi.assistant" -> messages.forEachIndexed { i,m ->
                 absorb(m)
                 cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
                 assistant(m,"entry-${e.id}-$i")
             }
             "pi.user" -> messages.forEachIndexed { i,m ->
-                val text = contentText(m["content"])
+                val ids = transcriptMessageIds(e.data)
+                val joined = ids.isNotEmpty() && ids.all(peerMessages::containsKey)
+                if (joined && i == 0) ids.forEach { parts += ChatPart("entry-${e.id}-peer-$it", "peerMessage", sourceEntryId = e.id, peerMessageId = it) }
+                val text = if (joined) contentText(e.data.obj()?.get("peerDisplayContent")) else contentText(m["content"])
                 val injected = m["content"].objects().none { it.s("type") == "image" } && injectedInput(text) != null
                 if(text.isNotEmpty()) parts += ChatPart("entry-${e.id}-$i",if(injected) "notice" else "user",text,timestamp = (m["timestamp"] as? JsonPrimitive)?.longOrNull)
                 m["content"].objects().filter { it.s("type") == "image" }.forEachIndexed { n,b -> parts += ChatPart("entry-${e.id}-$i-image-$n","image",b.s("data"),b.s("mimeType")) }

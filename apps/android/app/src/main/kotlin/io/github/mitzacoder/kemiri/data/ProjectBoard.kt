@@ -135,21 +135,21 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
      * Creates (no [taskId]) or changes a task read at [expectedRevision]. Leave `input.refs` null unless the user edited
      * them: null keeps the task's refs, a list replaces them. A [note] needs `board-moves` (see [HarnessClient.saveBoardTask]).
      */
-    suspend fun saveTask(input: BoardTaskInput, taskId: String? = null, expectedRevision: Long? = null, note: String? = null): SaveOutcome {
+    suspend fun saveTask(input: BoardTaskInput, taskId: String? = null, expectedRevision: Long? = null, note: String? = null, coordinator: String? = null): SaveOutcome {
         var openParts: String? = null
         if (needsClosePartsChoice(input.status, taskId, view.value.tasks, client.supports("task-state"))) {
             openParts = askCloseParts(taskId!!) ?: return SaveOutcome.Cancelled
         }
         return try {
             val saved = try {
-                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts)
+                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts, coordinator)
             } catch (error: Exception) {
                 if (!isOpenPartsError(error) || taskId == null) throw error
                 // A direct part may have arrived after the local preflight. Re-read before asking.
                 load()
                 openParts = askCloseParts(taskId, error.message) ?: return SaveOutcome.Cancelled
                 // Keep the revision the owner edited; fetching parts must not rebase stale prose.
-                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts)
+                client.saveBoardTask(projectId, input, taskId, expectedRevision, note, openParts, coordinator)
             }
             val task = taskWithSupportedState(saved, client.supports("task-state"), client.supports("task-part-states"))
             upsertTask(task)

@@ -63,9 +63,11 @@ fun showPushNotification(context: Context, payload: NotificationPayload): Boolea
         .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     val tap = PendingIntent.getActivity(context, payload.tag.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     val channel = notificationChannelId(if (kindInfo(payload.kind) != null) payload.kind else "test")
+    val projectGroup = payload.projectId?.let { "project|${payload.backendKey}|$it" }
     val notification = NotificationCompat.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(payload.title)
+        .apply { if (projectGroup != null) setGroup(projectGroup).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN) }
         .setContentText(if (payload.kind == "board_question") markdownText(payload.body) else payload.body)
         .setStyle(NotificationCompat.BigTextStyle().bigText(if (payload.kind == "board_question") markdownText(payload.body) else payload.body))
         .setContentIntent(tap)
@@ -76,7 +78,15 @@ fun showPushNotification(context: Context, payload: NotificationPayload): Boolea
         .setCategory(if (isNotificationFailure(payload.kind)) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_MESSAGE)
         .build()
     return try {
-        NotificationManagerCompat.from(context).notify("${payload.backendKey}|${payload.tag}", 0, notification)
+        val manager = NotificationManagerCompat.from(context)
+        manager.notify("${payload.backendKey}|${payload.tag}", 0, notification)
+        if (projectGroup != null) {
+            val summary = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(if (payload.coordinatorId == null) payload.title else payload.title.substringBeforeLast(" · "))
+                .setGroup(projectGroup).setGroupSummary(true).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setContentIntent(tap).setAutoCancel(true).build()
+            manager.notify(projectGroup, 0, summary)
+        }
         true
     } catch (_: SecurityException) {
         false

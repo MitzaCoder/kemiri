@@ -1,5 +1,9 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import androidx.compose.ui.platform.LocalContext
+
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -122,6 +126,7 @@ private fun UnknownBackendNotice(backendId: String, navigate: (Destination) -> U
 private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Destination, navigate: (Destination) -> Unit, rail: Boolean) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val settings by repository.settings.collectAsStateWithLifecycle()
+    val android = LocalContext.current
     val currentChat = current.chatRoute()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
@@ -173,20 +178,20 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
                     projects.forEach { project ->
                         val unread = (project.activity?.lastReplyEntryId ?: 0) > (settings.seenReplies[backend.config.key]?.get(project.id) ?: 0)
                         val selected = currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id
-                        val open = { navigate(Destination.Chat(backend.config.key, project.id)) }
+                        val open = { navigate(projectEntryRoute(android, backend, Destination.Chat(backend.config.key, project.id))) }
                         val board = backend.existingBoard(project.id)?.view?.collectAsStateWithLifecycle()?.value?.board
                         val jobRoute = currentChat?.takeIf { selected && io.github.mitzacoder.kemiri.features.chat.isBackgroundJobPage(it) }
                         val openThreads = rememberPushedList(backend.client, project.id, jobRoute != null && connection.supports("threads"),
                             pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == project.id }?.threads },
                             read = { backend.client.request(ThreadsListRequest(projectId = project.id, includeArchived = true)).threads })
-                        val openJob = io.github.mitzacoder.kemiri.features.chat.openBackgroundJobLabel(jobRoute, openThreads)
+                        val openJob = if (openThreads.any { it.id == jobRoute?.threadId && it.kind == "coordinator" }) null else io.github.mitzacoder.kemiri.features.chat.openBackgroundJobLabel(jobRoute, openThreads)
                         if (rail) RailProject(backend.config.name, project, unread, selected, now, board, openJob, open)
                         else ProjectRow(project, unread, selected, now, board, openJob, open)
                     }
                     if (!rail && archived.isNotEmpty()) {
                         TextButton(onClick = { showArchived = !showArchived }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Archived (${archived.size}) ${if (showArchived) "⌃" else "⌄"}", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgSubtle) }
                         if (showArchived || archived.any { currentChat?.backendKey == backend.config.key && currentChat.projectId == it.id }) archived.forEach { project ->
-                            ProjectRow(project, false, currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id, now) { navigate(Destination.Chat(backend.config.key, project.id)) }
+                            ProjectRow(project, false, currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id, now) { navigate(projectEntryRoute(android, backend, Destination.Chat(backend.config.key, project.id))) }
                         }
                     }
                 }

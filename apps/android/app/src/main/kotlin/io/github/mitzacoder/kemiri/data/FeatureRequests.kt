@@ -111,9 +111,13 @@ suspend fun HarnessClient.saveBoardTask(
     expectedRevision: Long? = null,
     note: String? = null,
     openParts: String? = null,
+    coordinator: String? = null,
 ): BoardTask {
     if (note != null) requireFeature(HarnessFeature.BOARD_MOVES)
-    return request(BoardTaskSaveRequest(projectId = projectId, taskId = taskId, expectedRevision = expectedRevision, task = task, note = note, openParts = openParts)).task
+    if (coordinator != null) requireFeature("task-coordinator")
+    val request = BoardTaskSaveRequest(projectId = projectId, taskId = taskId, expectedRevision = expectedRevision, task = task, note = note,
+        openParts = openParts, ownerThreadId = coordinator?.takeUnless { it == MAIN_THREAD_ID })
+    return request(request, explicitNulls = if (coordinator == MAIN_THREAD_ID) setOf("ownerThreadId") else emptySet()).task
 }
 
 /**

@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -136,7 +138,10 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
         read = { client.request(ThreadsListRequest(projectId = route.projectId, includeArchived = true)).threads })
     val worker = route.workerId?.let { id -> workers.firstOrNull { it.id == id && threadOf(it.threadId) == threadOf(route.threadId) } }
     val threadSummary = if (thread) threads.firstOrNull { it.id == route.threadId } else null
+    val coordinator = threads.firstOrNull { connection.supports("coordinators") && route.workerId == null &&
+        it.id == threadOf(route.threadId) && (it.main || it.kind == "coordinator") }
     val title = when {
+        coordinator != null -> coordinator.title
         route.workerId != null -> worker?.title?.ifBlank { null } ?: route.workerId
         thread -> threadSummary?.title?.ifBlank { null } ?: route.threadId.orEmpty()
         else -> project?.name ?: "Project"
@@ -162,8 +167,13 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val away = connectionAwayWord(connection.status)
     val canSwitch = route.workerId == null && connection.supports("threads")
     var switcher by rememberSaveable(route) { mutableStateOf(false) }
+    var coordinatorPage by rememberSaveable(route) { mutableStateOf<String?>(null) }
+    if (connection.supports("coordinators")) when (coordinatorPage) {
+        "new" -> CoordinatorEditor(context, null, dismiss = { coordinatorPage = null })
+        "manage" -> CoordinatorManager(context, threads, dismiss = { coordinatorPage = null })
+    }
     val background = project?.activity?.backgroundJobs ?: io.github.mitzacoder.kemiri.features.chat.backgroundJobCounts(threads)
-    if (switcher && canSwitch) ConversationSwitcher(context, threads, now) { switcher = false }
+    if (switcher && canSwitch) ConversationSwitcher(context, threads, now, onCoordinatorPage = { coordinatorPage = it }) { switcher = false }
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (route.workerId != null || thread) {
             val back = if (context.goBack != null) "Back" else if (route.workerId != null && thread) "Back to the background job" else "Back to Main chat"
@@ -174,11 +184,13 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
             .clickable(role = Role.Button, onClickLabel = "Switch conversation") { switcher = true }
             .semantics(mergeDescendants = true) { stateDescription = "${background.needsYou} needs you, ${background.working} working" }
             else Modifier)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (coordinator != null) Text(project?.name ?: "Project", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (coordinator != null) CoordinatorMark(coordinator)
                 Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (canSwitch) LucideGlyph(Lucide.ChevronDown, size = 16.dp)
             }
-            if (canSwitch) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (canSwitch && coordinator == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (threadSummary != null) StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(threadSummary), domain = "thread")
                 else Text(if (thread) "Background job" else "Main chat", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
                 HeaderBadge(background.needsYou.toString(), attention = true)
@@ -235,7 +247,9 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
 
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
     val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
-    val questions = if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
+    val coordinatorThreads = rememberCoordinatorThreads(context, connection.supports("coordinators"))
+    val coordinator = coordinatorRoster(coordinatorThreads).find { it.id == coordinatorOfThread(route.threadId, coordinatorThreads) }
+    val questions = if (coordinator != null && connection.supports("task-coordinator")) coordinatorBadges(coordinator).needsYou else if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null

@@ -142,6 +142,7 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
     val colors = Jarvis.colors
     val split = splitMemoryFiles(lists.value?.files.orEmpty(), includeArchived, now)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (connection.supports("coordinators")) Text("Shared by all coordinators", style = MaterialTheme.typography.labelMedium, color = Jarvis.colors.fgMuted)
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             MEMORY_SCOPES.forEachIndexed { index, option ->
                 SegmentedButton(selected = scope == option, onClick = { pickScope(option); opened = null }, shape = SegmentedButtonDefaults.itemShape(index, MEMORY_SCOPES.size)) { Text(memoryScopeLabel(option)) }
@@ -238,12 +239,13 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
                 rows.forEach { row -> key(row.change.commit) { MemoryCard {
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                         MemoryPill(row.kind)
+                        (row.change.coordinatorTitle ?: row.change.coordinatorId)?.let { MemoryPill("By $it") }
                         row.compactionEntry?.let { entry ->
                             val here = row.change.source?.projectId == project
                             Text("compaction at entry #$entry", style = MaterialTheme.typography.labelSmall, color = if (here) colors.fgMuted else colors.fgSubtle,
                                 textDecoration = if (here) androidx.compose.ui.text.style.TextDecoration.Underline else null,
                                 modifier = if (here) Modifier.clickable(role = Role.Button, onClickLabel = "Show the compaction these memories were saved from") {
-                                    context.navigate(context.route.copy(threadId = null, workerId = null, highlight = ChatHighlight.Entry(entry)))
+                                    context.navigate(context.route.copy(threadId = row.change.coordinatorId?.takeUnless { it == "main" }, workerId = null, highlight = ChatHighlight.Entry(entry)))
                                 } else Modifier)
                         }
                         Spacer(Modifier.weight(1f))

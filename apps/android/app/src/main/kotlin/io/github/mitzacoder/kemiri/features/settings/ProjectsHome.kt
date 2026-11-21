@@ -1,5 +1,9 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import androidx.compose.ui.platform.LocalContext
+
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +38,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun ProjectsHome(repository: HarnessRepository, navigate: (Destination) -> Unit, modifier: Modifier = Modifier) {
+    val android = LocalContext.current
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf<BackendSession?>(null) }
     Column(
@@ -73,7 +78,7 @@ fun ProjectsHome(repository: HarnessRepository, navigate: (Destination) -> Unit,
                 })
                 shown.forEach { project ->
                     val route = Destination.Chat(backend.config.key, project.id)
-                    GroupRow(onClick = { navigate(route) }) {
+                    GroupRow(onClick = { navigate(projectEntryRoute(android, backend, route)) }) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(project.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                             StatusChip(project.state, when (project.state) { "open" -> ChipTone.Ok; "failed" -> ChipTone.Err; else -> ChipTone.Warn })

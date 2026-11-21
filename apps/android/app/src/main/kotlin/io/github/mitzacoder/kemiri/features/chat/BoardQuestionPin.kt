@@ -3,6 +3,7 @@ package io.github.mitzacoder.kemiri.features.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
+import io.github.mitzacoder.kemiri.features.coordinators.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.QuestionCard
 import io.github.mitzacoder.kemiri.features.tasks.TaskIcons
@@ -61,16 +63,31 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
  * it. On a phone the pin starts as one line, how many are waiting and which task, in the warning's colour when a
  * warning waits, and opens on a tap.
  */
-@Composable internal fun BoardQuestionPin(context: ProjectScreenContext) {
+@Composable internal fun BoardQuestionPin(context: ProjectScreenContext, coordinatorThreads: List<ThreadSummary>? = null) {
     if (!showPinnedBoardQuestions(context.activePanel)) return
     val colors = Jarvis.colors
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val waiting = pinnedQuestions(view.questions, context.route.threadId)
+    val openCoordinator = context.route.threadId ?: MAIN_THREAD_ID
+    val waiting = if (coordinatorThreads == null) pinnedQuestions(view.questions, context.route.threadId) else {
+        val other = view.questions.filter { it.status == "open" && it.waitingOn != "agent" }
+            .groupingBy { coordinatorOfThread(it.threadId, coordinatorThreads) }.eachCount()
+        val roster = coordinatorRoster(coordinatorThreads)
+        if (roster.any { it.id != openCoordinator && (other[it.id] ?: 0) > 0 }) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+                roster.filter { it.id != openCoordinator }.forEach { thread -> other[thread.id]?.let { count ->
+                    TextButton(onClick = { context.navigate(coordinatorRoute(context.route, thread.id)) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("$count more ${if (count == 1) "question" else "questions"} in ${thread.title}", style = MaterialTheme.typography.labelSmall)
+                    }
+                } }
+            }
+        }
+        view.questions.filter { it.status == "open" && coordinatorOfThread(it.threadId, coordinatorThreads) == openCoordinator }
+    }
     if (waiting.isEmpty()) return
     val tasksView = connection.supports(HarnessFeature.TASK_REPORTS)
     val project = context.route.projectId
-    val threads = if (connection.supports("threads")) panelData(context, "pin-threads", { it is ThreadsStateEvent && it.projectId == project }) {
+    val threads = coordinatorThreads ?: if (connection.supports("threads")) panelData(context, "pin-threads", { it is ThreadsStateEvent && it.projectId == project }) {
         context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
     }.value.orEmpty() else emptyList()
     // The window, not the chat column: the web asks the viewport (48rem).

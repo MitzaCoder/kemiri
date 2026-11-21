@@ -1,7 +1,11 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -115,7 +119,24 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
 
     val sheet = rememberTaskSheetState(context, task, view, deviceSettings, wide, previousTaskId, bodyState,
         onDismiss, design.id, selectDesign, onTaskSaved = { if (archivedTask?.id == task.id) archivedTask = it })
-    key(design.id) { design.content(sheet) }
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    if (connection.supports("task-coordinator") || connection.supports("coordinator-messages")) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) { key(design.id) { design.content(sheet) } }
+            Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 12.dp, vertical = 4.dp)) {
+                TaskCoordinatorRow(context, task, view.tasks)
+                if (connection.supports("coordinator-messages")) {
+                    val threads = rememberCoordinatorThreads(context, connection.supports("coordinators"))
+                    var showMessages by androidx.compose.runtime.saveable.rememberSaveable(task.id) { mutableStateOf(false) }
+                    TextButton(onClick = { showMessages = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Coordinator messages") }
+                    if (showMessages) androidx.compose.material3.AlertDialog(onDismissRequest = { showMessages = false },
+                        title = { Text("Messages about ${task.id}") },
+                        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) { CoordinatorMessageFeed(context, threads, task.id, initiallyExpanded = true) } },
+                        confirmButton = { TextButton(onClick = { showMessages = false }) { Text("Close") } })
+                }
+            }
+        }
+    } else key(design.id) { design.content(sheet) }
 }
 
 @Composable

@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -53,7 +55,8 @@ internal fun LooseWorkers(context: ProjectScreenContext, tasks: List<BoardTask>)
     val workers = panelData(context, "loose-workers", { it is WorkersStateEvent && it.projectId == project }) {
         context.backend.client.request(WorkersListRequest(projectId = project)).workers
     }.value.orEmpty()
-    val loose = workersWithoutTask(workers, tasks.flatMap { it.workerIds })
+    val selector = LocalCoordinatorTaskScope.current
+    val loose = workersWithoutTask(workers.filter { selector == null || selector.includes(coordinatorOfThread(it.threadId, selector.threads)) }, tasks.flatMap { it.workerIds })
     if (loose.isEmpty()) return
     val colors = Jarvis.colors
     val (active, finished) = splitLooseWorkers(loose)

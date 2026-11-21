@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks.board
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -157,12 +159,13 @@ fun TaskBoard(
     var asking by remember { mutableStateOf<MoveRequest?>(null) }
 
     fun withPending(tasks: List<BoardTask>) = if (pending.isEmpty()) tasks else tasks.map { task -> pending[task.id]?.let { task.copy(status = it) } ?: task }
-    val tasks = withPending(view.tasks)
+    val coordinatorScope = LocalCoordinatorTaskScope.current
+    val tasks = withPending(coordinatorScope?.tasks(view.tasks) ?: view.tasks)
     val filtered = io.github.mitzacoder.kemiri.features.tasks.filteredTasks(context, tasks, includeSearch = false)
     val search = io.github.mitzacoder.kemiri.features.tasks.taskSearchState(context, tasks)
     val searchHits = if (search.query.isBlank()) emptyMap() else search.index.search(search.query, filtered.map { it.id }.toSet()).associateBy { it.id }
     val visibleTasks = if (search.query.isBlank()) filtered else filtered.filter { it.id in searchHits }
-    val questions = view.questions
+    val questions = coordinatorScope?.questions(view.questions) ?: view.questions
     val columns = remember(visibleTasks, questions, view.showArchived, doneExpanded, onlyNeedsYou) {
         kanbanColumns(visibleTasks, questions, view.showArchived, if (doneExpanded) Int.MAX_VALUE else DONE_SHOWN, onlyNeedsYou)
     }
@@ -348,7 +351,7 @@ fun TaskBoard(
         DisposableEffect(id, card.column) { onDispose { cardGone(id, card.column) } }
         val hidden = glides.any { it.card.task.id == id }
         TaskCard(
-            card, tasks, workers, threads, now,
+            card, view.tasks, workers, threads, now,
             searchHit = searchHits[id],
             linksEnabled = connection.supports(HarnessFeature.TASK_LINKS),
             modifier = itemModifier
@@ -471,7 +474,10 @@ fun TaskBoard(
             }
             // Below every column; a long list scrolls in its own box instead of taking the board's height.
             if (view.loaded) Box(Modifier.fillMaxWidth().heightIn(max = boardHeight * 0.35f).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
-                io.github.mitzacoder.kemiri.features.tasks.LooseWorkers(context, tasks)
+                Column {
+                    io.github.mitzacoder.kemiri.features.tasks.LooseWorkers(context, view.tasks)
+                    CoordinatorTasksFooter(context)
+                }
             }
         }
 

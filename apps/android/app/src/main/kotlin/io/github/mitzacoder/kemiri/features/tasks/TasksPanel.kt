@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -80,14 +82,16 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
         return
     }
     val loadedBoard = view.board
-    val tasks = view.tasks
-    val sections = if (loadedBoard == null) emptyList() else taskSections(filteredTasks(context, tasks, includeSearch = false), view.questions, includeArchived = view.showArchived)
+    val coordinatorScope = LocalCoordinatorTaskScope.current
+    val tasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
+    val questions = coordinatorScope?.questions(view.questions) ?: view.questions
+    val sections = if (loadedBoard == null) emptyList() else taskSections(filteredTasks(context, tasks, includeSearch = false), questions, includeArchived = view.showArchived)
     val search = taskSearchState(context, tasks)
     val searching = search.query.isNotBlank()
     val eligible = sections.flatMap { it.rows }.filter { !isSettled(it.task.status) || sectionExpansion[TaskSectionId.Closed.name] == true }.map { it.task.id }.toSet()
     val searchHits = if (searching) search.index.search(search.query, eligible) else emptyList()
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
-    val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks))
+    val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks, questions = questions))
     val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
     val looseGroups = loose.groupBy { it.waitingOn == "agent" }
     val familySections = if (searching) emptyList() else taskFamilySections(sections)
@@ -126,7 +130,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
         }
         jumpToTask = null
     }
-    val answered = view.questions.filter { it.status == "answered" }
+    val answered = questions.filter { it.status == "answered" }
     val decisions = loadedBoard?.decisions.orEmpty()
     val archivedShown = if (view.showArchived) tasks.count { it.archived } else 0
     val openCount = tasks.count { !it.archived && !isSettled(it.status) }
@@ -233,6 +237,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                                 onRowLayout = if (needsYou) ({ id, layout ->
                                     if (layout == null) needsYouRowLayouts.remove(id) else needsYouRowLayouts[id] = layout
                                 }) else null,
+                                shown = sections.flatMap { it.rows }.map { it.task.id }.toSet(),
                             )
                         }
                     }
@@ -269,7 +274,8 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
             }
         }
         // Last: below every task, the answered questions and the decisions.
-        if (view.loaded) item(key = "loose-workers") { LooseWorkers(context, tasks) }
+        if (view.loaded) item(key = "loose-workers") { LooseWorkers(context, view.tasks) }
+        if (coordinatorScope != null) item(key = "coordinator-footer") { CoordinatorTasksFooter(context) }
     }
 }
 
@@ -278,7 +284,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
 private fun TaskFamilyRows(
     branches: List<TaskFamilyBranch>, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
     archived: List<BoardTaskBrief>, onToggle: (TaskFamily) -> Unit, onOpen: (String) -> Unit,
-    onJump: (String) -> Unit, onRowLayout: ((String, LayoutCoordinates?) -> Unit)?, depth: Int = 0,
+    onJump: (String) -> Unit, onRowLayout: ((String, LayoutCoordinates?) -> Unit)?, depth: Int = 0, shown: Set<String> = emptySet(),
 ) {
     val guide = Jarvis.colors.border
     val firstVisible = branches.indexOfFirst { it.visible }
@@ -301,11 +307,13 @@ private fun TaskFamilyRows(
                             TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) }, rowModifier) { onOpen(id) }
                         }
                     }
+                    TaskCoordinatorMark(family.row.task)
+                    ExternalTaskFamily(family.row.task, shown, onOpen, showParts = family.role != TaskFamilyRole.Pointer)
                     if (family.branches.isNotEmpty()) Box(
                         Modifier.padding(start = if (depth < 3) 14.dp else 0.dp)
                             .drawBehind { drawLine(guide, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) },
                     ) {
-                        TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump, onRowLayout, depth + 1)
+                        TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump, onRowLayout, depth + 1, shown)
                     }
                 }
                 if (depth == 0 || reducedMotion) {

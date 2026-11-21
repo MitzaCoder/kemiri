@@ -66,9 +66,9 @@ class BackgroundJobPageTest {
     @Test fun questionPlacementAndSharedStopAreWiredAtTheirOnlySurfaces() {
         val root = File("src/main/kotlin/io/github/mitzacoder/kemiri")
         val chat = root.resolve("features/chat/ChatScreen.kt").readText()
-        assertTrue(chat.contains("if (!isBackgroundJobPage(context.route)) BoardQuestionPin(context)"))
+        assertTrue(chat.contains("if (coordinator != null || !isBackgroundJobPage(context.route)) BoardQuestionPin"))
         assertTrue(chat.contains("backgroundJobComposerNote(context.route)"))
-        assertTrue(chat.contains("if (isBackgroundJobPage(context.route)) activeThread?.let"))
+        assertTrue(chat.contains("if (coordinator == null && isBackgroundJobPage(context.route)) activeThread?.let"))
         assertTrue(root.resolve("features/chat/BackgroundJobBand.kt").readText().contains("ThreadStopConfirmation(context"))
         assertTrue(root.resolve("features/panels/PanelsScreen.kt").readText().contains("ThreadStopConfirmation(context"))
     }

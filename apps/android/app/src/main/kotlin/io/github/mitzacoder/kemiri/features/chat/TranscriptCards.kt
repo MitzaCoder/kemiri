@@ -45,6 +45,7 @@ data class TranscriptScope(
     val workerTitlesBefore: Map<String,String> = emptyMap(),
     /** Schedule titles by ID, for a worker a schedule started. */
     val scheduleTitles: Map<String,String> = emptyMap(),
+    val peerMessages: Map<String, io.github.mitzacoder.kemiri.protocol.ThreadsMessagesResponseMessagesItem> = emptyMap(),
 )
 
 @Composable private fun ToolDestination(part: ChatPart, context: ProjectScreenContext) {
@@ -160,6 +161,10 @@ private const val ORB_MIN_WIDTH_DP = 640
     val first = row.parts.first()
     Column(Modifier.fillMaxWidth()) {
         when {
+            first.kind == "coordinatorNote" -> Text(first.text, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            first.kind == "peerMessage" -> scope.context?.let { context ->
+                scope.peerMessages[first.peerMessageId]?.let { io.github.mitzacoder.kemiri.features.coordinators.CoordinatorMessageCard(context, it, scope.threads, context.route.threadId ?: "main") }
+            }
             first.kind == "cacheWarm" -> CacheWarmLine(first)
             first.kind == "notice" -> injectedInput(first.text)?.let { InjectedLine(first,it,scope.context,scope.workers,scope.threads,scope.artifacts) } ?: TurnNotice(first)
             first.kind == "thinking" -> ThinkingCard(row)

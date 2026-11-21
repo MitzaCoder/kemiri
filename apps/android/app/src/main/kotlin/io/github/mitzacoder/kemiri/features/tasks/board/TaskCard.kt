@@ -132,6 +132,7 @@ fun TaskCard(
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                io.github.mitzacoder.kemiri.features.coordinators.TaskCoordinatorMark(task)
                 Text(
                     buildAnnotatedString { append(task.title); searchHit?.ranges?.forEach { addStyle(SpanStyle(background = colors.accent2.copy(alpha = .22f)), it.start, it.end) } },
                     Modifier.padding(end = if (menu != null) 28.dp else 0.dp),

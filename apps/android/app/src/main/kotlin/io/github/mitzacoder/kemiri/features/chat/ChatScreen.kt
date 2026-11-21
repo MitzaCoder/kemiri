@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.ui.focus.focusRequester
 
 import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
@@ -173,7 +175,13 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if(connection.status == ConnectionStatus.Ready && connection.supports("schedules") && (workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null }))
             runCatching { context.backend.client.request(SchedulesListRequest(projectId = context.route.projectId)).schedules }.onSuccess { list -> scheduleTitles = list.associate { it.id to it.title } }
     }
-    val rows = remember(state.entries, state.view) { transcript(state.entries, state.view?.docs?.get("pi.live"), state.view?.keepWarm.orEmpty()) }
+    val roster = coordinatorRoster(threads.takeIf { connection.supports("coordinators") }.orEmpty())
+    val coordinator = threads.firstOrNull { connection.supports("coordinators") && context.route.workerId == null &&
+        it.id == (context.route.threadId ?: "main") && (it.main || it.kind == "coordinator") }
+    rememberCoordinatorVisit(context, coordinator, context.activePanel == null)
+    val messages = rememberCoordinatorMessages(context, context.route.workerId == null && connection.supports("coordinator-messages"), loadHistory = true).messages
+    val memoryNotes = connection.supports("memory-notes") && context.route.workerId == null
+    val rows = remember(state.entries, state.view, messages, memoryNotes) { transcript(state.entries, state.view?.docs?.get("pi.live"), state.view?.keepWarm.orEmpty(), messages, memoryNotes) }
     val realRows = remember(rows) { rows.filter { it.parts.firstOrNull()?.kind != "cacheWarm" } }
     val titlesBefore = remember(rows,workers) { workerTitlesBeforeSend(rows,workers) }
     val lineRows = remember(rows) { rows.map(::isTaskLineRow) }
@@ -221,7 +229,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if(highlightDone || rows.isEmpty()) return@LaunchedEffect
         val index = highlightIndex(rows,target)
         if(index < 0) {
-            if(target is ChatHighlight.Entry && state.canLoadEarlier && !state.loadingEarlier && state.earlierError == null) {
+            if((target is ChatHighlight.Entry || target is ChatHighlight.PeerMessage) && state.canLoadEarlier && !state.loadingEarlier && state.earlierError == null) {
                 follow = false
                 // Do not cancel the page when its own loading state restarts this highlight effect.
                 scope.launch { watch.loadEarlier() }
@@ -266,7 +274,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         val models by context.backend.models.collectAsStateWithLifecycle()
         val thread = !sameThread(context.route.threadId,null)
         val project = projects.firstOrNull { it.id == context.route.projectId }
-        val chatAllowed = canChat(project,thread)
+        val chatAllowed = canChat(project,thread) && coordinator?.archived != true
         val ready = connection.status == ConnectionStatus.Ready
         /** The banners: the missing model, the transcript's state, a worker gone or failed, errors (web order). */
         @Composable fun ChatBanners() = Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -286,10 +294,14 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             activeWorker?.let { WorkerFacts(it,models,Modifier.padding(horizontal = 16.dp,vertical = 4.dp)) }
             ChatBanners()
         }
-        if (isBackgroundJobPage(context.route)) activeThread?.let {
+        var creatingCoordinator by rememberSaveable { mutableStateOf(false) }
+        if (context.route.workerId == null) CoordinatorChipRow(context, roster, context.route.threadId ?: "main") { creatingCoordinator = true }
+        if (creatingCoordinator) CoordinatorEditor(context, null, dismiss = { creatingCoordinator = false })
+        if (coordinator != null) CoordinatorArea(context, coordinator)
+        if (coordinator == null && isBackgroundJobPage(context.route)) activeThread?.let {
             BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get))
         }
-        val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles)
+        val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles,messages)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -354,8 +366,8 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             ChatBanners()
         }
         if (context.route.workerId == null) {
-            if (!isBackgroundJobPage(context.route)) BoardQuestionPin(context)
-            backgroundJobComposerNote(context.route)?.let {
+            if (coordinator != null || !isBackgroundJobPage(context.route)) BoardQuestionPin(context, coordinator?.let { threads })
+            (if (coordinator == null) backgroundJobComposerNote(context.route) else null)?.let {
                 Text(it, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle)
             }
@@ -386,7 +398,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             val userEdits = remember { InputTransformation { onUserEdit(this) } }
             MessageComposer(
                 textState = chatDraft.textState,
-                hint = composerHint(chatAllowed,ready,thread,busy),
+                hint = if (coordinator != null && ready && chatAllowed && !busy) "Message ${coordinator.title}…" else composerHint(chatAllowed,ready,thread,busy),
                 images = images,
                 onRemoveImage = chatDraft::removeImage,
                 attaching = attaching,
@@ -498,6 +510,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
 
 /** The row a one-shot highlight points at: a transcript entry, or a thread's newest card (its notice or the call on it); -1 when not loaded. */
 internal fun highlightIndex(rows: List<ChatRow>, target: ChatHighlight): Int = when(target) {
+    is ChatHighlight.PeerMessage -> rows.indexOfFirst { row -> row.parts.any { it.peerMessageId == target.messageId } }
     is ChatHighlight.Entry -> rows.indexOfFirst { row -> row.parts.any { it.key == "entry-${target.entryId}" || it.key.startsWith("entry-${target.entryId}-") || it.sourceEntryId == target.entryId } }
     is ChatHighlight.Thread -> rows.indexOfLast { row -> row.parts.any { part ->
         (part.kind == "notice" && (injectedInput(part.text) as? InjectedInput.Thread)?.notice?.threadId == target.threadId) || (part.kind == "tool" && threadCallId(part) == target.threadId)

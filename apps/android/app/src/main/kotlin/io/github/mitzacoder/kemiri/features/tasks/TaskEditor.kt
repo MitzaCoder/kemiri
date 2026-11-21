@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +59,9 @@ internal data class TaskEditorState(
 @Composable
 fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<BoardTask>, onBack: () -> Unit, modifier: Modifier = Modifier, scrolls: Boolean = true) {
     val colors = Jarvis.colors
+    val taskScope = LocalCoordinatorTaskScope.current
+    var destination by rememberSaveable(task?.id, taskScope?.coordinator) { mutableStateOf(taskScope?.coordinator ?: "main") }
+    var ownerMenu by remember { mutableStateOf(false) }
     val draftKey = boardDraftKey(context.backend.config.key, context.route.projectId, "task-editor", task?.id ?: "new")
     var state by rememberSaveable(draftKey, stateSaver = boardDraftSaver(draftKey, TaskEditorState.serializer())) { mutableStateOf(TaskEditorState.of(task)) }
     var saving by remember { mutableStateOf(false) }
@@ -76,7 +81,7 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
         saving = true
         problem = null
         scope.launch {
-            val outcome = context.board.saveTask(from.draft.toInput(from.baseRefs), from.shown?.id, from.baseRevision)
+            val outcome = context.board.saveTask(from.draft.toInput(from.baseRefs), from.shown?.id, from.baseRevision, coordinator = destination.takeIf { taskScope != null && from.shown == null })
             saving = false
             when (outcome) {
                 SaveOutcome.Cancelled -> Unit
@@ -123,6 +128,16 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
             style = TaskType.xs, color = colors.fgMuted,
         )
         Field("Title", draft.title, { update { copy(title = it) } })
+        if (task == null && taskScope != null && taskScope.coordinator == null && taskScope.roster.size > 1) {
+            androidx.compose.foundation.layout.Box {
+                androidx.compose.material3.OutlinedButton(onClick = { ownerMenu = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Coordinator: ${taskScope.roster.find { it.id == destination }?.title ?: destination}")
+                }
+                androidx.compose.material3.DropdownMenu(ownerMenu, { ownerMenu = false }) {
+                    taskScope.roster.forEach { row -> androidx.compose.material3.DropdownMenuItem(text = { Text(row.title) }, onClick = { destination = row.id; ownerMenu = false }) }
+                }
+            }
+        }
         Field("Tickets and links", draft.refs, { update { copy(refs = it) } }, minLines = 2, placeholder = "One per line, like EX-1234, #1234 or a link", style = mono)
         Field("Description", draft.description, { update { copy(description = it) } }, minLines = 4)
         Field("Done when", draft.acceptance, { update { copy(acceptance = it) } }, minLines = 2, placeholder = "Acceptance, optional")

@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks.graph
 
+import io.github.mitzacoder.kemiri.features.coordinators.*
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,8 +40,11 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     val threadsRead = if (connection.supports("threads")) panelData(context, "graph-threads", { it is ThreadsStateEvent && it.projectId == project }) {
         context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
     } else null
-    val workers = workersRead?.value.orEmpty()
-    val threads = threadsRead?.value.orEmpty()
+    val coordinatorScope = LocalCoordinatorTaskScope.current
+    val scopedTasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
+    val scopedQuestions = coordinatorScope?.questions(view.questions) ?: view.questions
+    val threads = threadsRead?.value.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.id, coordinatorScope.threads)) }
+    val workers = workersRead?.value.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.threadId, coordinatorScope.threads)) }
     var selectedId by rememberSaveable(key) { mutableStateOf(linkedTask) }
     var workerSelection by rememberSaveable(key) { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable(key) { mutableStateOf(false) }
@@ -50,8 +55,8 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     var showLegend by rememberSaveable(key) { mutableStateOf(false) }
     var viewOpen by remember { mutableStateOf(false) }
     var expandedFolds by rememberSaveable(key) { mutableStateOf(emptySet<GraphFoldKind>()) }
-    val graph = remember(view.tasks, view.questions, workers, threads, showClosed, showResting) {
-        buildTaskGraph(view.tasks, view.questions, workers, threads, showClosed, showResting)
+    val graph = remember(scopedTasks, scopedQuestions, workers, threads, showClosed, showResting) {
+        buildTaskGraph(scopedTasks, scopedQuestions, workers, threads, showClosed, showResting)
     }
     val folds = remember(graph, view.questions) { graphFoldGroups(graph, view.questions) }
     val shown = remember(graph, folds, mode, expandedFolds, showResting) { liveTaskGraph(graph, folds, mode, expandedFolds, showResting) }

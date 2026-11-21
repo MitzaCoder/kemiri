@@ -2726,6 +2726,20 @@ recipient, so the backend resolves the latest owner at admission. Older backends
 the existing switcher, board and composer behavior. `coordinators-demo.ts` seeds an
 isolated bakery fixture for before/after web proof.
 
+**Android coordinator roster and tasks (T398).** The chat title opens a native roster
+sheet with nested jobs. Projects with several coordinators have horizontally scrollable
+switch chips, and coordinator chats show their area and their own question pin. The
+last chat, reply marks and task scope are device-local and keyed by backend and project.
+The scope filters list, board and graph with the server's derived `coordinatorId`;
+external parts and blockers are links in the list. The task sheet moves a task and
+optionally its parts with their individual revisions. Task replies submit `taskId`,
+so the backend resolves the current owner. New and Manage reuse operation IDs on retries.
+Android joins the live peer-message log into chat and reads it in Tasks and Manage.
+Memory and roster notes render as one muted line; Memory shows the writer when known.
+Coordinator push titles come from the backend; Android groups by backend and project
+and opens the coordinator chat at the reply entry when supplied. These surfaces are
+feature-gated and require no server document version changes.
+
 Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-11-04:
 
 - **Shape.** A background thread is a child conversation of main's, owned by a background anchor task like a worker;

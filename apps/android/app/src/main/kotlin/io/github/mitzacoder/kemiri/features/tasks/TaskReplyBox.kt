@@ -23,6 +23,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.features.coordinators.coordinator
+import io.github.mitzacoder.kemiri.features.coordinators.rememberCoordinatorThreads
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -60,6 +62,11 @@ internal data class TaskReplyState(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, owner: TaskOwner, focus: FocusRequester): TaskReplyState {
+    val replyConnection by context.backend.client.state.collectAsStateWithLifecycle()
+    val coordinatorThreads = rememberCoordinatorThreads(context, replyConnection.supports("coordinators"))
+    val assigned = task.coordinator.takeIf { replyConnection.supports("task-coordinator") }
+    val replyThread = assigned?.takeUnless { it == "main" }
+    val replyTitle = assigned?.let { id -> coordinatorThreads.find { it.id == id }?.title ?: if (id == "main") "General" else id }
     // Typed in a text field's own state, so the field can take pasted and keyboard images; kept per task.
     val reply = key(task.id) { rememberTextFieldState() }
     var sending by remember { mutableStateOf(false) }
@@ -100,7 +107,7 @@ internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, o
                         if (android.contentResolver.getType(uri) in INPUT_IMAGE_MIME_TYPES) {
                             val raw = withContext(Dispatchers.IO) { readRawImage(android.contentResolver, uri) }
                             addImages(listOf(raw to null))
-                        } else attachments = attachments + uploadChatFile(context.backend.client, android.contentResolver, context.route.projectId, null, uri)
+                        } else attachments = attachments + uploadChatFile(context.backend.client, android.contentResolver, context.route.projectId, replyThread, uri)
                     } catch (cause: CancellationException) { throw cause }
                     catch (cause: Exception) { replyProblem = cause.message ?: "Could not attach file" }
                 }
@@ -138,7 +145,7 @@ internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, o
     val chatFilesEnabled = connection.supports("chat-files-v1")
     return TaskReplyState(
         taskId = task.id, text = reply,
-        hint = "To main · about ${task.id}" + if (owner.claimed && !owner.main) " · ${owner.label}" else "",
+        hint = if (replyTitle != null) "To $replyTitle · about ${task.id}" else "To main · about ${task.id}" + if (owner.claimed && !owner.main) " · ${owner.label}" else "",
         images = images, attachments = attachments, attaching = attaching,
         attachEnabled = !attaching && !sending && images.size + attachments.size < INPUT_MAX_IMAGES,
         attachLabel = if (chatFilesEnabled) "Attach files" else "Attach images",
