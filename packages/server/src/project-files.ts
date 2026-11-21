@@ -4,14 +4,14 @@ import {
 } from "@kemiri/protocol";
 import { createHash } from "node:crypto";
 import type { Dirent, Stats } from "node:fs";
-import { lstat, mkdtemp, open, opendir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, open, opendir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { detectMimeType } from "./artifacts.ts";
 import { assertCodeDescriptor, codeFileFlags, isCodePath, isVcsMetadata, pathInsideCodeRoot, resolveCodePath, sameInode, withCodeDirectory } from "./code-path.ts";
 import { ServerError } from "./errors.ts";
 import { serverSettings } from "./server-settings.ts";
-import { gitRepository, runVcsCommand, VcsCommandError } from "./task-changes.ts";
+import { VcsCommandError } from "./task-changes.ts";
+import { findGitWorktree, jjCheckoutCommit, withScratchIndex, worktreeGit, type WorktreeGit } from "./git-worktree.ts";
 
 const MAX_SEARCH_PATHS = 20_000;
 const MAX_WALK_ENTRIES = 25_000;
@@ -21,6 +21,7 @@ const MAX_GIT_PATH_BYTES = 8 * 1024 * 1024;
 const SEARCH_CACHE_MS = 10_000;
 const MAX_CACHED_ROOTS = 8;
 const sensitiveName = /^(?:\.env.*|id_.*|\.netrc|\.npmrc)$|\.(?:pem|key)$|credentials/i;
+export const isSensitiveCodePath = (path: string) => sensitiveName.test(basename(path));
 const isHidden = (path: string) => path.split("/").some(part => part.startsWith("."));
 const compareNames = (a: string, b: string) => a < b ? -1 : a === b ? 0 : 1;
 
@@ -50,36 +51,15 @@ function* gitPaths(stdout: Buffer): Iterable<string> {
 	}
 }
 
-type GitWorktree = (args: string[], options?: { stdin?: string; maxBytes?: number; keepPrefix?: boolean }) => ReturnType<typeof runVcsCommand>;
-async function withGitWorktree<T>(root: string, use: (git?: GitWorktree) => Promise<T>): Promise<T> {
-	const marker = async (name: string) => lstat(join(root, name)).catch(error => {
-		if (error.code !== "ENOENT") throw error;
-		return undefined;
-	});
-	const gitMarker = await marker(".git");
-	const git = (prefix: string[] = [], gitIndexFile?: string): GitWorktree => (args, options) =>
-		runVcsCommand("git", ["-c", "core.fsmonitor=false", ...prefix, ...args], root, options?.maxBytes, options?.keepPrefix,
-			{ stdin: options?.stdin, gitIndexFile });
-	if (gitMarker?.isDirectory() || gitMarker?.isFile()) {
-		// A repository's core.worktree setting must not redirect these project-scoped commands.
-		return use(git([`--git-dir=${join(root, ".git")}`, `--work-tree=${root}`]));
-	}
-	if (!(await marker(".jj"))?.isDirectory()) return use();
-	const gitStore = await gitRepository(root, true);
-	if (!gitStore) return use();
-	// Non-colocated jj workspaces have no Git index of their own. Seed a private index from the last jj snapshot
-	// so a tracked file still counts as tracked after it matches a new ignore rule. Never snapshot or use a shared index.
-	const revision = (await runVcsCommand("jj", ["--ignore-working-copy", "--at-op=@", "log", "--no-graph", "-r", "@", "-T", "commit_id"], root, 1024)).stdout.toString();
-	if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(revision)) throw new ServerError("internal", "No jj workspace revision");
-	const scratch = await mkdtemp(join(tmpdir(), "kemiri-files-index-"));
-	try {
-		const readGit = git([`--git-dir=${gitStore}`, `--work-tree=${root}`], join(scratch, "index"));
-		await readGit(["-c", "core.sparseCheckout=false", "-c", "core.splitIndex=false", "read-tree", revision]);
-		return await use(readGit);
-	} finally { await rm(scratch, { recursive: true, force: true }); }
+async function withGitWorktree<T>(root: string, use: (git?: WorktreeGit) => Promise<T>): Promise<T> {
+	const worktree = await findGitWorktree(root);
+	if (!worktree) return use();
+	if (worktree.colocated) return use(worktreeGit(root, worktree.gitDir));
+	// Keep tracked files visible even if they match a new ignore rule. A linked jj workspace has no Git index.
+	return withScratchIndex(root, worktree.gitDir, await jjCheckoutCommit(root), use);
 }
 
-async function ignoredNames(git: GitWorktree, directory: string, names: string[]): Promise<Set<string>> {
+async function ignoredNames(git: WorktreeGit, directory: string, names: string[]): Promise<Set<string>> {
 	if (!names.length) return new Set();
 	const prefix = directory ? `./${directory}/` : "./";
 	try {
@@ -210,45 +190,80 @@ export class ProjectFiles {
 		});
 	}
 
-	read(root: string, path: string, reveal = false): Promise<Omit<FilesReadResponse, "type" | "id">> {
-		return fileOperation(async () => {
-			const canonical = await resolveCodePath(root, path);
-			if (canonical === root) throw new ServerError("bad_request", "Only regular files can be read");
-			return withCodeDirectory(root, dirname(canonical), async directory => {
-				const entry = join(directory, basename(canonical));
-				const before = await lstat(entry);
-				if (!before.isFile()) throw new ServerError("bad_request", "Only regular files can be read");
-				if (!reveal && (sensitiveName.test(basename(path)) || sensitiveName.test(basename(canonical)))) {
-					return { ...metadata(before), sensitive: true };
-				}
-				const file = await open(entry, codeFileFlags);
-				try {
-					const info = await file.stat();
-					if (!info.isFile() || !sameInode(before, info)) throw new ServerError("bad_request", "The file changed before it could be read");
-					await assertCodeDescriptor(root, canonical, file, info);
-					if (info.size > MAX_FILE_BYTES) return { ...metadata(info), tooLarge: true };
-					const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
-					let size = 0;
-					while (size < bytes.length) {
-						const { bytesRead } = await file.read(bytes, size, bytes.length - size, size);
+	read(root: string, path: string, reveal = false): Promise<FileReadPayload> {
+		return readCodeFile(root, path, { reveal });
+	}
+}
+
+type FileReadPayload = Omit<FilesReadResponse, "type" | "id">;
+type CodeFileReadOptions = { reveal?: boolean; previewBytes?: number; gitHash?: "sha1" | "sha256"; largeHashBudget?: number; rejectLinks?: boolean };
+
+/** The worktree diff and Files use the same contained descriptor and byte limits. The extra metadata is internal. */
+export function readCodeFile(root: string, path: string, options: CodeFileReadOptions = {}): Promise<FileReadPayload & { blobHash?: string; preview?: string }> {
+	const { reveal = false, previewBytes = 0, gitHash, largeHashBudget = 0, rejectLinks = false } = options;
+	return fileOperation(async () => {
+		const canonical = await resolveCodePath(root, path);
+		if (canonical === root || (rejectLinks && pathInsideCodeRoot(root, canonical) !== path)) {
+			throw new ServerError("bad_request", "Only regular files can be read");
+		}
+		return withCodeDirectory(root, dirname(canonical), async directory => {
+			const entry = join(directory, basename(canonical));
+			const before = await lstat(entry);
+			if (!before.isFile()) throw new ServerError("bad_request", "Only regular files can be read");
+			const sensitive = isSensitiveCodePath(path) || isSensitiveCodePath(canonical);
+			if (sensitive && !reveal && !gitHash) return { ...metadata(before), sensitive: true };
+			const file = await open(entry, codeFileFlags);
+			try {
+				const info = await file.stat();
+				if (!info.isFile() || !sameInode(before, info)) throw new ServerError("bad_request", "The file changed before it could be read");
+				await assertCodeDescriptor(root, canonical, file, info);
+				const visible = !sensitive || reveal;
+				const large = info.size > MAX_FILE_BYTES;
+				if (large && !previewBytes && gitHash && info.size <= largeHashBudget) {
+					// Compare tracked blobs without loading or returning oversized text. Count these bytes in the scan budget.
+					const hash = createHash(gitHash).update(`blob ${info.size}\0`);
+					const buffer = Buffer.alloc(64 * 1024);
+					let position = 0;
+					while (position < info.size) {
+						const { bytesRead } = await file.read(buffer, 0, Math.min(buffer.length, info.size - position), position);
 						if (!bytesRead) break;
-						size += bytesRead;
+						hash.update(buffer.subarray(0, bytesRead));
+						position += bytesRead;
 					}
 					const after = await file.stat();
 					await assertCodeDescriptor(root, canonical, file, after);
-					if (size > MAX_FILE_BYTES || after.size > MAX_FILE_BYTES) return { ...metadata(after), size: Math.max(size, after.size), tooLarge: true };
-					const payload = bytes.subarray(0, size);
-					const head = payload.subarray(0, 8192);
-					const fileMetadata = { ...metadata(after), size };
-					if (!head.includes(0)) {
-						let text: string | undefined;
-						try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(payload); } catch { /* invalid UTF-8 */ }
-						if (text !== undefined) return { ...fileMetadata, text, hash: createHash("sha256").update(payload).digest("hex") };
-					}
-					const mimeType = detectMimeType(canonical, head);
-					return { ...fileMetadata, binary: true, mimeType: mimeType === "text/plain" ? "application/octet-stream" : mimeType };
-				} finally { await file.close(); }
-			});
+					const matchingRead = position === after.size && after.size === info.size && after.mtimeMs === info.mtimeMs;
+					return { ...metadata(after), ...(matchingRead ? { blobHash: hash.digest("hex") } : {}), ...(visible ? { tooLarge: true } : { sensitive: true }) };
+				}
+				const limit = large ? (visible ? Math.min(previewBytes, MAX_FILE_BYTES) : 0) : Math.min(info.size + 1, MAX_FILE_BYTES + 1);
+				if (limit === 0) return { ...metadata(info), ...(visible ? { tooLarge: true } : { sensitive: true }) };
+				const bytes = Buffer.alloc(limit);
+				let size = 0;
+				while (size < limit) {
+					const { bytesRead } = await file.read(bytes, size, limit - size, size);
+					if (!bytesRead) break;
+					size += bytesRead;
+				}
+				const after = await file.stat();
+				await assertCodeDescriptor(root, canonical, file, after);
+				const payload = bytes.subarray(0, size);
+				const incomplete = large || size > MAX_FILE_BYTES || size < after.size;
+				const blobHash = !incomplete && gitHash ? { blobHash: createHash(gitHash).update(`blob ${size}\0`).update(payload).digest("hex") } : {};
+				const fileMetadata = { ...metadata(after), size: Math.max(size, after.size) };
+				if (!visible) return { ...fileMetadata, ...blobHash, sensitive: true };
+				if (incomplete && !previewBytes) return { ...fileMetadata, tooLarge: true };
+				const head = payload.subarray(0, 8192);
+				if (!head.includes(0)) {
+					try {
+						const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+						const text = decoder.decode(payload, { stream: incomplete });
+						if (incomplete) return { ...fileMetadata, tooLarge: true, preview: text };
+						return { ...fileMetadata, ...blobHash, text, hash: createHash("sha256").update(payload).digest("hex") };
+					} catch { /* invalid UTF-8 */ }
+				}
+				const mimeType = detectMimeType(canonical, head);
+				return { ...fileMetadata, ...blobHash, binary: true, mimeType: mimeType === "text/plain" ? "application/octet-stream" : mimeType };
+			} finally { await file.close(); }
 		});
-	}
+	});
 }

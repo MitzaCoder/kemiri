@@ -3,7 +3,7 @@ import {
 	FilesSearchRequestSchema, FilesSearchResponseSchema, FilesReadRequestSchema, FilesReadResponseSchema,
 } from "./project-files.ts";
 import {
-	ChangeSourceSchema, ChangeCommitSchema, ChangedFileSchema, ChangeFileSideSchema,
+	ChangeSourceSchema, ChangeRequestSourceSchema, ChangeCommitSchema, ChangedFileSchema, ChangeFileSideSchema,
 	ChangesListRequestSchema, ChangesListResponseSchema, ChangesFileRequestSchema, ChangesFileResponseSchema,
 } from "./project-changes.ts";
 export * from "./user-settings.ts";
@@ -1453,6 +1453,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardFeedbackSetRequest: BoardFeedbackSetRequestSchema,
 	BoardTaskTimelineResponse: BoardTaskTimelineResponseSchema,
 	ChangeSource: ChangeSourceSchema,
+	ChangeRequestSource: ChangeRequestSourceSchema,
 	ChangeCommit: ChangeCommitSchema,
 	ChangedFile: ChangedFileSchema,
 	ChangeFileSide: ChangeFileSideSchema,

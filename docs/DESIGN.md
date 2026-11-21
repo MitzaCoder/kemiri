@@ -3155,7 +3155,7 @@ outcomes are generated.
 ### Code view: project-changes
 
 The `project-changes` hello capability adds read-only, authenticated `changes.list` and `changes.file`
-requests scoped to a registered project. They read committed Git objects, including Git-backed jj stores,
+requests scoped to a registered project. Task and commit sources read committed Git objects, including Git-backed jj stores,
 without reading or snapshotting the checkout. Projects without a Git store get `not_found`. Commit sources
 require an existing full SHA-1 or SHA-256 commit hash. `landed` means reachable from the configured local
 integration ref, not published or deployed. Task sources use the same current attribution as Delivery.
@@ -3163,7 +3163,7 @@ integration ref, not published or deployed. Task sources use the same current at
 A commit is compared with its first parent, or the empty tree for a root commit. A task gets a combined diff
 only when all its attributed commits form one unbroken first-parent chain. The range runs from the oldest
 commit's first parent to the newest commit. Otherwise the list gives the commits and a reason, but no combined
-files. Clients can request each commit with a commit source. Working-copy sources are not implemented here.
+files. Clients can request each commit with a commit source.
 
 The file list returns at most 500 paths with status, rename source, line counts and Git's binary classification.
 Read a rename by its destination path. Only changed, regular blobs serve text. Paths must use forward slashes,
@@ -3172,6 +3172,24 @@ followed. File sides carry their Git blob hash and up to 1 MiB of exact UTF-8 te
 omit text. Oversized text uses a unified patch capped at 256 KiB and marks a clipped prefix as truncated.
 Git calls use argument arrays, no optional locks or external diff tools, a 10-second timeout and bounded output.
 Git errors never include file contents or subprocess output in logs.
+
+Backends advertising `project-changes-working` also accept `{ kind: "working", root }` for project, isolated-worker
+and background-thread checkouts. This reads current disk bytes, not staged content or a jj snapshot. The base is Git
+`HEAD` (or empty for an unborn checkout), or the first parent of jj's working-copy commit. Working lists return
+`baseCommit` and the scan's `readAt`; list and file calls are separate live reads, not an atomic snapshot.
+`KEMIRI_PROJECT_FILES=off` also disables working changes, without disabling commit or task review.
+
+Git seeds a private index with `read-tree`, discovers tracked candidates with `diff-files --raw` and finds untracked,
+non-ignored files with `ls-files`. A fresh index has no stat cache, so tracked candidates are checked against their
+blob hashes through the same descriptor-checked file access as Files. No Git content conversion or clean filter runs
+on live files. Git computes counts and detects renames from bounded, private scratch copies of readable text. A rename
+that cannot be compared within those bounds may appear as an addition and a deletion. Scratch data is removed on
+success and failure. The real index, refs, object store and jj operation log are not written.
+
+The scan is bounded by path count, bytes and time. Unreadable entries do not serve content, and protected names need
+`reveal: true` before either side or a patch is returned. Each side is limited to 1 MiB of UTF-8. For oversized files,
+only bounded prefixes are compared for the patch preview; it is always marked truncated and may not contain later
+changes. Binary, protected and oversized rows do not have line counts.
 
 On web, Delivery → Changes reads commit subjects and counts when the fold opens, only on backends
 advertising `project-changes`. Review changes opens a lazy full-screen view at `?changes=T12` or
@@ -3186,7 +3204,7 @@ plain patch returned by the backend. Alt+[ / Alt+] move between files; Alt+Up / 
 
 The `project-files` hello capability adds read-only `files.list`, `files.search` and `files.read` to the authenticated
 WebSocket. Set `KEMIRI_PROJECT_FILES=off` on a backend to leave the capability out of hello and refuse its requests
-(`0`, `false` and `no` also work). A client names a registered project, an isolated worker with an existing workspace,
+(`0`, `false` and `no` also work). The switch also disables working-copy changes. A client names a registered project, an isolated worker with an existing workspace,
 or a background thread with an existing checkout. A shared worker or an ambiguous worker ID is not a file root.
 
 Paths are checkout-relative, slash-separated and limited to 4,096 UTF-8 bytes. Absolute paths, backslashes, `..`, NUL

@@ -377,6 +377,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 				requestLog !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "project-files" || projectFiles !== undefined) &&
+			(feature !== "project-changes-working" || (projectFiles !== undefined && (options.features ?? HARNESS_FEATURES).includes("project-changes"))) &&
    (feature !== "task-live-watcher" || (options.features ?? HARNESS_FEATURES).includes("task-live")) &&
 			(feature !== "fcm-relay-v1" || (relayEndpoint !== undefined &&
 				(options.features ?? HARNESS_FEATURES).includes("device-auth-v1"))),

@@ -3450,33 +3450,40 @@ data class ChangesListRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "changes.list",
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
-    val `source`: ChangeSource
+    val `source`: ChangeRequestSource
 )
 
-@Serializable(with = ChangeSourceSerializer::class)
-sealed interface ChangeSource { val `kind`: String }
+@Serializable(with = ChangeRequestSourceSerializer::class)
+sealed interface ChangeRequestSource { val `kind`: String }
 
-/** A ChangeSource variant this build does not know, kept as it came. */
-data class UnknownChangeSource(override val raw: JsonObject) : ChangeSource, UnknownVariant {
+/** A ChangeRequestSource variant this build does not know, kept as it came. */
+data class UnknownChangeRequestSource(override val raw: JsonObject) : ChangeRequestSource, UnknownVariant {
     override val `kind`: String get() = raw["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
 }
 
-object ChangeSourceSerializer : UnionSerializer<ChangeSource>("ChangeSource", "kind", mapOf(
-    "task" to ChangeSourceTask.serializer(),
-    "commit" to ChangeSourceCommit.serializer(),
-), { it.`kind` }, ::UnknownChangeSource)
+object ChangeRequestSourceSerializer : UnionSerializer<ChangeRequestSource>("ChangeRequestSource", "kind", mapOf(
+    "task" to ChangeRequestSourceTask.serializer(),
+    "commit" to ChangeRequestSourceCommit.serializer(),
+    "working" to ChangeRequestSourceWorking.serializer(),
+), { it.`kind` }, ::UnknownChangeRequestSource)
 
 @Serializable
-data class ChangeSourceTask(
+data class ChangeRequestSourceTask(
     @kotlinx.serialization.EncodeDefault override val `kind`: String = "task",
     val `taskId`: String
-) : ChangeSource
+) : ChangeRequestSource
 
 @Serializable
-data class ChangeSourceCommit(
+data class ChangeRequestSourceCommit(
     @kotlinx.serialization.EncodeDefault override val `kind`: String = "commit",
     val `hash`: String
-) : ChangeSource
+) : ChangeRequestSource
+
+@Serializable
+data class ChangeRequestSourceWorking(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "working",
+    val `root`: CodeRoot
+) : ChangeRequestSource
 
 @Serializable
 data class ChangesListResponse(
@@ -3485,6 +3492,8 @@ data class ChangesListResponse(
     val `commits`: List<ChangeCommit>,
     val `files`: List<ChangedFile>,
     val `truncated`: Boolean,
+    val `baseCommit`: String? = null,
+    val `readAt`: String? = null,
     val `contiguous`: Boolean? = null,
     val `nonContiguousReason`: String? = null
 )
@@ -3494,8 +3503,9 @@ data class ChangesFileRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "changes.file",
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
-    val `source`: ChangeSource,
-    val `path`: String
+    val `source`: ChangeRequestSource,
+    val `path`: String,
+    val `reveal`: Boolean? = null
 )
 
 @Serializable
@@ -3506,6 +3516,7 @@ data class ChangesFileResponse(
     val `after`: ChangeFileSide? = null,
     @kotlinx.serialization.EncodeDefault val `binary`: Boolean = true,
     @kotlinx.serialization.EncodeDefault val `tooLarge`: Boolean = true,
+    @kotlinx.serialization.EncodeDefault val `sensitive`: Boolean = true,
     val `patch`: String? = null,
     @kotlinx.serialization.EncodeDefault val `patchTruncated`: Boolean = true
 )

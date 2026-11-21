@@ -1,5 +1,6 @@
 import { resolveCodeRoot } from "./code-root.ts";
 import type { ProjectFiles } from "./project-files.ts";
+import { WorkingChanges } from "./working-changes.ts";
 import { ProjectChanges } from "./project-changes.ts";
 import type { UserSettingsStore } from "./user-settings.ts";
 import type { UserSettings } from "@kemiri/protocol";
@@ -931,6 +932,14 @@ export class ClientConnection {
 				case "changes.list":
 				case "changes.file": {
 					if (!this.#features.includes("project-changes")) return this.#unknownRequest(request);
+					if (request.source.kind === "working") {
+						if (!this.#features.includes("project-changes-working")) return this.#unknownRequest(request);
+						const root = await resolveCodeRoot(this.#manager, request.projectId, request.source.root);
+						const changes = new WorkingChanges(root);
+						if (request.type === "changes.list") this.#respond({ type: request.type, id: request.id, ...await changes.list() });
+						else this.#respond({ type: request.type, id: request.id, ...await changes.file(request.path, request.reveal) });
+						return;
+					}
 					const project = await this.#manager.store.require(request.projectId);
 					const changes = new ProjectChanges(project.path, project.integrationRef, async (gitStore, taskId) => {
 						const { runtime } = await this.#manager.open(project.id);

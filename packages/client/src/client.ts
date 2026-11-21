@@ -23,7 +23,7 @@ import type {
 	BoardTask,
 	BoardTaskHistoryResponse,
 	BoardTaskTimelineResponse,
-	ChangeSource,
+	ChangeRequestSource,
 	ChangesListResponse,
 	ChangesFileResponse,
 	CodeRoot,
@@ -1105,15 +1105,15 @@ export class HarnessClient {
 		return file;
 	}
 
-	/** List committed changes for a task or a full commit hash. Needs `project-changes`. */
-	async listChanges(projectId: string, source: ChangeSource): Promise<Omit<ChangesListResponse, "type" | "id">> {
+	/** List changes for a task or full commit hash. A code root additionally requires `project-changes-working`. */
+	async listChanges(projectId: string, source: ChangeRequestSource): Promise<Omit<ChangesListResponse, "type" | "id">> {
 		const { type: _, id: __, ...changes } = await this.#call<ChangesListResponse>({ type: "changes.list", projectId, source });
 		return changes;
 	}
 
-	/** Read a changed file by its listed path, including a rename's destination. Needs `project-changes`. */
-	async readChangeFile(projectId: string, source: ChangeSource, path: string): Promise<Omit<ChangesFileResponse, "type" | "id">> {
-		const { type: _, id: __, ...file } = await this.#call<ChangesFileResponse>({ type: "changes.file", projectId, source, path });
+	/** Read by listed path, including a rename's destination. For a sensitive working file, pass `reveal` explicitly. */
+	async readChangeFile(projectId: string, source: ChangeRequestSource, path: string, reveal?: boolean): Promise<Omit<ChangesFileResponse, "type" | "id">> {
+		const { type: _, id: __, ...file } = await this.#call<ChangesFileResponse>({ type: "changes.file", projectId, source, path, reveal });
 		return file;
 	}
 

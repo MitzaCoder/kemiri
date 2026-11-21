@@ -55,7 +55,7 @@ export class VcsCommandError extends Error {
 
 /** Keep byte limits, argument-only execution and timeout policy shared by observation and review. */
 export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string, maxBuffer = 8 * 1024 * 1024,
-	keepOutputPrefix = false, io?: { stdin?: string; gitIndexFile?: string }): Promise<{ stdout: Buffer; truncated: boolean }> {
+	keepOutputPrefix = false, io?: { stdin?: string; gitIndexFile?: string; acceptExitCode?: number }): Promise<{ stdout: Buffer; truncated: boolean }> {
 	const env = childEnvironment();
 	if (binary === "git") {
 		// A host-level index, gitdir, namespace, config injection or object directory must not retarget a project read.
@@ -69,7 +69,7 @@ export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string,
 			cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer",
 		}, (error, stdout) => {
 			// Do not forward stderr or execFile's command/error text from Git.
-			if (!error) return accept({ stdout, truncated: false });
+			if (!error || (io?.acceptExitCode !== undefined && error.code === io.acceptExitCode)) return accept({ stdout, truncated: false });
 			if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
 				if (keepOutputPrefix && stdout.length === maxBuffer) return accept({ stdout, truncated: true });
 				return reject(new VcsCommandError("output_limit"));
