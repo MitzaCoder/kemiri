@@ -1,9 +1,5 @@
 package io.github.mitzacoder.kemiri.features.usage
 
-import androidx.compose.foundation.BorderStroke
-import io.github.mitzacoder.kemiri.features.settings.*
-import io.github.mitzacoder.kemiri.ui.components.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,235 +7,187 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import io.github.mitzacoder.kemiri.navigation.Destination
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.*
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.mitzacoder.kemiri.data.*
+import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import io.github.mitzacoder.kemiri.ui.theme.LocalJarvisColors
-import kotlin.math.*
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+private sealed interface UsageSheet {
+    data class Subscription(val identity: SubscriptionIdentity) : UsageSheet
+    data class Spend(val row: SpendRow, val range: UsageRange, val totalCost: Double) : UsageSheet
+}
+
+internal data class UsageRead<T>(val report: T? = null, val loading: Boolean = false, val error: String? = null)
+
+internal suspend fun <T> readUsage(read: suspend () -> T): UsageRead<T> = try {
+    UsageRead(report = read())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    UsageRead(error = error.message ?: "Request failed")
+}
+
+@Composable
+private fun <T> observeUsageRead(enabled: Boolean, generation: Int, query: Any, refresh: Int, read: suspend () -> T): UsageRead<T> {
+    val owner = LocalLifecycleOwner.current
+    var result by remember(query, enabled, generation) { mutableStateOf(UsageRead<T>(loading = enabled)) }
+    LaunchedEffect(owner, query, enabled, generation, refresh) {
+        if (enabled) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            result = result.copy(loading = true, error = null)
+            val answer = readUsage(read)
+            result = answer.copy(report = answer.report ?: result.report)
+        }
+    }
+    return result
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, navigate: (Destination) -> Unit) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
-    val valueBackends = sessions.mapNotNull { backend -> key(backend) {
-        val connection by backend.client.state.collectAsStateWithLifecycle()
-        backend.takeIf { connection.supports(HarnessFeature.SUBSCRIPTION_VALUE) }
+    val settings by repository.settings.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val owner = LocalLifecycleOwner.current
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(owner) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        while (true) {
+            now = Instant.now()
+            delay(15_000)
+        }
     } }
-    var showValue by rememberSaveable { mutableStateOf(false) }
-    val viewingValue = showValue && valueBackends.isNotEmpty()
-    Column(modifier.fillMaxSize()) {
-        if (valueBackends.isNotEmpty()) {
-            val tabs = listOf("Limits", "Value")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                tabs.forEachIndexed { index, label ->
-                    SegmentedButton(
-                        selected = viewingValue == (index == 1), onClick = { showValue = index == 1 },
-                        shape = SegmentedButtonDefaults.itemShape(index, tabs.size), label = { Text(label) },
-                    )
+    val zone = ZoneId.systemDefault()
+    val month = YearMonth.from(now.atZone(zone))
+    val nowMillis = now.toEpochMilli().toDouble()
+    val computer = sessions.firstOrNull { it.config.key == settings.usageComputerKey }
+    val selected = computer?.let { listOf(it) } ?: sessions
+    var period by rememberSaveable { mutableStateOf(UsagePeriod.Rolling) }
+    val range = usageRange(period, now, zone)
+    // Today must refresh at local midnight even when its wire fields have not changed.
+    val overviewQuery = range to now.atZone(zone).toLocalDate().takeIf { period == UsagePeriod.Today }
+    var refresh by remember { mutableIntStateOf(0) }
+    var sheets by remember(sessions, computer) { mutableStateOf(emptyList<UsageSheet>()) }
+    val sheet = sheets.lastOrNull()
+    val needsMonth = period == UsagePeriod.Month || sheets.any { it is UsageSheet.Subscription }
+    val watches = sessions.map { backend -> key(backend) { backend to remember { UsageWatch(backend.client) } } }.toMap()
+    val computers = selected.map { backend -> key(backend) {
+        val watch = watches.getValue(backend)
+        val connection by backend.client.state.collectAsStateWithLifecycle()
+        val limits by watch.state.collectAsStateWithLifecycle()
+        LaunchedEffect(owner, watch) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { watch.observe() } }
+        val ready = connection.status == ConnectionStatus.Ready
+        val supportsRecorded = connection.supports(HarnessFeature.RECORDED_USAGE)
+        val stats = observeUsageRead(ready && supportsRecorded, connection.generation, overviewQuery, refresh) {
+            backend.client.request(range.overview()).stats
+        }
+        val monthly = observeUsageRead(needsMonth && ready && connection.supports(HarnessFeature.SUBSCRIPTION_VALUE),
+            connection.generation, month to zone, refresh) {
+            backend.client.request(valueMonthRequest(month, zone)).also {
+                check(it.month == month.toString()) { "The computer returned a different month." }
+            }
+        }
+        GlanceComputer(backend, ready, supportsRecorded, limits, stats, monthly)
+    } }
+    val subscriptions = mergeSubscriptions(computers.filter { it.ready }.flatMap { computerRead ->
+        computerRead.limits.subscriptions.map { ComputerSubscription(computerRead.backend.config, it) }
+    })
+    val limits = rankedLimits(subscriptions, nowMillis)
+    val stats = computers.mapNotNull { read -> read.stats.report?.let { read.backend.config to it } }
+    val recorded = stats.mapNotNull { (config, report) -> report.recorded?.let { config to it } }
+    val months = subscriptionMonths(computers.mapNotNull { read -> read.monthly.report?.let { read.backend.config to it } }, subscriptions)
+    val totalCost = recorded.sumOf { it.second.totals.cost }
+    val subscriptionSpend = providerSpend(recorded, subscriptions)
+    val spendIncomplete = computers.any { !it.ready || !it.supportsRecorded || it.stats.error != null || (it.stats.report != null && it.stats.report.recorded == null) }
+    fun refreshUsage() {
+        selected.forEach { backend -> if (backend.client.state.value.status == ConnectionStatus.Ready) watches.getValue(backend).refresh() }
+        refresh++
+    }
+    fun openTask(computerConfig: BackendConfig, projectId: String, taskId: String) {
+        sheets = emptyList()
+        navigate(Destination.Task(Destination.Chat(computerConfig.key, projectId), taskId))
+    }
+    val scroll = rememberScrollState()
+    val sectionOffsets = remember { mutableStateMapOf<String, Int>() }
+    PullToRefreshBox(isRefreshing = computers.any { it.limits.loading || it.stats.loading }, onRefresh = ::refreshUsage,
+        modifier = modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                AttentionSummary(limits, computers.any { it.limits.loading })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    ComputerPicker(sessions.map { it.config }, computer?.config) { picked ->
+                        if (picked?.key != computer?.config?.key) {
+                            sheets = emptyList()
+                            scope.launch { repository.setUsageComputer(picked?.key) }
+                        }
+                    }
+                    IconButton(onClick = ::refreshUsage, enabled = computers.any { it.ready }) {
+                        LucideGlyph(io.github.mitzacoder.kemiri.features.settings.SettingsGlyphs.Refresh, contentDescription = "Refresh usage")
+                    }
+                }
+                if (sessions.isEmpty()) ValueNote("Add a computer in Settings to see its usage.")
+                else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Limits", "Spend", "Worth a look").forEach { heading ->
+                            TextButton(onClick = { scope.launch { sectionOffsets[heading]?.let { scroll.animateScrollTo(it) } } },
+                                contentPadding = PaddingValues(horizontal = 8.dp)) { Text(heading) }
+                        }
+                    }
+                    computers.filterNot { it.ready }.forEach { ValueNote("${it.backend.config.name} is not connected.") }
+                    computers.forEach { read -> read.limits.error?.let { ValueNote("${read.backend.config.name}: limits could not refresh. $it") } }
+                    LimitsSection(limits, subscriptions, nowMillis, Modifier.onGloballyPositioned { sectionOffsets["Limits"] = it.positionInParent().y.roundToInt() },
+                        openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) })
+                    SpendSection(period, { period = it }, recorded, subscriptionSpend, stats, totalCost, months,
+                        loading = computers.any { it.stats.loading }, monthLoading = computers.any { it.monthly.loading },
+                        spendIncomplete = spendIncomplete, monthComplete = !spendIncomplete && computers.all { it.monthly.report != null && it.monthly.error == null },
+                        modifier = Modifier.onGloballyPositioned { sectionOffsets["Spend"] = it.positionInParent().y.roundToInt() },
+                        openSpend = { row -> sheets = listOf(row.subscription?.let { UsageSheet.Subscription(it) } ?: UsageSheet.Spend(row, range, totalCost)) })
+                    WorthALook(stats, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
                 }
             }
         }
-        if (viewingValue) SubscriptionValueScreen(valueBackends) { backend, projectId, taskId ->
-            navigate(Destination.Task(Destination.Chat(backend.config.key, projectId), taskId))
-        } else UsageLimits(sessions)
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun UsageLimits(sessions: List<BackendSession>) {
-    var now by remember { mutableDoubleStateOf(System.currentTimeMillis().toDouble()) }
-    val owner = LocalLifecycleOwner.current
-    LaunchedEffect(owner) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while(true) { now = System.currentTimeMillis().toDouble(); delay(15000) } } }
-    val watches = sessions.map { backend -> key(backend) { backend to remember(backend) { UsageWatch(backend.client) } } }
-    // Read every state before aggregating, so short-circuiting cannot drop a backend's subscription.
-    val loading = watches.map { (_, watch) -> watch.state.collectAsStateWithLifecycle().value.loading }.any { it }
-    PullToRefreshBox(isRefreshing = loading, onRefresh = {
-        watches.forEach { (_, watch) -> if (!watch.state.value.loading) watch.refresh() }
-    }, modifier = Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().wrapContentWidth().widthIn(max = 1200.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Text("Subscription usage", style = MaterialTheme.typography.headlineSmall)
-        Text("Your subscription limits, not API billing. The outer arc is usage; the inner arc is time passed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if(sessions.isEmpty()) Text("Add a backend in Settings to see its subscription usage.")
-        watches.forEach { (backend, watch) -> key(backend) { BackendUsage(backend, watch, now) } }
-    }
-    }
-}
-
-@Composable
-private fun BackendUsage(backend: BackendSession, watch: UsageWatch, now: Double) {
-    val connection by backend.client.state.collectAsStateWithLifecycle()
-    val state by watch.state.collectAsStateWithLifecycle()
-    val owner = LocalLifecycleOwner.current
-    LaunchedEffect(watch, owner) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { watch.observe() } }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(backend.config.name, style = MaterialTheme.typography.titleLarge)
-                Text(backend.config.url, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            SettingsAction("Refresh usage", SettingsGlyphs.Refresh, enabled = connection.status == ConnectionStatus.Ready && connection.supports("subscription-usage") && !state.loading, onClick = watch::refresh)
-        }
-        when {
-            connection.status != ConnectionStatus.Ready -> Text("${connectionLabel(connection.status, connection.attempt)} · showing last available readings", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            !connection.supports("subscription-usage") -> Text("This backend does not support subscription usage.")
-        }
-        state.error?.let { Text("Refresh failed: $it. Previous readings are retained.", color = MaterialTheme.colorScheme.error) }
-        if(state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if(state.loaded && state.subscriptions.isEmpty()) io.github.mitzacoder.kemiri.features.settings.UsageEmptyNote()
-        val tightest = state.subscriptions.flatMap { s -> s.windows.map { Triple(s, it, windowPace(it, now)) } }
-            .filter { it.third.usedPercent != null }
-            .sortedWith(compareByDescending<Triple<SubscriptionUsage, UsageWindow, WindowPace>> { pressure(it.third) }.thenBy { it.third.exhaustsAt ?: Double.POSITIVE_INFINITY }).firstOrNull()
-        tightest?.let { (s, w, p) -> Surface(color = toneColor(paceTone(p)).copy(alpha = .10f), shape = MaterialTheme.shapes.medium) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                UsageGauge(p, toneColor(paceTone(p)))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("TIGHTEST · ${s.label} · ${w.label}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(paceDetail(p), style = MaterialTheme.typography.titleSmall)
-                    SettingsBadge(paceTitle(p), toneColor(paceTone(p)))
+    if (sheet != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = { sheets = emptyList() }, sheetState = sheetState) {
+            key(sheet) {
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (sheets.size > 1) TextButton(onClick = { sheets = sheets.dropLast(1) }) { Text("Back to breakdown") }
+                    when (sheet) {
+                        is UsageSheet.Subscription -> subscriptions.firstOrNull { it.identity == sheet.identity }?.let { subscription ->
+                            SubscriptionGlanceSheet(subscription, months[sheet.identity to null], limits.filter { it.subscription.identity == sheet.identity },
+                                computers.filter { read -> subscription.computers.any { it.key == read.backend.config.key } }, nowMillis,
+                                refreshLimits = { watches[it]?.refresh() }, openTask = ::openTask)
+                        } ?: ValueNote("This subscription is not connected.")
+                        is UsageSheet.Spend -> SpendGlanceSheet(sheet.row, sheet.range, sheet.totalCost, selected, ::openTask) { row ->
+                            sheets = sheets + UsageSheet.Spend(row, sheet.range, sheet.totalCost)
+                        }
+                    }
+                    TextButton(onClick = { sheets = emptyList() }) { Text("Close") }
                 }
             }
-        } }
-        state.subscriptions.forEach { subscription -> key(subscription.providerId) { ProviderUsage(subscription, now, backend, watch::refresh) } }
-        if (connection.supports(HarnessFeature.CACHE_STATS)) BoxWithConstraints { CacheSection(backend, wide = maxWidth >= 600.dp) }
-    }
-}
-
-@Composable
-private fun ProviderUsage(s: SubscriptionUsage, now: Double, backend: BackendSession, onRefresh: () -> Unit) {
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                Text(s.label, style = MaterialTheme.typography.titleMedium)
-                s.plan?.let { SettingsBadge(it, MaterialTheme.colorScheme.primary) }
-            }
-            s.account?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            val updated = parseTime(s.updatedAt)
-            val stale = updated != null && now - updated > 900000
-            Text("${if(updated == null) "Never updated" else "Updated ${formatDuration(now - updated)} ago"}${if(stale) " · Stale reading" else ""}", color = if(stale) LocalJarvisColors.current.warning else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-            Text(when(s.source) { "usage_api" -> "From the provider’s usage endpoint"; "response_headers" -> "From rate-limit headers of recent replies"; "none" -> "The provider reports no limits"; else -> s.source }, style = MaterialTheme.typography.bodySmall)
-            s.error?.let { Surface(color = LocalJarvisColors.current.warning.copy(alpha = .1f), shape = MaterialTheme.shapes.small) {
-                Text("The last read failed${if (s.windows.isNotEmpty()) " — these are the numbers from before" else ""}: $it", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-            } }
-            if(s.windows.isEmpty()) Text(if (s.source == "none") "This provider reports no limits for the plan." else "No limits read yet.", style = MaterialTheme.typography.bodySmall)
-            BoxWithConstraints {
-                val columns = if(maxWidth >= 640.dp) 2 else 1
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    s.windows.chunked(columns).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { window -> WindowUsage(window, now, Modifier.weight(1f)) }
-                        if(row.size < columns) Spacer(Modifier.weight(1f))
-                    } }
-                }
-            }
-            SubscriptionResets(s, backend, onRefresh)
         }
     }
 }
 
-@Composable
-private fun WindowUsage(w: UsageWindow, now: Double, modifier: Modifier) {
-    val p = windowPace(w, now)
-    val color = toneColor(paceTone(p))
-    Surface(modifier, color = LocalJarvisColors.current.surface, shape = MaterialTheme.shapes.medium, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                UsageGauge(p, color)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(w.label, style = MaterialTheme.typography.titleMedium)
-                    w.windowMinutes?.let { Text("${formatDuration(it * 60000.0)} window", style = MaterialTheme.typography.labelSmall) }
-                    SettingsBadge(paceTitle(p), color, if (p.kind == PaceKind.Exhausted) Lucide.CircleAlert else Lucide.Clock)
-                    Text(paceDetail(p), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Text(p.resetsAt?.let { if(it - now < 60000) "Resetting now · ${clockTime(it)}" else "Resets in ${formatDuration(it - now)} · ${clockTime(it)}" } ?: "Reset time unknown", style = MaterialTheme.typography.labelMedium)
-            HistoryChart(w, p, now, color)
-        }
-    }
-}
-
-@Composable
-private fun toneColor(tone: PaceTone): Color = when(tone) {
-    PaceTone.Danger -> LocalJarvisColors.current.danger
-    PaceTone.Warn -> LocalJarvisColors.current.warning
-    PaceTone.Good -> LocalJarvisColors.current.success
-    PaceTone.Calm -> MaterialTheme.colorScheme.primary
-    PaceTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-@Composable
-private fun UsageGauge(p: WindowPace, color: Color) {
-    val tokens = LocalJarvisColors.current
-    val track = tokens.surface2
-    val time = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(Modifier.size(100.dp).semantics(mergeDescendants = true) { contentDescription = "${percentLabel(p.usedPercent)} used; ${p.elapsedShare?.let { percentLabel(it * 100) } ?: "unknown"} of window passed" }, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val outer = size.width * .42f
-            val inner = size.width * .32f
-            fun arc(radius: Float, sweep: Float, c: Color, stroke: Float) = drawArc(c, 135f, sweep, false, Offset(center.x - radius, center.y - radius), Size(radius * 2, radius * 2), style = Stroke(stroke, cap = StrokeCap.Round))
-            arc(outer, 270f, track, 8.dp.toPx())
-            p.usedPercent?.let { if(it > 0) drawArc(
-                brush = Brush.linearGradient(if (paceTone(p) == PaceTone.Calm) listOf(tokens.accent1, tokens.accent2, tokens.accent3) else listOf(color.copy(alpha = .65f), color)),
-                startAngle = 135f, sweepAngle = (it / 100).coerceIn(0.0, 1.0).toFloat() * 270, useCenter = false,
-                topLeft = Offset(center.x - outer, center.y - outer), size = Size(outer * 2, outer * 2), style = Stroke(8.dp.toPx(), cap = StrokeCap.Round)
-            ) }
-            arc(inner, 270f, track, 2.dp.toPx())
-            p.elapsedShare?.let {
-                arc(inner, it.toFloat() * 270, time, 2.dp.toPx())
-                val rad = Math.toRadians(135 + it * 270)
-                fun point(r: Float) = center + Offset(cos(rad).toFloat() * r, sin(rad).toFloat() * r)
-                drawCircle(time, 3.dp.toPx(), point(inner))
-                drawLine(time, point(outer - 7.dp.toPx()), point(outer + 7.dp.toPx()), 1.5.dp.toPx())
-            }
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(percentLabel(p.usedPercent), style = MaterialTheme.typography.titleLarge)
-            Text("used", style = MaterialTheme.typography.labelSmall)
-        }
-        Text(p.elapsedShare?.let { "${percentLabel(it * 100)} of time" } ?: "Time unknown", Modifier.align(Alignment.BottomCenter), style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun HistoryChart(w: UsageWindow, p: WindowPace, now: Double, color: Color) {
-    val grid = MaterialTheme.colorScheme.outlineVariant
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val geometry = usageChart(w, now, 300.0, 72.0)
-    Box(Modifier.fillMaxWidth().height(72.dp).semantics { contentDescription = "Usage history: ${w.samples.size} samples. ${paceDetail(p)}" }, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize().padding(vertical = 6.dp)) {
-            fun pt(p: ChartPoint) = Offset((p.x / 300 * size.width).toFloat(), (p.y / 72 * size.height).toFloat())
-            fun segment(s: ChartSegment, c: Color, dash: FloatArray) = drawLine(c, pt(s.from), pt(s.to), 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(dash))
-            val limitY = (geometry.limitY / 72 * size.height).toFloat()
-            drawLine(grid, Offset(0f, limitY), Offset(size.width, limitY))
-            drawLine(grid, Offset(0f, size.height), Offset(size.width, size.height))
-            geometry.evenPace?.let { segment(it, muted, floatArrayOf(8f, 8f)) }
-            if(geometry.points.isNotEmpty()) {
-                val line = Path().apply { geometry.points.forEachIndexed { i, p -> val o = pt(p); if(i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) } }
-                val area = Path().apply { addPath(line); lineTo(pt(geometry.points.last()).x, size.height); lineTo(pt(geometry.points.first()).x, size.height); close() }
-                drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = .28f), color.copy(alpha = .02f))))
-                drawPath(line, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                drawCircle(color, 3.dp.toPx(), pt(geometry.points.last()))
-            }
-            geometry.projection?.let { segment(it, color, floatArrayOf(4f, 8f)) }
-            geometry.nowX?.let { val x = (it / 300 * size.width).toFloat(); drawLine(muted.copy(alpha = .5f), Offset(x, 0f), Offset(x, size.height), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 6f))) }
-        }
-        if(geometry.points.isEmpty()) Text("No history yet", style = MaterialTheme.typography.labelSmall)
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(p.startsAt?.let(::clockTime) ?: "First sample", style = MaterialTheme.typography.labelSmall)
-        Text(p.resetsAt?.let(::clockTime) ?: "Now", style = MaterialTheme.typography.labelSmall)
-    }
-    Text("━ Used   ┄ Even pace   ··· At this rate", style = MaterialTheme.typography.labelSmall, color = muted)
-}
+internal data class GlanceComputer(
+    val backend: BackendSession, val ready: Boolean, val supportsRecorded: Boolean, val limits: UsageState,
+    val stats: UsageRead<CacheStats>, val monthly: UsageRead<UsageValueResponse>,
+)

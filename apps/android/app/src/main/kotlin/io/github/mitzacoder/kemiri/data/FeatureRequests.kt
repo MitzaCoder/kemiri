@@ -23,6 +23,7 @@ object HarnessFeature {
     const val TASK_LINKS = "task-links"
     const val TASK_TIMELINE_GROUPS = "task-timeline-groups"
     const val CACHE_STATS = "cache-stats"
+    const val RECORDED_USAGE = "recorded-usage"
     const val REF_STATUS = "ref-status"
     const val BOARD_MOVES = "board-moves"
     const val REF_DETAILS = "ref-details"

@@ -2118,17 +2118,20 @@ miss diagnosis and legacy `stats.usage` still use retained raw rows; unmodified 
 rank limits. `usage.detail` accepts the same period and a selector: task (project + task), project, provider + model,
 caller role, or provider + billing. It returns the same recorded groups narrowed to that row, for example task by
 model and project by task, without reconstructing data from pruned request logs. No storage migration is needed.
-Generated Android models expose the new optional fields and query. Android's screen is unchanged in this phase.
+Generated Android models expose the new optional fields and query.
 
 For local proof, `packages/server/scripts/subscription-value-demo.ts` starts two disposable backends. Set
 `DEMO_ORIGINS` to the web dev origin and `DEMO_OUTPUT` to a temporary file. Its `backends` array seeds the web
 app's `aiki.backends.v1` local storage before opening `/usage`. It uses four synthetic plans and one shared login.
 
-**Android (T329).** The usage screen keeps the existing Limits view and adds a Limits / Value switch only when
-at least one backend advertises `subscription-value`. Value requests the selected calendar month with the device's
-UTC offset at that month's start, and shows the supporting backends' cards in one column. It uses the same realised
-ratio, money format (including “< $0.01”), separate API payments, and project coordinator rows as the original Value
-view. Top tasks open the task sheet. Only the current month offers price editing and an explicit null reset. Older reports are read-only.
+**Android Glance (T406).** Usage replaces the Limits and Value tabs with one native Compose overview, using the same
+attention statuses, live window rankings, periods and spend dimensions as web. The Computer filter is saved in device
+settings and defaults to All. Live limits use `subscription-usage`; spend and breakdown requests require
+`recorded-usage`, and older or disconnected computers are marked as missing from spend. The overview and each drill-down
+use the same period fields. The prompt-cache diagnosis is folded under Worth a look and uses the selected period.
+Subscription and spend details open in bottom sheets. The subscription sheet retains confirmed free resets and uses the
+current calendar month for plan comparison. Plan prices can be edited in AI accounts. Project breakdowns include work
+without a task; task rows can open the original task on its computer.
 
 Existing request rows already identify coordinator/worker/thread, schedule, board task and keep-warm. New recording
 adds an optional internal purpose for coordinator compaction, memory extraction and backend memory maintenance,

@@ -153,6 +153,7 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
         it.copy(lastOpenedProject = location, lastUsedComputerKey = location.backendKey)
     }
     suspend fun rememberUsedComputer(backendKey: String) = update { it.copy(lastUsedComputerKey = backendKey) }
+    suspend fun setUsageComputer(backendKey: String?) = update { it.copy(usageComputerKey = backendKey) }
     suspend fun setNotifications(transform: (NotificationSettings) -> NotificationSettings) = update { it.copy(notifications = transform(it.notifications)) }
     suspend fun setWorkDayStart(start: String) = update { it.copy(workDayStart = normalizeWorkDayStart(start)) }
     suspend fun setTimeFormat(format: TimeFormat) = update { it.copy(timeFormat = format) }

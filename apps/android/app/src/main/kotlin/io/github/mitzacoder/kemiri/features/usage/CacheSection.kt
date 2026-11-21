@@ -12,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -22,8 +21,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.status.BannerTone
 import io.github.mitzacoder.kemiri.features.status.StatusGlyphs
 import io.github.mitzacoder.kemiri.features.status.ToneBanner
@@ -32,110 +29,46 @@ import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import androidx.lifecycle.repeatOnLifecycle
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** One backend's prompt cache numbers for the range the reader picked. */
-data class CacheStatsState(val stats: CacheStats? = null, val days: Long = 30, val loading: Boolean = false, val error: String? = null)
-
-/**
- * Prompt cache statistics for one backend: `cache.stats` read when the Usage screen shows them and after a reconnect,
- * for the picked range. Kept while the app runs, so going back to the screen shows the last numbers at once (web
- * `BackendCacheStats` in `lib/cache-stats.svelte.ts`).
- */
-class CacheStatsStore(private val client: HarnessClient) {
-    private val mutableState = MutableStateFlow(CacheStatsState())
-    val state: StateFlow<CacheStatsState> = mutableState.asStateFlow()
-    private var asked = 0L
-
-    /** Reads on every connect while collected; call from the screen's lifecycle. */
-    suspend fun observe() {
-        client.state.map { it.status == ConnectionStatus.Ready && it.supports(HarnessFeature.CACHE_STATS) }.distinctUntilChanged()
-            .collect { ready -> if (ready) load() }
-    }
-
-    suspend fun load(days: Long = state.value.days) {
-        if (client.state.value.status != ConnectionStatus.Ready || !client.supports(HarnessFeature.CACHE_STATS)) return
-        val ask = synchronized(this) { ++asked }
-        mutableState.update { it.copy(days = days, loading = true) }
-        try {
-            val offset = ZoneId.systemDefault().rules.getOffset(Instant.now()).totalSeconds / 60L
-            val stats = client.readCacheStats(days = days, utcOffsetMinutes = offset)
-            if (ask == asked) mutableState.update { it.copy(stats = stats, error = null) }
-        } catch (error: CancellationException) { throw error }
-        catch (error: Exception) { if (ask == asked) mutableState.update { it.copy(error = error.message ?: error.toString()) } }
-        finally { if (ask == asked) mutableState.update { it.copy(loading = false) } }
-    }
-
-    companion object {
-        private val stores = java.util.WeakHashMap<HarnessClient, CacheStatsStore>()
-        fun of(client: HarnessClient): CacheStatsStore = synchronized(stores) { stores.getOrPut(client) { CacheStatsStore(client) } }
-    }
-}
-
 /** The miss list starts short; the reader asks for the rest. */
 private const val SHORT_LIST = 15
 
-/**
- * One backend's "Prompt cache" section on the Usage screen: what its model requests cost, how much of that billed a
- * cached prompt again and why, what woke the agents, what would have helped, where it went, and each costly miss with
- * what changed in the request (web `usage/CacheSection.svelte`). Each part folds; on a phone they start folded.
- */
+/** Prompt-cache diagnosis for a computer and the period already read by Glance. */
 @Composable
-fun CacheSection(backend: BackendSession, wide: Boolean) {
-    val store = remember(backend.client) { CacheStatsStore.of(backend.client) }
-    val state by store.state.collectAsStateWithLifecycle()
-    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    LaunchedEffect(store, owner) { owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) { store.observe() } }
-    val scope = rememberCoroutineScope()
+internal fun CacheSection(stats: CacheStats, wide: Boolean) {
     val colors = Jarvis.colors
+    val days = ((parseTime(stats.to) ?: 0.0) - (parseTime(stats.from) ?: 0.0))
+        .div(86_400_000.0).let { kotlin.math.ceil(it).toLong().coerceAtLeast(1) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LucideGlyph(StatusGlyphs.Coins, size = 16.dp, tint = colors.fgSubtle)
-            Text("Prompt cache", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            SingleChoiceSegmentedButtonRow {
-                CACHE_STATS_RANGES.forEachIndexed { index, days ->
-                    SegmentedButton(selected = state.days == days, onClick = { scope.launch { store.load(days) } },
-                        shape = SegmentedButtonDefaults.itemShape(index, CACHE_STATS_RANGES.size), icon = {},
-                        enabled = !(state.loading && state.days == days)) { Text("$days days", style = MaterialTheme.typography.labelSmall) }
-                }
-            }
+    SummaryCard(stats)
+    // Side by side where there is room, as the web's grid does.
+    if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.weight(1f)) { ReasonsCard(stats, wide) }
+        Box(Modifier.weight(1f)) { WakesCard(stats, wide) }
+    } else { ReasonsCard(stats, wide); WakesCard(stats, wide) }
+    val ideas = listOfNotNull(longCacheLine(stats)) + wakeAdvice(stats, days)
+    if (ideas.isNotEmpty()) CacheCard("What would help", wide, icon = StatusGlyphs.Lightbulb) {
+        ideas.forEach { idea -> Row { Text("•  ", color = colors.fgMuted); Text(idea, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted) } }
+    }
+    val groups: List<@Composable () -> Unit> = listOf(
+        { GroupCard("By project", stats.byProject, wide) { it.label } },
+        { GroupCard("By conversation", stats.byKind, wide) { kindGroupLabel(it.key) } },
+        { GroupCard("By model", stats.byModel, wide) { it.label } },
+    )
+    if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) { groups.forEach { Box(Modifier.weight(1f)) { it() } } }
+    else groups.forEach { it() }
+    if (stats.conversations.isNotEmpty()) CacheCard("Conversations that lost the most", wide) {
+        stats.conversations.take(8).forEach { row ->
+            ValueRow("${conversationLabel(row)} · ${row.projectName}", "${row.misses}× of ${row.requests}", money(row.missedCost), warn = true)
         }
-        state.error?.let { ToneBanner(if (state.stats != null) BannerTone.Warning else BannerTone.Error) { Text("Could not read the prompt cache numbers: $it", style = MaterialTheme.typography.bodySmall) } }
-        val stats = state.stats
-        if (stats == null) { if (state.error == null) LinearProgressIndicator(Modifier.fillMaxWidth()); return@Column }
-        Column(Modifier.alpha(if (state.loading) .6f else 1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SummaryCard(stats)
-            // Side by side where there is room, as the web's grid does.
-            if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                Box(Modifier.weight(1f)) { ReasonsCard(stats, wide) }
-                Box(Modifier.weight(1f)) { WakesCard(stats, wide) }
-            } else { ReasonsCard(stats, wide); WakesCard(stats, wide) }
-            val ideas = listOfNotNull(longCacheLine(stats)) + wakeAdvice(stats, state.days)
-            if (ideas.isNotEmpty()) CacheCard("What would help", wide, icon = StatusGlyphs.Lightbulb) {
-                ideas.forEach { idea -> Row { Text("•  ", color = colors.fgMuted); Text(idea, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted) } }
-            }
-            val groups: List<@Composable () -> Unit> = listOf(
-                { GroupCard("By project", stats.byProject, wide) { it.label } },
-                { GroupCard("By conversation", stats.byKind, wide) { kindGroupLabel(it.key) } },
-                { GroupCard("By model", stats.byModel, wide) { it.label } },
-            )
-            if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) { groups.forEach { Box(Modifier.weight(1f)) { it() } } }
-            else groups.forEach { it() }
-            if (stats.conversations.isNotEmpty()) CacheCard("Conversations that lost the most", wide) {
-                stats.conversations.take(8).forEach { row ->
-                    ValueRow("${conversationLabel(row)} · ${row.projectName}", "${row.misses}× of ${row.requests}", money(row.missedCost), warn = true)
-                }
-            }
-            if (stats.misses.isNotEmpty()) MissesCard(stats, wide)
-            Text("Kept for ${stats.keptDays} days." + (stats.liveSince?.let {
-                " Recorded as they run since ${DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault()).format(Instant.parse(it))}; earlier requests were read back from the transcripts, without what changed in each request."
-            } ?: ""), style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
-        }
+    }
+    if (stats.misses.isNotEmpty()) MissesCard(stats, wide)
+    Text("Kept for ${stats.keptDays} days." + (stats.liveSince?.let {
+        " Recorded as they run since ${DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault()).format(Instant.parse(it))}; earlier requests were read back from the transcripts, without what changed in each request."
+    } ?: ""), style = MaterialTheme.typography.labelSmall, color = colors.fgSubtle)
     }
 }
 

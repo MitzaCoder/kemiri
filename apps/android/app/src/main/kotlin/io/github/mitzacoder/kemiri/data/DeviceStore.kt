@@ -54,6 +54,7 @@ data class DeviceSettings(
     val taskViewDesignId: String = DEFAULT_TASK_VIEW_DESIGN_ID,
     val lastOpenedProject: ProjectLocation? = null,
     val lastUsedComputerKey: String? = null,
+    val usageComputerKey: String? = null,
 )
 private val Context.deviceData by preferencesDataStore(name = "harness-device")
 class DeviceStore(context: Context) {
