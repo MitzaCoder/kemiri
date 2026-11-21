@@ -30,7 +30,7 @@ import {
 	SubscriptionsPriceSetRequestSchema,
 	SubscriptionsPriceSetResponseSchema,
 } from "./subscription-value.ts";
-import { UserSettingsSchema, UserSettingsGetRequestSchema, UserSettingsSetRequestSchema, UserSettingsGetResponseSchema, UserSettingsSetResponseSchema, UserSettingsChangedEventSchema } from "./user-settings.ts";
+import { CoordinatorCompactionSchema, UserSettingsSchema, UserSettingsGetRequestSchema, UserSettingsSetRequestSchema, UserSettingsGetResponseSchema, UserSettingsSetResponseSchema, UserSettingsChangedEventSchema } from "./user-settings.ts";
 import { McpOAuthStartRequestSchema, McpOAuthStartResponseSchema, McpOAuthCompleteRequestSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelRequestSchema, McpOAuthCancelResponseSchema, McpOAuthChangedEventSchema, McpOAuthFlowSchema } from "./mcp.ts";
 export * from "./mcp.ts";
 export * from "./skills.ts";
@@ -1145,6 +1145,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
  SkillRole: SkillRoleSchema,
  ProjectSkill: ProjectSkillSchema,
 
+ CoordinatorCompaction: CoordinatorCompactionSchema,
  UserSettings: UserSettingsSchema,
  UserSettingsGetRequest: UserSettingsGetRequestSchema,
  UserSettingsSetRequest: UserSettingsSetRequestSchema,

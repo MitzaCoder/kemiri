@@ -5801,8 +5801,8 @@ Decisions of 2026-11-04:
   global and project memory in its instructions; the coordinator supplies task-specific memories in its own brief.
 - The web app shows memory read-only (browse, search, history). No editing or pinning in the app for now.
 - Maintenance runs with a model chosen per backend.
-- Compaction thresholds as fractions of the model's context window: a background summary starts at 35%, the next
-  request waits for one at 50%.
+- Compaction thresholds as fractions of the model's context window: by default a background summary starts at 50%
+  and the next request waits for one at 75%. Both are set per backend.
 - Phases 3 and 4 (2026-11-04): extraction runs after a coordinator compaction lands, as its own durable background
   task over the compacted entries (the summary call stays as it is), with the coordinator's model; its writes are one
   commit linked to that `pi.compaction` entry. Undo reverts a whole extraction or maintenance commit (`memory.undo`),
@@ -6092,11 +6092,16 @@ summaries, placing them at turn boundaries, retry on context overflow). A
    `history` tool, which searches this conversation's earlier entries
    (`history` also reads a range of entries by ID).
 
-Compaction thresholds come from each model's context window (a fraction of
-it: background at 35%, blocking at 50%), so they keep working when the user switches the coordinator's model. They are
-installed as pi-durable's per-model `modelOverrides`, which is the only lever the package has: a worker that runs on the
-coordinator's own model shares those fractions, while every other model keeps pi-durable's fixed-token defaults. The
-same policy is what `ConversationContext.usage` reports, so the app shows the thresholds that are actually in effect.
+Compaction thresholds are percentages of each coordinator model's context window. By default, background summarizing starts
+at 50% and the next request waits for the summary at 75%. The owner can change both together in **Settings → This computer →
+Advanced → Conversation summaries** on web and Android. This group starts closed and offers Reset to defaults. The backend
+validates whole percentages (background 20–90, wait 30–95 and higher than background) and persists the pair in its private
+`user-settings.json` via `user.settings.set`. The `coordinator-compaction-settings` feature advertises support.
+
+General and the other coordinators use the backend's settings. pi-durable reads the per-model `modelOverrides` at each
+threshold check, so already-open conversations pick up changes without reopening. A worker sharing an overridden model also
+shares those thresholds; models not used by coordinators keep pi-durable's fixed-token defaults. `ConversationContext.usage`
+reports the same effective thresholds and refreshes watched context when the backend setting changes.
 
 `conversation.compact` compacts the coordinator's conversation now (coordinator only, with optional instructions for
 the summary). It answers once the compaction is admitted; the summary lands as a `pi.compaction` entry through the
@@ -6568,7 +6573,7 @@ The shared section order and route names (a quiet technical term follows the pla
 | This computer | You and memory | `you` | Your name and automatic memory cleanup |
 | This computer | Connected apps (MCP servers) | `mcp` | Outside tools and their computer-wide policies |
 | This computer | Devices | `devices` | Signed-in devices, add a device and pending pairings |
-| This computer | Advanced | `advanced` | Name on this device, address and removal |
+| This computer | Advanced | `advanced` | Conversation summaries (closed by default), name on this device, address and removal |
 | This project | General | `general` | Name, folder, device-only mute and archive |
 | This project | Main chat (Coordinator) | `coordinator` | Model and thinking level, shared with the composer |
 | This project | Workers | `workers` | Ordered worker models and check-ins, including reset |

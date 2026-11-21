@@ -16,7 +16,16 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutableUserName = MutableStateFlow<String?>(null)
     val userName = mutableUserName.asStateFlow()
-    suspend fun setUserName(name: String) { mutableUserName.value = client.request(UserSettingsSetRequest(userName = name)).settings.userName }
+    private val mutableCoordinatorCompaction = MutableStateFlow<CoordinatorCompaction?>(null)
+    val coordinatorCompaction = mutableCoordinatorCompaction.asStateFlow()
+    private fun applyUserSettings(settings: UserSettings) {
+        mutableUserName.value = settings.userName
+        mutableCoordinatorCompaction.value = settings.coordinatorCompaction
+    }
+    suspend fun setUserName(name: String) { applyUserSettings(client.request(UserSettingsSetRequest(userName = name)).settings) }
+    suspend fun setCoordinatorCompaction(thresholds: CoordinatorCompaction) {
+        applyUserSettings(client.request(UserSettingsSetRequest(coordinatorCompaction = thresholds)).settings)
+    }
     private val mutableProjects = MutableStateFlow<List<ProjectSummary>>(emptyList())
     val projects = mutableProjects.asStateFlow()
     private val mutableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
@@ -52,7 +61,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
                 if (event is SkillsProjectChangedEvent && client.state.value.supports("project-skills")) {
                     skills[event.projectId]?.refresh()
                 }
-                if (event is UserSettingsChangedEvent) mutableUserName.value = event.settings.userName
+                if (event is UserSettingsChangedEvent) applyUserSettings(event.settings)
                 if (event is ProjectStateEvent) {
                     mutableProjects.update { list -> (list.filterNot { it.id == event.project.id } + event.project).sortedBy { it.name } }
                 }
@@ -68,7 +77,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
         scope.launch {
             client.state.collect { connection ->
                 if (connection.status == ConnectionStatus.Ready) {
-                    if (connection.supports("user-settings")) runCatching { mutableUserName.value = client.request(UserSettingsGetRequest()).settings.userName }
+                    if (connection.supports("user-settings")) runCatching { applyUserSettings(client.request(UserSettingsGetRequest()).settings) }
                     runCatching { refreshProjects() }.onFailure { mutableError.value = it.message }
                     if (connection.supports("models")) runCatching { refreshModels() }
                 }

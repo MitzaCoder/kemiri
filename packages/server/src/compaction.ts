@@ -6,8 +6,8 @@ import { isWorkerOnlyModel } from "./official-agents/provider.ts";
  * as a `pi.compaction` entry and keeps the replaced entries in storage. This module supplies the two things the harness
  * adds on top:
  *
- * - Thresholds as fractions of the current model's context window: a background summary starts at 35%, the next request
- *   waits for one at 50%. They are installed as `settings.compaction.modelOverrides` for the coordinator's model, which
+ * - Thresholds as fractions of the current model's context window: a background summary starts at 50% by default, the next request
+ *   waits for one at 75%. They are installed as `settings.compaction.modelOverrides` for the coordinator's model, which
  *   pi-durable re-reads at every threshold check, so switching the coordinator's model keeps them right. Workers keep
  *   pi-durable's defaults unless they run on that same model (the overrides are keyed by model, not by conversation).
  * - The summary itself, through the `beforeCompact` hook: the model's narrative summary (pi's prompt, plus what must
@@ -42,11 +42,13 @@ import {
 import {
 	CacheMissTracker,
 	CHECK_IN_PREFIX,
+	DEFAULT_COORDINATOR_COMPACTION,
 	THREAD_FINISHED_PREFIX,
 	THREAD_MESSAGE_PREFIX,
 	WORKER_REPORT_PREFIX,
 	type CacheMissTotals,
 	type ContextUsage,
+	type CoordinatorCompaction,
 	type ModelRef,
 } from "@kemiri/protocol";
 import type { Coordinators } from "./coordinators.ts";
@@ -57,9 +59,9 @@ import { type BoardState, BoardDoc, summaryBoardView } from "./board.ts";
 export const COMPACTION_EXTENSION = "coordinator-compaction";
 
 /** Where the coordinator's background summary starts, as a fraction of its model's context window. */
-export const COORDINATOR_BACKGROUND_FRACTION = 0.35;
+export const COORDINATOR_BACKGROUND_FRACTION = DEFAULT_COORDINATOR_COMPACTION.backgroundPercent / 100;
 /** Where the next coordinator request waits for a summary, as a fraction of its model's context window. */
-export const COORDINATOR_BLOCKING_FRACTION = 0.5;
+export const COORDINATOR_BLOCKING_FRACTION = DEFAULT_COORDINATOR_COMPACTION.blockingPercent / 100;
 /** How much recent context the summary leaves verbatim: a tenth of the window, within `KEEP_RECENT_MIN/MAX`. */
 export const COORDINATOR_KEEP_RECENT_FRACTION = 0.1;
 
@@ -138,9 +140,12 @@ export function compactionModelKey(ref: ModelRef): string {
 }
 
 /** The coordinator's compaction policy for a context window of `contextWindow` tokens. */
-export function coordinatorPolicy(contextWindow: number): CompactionPolicy {
-	const blockingAt = Math.floor(contextWindow * COORDINATOR_BLOCKING_FRACTION);
-	const backgroundAt = Math.floor(contextWindow * COORDINATOR_BACKGROUND_FRACTION);
+export function coordinatorPolicy(
+	contextWindow: number,
+	thresholds: Readonly<CoordinatorCompaction> = DEFAULT_COORDINATOR_COMPACTION,
+): CompactionPolicy {
+	const blockingAt = Math.floor(contextWindow * thresholds.blockingPercent / 100);
+	const backgroundAt = Math.floor(contextWindow * thresholds.backgroundPercent / 100);
 	const keepRecent = Math.round(contextWindow * COORDINATOR_KEEP_RECENT_FRACTION);
 	return {
 		enabled: true,
@@ -152,19 +157,21 @@ export function coordinatorPolicy(contextWindow: number): CompactionPolicy {
 	};
 }
 
-/**
- * The `compaction` settings a project's Harness opens with: only the coordinator's model is overridden, so every other
- * model — a worker on a different model, and the harness-wide defaults — stays as pi-durable has it. The model is read
- * at each use, so a model change applies without reopening the Harness.
- */
+/** Override only the models in use by this project's coordinators; other models keep pi-durable's defaults. */
 export function coordinatorCompactionSettings(
-	coordinatorModel: ModelRef | null,
+	coordinatorModels: readonly (ModelRef | null)[],
 	models: Models,
+	thresholds?: Readonly<CoordinatorCompaction>,
 ): CompactionSettings {
-	if (coordinatorModel === null) return {};
-	const model = models.getModel(coordinatorModel.provider, coordinatorModel.modelId);
-	if (model === undefined) return {};
-	return { modelOverrides: { [compactionModelKey(coordinatorModel)]: coordinatorPolicy(model.contextWindow) } };
+	const modelOverrides: Record<string, CompactionPolicy> = {};
+	for (const ref of coordinatorModels) {
+		if (ref === null) continue;
+		const key = compactionModelKey(ref);
+		if (modelOverrides[key] !== undefined) continue;
+		const model = models.getModel(ref.provider, ref.modelId);
+		if (model !== undefined) modelOverrides[key] = coordinatorPolicy(model.contextWindow, thresholds);
+	}
+	return Object.keys(modelOverrides).length === 0 ? {} : { modelOverrides };
 }
 
 /** The policy pi-durable resolves for `ref` under `settings`: its own default, then the harness-wide fields, then the

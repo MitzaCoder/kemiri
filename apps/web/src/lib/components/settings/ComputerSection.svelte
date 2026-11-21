@@ -1,5 +1,6 @@
 <script lang="ts">
 	import YourNameGroup from "./YourNameGroup.svelte";
+	import CoordinatorCompactionGroup from "./CoordinatorCompactionGroup.svelte";
 	import DevicesSection from './DevicesSection.svelte';
 	import Banner from '#lib/components/Banner.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
@@ -65,6 +66,9 @@
 {:else if section === 'devices'}
 	<DevicesSection {backend} />
 {:else if section === 'advanced'}
+	{#if backend.features?.includes('coordinator-compaction-settings')}
+		{#key backend.id}<CoordinatorCompactionGroup {backend} />{/key}
+	{/if}
 	<SettingsGroup title="This computer">
 		<SettingsRow label="Name on this device" hint="Only for you, in this browser." chip="This device only" for="backend-name">
 			<AutoInput id="backend-name" value={backend.name} commit={(next) => harness.renameBackend(backend.id, next)} />

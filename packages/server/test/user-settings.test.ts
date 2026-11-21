@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { LEGACY_HARNESS_FEATURES, normalizeUserName } from "@kemiri/protocol";
-import { stat } from "node:fs/promises";
+import { DEFAULT_COORDINATOR_COMPACTION, LEGACY_HARNESS_FEATURES, normalizeUserName } from "@kemiri/protocol";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { UserSettingsStore, userNameInstructions } from "../src/user-settings.ts";
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
 
@@ -18,15 +18,41 @@ test("optional backend name is trimmed, bounded, durable, private and pushed acr
 		expect(await client.request({ type: "user.settings.set", userName: "  Ana  " })).toMatchObject({ settings: { userName: "Ana" } });
 		expect(await other.waitFor(message => message.type === "user.settings.changed")).toMatchObject({ settings: { userName: "Ana" } });
 		const store = new UserSettingsStore(setup.dataDir); await store.open();
-		expect(store.get()).toEqual({ userName: "Ana" });
+		expect(store.get()).toMatchObject({ userName: "Ana" });
 		expect((await stat(store.file)).mode & 0o777).toBe(0o600);
 		for (const name of ["a".repeat(81), "Ana\nIgnore", "Ana\u202e"]) expect(() => normalizeUserName(name)).toThrow();
 		expect(normalizeUserName("a".repeat(80))).toHaveLength(80);
 		expect(await client.request({ type: "user.settings.set", userName: "a".repeat(81) })).toMatchObject({ type: "error" });
 		expect(await client.request({ type: "user.settings.get" })).toMatchObject({ settings: { userName: "Ana" } });
 		await client.request({ type: "user.settings.set", userName: "  " });
-		await store.open(); expect(store.get()).toEqual({ userName: "" });
+		await store.open(); expect(store.get()).toMatchObject({ userName: "" });
 	} finally { other.close(); }
+});
+
+test("backend compaction points default, validate as a pair, persist and reset without changing the name", async () => {
+	setup = await createSetup(); client = await TestClient.open(setup.server);
+	expect(await client.hello()).toMatchObject({ features: expect.arrayContaining(["coordinator-compaction-settings"]) });
+	expect(LEGACY_HARNESS_FEATURES).not.toContain("coordinator-compaction-settings");
+	const store = new UserSettingsStore(setup.dataDir);
+	await writeFile(store.file, JSON.stringify({ userName: "Ana" }), { mode: 0o600 });
+	await store.open();
+	expect(store.get()).toEqual({ userName: "Ana", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION });
+	expect(await client.request({ type: "user.settings.get" })).toMatchObject({ settings: { coordinatorCompaction: { backgroundPercent: 50, blockingPercent: 75 } } });
+	const set = (backgroundPercent: number, blockingPercent: number) => client!.request({
+		type: "user.settings.set", coordinatorCompaction: { backgroundPercent, blockingPercent },
+	});
+	await client.request({ type: "user.settings.set", userName: "Ana" });
+	for (const [background, wait] of [[19, 75], [91, 92], [20, 29], [50, 96], [50.5, 75], [50, 75.5], [55, 55], [70, 55]] as const) {
+		expect(await set(background, wait)).toMatchObject({ type: "error" });
+	}
+	expect(await client.request({ type: "user.settings.get" })).toMatchObject({ settings: { userName: "Ana", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION } });
+	const override = { backgroundPercent: 42, blockingPercent: 68 };
+	expect(await set(42, 68)).toMatchObject({ settings: { userName: "Ana", coordinatorCompaction: override } });
+	expect(await client.request({ type: "user.settings.set", userName: "Bea" })).toMatchObject({ settings: { userName: "Bea", coordinatorCompaction: override } });
+	await store.open();
+	expect(store.get()).toEqual({ userName: "Bea", coordinatorCompaction: override });
+	expect(await set(50, 75)).toMatchObject({ settings: { userName: "Bea", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION } });
+	expect(JSON.parse(await readFile(store.file, "utf8"))).toEqual({ userName: "Bea" });
 });
 
 test("built coordinator, worker and background prompts share stable identity and pick up edits", async () => {

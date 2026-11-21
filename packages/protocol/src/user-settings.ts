@@ -1,4 +1,4 @@
-/** Backend-wide, optional identity used in agent instructions. */
+/** Backend-wide settings shared by all projects and devices. */
 import { type Static, Type } from "typebox";
 import { RequestIdSchema } from "./common.ts";
 
@@ -10,10 +10,28 @@ export function normalizeUserName(name: string): string {
 	}
 	return trimmed;
 }
-export const UserSettingsSchema = Type.Object({ userName: Type.String({ maxLength: USER_NAME_MAX_LENGTH }) });
+/** Whole percentages of the coordinator model's context window. */
+export const CoordinatorCompactionSchema = Type.Object({
+	backgroundPercent: Type.Integer({ minimum: 20, maximum: 90 }),
+	blockingPercent: Type.Integer({ minimum: 30, maximum: 95 }),
+});
+export type CoordinatorCompaction = Static<typeof CoordinatorCompactionSchema>;
+export const DEFAULT_COORDINATOR_COMPACTION: Readonly<CoordinatorCompaction> = Object.freeze({
+	backgroundPercent: 50,
+	blockingPercent: 75,
+});
+export const UserSettingsSchema = Type.Object({
+	userName: Type.String({ maxLength: USER_NAME_MAX_LENGTH }),
+	coordinatorCompaction: Type.Optional(CoordinatorCompactionSchema),
+});
 export type UserSettings = Static<typeof UserSettingsSchema>;
 export const UserSettingsGetRequestSchema = Type.Object({ type: Type.Literal("user.settings.get"), id: RequestIdSchema });
-export const UserSettingsSetRequestSchema = Type.Object({ type: Type.Literal("user.settings.set"), id: RequestIdSchema, userName: Type.String() });
+export const UserSettingsSetRequestSchema = Type.Object({
+	type: Type.Literal("user.settings.set"),
+	id: RequestIdSchema,
+	userName: Type.Optional(Type.String()),
+	coordinatorCompaction: Type.Optional(CoordinatorCompactionSchema),
+});
 export const UserSettingsGetResponseSchema = Type.Object({ type: Type.Literal("user.settings.get"), id: RequestIdSchema, settings: UserSettingsSchema });
 export const UserSettingsSetResponseSchema = Type.Object({ type: Type.Literal("user.settings.set"), id: RequestIdSchema, settings: UserSettingsSchema });
 export const UserSettingsChangedEventSchema = Type.Object({ type: Type.Literal("user.settings.changed"), settings: UserSettingsSchema });

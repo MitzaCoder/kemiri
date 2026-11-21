@@ -22,6 +22,8 @@ import {
 	HARNESS_FEATURES,
 	type AuthLogin,
 	type ConversationContext,
+	type CoordinatorCompaction,
+	type UserSettings,
 	type ConversationView,
 	type CredentialInfo,
 	type DeployStatus,
@@ -93,14 +95,20 @@ export function modelLabel(model: ModelRef | null, models: readonly ModelInfo[])
 export class BackendConnection {
 	userName = $state("");
 	userSettingsLoaded = $state(false);
-	async refreshUserSettings(): Promise<void> {
-		const settings = await this.client.getUserSettings();
+	coordinatorCompaction = $state<CoordinatorCompaction>();
+	#applyUserSettings(settings: UserSettings): void {
 		this.userName = settings.userName;
+		this.coordinatorCompaction = settings.coordinatorCompaction;
 		this.userSettingsLoaded = true;
 	}
+	async refreshUserSettings(): Promise<void> {
+		this.#applyUserSettings(await this.client.getUserSettings());
+	}
 	async setUserName(name: string): Promise<void> {
-		const settings = await this.client.setUserName(name);
-		this.userName = settings.userName;
+		this.#applyUserSettings(await this.client.setUserName(name));
+	}
+	async setCoordinatorCompaction(thresholds: CoordinatorCompaction): Promise<void> {
+		this.#applyUserSettings(await this.client.setCoordinatorCompaction(thresholds));
 	}
 	readonly id: string;
 	name = $state("");
@@ -221,7 +229,7 @@ export class BackendConnection {
 				clearTimeout(this.#renewTimer);
 			}
 		});
-		this.client.onUserSettingsChanged(settings => { this.userName = settings.userName; this.userSettingsLoaded = true; });
+		this.client.onUserSettingsChanged(settings => this.#applyUserSettings(settings));
 		this.client.onProjectState((project) => this.upsertProject(project));
 		this.client.onServerStatusChanged((status) => {
 			this.status = status;

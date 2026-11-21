@@ -123,14 +123,14 @@ async function entries(client: TestClient, projectId: string): Promise<{ id: num
 describe("compaction policy", () => {
 	it("puts the coordinator's thresholds at fractions of its model's context window", () => {
 		const policy = coordinatorPolicy(128_000);
-		expect(policy.reserveTokens).toBe(64_000);
-		expect(policy.backgroundTokens).toBe(19_200);
+		expect(policy.reserveTokens).toBe(32_000);
+		expect(policy.backgroundTokens).toBe(32_000);
 		expect(policy.keepRecentTokens).toBe(12_800);
-		expect(compactionThresholds(policy, 128_000)).toEqual({ backgroundAt: 44_800, blockingAt: 64_000 });
+		expect(compactionThresholds(policy, 128_000)).toEqual({ backgroundAt: 64_000, blockingAt: 96_000 });
 
 		expect(compactionThresholds(coordinatorPolicy(32_000), 32_000)).toEqual({
-			backgroundAt: 11_200,
-			blockingAt: 16_000,
+			backgroundAt: 16_000,
+			blockingAt: 24_000,
 		});
 		// Recent context kept verbatim has pi-durable's 20k feel on a large window, and room to compact on a small one.
 		expect(coordinatorPolicy(1_000_000).keepRecentTokens).toBe(20_000);
@@ -144,11 +144,11 @@ describe("compaction policy", () => {
 			models: [{ id: "small-1", contextWindow: 32_000 }],
 		});
 		const test = await setup({ configureModels: (models) => models.setProvider(small.provider) });
-		const settings = coordinatorCompactionSettings(FAUX, test.models);
+		const settings = coordinatorCompactionSettings([FAUX], test.models);
 		expect(Object.keys(settings.modelOverrides ?? {})).toEqual(["faux/faux-1"]);
 
 		const coordinator = resolveCompactionPolicy(settings, FAUX);
-		expect(compactionThresholds(coordinator, 128_000)).toEqual({ backgroundAt: 44_800, blockingAt: 64_000 });
+		expect(compactionThresholds(coordinator, 128_000)).toEqual({ backgroundAt: 64_000, blockingAt: 96_000 });
 
 		// A worker spawned on another model gets pi-durable's own reserve and background distance, not the fractions.
 		const worker = resolveCompactionPolicy(settings, SMALL);
@@ -159,7 +159,7 @@ describe("compaction policy", () => {
 		});
 
 		// No coordinator model: no overrides at all, so nothing is compacted differently.
-		expect(coordinatorCompactionSettings(null, test.models)).toEqual({});
+		expect(coordinatorCompactionSettings([null], test.models)).toEqual({});
 	});
 
 	it("keeps the user's own words, newest first, and drops what the harness wrote", () => {
@@ -249,8 +249,8 @@ describe("context usage", () => {
 		if (coordinator.type !== "conversation.context") throw errorOf(coordinator);
 		expect(coordinator.context.usage).toMatchObject({
 			contextWindow: 32_000,
-			backgroundAt: 11_200,
-			blockingAt: 16_000,
+			backgroundAt: 16_000,
+			blockingAt: 24_000,
 			compactions: 0,
 			lastCompactionAt: null,
 			compacting: false,
@@ -277,8 +277,8 @@ describe("context usage", () => {
 		if (moved.type !== "conversation.context") throw errorOf(moved);
 		expect(moved.context.usage).toMatchObject({
 			contextWindow: 128_000,
-			backgroundAt: 44_800,
-			blockingAt: 64_000,
+			backgroundAt: 64_000,
+			blockingAt: 96_000,
 		});
 
 		// Workers drop both coordinator-only extensions, and the coordinator is offered the tool.
@@ -400,6 +400,50 @@ describe("context usage", () => {
 		expect((await read(3)).cacheMisses).toMatchObject({ misses: 2, missedTokens: 80_120, unexplained: 1 });
 	});
 });
+
+it("applies new compaction points to open coordinators and pushes the effective usage", async () => {
+	const small = fauxProvider({ provider: "small", api: "small", models: [{ id: "small-1", contextWindow: 64_000 }] });
+	const test = await setup({ configureModels: models => models.setProvider(small.provider) });
+	const client = await connect(test.server);
+	await client.hello();
+	const projectId = await addProject(client, test.projectDir);
+	await configureProject(client, projectId, FAUX, []);
+	const created = await client.request({ type: "threads.create", projectId, title: "Stock", area: "Count stocked items.", model: SMALL });
+	if (created.type !== "threads.create") throw errorOf(created);
+	const threadId = created.thread.id;
+	const target = { projectId, threadId };
+	expect(await client.request({ type: "conversation.context", ...target })).toMatchObject({ context: { usage: { backgroundAt: 32_000, blockingAt: 48_000 } } });
+	await client.request({ type: "conversation.watch", ...target });
+
+	// Below the old background point but above the new blocking point. Keep enough text to make a real cut.
+	const requestOrder: string[] = [];
+	small.setResponses(Array.from({ length: 10 }, () => (request: TranscriptContext) => {
+		const text = lastMessage(request).text;
+		if (text.includes("conversation to summarize")) {
+			requestOrder.push("summary");
+			return fauxAssistantMessage("## Goal\nCount stocked items.");
+		}
+		if (text.includes("List the stock.")) return answerWithUsage("Synthetic stock on the shelf. ".repeat(1_000), 22_000);
+		if (text.includes("Count again.")) requestOrder.push("answer");
+		return answerWithUsage("Stock counted.", 500);
+	}));
+	await client.request({ type: "conversation.submit", ...target, requestId: "stock", content: "List the stock." });
+	await client.waitFor(message => message.type === "conversation.context.changed" && message.context.threadId === threadId &&
+		(message.context.usage?.contextTokens ?? 0) > 19_200);
+	expect(requestOrder).toEqual([]);
+	expect(await client.request({ type: "user.settings.set", coordinatorCompaction: { backgroundPercent: 20, blockingPercent: 30 } }))
+		.toMatchObject({ type: "user.settings.set" });
+	const pushed = await client.waitFor(message => message.type === "conversation.context.changed" &&
+		message.context.threadId === threadId && message.context.usage?.backgroundAt === 12_800);
+	expect(pushed).toMatchObject({ context: { usage: { contextWindow: 64_000, backgroundAt: 12_800, blockingAt: 19_200 } } });
+	expect(await client.request({ type: "conversation.context", projectId })).toMatchObject({
+		context: { usage: { contextWindow: 128_000, backgroundAt: 25_600, blockingAt: 38_400 } },
+	});
+	await client.request({ type: "conversation.submit", ...target, requestId: "count-again", content: "Count again." });
+	await client.waitFor(message => message.type === "conversation.context.changed" && message.context.threadId === threadId &&
+		(message.context.usage?.compactions ?? 0) > 0 && requestOrder.includes("answer"));
+	expect(requestOrder).toEqual(["summary", "answer"]);
+}, 30_000);
 
 describe("coordinator summary", () => {
 	it("compacts through the hook, keeping the narrative, the user's words, the workers and the way back", async () => {

@@ -12,6 +12,12 @@ import kotlinx.serialization.json.*
 /** Same absent-hello-features fallback as packages/client. An explicit empty list stays empty. */
 val DEFAULT_HARNESS_FEATURES: Set<String> = setOf("projects", "filesystem", "models", "credentials", "logins", "conversation", "workers", "context", "server-status", "release-updates", "memory", "schedules", "memory-maintenance", "notifications", "board", "subscription-usage", "threads", "artifacts", "storage", "drain", "task-reports", "cache-stats", "usage-breakdown", "subscription-resets", "ref-status", "board-moves", "ref-details", "fcm-push", "schedule-events", "project-archive", "filesystem-complete", "filesystem-edit", "artifact-tags", "artifact-library", "terminal", "queued-inputs", "chat-drafts", "notification-hold", "ui-proof", "task-links", "task-waiting", "sidebar-attention", "cache-keep-warm")
 
+/** Default coordinator summary points, as percentages of the model's context window. */
+val DEFAULT_COORDINATOR_COMPACTION = CoordinatorCompaction(
+    backgroundPercent = 50L,
+    blockingPercent = 75L,
+)
+
 /** The most refs one `refs.status` reads. */
 const val MAX_REF_STATUS_REFS: Int = 200
 
@@ -66,8 +72,15 @@ data class ProjectSkill(
 )
 
 @Serializable
+data class CoordinatorCompaction(
+    val `backgroundPercent`: Long,
+    val `blockingPercent`: Long
+)
+
+@Serializable
 data class UserSettings(
-    val `userName`: String
+    val `userName`: String,
+    val `coordinatorCompaction`: CoordinatorCompaction? = null
 )
 
 @Serializable
@@ -80,7 +93,8 @@ data class UserSettingsGetRequest(
 data class UserSettingsSetRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.set",
     val `id`: String = java.util.UUID.randomUUID().toString(),
-    val `userName`: String
+    val `userName`: String? = null,
+    val `coordinatorCompaction`: CoordinatorCompaction? = null
 )
 
 @Serializable

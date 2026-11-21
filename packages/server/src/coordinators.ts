@@ -10,12 +10,13 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
 import type { Conversation, ConversationId, Harness, Tx, UserInput } from "@earendil-works/pi-durable";
-import { MAIN_THREAD_ID, type ThreadKind } from "@kemiri/protocol";
+import { MAIN_THREAD_ID, type ModelRef, type ThreadKind } from "@kemiri/protocol";
 
 /** Where one coordinator's workers run. */
 export type CoordinatorPlace = {
 	threadId: string;
 	kind?: ThreadKind;
+	model?: ModelRef;
 	parentThreadId?: string;
 	conversationId: number;
 	/** The directory its `shared` workers run in: the project checkout for main, the thread's own workspace otherwise. */

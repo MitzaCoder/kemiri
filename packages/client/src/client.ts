@@ -1,5 +1,5 @@
 import type { TaskWatcherSettings } from "@kemiri/protocol";
-import type { UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
+import type { CoordinatorCompaction, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
  * The framework-free harness client: one WebSocket, a `hello` handshake, correlated requests, reconnects with backoff,
  * project/model/credential calls, conversation submissions, and live views that survive a dropped socket.
@@ -406,6 +406,10 @@ export class HarnessClient {
 	}
 	async setUserName(userName: string): Promise<UserSettings> {
 		return (await this.#call<UserSettingsSetResponse>({ type: "user.settings.set", userName })).settings;
+	}
+
+	async setCoordinatorCompaction(coordinatorCompaction: CoordinatorCompaction): Promise<UserSettings> {
+		return (await this.#call<UserSettingsSetResponse>({ type: "user.settings.set", coordinatorCompaction })).settings;
 	}
 
 	async getProjectSkills(projectId: string): Promise<import('@kemiri/protocol').SkillsProjectGetResponse> {

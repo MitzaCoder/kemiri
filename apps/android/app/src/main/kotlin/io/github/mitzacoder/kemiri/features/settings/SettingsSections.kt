@@ -32,7 +32,7 @@ enum class ComputerSection(override val id: String, override val label: String, 
     You("you", "You and memory", "Your name and automatic memory cleanup", SettingsIcon.Users),
     Mcp("mcp", "Connected apps", "Outside tools agents can use", SettingsIcon.Server, "MCP servers"),
     Devices("devices", "Devices", "Signed-in devices and pairing", SettingsIcon.Users),
-    Advanced("advanced", "Advanced", "Name, address and removal on this device", SettingsIcon.Settings),
+    Advanced("advanced", "Advanced", "Conversation summaries and connection details", SettingsIcon.Settings),
 }
 
 fun computerSectionFor(id: String?) = ComputerSection.entries.firstOrNull { it.id == id }

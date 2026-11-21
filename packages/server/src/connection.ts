@@ -859,8 +859,10 @@ export class ClientConnection {
 				case "user.settings.get":
 				case "user.settings.set": {
 					if (!this.#userSettings || !this.#features.includes("user-settings")) throw new Error("User settings are unsupported");
+					if (request.type === "user.settings.set" && request.coordinatorCompaction !== undefined &&
+						!this.#features.includes("coordinator-compaction-settings")) throw new Error("Coordinator compaction settings are unsupported");
 					const settings = request.type === "user.settings.set"
-						? await this.#userSettings.set(request.userName) : this.#userSettings.get();
+						? await this.#userSettings.set(request) : this.#userSettings.get();
 					this.#respond({ type: request.type, id: request.id, settings });
 					break;
 				}

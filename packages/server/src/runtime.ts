@@ -1187,17 +1187,14 @@ export class ProjectManager {
 		// The caller has just read the context, so the first recomputation only records it: nothing changes yet.
 		published = JSON.stringify(await this.#readContext(project, runtime, conversation, workerId ?? null, thread));
 		lastRunAt = Date.now();
-		const stop = async (): Promise<void> => {
+		const stopSettings = this.#userSettings?.onCompactionChanged(schedule);
+		const dispose = (): void => {
+			stopSettings?.();
 			stopped = true;
 			if (timer !== undefined) clearTimeout(timer);
 			timer = undefined;
-			await handle.stop().catch(() => undefined);
 		};
-		void handle.closed.then(() => {
-			stopped = true;
-			if (timer !== undefined) clearTimeout(timer);
-			timer = undefined;
-		});
+		void handle.closed.then(dispose);
 		handle.start(async (call) => {
 			if (call.kind === "failed") throw call.error;
 			const value = call.value;
@@ -1207,7 +1204,10 @@ export class ProjectManager {
 			signal = next;
 			schedule();
 		});
-		return stop;
+		return async () => {
+			dispose();
+			await handle.stop().catch(() => undefined);
+		};
 	}
 
 	#readContext(
@@ -1330,6 +1330,13 @@ export class ProjectManager {
 			}),
 		);
 
+		let registeredCoordinators: Coordinators | undefined;
+		const compactionSettings = () => coordinatorCompactionSettings(
+			[entry.project.coordinator.model, ...(registeredCoordinators?.places() ?? [])
+				.map(place => place.kind === "coordinator" ? place.model ?? null : null)],
+			this.models,
+			this.#userSettings?.coordinatorCompaction,
+		);
 		const storage = await openNodeSqliteStorage(this.store.sessionPath(project.id));
 		let harness: Harness;
 		try {
@@ -1345,8 +1352,8 @@ export class ProjectManager {
 						// looked sent, never sends the input that would place it. Start the next run with it at the failure
 						// instead, so the model fixed in settings answers it.
 						afterFailedRun: "continue",
-						// Read at every threshold check, so the coordinator's compaction thresholds follow its current model.
-						compaction: coordinatorCompactionSettings(entry.project.coordinator.model, this.models),
+						// Read at each threshold check, including changes to the backend settings or coordinator models.
+						compaction: compactionSettings(),
 					}),
 					...(this.#now === undefined ? {} : { now: this.#now }),
 					...(this.#setTimer === undefined ? {} : { setTimer: this.#setTimer }),
@@ -1371,6 +1378,7 @@ export class ProjectManager {
 			checkout: () => entry.project.path,
 			workspacesDir: this.store.workspacesDir(project.id),
 		});
+		registeredCoordinators = coordinators;
 		// The coordinator's own tools come from the coding extension; memory and the worker tools add on top, and the
 		// worker conversations remove both of those extensions, so a worker has no memory and cannot delegate.
 		const memory = new MemoryService({
@@ -1861,7 +1869,7 @@ export class ProjectManager {
 			history,
 			usage: new ContextUsageReader({
 				models: this.models,
-				settings: () => coordinatorCompactionSettings(entry.project.coordinator.model, this.models),
+				settings: compactionSettings,
 			}),
 			activity,
 			coordinators,

@@ -1,11 +1,22 @@
-import { normalizeUserName, type UserSettings } from "@kemiri/protocol";
+import { DEFAULT_COORDINATOR_COMPACTION, normalizeUserName, type CoordinatorCompaction, type UserSettings } from "@kemiri/protocol";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+
+function validateCompaction(thresholds: CoordinatorCompaction): CoordinatorCompaction {
+	const { backgroundPercent, blockingPercent } = thresholds;
+	if (!Number.isInteger(backgroundPercent) || backgroundPercent < 20 || backgroundPercent > 90 ||
+		!Number.isInteger(blockingPercent) || blockingPercent < 30 || blockingPercent > 95 ||
+		blockingPercent <= backgroundPercent) {
+		throw new Error("Use whole percentages: background 20–90, wait 30–95 and higher than background.");
+	}
+	return { backgroundPercent, blockingPercent };
+}
 
 /** Shared by all projects/devices; changes publish only after the private atomic write succeeds. */
 export class UserSettingsStore {
 	readonly file: string;
 	#settings: UserSettings = { userName: "" };
+	readonly #compactionListeners = new Set<() => void>();
 	#pending: Promise<unknown> = Promise.resolve();
 	constructor(dataDir: string, readonly changed: (settings: UserSettings) => void = () => {}) {
 		this.file = join(dataDir, "user-settings.json");
@@ -15,16 +26,37 @@ export class UserSettingsStore {
 		if (stored !== undefined) {
 			if (typeof stored.userName !== "string") throw new Error("Invalid user settings");
 			this.#settings = { userName: normalizeUserName(stored.userName) };
+			if (stored.coordinatorCompaction !== undefined) {
+				this.#settings.coordinatorCompaction = validateCompaction(stored.coordinatorCompaction);
+			}
 		}
 	}
-	get(): UserSettings { return { ...this.#settings }; }
-	set(userName: string): Promise<UserSettings> {
-		const settings = { userName: normalizeUserName(userName) };
+	get coordinatorCompaction(): Readonly<CoordinatorCompaction> {
+		return this.#settings.coordinatorCompaction ?? DEFAULT_COORDINATOR_COMPACTION;
+	}
+	get(): UserSettings {
+		return { userName: this.#settings.userName, coordinatorCompaction: { ...this.coordinatorCompaction } };
+	}
+	onCompactionChanged(listener: () => void): () => void {
+		this.#compactionListeners.add(listener);
+		return () => { this.#compactionListeners.delete(listener); };
+	}
+	set(patch: Partial<UserSettings>): Promise<UserSettings> {
 		const write = this.#pending.then(async () => {
-			if (settings.userName === this.#settings.userName) return this.get();
+			const userName = patch.userName === undefined ? this.#settings.userName : normalizeUserName(patch.userName);
+			const thresholds = patch.coordinatorCompaction === undefined ? this.coordinatorCompaction : validateCompaction(patch.coordinatorCompaction);
+			const { backgroundPercent, blockingPercent } = thresholds;
+			const compactionChanged = backgroundPercent !== this.coordinatorCompaction.backgroundPercent ||
+				blockingPercent !== this.coordinatorCompaction.blockingPercent;
+			if (userName === this.#settings.userName && !compactionChanged) return this.get();
+			const settings: UserSettings = { userName };
+			if (backgroundPercent !== DEFAULT_COORDINATOR_COMPACTION.backgroundPercent || blockingPercent !== DEFAULT_COORDINATOR_COMPACTION.blockingPercent) {
+				settings.coordinatorCompaction = { backgroundPercent, blockingPercent };
+			}
 			await writeJsonFile(this.file, settings);
 			this.#settings = settings;
 			this.changed(this.get());
+			if (compactionChanged) for (const listener of this.#compactionListeners) listener();
 			return this.get();
 		});
 		this.#pending = write.catch(() => undefined);

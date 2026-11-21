@@ -54,7 +54,7 @@ export const COMPUTER_SECTIONS = [
 	{ id: "you", label: "You and memory", hint: "Your name and automatic memory cleanup", icon: "users" },
 	{ id: "mcp", ...COMPUTER_APPS, icon: "server" },
 	{ id: "devices", label: "Devices", hint: "Signed-in devices and adding a device", icon: "users" },
-	{ id: "advanced", label: "Advanced", hint: "Name on this device, address and removal", icon: "settings" },
+	{ id: "advanced", label: "Advanced", hint: "Conversation summaries and connection details", icon: "settings" },
 ] as const satisfies readonly SettingsSectionInfo[];
 
 export type ComputerSectionId = (typeof COMPUTER_SECTIONS)[number]["id"];

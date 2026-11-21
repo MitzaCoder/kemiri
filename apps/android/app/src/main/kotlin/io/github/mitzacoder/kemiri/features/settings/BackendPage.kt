@@ -63,7 +63,11 @@ internal fun ComputerAdvanced(repository: HarnessRepository, backend: BackendSes
     val nameSave = rememberSaveState(backend.config.key)
     val removeSave = rememberSaveState(backend.config.key)
     var confirmingRemove by rememberSaveable { mutableStateOf(false) }
+    val connection by backend.client.state.collectAsStateWithLifecycle()
     SettingsSectionPage(ComputerSection.Advanced) {
+        if (connection.supports("coordinator-compaction-settings")) key(backend.config.key) {
+            CoordinatorCompactionGroup(backend, connection.status == ConnectionStatus.Ready)
+        }
         SettingsGroup(title = "This computer") {
             SettingsRow("Name on this device", hint = "Only for you, on this phone.", status = nameSave, badge = "This device only") {
                 AutoInput(backend.config.name, nameSave, label = "Name on this device") { next ->

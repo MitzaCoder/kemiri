@@ -658,10 +658,11 @@ export class ThreadService {
 		await this.#queue.catch(() => undefined);
 	}
 
-	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout" | "kind" | "parentThreadId">): CoordinatorPlace {
+	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout" | "kind" | "parentThreadId" | "model">): CoordinatorPlace {
 		return {
 			threadId: record.id,
 			kind: record.kind,
+			model: record.model,
 			...(record.parentThreadId === undefined ? {} : { parentThreadId: record.parentThreadId }),
 			conversationId: record.conversationId,
 			checkout: record.checkout,
@@ -1434,9 +1435,10 @@ export class ThreadService {
 			}
 		}, BACKGROUND_CONTEXT);
 		const state = await this.state();
-		if (input.promote && state.threads[threadId]?.kind === "coordinator") this.coordinators.add(this.placeFor(state.threads[threadId]!));
+		const updated = state.threads[threadId];
+		if ((input.promote || model !== undefined) && updated?.kind === "coordinator") this.coordinators.add(this.placeFor(updated));
 		this.#changed();
-		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(state.threads[threadId]!);
+		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(updated!);
 	}
 
 	async submitHarness(conversation: Conversation, draft: SubmissionDraft, content: UserInput, requestId: string, context = BACKGROUND_CONTEXT) {
