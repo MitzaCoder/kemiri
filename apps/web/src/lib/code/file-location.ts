@@ -25,17 +25,22 @@ export function pathInCheckout(path: string, checkout?: string): string | undefi
 }
 export function fileFromUrl(url: { searchParams: Pick<URLSearchParams, 'get'> }): FileLocation | undefined {
 	const path = url.searchParams.get('file');
-	const root = parseCodeRoot(url.searchParams.get('root'));
+	const root = parseCodeRoot(url.searchParams.get('fileRoot') ?? url.searchParams.get('root'));
 	if (path === null || !root || (path !== '' && !validFilePath(path))) return;
 	return { root, path, line: path ? fileLine(url.searchParams.get('line')) : undefined };
 }
 export function withFile(url: Pick<URL, 'pathname' | 'search' | 'hash'>, file?: FileLocation): string {
 	const params = new URLSearchParams(url.search);
-	params.delete('file'); params.delete('line'); params.delete('root');
+	const working = params.get('changes') === 'working';
+	params.delete('file'); params.delete('line'); params.delete('fileRoot');
+	if (!working) params.delete('root');
 	if (file) {
 		params.set('file', file.path);
 		if (file.line) params.set('line', String(file.line));
-		if (file.root.kind !== 'project') params.set('root', codeRootKey(file.root));
+		const root = codeRootKey(file.root);
+		// Keep a working link pinned when the Files tab browses another checkout.
+		if (working) { if (params.get('root') !== root) params.set('fileRoot', root); }
+		else if (file.root.kind !== 'project') params.set('root', root);
 	}
 	return url.pathname + (params.size ? `?${params}` : '') + url.hash;
 }

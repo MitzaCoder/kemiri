@@ -15,9 +15,9 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FilesHost from './files/FilesHost.svelte';
 	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
-	import { fileFromUrl, PROJECT_ROOT } from '#lib/code/file-location.js';
-	import { goto } from '$app/navigation';
-	import { changesFromUrl, withChanges } from '#lib/code/project-changes.js';
+	import ChangesHost from './changes/ChangesHost.svelte';
+	import { openWorkingChanges } from '#lib/code/working-changes-navigation.js';
+	import { PROJECT_ROOT } from '#lib/code/file-location.js';
 	import ArchivedBanner from '#lib/components/ArchivedBanner.svelte';
 	import Banner from '#lib/components/Banner.svelte';
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
@@ -123,13 +123,7 @@
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
 	const filesNavigation = provideFilesNavigation(() => backend.features?.includes('project-files') === true,
 		() => threadId ? { kind: 'thread', threadId } : PROJECT_ROOT, () => threadId ? undefined : project?.path);
-	const filesShown = $derived(filesNavigation.available() && !!fileFromUrl(page.url));
-	const changeSource = $derived(backend.features?.includes('project-changes') ? changesFromUrl(page.url) : undefined);
-	function closeChanges(): void {
-		const returnUrl = withChanges(page.url);
-		if (page.state.changesFrom === returnUrl) history.back();
-		else void goto(returnUrl, { replace: true, reset: false, persistState: true, state: page.state });
-	}
+
 	provideFileDownload(async file => {
 		const response = await backend.attachmentRequest(file.url);
 		const url = URL.createObjectURL(await response.blob());
@@ -362,6 +356,10 @@
 			});
 		}
 		if (filesNavigation.available()) actions.push({ id: 'files', kind: 'tab', name: 'Files', label: 'Files', icon: FolderIcon, onclick: () => { headerMenuOpen = false; void filesNavigation.open(); } });
+		if (threadId && thread && !thread.archived && backend.features?.includes('project-changes-working')) actions.push({
+			id: 'working-changes', kind: 'tab', name: 'Uncommitted changes', label: 'Uncommitted changes', icon: FolderIcon,
+			onclick: () => { headerMenuOpen = false; void openWorkingChanges({ kind: 'thread', threadId: threadId! }); }
+		});
 		// A shell on this backend in the project's folder, on a page of its own (zellij sessions, tabs, a phone key bar).
 		if (project && backend.supports('terminal')) {
 			actions.push({
@@ -1216,20 +1214,9 @@
 		<TaskSheet {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
-<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
+<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} repository={project?.repository} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />
 
-{#if changeSource && !filesShown}
-	{#await import('./changes/ProjectChanges.svelte') then { default: ProjectChanges }}
-		{#key `${backend.id}:${projectId}:${changeSource.kind === 'task' ? changeSource.taskId : changeSource.hash}`}
-			<ProjectChanges backendId={backend.id} client={backend.client} {projectId} repository={project?.repository} source={changeSource}
-				taskId={taskFromUrl(page.url) ?? undefined} sourceThreadId={threadId} taskTitle={changeSource.kind === 'task' ? board?.task(changeSource.taskId)?.title : undefined} onclose={closeChanges} onfiles={filesNavigation.available() ? () => void filesNavigation.open() : undefined} />
-		{/key}
-	{:catch}
-		<div class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between bg-(--chat-surface) p-4" role="alert">
-			Could not load Changes. <button type="button" class="underline" onclick={closeChanges}>Close</button>
-		</div>
-	{/await}
-{/if}
+<ChangesHost {backend} {projectId} projectName={project?.name ?? 'Project'} repository={project?.repository} {board} navigation={filesNavigation} {threadId} workers={workerList} threads={threadList} />
 
 <style>
 	/* Scoped to panel actions: utility toggles retain their own pressed state. */

@@ -1,5 +1,6 @@
 import { ClientError } from '@kemiri/client';
-import { MAX_CHANGE_PATH_BYTES, type ChangedFile, type ChangeSource, type ChangesFileResponse, type ChangesListResponse } from '@kemiri/protocol';
+import { MAX_CHANGE_PATH_BYTES, type ChangedFile, type ChangeRequestSource, type ChangeSource, type ChangesFileResponse, type ChangesListResponse } from '@kemiri/protocol';
+import { codeRootKey, parseCodeRoot } from './file-location.js';
 import { fitsCodeView } from './limits.js';
 
 export type ChangeList = Omit<ChangesListResponse, 'type' | 'id'>;
@@ -7,16 +8,30 @@ export type ChangeFile = Omit<ChangesFileResponse, 'type' | 'id'>;
 const CHANGE_PARAM = 'changes';
 const fullHash = /^(?:[a-f\d]{40}|[a-f\d]{64})$/i;
 
-export function changesFromUrl(url: { searchParams: { get(name: string): string | null } }): ChangeSource | undefined {
+export function changesFromUrl(url: { searchParams: { get(name: string): string | null } }): ChangeRequestSource | undefined {
 	const value = url.searchParams.get(CHANGE_PARAM) ?? '';
+	if (value === 'working') {
+		const encoded = url.searchParams.get('root');
+		const root = encoded ? parseCodeRoot(encoded) : undefined;
+		return root ? { kind: 'working', root } : undefined;
+	}
 	if (/^T\d{1,16}$/.test(value)) return { kind: 'task', taskId: value };
 	if (fullHash.test(value)) return { kind: 'commit', hash: value.toLowerCase() };
 }
 
-export function withChanges(url: Pick<URL, 'pathname' | 'search' | 'hash'>, source?: ChangeSource): string {
+export function withChanges(url: Pick<URL, 'pathname' | 'search' | 'hash'>, source?: ChangeRequestSource): string {
 	const params = new URLSearchParams(url.search);
+	const wasWorking = params.get(CHANGE_PARAM) === 'working';
+	const fileRoot = params.has('file') ? params.get('fileRoot') ?? params.get('root') ?? 'project' : undefined;
+	params.delete('fileRoot');
+	if (wasWorking) params.delete('root');
 	if (!source) params.delete(CHANGE_PARAM);
+	else if (source.kind === 'working') { params.set(CHANGE_PARAM, 'working'); params.set('root', codeRootKey(source.root)); }
 	else params.set(CHANGE_PARAM, source.kind === 'task' ? source.taskId : source.hash);
+	if (fileRoot !== undefined) {
+		if (source?.kind === 'working') { if (fileRoot !== params.get('root')) params.set('fileRoot', fileRoot); }
+		else if (wasWorking && fileRoot !== 'project') params.set('root', fileRoot);
+	}
 	return url.pathname + (params.size ? `?${params}` : '') + url.hash;
 }
 
@@ -46,6 +61,7 @@ export function changeCommitPicker(list: ChangeList, requested: string | undefin
 }
 
 export function changeFileDisplay(file: ChangeFile) {
+	if (file.sensitive) return { kind: 'sensitive' } as const;
 	if (file.binary) return { kind: 'binary' } as const;
 	if (file.tooLarge) return { kind: 'patch', patch: file.patch, truncated: file.patchTruncated === true } as const;
 	const before = file.before?.text ?? '', after = file.after?.text ?? '';
@@ -53,7 +69,23 @@ export function changeFileDisplay(file: ChangeFile) {
 	return { kind: 'compare', before, after } as const;
 }
 
+export function workingChangeHeading(rootName: string, list: ChangeList | undefined, formatTime: (time: string) => string): string {
+	const base = list?.baseCommit === null ? 'empty base' : list?.baseCommit?.slice(0, 12);
+	return ['Uncommitted', rootName, base ? `against ${base}` : '', list?.readAt ? `as of ${formatTime(list.readAt)}` : ''].filter(Boolean).join(' · ');
+}
+
+export function refreshedWorkingSelection(previous: ChangeList | undefined, fresh: ChangeList, selected: string | undefined, viewed: ReadonlySet<string>) {
+	return { selected: fresh.files.some(file => file.path === selected) ? selected : undefined,
+		viewed: previous?.baseCommit === fresh.baseCommit && previous ? new Set([...viewed].filter(path => fresh.files.some(file => file.path === path))) : new Set<string>() };
+}
+
+export function changeSourceKey(source: ChangeRequestSource): string {
+	return source.kind === 'working' ? `working:${codeRootKey(source.root)}` : source.kind === 'task' ? source.taskId : source.hash;
+}
+
 export function changeReadProblem(error: unknown): string {
+	if (error instanceof ClientError && error.code === 'not_found' && error.message === 'No checkout for this code root')
+		return 'This checkout is no longer available.';
 	if (error instanceof ClientError && error.code === 'not_found' && error.message === 'This project has no Git store')
 		return 'This project has no Git repository to review.';
 	return error instanceof Error ? error.message : 'Could not read these changes.';

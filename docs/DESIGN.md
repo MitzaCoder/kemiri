@@ -3200,6 +3200,14 @@ and commit range. Phones use a previous/next file bar and unified diffs. The edi
 CodeMirror merge surface used by artifact comparison. Binary files show a note and oversized files show the
 plain patch returned by the backend. Alt+[ / Alt+] move between files; Alt+Up / Alt+Down move between changes.
 
+Web **Uncommitted changes** opens the working diff from an isolated worker's transcript, a
+background thread's header, or the selected checkout in Files. `?changes=working&root=<kind:id>`
+links to the checkout without exposing a machine path. The header shows the diff base and scan time,
+including in the empty state. Refresh rereads the list and selected file; the view keeps the selection
+if that path still changed. Viewed marks are in memory only and reset if the base changes. Review
+messages identify the checkout and mark the quoted lines as uncommitted. Sensitive diffs stay hidden
+until explicitly revealed and are hidden again on Refresh.
+
 ### Code view: project-files
 
 The `project-files` hello capability adds read-only `files.list`, `files.search` and `files.read` to the authenticated

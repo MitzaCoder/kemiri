@@ -14,10 +14,10 @@
 	import FileTree from './FileTree.svelte';
 	import CheckoutText from './CheckoutText.svelte';
 
-	let { file, client, backendId, projectId, projectName, roots, taskId, threadId, changesHref, autofocusSearch = false, onselect, onclose, onquote, linkFor }: {
+	let { file, client, backendId, projectId, projectName, roots, taskId, threadId, changesHref, autofocusSearch = false, onselect, onclose, onquote, linkFor, onworking }: {
 		file: FileLocation; client: HarnessClient; backendId: string; projectId: string; projectName: string; roots: RootChoice[];
 		taskId?: string; threadId?: string; changesHref?: string; autofocusSearch?: boolean; onselect: (file: FileLocation) => void;
-		onclose: () => void; onquote?: (quote: string) => void; linkFor: (file: FileLocation) => string;
+		onclose: () => void; onworking?: () => void; onquote?: (quote: string) => void; linkFor: (file: FileLocation) => string;
 	} = $props();
 	const phone = new MediaQuery('(max-width: 640px)');
 	let search = $state<GoToFile>();
@@ -108,6 +108,7 @@
 				const choice = choices.find(choice => codeRootKey(choice.root) === event.currentTarget.value);
 				if (choice) onselect({ root: choice.root, path: '' });
 			}}>{#each choices as choice (codeRootKey(choice.root))}<option value={codeRootKey(choice.root)}>{choice.label}</option>{/each}</select></label>
+			{#if onworking && currentListing && !folderError}<Button size="sm" variant="outline" onclick={onworking}>Uncommitted changes</Button>{/if}
 		</header>
 		<Dialog.Description class="sr-only">Browse this checkout without changing it. Control or Command P finds a file.</Dialog.Description>
 		<div class="files-body">

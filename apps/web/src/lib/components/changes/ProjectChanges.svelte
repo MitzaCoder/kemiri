@@ -3,12 +3,14 @@
 	import { goto } from '$app/navigation';
 	import { projectHref, threadHref } from '#lib/backends.js';
 	import { CodeReviewSession, sameReviewSource } from '#lib/code/code-review-session.svelte.js';
-	import { codeLineDocument } from '#lib/code/code-review.js';
+	import { codeRootKey } from '#lib/code/file-location.js';
+	import { exactTime } from '#lib/relative-time.js';
+	import { codeLineDocument, type CodeReviewSource } from '#lib/code/code-review.js';
 	import type { LineReviewTarget } from '#lib/code/line-review-editor.js';
 	import CodeReviewTray from '../review/CodeReviewTray.svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { HarnessClient } from '@kemiri/client';
-	import type { ChangedFile, ChangeSource } from '@kemiri/protocol';
+	import type { ChangedFile, ChangeRequestSource } from '@kemiri/protocol';
 	import XIcon from '@lucide/svelte/icons/x';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
@@ -17,19 +19,25 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { loadCodeComparison } from '#lib/code/load-viewer.js';
 	import { changeCommitPicker, changeCounts, changeFileDisplay, changeReadProblem, groupChangedFiles,
-		readViewedChanges, setChangeViewed, viewedChangePrefix, type ChangeFile, type ChangeList } from '#lib/code/project-changes.js';
+		readViewedChanges, setChangeViewed, viewedChangePrefix, refreshedWorkingSelection, workingChangeHeading, type ChangeFile, type ChangeList } from '#lib/code/project-changes.js';
 
-	let { backendId, client, projectId, repository, source, taskTitle, taskId, sourceThreadId, onclose, onfiles }: {
-		backendId: string; client: HarnessClient; projectId: string; repository?: boolean; source: ChangeSource;
+	let { backendId, client, projectId, repository, source, taskTitle, rootName, taskId, sourceThreadId, onclose, onfiles }: {
+		backendId: string; client: HarnessClient; projectId: string; repository?: boolean; source: ChangeRequestSource; rootName?: string;
 		taskTitle?: string; taskId?: string; sourceThreadId?: string; onclose: () => void; onfiles?: () => void;
 	} = $props();
 
-	const review = untrack(() => new CodeReviewSession(source, backendId, projectId, client, source.kind === 'task' ? source.taskId : taskId, sourceThreadId));
+	const working = $derived(source.kind === 'working');
+	const reviewSource = $derived<CodeReviewSource>(source.kind === 'working' ? { kind: 'working', root: codeRootKey(source.root), name: (rootName ?? codeRootKey(source.root)).slice(0, 256) } : source);
+	const review = untrack(() => new CodeReviewSession(reviewSource, backendId, projectId, client, source.kind === 'task' ? source.taskId : taskId, sourceThreadId));
 	$effect(() => { review.persist(); });
 	const wide = new MediaQuery('(min-width: 641px)');
 	let preferSplit = $state(false);
 	const layout = $derived(wide.current && preferSplit ? 'split' : 'unified');
 	let taskList = $state.raw<ChangeList>();
+	let workingList = $state.raw<ChangeList>();
+	let workingError = $state('');
+	let refreshing = $state(false);
+	let revealedPath = $state<string>();
 	let commitList = $state.raw<ChangeList>();
 	let chosenCommit = $state<string>();
 	let chosenPath = $state<string>();
@@ -45,46 +53,48 @@
 
 	const picker = $derived(taskList ? changeCommitPicker(taskList, chosenCommit) : undefined);
 	const commitHash = $derived(source.kind === 'commit' ? source.hash : picker?.commit?.hash);
-	const activeSource = $derived.by((): ChangeSource | undefined => {
+	const activeSource = $derived.by((): ChangeRequestSource | undefined => {
+		if (source.kind === 'working') return source;
 		if (commitHash) return { kind: 'commit', hash: commitHash };
 		if (source.kind === 'task' && picker?.allowAll) return source;
 	});
-	const list = $derived(commitHash ? commitList : taskList);
+	const list = $derived(working ? workingList : commitHash ? commitList : taskList);
 	const files = $derived(list?.files ?? []);
 	const counts = $derived(changeCounts(files));
 	const groups = $derived(groupChangedFiles(files));
 	const selected = $derived(files.find(row => row.path === chosenPath) ?? files.find(row => !row.binary) ?? files[0]);
 	const selectedIndex = $derived(selected ? files.indexOf(selected) : -1);
-	const prefix = $derived(activeSource && list ? viewedChangePrefix(backendId, projectId, activeSource, list) : '');
+	const prefix = $derived(activeSource && activeSource.kind !== 'working' && list ? viewedChangePrefix(backendId, projectId, activeSource, list) : '');
 	const viewedCount = $derived(files.filter(row => viewed.has(prefix + row.path)).length);
 	const isViewed = $derived(selected ? viewed.has(prefix + selected.path) : false);
 	const display = $derived(file ? changeFileDisplay(file) : undefined);
 	const lineReview = $derived.by((): LineReviewTarget | undefined => {
 		if (!activeSource || !selected || !file || display?.kind !== 'compare') return;
-		return { session: review, source: activeSource, path: selected.path, previousPath: selected.previousPath,
+		return { session: review, source: activeSource.kind === 'working' ? reviewSource : activeSource, path: selected.path, previousPath: selected.previousPath,
 			disabledSides: [...(file.before ? [] : ['before'] as const), ...(file.after ? [] : ['after'] as const)] };
 	});
-	/** Only a task range can move. Commit comments are pinned to immutable Git objects. */
-	async function recheckTaskComments(): Promise<void> {
-		if (source.kind !== 'task') return;
-		const taskSource = source;
+	/** Task ranges and working checkouts can change; full commits cannot. */
+	async function recheckComments(): Promise<void> {
+		if (source.kind !== 'task' && source.kind !== 'working') return;
+		const requested = source, commentSource = reviewSource;
 		const paths = [...new Set([...review.comments, ...(review.editor ? [review.editor] : [])]
-			.filter(comment => sameReviewSource(comment.source, taskSource)).map(comment => comment.anchor.path))];
+			.filter(comment => sameReviewSource(comment.source, commentSource)).map(comment => comment.anchor.path))];
 		if (!paths.length) return;
 		let fresh: ChangeList;
-		try { fresh = await client.listChanges(projectId, taskSource); }
+		try { fresh = await client.listChanges(projectId, requested); }
 		catch { return; } // A failed read is not evidence that a line disappeared.
 		for (const path of paths) {
 			const row = fresh.files.find(file => file.path === path || file.previousPath === path);
 			if (!row && fresh.truncated) continue;
 			let current: ChangeFile | undefined;
-			if (row && !row.binary) {
-				try { current = await client.readChangeFile(projectId, taskSource, row.path); }
+			if (row && (!row.binary || requested.kind === 'working')) {
+				try { current = await client.readChangeFile(projectId, requested, row.path); }
 				catch { continue; }
 			}
+			if (current?.sensitive) continue;
 			for (const side of ['before', 'after'] as const) {
 				const text = current?.[side]?.text;
-				review.reconcile(taskSource, row?.path ?? path, side, text === undefined ? undefined : codeLineDocument(text), path);
+				review.reconcile(commentSource, row?.path ?? path, side, text === undefined ? undefined : codeLineDocument(text), path);
 			}
 		}
 	}
@@ -95,10 +105,44 @@
 		requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus());
 	}
 
-	const heading = $derived(source.kind === 'task' ? taskTitle ?? `Task ${source.taskId}` : commitList?.commits[0]?.subject || `Commit ${source.hash.slice(0, 12)}`);
+	const heading = $derived(source.kind === 'working' ? workingChangeHeading(rootName ?? 'Checkout', workingList, exactTime) : source.kind === 'task' ? taskTitle ?? `Task ${source.taskId}` : commitList?.commits[0]?.subject || `Commit ${source.hash.slice(0, 12)}`);
 	const statusLetter = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
-	onMount(() => { viewed = readViewedChanges(localStorage); });
+	onMount(() => { if (!working) viewed = readViewedChanges(localStorage); });
+
+	$effect(() => {
+		const requested = source, changesClient = client, id = projectId;
+		attempt;
+		if (requested.kind !== 'working' || repository === false) return;
+		let disposed = false;
+		refreshing = true;
+		workingError = '';
+		void changesClient.listChanges(id, requested).then(fresh => {
+			if (disposed) return;
+			const selection = refreshedWorkingSelection(workingList, fresh, selected?.path, viewed);
+			chosenPath = selection.selected;
+			viewed = selection.viewed;
+			workingList = fresh;
+			refreshing = false;
+		}, error => {
+			if (disposed) return;
+			workingList = undefined;
+			workingError = changeReadProblem(error);
+			refreshing = false;
+		});
+		return () => { disposed = true; };
+	});
+
+	function refresh(): void {
+		if (working) file = undefined;
+		revealedPath = undefined;
+		attempt++;
+	}
+
+	function chooseFile(path: string): void {
+		revealedPath = undefined;
+		chosenPath = path;
+	}
 
 	$effect(() => {
 		const requested = source, changesClient = client, id = projectId;
@@ -126,14 +170,16 @@
 
 	$effect(() => {
 		const requested = activeSource, row = selected, changesClient = client, id = projectId;
-		attempt;
+		if (requested?.kind !== 'working') attempt;
+		const reveal = row?.path === revealedPath;
+		if (requested?.kind === 'working' && refreshing) return;
 		file = undefined;
 		fileError = '';
 		if (!requested || !row) return;
-		if (row.binary) { file = { binary: true }; return; }
+		if (row.binary && requested.kind !== 'working') { file = { binary: true }; return; }
 		let disposed = false;
 		// The destination path is the server's lookup key for renames.
-		void changesClient.readChangeFile(id, requested, row.path).then(text => { if (!disposed) file = text; },
+		void changesClient.readChangeFile(id, requested, row.path, reveal || undefined).then(text => { if (!disposed) file = text; },
 			error => { if (!disposed) fileError = changeReadProblem(error); });
 		return () => { disposed = true; };
 	});
@@ -145,7 +191,7 @@
 
 	function moveFile(step: number): void {
 		const target = files[selectedIndex + step];
-		if (target) chosenPath = target.path;
+		if (target) chooseFile(target.path);
 	}
 
 	function fileShortcut(event: KeyboardEvent): void {
@@ -160,7 +206,8 @@
 	}
 
 	function toggleViewed(row: ChangedFile, checked: boolean): void {
-		viewed = setChangeViewed(localStorage, prefix + row.path, checked, viewed);
+		if (working) { const paths = new Set(viewed); if (checked) paths.add(row.path); else paths.delete(row.path); viewed = paths; }
+		else viewed = setChangeViewed(localStorage, prefix + row.path, checked, viewed);
 	}
 </script>
 
@@ -180,19 +227,20 @@
 		onOpenAutoFocus={event => { opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined; event.preventDefault(); closeButton?.focus(); }}
 		onCloseAutoFocus={event => { if (opener?.isConnected && !contentRef?.contains(opener)) { event.preventDefault(); opener.focus(); } }}
 		class="changes-dialog inset-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:max-w-none motion-reduce:animate-none motion-reduce:transition-none">
-		<header class="changes-header">
+		<header class="changes-header" class:working-header={working}>
 			<Button bind:ref={closeButton} size="icon" variant="ghost" aria-label="Close changes" title="Close changes (Escape)" onclick={onclose}><XIcon /></Button>
 			<div class="changes-title">
 				<div class="flex min-w-0 items-center gap-2">
 					<nav aria-label="Code view" class="view-label"><span aria-current="page">Changes</span>{#if onfiles}<button onclick={onfiles}>Files</button>{/if}</nav>
 					{#if source.kind === 'task' && taskTitle}<span class="task-id-chip shrink-0">{source.taskId}</span>{/if}
-					<Dialog.Title class="truncate text-sm font-semibold" title={heading}>{heading}</Dialog.Title>
+					<Dialog.Title class={working ? 'text-sm font-semibold' : 'truncate text-sm font-semibold'} title={heading}>{heading}</Dialog.Title>
 				</div>
 				{#if list}
 					<p class="summary" aria-live="polite">{source.kind === 'task' && taskList ? `${taskList.commits.length} ${taskList.commits.length === 1 ? 'commit' : 'commits'} · ` : ''}{counts.files}{list.truncated ? '+' : ''} {counts.files === 1 ? 'file' : 'files'} · {@render delta(counts.additions, counts.deletions)}</p>
 				{/if}
 			</div>
 			<div class="changes-options">
+				{#if working}<Button size="sm" variant="outline" disabled={refreshing} onclick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button>{/if}
 				{#if source.kind === 'task' && taskList?.commits.length && picker}
 					<label class="min-w-0">
 						<span class="sr-only">Commit to review</span>
@@ -216,14 +264,14 @@
 		{#if picker?.reason}<p class="change-notice" role="status">{picker.reason}</p>{/if}
 		{#if repository === false}
 			<p class="empty-state" role="status">This project has no Git repository to review.</p>
-		{:else if taskError || commitError}
-			<div class="empty-state" role="alert"><p>{taskError || commitError}</p><Button size="sm" variant="outline" onclick={() => attempt++}>Retry</Button></div>
+		{:else if taskError || commitError || workingError}
+			<div class="empty-state" role="alert"><p>{taskError || commitError || workingError}</p><Button size="sm" variant="outline" onclick={refresh}>Retry</Button></div>
 		{:else if taskList && !taskList.commits.length}
 			<p class="empty-state" role="status">No commits have been attributed to this task yet.</p>
 		{:else if !list}
 			<p class="empty-state" role="status">Reading changes…</p>
 		{:else if !files.length || !selected}
-			<p class="empty-state" role="status">No file changes in this {commitHash ? 'commit' : 'task range'}.</p>
+			<p class="empty-state" role="status">{working ? 'No uncommitted changes' : `No file changes in this ${commitHash ? 'commit' : 'task range'}.`}</p>
 		{:else}
 			{#if list.truncated}<p class="change-notice" role="status">Showing the first {files.length} changed files. Totals are for these files only.</p>{/if}
 			<div class="review-body">
@@ -236,7 +284,7 @@
 								<ul>
 									{#each group.entries as { file: row, name, index } (row.path)}
 										<li class:current={selectedIndex === index}>
-											<button class="file-select" aria-current={selectedIndex === index ? 'true' : undefined} title={row.path} onclick={() => chosenPath = row.path}
+											<button class="file-select" aria-current={selectedIndex === index ? 'true' : undefined} title={row.path} onclick={() => chooseFile(row.path)}
 												aria-label={`${name}, ${row.status}, ${row.additions} added, ${row.deletions} removed${row.binary ? ', binary' : ''}`}>
 												<span class="status-tile" data-status={row.status} aria-hidden="true">{statusLetter[row.status]}</span>
 												<span class="file-name">{name}</span>
@@ -262,9 +310,11 @@
 						</div>
 					</div>
 					{#if fileError}
-						<div class="empty-state" role="alert"><p>{fileError}</p><Button size="sm" variant="outline" onclick={() => attempt++}>Retry</Button></div>
+						<div class="empty-state" role="alert"><p>{fileError}</p><Button size="sm" variant="outline" onclick={refresh}>Retry</Button></div>
 					{:else if !display}
 						<p class="empty-state" role="status">Reading file…</p>
+					{:else if display.kind === 'sensitive'}
+						<div class="empty-state"><p>Hidden by default. This diff may contain sensitive material.</p><Button size="sm" variant="outline" onclick={() => revealedPath = selected?.path}>Show</Button></div>
 					{:else if display.kind === 'binary'}
 						<p class="empty-state" role="status">This is a binary or non-text file. There is no text diff to show.</p>
 					{:else if display.kind === 'patch'}
@@ -293,10 +343,10 @@
 						{/key}
 					{/if}
 				</section>
-				<CodeReviewTray session={review} onrecheck={recheckTaskComments} ondraft={() => void draftInChat()} inlineEditor={!!lineReview && !!review.editor && sameReviewSource(lineReview.source, review.editor.source) && lineReview.path === review.editor.anchor.path} />
+				<CodeReviewTray session={review} onrecheck={recheckComments} ondraft={() => void draftInChat()} inlineEditor={!!lineReview && !!review.editor && sameReviewSource(lineReview.source, review.editor.source) && lineReview.path === review.editor.anchor.path} />
 			</div>
 		{/if}
-		{#if (!files.length || !selected) && (review.comments.length || review.editor)}<CodeReviewTray session={review} onrecheck={recheckTaskComments} ondraft={() => void draftInChat()} />{/if}
+		{#if (!files.length || !selected) && (review.comments.length || review.editor)}<CodeReviewTray session={review} onrecheck={recheckComments} ondraft={() => void draftInChat()} />{/if}
 	</Dialog.Content>
 </Dialog.Root>
 
@@ -341,6 +391,13 @@
 	.plain-patch { overflow: auto; margin: 0; padding: 14px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 	.plain-sides { overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	@media (max-width: 640px) {
+		.working-header { display:grid; grid-template-columns:auto minmax(0,1fr) auto; column-gap:8px; }
+		.working-header > :global(button) { grid-area:1 / 1; }
+		.working-header .changes-title, .working-header .changes-title > div { display:contents; }
+		.working-header .view-label { grid-area:1 / 2; justify-self:start; }
+		.working-header .changes-options { grid-area:1 / 3; }
+		.working-header :global([data-slot="dialog-title"]), .working-header .summary { grid-column:1 / -1; }
+		.working-header .changes-options :global(button) { min-height:44px; }
 		.changes-header { gap: 4px; }
 		.changes-options:has(select) { flex: 1 0 100%; padding-inline-start: 4px; }
 		.commit-picker { max-width: 90vw; min-height: 44px; }

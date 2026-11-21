@@ -7,6 +7,9 @@
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import FileDiffIcon from '@lucide/svelte/icons/file-diff';
+	import ChangesHost from './changes/ChangesHost.svelte';
+	import { openWorkingChanges } from '#lib/code/working-changes-navigation.js';
 	import FilesHost from './files/FilesHost.svelte';
 	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
 	import { PROJECT_ROOT } from '#lib/code/file-location.js';
@@ -256,6 +259,9 @@
 						</p>
 					</div>
 					<span class="max-sm:hidden"><ConnectionBadge {backend} /></span>
+					{#if backend.features?.includes('project-changes-working') && worker?.workspacePath && worker.isolation === 'workspace' && (worker.status === 'running' || worker.status === 'idle')}
+						<Button variant="ghost" size="icon-sm" aria-label="Uncommitted changes" title="Uncommitted changes" onclick={() => void openWorkingChanges({ kind: 'worker', workerId })}><FileDiffIcon /></Button>
+					{/if}
 					{#if backend.supports('terminal') && project && worker}
 						<Button
 							href={terminalHref(backend.id, { projectId: project.id, workerId })}
@@ -410,7 +416,7 @@
 
 <RefCardHost readDetails={backend.supports('ref-details') ? (ref) => backend.client.readRefDetails(projectId, ref) : undefined} />
 
-<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} workers={workers?.workers ?? []} {threadId} />
+<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} repository={project?.repository} navigation={filesNavigation} workers={workers?.workers ?? []} {threadId} />
 
 <style>
 	.worker-icon {
@@ -418,3 +424,5 @@
 		background: color-mix(in oklab, var(--accent-2) 12%, transparent);
 	}
 </style>
+
+<ChangesHost {backend} {projectId} projectName={project?.name ?? 'Project'} repository={project?.repository} navigation={filesNavigation} {threadId} workers={workers?.workers ?? []} {board} />

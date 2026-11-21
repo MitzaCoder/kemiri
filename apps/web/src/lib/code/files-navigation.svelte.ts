@@ -9,10 +9,10 @@ export function provideFilesNavigation(available: () => boolean, root: () => Cod
 	const navigation = {
 		available, root, checkout,
 		href(path: string, line?: number) { return withFile(page.url, { root: root(), path, line }); },
-		open(path = '', line?: number, search = false) {
+		open(path = '', line?: number, search = false, checkoutRoot?: CodeRoot) {
 			const from = withFile(page.url);
 			const openFile = fileFromUrl(page.url);
-			return goto(withFile(page.url, { root: openFile?.root ?? root(), path, line }), { replace: !!openFile, reset: false, persistState: true,
+			return goto(withFile(page.url, { root: checkoutRoot ?? openFile?.root ?? root(), path, line }), { replace: !!openFile, reset: false, persistState: true,
 				state: { ...page.state, filesFrom: openFile ? page.state.filesFrom : from, searchFiles: search } });
 		},
 	};

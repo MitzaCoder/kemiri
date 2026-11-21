@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openWorkingChanges } from '#lib/code/working-changes-navigation.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import type { BackendConnection } from '#lib/harness.svelte.js';
@@ -11,8 +12,8 @@
 	import { draftKey } from '#lib/drafts.js';
 	import { moveReviewToDraft } from '#lib/artifact-review-draft.js';
 	import { projectHref, threadHref } from '#lib/backends.js';
-	let { backend, projectId, projectName, navigation, workers = [], threads = [], threadId, onquote }: {
-		backend: BackendConnection; projectId: string; projectName: string; navigation: FilesNavigation;
+	let { backend, projectId, projectName, repository, navigation, workers = [], threads = [], threadId, onquote }: {
+		backend: BackendConnection; projectId: string; projectName: string; repository?: boolean; navigation: FilesNavigation;
 		workers?: readonly WorkerSummary[]; threads?: readonly ThreadSummary[]; threadId?: string; onquote?: (quote: string) => void;
 	} = $props();
 	const file = $derived(navigation.available() ? fileFromUrl(page.url) : undefined);
@@ -45,7 +46,7 @@
 	{#await import('./ProjectFiles.svelte') then {default: ProjectFiles}}
 		{#key `${backend.id}:${projectId}:${codeRootKey(file.root)}`}
 			<ProjectFiles {file} client={backend.client} backendId={backend.id} {projectId} {projectName} {roots} {taskId} {threadId}
-				{changesHref} autofocusSearch={page.state.searchFiles === true} onselect={file => void selectFileLocation(file)} onclose={closeFiles} onquote={quote} linkFor={file => withFile(page.url, file)} />
+				{changesHref} onworking={backend.features?.includes('project-changes-working') && (file.root.kind !== 'project' || repository !== false) ? () => void openWorkingChanges(file.root) : undefined} autofocusSearch={page.state.searchFiles === true} onselect={file => void selectFileLocation(file)} onclose={closeFiles} onquote={quote} linkFor={file => withFile(page.url, file)} />
 		{/key}
 	{:catch}<div class="fixed inset-x-0 top-0 z-[60] bg-(--chat-surface) p-3" role="alert">Could not load Files. <button class="underline" onclick={closeFiles}>Close</button></div>{/await}
 {/if}
