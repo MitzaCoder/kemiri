@@ -2216,7 +2216,8 @@ transcript paging; it is never part of model context.
 
 Agents prove UI work (web pages, app screens) with screenshots and videos. That habit used to live only in the
 coordinator's own worker briefs; now the harness makes it the default for every project, and only for user interfaces
-(no backend or terminal recordings).
+(no backend or terminal recordings). A saved HTML artifact is viewable proof on its own, so neither screenshot nor
+record the artifact. Changes to the real web or app UI still need the configured proof.
 
 - Setting: `Project.uiProof` is `off`, `screenshots` or `screenshots-and-videos` (default; a `project.json` without it,
   or with a value the server does not know, reads as the default). Stored with the coordinator config, set with
@@ -2225,10 +2226,11 @@ coordinator's own worker briefs; now the harness makes it the default for every 
 - Prompt: `uiProofParagraph(project, role)` in `workers.ts` adds one paragraph to the coordinator section (main and threads) and
   to the worker instructions; `off` adds nothing. The text depends only on the setting, so the prompt stays byte-stable
   while the setting does not change. A changed setting reaches a coordinator's prompt the way the check-in
-  paragraph does (the next prompt build); a worker keeps the instructions it was created with.
-- The coordinator's version also tells it to put the rule in worker briefs, and to work out the demo recipe the first
-  time a project needs one (how to start the app, test data, how to drive the UI, where artifacts may live) and keep it
-  in project memory. Workers' version leaves that out.
+  paragraph does (the next prompt build); a worker keeps the instructions it was created with. The HTML exemption
+  (T408) changes the prompt once, costing one cache miss per coordinator.
+- The coordinator's version also tells it to put the rule in worker briefs, including the HTML exemption, and to work
+  out the demo recipe the first time a project needs one (how to start the app, test data, how to drive the UI, where
+  artifacts may live) and keep it in project memory. Workers' version leaves that out.
 - Web: Project settings → Coordinator, group "Show UI changes", one select with the three values. Android: the same row
   in the same section.
 

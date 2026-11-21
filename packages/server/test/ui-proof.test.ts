@@ -105,6 +105,8 @@ describe("the setting", () => {
 	});
 });
 
+const htmlArtifactProofSentence = "An HTML artifact saved with artifact_save is its own proof: the owner opens it directly, so don't screenshot or record it.";
+
 describe("the prompt rule", () => {
 	it("adds the coordinator paragraph, with videos, to main and to a thread", () => {
 		for (const text of [coordinatorSection(project("screenshots-and-videos")), threadCoordinatorSection(project("screenshots-and-videos"))]) {
@@ -114,20 +116,23 @@ describe("the prompt rule", () => {
 			expect(text).toContain("Put this rule in every worker brief");
 			expect(text).toContain("keep it in project memory");
 			expect(text).toContain("artifact_save");
+			expect(text).toContain(htmlArtifactProofSentence);
 		}
 	});
 
-	it("drops the recording with screenshots", () => {
-		const text = coordinatorSection(project("screenshots"));
-		expect(text).toContain("Use before/after screenshots.");
-		expect(text).not.toContain("screen recording");
-		expect(worker(project("screenshots"))).not.toContain("screen recording");
+	it("drops the recording with screenshots but still exempts HTML artifacts", () => {
+		for (const text of [coordinatorSection(project("screenshots")), threadCoordinatorSection(project("screenshots")), worker(project("screenshots"))]) {
+			expect(text).toContain("Use before/after screenshots.");
+			expect(text).not.toContain("screen recording");
+			expect(text).toContain(htmlArtifactProofSentence);
+		}
 	});
 
 	it("adds the worker paragraph, without the coordinator's duties", () => {
 		const text = worker(project("screenshots-and-videos"));
 		expect(text).toContain("is proven before you report");
 		expect(text).toContain("plus a short screen recording of the interaction");
+		expect(text).toContain(htmlArtifactProofSentence);
 		expect(text).not.toContain("Put this rule in every worker brief");
 		expect(text).not.toContain("project memory, so later workers");
 	});
@@ -136,6 +141,7 @@ describe("the prompt rule", () => {
 		expect(uiProofParagraph(project("off"), "coordinator")).toBe("");
 		for (const text of [coordinatorSection(project("off")), threadCoordinatorSection(project("off")), worker(project("off"))]) {
 			expect(text).not.toContain("a user can see in a UI");
+			expect(text).not.toContain(htmlArtifactProofSentence);
 			expect(text).not.toContain("\n\n\n\n");
 		}
 	});
