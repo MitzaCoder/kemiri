@@ -68,6 +68,7 @@ exports[`reports exact ownership, foreign conflicts and allowed vs missing origi
     "status": "ok",
   },
   "serve": {
+    "backend": null,
     "check": {
       "message": "Current HTTPS mappings:",
       "status": "ok",
@@ -120,6 +121,7 @@ exports[`reports exact ownership, foreign conflicts and allowed vs missing origi
     },
     "ipv4": true,
     "ipv6": false,
+    "managedOrigin": null,
   },
   "version": 1,
 }

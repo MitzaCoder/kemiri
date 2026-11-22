@@ -23,6 +23,21 @@ export function parseAppListeners(output: string): AppListener[] {
 	});
 }
 
+export async function listeningTcpPorts(run = runCommand, platform = process.platform): Promise<ReadonlySet<number> | null> {
+	if (platform === "linux") {
+		const output = await run("ss", ["-ltnH"]);
+		return output === null ? null : new Set(parseAppListeners(output).map(listener => listener.port));
+	}
+	if (platform !== "darwin") return null;
+	const output = await run("/usr/sbin/netstat", ["-an", "-p", "tcp"]);
+	if (output === null) return null;
+	return new Set(output.split("\n").flatMap(line => {
+		const [protocol, , , endpoint, , state] = line.trim().split(/\s+/);
+		const port = Number(endpoint?.match(/\.(\d+)$/)?.[1]);
+		return protocol?.startsWith("tcp") && state === "LISTEN" && port > 0 && port <= 65535 ? [port] : [];
+	}));
+}
+
 export type AppListenerSource = {
 	listeners(): Promise<AppListener[] | null>;
 	cwd(pid: number): Promise<string | null>;

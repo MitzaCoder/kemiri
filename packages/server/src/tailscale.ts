@@ -17,6 +17,8 @@ export function validServePort(port: number, backendPort?: number): boolean {
 	return Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 8443 && port !== backendPort;
 }
 
+export const validBackendServePort = (port: number) => Number.isInteger(port) && port >= 1 && port <= 65535;
+export const tailnetOrigin = (hostname: string, port: number) => new URL(`https://${hostname}:${port}`).origin;
 export const loopbackTarget = (port: number) => `http://127.0.0.1:${port}`;
 export const validTailnetHostname = (hostname: unknown): hostname is string => typeof hostname === "string" &&
 	hostname.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){2,}ts\.net$/i.test(hostname);
@@ -148,16 +150,32 @@ export class TailscaleServe {
 		catch { throw new Error("Could not read Tailscale Serve configuration. Check `tailscale serve status --json` on the backend."); }
 	}
 
-	async add({ httpsPort, target }: ServeMapping): Promise<void> {
+	add(mapping: ServeMapping): Promise<void> {
+		return this.#add(mapping, validServePort(mapping.httpsPort), 1024);
+	}
+
+	addBackend(mapping: ServeMapping): Promise<void> {
+		return this.#add(mapping, validBackendServePort(mapping.httpsPort), 1);
+	}
+
+	async #add({ httpsPort, target }: ServeMapping, portAllowed: boolean, minTargetPort: number): Promise<void> {
 		const targetPort = Number(target.match(/^http:\/\/127\.0\.0\.1:(\d+)$/)?.[1]);
-		if (!validServePort(httpsPort) || !Number.isInteger(targetPort) || targetPort < 1024 || targetPort > 65535 || target !== loopbackTarget(targetPort)) {
+		if (!portAllowed || !validBackendServePort(targetPort) || targetPort < minTargetPort || target !== loopbackTarget(targetPort)) {
 			throw new Error("Tailscale Serve needs an allowed HTTPS port and an IPv4 loopback HTTP target.");
 		}
 		await this.#command(["serve", "--bg", "--yes", `--https=${httpsPort}`, target]);
 	}
 
-	async remove(httpsPort: number): Promise<void> {
-		if (!validServePort(httpsPort)) throw new Error("Cannot remove a reserved Tailscale Serve port.");
+	remove(httpsPort: number): Promise<void> {
+		return this.#remove(httpsPort, validServePort(httpsPort));
+	}
+
+	removeBackend(httpsPort: number): Promise<void> {
+		return this.#remove(httpsPort, validBackendServePort(httpsPort));
+	}
+
+	async #remove(httpsPort: number, portAllowed: boolean): Promise<void> {
+		if (!portAllowed) throw new Error("Cannot remove a reserved Tailscale Serve port.");
 		await this.#command(["serve", `--https=${httpsPort}`, "off"]);
 	}
 

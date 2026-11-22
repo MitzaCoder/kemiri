@@ -1493,6 +1493,18 @@ backend origin needs to be allowed. The command also checks IPv4 loopback trust 
 certificates put machine names in public transparency logs. JSON has `version: 1` and the same checks and fixes.
 A completed diagnostic exits 0 even when it finds missing items; it never enables Serve or issues a certificate.
 
+With the backend running and device sign-in required, `kemiri tailscale enable [--port <P>]` uses the owner socket
+and takes effect without a restart. The owner uses port 443 only if it has no local listener or Serve mapping;
+Kemiri also excludes its own port, app assignments and the agent-app range. Serve points at the verified IPv4
+loopback backend. A private `backend-serve.json` records the public origin, exact mapping and whether Kemiri
+added the host or needed to add proxy trust. It neither edits `server.env` nor grants broad new proxy trust:
+added trust covers only the recorded HTTPS origin from loopback. A bundled shell serves that exact origin too.
+`kemiri pair --tailscale` prints the remote bootstrap link and QR plus a separate code. Forwarded requests, even
+from a trusted peer, cannot redeem a local first-device grant. API-only backends use a separately configured,
+allowed web app. `kemiri tailscale disable` revokes the managed additions and clears only a still-matching Serve
+port. A changed or unrelated mapping and preexisting host/proxy entries are left alone. Neither command changes
+sign-in mode, modifies firewall or Caddy settings, or enables Funnel.
+
 Updated legacy clients persist pending claim proofs, register via HTTP, display comparison codes and poll. Owner reviews
 fixed `migration list` inventory (ID/code/label/platform/first/last-seen/coarse source), approves **exact IDs** under durable
 batch ID. Same batch+ordered IDs retry is idempotent; altered set rejected. Poll/ack is identical to pairing. Each backend

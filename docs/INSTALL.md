@@ -11,8 +11,13 @@ old/new defaults require an explicit path. Recorded installation paths always wi
 Kemiri runs your agents and tools as **your user**, with your filesystem access and provider spending authority.
 Each person installs their own backend. This experimental installer is for Linux and macOS, x64/arm64; Windows
 users run it inside WSL. There is no Node fallback. Fresh data starts with device sign-in **required**. This installer
-keeps loopback binding; network/Tailscale HTTPS setup is separate. Do not forward the port or expose it casually.
-Run `kemiri tailscale status` as the backend account to check Tailscale HTTPS setup without changing it.
+keeps loopback binding. Do not forward the local port or expose it casually.
+
+For HTTPS on a tailnet, the owner can run `kemiri tailscale status` as the backend account to check setup.
+With Kemiri running and device sign-in required, run `kemiri tailscale enable`, then `kemiri pair --tailscale`.
+Use `kemiri tailscale enable --port <P>` if 443 is busy. Scan the QR or open its link and enter the separate code
+on a tailnet device. Issued HTTPS certificates put machine names in public certificate transparency logs.
+`kemiri tailscale disable` removes Kemiri’s setup without changing other Serve mappings or device sign-in.
 
 ## Upgrading existing installations
 
@@ -63,7 +68,7 @@ Only an absent binary (HTTP 404), an unsupported binary platform, or `--runtime 
 pinned-Bun source/web fallback. Network errors or bad/missing checksums never trigger a weaker fallback.
 Pilot.2 and later supply Linux x64/arm64 and macOS arm64 executables; pilot.1 predates them and uses Bun.
 
-Install **git** for repositories, **jj** for isolated workers, and **Tailscale** for future phone access. Missing
+Install **git** for repositories, **jj** for isolated workers, and **Tailscale** for optional tailnet access. Missing
 tools are explained without blocking local setup (except git is required for `--ref`). On minimal Linux images,
 bootstrap utilities `curl`, `tar` (with gzip), and `sha256sum` or `shasum` must be available; `unzip` is needed only
 for the Bun fallback. No preinstalled Bun is needed, and a matching binary install downloads no Bun runtime or

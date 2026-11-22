@@ -6,10 +6,14 @@ import { DeviceAuth, DeviceAuthError, validateBackendOrigin } from "./device-aut
 import { authFailure, authJson, readAuthBody } from "./device-auth-http.ts";
 import { resolveDataDir } from "./data-dir.ts";
 import { assertDataDirNotOwned } from "./data-dir-owner.ts";
+import { TailscaleSetupError, type BackendTailscale } from "./backend-tailscale.ts";
 
 type ControlOptions = {
 	loopbackOrigin: string;
 	allowedOrigins: readonly string[];
+	tailscale?: BackendTailscale;
+	tailnetWebShell?: boolean;
+	serializeTailscale?: <T>(work: () => Promise<T>) => Promise<T>;
 	/** Only installed on the owner socket, never the public HTTP router. */
 	healthCheck?: (request: string) => Promise<unknown>;
 };
@@ -17,10 +21,12 @@ type ControlOptions = {
 export async function startAuthControl(
 	auth: DeviceAuth,
 	options: ControlOptions,
-): Promise<() => void> {
+) {
 	const socket = join(auth.dir, "auth.sock");
 	await assertDataDirNotOwned(auth.dir);
 	if (existsSync(socket)) unlinkSync(socket);
+	let pendingOwnerSettings: Promise<unknown> = Promise.resolve();
+	let draining = false;
 	const server = Bun.serve({
 		unix: socket,
 		async fetch(request) {
@@ -29,16 +35,32 @@ export async function startAuthControl(
 				const body = await readAuthBody(request);
 				if (!Array.isArray(body.args) || !body.args.every((x) => typeof x === "string"))
 					throw new DeviceAuthError("bad_request", 400);
-				return authJson(await ownerCommand(auth, body.args as string[], options));
+				const args = body.args as string[];
+				const run = () => ownerCommand(auth, args, options);
+				if (["hosts", "mode", "pair", "tailscale"].includes(args[0] ?? "")) {
+					if (draining) return authJson({ error: { code: "backend_stopping" } }, 503);
+					const next = pendingOwnerSettings.then(run);
+					pendingOwnerSettings = next.catch(() => undefined);
+					return authJson(await next);
+				}
+				return authJson(await run());
 			} catch (error) {
+				// Setup fixes are local-only; the public auth router still sends codes only.
+				if (error instanceof TailscaleSetupError) return authJson({ error: { code: "tailscale_setup", message: error.message } }, 400);
 				return authFailure(error);
 			}
 		},
 	});
 	chmodSync(socket, 0o600);
-	return () => {
-		server.stop(true);
-		if (existsSync(socket)) unlinkSync(socket);
+	return {
+		async drainSettings() {
+			draining = true;
+			await pendingOwnerSettings;
+		},
+		stop() {
+			server.stop(true);
+			if (existsSync(socket)) unlinkSync(socket);
+		},
 	};
 }
 export async function ownerCommand(
@@ -80,12 +102,27 @@ export async function ownerCommand(
 			if (action === "approve" && value === "--batch" && rest[0] && rest.length > 1)
 				return auth.approveMigration(rest[0], rest.slice(1));
 			break;
+		case "tailscale": {
+			const setup = options.tailscale;
+			if (!setup) break;
+			const run = <T>(work: () => Promise<T>) => options.serializeTailscale ? options.serializeTailscale(work) : work();
+			if (action === "disable" && args.length === 2) return run(() => setup.disable());
+			if (action === "enable" && (args.length === 2 || (args.length === 4 && value === "--port" && /^\d+$/.test(rest[0]!)))) {
+				return run(() => setup.enable(args.length === 4 ? Number(rest[0]) : undefined));
+			}
+			break;
+		}
 		case "pair": {
+			const tailnet = args.includes("--tailscale");
+			if (tailnet && (args.length !== 2 || !options.tailscale)) break;
 			const local = args.includes("--local");
-			const backend = local ? options.loopbackOrigin : flag("--backend");
+			const backend = tailnet ? await options.tailscale!.pairingOrigin() : local ? options.loopbackOrigin : flag("--backend");
 			if (!backend || (!local && !auth.hosts.includes(validateBackendOrigin(backend))))
 				throw new DeviceAuthError("backend_origin_required", 400);
-			const webApp = flag("--web-app") ?? serverSettings.KEMIRI_WEB_APP ?? options.allowedOrigins[0];
+			const webApp = tailnet && options.tailnetWebShell ? backend : flag("--web-app") ?? serverSettings.KEMIRI_WEB_APP ?? options.allowedOrigins[0];
+			if (tailnet && !options.tailnetWebShell && (!webApp || !options.allowedOrigins.includes(webApp))) {
+				throw new TailscaleSetupError("For an API-only backend, set KEMIRI_WEB_APP to the HTTPS web app origin, add it to KEMIRI_ALLOWED_ORIGINS, and restart Kemiri.");
+			}
 			if (!local && !webApp) throw new DeviceAuthError("web_app_required", 400);
 			if (webApp) validateBackendOrigin(webApp);
 			const grant = auth.bootstrap(local);

@@ -1,5 +1,6 @@
-import type { TailscaleServe } from "./tailscale.ts";
-import type { AppListenerSource } from "./app-listeners.ts";
+import { loopbackTarget, TailscaleServe } from "./tailscale.ts";
+import { listeningTcpPorts, type AppListenerSource } from "./app-listeners.ts";
+import { BackendTailscale } from "./backend-tailscale.ts";
 import { AgentApps } from "./agent-apps.ts";
 import { ProjectFileWrites } from "./project-file-writes.ts";
 import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
@@ -603,10 +604,25 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		for (const connection of connections) connection.notifyAppSettings(settings);
 	}, () => boundPort);
 	await userSettings.open();
+	const tailscale = options.appTailscale ?? new TailscaleServe();
+	const trustedProxies = options.auth?.trustedProxies ?? serverSettings.KEMIRI_TRUSTED_PROXIES?.split(",") ?? [];
+	const backendTailscale = new BackendTailscale({
+		auth, tailscale, trustedProxies, backendPort: () => boundPort, appAddresses: () => userSettings.appSettings.addresses,
+		listeningPorts: options.appListenerSource ? async () => {
+			const listeners = await options.appListenerSource!.listeners();
+			return listeners ? new Set(listeners.map(listener => listener.port)) : null;
+		} : listeningTcpPorts,
+		loopbackReady: async () => {
+			try {
+				const response = await fetch(`${loopbackTarget(boundPort)}/auth/status`, { redirect: "error", signal: AbortSignal.timeout(2000) });
+				return response.ok && (await response.json() as { backendId?: string }).backendId === auth.backendId;
+			} catch { return false; }
+		},
+	});
 	const apps = features.includes("apps") ? new AgentApps({
 		store, settings: () => userSettings.appSettings, backendPort: () => boundPort,
 		...(options.appListenerSource === undefined ? {} : { listenerSource: options.appListenerSource }),
-		...(options.appTailscale === undefined ? {} : { tailscale: options.appTailscale }),
+		tailscale,
 		log,
 		backendOrigins: () => [...auth.hosts, ...allowedOrigins],
 		changed: projectId => { for (const connection of connections) connection.notifyApps(projectId); },
@@ -854,18 +870,19 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		maxRequestBodySize: 51 * 1024 * 1024,
 		async fetch(request, bunServer) {
 			const url = new URL(request.url);
-			if (options.webDir && !localWebOrigin(url.origin, bunServer.port ?? port)) return new Response("Forbidden host", { status: 403 });
 			const peer = bunServer.requestIP(request)?.address ?? "unknown";
-			const trusted = (
-				options.auth?.trustedProxies ??
-				serverSettings.KEMIRI_TRUSTED_PROXIES?.split(",") ??
-				[]
-			).includes(peer);
+			const tailnetOrigin = backendTailscale.forwardedOrigin(peer, request.headers);
+			const trusted = trustedProxies.includes(peer) || Boolean(tailnetOrigin &&
+				(backendTailscale.addsLoopbackTrust || trustedProxies.includes("127.0.0.1")));
+			if (tailnetOrigin && (!trusted || backendTailscale.activeOrigin !== tailnetOrigin || auth.mode !== "required" || !auth.hosts.includes(tailnetOrigin))) {
+				return authJson({ error: { code: "forbidden_host" } }, 403);
+			}
+			if (options.webDir && !tailnetOrigin && !localWebOrigin(url.origin, bunServer.port ?? port)) return new Response("Forbidden host", { status: 403 });
 			const forwardedSource = trusted ? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() : undefined;
 			const source = forwardedSource && isIP(forwardedSource) ? forwardedSource : peer;
 			const forwardedHost = trusted ? request.headers.get("x-forwarded-host") : null;
 			const forwardedProto = trusted ? request.headers.get("x-forwarded-proto") : null;
-			const backendOrigin = `${forwardedProto ?? url.protocol.slice(0, -1)}://${forwardedHost ?? request.headers.get("host") ?? url.host}`;
+			const backendOrigin = tailnetOrigin ?? `${forwardedProto ?? url.protocol.slice(0, -1)}://${forwardedHost ?? request.headers.get("host") ?? url.host}`;
 			const loopback = [
 				`http://127.0.0.1:${bunServer.port}`,
 				`http://localhost:${bunServer.port}`,
@@ -882,11 +899,12 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			// The installed shell already accepts these exact loopback origins for auth and
 			// WebSockets. Artifact fetches need the same CORS policy when localhost and
 			// 127.0.0.1 name the same installation (images alone do not need CORS).
-			const artifactOrigins = options.webDir
-				? [...allowedOrigins, ...loopback.filter((origin) => localWebOrigin(origin, bunServer.port ?? port))]
-				: allowedOrigins;
+			const webOrigins = options.webDir ? [
+				...loopback.filter(origin => localWebOrigin(origin, bunServer.port ?? port)), ...(tailnetOrigin ? [tailnetOrigin] : []),
+			] : [];
+			const artifactOrigins = options.webDir ? [...allowedOrigins, ...webOrigins] : allowedOrigins;
 			const originAllowed = isOriginAllowed(origin, allowedOrigins, required || url.pathname.startsWith("/auth/")) ||
-				Boolean(options.webDir && localWebOrigin(origin, bunServer.port ?? port));
+				(origin !== null && webOrigins.includes(origin));
 			if (!originAllowed && (required || url.pathname.startsWith("/auth/")))
 				return authJson({ error: { code: "forbidden_origin" } }, 403);
 			// Optional/off signed artifacts retain the pre-auth HTTP/CORS behaviour, including disallowed Origins.
@@ -1089,6 +1107,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 
 	const actualPort = boundPort = server.port ?? port;
+	try { await backendTailscale.load(); }
+	catch (error) { log(`backend Serve: ${errorMessage(error)}`); }
 	apps?.start(error => log(`agent apps: ${errorMessage(error)}`));
 	if (options.webDir) mcpOrigins.push(`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`);
 
@@ -1142,11 +1162,13 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 				}
 	}, 1000);
 	authTimer.unref();
-	const stopAuthControl =
+	const authControl =
 		options.auth?.controlSocket === false
-			? () => {}
+			? undefined
 			: await startAuthControl(auth, {
 				loopbackOrigin: `http://127.0.0.1:${server.port}`, allowedOrigins,
+				tailscale: backendTailscale, tailnetWebShell: Boolean(options.webDir),
+				...(apps ? { serializeTailscale: apps.serializeServeChange.bind(apps) } : {}),
 				healthCheck: async (raw) => {
 					const request = JSON.parse(raw);
 					// No arbitrary RPC forwarding: these are exactly the deploy integrity/drain checks.
@@ -1229,6 +1251,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			stopped = true;
 			officialAgents.beginShutdown();
 			clearInterval(authTimer);
+			await authControl?.drainSettings();
 			await apps?.stop();
 			scheduleScheduler.stop();
 			scheduleEvents.stop();
@@ -1256,7 +1279,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			server.stop(true);
 			auth.close();
 			// Retain ownership through every asynchronous shutdown write, so an overlapping start waits safely.
-			stopAuthControl();
+			authControl?.stop();
 		},
 	};
 	return handle;

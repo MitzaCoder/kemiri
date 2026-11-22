@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { readAppSettings } from "./app-addresses.ts";
 import { readAppServeOwnership } from "./app-serve-mappings.ts";
+import { CERTIFICATE_TRANSPARENCY_NOTE, readBackendServeRecord, type BackendServeRecord } from "./backend-tailscale.ts";
 import { readAllowedBackendOrigins } from "./device-auth.ts";
 import { readJsonFile } from "./fs-json.ts";
 import { resolvedServerConfig } from "./server-env.ts";
@@ -37,6 +38,9 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 				check("warning", `${addresses.mode}; no HTTPS port range in use. ${appAddressesFix}`),
 	};
 
+	let backendServe: BackendServeRecord | undefined;
+	let ownershipReadable = true;
+	try { backendServe = await readBackendServeRecord(dataDir); } catch { ownershipReadable = false; }
 	let serveStatus: ServeStatus | undefined;
 	let serveCheck = check("warning", notRunningFix);
 	let ownedPorts: Set<number> | undefined;
@@ -47,9 +51,11 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 		} catch (error) { serveCheck = check("warning", (error as Error).message); }
 		if (serveStatus) {
 			try {
+				if (!ownershipReadable) throw new Error("Invalid backend Serve ownership");
 				ownedPorts = new Set((await readAppServeOwnership(dataDir)).filter(serveStatus.matches).map(mapping => mapping.httpsPort));
+				if (backendServe && serveStatus.matches(backendServe)) ownedPorts.add(backendServe.httpsPort);
 			} catch {
-				serveCheck = check("warning", "Could not verify mapping ownership. Restore the backend’s app-serve-ownership.json from a valid backup.");
+				serveCheck = check("warning", "Could not verify mapping ownership. Restore the backend’s app-serve-ownership.json or backend-serve.json from a valid backup.");
 			}
 		}
 	}
@@ -76,8 +82,11 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 	const backendOrigins = { candidates: origins, check: origins.length ? null : check("warning", status.running.ok ? dnsFix : notRunningFix) };
 	const proxies = env.KEMIRI_TRUSTED_PROXIES?.split(",") ?? [];
 	const ipv4 = proxies.includes("127.0.0.1"), ipv6 = proxies.includes("::1");
-	const trustedLoopback = { ipv4, ipv6, check: ipv4 ? check("ok", "IPv4 loopback is trusted for Serve.") :
-		check("missing", "Add 127.0.0.1 to KEMIRI_TRUSTED_PROXIES in the backend’s server.env and restart Kemiri before using Serve for the backend.") };
+	const managedOrigin = backendServe?.phase === "active" && backendServe.addedProxy &&
+		(backendPort === 0 || backendServe.target === loopbackTarget(backendPort)) ? backendServe.publicOrigin : null;
+	const trustedLoopback = { ipv4, ipv6, managedOrigin, check: ipv4 ? check("ok", "IPv4 loopback is trusted for Serve.") :
+		managedOrigin ? check("ok", `IPv4 loopback is trusted only for ${managedOrigin}.`) :
+			check("missing", "Run kemiri tailscale enable to trust IPv4 loopback only for the backend’s tailnet address.") };
 
 	return {
 		version: 1,
@@ -86,12 +95,13 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 		magicDns: { hostname, check: status.running.ok ? readinessCheck(status.magicDns) : check("warning", notRunningFix) },
 		https: status.running.ok ? readinessCheck(status.https) : check("warning", notRunningFix),
 		operator: { backendUser, check: operator },
-		serve: { check: serveCheck, httpsMappings, rangeConflicts },
+		serve: { check: serveCheck, httpsMappings, rangeConflicts,
+			backend: backendServe ? { publicOrigin: backendServe.publicOrigin, phase: backendServe.phase } : null },
 		backendPort,
 		backendOrigins,
 		trustedLoopback,
 		appAddresses,
-		certificateTransparency: "Machine names appear in public certificate transparency logs once HTTPS certificates are issued.",
+		certificateTransparency: CERTIFICATE_TRANSPARENCY_NOTE,
 	};
 }
 
@@ -115,6 +125,7 @@ export function formatTailscaleStatus(report: Awaited<ReturnType<typeof inspectT
 		line("Tailnet HTTPS certificates", report.https),
 		line(`Serve operator (${report.operator.backendUser})`, report.operator.check),
 		line("Serve", report.serve.check),
+		...(report.serve.backend ? [`  Backend Serve: ${report.serve.backend.publicOrigin} (${report.serve.backend.phase})`] : []),
 		...report.serve.httpsMappings.map(mapping => {
 			const source = mapping.hostname ? `${mapping.hostname}:${mapping.httpsPort}${mapping.path ?? ""}` : `HTTPS port ${mapping.httpsPort}`;
 			return `  ${source} → ${mapping.target} (${mapping.ownership === "kemiri" ? "Kemiri" : mapping.ownership})`;
@@ -128,13 +139,8 @@ export function formatTailscaleStatus(report: Awaited<ReturnType<typeof inspectT
 	].join("\n");
 }
 
-export async function runTailscaleCli(args: readonly string[], env: Environment): Promise<void> {
-	if (args[0] !== "status" || args.length > 2 || (args.length === 2 && args[1] !== "--json")) {
-		throw new Error("Usage: kemiri tailscale status [--json]");
-	}
-	if (env.KEMIRI_CHILD_PROCESS === "1" && !env.KEMIRI_ENV_FILE?.trim() && !env.KEMIRI_DATA_DIR?.trim()) {
-		throw new Error("Owner CLI from an agent requires explicit KEMIRI_ENV_FILE or KEMIRI_DATA_DIR");
-	}
+export async function runTailscaleStatusCli(args: readonly string[], env: Environment): Promise<void> {
+	if (args.length > 1 || (args.length === 1 && args[0] !== "--json")) throw new Error("Usage: kemiri tailscale status [--json]");
 	const report = await inspectTailscaleStatus(env);
 	console.log(args.includes("--json") ? JSON.stringify(report, null, 2) : formatTailscaleStatus(report));
 }

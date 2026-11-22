@@ -195,6 +195,7 @@ async function installedServerEntry(root: string, settings: Readonly<Record<stri
 export async function runInstalledCli(args: string[]): Promise<void> {
 	const [requested = "help", ...rest] = args;
 	const command = requested === "--version" || requested === "--kemiri-version" ? "version" : requested;
+	const tailnetPair = command === "pair" && rest.includes("--tailscale");
 	if (command === "activate") {
 		const [root, config, version, launcher, selectedChannel, releaseName = version] = rest;
 		if (!root || !config || !version || !launcher) throw new Error("Incomplete activation");
@@ -253,7 +254,7 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			KEMIRI_UPDATE_CHANNEL: installation.channel || releaseChannel(installation.version),
 		} : {}),
 		...(normalizeEnvironment(process.env).KEMIRI_PORT ? { KEMIRI_PORT: normalizeEnvironment(process.env).KEMIRI_PORT } : {}),
-	}, { readOnly: command === "tailscale" });
+	}, { readOnly: command === "tailscale" || tailnetPair });
 	const port = settings.KEMIRI_PORT || "7317";
 	if (command !== "auth" && command !== "pair" && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) throw new Error("KEMIRI_PORT must be 1–65535");
 	const url = `http://127.0.0.1:${port}`;
@@ -285,6 +286,7 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			else console.log("Open this URL in a browser on this machine.");
 			break;
 		case "pair": {
+			if (tailnetPair) { await installedServerEntry(root, settings, ["pair", ...rest]); break; }
 			// Delegate enrollment to the existing owner-only socket; no HTTP management or new auth protocol.
 			const response = await fetch("http://localhost/", {
 				unix: join(installation.data, "auth.sock"), method: "POST",
@@ -357,7 +359,7 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			}
 			console.log(rest[1] === "1" ? "Uninstalled and purged Kemiri data/config. Repositories were not touched." : "Uninstalled. Data and config kept. Re-run the installer to reinstall."); break;
 		}
-		default: console.log("Usage: kemiri start|open|pair|auth|status|update|rollback|version|doctor|tailscale status|service install|remove\nSee docs/INSTALL.md. Stop Kemiri before updating or rolling back.");
+		default: console.log("Usage: kemiri start|open|pair|auth|status|update|rollback|version|doctor|tailscale|service install|remove\nSee docs/INSTALL.md. Stop Kemiri before updating or rolling back.");
 	}
 }
 if (import.meta.main) {

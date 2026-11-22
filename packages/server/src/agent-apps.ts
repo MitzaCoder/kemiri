@@ -359,14 +359,15 @@ export class AgentApps {
 			...(app.taskId === undefined ? {} : { taskId: app.taskId }) });
 	}
 
-	#serialize<T>(work: () => Promise<T>): Promise<T> {
+	/** Backend Serve setup shares this queue with app allocation and removal. */
+	serializeServeChange<T>(work: () => Promise<T>): Promise<T> {
 		const operation = this.#pending.then(work);
 		this.#pending = operation.catch(() => undefined);
 		return operation;
 	}
 
 	#releaseOrphans(): Promise<void> {
-		return this.#serialize(async () => {
+		return this.serializeServeChange(async () => {
 			const projects = await this.options.store.list();
 			await this.#serveMappings.removeOrphans(projects.flatMap(project => project.apps?.records ?? []),
 				this.options.settings().addresses.mode === "tailscale-serve");
@@ -374,7 +375,7 @@ export class AgentApps {
 	}
 
 	async #change<T>(projectId: string, update: (document: AppRegistryDocument) => Promise<{ result: T; changed: boolean; notify?: boolean }>): Promise<T> {
-		const change = await this.#serialize(() => this.options.store.updateAppRegistry(projectId, async document => {
+		const change = await this.serializeServeChange(() => this.options.store.updateAppRegistry(projectId, async document => {
 			const ownedBefore = document.records?.filter(app => app.serveMapping).map(app => app.appId) ?? [];
 			const change = await update(document);
 			const release = ownedBefore.some(id => !document.records?.some(app => app.appId === id && app.serveMapping));
