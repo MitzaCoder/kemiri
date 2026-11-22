@@ -9,6 +9,7 @@ export type PackagedResources = {
 	codemodeWorker?: string;
 	photonWasm?: string;
 	photonWorker?: string;
+	boardWorker?: string;
 	release?: ReleaseInfo;
  installer?: string;
 };

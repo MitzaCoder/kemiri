@@ -113,6 +113,7 @@
 		if (backend === undefined) return;
 		await backend.addProject(path);
 	}
+	const artifactCount = $derived(page.route.id === '/artifacts' && !artifactLibrary.loading ? artifactLibrary.entries.length : null);
 </script>
 
 {#snippet navBody(rail: boolean, drawer: boolean)}
@@ -161,12 +162,12 @@
 		>
 			{#if !rail}<NeedsYou links={attentionLinks} onnavigate={() => projectsNav.closeDrawer()} />{/if}
 			<a href="/artifacts" aria-current={page.url.pathname === '/artifacts' ? 'page' : undefined}
-				aria-label={rail ? `Artifacts, ${artifactLibrary.entries.length} kept` : undefined} title="Artifacts"
+				aria-label={rail ? artifactCount === null ? 'Artifacts' : `Artifacts, ${artifactCount} kept` : undefined} title="Artifacts"
 				onclick={() => projectsNav.closeDrawer()}
 				class="my-1 flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-(--chat-fg-muted) hover:bg-(--chat-surface-2) aria-[current=page]:bg-(--chat-surface-2) aria-[current=page]:text-(--accent-2)"
 				class:justify-center={rail} class:size-9={rail}>
 				<BoxesIcon class="size-4 shrink-0" />
-				{#if !rail}<span class="flex-1 font-medium">Artifacts</span><span class="text-xs text-(--chat-fg-subtle)">{artifactLibrary.entries.length}</span>{/if}
+				{#if !rail}<span class="flex-1 font-medium">Artifacts</span><span class="text-xs text-(--chat-fg-subtle)">{artifactCount}</span>{/if}
 			</a>
 			{#if harness.backends.length === 0}
 				{#if !rail}

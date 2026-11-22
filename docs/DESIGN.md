@@ -724,7 +724,8 @@ archived projects. It includes project names and archive state and facts for hom
 `projectIds` and page with a strict `before` timestamp (default 300 rows, with ties kept together at the boundary).
 `artifacts.trail` ignores a version suffix and returns the root row, home and later task folders with their decisions,
 and feedback from any task mentioning the artifact. Comments run oldest first and retain their referenced version,
-state and note. Neither request starts project agents.
+state and note. Neither request starts project agents. Catalogue pages use the current Harness snapshot for an
+open project. Closed-project facts and comment trails use read-only SQLite on a worker, not the HTTP thread.
 
 For feedback about an artifact whose task is done, the coordinator answers plain questions in chat without a task.
 For a change it adds a small follow-up with `foundWhile` pointing to the original task and has its worker save the
@@ -733,10 +734,12 @@ revision by `artifactId`, then says in chat what changed. An explicit request to
 ### Web library and Studio
 
 `/artifacts` merges all connected backends (D121). Keys include backend and project so an artifact or task ID on
-one backend never collides with another. The sidebar shares the live count with the page. A backend without
-`artifact-library` contributes up to 500 files per project and task facts from any readable board, including archived
-work. Changes and reconnects refresh the results. The old backend still has a Studio, without Keep alive or the
-server comment trail.
+one backend never collides with another. The sidebar only shows a catalogue count while Artifacts is open. A backend
+without `artifact-library` contributes up to 500 files per project and task facts from any readable board, including
+archived work. Entering Artifacts or reconnecting there loads the catalogue. Artifact changes refresh it with a short
+debounce. Board pushes do not reload it. At most one page is in flight per backend; leaving Artifacts cancels queued
+refreshes and stops pagination when the current response returns. The old backend still has a Studio, without Keep
+alive or the server comment trail.
 
 Vitrine's task, kind, time, before-and-after and living lenses share project, tag and search filters. A done task
 keeps its shelf. Matched before pictures come before their after pictures. The compare lens uses the task gallery's
@@ -6140,6 +6143,19 @@ legacy conversations initialize that document before requesting a summary. IDs c
 Cache refreshes retain the session ID from their captured conversation request options.
 
 ### Board
+
+The board keeps only its current value. Task histories are separate documents. Closed-task normalization changes
+legacy or stale values in place but leaves equal arrays and maps alone, so opening a clean board in a write
+transaction does not record a patch. A new base replaces the tail once it reaches 64 deltas.
+
+The server checks existing session files on startup and before opening a project. A storage worker reads oversized
+tails (64 deltas or 32 MiB) in small pages and writes the same value and version as a new base with pi-durable’s
+atomic commit. That commit prunes only old board revisions. There is no schema or board version change, so an older
+release reads the same board. The runtime waits for its project’s check before opening a writer. Large free lists
+(128 MiB or more) trigger SQLite `VACUUM` and WAL truncation on the worker to reclaim disk space; they are not just
+left as unused pages. The worker first checks free space for SQLite’s temporary copy and journal. If SQLite cannot
+compact, the smaller replay is still durable and a later open or server start can retry. The startup sweep never
+opens a Harness or resumes agents.
 
 Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts`. Implemented in
 `packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts`.

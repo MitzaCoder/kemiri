@@ -58,16 +58,18 @@ export function initializeTaskFreshness(state: BoardState, task: BoardTask): voi
 	state.reportTracking[task.id] ??= { activityAt: null, invalidated: {}, suppressed: {} };
 	if ((task.status === "done" || task.status === "dropped") && !state.reportTracking[task.id]!.userRequested) {
 		const tracking = state.reportTracking[task.id]!;
-		delete tracking.pending;
-		tracking.activityAt = null;
-		tracking.invalidated = {};
-		tracking.suppressed = {};
+		if (tracking.pending !== undefined) delete tracking.pending;
+		if (tracking.activityAt !== null) tracking.activityAt = null;
+		if (!tracking.invalidated || Object.keys(tracking.invalidated).length > 0) tracking.invalidated = {};
+		if (!tracking.suppressed || Object.keys(tracking.suppressed).length > 0) tracking.suppressed = {};
 		for (const name of REPORT_SECTIONS) {
-			task.report.freshness[name].stale = false;
-			task.report.freshness[name].reasons = [];
+			const section = task.report.freshness[name];
+			if (section.stale !== false) section.stale = false;
+			if (section.reasons?.length !== 0) section.reasons = [];
 		}
-		// Cancel a frozen batch containing a closed task. Other tasks stay pending and are rebatched.
-		if (state.reportOutbox !== undefined) state.reportOutbox = state.reportOutbox.filter((batch) => !batch.admissions.some((admission) => admission.taskId === task.id));
+		// Assign a different array only when a frozen batch is cancelled; drafts track array identity.
+		const admitsTask = (batch: ReportOutbox) => batch.admissions.some((admission) => admission.taskId === task.id);
+		if (state.reportOutbox?.some(admitsTask)) state.reportOutbox = state.reportOutbox.filter((batch) => !admitsTask(batch));
 	}
 }
 

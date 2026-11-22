@@ -1,6 +1,7 @@
 import type { Artifact, ArtifactsChangedEvent } from '@kemiri/protocol';
 import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
+import { ArtifactLibraryRefresh } from './artifact-library-refresh.js';
 import { fallbackLibrary, mergeLibraries, type BackendLibrary } from './artifact-library.js';
 import { harness, type BackendConnection } from './harness.svelte.js';
 
@@ -10,17 +11,24 @@ class BackendArtifactLibrary {
 	library = $state.raw<BackendLibrary>({ artifacts: [], projects: [], tasks: [] });
 	loaded = $state(false);
 	problem = $state('');
-	#readSequence = 0;
-	#timer: ReturnType<typeof setTimeout> | undefined;
-	#unsubscribe: (() => void)[];
-
+	readonly refresh = new ArtifactLibraryRefresh(isCurrent => this.#load(isCurrent));
+	#unsubscribe: (() => void) | undefined;
 	stopLoading?: () => void;
 
-	constructor(readonly backend: BackendConnection) {
-		this.#unsubscribe = [backend.client.onArtifactsChanged(event => {
-			this.apply(event);
-			this.#schedule();
-		}), backend.client.onBoardState(() => this.#schedule())];
+	constructor(readonly backend: BackendConnection) {}
+
+	setActive(active: boolean) {
+		if (active) {
+			this.#unsubscribe ??= this.backend.client.onArtifactsChanged(event => {
+				this.apply(event);
+				this.refresh.artifactsChanged();
+			});
+			this.loaded = false;
+		} else {
+			this.#unsubscribe?.();
+			this.#unsubscribe = undefined;
+		}
+		this.refresh.setActive(active);
 	}
 
 	apply(event: ArtifactsChangedEvent) {
@@ -28,15 +36,7 @@ class BackendArtifactLibrary {
 		this.library = { ...this.library, artifacts: event.deleted ? rest : [event.artifact, ...rest] };
 	}
 
-	#schedule() {
-		this.#readSequence++;
-		clearTimeout(this.#timer);
-		this.#timer = setTimeout(() => void this.load(), 450);
-	}
-
-	async load() {
-		if (!this.backend.ready) return;
-		const sequence = ++this.#readSequence;
+	async #load(isCurrent: () => boolean) {
 		try {
 			const library: BackendLibrary = { artifacts: [], projects: [], tasks: [] };
 			let partial = false;
@@ -45,7 +45,7 @@ class BackendArtifactLibrary {
 				const cursors = new Set<string>();
 				do {
 					const page = await this.backend.client.readArtifactLibrary(before);
-					if (sequence !== this.#readSequence) return;
+					if (!isCurrent()) return;
 					library.artifacts.push(...page.artifacts);
 					library.projects.push(...page.projects);
 					library.tasks.push(...page.tasks);
@@ -64,7 +64,7 @@ class BackendArtifactLibrary {
 						]);
 						return fallbackLibrary({ id: project.id, name: project.name, archived: project.archived === true }, artifacts, board);
 					}));
-					if (sequence !== this.#readSequence) return;
+					if (!isCurrent()) return;
 					for (const read of reads) {
 						if (read.status === 'rejected') { partial = true; continue; }
 						library.artifacts.push(...read.value.artifacts);
@@ -73,21 +73,19 @@ class BackendArtifactLibrary {
 					}
 				}
 			}
-			if (sequence !== this.#readSequence) return;
+			if (!isCurrent()) return;
 			this.library = library;
 			this.problem = partial ? 'Some projects could not be read.' : '';
 		} catch (error) {
-			if (sequence === this.#readSequence) this.problem = error instanceof Error ? error.message : String(error);
+			if (isCurrent()) this.problem = error instanceof Error ? error.message : String(error);
 		} finally {
-			if (sequence === this.#readSequence) this.loaded = true;
+			if (isCurrent()) this.loaded = true;
 		}
 	}
 
 	stop() {
-		this.#readSequence++;
-		clearTimeout(this.#timer);
-		this.#unsubscribe.forEach(unsubscribe => unsubscribe());
 		this.stopLoading?.();
+		this.setActive(false);
 	}
 }
 
@@ -101,9 +99,9 @@ class ArtifactLibrary {
 		this.#backends.get(backendId)?.apply({ type: 'artifacts.changed', projectId: artifact.projectId, artifact, deleted: false });
 	}
 
-	retry() { for (const feed of this.#backends.values()) void feed.load(); }
+	retry() { for (const feed of this.#backends.values()) feed.refresh.refresh(); }
 
-	connect() {
+	connect(isOpen: () => boolean) {
 		$effect(() => {
 			const backends = harness.backends;
 			untrack(() => {
@@ -116,10 +114,14 @@ class ArtifactLibrary {
 					this.#backends.set(backend.id, feed);
 					feed.stopLoading = $effect.root(() => {
 						$effect(() => {
-							if (!backend.ready) return;
-							if (!supportsArtifactLibrary(backend) && !backend.projectsLoaded) return;
-							if (!supportsArtifactLibrary(backend)) void backend.projects;
-							untrack(() => void feed.load());
+							if (!isOpen() || !backend.ready) return;
+							if (!supportsArtifactLibrary(backend)) {
+								// Reading the lazy getter subscribes before waiting for old backends' project lists.
+								void backend.projects;
+								if (!backend.projectsLoaded) return;
+							}
+							untrack(() => feed.setActive(true));
+							return () => feed.setActive(false);
 						});
 					});
 				}

@@ -25,7 +25,7 @@
 	// Read the browser's backend list and sidebar state before children render; connected in onMount.
 	clearPairFragment();
 	harness.load();
-	artifactLibrary.connect();
+	artifactLibrary.connect(() => page.route.id === '/artifacts');
 	theme.load();
 	projectsNav.load();
 

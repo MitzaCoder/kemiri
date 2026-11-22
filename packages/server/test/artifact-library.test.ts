@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ARTIFACT_LIVING_VERSION_LIMIT } from "@kemiri/protocol";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -108,7 +108,13 @@ test("library pages archived projects and task facts; trail reads decisions and 
 			tasks: expect.arrayContaining([{ projectId: archivedId, id: home.id, title: home.title, status: "done", archived: true, settledAt: home.settledAt, summary: "The seed guide is ready." },
 				{ projectId: archivedId, id: later.id, title: later.title, status: "todo", archived: false, settledAt: null }]),
 		});
-		expect(await client.request({ type: "artifacts.library", projectIds: [archivedId] })).toMatchObject({ artifacts: [{ id: first.id }], nextBefore: null });
+		const snapshot = spyOn(runtime.harness, "snapshot");
+		try {
+			expect(await client.request({ type: "artifacts.library", projectIds: [archivedId] })).toMatchObject({ artifacts: [{ id: first.id }], nextBefore: null });
+			expect(snapshot.mock.calls.some(([token]) => Object.is(token, BoardDoc))).toBe(true);
+		} finally {
+			snapshot.mockRestore();
+		}
 		const trail = await client.request({ type: "artifacts.trail", projectId: archivedId, artifactId: `${first.id}~99` });
 		expect(trail).toMatchObject({ type: "artifacts.trail", artifact: { id: first.id },
 			tasks: [{ id: home.id, decisions: [{ id: "D2", why: "Easier to read" }, { id: "D1", why: null }] }, { id: later.id, decisions: [] }],
@@ -136,5 +142,30 @@ test("library pages archived projects and task facts; trail reads decisions and 
 	} finally {
 		client.close();
 		await setup.cleanup();
+	}
+});
+
+
+test("closed catalogue projects read their task facts without opening an agent runtime", async () => {
+	const setup = await createSetup({ terminals: false });
+	const project = await setup.server.manager.store.add(setup.projectDir);
+	const { runtime } = await setup.server.manager.open(project.id);
+	const task = await runtime.board.saveTask({ task: {
+		title: "Check the paper stock", status: "todo", description: "", acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [],
+	} }, "coordinator");
+	const saved = await setup.server.manager.artifacts.save({ projectId: project.id, sourcePath: join(setup.projectDir, "README.md"),
+		taskId: task.id, threadId: "main", workerId: null });
+	const server = await setup.restart();
+	const open = spyOn(server.manager, "open");
+	const client = await TestClient.open(server);
+	try {
+		await client.hello();
+		expect(await client.request({ type: "artifacts.library" })).toMatchObject({
+			type: "artifacts.library", artifacts: [{ id: saved.id }], tasks: [{ id: task.id, title: task.title }],
+		});
+		expect(open).not.toHaveBeenCalled();
+	} finally {
+		open.mockRestore();
+		client.close();
 	}
 });

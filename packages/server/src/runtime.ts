@@ -2,6 +2,8 @@ import { createAppExtension, type ActiveApps } from "./app-tools.ts";
 import type { AgentApps } from "./agent-apps.ts";
 import type { ArtifactsLibraryRequest } from "@kemiri/protocol";
 import { artifactLibrary, artifactTrail } from "./artifact-library.ts";
+import { artifactBoardFacts } from "./artifact-board-facts.ts";
+import { BoardStorageJobs } from "./board-storage-jobs.ts";
 import { DEFAULT_TASK_WATCHER, type TaskWatcherStatus } from "@kemiri/protocol";
 import { watcherStatus } from "./task-watcher-live.ts";
 import { workerCommandIntent } from "./worker-command-intent.ts";
@@ -110,7 +112,7 @@ import { RefDetailsService } from "./ref-details.ts";
 import { RefStatusService } from "./ref-status.ts";
 import type { BusyState } from "./server-status.ts";
 import { CompactionService, ContextUsageReader, coordinatorCompactionSettings } from "./compaction.ts";
-import { BoardService, openQuestionCount } from "./board.ts";
+import { BoardDoc, BoardService, openQuestionCount } from "./board.ts";
 import { HistoryService } from "./history.ts";
 import { type ScheduleStore, SchedulesService, nextRunAfter } from "./schedules.ts";
 import { mainThreadInstructions, ThreadService } from "./threads.ts";
@@ -119,8 +121,7 @@ import { ToolCallDrain } from "./drain.ts";
 import { WorkerService } from "./workers.ts";
 import { TaskDeployObserver } from "./task-deploys.ts";
 import { TaskChangeObserver, TASK_CHANGES_FILE } from "./task-changes.ts";
-import { ProjectAttentionStore, boardAttention, workerAttention, threadAttention } from "./sidebar-attention.ts";
-import { readStoredAttention } from "./sidebar-attention-migration.ts";
+import { ProjectAttentionStore, boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
 import type { ConversationIdentity, RequestLog } from "./request-log.ts";
 import { join } from "node:path";
 
@@ -377,6 +378,7 @@ export class ProjectManager {
 	readonly #activities = new Map<string, ProjectActivity>();
 	readonly browsers: WorkerBrowserService;
 	readonly #runtimes = new Map<string, RuntimeEntry>();
+	readonly #boardStorage = new BoardStorageJobs();
 	readonly #extractions: MemoryExtractionStore;
 	readonly #toolCallCapMs: number;
 	/** Every project's tool calls go through it: `server.drain` holds them, `busy().toolCalls` counts them. */
@@ -494,13 +496,33 @@ export class ProjectManager {
 		for (const project of await this.store.list()) {
 			try {
 				if ((await this.#attentionStore.read(project.id))?.stepsTasks === undefined) {
-					this.#attentionStore.update(project.id, await readStoredAttention(this.store.sessionPath(project.id), this.#clock()));
+					const path = this.store.sessionPath(project.id);
+					await this.#maintainBoard(project.id);
+					this.#attentionStore.update(project.id, await Bun.file(path).exists()
+						? await this.#boardStorage.run({ type: "attention", path, now: this.#clock() }) : { ...EMPTY_ATTENTION });
 				}
 				await this.#summaryOf(project);
 			} catch (error) {
 				this.#log(`project ${project.id}: attention upgrade failed: ${errorMessage(error)}`);
 			}
 		}
+	}
+
+	/** Reclaim legacy space on startup even if a project is never opened. An opening runtime shares the same job. */
+	async maintainClosedBoards(): Promise<void> {
+		for (const project of await this.store.list()) {
+			if (this.#closing) break;
+			if (this.#runtimes.has(project.id)) continue;
+			await this.#maintainBoard(project.id).catch(error => this.#log(`project ${project.id}: board maintenance failed: ${errorMessage(error)}`));
+		}
+	}
+
+	async #maintainBoard(projectId: string): Promise<void> {
+		const result = await this.#boardStorage.maintain(this.store.sessionPath(projectId));
+		if (result?.removedDeltas || result?.reclaimedBytes) {
+			this.#log(`project ${projectId}: board checkpoint removed ${result.removedDeltas} deltas and reclaimed ${result.reclaimedBytes} bytes`);
+		}
+		if (result?.vacuumDeferred) this.#log(`project ${projectId}: board disk compaction deferred: ${result.vacuumDeferred}`);
 	}
 
 	async list(): Promise<ProjectSummary[]> {
@@ -787,11 +809,22 @@ export class ProjectManager {
 	}
 
 	artifactLibrary(request: ArtifactsLibraryRequest) {
-		return artifactLibrary(this.store, this.artifacts, request, this.#clock());
+		const now = this.#clock();
+		return artifactLibrary(this.store, this.artifacts, request, async (projectId, taskIds) => {
+			const runtime = this.#runtimes.get(projectId)?.runtime;
+			if (runtime) {
+				const board = await runtime.harness.snapshot(BoardDoc, runtime.conversation.id, BACKGROUND_CONTEXT);
+				return artifactBoardFacts(board, projectId, taskIds, now);
+			}
+			return this.#boardStorage.run({ type: "artifact-tasks", path: this.store.sessionPath(projectId),
+				projectId, taskIds: [...taskIds], now });
+		});
 	}
 
 	artifactTrail(projectId: string, artifactId: string) {
-		return artifactTrail(this.store, this.artifacts, projectId, artifactId, this.#clock());
+		return artifactTrail(this.store, this.artifacts, projectId, artifactId, artifact => this.#boardStorage.run({
+			type: "artifact-trail", path: this.store.sessionPath(projectId), projectId, artifact, now: this.#clock(),
+		}));
 	}
 
 	/** The project's board; archived tasks only when asked for. */
@@ -1270,6 +1303,7 @@ export class ProjectManager {
 				this.#log(`project ${entry.project.id}: close failed: ${errorMessage(error)}`);
 			});
 		}
+		await this.#boardStorage.close();
 		await this.browsers.sweep();
 		await this.#attentionStore.flush();
 		// A script in flight resumes with the next process's sandbox (pi-durable's codemode docs), so closing this one is
@@ -1343,6 +1377,7 @@ export class ProjectManager {
 			this.models,
 			this.#userSettings?.coordinatorCompaction,
 		);
+		await this.#maintainBoard(project.id);
 		const storage = await openNodeSqliteStorage(this.store.sessionPath(project.id));
 		let harness: Harness;
 		try {

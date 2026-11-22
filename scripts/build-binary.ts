@@ -53,8 +53,8 @@ try {
 	asset("installer", join(tree, "install.sh"));
 	const quickjs = asset("quickjsWasm", dependencyAsset("@earendil-works/pi-codemode", "quickjs-wasi/quickjs.wasm"));
 	const photon = asset("photonWasm", dependencyAsset("@earendil-works/pi-durable/images/node", "@silvia-odwyer/photon/photon_rs_bg.wasm"));
-	for (const kind of ["codemode", "photon"]) {
-		const worker = await Bun.build({ entrypoints: [join(server, `src/binary-${kind}-worker.ts`)], target: "bun", format: "esm", minify: true });
+	for (const [kind, entry] of [["codemode", "binary-codemode-worker"], ["photon", "binary-photon-worker"], ["board", "board-storage-worker"]]) {
+		const worker = await Bun.build({ entrypoints: [join(server, `src/${entry}.ts`)], target: "bun", format: "esm", minify: true });
 		if (!worker.success) throw new AggregateError(worker.logs, `Cannot bundle ${kind} worker`);
 		const file = join(staging, `binary-${kind}-worker.js`);
 		await writeFile(file, await worker.outputs[0]!.arrayBuffer().then(buffer => new Uint8Array(buffer)));
@@ -78,7 +78,7 @@ try {
 	if (!web.some(line => line.startsWith('"/200.html":'))) throw new Error("Missing built web UI fallback");
 	const release = JSON.parse(await readFile(join(tree, "RELEASE.json"), "utf8"));
 	if (release.name !== version) throw new Error("Archive version does not match binary version");
-	resources.push(`export const packagedResources = { installer, quickjsWasm: ${quickjs}, photonWasm: ${photon}, codemodeWorker, photonWorker, web: {${web.join(",")}}, skills: {${skills.join(",")}}, release: ${JSON.stringify(release)} };`);
+	resources.push(`export const packagedResources = { installer, quickjsWasm: ${quickjs}, photonWasm: ${photon}, codemodeWorker, photonWorker, boardWorker, web: {${web.join(",")}}, skills: {${skills.join(",")}}, release: ${JSON.stringify(release)} };`);
 	await mkdir(output, { recursive: true });
 	const smoke = args.includes("--smoke");
 	const name = `kemiri-${version}-${target.replace("bun-", "").replace("-baseline", "")}${smoke ? "-smoke" : ""}`;

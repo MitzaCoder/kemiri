@@ -1,3 +1,4 @@
+import { MAX_BOARD_DELTAS } from "./board-checkpoint-policy.ts";
 import { REPORT_BLOCK_SECTIONS, REPORT_SECTION_VIEW_SECTIONS, ReportBlocksInputSchema, type ReportBlocksInput, type ReportSectionViews, type ResultBlock } from "@kemiri/protocol";
 import { describeReportSectionViews, diffReportSectionViews, ReportSectionViewsInputSchema, sameSectionView, validateSectionViewArtifacts, validateSectionViewsInput, type ReportSectionViewsInput } from "./report-section-views.ts";
 import { diffReportSections, legacyBullet, legacyResultBlock, reportAppendHasCapacity, reportBlockStructure, reportMarkdown, renderedReportText, sameAppendedBlocks, submittedBlockText, validateReportBlocks, validateReportProofs, type ReportArtifactScope } from "./report-blocks.ts";
@@ -152,7 +153,7 @@ export const BoardDoc = defineDoc<BoardState>({
 	scope: "conversation",
 	history: "latest",
 	fork: "initial",
-	checkpointWhen: () => false,
+	checkpointWhen: (_board, _ops, { deltasSinceBase }) => deltasSinceBase >= MAX_BOARD_DELTAS,
 	initial: () => emptyBoardState(),
 });
 

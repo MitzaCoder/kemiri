@@ -1193,6 +1193,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	log(`kemiri: memory maintenance settings ${maintenanceStore.file}`);
 	// Catch up on runs missed while the process was off, then arm the timer for the next one.
 	await scheduleScheduler.start();
+	const boardMaintenance = manager.maintainClosedBoards().catch(error => log(`board maintenance: ${errorMessage(error)}`));
 	// Event schedules listen from here: GitHub is read at once if one is enabled, and every two minutes while one is.
 	scheduleEvents.start();
 	// A scope that changed while the process was off is maintained on the way in; then the nightly timer is armed.
@@ -1271,6 +1272,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			connections.clear();
 			await terminals?.stop().catch(() => undefined);
 			await manager.closeAll();
+			await boardMaintenance;
 			await officialAgents.close();
 			await mcp.close();
 			if (pruneTimer !== undefined) clearInterval(pruneTimer);
