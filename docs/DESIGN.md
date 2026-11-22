@@ -6448,12 +6448,12 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   offset across prepend/fling. Keep the `earlier` slot while loading (capability is temporarily false), include it in
   highlight/tail index offsets, and remove it only at exhaustion. Android also separates `earlierError` from the live
   watch; Retry clears it. Highlight loads run outside their loading-keyed effect so starting a page cannot cancel itself.
-- The chat's top bar sits in the chat column, and the top bar, the transcript and
-  the composer share one width (`CHAT_COLUMN_CLASS`, `max-w-4xl`), so opening
-  the right sidebar shrinks them together and keeps them centred. The right
-  sidebar (Tasks/Background/Info/Memory) runs the full height from the top edge and,
-  expanded, covers the whole area including the top bar; below 72rem it stays a
-  full-screen sheet.
+- The project chat header spans the full chat pane, excluding the projects sidebar and any docked right panel.
+  Its controls adapt to the measured header row width, not the viewport. Coordinator chips use the available width
+  and scroll horizontally when needed; an oversized label truncates within its chip.
+  The transcript and composer still share a centred readable width (`CHAT_COLUMN_CLASS`, `max-w-4xl`).
+  The right sidebar (Tasks/Background/Info/Memory) runs from the top edge and can expand over the whole chat pane;
+  below 72rem it stays a full-screen sheet.
 - Every project is one click away: a persistent left sidebar lists every backend's projects, grouped by backend, with
   the current one highlighted, each row's coordinator status (working, failed, workers running, when it last answered)
   and an unread mark for a reply this browser has not seen. It collapses to an icon rail on a wide screen (remembered per

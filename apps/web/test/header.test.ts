@@ -14,17 +14,17 @@ const PROJECT_ACTIONS: HeaderActionWidth[] = [
 	{ label: "Memory" },
 ];
 
-/** The chat column at a 1440px window: at most 56rem wide, never wider. */
-const WIDE_COLUMN = 896;
-/** The same column with the 360px sidebar open on a 1440px window. */
-const COLUMN_NEXT_TO_SIDEBAR = 840;
+/** The measured header row in a wide pane, with the projects sidebar beside it. */
+const WIDE_HEADER_ROW = 1632;
+/** A narrower header row with a docked right panel. */
+const HEADER_ROW_NEXT_TO_PANEL = 840;
 /** A 390px phone. */
 const PHONE_COLUMN = 390;
 
 describe("header layout", () => {
-	test("labels everything on a wide column", () => {
-		expect(headerLayout(WIDE_COLUMN, PROJECT_ACTIONS)).toBe("labels");
-		expect(headerLayout(COLUMN_NEXT_TO_SIDEBAR, PROJECT_ACTIONS)).toBe("labels");
+	test("labels everything when the header row has room", () => {
+		expect(headerLayout(WIDE_HEADER_ROW, PROJECT_ACTIONS)).toBe("labels");
+		expect(headerLayout(HEADER_ROW_NEXT_TO_PANEL, PROJECT_ACTIONS)).toBe("labels");
 	});
 
 	test("keeps Tasks' and Workers' labels when the sidebar leaves too little room for all of them", () => {
@@ -55,7 +55,7 @@ describe("header layout", () => {
 		expect(headerActionShowsLabel("labels", { label: undefined })).toBe(false);
 		expect(headerActionShowsLabel("icons", { label: "Tasks" })).toBe(false);
 		expect(headerActionShowsLabel("labels", { label: "Tasks" })).toBe(true);
-		expect(headerLayout(WIDE_COLUMN, [...PROJECT_ACTIONS, {}])).toBe("labels");
+		expect(headerLayout(WIDE_HEADER_ROW, [...PROJECT_ACTIONS, {}])).toBe("labels");
 		expect(headerLayout(560, [...PROJECT_ACTIONS, {}])).toBe("icons");
 	});
 });

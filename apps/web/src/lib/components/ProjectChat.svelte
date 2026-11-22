@@ -395,7 +395,7 @@
 		onclick?: () => void;
 	};
 
-	/** The header row, measured: the chat column narrows when the sidebar opens, so the row, not the window, decides. */
+	/** The header row, measured: the chat pane narrows when the sidebar opens, so the row, not the window, decides. */
 	let chatRoot: HTMLDivElement;
 	let headerRow = $state<HTMLDivElement | null>(null);
 	let headerWidth = $state(0);
@@ -933,7 +933,7 @@
 <div class="flex h-full w-full overflow-hidden" bind:this={chatRoot}>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			<header
-				class="relative z-10 flex {CHAT_COLUMN_CLASS} shrink-0 flex-col gap-0.5 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 sm:px-3"
+				class="relative z-10 flex w-full shrink-0 flex-col gap-0.5 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 sm:px-3"
 			>
 				<div class="flex min-h-12 min-w-0 items-center gap-1 sm:h-12" bind:this={headerRow}>
 					<ProjectsMenuButton />
@@ -1026,8 +1026,8 @@
 						{#each roster as row, index (row.id)}
 							{@const here = row.id === (threadId ?? 'main')}
 							<a href={coordinatorHref(backend.id, projectId, row.id)} aria-current={here ? 'page' : undefined} onpointerenter={event => { if (event.pointerType === 'mouse') prefetchCoordinator(row.id); }} aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
-								class="flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-(--chat-surface-2)" style:border-color={here ? coordinatorColor(row) : 'var(--chat-border)'}>
-								<CoordinatorMark thread={row} />{row.title}<CoordinatorBadges thread={row} seen={seen(row.id)} />
+								class="flex max-w-full shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-(--chat-surface-2)" style:border-color={here ? coordinatorColor(row) : 'var(--chat-border)'}>
+								<CoordinatorMark thread={row} /><span class="min-w-0 truncate" title={row.title}>{row.title}</span><CoordinatorBadges thread={row} seen={seen(row.id)} />
 							</a>
 						{/each}
 						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" onclick={() => manager = 'new'}>+ New</button>
