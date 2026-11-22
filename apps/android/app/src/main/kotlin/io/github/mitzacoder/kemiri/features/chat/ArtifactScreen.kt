@@ -71,6 +71,7 @@ fun ArtifactScreen(
         imageError = null; error = null; actionStatus = null
     }
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val pin = rememberArtifactPinAction(context, latestArtifact)
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val blockArtifactRequests = projects.find { it.id == context.route.projectId }?.let { it.blockArtifactRequests == true } ?: true
     LaunchedEffect(context.backend.client,artifactId) {
@@ -205,7 +206,9 @@ fun ArtifactScreen(
                             DropdownMenuItem(text = { Text("Next version") }, enabled = index < versions.lastIndex, onClick = { selectedVersion = versions[index + 1].version; dismiss() })
                         }
                         ArtifactDownloadAction(context, artifact, artifact?.id ?: artifactId, canSave = deletion != ArtifactDeleteState.Sending, menuItem = true)
-                        if (onDiscuss != null) DropdownMenuItem(text = { Text("Discuss") }, onClick = { dismiss(); onDiscuss(artifact) })
+                        if (onDiscuss != null) DropdownMenuItem(text = { Text("Continue in chat") }, onClick = { dismiss(); onDiscuss(artifact) })
+                        if (pin != null) DropdownMenuItem(text = { Text("${pin.label} ${if (pin.label == "Pin") "to" else "from"} project") },
+                            enabled = pin.enabled, onClick = { dismiss(); pin.invoke() })
                         DropdownMenuItem(text = { Text("Delete…") }, onClick = { dismiss(); deletion = ArtifactDeleteState.Confirming })
                         DropdownMenuItem(text = { Text("Close") }, onClick = { dismiss(); onBack() })
                     })
@@ -298,7 +301,7 @@ fun ArtifactScreen(
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), modifier = Modifier.semantics { contentDescription = "Delete artifact" }) {
                     LucideGlyph(ArtifactGlyphs.Trash, size = 16.dp); Spacer(Modifier.width(6.dp)); Text("Delete")
                 }
-                if (onDiscuss != null && artifact != null) TextButton(onClick = { onDiscuss(artifact) }) { Text("Discuss") }
+                if (onDiscuss != null && artifact != null) TextButton(onClick = { onDiscuss(artifact) }) { Text("Continue in chat") }
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) { ArtifactDownloadAction(context, artifact, artifact?.id ?: artifactId, canSave = deletion != ArtifactDeleteState.Sending) }
             }

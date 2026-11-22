@@ -19,7 +19,7 @@ import { constants, createReadStream, createWriteStream, fstatSync } from "node:
 import { pipeline } from "node:stream/promises";
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { ARTIFACT_LIVING_VERSION_LIMIT, type Artifact, type ArtifactKind, type ArtifactsChangedEvent, normalizeTags } from "@kemiri/protocol";
+import { ARTIFACT_LIVING_VERSION_LIMIT, type Artifact, type ArtifactKind, type ArtifactsChangedEvent, isHtmlArtifact, normalizeTags } from "@kemiri/protocol";
 import { ServerError, errorMessage } from "./errors.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 import { isOriginAllowed, normalizeOrigin } from "./origins.ts";
@@ -200,7 +200,7 @@ type ConversationScope = Pick<Artifact, "threadId" | "workerId">;
 export const ARTIFACT_VERSION_LIMIT = 20;
 
 function snapshots(artifact: Artifact): NonNullable<Artifact["versions"]> {
-	const { versions, living: _living, laterTaskIds: _laterTaskIds, ...snapshot } = artifact;
+	const { versions, living: _living, pinned: _pinned, laterTaskIds: _laterTaskIds, ...snapshot } = artifact;
 	return versions ?? [{ ...snapshot, id: `${artifact.id}~1`, version: 1, versionCount: 1 }];
 }
 
@@ -235,6 +235,7 @@ export type ArtifactListFilter = {
 	workerId?: string;
 	taskId?: string;
 	limit?: number;
+	catalogue?: boolean;
 };
 
 export type ArtifactStoreOptions = {
@@ -361,6 +362,9 @@ export class ArtifactStore {
 				this.#refuseSize(size, input.sourcePath);
 				const mimeType = detectMimeType(name, await readHead(copy));
 				const kind = artifactKind(mimeType);
+				if (previous?.pinned && (kind !== "text" || !isHtmlArtifact({ name, mimeType }))) {
+					throw new ServerError("bad_request", "Unpin this HTML artifact before replacing it with a different file type.");
+				}
 				const durationSeconds = kind === "video" || kind === "audio" ? await this.#probeDuration(copy) : null;
 				artifact = {
 					id: rootId,
@@ -392,6 +396,7 @@ export class ArtifactStore {
 			}
 			const retained = [...(previous === undefined ? [] : snapshots(previous)), { ...artifact, id: `${rootId}~${version}` }];
 			if (previous?.living !== undefined) artifact.living = previous.living;
+			if (previous?.pinned) artifact.pinned = true;
 			const laterTaskIds = previous?.laterTaskIds ?? [];
 			if (madeForTaskId !== undefined && !laterTaskIds.includes(madeForTaskId)) artifact.laterTaskIds = [...laterTaskIds, madeForTaskId];
 			else if (laterTaskIds.length > 0) artifact.laterTaskIds = laterTaskIds;
@@ -399,8 +404,11 @@ export class ArtifactStore {
 				(index.conversationScopes ??= {})[rootId] ??= { threadId: previous.threadId, workerId: previous.workerId };
 			}
 			const versionLimit = artifact.living === undefined ? ARTIFACT_VERSION_LIMIT : ARTIFACT_LIVING_VERSION_LIMIT;
-			pruned.push(...retained.slice(0, -versionLimit));
-			artifact.versions = retained.slice(-versionLimit);
+			if (artifact.pinned) artifact.versions = retained;
+			else {
+				pruned.push(...retained.slice(0, -versionLimit));
+				artifact.versions = retained.slice(-versionLimit);
+			}
 			if (previous !== undefined) index.artifacts.splice(index.artifacts.indexOf(previous), 1);
 			index.artifacts.push(artifact);
 			(index.receipts ??= {})[id] = `${rootId}~${version}`;
@@ -438,10 +446,10 @@ export class ArtifactStore {
 		};
 	}
 
-	/** Newest first, narrowed by every filter given. Only task-scoped lists are uncapped by default. */
+	/** Newest first, narrowed by every filter given. Task-scoped lists and catalogues are uncapped by default. */
 	async list(projectId: string, filter: ArtifactListFilter = {}): Promise<Artifact[]> {
 		const index = await this.#read(projectId);
-		const limit = filter.limit ?? (filter.taskId === undefined ? DEFAULT_ARTIFACT_LIST_LIMIT : undefined);
+		const limit = filter.limit ?? (filter.taskId === undefined && !filter.catalogue ? DEFAULT_ARTIFACT_LIST_LIMIT : undefined);
 		return index.artifacts
 			.filter(
 				(artifact) =>
@@ -452,7 +460,7 @@ export class ArtifactStore {
 			)
 			.reverse()
 			.slice(0, limit)
-			.map(withVersions);
+			.map(filter.catalogue ? ({ versions: _versions, ...latest }) => latest : withVersions);
 	}
 
 	/** Uncapped latest rows for cross-project paging. Only hydrate version metadata on the page. */
@@ -475,12 +483,16 @@ export class ArtifactStore {
 		return artifact;
 	}
 
-	/** Replace tags and/or change the living mark. Neither updates the latest-save time. */
-	async update(projectId: string, artifactId: string, changes: { tags?: readonly string[] | undefined; living?: boolean | undefined }): Promise<Artifact> {
-		if (changes.tags === undefined && changes.living === undefined) throw new ServerError("bad_request", "Give tags or living to update an artifact.");
+	/** Update catalogue metadata without changing the latest-save time. */
+	async update(projectId: string, artifactId: string, changes: { tags?: readonly string[] | undefined; living?: boolean | undefined; pinned?: boolean | undefined }): Promise<Artifact> {
+		if (changes.tags === undefined && changes.living === undefined && changes.pinned === undefined) throw new ServerError("bad_request", "Give tags, living or pinned to update an artifact.");
 		const artifact = await this.#write(projectId, (index) => {
 			const row = index.artifacts.find((candidate) => candidate.id === artifactId);
 			if (row === undefined) throw new ServerError("unknown_artifact", `No artifact "${artifactId}" in this project`, { artifactId });
+			if (changes.pinned === true) {
+				if (row.kind !== "text" || !isHtmlArtifact(row)) throw new ServerError("bad_request", "Only HTML artifacts can be pinned.");
+				row.pinned = true;
+			} else if (changes.pinned === false) delete row.pinned;
 			if (changes.tags !== undefined) {
 				const tags = normalizeTags(changes.tags);
 				const latest = row.versions?.at(-1);

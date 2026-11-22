@@ -230,33 +230,3 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         problem?.let { Text(it, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }
-
-/**
- * The project's artifacts, newest first: from this conversation on a thread or worker page, else the whole project,
- * narrowed by kind with the web's chips (All 3 · Videos 2 · Image 1) once there is more than one kind.
- */
-@Composable internal fun ArtifactsPanel(context: ProjectScreenContext) {
-    val project = context.route.projectId
-    val threadId = context.route.threadId
-    val workerId = context.route.workerId
-    val data = panelData(context, Unit, { it is ArtifactsChangedEvent && it.projectId == project }) {
-        context.backend.client.request(ArtifactsListRequest(projectId = project, threadId = threadId, workerId = workerId)).artifacts
-    }
-    var kind by rememberSaveable(context.route) { mutableStateOf("all") }
-    val all = data.value.orEmpty()
-    val kinds = panelArtifactKinds(all)
-    // A kind whose last artifact went away falls back to all.
-    if (kind != "all" && data.value != null && kinds.none { it.first == kind }) kind = "all"
-    val shown = remember(data) { PanelData<List<Artifact>>() }
-    shown.value = data.value?.let { list -> io.github.mitzacoder.kemiri.features.chat.filterByKind(list, kind.takeUnless { it == "all" }) }
-    shown.error = data.error
-    shown.loading = data.loading
-    LaunchedEffect(shown) { for (ask in shown.refresh) data.refresh.trySend(ask) }
-    Column {
-        if (kinds.size > 1) FlowRow(Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = "Filter by kind" }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(kind == "all", { kind = "all" }, label = { Text("All ${all.size}") })
-            kinds.forEach { (value, count) -> FilterChip(kind == value, { kind = value }, label = { Text("${panelArtifactKindLabel(value, count > 1)} $count") }) }
-        }
-        ArtifactTiles(context, shown)
-    }
-}

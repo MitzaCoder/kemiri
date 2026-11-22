@@ -39,6 +39,7 @@
 		labels = {},
 		label,
 		infoPanel,
+		artifactsPanel,
 		boardPanel,
 		backgroundPanel,
 		memoryPanel
@@ -56,6 +57,7 @@
 		boardPanel?: Snippet<[boolean]>;
 		backgroundPanel?: Snippet;
 		infoPanel?: Snippet;
+		artifactsPanel?: Snippet;
 		memoryPanel?: Snippet;
 	} = $props();
 
@@ -72,7 +74,7 @@
 	/** What is drawn: the chosen width, kept inside this window's bounds. */
 	const drawnWidth = $derived(clampSidebarWidth(width, viewportWidth > 0 ? viewportWidth : maxWidth));
 	const body = $derived(
-		tab === 'background' ? backgroundPanel : tab === 'info' ? infoPanel : memoryPanel
+		tab === 'background' ? backgroundPanel : tab === 'info' ? infoPanel : tab === 'artifacts' ? artifactsPanel : memoryPanel
 	);
 
 	onMount(() => {

@@ -1,3 +1,4 @@
+import { isHtmlArtifact } from "@kemiri/protocol";
 /**
  * An HTML artifact shown as a page, in the viewer's dialog or in a tab of its own.
  *
@@ -23,12 +24,7 @@ import { artifactPageDocument, artifactThemeCss, readArtifactTheme, type Artifac
 /** Q188: modal dialogs are owner-approved for printing; they do not grant an app origin. */
 export const ARTIFACT_FRAME_SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals";
 
-/** Whether a text artifact is an HTML page, by its type or its name. */
-export function isHtmlArtifact(artifact: Pick<Artifact, "name" | "mimeType">): boolean {
-	const mimeType = artifact.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-	if (mimeType === "text/html" || mimeType === "application/xhtml+xml") return true;
-	return /\.(html|htm|xhtml)$/i.test(artifact.name);
-}
+export { isHtmlArtifact };
 
 /** Stable partition: pages get prominence without disturbing order within either group. */
 export function pagesFirst<T extends Pick<Artifact, "name" | "mimeType">>(artifacts: readonly T[]): T[] {

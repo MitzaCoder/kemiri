@@ -865,6 +865,7 @@ export class ClientConnection {
 					await this.#manager.requireProject(request.projectId);
 					if (!this.#authorized()) return;
 					const artifacts = await this.#manager.artifacts.list(request.projectId, {
+						...(request.catalogue === true ? { catalogue: true } : {}),
 						...(request.artifactId === undefined ? {} : { artifactId: request.artifactId }),
 						...(request.threadId === undefined ? {} : { threadId: request.threadId }),
 						...(request.workerId === undefined ? {} : { workerId: request.workerId }),

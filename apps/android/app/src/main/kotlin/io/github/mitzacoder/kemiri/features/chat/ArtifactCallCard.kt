@@ -16,6 +16,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.ConnectionStatus
+import io.github.mitzacoder.kemiri.data.request
+import kotlinx.coroutines.CancellationException
 import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.*
@@ -68,11 +72,24 @@ private fun openArtifact(context: ProjectScreenContext, artifact: Artifact) {
     var open by rememberSaveable(part.key) { mutableStateOf(false) }
     // The success guard is deliberately at the presentation boundary as well as in artifactCallId.
     val deleted = context != null && artifactCallId(part)?.let { ChatArtifactMetadata.isDeleted(context.backend.config.key, context.route.projectId, it) } == true
-    val artifact = if (part.status == "done" && context != null && !deleted) artifactCallId(part)?.let { id ->
+    val supplied = if (part.status == "done" && context != null && !deleted) artifactCallId(part)?.let { id ->
         artifacts.find { it.id == id } ?: ChatArtifactMetadata.find(context.backend.config.key, context.route.projectId, id) ?: artifactFromTool(part, context.route.projectId)
     } else null
     val args = part.arguments.record()
     val name = args?.s("path")?.substringAfterLast('/')?.ifBlank { null } ?: "a file"
+    val fallback = if (context != null && supplied != null && artifacts.size >= 500 && artifacts.none { it.id == supplied.id } && isHtmlArtifact(supplied.name, supplied.mimeType)) {
+        val client = context.backend.client
+        val connection by client.state.collectAsStateWithLifecycle()
+        val row by produceState<Artifact?>(null, supplied.projectId, supplied.id, connection.generation) {
+            if (connection.status == ConnectionStatus.Ready && connection.supports("project-artifacts")) {
+                try { value = client.request(ArtifactsListRequest(projectId = supplied.projectId, artifactId = supplied.id)).artifacts.firstOrNull() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* A missing old row can still be opened by ID. */ }
+            }
+        }
+        row
+    } else null
+    val artifact = fallback ?: supplied
     val heading = artifact?.let(::artifactTitle) ?: args?.s("title")?.takeIf(String::isNotBlank) ?: name
     val failed = part.status in setOf("error", "exited")
     val running = part.status in setOf("running", "preparing")
@@ -96,6 +113,7 @@ private fun openArtifact(context: ProjectScreenContext, artifact: Artifact) {
                     Text(heading, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                if (artifact != null && context != null && artifact.createdAt.isNotEmpty()) ArtifactPinButton(context, artifact)
                 when {
                     failed -> TextButton(onClick = { open = !open }, colors = ButtonDefaults.textButtonColors(contentColor = colors.danger)) {
                         LucideGlyph(Lucide.X, size = 14.dp); Spacer(Modifier.width(4.dp)); Text("failed"); Spacer(Modifier.width(2.dp))

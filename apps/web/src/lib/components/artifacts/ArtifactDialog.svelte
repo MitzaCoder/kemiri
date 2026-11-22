@@ -44,7 +44,8 @@
 		client,
 		open = $bindable(false),
 		autoplay = true,
-		ondeleted
+		ondeleted,
+		ondiscuss
 	}: {
 		artifact: Artifact | undefined;
 		client: HarnessClient;
@@ -52,6 +53,7 @@
 		autoplay?: boolean;
 		/** After the backend deleted it. */
 		ondeleted?: (artifactId: string) => void;
+		ondiscuss?: () => void;
 	} = $props();
 
 	const versionFeed = useArtifactFeed(() => open && suppliedArtifact !== undefined
@@ -80,7 +82,7 @@
 	);
 
 	let confirming = $state(false);
-	let busy = $state<'delete' | 'download' | undefined>(undefined);
+	let busy = $state<'delete' | 'download' | 'pin' | undefined>(undefined);
 	let problem = $state<string | undefined>(undefined);
 	let details = $state(false);
 	let video = $state<ArtifactVideo | null>(null);
@@ -115,6 +117,17 @@
 	const note = $derived(
 		artifact?.note && artifact.kind === 'video' ? linkNoteTimes(artifact.note, artifact.durationSeconds ?? undefined) : artifact?.note
 	);
+
+	function closeForDiscussion() { open = false; ondiscuss?.(); }
+
+	async function togglePin() {
+		if (!latestArtifact || busy) return;
+		problem = undefined;
+		busy = 'pin';
+		try { await client.setArtifactPinned(latestArtifact.projectId, latestArtifact.id, !latestArtifact.pinned); }
+		catch (error) { problem = error instanceof Error ? error.message : String(error); }
+		finally { busy = undefined; }
+	}
 
 	function toggleDetails(): void {
 		details = !details;
@@ -243,7 +256,10 @@
 							<DropdownMenu.Item disabled={versionIndex >= versions.length - 1} onSelect={() => selectedVersion = versions[versionIndex + 1]?.version}>Next version</DropdownMenu.Item>
 							<div class="px-3 py-1 text-xs text-(--chat-fg-muted)" aria-live="polite">v{artifact.version ?? 1} of {latestArtifact?.versionCount ?? versions.length}</div>
 						{/if}
-						<DropdownMenu.Item onSelect={() => void discussArtifact(client, artifact, () => open = false).catch(error => { problem = String(error); })}>Discuss</DropdownMenu.Item>
+						<DropdownMenu.Item onSelect={() => void discussArtifact(client, artifact, closeForDiscussion).catch(error => { problem = String(error); })}>{ondiscuss ? 'Continue in chat' : 'Discuss'}</DropdownMenu.Item>
+						{#if latestArtifact && isHtmlArtifact(latestArtifact) && client.state.features?.includes('project-artifacts')}
+							<DropdownMenu.Item disabled={busy !== undefined} onSelect={() => void togglePin()}>{latestArtifact.pinned ? 'Unpin from project' : 'Pin to project'}</DropdownMenu.Item>
+						{/if}
 						<!-- Wait for the menu to restore focus before opening a second dialog. -->
 						{#if canCompare}<DropdownMenu.Item onSelect={() => setTimeout(() => comparing = true, 0)}>Compare versions</DropdownMenu.Item>{/if}
 						<DropdownMenu.Item disabled={busy === 'download'} onSelect={() => void download()}>Download</DropdownMenu.Item>
@@ -260,7 +276,7 @@
 				<Dialog.Title class="text-base font-semibold">{artifactTitle(artifact)}</Dialog.Title>
 				<Dialog.Description class="flex flex-wrap gap-2 text-xs text-(--chat-fg-muted)">{@render factsLine(artifact)}</Dialog.Description>
 				{@render versionControls()}
-				<DiscussButton {artifact} {client} onclose={() => open = false} />
+				<DiscussButton {artifact} {client} onclose={closeForDiscussion} label={ondiscuss ? 'Continue in chat' : 'Discuss'} />
 				{#if artifact.note || artifact.sourcePath || problem}<details class="mt-2 text-xs"><summary>Details</summary><div class="flex flex-col gap-2 pt-2">{@render extras(artifact)}</div></details>{/if}
 			</header>
 			<ArtifactText {artifact} {client} roomy onclose={() => open = false} />
@@ -292,7 +308,7 @@
 					{/if}
 				</Dialog.Header>
 				{@render versionControls()}
-				<DiscussButton {artifact} {client} onclose={() => open = false} />
+				<DiscussButton {artifact} {client} onclose={closeForDiscussion} label={ondiscuss ? 'Continue in chat' : 'Discuss'} />
 				<Button size="sm" variant="ghost" class={details ? "bg-(--chat-fg)/8" : ""} onclick={toggleDetails} aria-pressed={details} aria-controls="artifact-details" data-details-toggle>
 					{#if details}<PanelRightCloseIcon class="size-3.5" />{:else}<PanelRightOpenIcon class="size-3.5" />{/if}
 					Details
@@ -357,7 +373,7 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2 border-t border-(--chat-border) px-4 py-3 sm:px-5" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom))">
-					<DiscussButton {artifact} {client} onclose={() => open = false} />
+					<DiscussButton {artifact} {client} onclose={closeForDiscussion} label={ondiscuss ? 'Continue in chat' : 'Discuss'} />
 					{@render deletion(artifact, true)}
 				</div>
 			{/if}

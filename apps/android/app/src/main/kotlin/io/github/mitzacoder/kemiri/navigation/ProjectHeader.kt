@@ -257,9 +257,9 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
         if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
             StatusGlyphs.ClipboardList, questionBadgeText(questions), primary = true, pressed = panel?.tab == PanelTab.Board) { toggle(PanelTab.Board) })
         if (PanelTab.Info in tabs) add(HeaderAction("info", if (worker) "This worker's context" else "Conversation info", "Info", Lucide.Info, pressed = panel?.tab == PanelTab.Info) { toggle(PanelTab.Info) })
+        if (PanelTab.Artifacts in tabs) add(HeaderAction("artifacts", "Artifacts", "Artifacts", Lucide.Paperclip, pressed = panel?.tab == PanelTab.Artifacts) { toggle(PanelTab.Artifacts) })
         if (PanelTab.Memory in tabs) add(HeaderAction("memory", "Memory", "Memory", StatusGlyphs.BookOpen, pressed = panel?.tab == PanelTab.Memory) { toggle(PanelTab.Memory) })
         // The old panel tabs were the only route to Artifacts. Keep it reachable from the header too.
-        if (PanelTab.Artifacts in tabs) add(HeaderAction("artifacts", "Artifacts", "Artifacts", Lucide.Paperclip, pressed = panel?.tab == PanelTab.Artifacts) { toggle(PanelTab.Artifacts) })
         val checkoutWorker = workers.firstOrNull { it.id == route.workerId }
         val checkout = io.github.mitzacoder.kemiri.features.files.preferredCheckout(checkoutWorker, checkoutWorker?.threadId ?: route.threadId)
         if (connection.supports("project-files")) {

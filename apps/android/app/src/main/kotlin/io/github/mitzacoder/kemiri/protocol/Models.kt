@@ -1612,7 +1612,8 @@ data class Artifact(
     val `versionCount`: Long? = null,
     val `versions`: List<ArtifactVersion>? = null,
     val `laterTaskIds`: List<String>? = null,
-    val `living`: ArtifactLiving? = null
+    val `living`: ArtifactLiving? = null,
+    val `pinned`: Boolean? = null
 )
 
 @Serializable
@@ -1887,7 +1888,8 @@ data class ArtifactsListRequest(
     val `threadId`: String? = null,
     val `workerId`: String? = null,
     val `taskId`: String? = null,
-    val `limit`: Long? = null
+    val `limit`: Long? = null,
+    val `catalogue`: Boolean? = null
 )
 
 @Serializable
@@ -1914,7 +1916,8 @@ data class ArtifactsUpdateRequest(
     val `projectId`: String,
     val `artifactId`: String,
     val `tags`: List<String>? = null,
-    val `living`: Boolean? = null
+    val `living`: Boolean? = null,
+    val `pinned`: Boolean? = null
 )
 
 @Serializable

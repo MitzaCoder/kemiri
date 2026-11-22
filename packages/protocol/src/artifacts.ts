@@ -66,8 +66,15 @@ export const ArtifactSchema = Type.Object({
 		}),
 	),
 	living: Type.Optional(ArtifactLivingSchema),
+	pinned: Type.Optional(Type.Boolean({ description: "Pinned HTML artifact in its project; protects retained versions from pruning." })),
 });
 export type Artifact = Static<typeof ArtifactSchema>;
+
+/** Whether the viewers treat this file as an HTML page. */
+export function isHtmlArtifact(artifact: Pick<Artifact, "name" | "mimeType">): boolean {
+	const mimeType = artifact.mimeType.split(";")[0]?.trim().toLowerCase();
+	return mimeType === "text/html" || mimeType === "application/xhtml+xml" || /\.(html|htm|xhtml)$/i.test(artifact.name);
+}
 
 // --- requests ----------------------------------------------------------------------------------------------------
 
@@ -80,7 +87,8 @@ export const ArtifactsListRequestSchema = Type.Object({
 	threadId: Type.Optional(Type.String({ minLength: 1 })),
 	workerId: Type.Optional(Type.String({ minLength: 1 })),
 	taskId: Type.Optional(Type.String({ minLength: 1, description: "Its home task, or (with `artifact-library`) any task in its `laterTaskIds`." })),
-	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default 100, or all matches when scoped to a task." })),
+	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default 100, or all matches for a task or a catalogue." })),
+	catalogue: Type.Optional(Type.Boolean({ description: "Return latest metadata without snapshots (feature `project-artifacts`)." })),
 });
 export type ArtifactsListRequest = Static<typeof ArtifactsListRequestSchema>;
 
@@ -105,7 +113,8 @@ export type ArtifactsDeleteRequest = Static<typeof ArtifactsDeleteRequestSchema>
 /**
  * Replaces an artifact's tags (feature `artifact-tags`) and/or switches its living mark (feature `artifact-library`). The
  * server normalises tags (trim, lowercase, dedupe, length and count caps) and answers with the row as stored; an empty
- * array clears them. A request without `tags` and `living` is refused with `bad_request`. Pushed as `artifacts.changed`.
+ * array clears them. `pinned` marks or unmarks an HTML artifact (feature `project-artifacts`). An empty update is
+ * refused with `bad_request`. Pushed as `artifacts.changed`.
  */
 export const ArtifactsUpdateRequestSchema = Type.Object({
 	type: Type.Literal("artifacts.update"),
@@ -114,6 +123,7 @@ export const ArtifactsUpdateRequestSchema = Type.Object({
 	artifactId: Type.String({ minLength: 1 }),
 	tags: Type.Optional(Type.Array(Type.String(), { maxItems: 100 })),
 	living: Type.Optional(Type.Boolean({ description: "True keeps it alive (sets `living.since` once); false clears it." })),
+	pinned: Type.Optional(Type.Boolean({ description: "True pins an HTML artifact; false unpins it." })),
 });
 export type ArtifactsUpdateRequest = Static<typeof ArtifactsUpdateRequestSchema>;
 
@@ -234,7 +244,7 @@ export type ArtifactsTrailResponse = Static<typeof ArtifactsTrailResponseSchema>
 
 // --- server events -----------------------------------------------------------------------------------------------
 
-/** One artifact was saved, deleted or had its tags or living mark changed (`deleted` false); clients showing a list that could hold it read again. */
+/** One artifact was saved, deleted or had its tags, living mark or pin changed. */
 export const ArtifactsChangedEventSchema = Type.Object({
 	type: Type.Literal("artifacts.changed"),
 	projectId: ProjectIdSchema,

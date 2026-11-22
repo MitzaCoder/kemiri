@@ -70,7 +70,10 @@ internal fun ArtifactStudioScreen(context: ProjectScreenContext, artifactId: Str
         Column {
             TopAppBar(title = { Text(artifact?.let(::artifactTitle) ?: "Artifact", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { JarvisIconButton(Lucide.ArrowLeft, "Back to artifacts", onClick = { keyboard?.hide(); close() }) },
-                actions = { viewedForDiscussion?.let { viewed -> onDiscuss?.let { discuss -> TextButton(onClick = { discuss(viewed) }) { Text("Discuss") } } } })
+                actions = {
+                    artifact?.let { ArtifactPinButton(context, it) }
+                    viewedForDiscussion?.let { viewed -> onDiscuss?.let { discuss -> TextButton(onClick = { discuss(viewed) }) { Text("Discuss") } } }
+                })
             val root = artifact
             if (supported && root != null) {
                 val living = root.living != null

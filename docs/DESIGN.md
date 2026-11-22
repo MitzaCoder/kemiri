@@ -749,6 +749,28 @@ For feedback about an artifact whose task is done, the coordinator answers plain
 For a change it adds a small follow-up with `foundWhile` pointing to the original task and has its worker save the
 revision by `artifactId`, then says in chat what changed. An explicit request to reopen or only answer takes priority.
 
+### Project Artifacts tab (T423)
+
+The project header opens Artifacts beside Tasks and Info (More actions on narrow screens). The tab is scoped to the
+project, not to a coordinator, job or worker. It lists pinned HTML first, then other HTML, both newest save first.
+Other files start folded and can be filtered by kind. Search covers titles, filenames, notes, tags and home tasks.
+The row shows the home task, total saves and last save time. The cached board supplies task titles when available;
+if a task is no longer in that cache, the row still names its ID. Opening a row uses the existing versioned viewer
+and its Continue in chat action. The global Vitrine remains a separate way to browse across projects.
+
+The `project-artifacts` capability adds `catalogue: true` to `artifacts.list`: one project's latest rows, including
+older pins, without embedded snapshots. The panel requests it on open and reconnect. `artifacts.changed` applies
+one upsert or deletion live, including changes that arrive during a read. Board pushes update task titles from the
+cached board, not the catalogue. The viewer reads the history for its one artifact only.
+
+`artifacts.update { pinned }` pins the stable HTML identity in the project's artifact index. The tab, viewer and chat
+save card can all change that one flag, and other clients see it in `artifacts.changed`. Pinning neither changes the
+save time nor sets Keep alive. Keep alive remains a separate 60-version option for any kind. A pin marks an HTML
+page the owner intends to return to and protects every retained and subsequent version from automatic pruning.
+There is no need to remember a second switch while iterating. Unpinning leaves the living mark and the existing
+versions alone. On the next save, normal retention applies again. A pin cannot restore versions already pruned,
+and it does not block explicit deletion. A pinned page must be unpinned before it can be replaced by a non-page.
+
 ### Web library and Studio
 
 `/artifacts` merges all connected backends (D121). Keys include backend and project so an artifact or task ID on
@@ -2488,12 +2510,12 @@ Status: backend, protocol, client and web UI done (milestone 2).
   `ProjectSummary.checkIns` and `projects.configure`'s
   `checkIns` (null resets to the defaults) carry the check-in settings, `longPromptCache` the one-hour prompt cache
   (Context → One-hour prompt cache).
-- Web app (T192 / Q210): header toggle buttons alone select Tasks (or Board), Background, Info and Memory.
+- Web app (T192 / Q210): header toggle buttons alone select Tasks (or Board), Background, Info, Artifacts and Memory.
   Badges stay in the header, and `aria-pressed` plus a filled background identifies the open panel; pressing it again
   closes it. At narrow header widths, every hidden panel remains in More actions. The shared right sidebar has no
   panel tab row: a plain heading labels its content region beside Close (and desktop Expand). Below 72rem the same
   heading and close appear in a full-screen modal sheet, with focus containment and Escape dismissal. Main and thread
-  chats share this shell; worker transcripts offer only Info and Memory. Panels are feature-gated. Info shows the conversation's context (`conversation.context`, live from
+  chats share this shell; worker transcripts offer Info, Artifacts and Memory. Panels are feature-gated. Info shows the conversation's context (`conversation.context`, live from
   `conversation.context.changed`) for scanning: a Context usage block above the overview (a bar of the tokens the next
   request would send against the model's window with tick marks at the background and blocking thresholds, the numbers
   in k tokens, the compaction count and when the last one was, "Compacting…" while one runs, and a "Compact now" action

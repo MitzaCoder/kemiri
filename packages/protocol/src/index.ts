@@ -2063,6 +2063,7 @@ export {
 	ARTIFACT_MAX_TAGS,
 	SUGGESTED_ARTIFACT_TAGS,
 	normalizeTag,
+	isHtmlArtifact,
 	normalizeTags,
 } from "./artifacts.ts";
 export { MAIN_THREAD_ID, THREAD_FINISHED_PREFIX, THREAD_MESSAGE_PREFIX } from "./threads.ts";

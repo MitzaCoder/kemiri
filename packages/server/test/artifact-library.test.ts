@@ -53,6 +53,79 @@ test("continuations keep the home identity and living retention after the first 
 	}
 });
 
+test("pinned HTML keeps every retained version without changing its living mark", async () => {
+	const root = await mkdtemp(join(tmpdir(), "artifact-pin-retention-"));
+	try {
+		const store = new ArtifactStore({ dataDir: root });
+		const sourcePath = join(root, "guide.html");
+		const plainPath = join(root, "guide.txt");
+		await writeFile(sourcePath, "<h1>First edition</h1>");
+		await writeFile(plainPath, "Not HTML");
+		const input = { projectId: "p", threadId: "main", workerId: null, sourcePath, taskId: "T1" };
+		const first = await store.save(input);
+		await store.update("p", first.id, { living: true, pinned: true });
+		const later = { ...input, taskId: "T2", threadId: "later", continueArtifactId: first.id };
+		await expect(store.save({ ...later, sourcePath: plainPath })).rejects.toMatchObject({ code: "bad_request" });
+		for (let i = 0; i <= ARTIFACT_LIVING_VERSION_LIMIT; i++) await store.save(later);
+		// Pinning applies to the root even when another coordinator or task saves a new version.
+		const reopened = new ArtifactStore({ dataDir: root });
+		const saved = await reopened.require("p", first.id);
+		expect(saved).toMatchObject({ pinned: true, taskId: "T1", versionCount: ARTIFACT_LIVING_VERSION_LIMIT + 2 });
+		expect(saved.versions).toHaveLength(ARTIFACT_LIVING_VERSION_LIMIT + 2);
+		expect(saved.versions?.[0]).not.toHaveProperty("pinned");
+		const oldest = await reopened.require("p", `${first.id}~1`);
+		expect(await Bun.file(reopened.filePath(oldest)).text()).toBe("<h1>First edition</h1>");
+		const unpinned = await reopened.update("p", first.id, { pinned: false });
+		expect(unpinned.pinned).toBeUndefined();
+		expect(unpinned.createdAt).toBe(saved.createdAt);
+		expect(unpinned.versions).toHaveLength(ARTIFACT_LIVING_VERSION_LIMIT + 2);
+		expect(unpinned.living).toEqual(saved.living);
+		expect((await reopened.save(later)).versions).toHaveLength(ARTIFACT_LIVING_VERSION_LIMIT);
+		expect(await Bun.file(reopened.filePath(oldest)).exists()).toBe(false);
+	} finally {
+		await rm(root, { force: true, recursive: true });
+	}
+});
+
+test("project catalogue omits snapshots, and a remote client sees pins and unpins", async () => {
+	const setup = await createSetup({ terminals: false });
+	const writer = await TestClient.open(setup.server);
+	const reader = await TestClient.open(setup.server);
+	try {
+		expect(await writer.hello()).toMatchObject({ features: expect.arrayContaining(["project-artifacts"]) });
+		await reader.hello();
+		const project = await writer.request({ type: "projects.add", path: setup.projectDir });
+		if (project.type !== "projects.add") throw errorOf(project);
+		const projectId = project.project.id;
+		const store = setup.server.artifacts;
+		const save = async (file: string) => {
+			const sourcePath = join(setup.projectDir, file);
+			await writeFile(sourcePath, "<h1>Garden map</h1>");
+			return store.save({ projectId, sourcePath, taskId: null, threadId: "main", workerId: null });
+		};
+		const html = await save("map.html");
+		const text = await save("map.txt");
+		const update = { type: "artifacts.update", projectId, artifactId: html.id } as const;
+		expect(errorOf(await writer.request({ ...update, artifactId: text.id, pinned: true })).code).toBe("bad_request");
+		expect(errorOf(await writer.request({ ...update, artifactId: `${html.id}~1`, pinned: true })).code).toBe("unknown_artifact");
+		const pinned = await writer.request({ ...update, pinned: true });
+		expect(pinned).toMatchObject({ artifact: { id: html.id, pinned: true, createdAt: html.createdAt } });
+		await reader.waitFor(event => event.type === "artifacts.changed" && event.projectId === projectId && event.artifact.id === html.id && event.artifact.pinned === true);
+		const catalogue = await reader.request({ type: "artifacts.list", projectId, catalogue: true });
+		if (catalogue.type !== "artifacts.list") throw errorOf(catalogue);
+		expect(catalogue.artifacts.map(row => row.id)).toEqual([text.id, html.id]);
+		expect(catalogue.artifacts[1]).toHaveProperty("pinned", true);
+		expect(catalogue.artifacts[1]).not.toHaveProperty("versions");
+		const detail = await reader.request({ type: "artifacts.list", projectId, artifactId: html.id });
+		expect(detail).toMatchObject({ artifacts: [{ id: html.id, versions: [{ id: `${html.id}~1` }] }] });
+		await writer.request({ ...update, pinned: false, tags: ["unpinned"] });
+		await reader.waitFor(event => event.type === "artifacts.changed" && event.projectId === projectId && event.artifact.id === html.id && event.artifact.pinned === undefined && !event.deleted && event.artifact.tags?.includes("unpinned") === true);
+	} finally {
+		writer.close(); reader.close();
+		await setup.cleanup();
+	}
+});
+
 test("library pages archived projects and task facts; trail reads decisions and feedback across tasks", async () => {
 	let now = Date.parse("2026-01-01T00:00:00Z");
 	const setup = await createSetup({ now: () => now, terminals: false });

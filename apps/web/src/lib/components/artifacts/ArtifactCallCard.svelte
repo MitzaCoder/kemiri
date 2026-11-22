@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { isHtmlArtifact } from '@kemiri/protocol';
+	import ArtifactPinButton from './ArtifactPinButton.svelte';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -28,9 +30,15 @@
 	const feed = useArtifactFeed(() =>
 		current?.available === true && call.artifactId !== undefined ? { client: current.client, projectId: current.projectId, limit: 200 } : undefined
 	);
+	const supportsPins = $derived(current?.client.state.features?.includes('project-artifacts') === true);
+	const olderHtml = useArtifactFeed(() => {
+		if (!current || !supportsPins || !call.artifactId || !call.path || !feed.current?.loaded || feed.current.artifacts.length < 200) return undefined;
+		if (!isHtmlArtifact({ name: baseName(call.path), mimeType: '' }) || feed.current.artifacts.some(row => row.id === call.artifactId)) return undefined;
+		return { client: current.client, projectId: current.projectId, filter: { artifactId: call.artifactId } };
+	});
 	const artifact = $derived.by(() => {
 		if (current === undefined || call.artifactId === undefined) return undefined;
-		return feed.current?.artifacts.find((entry) => entry.id === call.artifactId) ?? artifactFromCall(current.projectId, call.artifactId, call);
+		return feed.current?.artifacts.find((entry) => entry.id === call.artifactId) ?? olderHtml.current?.artifacts[0] ?? artifactFromCall(current.projectId, call.artifactId, call);
 	});
 	/** Deleted since: the list read it and no longer holds it. */
 	const deleted = $derived(
@@ -67,6 +75,7 @@
 		{:else if status === 'preparing' || status === 'running'}
 			<LoaderCircleIcon class="size-3.5 shrink-0 animate-spin text-(--accent-2)" />
 		{:else if artifact !== undefined && !deleted}
+			{#if current && supportsPins && artifact.createdAt && isHtmlArtifact(artifact)}<ArtifactPinButton {artifact} client={current.client} />{/if}
 			<button type="button" class="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium text-(--accent-2) hover:bg-(--accent-2)/10" onclick={() => (dialogOpen = true)}>
 				Details
 			</button>

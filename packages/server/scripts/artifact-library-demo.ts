@@ -81,6 +81,12 @@ try {
 			tags: ["web", "phone", "light", state], taskId: followUp.id,
 		});
 		await save("print-notes.md", "# Print notes\n\nUse large type and leave room for the route changes.\n", { title: spec.notes });
+		if (projects.length === 0) {
+			const pinned = await save("field-checklist.html", guidePage(spec.name, 1, "Field checklist"), { title: "Field checklist", taskId: followUp.id });
+			await store.update(projectId, pinned.id, { pinned: true });
+			await save("volunteer-brief.html", guidePage(spec.name, 1, "Volunteer brief"), { title: "Volunteer brief", taskId: review.id });
+			await save("courtyard--web-desktop.png", wayfinding(true), { title: "Courtyard sign", taskId: null });
+		}
 		if (spec.archived) {
 			const archived = await client.request({ type: "projects.configure", projectId, archived: true });
 			if (archived.type !== "projects.configure") throw errorOf(archived);
@@ -90,7 +96,7 @@ try {
 	}
 	now = Date.now();
 	const library = await client.request({ type: "artifacts.library" });
-	if (library.type !== "artifacts.library" || library.artifacts.length !== 12 || !library.tasks.some(task => task.archived)) {
+	if (library.type !== "artifacts.library" || library.artifacts.length !== 15 || !library.tasks.some(task => task.archived)) {
 		throw new Error("Synthetic artifact library did not seed as expected.");
 	}
 	await Bun.write(output, JSON.stringify({ url: setup.server.url, projectId: projects[0]!.id, projects, pid: process.pid, root: setup.root }, null, 2));

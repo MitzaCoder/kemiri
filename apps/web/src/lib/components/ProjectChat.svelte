@@ -9,6 +9,8 @@
 	import BellOffIcon from '@lucide/svelte/icons/bell-off';
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+	import PaperclipIcon from '@lucide/svelte/icons/paperclip';
+	import ProjectArtifactsPanel from '#lib/components/artifacts/ProjectArtifactsPanel.svelte';
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
@@ -438,6 +440,10 @@
 				onclick: () => toggleSidebar('info')
 			});
 		}
+		if (backend.supports('project-artifacts')) actions.push({
+			id: 'artifacts', kind: 'tab', name: 'Artifacts', label: 'Artifacts', icon: PaperclipIcon,
+			pressed: sidebarOpen && sidebarTab === 'artifacts', onclick: () => toggleSidebar('artifacts')
+		});
 		if (supportsMemory) {
 			actions.push({
 				id: 'memory',
@@ -1281,6 +1287,11 @@
 							scheduleName={scheduleTitle}
 							{now}
 						/>
+					{/snippet}
+					{#snippet artifactsPanel()}
+						{#key `${backend.id}:${projectId}`}
+							<ProjectArtifactsPanel client={backend.client} {projectId} tasks={board?.tasks ?? []} ondiscuss={() => sidebarOpen = false} />
+						{/key}
 					{/snippet}
 					{#snippet infoPanel()}
 						<ContextPanel

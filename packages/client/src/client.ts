@@ -1362,11 +1362,12 @@ export class HarnessClient {
 	 */
 	async listArtifacts(
 		projectId: string,
-		filter: { artifactId?: string; threadId?: string; workerId?: string; taskId?: string; limit?: number } = {},
+		filter: { artifactId?: string; threadId?: string; workerId?: string; taskId?: string; limit?: number; catalogue?: boolean } = {},
 	): Promise<Artifact[]> {
 		const response = await this.#call<ArtifactsListResponse>({
 			type: "artifacts.list",
 			projectId,
+			...(filter.catalogue === true ? { catalogue: true } : {}),
 			...(filter.artifactId === undefined ? {} : { artifactId: filter.artifactId }),
 			...(filter.threadId === undefined ? {} : { threadId: filter.threadId }),
 			...(filter.workerId === undefined ? {} : { workerId: filter.workerId }),
@@ -1383,6 +1384,11 @@ export class HarnessClient {
 
 	readArtifactTrail(projectId: string, artifactId: string): Promise<ArtifactsTrailResponse> {
 		return this.#call<ArtifactsTrailResponse>({ type: "artifacts.trail", projectId, artifactId });
+	}
+
+	async setArtifactPinned(projectId: string, artifactId: string, pinned: boolean): Promise<Artifact> {
+		const response = await this.#call<ArtifactsUpdateResponse>({ type: "artifacts.update", projectId, artifactId, pinned });
+		return response.artifact;
 	}
 
 	async setArtifactLiving(projectId: string, artifactId: string, living: boolean): Promise<Artifact> {

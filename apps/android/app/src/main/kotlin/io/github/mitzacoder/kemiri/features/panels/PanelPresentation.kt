@@ -54,7 +54,7 @@ internal fun projectGroupOrder(server: List<String>, optimistic: List<String>?, 
 internal val panelTaskStatuses = listOf("in_progress", "review", "blocked", "todo", "done", "dropped")
 internal fun panelTaskInitiallyCollapsed(status: String) = status in listOf("done", "dropped")
 
-internal val panelTabOrder = listOf(PanelTab.Board, PanelTab.Threads, PanelTab.Info, PanelTab.Memory, PanelTab.Artifacts)
+internal val panelTabOrder = listOf(PanelTab.Board, PanelTab.Threads, PanelTab.Info, PanelTab.Artifacts, PanelTab.Memory)
 internal fun panelBytes(bytes: Long): String = when {
     bytes < 0 -> "—"
     bytes < 1024 -> "$bytes B"

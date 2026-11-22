@@ -33,6 +33,7 @@ object Lucide {
     val FileText = LucideIcon("file-text", "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z", "M14 2v5a1 1 0 0 0 1 1h5", "M10 9H8", "M16 13H8", "M16 17H8")
     val Info = LucideIcon("info", "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "M12 16v-4", "M12 8h.01")
     val Menu = LucideIcon("menu", "M4 5h16", "M4 12h16", "M4 19h16")
+    val Pin = LucideIcon("pin", "M12 17v5 M9 2h6 M9 2v6l-4 4v2h14v-2l-4-4V2 M9 14v2l3 1 3-1v-2")
     val Paperclip = LucideIcon("paperclip", "m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551")
     val Plus = LucideIcon("plus", "M5 12h14", "M12 5v14")
     val Search = LucideIcon("search", "m21 21-4.34-4.34", "M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0")

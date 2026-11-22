@@ -6,6 +6,8 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import BotIcon from '@lucide/svelte/icons/bot';
+	import PaperclipIcon from '@lucide/svelte/icons/paperclip';
+	import ProjectArtifactsPanel from '#lib/components/artifacts/ProjectArtifactsPanel.svelte';
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import FileDiffIcon from '@lucide/svelte/icons/file-diff';
@@ -288,6 +290,9 @@
 							<InfoIcon />
 						</Button>
 					{/if}
+					{#if sidebarTabs.includes('artifacts')}
+						<Button variant="ghost" size="icon-sm" onclick={() => toggleSidebar('artifacts')} aria-label="Artifacts" title="Artifacts" aria-pressed={sidebarOpen && sidebarTab === 'artifacts'}><PaperclipIcon /></Button>
+					{/if}
 					{#if supportsMemory}
 						<Button
 							variant="ghost"
@@ -402,6 +407,11 @@
 				tabs={sidebarTabs}
 				label="Worker sidebar"
 			>
+				{#snippet artifactsPanel()}
+					{#key `${backend.id}:${projectId}`}
+						<ProjectArtifactsPanel client={backend.client} {projectId} tasks={board?.tasks ?? []} ondiscuss={() => sidebarOpen = false} />
+					{/key}
+				{/snippet}
 				{#snippet infoPanel()}
 					<ContextPanel
 						context={projectContext?.context}

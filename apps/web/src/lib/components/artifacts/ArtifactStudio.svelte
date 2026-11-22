@@ -15,6 +15,7 @@
 	import { taskHref } from '#lib/task-chat.js';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import ArtifactPinButton from './ArtifactPinButton.svelte';
 	import DiscussButton from './DiscussButton.svelte';
 	import ArtifactKindIcon from './ArtifactKindIcon.svelte';
 	import ArtifactPlayer from './ArtifactPlayer.svelte';
@@ -109,6 +110,7 @@
 				<span class="studio-filename" title={artifact.name}>{artifact.name}</span>
 			</div>
 			<Dialog.Description class="sr-only">Artifact Studio. Read the artifact, its versions and its history.</Dialog.Description>
+			{#if backend.supports('project-artifacts') && isHtmlArtifact(artifact)}<ArtifactPinButton {artifact} client={backend.client} />{/if}
 			<DiscussButton artifact={selected} client={backend.client} {onclose} compact />
 			{#if supported}<button type="button" class="keep-alive" role="switch" aria-checked={!!artifact.living} disabled={saving || !backend.ready} onclick={toggleLiving}><span class="switch-track" aria-hidden="true"></span>Keep alive</button>{/if}
 			<button class="studio-download" type="button" onclick={download} aria-label="Download version" title="Download version"><DownloadIcon size={16} /></button>
