@@ -1,5 +1,6 @@
 import { ProjectAppSchema, type AppPublisher, type ProjectApp } from "@kemiri/protocol";
 import { isAppServeMapping } from "./app-serve-mappings.ts";
+import { validManagedAppId, validManagedProcess, type ManagedApp } from "./managed-app-process.ts";
 import type { ServeMapping } from "./tailscale.ts";
 import { Check } from "typebox/value";
 
@@ -13,7 +14,7 @@ export type AppActivity = {
 };
 
 /** A stopped app stays encoded as live on disk so a Stage 1 rollback can still read the row. */
-export type AppRecord = ProjectApp & { stoppedAt?: string | undefined; unpublishedAt?: string | undefined; serveMapping?: ServeMapping };
+export type AppRecord = ProjectApp & { stoppedAt?: string | undefined; unpublishedAt?: string | undefined; serveMapping?: ServeMapping; managedProcess?: ManagedApp };
 
 /** Optional version-1 project fields; older servers ignore this entire extension. */
 export type AppRegistryDocument = {
@@ -52,10 +53,16 @@ export function readAppRegistry(value: unknown, projectId: string): AppRegistryD
 		...(document.approved === true ? { approved: true } : {}),
 		records: Array.isArray(document.records) ? document.records.filter(record =>
 			Check(ProjectAppSchema, record) && record.projectId === projectId).map(saved => {
-				const { tailscaleServe, serveMapping, ...record } = saved as AppRecord & { tailscaleServe?: true };
+				const { tailscaleServe, serveMapping, managedProcess, managed: _, ...record } = saved as AppRecord & { tailscaleServe?: true };
 				if (record.mode === "off" && tailscaleServe === true) record.mode = "tailscale-serve";
 				return {
 					...record,
+					...(managedProcess && validManagedAppId(record.appId) && typeof managedProcess.command === "string" &&
+						typeof managedProcess.cwd === "string" && typeof managedProcess.logPath === "string" ? { managedProcess: {
+							command: managedProcess.command, cwd: managedProcess.cwd, logPath: managedProcess.logPath,
+							...(managedProcess.starting === true ? { starting: true as const } : {}),
+							...(validManagedProcess(managedProcess.process, record.appId) ? { process: managedProcess.process } : {}),
+						} } : {}),
 					...(record.mode === "tailscale-serve" && isAppServeMapping(serveMapping, record.port) ? { serveMapping } : {}),
 					url: readAppUrl(record),
 					...(record.state === "live" && validTimestamp(record.stoppedAt) ? { stoppedAt: record.stoppedAt } : { stoppedAt: undefined }),

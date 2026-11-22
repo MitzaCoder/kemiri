@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { appPublishReceipt, type AgentApps, type AppAgent } from "../agent-apps.ts";
-import { APP_LIST_TOOL, APP_PUBLISH_TOOL, APP_UNPUBLISH_TOOL, appListDescription, appListParameters, appPublishDescription, appPublishParameters, appToolText, appUnpublishDescription, appUnpublishParameters, type ActiveApps } from "../app-tools.ts";
+import { APP_LIST_TOOL, APP_PUBLISH_TOOL, APP_START_TOOL, APP_STOP_TOOL, APP_UNPUBLISH_TOOL, appStartDescription, appStartParameters, appStartReceipt, appStopDescription, appStopReceipt, appListDescription, appListParameters, appPublishDescription, appPublishParameters, appToolText, appUnpublishDescription, appUnpublishParameters, type ActiveApps } from "../app-tools.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, Harness, Tx } from "@earendil-works/pi-durable";
 import type { Tool } from "@earendil-works/pi-mcp";
@@ -53,6 +53,8 @@ export async function officialAgentWorkerTools(options: {
 		if (proof) roots.push(proof);
 	}
 	const appTools: Tool[] = options.apps ? [
+		{ name: APP_START_TOOL, description: appStartDescription, inputSchema: { ...appStartParameters } },
+		{ name: APP_STOP_TOOL, description: appStopDescription, inputSchema: { ...appUnpublishParameters } },
 		{ name: APP_PUBLISH_TOOL, description: appPublishDescription, inputSchema: { ...appPublishParameters } },
 		{ name: APP_UNPUBLISH_TOOL, description: appUnpublishDescription, inputSchema: { ...appUnpublishParameters } },
 		{ name: APP_LIST_TOOL, description: appListDescription, inputSchema: { ...appListParameters } },
@@ -84,6 +86,18 @@ export async function officialAgentWorkerTools(options: {
 							return !signal.aborted && await isCurrent() ? check : () => false;
 						}, appId);
 						return { content: appToolText(appPublishReceipt(app)).output };
+					}
+					if (name === APP_START_TOOL && Check(appStartParameters, args)) {
+						const hash = createHash("sha256").update(key).digest("hex");
+						const appId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+						const app = await registry.startManaged(projectId, { ...args, cwd: args.cwd ?? cwd }, agent, async () => {
+							const check = await active(true);
+							return !signal.aborted && await isCurrent() ? check : () => false;
+						}, appId);
+						return { content: appToolText(appStartReceipt(app, registry.logPath(appId))).output };
+					}
+					if (name === APP_STOP_TOOL && Check(appUnpublishParameters, args)) {
+						return { content: appToolText(appStopReceipt(await registry.stopApp(projectId, args.appId, agent.publisher))).output };
 					}
 					if (name === APP_UNPUBLISH_TOOL && Check(appUnpublishParameters, args)) {
 						await registry.unpublish(projectId, args.appId, agent.publisher);

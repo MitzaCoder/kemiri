@@ -52,6 +52,7 @@ internal class ProjectAppsFeed(private val client: HarnessClient, val projectId:
         catch (cause: Exception) { error = cause.message ?: "Could not read project apps." }
     }
 
+    suspend fun log(appId: String): String = client.request(AppsLogRequest(projectId = projectId, appId = appId)).text
     suspend fun allow(appId: String) { client.request(AppsAllowRequest(projectId = projectId, appId = appId)); refresh() }
     suspend fun remove(appId: String) { client.request(AppsUnpublishRequest(projectId = projectId, appId = appId)); refresh() }
     suspend fun publish(port: Long) { client.request(AppsPublishDetectedRequest(projectId = projectId, port = port)); refresh() }

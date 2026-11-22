@@ -1,4 +1,7 @@
 import { request } from "node:http";
+import { realpath, stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import { APP_START_TIMEOUT_MS, ManagedAppProcesses, inManagedScope, processIdentity, validManagedAppId, type ManagedProcess } from "./managed-app-process.ts";
 import { randomUUID } from "node:crypto";
 import type { AppPublisher, AppSettings, DetectedAppPort, ProjectApp } from "@kemiri/protocol";
 import { appAddress, appInstructions } from "./app-addresses.ts";
@@ -10,6 +13,7 @@ import { inAppWorkspace, isDetectableListener, linuxAppListenerSource, type AppL
 import type { Project, ProjectStore } from "./projects.ts";
 
 export type PublishAppInput = { port: number; name: string; path?: string | undefined; taskId?: string | undefined };
+export type StartAppInput = PublishAppInput & { command: string; cwd?: string | undefined };
 export type AppAgent = { publisher: AppPublisher; taskId?: string | undefined };
 type ActiveAppCheck = (app: Pick<ProjectApp, "taskId" | "publishedBy">) => boolean;
 
@@ -21,6 +25,8 @@ type AgentAppsOptions = {
 	changed: (projectId: string) => void;
 	now?: () => number;
 	listenerSource?: AppListenerSource;
+	managedProcesses?: ManagedAppProcesses;
+	startTimeoutMs?: number;
 	tailscale?: TailscaleServe;
 	log?: (message: string) => void;
 };
@@ -37,6 +43,14 @@ function answersHttp(port: number): Promise<boolean> {
 	});
 }
 
+function availableLoopbackPort(port: number): boolean {
+	try {
+		const listener = Bun.listen({ hostname: "127.0.0.1", port, socket: { data() {} } });
+		listener.stop(true);
+		return true;
+	} catch { return false; }
+}
+
 const denied = () => new ServerError("bad_request", "Agents may not publish apps on this backend.");
 const NO_ADDRESS = "No app address is configured on this backend. Attach screenshots or an HTML artifact instead.";
 
@@ -50,7 +64,8 @@ const LISTENER_INTERVAL = 30_000;
 const RETENTION_MS = 86_400_000;
 
 function publishedApp(record: AppRecord): ProjectApp {
-	const { stoppedAt, unpublishedAt: _, serveMapping: __, ...app } = record;
+	const { stoppedAt, unpublishedAt: _, serveMapping: __, managedProcess, ...app } = record;
+	if (managedProcess) app.managed = { survivesRestart: managedProcess.process?.unit !== undefined };
 	return stoppedAt ? { ...app, state: "stopped", url: null } : app;
 }
 
@@ -67,10 +82,14 @@ export class AgentApps {
 
 	readonly tailscale: TailscaleServe;
 	readonly #serveMappings: AppServeMappings;
+	readonly #processes: ManagedAppProcesses;
+	readonly #starts = new Map<string, Promise<ProjectApp>>();
+	readonly #startingPorts = new Set<number>();
 	#pending: Promise<unknown> = Promise.resolve();
 
 	constructor(readonly options: AgentAppsOptions) {
 		this.#source = options.listenerSource ?? linuxAppListenerSource();
+		this.#processes = options.managedProcesses ?? new ManagedAppProcesses(options.store.dataDir);
 		this.tailscale = options.tailscale ?? new TailscaleServe();
 		this.#serveMappings = new AppServeMappings(options.store.dataDir, this.tailscale, options.backendPort, options.backendOrigins, options.log ?? console.warn);
 	}
@@ -94,6 +113,7 @@ export class AgentApps {
 	async stop(): Promise<void> {
 		clearInterval(this.#timer);
 		await this.#refreshing;
+		await Promise.allSettled(this.#starts.values());
 		await this.#pending;
 	}
 
@@ -135,31 +155,33 @@ export class AgentApps {
 		return pending;
 	}
 
-	async #detect(project: Project, document: AppRegistryDocument, snapshot: ListenerSnapshot | null, fresh = false): Promise<DetectedAppPort[]> {
+	async #detectionInputs(project: Project, snapshot: ListenerSnapshot | null, fresh = false): Promise<readonly string[]> {
+		const dataDir = this.options.store.projectDir(project.id);
+		if (project.archived || !snapshot?.candidates.some(({ cwd }) => !inAppWorkspace(cwd, project.path, dataDir, []))) return [];
+		let linked = this.#linkedWorkspaces.get(project.id);
+		if (fresh || !linked || linked.expiresAt <= this.#now()) {
+			linked = { expiresAt: this.#now() + LISTENER_INTERVAL, paths: this.#source.workspaces(project.path) };
+			this.#linkedWorkspaces.set(project.id, linked);
+		}
+		return linked.paths;
+	}
+
+	#detect(project: Project, document: AppRegistryDocument, snapshot: ListenerSnapshot | null, linked: readonly string[]): DetectedAppPort[] {
 		if (!snapshot || project.archived) return [];
 		const excluded = new Set([...(document.ignoredPorts ?? []), ...(document.records ?? []).filter(app => app.state !== "unpublished").map(app => app.port)]);
-		const candidates = snapshot.candidates.filter(candidate => !excluded.has(candidate.port));
-		if (!candidates.length) return [];
 		const dataDir = this.options.store.projectDir(project.id);
-		const direct = candidates.filter(({ cwd }) => inAppWorkspace(cwd, project.path, dataDir, []));
-		const ports = new Set(direct.map(({ port }) => port));
-		if (candidates.some(({ port }) => !ports.has(port))) {
-			let linked = this.#linkedWorkspaces.get(project.id);
-			if (fresh || !linked || linked.expiresAt <= this.#now()) {
-				linked = { expiresAt: this.#now() + LISTENER_INTERVAL, paths: this.#source.workspaces(project.path) };
-				this.#linkedWorkspaces.set(project.id, linked);
-			}
-			const paths = await linked.paths;
-			for (const { port, cwd } of candidates) if (!ports.has(port) && inAppWorkspace(cwd, project.path, dataDir, paths)) ports.add(port);
-		}
+		const ports = new Set(snapshot.candidates.filter(({ port, cwd }) =>
+			!excluded.has(port) && inAppWorkspace(cwd, project.path, dataDir, linked)).map(({ port }) => port));
 		return [...ports].sort((a, b) => a - b).map(port => ({ port }));
 	}
 
 	async #readProject(project: Project, detect: boolean): Promise<ProjectAppsList> {
+		// Process and workspace probes can take seconds; no registry queue is held while they run.
+		const snapshot = detect || project.apps?.records?.some(app => app.state === "live" || app.state === "pending") || project.apps?.ignoredPorts?.length
+			? await this.#listeners() : null;
+		const linked = detect ? await this.#detectionInputs(project, snapshot) : [];
 		return this.#change(project.id, async document => {
-			const snapshot = detect || document.records?.some(app => app.state === "live" || app.state === "pending") || document.ignoredPorts?.length
-				? await this.#listeners() : null;
-			let changed = this.#updateLifecycle(document, snapshot);
+			let changed = await this.#updateLifecycle(document, snapshot, project.apps);
 			const { addresses } = this.options.settings();
 			for (const app of document.records ?? []) {
 				if (app.state !== "live") continue;
@@ -176,35 +198,73 @@ export class AgentApps {
 					changed = true;
 				}
 			}
-			const detected = detect ? await this.#detect(project, document, snapshot) : [];
+			const detected = detect ? this.#detect(project, document, snapshot, linked) : [];
 			const listenerChecksAvailable = snapshot !== null;
 			const signature = JSON.stringify([listenerChecksAvailable, detected]);
 			const previous = this.#observed.get(project.id);
 			if (detect) this.#observed.set(project.id, signature);
-			return { result: { apps: (document.records ?? []).map(publishedApp), detected, listenerChecksAvailable }, changed,
+			return { result: { apps: (document.records ?? []).filter(app => !app.managedProcess?.starting).map(publishedApp), detected, listenerChecksAvailable }, changed,
 				notify: detect && previous !== undefined && previous !== signature };
 		});
 	}
 
-	#updateLifecycle(document: AppRegistryDocument, snapshot: ListenerSnapshot | null): boolean {
+	async #updateLifecycle(document: AppRegistryDocument, snapshot: ListenerSnapshot | null, observed: AppRegistryDocument | undefined): Promise<boolean> {
+		const previouslyObserved = new Map(observed?.records?.map(app => [app.appId, app]));
+		// Do not apply an older port observation to a row that appeared or changed while the scan was running.
+		const observedRow = (app: AppRecord) => {
+			const prior = previouslyObserved.get(app.appId);
+			return prior?.createdAt === app.createdAt && prior.state === app.state && prior.stoppedAt === app.stoppedAt &&
+				prior.managedProcess?.starting === app.managedProcess?.starting;
+		};
 		const now = this.#timestamp();
 		const cutoff = Date.parse(now) - RETENTION_MS;
 		let changed = false;
 		const records = document.records ?? [];
-		const retained = records.filter(app => {
+		const retained: AppRecord[] = [];
+		for (const app of records) {
+			const managed = app.managedProcess;
+			if (managed && !this.#starts.has(app.appId)) {
+				const identity = await this.#identity(app);
+				const alive = !!identity && await this.#processes.alive(app.appId, identity);
+				if (app.state === "unpublished" && alive) await this.#processes.stop(app.appId, identity);
+				if (managed.starting) {
+					// The previous backend ended before publication was committed. Clean up its reserved start.
+					if (alive) await this.#processes.stop(app.appId, identity);
+					delete managed.starting;
+					this.#stop(document, app, "cleanup");
+					changed = true;
+				} else if (app.state === "pending" && !alive) {
+					changed = this.#stop(document, app, "cleanup") || changed;
+				} else if (app.state === "live") {
+					const observedPort = snapshot && observedRow(app) ? snapshot.ports.has(app.port) : undefined;
+					const listening = alive && observedPort !== false;
+					if (!listening && !app.stoppedAt) { app.stoppedAt = now; changed = true; }
+					else if (listening && app.stoppedAt && observedPort === true) {
+						delete app.stoppedAt;
+						changed = true;
+					}
+				}
+			}
 			const retiredAt = app.unpublishedAt ?? app.stoppedAt;
-			return retiredAt === undefined || Date.parse(retiredAt) > cutoff;
-		});
-		if (retained.length !== records.length) { document.records = retained; changed = true; }
+			if (retiredAt !== undefined && Date.parse(retiredAt) <= cutoff && !this.#starts.has(app.appId)) {
+				if (managed) {
+					await this.#stopProcess(app);
+					await this.#processes.remove(app.appId);
+				}
+				changed = true;
+			} else retained.push(app);
+		}
+		if (retained.length !== records.length) document.records = retained;
 		const events = document.activity ?? [];
 		const recent = events.filter(event => Date.parse(event.at) > cutoff);
 		if (recent.length !== events.length) { document.activity = recent; changed = true; }
 		if (!snapshot) return changed;
 		const ignored = document.ignoredPorts ?? [];
-		const stillListening = ignored.filter(port => snapshot.ports.has(port));
+		const scannedIgnored = new Set(observed?.ignoredPorts);
+		const stillListening = ignored.filter(port => !scannedIgnored.has(port) || snapshot.ports.has(port));
 		if (stillListening.length !== ignored.length) { document.ignoredPorts = stillListening; changed = true; }
 		for (const app of retained) {
-			if (app.state !== "live") continue;
+			if (app.state !== "live" || app.managedProcess || !observedRow(app)) continue;
 			if (!snapshot.ports.has(app.port) && !app.stoppedAt) { app.stoppedAt = now; changed = true; }
 			else if (snapshot.ports.has(app.port) && app.stoppedAt) { delete app.stoppedAt; changed = true; }
 		}
@@ -213,8 +273,10 @@ export class AgentApps {
 
 	async publishDetected(projectId: string, port: number, publisher: AppPublisher): Promise<ProjectApp> {
 		const project = await this.options.store.require(projectId);
+		const snapshot = await this.#listeners(true);
+		const linked = await this.#detectionInputs(project, snapshot, true);
 		return this.#change(projectId, async document => {
-			await this.#requireDetected(project, document, port);
+			this.#requireDetected(project, document, port, snapshot, linked);
 			const app: AppRecord = { projectId, appId: randomUUID(), port, name: `Port ${port}`, path: "/", url: null,
 				state: "live", publishedBy: publisher, ownerPublished: true, mode: "off", createdAt: this.#timestamp() };
 			await this.#makeLive(app, this.options.settings());
@@ -226,21 +288,24 @@ export class AgentApps {
 
 	async ignoreDetected(projectId: string, port: number): Promise<void> {
 		const project = await this.options.store.require(projectId);
+		if (project.apps?.ignoredPorts?.includes(port)) return;
+		const snapshot = await this.#listeners(true);
+		const linked = await this.#detectionInputs(project, snapshot, true);
 		await this.#change(projectId, async document => {
 			if (document.ignoredPorts?.includes(port)) return { result: undefined, changed: false };
-			await this.#requireDetected(project, document, port);
+			this.#requireDetected(project, document, port, snapshot, linked);
 			(document.ignoredPorts ??= []).push(port);
 			return { result: undefined, changed: true };
 		});
 	}
 
-	async #requireDetected(project: Project, document: AppRegistryDocument, port: number): Promise<void> {
-		if (!(await this.#detect(project, document, await this.#listeners(true), true)).some(candidate => candidate.port === port)) {
+	#requireDetected(project: Project, document: AppRegistryDocument, port: number, snapshot: ListenerSnapshot | null, linked: readonly string[]): void {
+		if (!this.#detect(project, document, snapshot, linked).some(candidate => candidate.port === port)) {
 			throw new ServerError("bad_request", "This port is no longer a detected app in this project.");
 		}
 	}
 
-	async publish(projectId: string, input: PublishAppInput, agent: AppAgent, active: () => Promise<ActiveAppCheck>, appId = randomUUID() as string): Promise<ProjectApp> {
+	#draft(projectId: string, input: PublishAppInput, agent: AppAgent, appId: string): AppRecord {
 		if (this.options.settings().policy === "off") throw denied();
 		const { port } = input;
 		if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new ServerError("bad_request", "Use an app port from 1024 to 65535.");
@@ -251,31 +316,141 @@ export class AgentApps {
 		if (!path.startsWith("/") || path.startsWith("//") || path.length > 1024 || /[\s\\?#\u0000-\u001f\u007f]/u.test(path)) {
 			throw new ServerError("bad_request", "Use an app path starting with one slash, without a query or fragment.");
 		}
+		const taskId = input.taskId ?? agent.taskId;
+		return { appId, projectId, port, name, path, url: null, state: "pending", publishedBy: agent.publisher,
+			...(taskId === undefined ? {} : { taskId }), mode: "off", createdAt: this.#timestamp() };
+	}
+
+	async #checkPublication(app: AppRecord, active: () => Promise<ActiveAppCheck>): Promise<AppSettings> {
+		if (!(await active())(app)) throw new ServerError("bad_request", "Publish from an active conversation and use an open task in this project, or no task.");
+		const settings = this.options.settings();
+		if (settings.policy === "off") throw denied();
+		return settings;
+	}
+
+	async #finishPublication(document: AppRegistryDocument, app: AppRecord, active: () => Promise<ActiveAppCheck>) {
+		const settings = await this.#checkPublication(app, active);
+		app.mode = settings.addresses.mode;
+		if (settings.policy === "on" || document.approved) await this.#makeLive(app, settings);
+		this.#log(document, app, "published", app.publishedBy);
+		return publishedApp(app);
+	}
+
+	async publish(projectId: string, input: PublishAppInput, agent: AppAgent, active: () => Promise<ActiveAppCheck>, appId = randomUUID() as string): Promise<ProjectApp> {
+		const app = this.#draft(projectId, input, agent, appId);
 		const existing = (await this.options.store.require(projectId)).apps?.records?.find(app => app.appId === appId);
 		if (existing) return publishedApp(existing);
-		if (!await answersHttp(port)) throw new ServerError("bad_request", `Nothing answered HTTP on port ${port} on this backend.`);
+		if (!await answersHttp(app.port)) throw new ServerError("bad_request", `Nothing answered HTTP on port ${app.port} on this backend.`);
 		this.#snapshot = undefined;
 		return this.#change(projectId, async document => {
 			const existing = document.records?.find(app => app.appId === appId);
 			if (existing) return { result: publishedApp(existing), changed: false };
-			const taskId = input.taskId ?? agent.taskId;
-			const app: AppRecord = { appId, projectId, port, name, path, url: null, state: "pending", publishedBy: agent.publisher,
-				...(taskId === undefined ? {} : { taskId }), mode: "off", createdAt: this.#timestamp() };
-			if (!(await active())(app)) throw new ServerError("bad_request", "Publish from an active conversation and use an open task in this project, or no task.");
-			const settings = this.options.settings();
-			if (settings.policy === "off") throw denied();
-			app.mode = settings.addresses.mode;
-			if (settings.policy === "on" || document.approved) await this.#makeLive(app, settings);
+			const result = await this.#finishPublication(document, app, active);
 			(document.records ??= []).unshift(app);
-			this.#log(document, app, "published", agent.publisher);
-			return { result: publishedApp(app), changed: true };
+			return { result, changed: true };
 		});
 	}
+
+	startManaged(projectId: string, input: StartAppInput, agent: AppAgent, active: () => Promise<ActiveAppCheck>, appId = randomUUID() as string): Promise<ProjectApp> {
+		const pending = this.#starts.get(appId);
+		if (pending) return pending;
+		if (this.#startingPorts.has(input.port)) return Promise.reject(new ServerError("bad_request", `An app is already starting on port ${input.port}.`));
+		this.#startingPorts.add(input.port);
+		const start = this.#startManaged(projectId, input, agent, active, appId).finally(() => {
+			this.#starts.delete(appId);
+			this.#startingPorts.delete(input.port);
+		});
+		this.#starts.set(appId, start);
+		return start;
+	}
+
+	async #startManaged(projectId: string, input: StartAppInput, agent: AppAgent, active: () => Promise<ActiveAppCheck>, appId: string): Promise<ProjectApp> {
+		const app = this.#draft(projectId, input, agent, appId);
+		const project = await this.options.store.require(projectId);
+		const existing = project.apps?.records?.find(row => row.appId === appId);
+		if (existing && !existing.managedProcess?.starting) return publishedApp(existing);
+		await this.#checkPublication(app, active);
+		if (!validManagedAppId(appId) || !input.command.trim() || input.command.length > 32768 || input.command.includes("\0")) {
+			throw new ServerError("bad_request", "Give the app a nonempty command up to 32 KiB.");
+		}
+		const cwd = await realpath(resolve(project.path, input.cwd ?? ".")).catch(() => "");
+		const canonical = async (path: string) => realpath(path).catch(() => path);
+		const [root, dataDir, linked] = await Promise.all([canonical(project.path), canonical(this.options.store.projectDir(projectId)),
+			this.#source.workspaces(project.path).then(paths => Promise.all(paths.map(canonical)))]);
+		if (!cwd || !inAppWorkspace(cwd, root, dataDir, linked) || !(await stat(cwd)).isDirectory()) {
+			throw new ServerError("bad_request", "Start the app inside this project or one of its workspaces.");
+		}
+		app.managedProcess = { command: input.command, cwd, logPath: this.#processes.logPath(appId), starting: true };
+		const reserved = await this.#change(projectId, async document => {
+			if (document.records?.some(row => row.appId === appId)) return { result: false, changed: false };
+			await this.#checkPublication(app, active);
+			if (document.records?.some(row => row.port === app.port && row.managedProcess?.starting) ||
+				(await this.#listeningPorts())?.has(app.port) || !availableLoopbackPort(app.port)) {
+				throw new ServerError("bad_request", `App port ${app.port} is already in use on this backend.`);
+			}
+			(document.records ??= []).unshift(app);
+			return { result: true, changed: true };
+		});
+		let process: ManagedProcess | undefined;
+		try {
+			process = reserved ? await this.#processes.launch(appId, input.command, cwd) : await this.#identity(existing ?? app);
+			const deadline = Date.now() + (this.options.startTimeoutMs ?? APP_START_TIMEOUT_MS);
+			while (process && await this.#processes.alive(appId, process)) {
+				if (await answersHttp(app.port) && await this.#ownsListener(app, process)) {
+					this.#snapshot = undefined;
+					return await this.#change(projectId, async document => {
+						const row = this.#require(document, appId);
+						if (row.state === "unpublished" || !row.managedProcess?.starting) throw new Error("The app was stopped during startup.");
+						row.managedProcess.process = process!;
+						delete row.managedProcess.starting;
+						return { result: await this.#finishPublication(document, row, active), changed: true };
+					});
+				}
+				if (Date.now() >= deadline) throw new Error(`The app did not answer on port ${app.port} in time.`);
+				await Bun.sleep(125);
+			}
+			throw new Error("The app command exited before it answered HTTP.");
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			if (process) await this.#processes.stop(appId, process);
+			await this.stopApp(projectId, appId, agent.publisher);
+			const tail = await this.#processes.tail(appId, 8192);
+			throw new ServerError("bad_request", `${reason}${tail ? `\n\nApp log tail:\n${tail}` : ""}`);
+		}
+	}
+
+	async #ownsListener(app: AppRecord, owned: ManagedProcess): Promise<boolean> {
+		const listeners = await this.#source.listeners();
+		const pids = listeners?.filter(listener => listener.port === app.port).flatMap(listener => listener.pids) ?? [];
+		if (!pids.length) return this.#processes.alive(app.appId, owned);
+		const matching = await Promise.all(pids.map(async pid => owned.unit ? inManagedScope(pid, owned.unit) :
+			(await processIdentity(pid, this.#processes.launchPath(app.appId)))?.pgid === owned.pgid));
+		return matching.some(Boolean) && await this.#processes.alive(app.appId, owned);
+	}
+
+	#identity(app: AppRecord): Promise<ManagedProcess | undefined> {
+		if (!app.managedProcess) return Promise.resolve(undefined);
+		return app.managedProcess.process ? Promise.resolve(app.managedProcess.process) : this.#processes.identity(app.appId);
+	}
+
+	async #stopProcess(app: AppRecord): Promise<void> {
+		const identity = await this.#identity(app);
+		if (identity) await this.#processes.stop(app.appId, identity);
+	}
+
+	async readLog(projectId: string, appId: string, kilobytes = 32): Promise<string> {
+		const project = await this.options.store.require(projectId);
+		const app = this.#require(project.apps ?? {}, appId);
+		if (!app.managedProcess) throw new ServerError("bad_request", "Kemiri did not start this app and has no log for it.");
+		return this.#processes.tail(appId, Math.max(1, Math.min(128, kilobytes)) * 1024);
+	}
+
+	logPath(appId: string): string { return this.#processes.logPath(appId); }
 
 	async allow(projectId: string, appId: string, active: () => Promise<ActiveAppCheck>): Promise<ProjectApp> {
 		return this.#change(projectId, async document => {
 			const app = this.#require(document, appId);
-			if (app.state !== "pending") throw new ServerError("bad_request", "Only apps waiting for approval can be allowed.");
+			if (app.state !== "pending" || app.managedProcess?.starting) throw new ServerError("bad_request", "Only apps waiting for approval can be allowed.");
 			if (!(await active())(app)) throw new ServerError("bad_request", "This app's task or conversation is no longer active.");
 			const settings = this.options.settings();
 			if (settings.policy === "off") throw denied();
@@ -294,7 +469,20 @@ export class AgentApps {
 	async unpublish(projectId: string, appId: string, actor: AppPublisher | "owner"): Promise<ProjectApp> {
 		return this.#change(projectId, async document => {
 			const app = this.#require(document, appId);
+			if (app.managedProcess && actor !== "owner") throw new ServerError("bad_request", "Use app_stop for a managed app.");
+			await this.#stopProcess(app);
 			const changed = this.#stop(document, app, actor);
+			return { result: publishedApp(app), changed };
+		});
+	}
+
+	async stopApp(projectId: string, appId: string, actor: AppPublisher | "owner"): Promise<ProjectApp> {
+		return this.#change(projectId, async document => {
+			const app = this.#require(document, appId);
+			await this.#stopProcess(app);
+			const starting = app.managedProcess?.starting;
+			if (app.managedProcess) delete app.managedProcess.starting;
+			const changed = this.#stop(document, app, actor) || starting === true;
 			return { result: publishedApp(app), changed };
 		});
 	}
@@ -306,7 +494,10 @@ export class AgentApps {
 			if (!apps.length) return { result: undefined, changed: false };
 			const isActive = await active();
 			let changed = false;
-			for (const app of apps) if (!isActive(app)) changed = this.#stop(document, app, "cleanup") || changed;
+			for (const app of apps) if (!isActive(app)) {
+				await this.#stopProcess(app);
+				changed = this.#stop(document, app, "cleanup") || changed;
+			}
 			return { result: undefined, changed };
 		});
 	}

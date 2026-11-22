@@ -37,7 +37,7 @@
 	<Dialog.Trigger class="apps-chip" aria-label={`Running apps: ${appCountLabel(rows)}`}>{appCountLabel(rows)}</Dialog.Trigger>
 	<Dialog.Content class="max-h-[85dvh] gap-3 overflow-y-auto sm:max-w-3xl">
 		<Dialog.Title>Running apps</Dialog.Title>
-		<Dialog.Description>Stop removes the link from Kemiri. It does not stop the app’s process.</Dialog.Description>
+		<Dialog.Description>Stop app ends a process started by Kemiri and removes its link. Unpublish only removes the link.</Dialog.Description>
 		{#if rows.some(app => app.state === 'pending')}
 			<p class="text-sm text-(--chat-fg-muted)">Allow publishes that app and lets agents publish future apps in this project.</p>
 		{/if}
@@ -56,7 +56,7 @@
 					{@const title = tasks.find(task => task.id === app.taskId)?.title}
 					{@const task = app.taskId ? `${app.taskId}${title ? ` ${title}` : ''}` : 'No task'}
 					<li class="bg-(--chat-surface) p-3">
-						<PublishedAppRow {app} showDetails warning={false} detail={`${task} · published by ${publisher(app)} · ${age(app.createdAt)} · port ${app.port}`} update={action => apps!.current!.update(app.appId, action)} />
+						<PublishedAppRow {app} showDetails warning={false} detail={`${task} · published by ${publisher(app)} · ${age(app.createdAt)} · port ${app.port}`} readLog={() => apps!.current!.client.readAppLog(app.projectId, app.appId)} update={action => apps!.current!.update(app.appId, action)} />
 					</li>
 				{/each}
 				{#each detected as { port } (port)}

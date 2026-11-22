@@ -17,8 +17,8 @@ const origins = [before?.url.origin, after?.url.origin, ...(process.env.DEMO_ORI
 	.filter((origin): origin is string => origin !== undefined);
 const appAddresses: AppAddresses = process.env.DEMO_APP_ADDRESSES === 'tailscale-serve'
 	? { mode: 'tailscale-serve', ...DEFAULT_TAILSCALE_SERVE_RANGE }
-	: { mode: 'template', template: 'http://oven.example.test:{port}' };
-const setup = await createSetup({ allowedOrigins: origins, terminals: false, log: console.log, appTailscale: fakeTailscale().tailscale });
+	: { mode: 'template', template: process.env.DEMO_MANAGED === '1' ? 'http://127.0.0.1:{port}' : 'http://oven.example.test:{port}' };
+const setup = await createSetup({ reusePortOnRestart: true, allowedOrigins: origins, terminals: false, log: console.log, appTailscale: fakeTailscale().tailscale });
 const listener = Bun.serve({
 	hostname: '127.0.0.1', port: 0,
 	fetch: () => new Response('<h1>Bakery order form</h1><p>Sample orders only.</p>', { headers: { 'content-type': 'text/html' } }),
@@ -80,14 +80,31 @@ await apps.publish(projectId, { name: 'Receipt printer test page', port: receipt
 } }, runtime.activeApps);
 receipt.child.kill();
 await receipt.child.exited;
+const managed = process.env.DEMO_MANAGED === '1' ? await (async () => {
+	const slot = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() });
+	const port = slot.port!;
+	slot.stop(true);
+	const command = `exec '${process.execPath}' --no-env-file -e 'console.log("[bakery] Preparing the order form"); console.log("[bakery] Loaded 12 synthetic products"); console.log("[bakery] Listening on port ${port}"); Bun.serve({ hostname: "127.0.0.1", port: ${port}, fetch: () => new Response("<h1>Bakery order service</h1><p>Ready for sample orders.</p>", {headers: {"content-type":"text/html"}}) })'`;
+	return apps.startManaged(projectId, { port, command, name: 'Bakery order service', taskId: task.id }, { publisher: {
+		kind: 'coordinator', id: 'main', threadId: 'main', conversationId: runtime.conversation.id,
+	} }, runtime.activeApps);
+})() : undefined;
 await client.request({ type: 'apps.settings.set', settings: { addresses: appAddresses, policy: process.env.DEMO_APP_RECORD ? 'on' : 'ask' } });
 // For the recording, stop the order form process without using the app's Stop button.
 process.on('SIGUSR2', () => { listener.stop(true); });
-const fixture = { url: setup.server.url, projectId, taskId: task.id, port: listener.port, detectedPort: detected.port,
-	before: before?.url.origin, after: after?.url.origin, pid: process.pid };
-await Bun.write(process.env.DEMO_OUTPUT ?? '/tmp/apps-web-demo.json', JSON.stringify(fixture));
+let restarted = 0;
+const fixture = () => ({ url: setup.server.url, projectId, taskId: task.id, port: listener.port, detectedPort: detected.port,
+	before: before?.url.origin, after: after?.url.origin, pid: process.pid, managed, restarted });
+const saveFixture = () => Bun.write(process.env.DEMO_OUTPUT ?? '/tmp/apps-web-demo.json', JSON.stringify(fixture()));
+await saveFixture();
+process.on('SIGHUP', async () => {
+	await setup.restart();
+	restarted++;
+	await saveFixture();
+});
 console.log('Synthetic Bakery orders backend ready.');
 process.on('SIGTERM', async () => {
+	if (managed) await setup.server.manager.apps?.stopApp(projectId, managed.appId, 'owner').catch(() => undefined);
 	client.close(); listener.stop(true); detected.child.kill(); await detected.child.exited;
 	before?.stop(true); after?.stop(true); await setup.cleanup(); process.exit(0);
 });

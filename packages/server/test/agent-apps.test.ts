@@ -1,3 +1,8 @@
+import { stat, symlink } from "node:fs/promises";
+import { join } from "node:path";
+import { APP_LOG_LIMIT, ManagedAppProcesses } from "../src/managed-app-process.ts";
+import { appStartReceipt } from "../src/app-tools.ts";
+import { encodeProjectAppRegistry, readAppRegistry } from "../src/app-registry-document.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { BoardDoc } from "../src/board.ts";
 import { afterEach, expect, test } from "bun:test";
@@ -13,8 +18,8 @@ const faux = { provider: "faux", modelId: "faux-1" };
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const close of cleanup.splice(0)) close(); });
 
-async function fixture(features?: readonly string[]) {
-	const setup = await createSetup({ terminals: false, ...(features ? { features } : {}) });
+async function fixture(features?: readonly string[], options?: Parameters<typeof createSetup>[0]) {
+	const setup = await createSetup({ terminals: false, ...options, ...(features ? { features } : {}) });
 	const client = await TestClient.open(setup.server);
 	cleanup.push(() => client.close());
 	const hello = await client.request({ type: "hello", protocolVersion: 1, client: { name: "apps-test", features: ["apps"] } });
@@ -80,7 +85,7 @@ test("templates substitute only valid HTTP addresses, and agent instructions sta
 	for (const invalid of ["ftp://oven.example.test:{port}", "https://oven.example.test/", "https://oven.example.test/{port}", "https://user@oven.example.test:{port}", "https://oven.example.test:{port}?x={path}", "https://{path}.example.test:{port}"]) {
 		expect(() => validateAppSettings({ addresses: { mode: "template", template: invalid }, policy: "ask" })).toThrow("Use an HTTP or HTTPS address");
 	}
-	expect(appInstructions({ addresses: template, policy: "ask" })).toBe("Apps: this backend can publish an app you serve to the owner's devices. Serve on 0.0.0.0, then call app_publish with the port. Devices reach it at http://oven.example.test:PORT/; the app must accept the Host name oven.example.test. A localhost link only works on the server itself; never give one to the owner.");
+	expect(appInstructions({ addresses: template, policy: "ask" })).toBe("Apps: this backend can publish an app you serve to the owner's devices. Serve on 0.0.0.0, and use app_start with the command and port. Devices reach it at http://oven.example.test:PORT/; the app must accept the Host name oven.example.test. Managed apps survive backend service restarts when a user scope is available. A localhost link only works on the server itself; never give one to the owner.");
 	expect(appInstructions(DEFAULT_APP_SETTINGS)).toBe("Apps: No app address is configured on this backend. Attach screenshots or an HTML artifact instead. A localhost link only works on the server itself; never give one to the owner.");
 });
 
@@ -195,3 +200,146 @@ test("worker defaults to its task; forget and thread archive clean only unbound 
 	await until(async () => (await list(client, projectId)).some(app => app.publishedBy.kind === "thread" && app.state === "unpublished"));
 	expect((await list(client, projectId)).find(app => app.publishedBy.id === "orders")?.state).toBe("live");
 }, 20_000);
+
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const bunAppCommand = (code: string) => `exec ${quote(process.execPath)} --no-env-file -e ${quote(code)}`;
+function availableTestPort() {
+	const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+	const port = listener.port!;
+	listener.stop(true);
+	return port;
+}
+
+async function appAnswers(port: number) {
+	try { return (await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(500) })).ok; }
+	catch { return false; }
+}
+
+test("managed app reattaches after a backend restart, supplies logs and stops through the owner RPC", async () => {
+	const { setup, client, projectId, runtime, agent } = await fixture();
+	await client.request({ type: "apps.settings.set", settings: { addresses: template, policy: "on" } });
+	const apps = setup.server.manager.apps!;
+	const port = availableTestPort();
+	const appId = crypto.randomUUID();
+	try {
+		const command = bunAppCommand(`console.log("synthetic startup log"); Bun.serve({ hostname: "127.0.0.1", port: ${port}, fetch: () => new Response("Bakery ready") })`);
+		const app = await apps.startManaged(projectId, { port, command, name: "Bakery service" }, agent, runtime.activeApps, appId);
+		expect(app.state).toBe("live");
+		expect(app.managed).toBeDefined();
+		expect(await appAnswers(port)).toBe(true);
+		const doc = (await setup.server.manager.store.require(projectId)).apps!;
+		const prior = JSON.parse(JSON.stringify(encodeProjectAppRegistry({ apps: doc }))).apps;
+		expect(readAppRegistry(prior, projectId)?.records?.[0]?.managedProcess).toMatchObject({ command, cwd: setup.projectDir,
+			logPath: apps.logPath(appId), process: { pid: expect.any(Number), startTime: expect.any(String) } });
+		delete prior.records[0].managedProcess;
+		expect(readAppRegistry(prior, projectId)?.records?.[0]).toMatchObject({ appId, state: "live" });
+		client.close();
+		await setup.restart();
+		expect(await appAnswers(port)).toBe(true);
+		const reopened = await TestClient.open(setup.server);
+		try {
+			await reopened.hello();
+			expect(await list(reopened, projectId)).toMatchObject([{ appId, state: "live", managed: app.managed! }]);
+			expect(await reopened.request({ type: "apps.log", projectId, appId })).toMatchObject({ type: "apps.log", text: expect.stringContaining("synthetic startup log") });
+			expect(await reopened.request({ type: "apps.unpublish", projectId, appId })).toMatchObject({ type: "apps.unpublish", app: { state: "unpublished" } });
+			expect(await appAnswers(port)).toBe(false);
+		} finally { reopened.close(); }
+	} finally { await setup.server.manager.apps!.stopApp(projectId, appId, "owner").catch(() => undefined); }
+}, 15000);
+
+test("managed starts refuse a cwd that escapes through a symlink and return the log from an early exit", async () => {
+	const { setup, client, projectId, runtime, agent } = await fixture();
+	await client.request({ type: "apps.settings.set", settings: { addresses: template, policy: "on" } });
+	const apps = setup.server.manager.apps!;
+	const port = availableTestPort();
+	const command = bunAppCommand('console.error("synthetic early failure"); process.exit(3)');
+	await symlink(setup.root, join(setup.projectDir, "escape"));
+	await expect(apps.startManaged(projectId, { port, command, name: "Outside", cwd: "escape" }, agent, runtime.activeApps)).rejects.toThrow("inside this project");
+	await expect(apps.startManaged(projectId, { port, command, name: "Early failure" }, agent, runtime.activeApps)).rejects.toThrow("synthetic early failure");
+	expect(await appAnswers(port)).toBe(false);
+	expect((await apps.list(projectId)).every(app => app.state === "unpublished")).toBe(true);
+}, 12000);
+
+test("detached fallback checks start time before signaling and caps log files", async () => {
+	const { setup } = await fixture();
+	const processes = new ManagedAppProcesses(setup.dataDir, async () => undefined);
+	const id = crypto.randomUUID();
+	const command = bunAppCommand('console.log("l".repeat(1300000)); console.log("synthetic tail marker"); setInterval(() => {}, 5000)');
+	const owned = await processes.launch(id, command, setup.projectDir);
+	try {
+		expect(owned.unit).toBeUndefined();
+		await processes.stop(id, { ...owned, startTime: `${owned.startTime}:other` });
+		expect(await processes.alive(id, owned)).toBe(true);
+		await until(async () => (await processes.tail(id, 4096)).includes("synthetic tail marker"));
+		const size = (await stat(processes.logPath(id))).size + (await stat(`${processes.logPath(id)}.1`)).size;
+		expect(size).toBeLessThanOrEqual(APP_LOG_LIMIT);
+	} finally { await processes.stop(id, owned); }
+	expect(await processes.alive(id, owned)).toBe(false);
+}, 12000);
+
+test("pruning a stopped managed app removes its log; external stop never kills its listener", async () => {
+	let now = Date.now();
+	const { setup, client, projectId, runtime, agent } = await fixture(undefined, { now: () => now });
+	await client.request({ type: "apps.settings.set", settings: { addresses: template, policy: "on" } });
+	const apps = setup.server.manager.apps!;
+	const port = availableTestPort();
+	const command = bunAppCommand(`console.log("pruned log"); Bun.serve({ hostname: "127.0.0.1", port: ${port}, fetch: () => new Response("ready") })`);
+	const appId = crypto.randomUUID();
+	try {
+		const app = await apps.startManaged(projectId, { name: "Pruned", port, command }, agent, runtime.activeApps, appId);
+		const receipt = appStartReceipt(app, apps.logPath(appId));
+		if (!receipt.survivesRestart) expect(receipt.warning).toContain("will not survive");
+		await apps.reconcile(projectId, async () => () => false);
+		expect(await appAnswers(port)).toBe(false);
+		expect(await Bun.file(apps.logPath(appId)).exists()).toBe(true);
+		now += 86_400_001;
+		expect((await apps.list(projectId)).find(app => app.appId === appId)).toBeUndefined();
+		expect(await Bun.file(apps.logPath(appId)).exists()).toBe(false);
+	} finally { await apps.stopApp(projectId, appId, "owner").catch(() => undefined); }
+	const foreign = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("external") });
+	try {
+		const app = await apps.publish(projectId, { name: "External", port: foreign.port! }, agent, runtime.activeApps);
+		await apps.stopApp(projectId, app.appId, agent.publisher);
+		expect(await appAnswers(foreign.port!)).toBe(true);
+	} finally { foreign.stop(true); }
+}, 15000);
+
+test("slow listener and linked-workspace scans do not hold the project document update", async () => {
+	const { setup, projectId, runtime, agent } = await fixture();
+	const port = listen();
+	const listenerEntered = Promise.withResolvers<void>();
+	const listenerRelease = Promise.withResolvers<void>();
+	const workspaceEntered = Promise.withResolvers<void>();
+	const workspaceRelease = Promise.withResolvers<void>();
+	const outside = join(setup.root, "linked-synthetic-workspace");
+	const apps = new AgentApps({ store: setup.server.manager.store, settings: () => ({ addresses: template, policy: "on" }),
+		backendPort: () => setup.server.port, backendOrigins: () => [], changed: () => {},
+		listenerSource: { listeners: async () => {
+			listenerEntered.resolve(); await listenerRelease.promise;
+			return [{ address: "127.0.0.1", port, pids: [1234] }];
+		}, cwd: async () => outside, workspaces: async () => {
+			workspaceEntered.resolve(); await workspaceRelease.promise; return [outside];
+		} },
+	});
+	const reading = apps.listForOwner(projectId);
+	try {
+		await listenerEntered.promise;
+		const first = await Promise.race([apps.publish(projectId, { port, name: "First" }, agent, runtime.activeApps), Bun.sleep(600).then(() => null)]);
+		expect(first?.name).toBe("First");
+		listenerRelease.resolve();
+		await workspaceEntered.promise;
+		const laterPort = listen();
+		const second = await Promise.race([apps.publish(projectId, { port: laterPort, name: "Second" }, agent, runtime.activeApps), Bun.sleep(600).then(() => null)]);
+		expect(second?.name).toBe("Second");
+	} finally {
+		listenerRelease.resolve();
+		workspaceRelease.resolve();
+		await reading.catch(() => undefined);
+	}
+	expect((await reading).apps.map(app => [app.name, app.state])).toEqual([["Second", "live"], ["First", "live"]]);
+});
+
+test("app logs are not available to anonymous optional-mode connections", async () => {
+	const { client, projectId } = await fixture(undefined, { auth: { mode: "optional" } });
+	expect(await client.request({ type: "apps.log", projectId, appId: crypto.randomUUID() })).toMatchObject({ type: "error", error: { code: "auth_required" } });
+});

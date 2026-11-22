@@ -31,6 +31,7 @@ export const AppPublisherSchema = Type.Object({
 	conversationId: Type.Integer(),
 });
 export type AppPublisher = Static<typeof AppPublisherSchema>;
+export const ManagedAppStatusSchema = Type.Object({ survivesRestart: Type.Boolean() });
 export const ProjectAppSchema = Type.Object({
 	appId: Type.String(),
 	projectId: Type.String(),
@@ -45,6 +46,7 @@ export const ProjectAppSchema = Type.Object({
 	createdAt: Type.String(),
 	mode: Type.Union([Type.Literal("off"), Type.Literal("template"), Type.Literal("tailscale-serve")]),
 	addressMessage: Type.Optional(Type.String()),
+	managed: Type.Optional(ManagedAppStatusSchema),
 });
 export type ProjectApp = Static<typeof ProjectAppSchema>;
 
@@ -60,6 +62,10 @@ export const AppsAllowRequestSchema = Type.Object({ type: Type.Literal("apps.all
 export const AppsAllowResponseSchema = Type.Object({ type: Type.Literal("apps.allow"), id: Id, app: ProjectAppSchema });
 export const AppsUnpublishRequestSchema = Type.Object({ type: Type.Literal("apps.unpublish"), id: Id, projectId: Id, appId: Id });
 export const AppsUnpublishResponseSchema = Type.Object({ type: Type.Literal("apps.unpublish"), id: Id, app: ProjectAppSchema });
+export const AppsLogRequestSchema = Type.Object({ type: Type.Literal("apps.log"), id: Id, projectId: Id, appId: Id,
+	kilobytes: Type.Optional(Type.Integer({ minimum: 1, maximum: 128 })),
+});
+export const AppsLogResponseSchema = Type.Object({ type: Type.Literal("apps.log"), id: Id, text: Type.String() });
 export const AppsPublishDetectedRequestSchema = Type.Object({ type: Type.Literal("apps.publishDetected"), id: Id, projectId: Id, ...DetectedAppPortSchema.properties });
 export const AppsPublishDetectedResponseSchema = Type.Object({ type: Type.Literal("apps.publishDetected"), id: Id, app: ProjectAppSchema });
 export const AppsIgnoreDetectedRequestSchema = Type.Object({ type: Type.Literal("apps.ignoreDetected"), id: Id, projectId: Id, ...DetectedAppPortSchema.properties });

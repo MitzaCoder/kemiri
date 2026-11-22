@@ -33,6 +33,7 @@ export type TestSetup = {
 };
 
 type TestSetupOptions = {
+	reusePortOnRestart?: boolean;
 	appListenerSource?: StartServerOptions["appListenerSource"];
 	appTailscale?: StartServerOptions["appTailscale"];
 	antigravityCommand?: string;
@@ -125,6 +126,7 @@ async function startTestSetup(root: string, options?: TestSetupOptions): Promise
 	models.setProvider(faux.provider);
 	options?.configureModels?.(models);
 
+	let selectedPort = 0;
 	const start = (): Promise<HarnessServer> =>
 		startServer({
 			...(options?.appListenerSource === undefined ? {} : { appListenerSource: options.appListenerSource }),
@@ -133,7 +135,7 @@ async function startTestSetup(root: string, options?: TestSetupOptions): Promise
 			dataDir,
 			...(options?.updates === undefined ? {} : { updates: options.updates }),
 			auth: options?.auth ?? { mode: "off" },
-			port: 0,
+			port: selectedPort,
 			models,
 			credentials,
 			...(options?.antigravityCommand === undefined ? {} : { antigravityCommand: options.antigravityCommand }),
@@ -164,6 +166,7 @@ async function startTestSetup(root: string, options?: TestSetupOptions): Promise
 		});
 
 	let server = await start();
+	if (options?.reusePortOnRestart) selectedPort = server.port;
 	return {
 		root,
 		dataDir,

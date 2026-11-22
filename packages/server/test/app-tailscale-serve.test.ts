@@ -55,7 +55,7 @@ test("Tailscale status trims the name, checks the service account and sends exac
 		["tailscale", "serve", "status", "--json"], ["tailscale", "serve", "--https=27300", "off"],
 	]);
 	expect(parseServeStatus("null").occupied.size).toBe(0);
-	expect(appInstructions(settings, fake.hostname)).toContain(`Serve on 127.0.0.1, then call app_publish with the port. Devices reach it at https://${fake.hostname}:PORT-ASSIGNED/; the app must accept the Host name ${fake.hostname} (with the port) and is served over HTTPS.`);
+	expect(appInstructions(settings, fake.hostname)).toContain(`Serve on 127.0.0.1, and use app_start with the command and port. Devices reach it at https://${fake.hostname}:PORT-ASSIGNED/; the app must accept the Host name ${fake.hostname} (with the port) and is served over HTTPS.`);
 });
 
 test("the HTTPS range refuses reserved, own, reversed and oversized ranges", async () => {

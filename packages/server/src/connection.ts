@@ -99,7 +99,7 @@ export type ConnectionIO = {
 
 export type ClientConnectionOptions = {
 	userSettings?: UserSettingsStore;
-	deviceAuth?: { store: DeviceAuth; identity: Identity | undefined };
+	deviceAuth?: { store: DeviceAuth; identity: Identity | undefined; localOwner?: boolean };
 	manager: ProjectManager;
 	projectFiles: ProjectFiles | undefined;
 	fileWrites: ProjectFileWrites;
@@ -809,6 +809,14 @@ export class ClientConnection {
 					this.#respond({ type: "refs.details", id: request.id, details });
 					return;
 				}
+				case "apps.log": {
+					const apps = this.#manager.apps;
+					if (!apps || !this.#features.includes("apps")) return this.#unknownRequest(request);
+					const auth = this.#deviceAuth;
+					if (!auth?.identity && !(auth?.store.mode === "off" && auth.localOwner)) throw new DeviceAuthError("auth_required");
+					this.#respond({ type: request.type, id: request.id, text: await apps.readLog(request.projectId, request.appId, request.kilobytes) });
+					return;
+				}
 				case "apps.list":
 				case "apps.allow":
 				case "apps.publishDetected":
@@ -828,7 +836,7 @@ export class ClientConnection {
 						});
 						this.#respond({ type: request.type, id: request.id, app });
 					} else if (request.type === "apps.unpublish") {
-						this.#respond({ type: request.type, id: request.id, app: await apps.unpublish(request.projectId, request.appId, "owner") });
+						this.#respond({ type: request.type, id: request.id, app: await apps.stopApp(request.projectId, request.appId, "owner") });
 					} else {
 						const { runtime } = await this.#manager.open(request.projectId);
 						this.#respond({ type: request.type, id: request.id, app: await apps.allow(request.projectId, request.appId, runtime.activeApps) });

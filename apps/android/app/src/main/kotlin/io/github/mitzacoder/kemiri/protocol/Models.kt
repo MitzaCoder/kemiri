@@ -1684,6 +1684,11 @@ data class AppPublisher(
 )
 
 @Serializable
+data class ManagedAppStatus(
+    val `survivesRestart`: Boolean
+)
+
+@Serializable
 data class ProjectApp(
     val `appId`: String,
     val `projectId`: String,
@@ -1697,7 +1702,8 @@ data class ProjectApp(
     val `ownerPublished`: Boolean? = null,
     val `createdAt`: String,
     val `mode`: String,
-    val `addressMessage`: String? = null
+    val `addressMessage`: String? = null,
+    val `managed`: ManagedAppStatus? = null
 )
 
 @Serializable
@@ -1737,6 +1743,15 @@ data class AppsUnpublishRequest(
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `appId`: String
+)
+
+@Serializable
+data class AppsLogRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.log",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `appId`: String,
+    val `kilobytes`: Long? = null
 )
 
 @Serializable
@@ -1791,6 +1806,13 @@ data class AppsUnpublishResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "apps.unpublish",
     val `id`: String,
     val `app`: ProjectApp
+)
+
+@Serializable
+data class AppsLogResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "apps.log",
+    val `id`: String,
+    val `text`: String
 )
 
 @Serializable

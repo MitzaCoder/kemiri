@@ -699,6 +699,10 @@ export class HarnessClient {
 		return (await this.#call<Extract<Response, { type: "apps.allow" }>>({ type: "apps.allow", projectId, appId })).app;
 	}
 
+	async readAppLog(projectId: string, appId: string, kilobytes = 32): Promise<string> {
+		return (await this.#call<Extract<Response, { type: "apps.log" }>>({ type: "apps.log", projectId, appId, kilobytes })).text;
+	}
+
 	async unpublishApp(projectId: string, appId: string): Promise<ProjectApp> {
 		return (await this.#call<Extract<Response, { type: "apps.unpublish" }>>({ type: "apps.unpublish", projectId, appId })).app;
 	}

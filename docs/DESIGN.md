@@ -539,16 +539,29 @@ Each version-1 `project.json` holds optional app records, approval and the app a
 fields; an older release can still read the project. Serve records are stored as mode `off` with optional Serve
 fields so a pre-Serve release can read the row without advertising a link. That release does not remove Serve
 mappings; select another mode before rolling back if the links must be revoked. Publishing, approval and
-unpublishing record the app, task and publisher, and who made the change. Stop unpublishes but never stops the
-process. Only Serve mode can revoke a copied address by removing its mapping. A task that closes or archives loses its publications. For an app without a
+unpublishing record the app, task and publisher, and who made the change. Unpublish only removes the link when
+Kemiri did not start the process. Only Serve mode can revoke a copied address by removing its mapping. A task that closes or archives loses its publications. For an app without a
 task, forgetting its worker or archiving its thread does the same. An attached publication can outlast its worker.
 
 On Linux, the backend samples `ss -ltnpH` on list requests and about every 30 seconds for registries and observed
-projects. It never connects to a port to check liveness. If nothing listens on a published port, the app becomes
+projects. Listener and workspace probes run before taking the project document update lock. A stale scan does not
+apply to rows added or changed while it was running. It never connects to a port to check liveness. If nothing listens on a published port, the app becomes
 stopped and its link is disabled. If a listener returns within a day, the app becomes live again with its original
 address. Stopped and unpublished records and old activity are pruned after one day. A stopped record is stored as
 live plus an optional `stoppedAt` timestamp so rollback can still read the same version-1 record. Stage 1 does not
 interpret that timestamp. An unavailable listener scan leaves the previous app state intact and shows a note in the list.
+
+`app_start` runs a foreground command in the project or a workspace with the scrubbed child environment. It reserves
+an app record before starting, waits up to 30 seconds for HTTP on the selected port, then uses the same publishing
+policy and address selection. Terminals and apps share the user-scope probe. An app in a user scope survives backend
+service restarts; the detached process-group fallback does not survive service cgroup cleanup. A private optional
+record stores the command, working directory, log path and ownership (unit, PID, group and start time). Restart
+checks the same identity and marks it stopped if the process is gone. It cleans up starts interrupted before publish.
+Stop, task cleanup and pruning only signal a matching managed process; a recycled PID is not a match. An older
+release can still read the version-1 row but cannot manage the process. Stop managed apps before rolling back if they
+must not remain running. The app runner keeps stdout and stderr in two rolling files totaling at most 1 MiB; pruning
+the app deletes them. Running apps on web and Android offers a bounded log tail through the owner-only `apps.log`
+RPC and says whether Stop ends a process or only unpublishes a link.
 
 Listening sockets on loopback or a wildcard bind can be suggested when `/proc/<pid>/cwd` belongs to the project,
 its managed worker or thread checkout, or a linked Git or Jujutsu workspace. The backend excludes its own port,

@@ -81,7 +81,7 @@
 	<MemoryCallCard {part} {onopentopic} />
 {:else if boardView !== undefined}
 	<BoardCallCard {part} view={boardView} {onopenboard} />
-{:else if part.name === 'app_publish'}
+{:else if (part.name === 'app_publish' || part.name === 'app_start')}
 	<AppCallCard {part} {cwd} />
 {:else if part.name === ARTIFACT_SAVE_TOOL}
 	<ArtifactCallCard {part} />

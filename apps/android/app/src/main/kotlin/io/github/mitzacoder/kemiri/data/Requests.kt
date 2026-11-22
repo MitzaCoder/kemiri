@@ -240,6 +240,10 @@ suspend fun HarnessClient.request(value: AppsUnpublishRequest, explicitNulls: Se
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsUnpublishRequest.serializer(), value).jsonObject, explicitNulls), AppsUnpublishResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: AppsLogRequest, explicitNulls: Set<String> = emptySet()): AppsLogResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsLogRequest.serializer(), value).jsonObject, explicitNulls), AppsLogResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: AppsSettingsGetRequest, explicitNulls: Set<String> = emptySet()): AppsSettingsGetResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(AppsSettingsGetRequest.serializer(), value).jsonObject, explicitNulls), AppsSettingsGetResponse.serializer()
 )

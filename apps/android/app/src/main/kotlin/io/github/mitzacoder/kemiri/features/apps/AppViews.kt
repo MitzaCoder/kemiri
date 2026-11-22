@@ -8,6 +8,10 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,7 +40,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 
 internal fun appIdFromCall(part: ChatPart): String? {
-    if (part.name != "app_publish" || part.status != "done") return null
+    if (part.name !in setOf("app_publish", "app_start") || part.status != "done") return null
     return part.details.obj()?.get("app").obj()?.s("appId")?.takeIf { it.isNotBlank() }
         ?: runCatching { wireJson.parseToJsonElement(part.text).obj()?.s("appId")?.takeIf { it.isNotBlank() } }.getOrNull()
 }
@@ -85,7 +89,7 @@ internal fun RunningAppsChip(tasks: List<BoardTask>, modifier: Modifier = Modifi
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Text("Running apps", style = MaterialTheme.typography.titleLarge)
-                AppMeta("Stop removes the link from Kemiri. It does not stop the app’s process.")
+                AppMeta("Stop app ends a process started by Kemiri and removes its link. Unpublish only removes the link.")
             }
             item { AppWarning() }
             if (rows.any { it.state == "pending" }) item {
@@ -129,8 +133,11 @@ private fun PublishedApp(app: ProjectApp, detail: String? = null, feed: ProjectA
     val link = appLink(app)
     var qrOpen by rememberSaveable(link) { mutableStateOf(false) }
     var copied by remember(link) { mutableStateOf(false) }
+    var logsOpen by rememberSaveable(app.appId) { mutableStateOf(false) }
+    val management = app.managed?.let { "Started by Kemiri · " + if (it.survivesRestart) "survives restarts" else "does not survive service restarts" }
+    if (logsOpen && feed != null) AppLog(app, feed, onDismiss = { logsOpen = false })
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        AppRowDescription(app.name, listOfNotNull(appStateLabel(app), detail).joinToString(" · "), app.state, link)
+        AppRowDescription(app.name, listOfNotNull(appStateLabel(app), management, detail).joinToString(" · "), app.state, link)
         if (app.state == "live") app.addressMessage?.let { AppMeta(it) }
         if (link != null || feed != null) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (link != null) {
@@ -146,10 +153,15 @@ private fun PublishedApp(app: ProjectApp, detail: String? = null, feed: ProjectA
                     OutlinedButton(onClick = { qrOpen = !qrOpen }) { Text(if (qrOpen) "Hide QR" else "QR") }
                 }
             }
+            if (showDetails && feed != null && app.managed != null) OutlinedButton(onClick = { logsOpen = true }) { Text("Logs") }
             if (feed != null && app.state != "unpublished") {
                 if (showDetails && app.state == "pending") OutlinedButton(enabled = !action.busy, onClick = { action.run { feed.allow(app.appId) } }) { Text("Allow") }
                 OutlinedButton(enabled = !action.busy, onClick = { action.run { feed.remove(app.appId) } }) {
-                    if (app.state == "stopped") Text("Remove") else Text("Stop", color = Jarvis.colors.danger)
+                    when {
+                        app.state == "stopped" -> Text("Remove")
+                        app.managed != null -> Text("Stop app", color = Jarvis.colors.danger)
+                        else -> Text("Unpublish")
+                    }
                 }
             }
         }
@@ -161,6 +173,28 @@ private fun PublishedApp(app: ProjectApp, detail: String? = null, feed: ProjectA
         if (link != null && warning) AppWarning()
         action.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.danger) }
     }
+}
+
+@Composable
+private fun AppLog(app: ProjectApp, feed: ProjectAppsFeed, onDismiss: () -> Unit) {
+    var refresh by remember { mutableIntStateOf(0) }
+    var log by remember { mutableStateOf<String?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(app.appId, refresh) {
+        problem = null
+        try { log = feed.log(app.appId) }
+        catch (cause: CancellationException) { throw cause }
+        catch (cause: Exception) { problem = cause.message ?: "Could not load the app log." }
+    }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("${app.name} logs") }, text = {
+        Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+            SelectionContainer {
+                Text(problem ?: log?.ifBlank { "No output yet." } ?: "Loading log…", fontFamily = FontFamily.Monospace,
+                    color = if (problem == null) Jarvis.colors.fg else Jarvis.colors.danger)
+            }
+        }
+    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = { refresh++ }) { Text("Refresh log") } })
 }
 
 @Composable

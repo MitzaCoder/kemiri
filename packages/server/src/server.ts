@@ -298,6 +298,7 @@ type SocketData = {
 	identity?: Identity;
 	timer?: ReturnType<typeof setTimeout>;
 	preAuth?: boolean;
+	localOwner?: boolean;
 };
 
 export async function startServer(options: StartServerOptions): Promise<HarnessServer> {
@@ -846,7 +847,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		}
 		const connection = new ClientConnection({
 			...connectionOptions,
-			deviceAuth: { store: auth, identity: ws.data.identity },
+			deviceAuth: { store: auth, identity: ws.data.identity, localOwner: ws.data.localOwner === true },
 			artifactUrls: { signer: artifactSigner, origin: ws.data.origin },
 			io: {
 				send: (message) => {
@@ -967,6 +968,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 					origin: required ? backendOrigin : requestOrigin(request),
 					source: peer,
 					preAuth: true,
+					localOwner: !trusted && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer) && loopback.includes(backendOrigin) &&
+						![...request.headers.keys()].some(name => name === "forwarded" || name.startsWith("x-forwarded-")),
 				};
 				if (bunServer.upgrade(request, { data })) {
 					pendingHandshakes++;

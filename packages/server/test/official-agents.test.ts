@@ -314,7 +314,7 @@ test("official workers can update only their own task and retain only files insi
 		await s.submit();
 		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
 		const events = await fixtureEvents(s.setup.dataDir);
-		expect(events).toContainEqual({ event: "mcp-tools", tools: ["app_list", "app_publish", "app_unpublish", "artifact_save", "task_progress"] });
+		expect(events).toContainEqual({ event: "mcp-tools", tools: ["app_list", "app_publish", "app_start", "app_stop", "app_unpublish", "artifact_save", "task_progress"] });
 		const calls = Object.fromEntries(events.filter(e => e.event === "mcp-call").map(e => [e.label, e]));
 		for (const label of ["spoof-progress", "unlisted", "outside", "symlink", "spoof-artifact"]) expect(calls[label]?.failed).toBe(true);
 		for (const label of ["outside", "symlink"]) expect(calls[label]?.content[0].text).toContain("must resolve inside");
@@ -364,7 +364,7 @@ test("an unassigned official worker gets artifact and app tools but loses its gr
 	try {
 		await s.submit();
 		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
-		expect(await fixtureEvents(s.setup.dataDir)).toContainEqual({ event: "mcp-tools", tools: ["app_list", "app_publish", "app_unpublish", "artifact_save"] });
+		expect(await fixtureEvents(s.setup.dataDir)).toContainEqual({ event: "mcp-tools", tools: ["app_list", "app_publish", "app_start", "app_stop", "app_unpublish", "artifact_save"] });
 		const grant = grants.mock.results[0]?.value as OfficialAgentMcpGrant | undefined;
 		expect(await bridgeStatus(grant)).toBe(200);
 		await s.submit("Forget the worker.");

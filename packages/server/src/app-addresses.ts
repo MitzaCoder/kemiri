@@ -14,7 +14,7 @@ function templateUrl(template: string, port: number, path: string): URL {
 const addressModes = {
 	"tailscale-serve": {
 		address: () => null, // The registry allocates the HTTPS port before resolving an address.
-		instructions: (hostname: string) => `Serve on 127.0.0.1, then call app_publish with the port. Devices reach it at https://${hostname}:PORT-ASSIGNED/; the app must accept the Host name ${hostname} (with the port) and is served over HTTPS.`,
+		instructions: (hostname: string) => `Serve on 127.0.0.1, and use app_start with the command and port. Devices reach it at https://${hostname}:PORT-ASSIGNED/; the app must accept the Host name ${hostname} (with the port) and is served over HTTPS.`,
 	},
 	off: {
 		address: () => null,
@@ -27,7 +27,7 @@ const addressModes = {
 			const example = templateUrl(template, samplePort, "/");
 			const host = example.hostname.replaceAll(String(samplePort), "PORT");
 			const url = example.href.replaceAll(String(samplePort), "PORT");
-			return `Serve on 0.0.0.0, then call app_publish with the port. Devices reach it at ${url}; the app must accept the Host name ${host}.`;
+			return `Serve on 0.0.0.0, and use app_start with the command and port. Devices reach it at ${url}; the app must accept the Host name ${host}.`;
 		},
 	},
 };
@@ -45,7 +45,7 @@ export function appInstructions(settings: AppSettings, hostname = "HOST"): strin
 	const localhost = "A localhost link only works on the server itself; never give one to the owner.";
 	if (addresses.mode === "off") return `Apps: ${addressModes.off.instructions()} ${localhost}`;
 	if (settings.policy === "off") return `Apps: agents may not publish apps on this backend. Attach screenshots or an HTML artifact instead. ${localhost}`;
-	return `Apps: this backend can publish an app you serve to the owner's devices. ${addresses.mode === "tailscale-serve" ? addressModes[addresses.mode].instructions(hostname) : addressModes.template.instructions(addresses.template)} ${localhost}`;
+	return `Apps: this backend can publish an app you serve to the owner's devices. ${addresses.mode === "tailscale-serve" ? addressModes[addresses.mode].instructions(hostname) : addressModes.template.instructions(addresses.template)} Managed apps survive backend service restarts when a user scope is available. ${localhost}`;
 }
 
 export function validateAppSettings(settings: AppSettings, backendPort?: number): AppSettings {

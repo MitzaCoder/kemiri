@@ -31,6 +31,7 @@ import {
 import { ServerError, errorMessage } from "./errors.ts";
 import { childEnvironment } from "./child-environment.ts";
 import { serverSettings } from "./server-settings.ts";
+import { scopeCommand, UserScopeProbe, userRuntimeDirectory } from "./user-scopes.ts";
 
 export type TerminalMultiplexer = "zellij" | "none";
 
@@ -112,7 +113,6 @@ const ZELLIJ_RENDER_CURSOR_HIDE = "\x1b[?25l";
 const DEFAULT_PENDING_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_FLUSH_MS = 8;
 const COMMAND_TIMEOUT_MS = 8_000;
-const SCOPE_PROBE_TTL_MS = 60_000;
 
 /** The variables a terminal must not inherit: this server's own settings and its service manager's. */
 const SCRUBBED_ENV = [/^ZELLIJ/, /^INVOCATION_ID$/, /^JOURNAL_STREAM$/, /^NOTIFY_SOCKET$/, /^SYSTEMD_EXEC_PID$/];
@@ -143,7 +143,7 @@ export class TerminalHost {
 	readonly limits: TerminalLimits;
 	readonly #attachments = new Set<TerminalAttachment>();
 	#opening: Promise<unknown> = Promise.resolve();
-	#scope: { at: number; usable: boolean } | undefined;
+	readonly #scope: UserScopeProbe;
 	#stopped = false;
 
 	constructor(options: TerminalHostOptions = {}) {
@@ -157,6 +157,8 @@ export class TerminalHost {
 		this.#pendingLimit = options.pendingLimitBytes ?? DEFAULT_PENDING_LIMIT;
 		this.#flushMs = options.flushMs ?? DEFAULT_FLUSH_MS;
 		this.#log = options.log ?? (() => undefined);
+		this.#scope = new UserScopeProbe(() => this.#env(), (command, timeout) => this.#run(command, timeout), reason =>
+			this.#log(`terminals: systemd-run --user --scope does not work here (${reason}); sessions will not survive a restart`));
 		this.limits = {
 			perConnection: options.maxPerConnection ?? 8,
 			perServer: options.maxPerServer ?? 16,
@@ -242,12 +244,7 @@ export class TerminalHost {
 	}
 
 	#runtimeDir(): string | undefined {
-		const configured = this.#baseEnv.XDG_RUNTIME_DIR;
-		if (configured !== undefined && configured.length > 0) return configured;
-		const uid = process.getuid?.();
-		if (uid === undefined) return undefined;
-		const dir = `/run/user/${uid}`;
-		return existsSync(dir) ? dir : undefined;
+		return userRuntimeDirectory(this.#baseEnv.XDG_RUNTIME_DIR);
 	}
 
 	async #run(command: string[], timeoutMs = COMMAND_TIMEOUT_MS): Promise<CommandResult> {
@@ -306,17 +303,7 @@ export class TerminalHost {
 	/** Whether `systemd-run --user --scope` works from here: a running user manager and the tool. Cached for a minute. */
 	async #canMoveOutOfService(): Promise<boolean> {
 		if (this.#survive === "off") return false;
-		const now = Date.now();
-		if (this.#scope !== undefined && now - this.#scope.at < SCOPE_PROBE_TTL_MS) return this.#scope.usable;
-		const systemdRun = Bun.which("systemd-run", { PATH: this.#env().PATH ?? "" });
-		let usable = false;
-		if (systemdRun !== null && this.#runtimeDir() !== undefined) {
-			const probe = await this.#run([systemdRun, "--user", "--scope", "--quiet", "--collect", "--", "true"], 5_000);
-			usable = probe.code === 0;
-			if (!usable) this.#log(`terminals: systemd-run --user --scope does not work here (${probe.stderr.trim().slice(0, 160)}); sessions will not survive a restart`);
-		}
-		this.#scope = { at: now, usable };
-		return usable;
+		return (await this.#scope.binary()) !== undefined;
 	}
 
 	/** Every session zellij knows: running ones and exited ones it can resurrect. */
@@ -417,7 +404,7 @@ export class TerminalHost {
 		if (!availability.survivesRestart) return command;
 		const systemdRun = Bun.which("systemd-run", { PATH: this.#env().PATH ?? "" });
 		if (systemdRun === null) return command;
-		return [systemdRun, "--user", "--scope", "--quiet", "--collect", "--description=aiki terminal session", "--", ...command];
+		return scopeCommand(systemdRun, command, { description: "aiki terminal session" });
 	}
 
 	#newSessionName(prefix: string | undefined, known: readonly SessionListing[]): string {
