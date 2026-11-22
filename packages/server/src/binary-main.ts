@@ -15,9 +15,9 @@ export async function runBinaryEntry(args = process.argv.slice(2)): Promise<void
 	if (args[0] === OFFICIAL_AGENT_MCP_COMMAND) return runServerEntry(undefined, args);
 	if (args[0] === "--kemiri-version") { console.log(`Kemiri ${packagedResources.release?.name ?? "development"}\nBun ${Bun.version}`); return; }
 	if (installedCliRequested(args)) return runInstalledCli(args);
-	const loaded = loadServerEnv();
-	const settings = { ...loaded, KEMIRI_WEB_DIR: loaded.KEMIRI_WEB_DIR || "embedded" };
 	const [command = "start", ...rest] = args;
+	const loaded = loadServerEnv(undefined, { readOnly: command === "tailscale" });
+	const settings = { ...loaded, KEMIRI_WEB_DIR: loaded.KEMIRI_WEB_DIR || "embedded" };
 	if (command === "version" || command === "--version") {
 		console.log(`Kemiri ${packagedResources.release?.name ?? "development"}\nBun ${Bun.version}`);
 	} else if (command === "status" || command === "health-check") {
@@ -37,12 +37,13 @@ export async function runBinaryEntry(args = process.argv.slice(2)): Promise<void
 			if (type === "server.status") console.log(command === "status" ? `Running at ${result.loopbackOrigin}` : JSON.stringify(result));
 		}
 	} else if (command === "auth") await runServerEntry(settings, ["auth", ...rest]);
+	else if (command === "tailscale") await runServerEntry(settings, ["tailscale", ...rest]);
 	else if (command === "pair") await runServerEntry(settings, ["auth", "pair", "--local", ...rest]);
 	else if (command === "start" || command === "--print-config") {
 		const config = resolvedServerConfig(settings);
 		if (command === "start") console.log(`Kemiri data: ${config.dataDir}\nKemiri config: ${config.configDir}`);
 		await runServerEntry(settings, command === "start" ? rest : args);
-	} else throw new Error("Usage: kemiri start|status|health-check|version|pair|auth [arguments]\nInstaller lifecycle commands are provided by the installed launcher.");
+	} else throw new Error("Usage: kemiri start|status|health-check|version|pair|auth|tailscale status [arguments]\nInstaller lifecycle commands are provided by the installed launcher.");
 }
 
 if (import.meta.main) {

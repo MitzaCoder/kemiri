@@ -1484,6 +1484,15 @@ Remote `pair` is explicit network enable via `--backend` (must already be allowe
 `<loopbackOrigin>/pair#bootstrap=<aiki_b1 secret>` (bundled UI not shipped; trusted hosted UI can use explicit route).
 Only CLI displays secrets, never service journal. Local channel commands never expose hashes/session tokens.
 
+`kemiri tailscale status [--json]` is a read-only preflight for the owner, run as the backend's OS account
+with the same private settings. It skips env-file migration and opens any auth database read-only. It shares
+readiness and exact mapping ownership checks with agent apps. It shows HTTPS mappings and foreign Serve ports
+in the active App addresses range, not host listener availability. The allowlist check shows the standard HTTPS
+origin, the backend's configured port and existing root HTTPS routes to its loopback target. Only the chosen
+backend origin needs to be allowed. The command also checks IPv4 loopback trust for Serve and notes that issued
+certificates put machine names in public transparency logs. JSON has `version: 1` and the same checks and fixes.
+A completed diagnostic exits 0 even when it finds missing items; it never enables Serve or issues a certificate.
+
 Updated legacy clients persist pending claim proofs, register via HTTP, display comparison codes and poll. Owner reviews
 fixed `migration list` inventory (ID/code/label/platform/first/last-seen/coarse source), approves **exact IDs** under durable
 batch ID. Same batch+ordered IDs retry is idempotent; altered set rejected. Poll/ack is identical to pairing. Each backend

@@ -173,6 +173,9 @@ for binary in "$KEMIRI_INSTALL_DIR/current/kemiri" "$KEMIRI_INSTALL_DIR/current/
 		exec "$binary" "$@"
 	fi
 done
+if [ "\${1-}" = tailscale ]; then
+	export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+fi
 exec ${shellQuote(join(root, `runtime/bun-${BUN_VERSION}/bin/bun`))} "$KEMIRI_INSTALL_DIR/current/scripts/aiki.ts" "$@"
 `;
 }
@@ -250,7 +253,7 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			KEMIRI_UPDATE_CHANNEL: installation.channel || releaseChannel(installation.version),
 		} : {}),
 		...(normalizeEnvironment(process.env).KEMIRI_PORT ? { KEMIRI_PORT: normalizeEnvironment(process.env).KEMIRI_PORT } : {}),
-	});
+	}, { readOnly: command === "tailscale" });
 	const port = settings.KEMIRI_PORT || "7317";
 	if (command !== "auth" && command !== "pair" && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) throw new Error("KEMIRI_PORT must be 1–65535");
 	const url = `http://127.0.0.1:${port}`;
@@ -270,6 +273,8 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			// Explicit env-file/data settings identify this installation even in an agent child shell.
 			await installedServerEntry(root, settings, ["auth", ...rest]); break;
 		}
+		case "tailscale":
+			await installedServerEntry(root, settings, ["tailscale", ...rest]); break;
 		case "health-check":
 			await installedServerEntry(root, settings, ["auth", "health-check", JSON.stringify({ type: "server.status", id: "installed-health" })]); break;
 		case "open":
@@ -352,7 +357,7 @@ export async function runInstalledCli(args: string[]): Promise<void> {
 			}
 			console.log(rest[1] === "1" ? "Uninstalled and purged Kemiri data/config. Repositories were not touched." : "Uninstalled. Data and config kept. Re-run the installer to reinstall."); break;
 		}
-		default: console.log("Usage: kemiri start|open|pair|auth|status|update|rollback|version|doctor|service install|remove\nSee docs/INSTALL.md. Stop Kemiri before updating or rolling back.");
+		default: console.log("Usage: kemiri start|open|pair|auth|status|update|rollback|version|doctor|tailscale status|service install|remove\nSee docs/INSTALL.md. Stop Kemiri before updating or rolling back.");
 	}
 }
 if (import.meta.main) {

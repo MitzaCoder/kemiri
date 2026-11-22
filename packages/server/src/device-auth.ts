@@ -1,4 +1,5 @@
 /** Durable backend-local owner authentication; no network identity is inferred from a name or address. */
+import type { Environment } from "./data-dir.ts";
 import { serverSettings } from "./server-settings.ts";
 import { Database } from "bun:sqlite";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -106,6 +107,28 @@ export type AuthOptions = {
 	trustedProxies?: readonly string[];
 	controlSocket?: boolean;
 };
+function configuredBackendOrigins(env: Environment): string[] | undefined {
+	return env.KEMIRI_BACKEND_ORIGINS?.split(",").filter(Boolean) ??
+		(env.KEMIRI_PUBLIC_URL ? [new URL(env.KEMIRI_PUBLIC_URL).origin] : undefined);
+}
+
+/** Read the active allowlist last saved by auth, without initializing auth state or a delivery key. */
+export function readAllowedBackendOrigins(dataDir: string, env: Environment): string[] {
+	const file = join(dataDir, "auth.sqlite");
+	if (existsSync(file)) {
+		const db = new Database(file, { readonly: true });
+		try {
+			const row = db.query<{ hosts: string }, []>("SELECT json_extract(state, '$.hosts') AS hosts FROM auth WHERE id=1").get();
+			if (row) {
+				const hosts: unknown = JSON.parse(row.hosts);
+				if (!Array.isArray(hosts) || !hosts.every(host => typeof host === "string")) throw new Error("Invalid auth hosts");
+				return hosts;
+			}
+		} finally { db.close(); }
+	}
+	return (configuredBackendOrigins(env) ?? []).map(validateBackendOrigin);
+}
+
 export class DeviceAuth {
 	readonly db: Database;
 	readonly #key: Buffer;
@@ -150,10 +173,7 @@ export class DeviceAuth {
 				};
 		const override = options.mode ?? serverSettings.KEMIRI_AUTH_MODE;
 		if (override !== undefined) this.#state.mode = mode(override);
-		const origins =
-			options.backendOrigins ??
-			serverSettings.KEMIRI_BACKEND_ORIGINS?.split(",").filter(Boolean) ??
-			(serverSettings.KEMIRI_PUBLIC_URL ? [new URL(serverSettings.KEMIRI_PUBLIC_URL).origin] : undefined);
+		const origins = options.backendOrigins ?? configuredBackendOrigins(serverSettings);
 		if (origins) this.#state.hosts = [...new Set(origins.map(validateBackendOrigin))];
 		const keyFile = join(dir, "auth.delivery-key");
 		if (!existsSync(keyFile)) writeFileSync(keyFile, randomBytes(32), { mode: 0o600, flag: "wx" });

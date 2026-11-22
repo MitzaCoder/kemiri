@@ -63,7 +63,7 @@ test("server settings cannot bypass the private configuration through native env
 	expect(nativeAccess).toEqual({
 		"agent-execution-env.ts": ['env: childEnvironment({ ...(options?.inheritEnv === false ? {} : process.env), ...options?.env }),'],
 		"child-environment.ts": ['env: Readonly<Record<string, string | undefined>> = process.env,'],
-		"server-env.ts": ['export function loadServerEnv(env: Readonly<Record<string, string | undefined>> = process.env): Record<string, string | undefined> {'],
+		"server-env.ts": ['export function loadServerEnv(env: Environment = process.env, { readOnly = false } = {}): Record<string, string | undefined> {'],
 		"server-settings.ts": [
 			'export let serverSettings: Readonly<Record<string, string | undefined>> = new Proxy(process.env, { get: (env, name) => typeof name === "string" ? environmentSetting(env, name) : Reflect.get(env, name) });',
 			'for (const name of Object.keys(process.env)) if (privateSetting(name)) delete process.env[name];',

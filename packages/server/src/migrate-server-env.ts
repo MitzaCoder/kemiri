@@ -1,6 +1,14 @@
 import { copyFileSync, constants, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
+/** The same precedence applies to migrated files and read-only inspection. */
+export function canonicalServerEnvSettings(parsed: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+	return Object.fromEntries(Object.entries(parsed).map(([name, value]) => {
+		const canonical = name.replace(/^AIKI_/, "KEMIRI_");
+		return [canonical, parsed[canonical] ?? value];
+	}));
+}
+
 /** Only the selected private env file is migrated. Never log values or overwrite its original backup. */
 export function migrateServerEnv(file: string, source = readFileSync(file, "utf8"), log: (message: string) => void = console.error): string {
 	const parsed = parseEnv(source);
@@ -28,11 +36,7 @@ export function migrateServerEnv(file: string, source = readFileSync(file, "utf8
 		assignment.lastIndex = end;
 	}
 	rewritten += source.slice(cursor);
-	const expected: Record<string, string> = {};
-	for (const [name, value] of Object.entries(parsed)) {
-		const canonical = name.replace(/^AIKI_/, "KEMIRI_");
-		expected[canonical] = parsed[canonical] ?? value!;
-	}
+	const expected = canonicalServerEnvSettings(parsed);
 	const actual = parseEnv(rewritten);
 	if (JSON.stringify(Object.entries(expected).sort()) !== JSON.stringify(Object.entries(actual).sort())) throw new Error("Server env migration refused: values would change");
 	const temporary = `${file}.incoming-${process.pid}`;

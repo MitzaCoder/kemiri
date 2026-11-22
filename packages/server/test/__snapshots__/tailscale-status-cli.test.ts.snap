@@ -1,0 +1,126 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`reports exact ownership, foreign conflicts and allowed vs missing origins in versioned JSON 1`] = `
+{
+  "appAddresses": {
+    "check": {
+      "message": "tailscale-serve; HTTPS ports 47300–47319.",
+      "status": "ok",
+    },
+    "mode": "tailscale-serve",
+    "portRange": {
+      "endPort": 47319,
+      "startPort": 47300,
+    },
+  },
+  "backendOrigins": {
+    "candidates": [
+      {
+        "check": {
+          "message": "Allowed.",
+          "status": "ok",
+        },
+        "origin": "https://vm.example-tailnet.ts.net",
+      },
+      {
+        "check": {
+          "message": "Allowed.",
+          "status": "ok",
+        },
+        "origin": "https://vm.example-tailnet.ts.net:444",
+      },
+      {
+        "check": {
+          "message": "If this is the backend address, run kemiri auth hosts allow https://vm.example-tailnet.ts.net:7317",
+          "status": "missing",
+        },
+        "origin": "https://vm.example-tailnet.ts.net:7317",
+      },
+    ],
+    "check": null,
+  },
+  "backendPort": 7317,
+  "certificateTransparency": "Machine names appear in public certificate transparency logs once HTTPS certificates are issued.",
+  "https": {
+    "message": "HTTPS certificates are enabled.",
+    "status": "ok",
+  },
+  "installed": {
+    "message": "Tailscale is installed.",
+    "status": "ok",
+  },
+  "magicDns": {
+    "check": {
+      "message": "MagicDNS: vm.example-tailnet.ts.net",
+      "status": "ok",
+    },
+    "hostname": "vm.example-tailnet.ts.net",
+  },
+  "operator": {
+    "backendUser": "example-service",
+    "check": {
+      "message": "The backend account has Serve permission.",
+      "status": "ok",
+    },
+  },
+  "running": {
+    "message": "Tailscale is running.",
+    "status": "ok",
+  },
+  "serve": {
+    "check": {
+      "message": "Current HTTPS mappings:",
+      "status": "ok",
+    },
+    "httpsMappings": [
+      {
+        "hostname": "vm.example-tailnet.ts.net",
+        "httpsPort": 443,
+        "ownership": "foreign",
+        "path": "/",
+        "target": "http://127.0.0.1:47100",
+      },
+      {
+        "hostname": "vm.example-tailnet.ts.net",
+        "httpsPort": 444,
+        "ownership": "foreign",
+        "path": "/",
+        "target": "http://127.0.0.1:7317",
+      },
+      {
+        "hostname": "vm.example-tailnet.ts.net",
+        "httpsPort": 47300,
+        "ownership": "kemiri",
+        "path": "/",
+        "target": "http://127.0.0.1:47800",
+      },
+      {
+        "hostname": "vm.example-tailnet.ts.net",
+        "httpsPort": 47301,
+        "ownership": "foreign",
+        "path": "/",
+        "target": "http://127.0.0.1:47809",
+      },
+    ],
+    "rangeConflicts": {
+      "check": {
+        "message": "Foreign Serve configuration occupies app-range ports 47301, 47302. Set Tailscale HTTPS and a free port range in the backend’s Advanced settings under App addresses.",
+        "status": "warning",
+      },
+      "ports": [
+        47301,
+        47302,
+      ],
+    },
+  },
+  "trustedLoopback": {
+    "check": {
+      "message": "IPv4 loopback is trusted for Serve.",
+      "status": "ok",
+    },
+    "ipv4": true,
+    "ipv6": false,
+  },
+  "version": 1,
+}
+`;

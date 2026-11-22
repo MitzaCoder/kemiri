@@ -18,6 +18,17 @@ export function isAppServeMapping(mapping: unknown, appPort?: number): mapping i
 		(appPort === undefined || targetPort === appPort);
 }
 
+const ownershipFile = (dataDir: string) => join(dataDir, "app-serve-ownership.json");
+
+export async function readAppServeOwnership(dataDir: string): Promise<ServeOwnership[]> {
+	const saved = await readJsonFile(ownershipFile(dataDir));
+	if (saved === undefined) return [];
+	if (!Array.isArray(saved) || !saved.every(owner => isAppServeMapping(owner) &&
+		typeof (owner as ServeOwnership).projectId === "string" && typeof (owner as ServeOwnership).appId === "string") ||
+		new Set(saved.map(owner => owner.httpsPort)).size !== saved.length) throw new Error("Cannot read Kemiri’s Serve ownership list.");
+	return saved;
+}
+
 function owns(owner: ServeOwnership, app: AppRecord): boolean {
 	return owner.projectId === app.projectId && owner.appId === app.appId && owner.target === loopbackTarget(app.port);
 }
@@ -30,18 +41,9 @@ function keptBy(owner: ServeOwnership, app: AppRecord): boolean {
 /** The journal is written before Serve. A CLI success followed by a crash must not leave an untracked mapping. */
 export class AppServeMappings {
 	readonly file: string;
-	constructor(dataDir: string, readonly tailscale: TailscaleServe, readonly backendPort: () => number,
+	constructor(readonly dataDir: string, readonly tailscale: TailscaleServe, readonly backendPort: () => number,
 		readonly backendOrigins: () => readonly string[], readonly log: (message: string) => void) {
-		this.file = join(dataDir, "app-serve-ownership.json");
-	}
-
-	async #readOwnership(): Promise<ServeOwnership[]> {
-		const saved = await readJsonFile(this.file);
-		if (saved === undefined) return [];
-		if (!Array.isArray(saved) || !saved.every(owner => isAppServeMapping(owner) &&
-			typeof (owner as ServeOwnership).projectId === "string" && typeof (owner as ServeOwnership).appId === "string") ||
-			new Set(saved.map(owner => owner.httpsPort)).size !== saved.length) throw new Error("Cannot read Kemiri’s Serve ownership list.");
-		return saved;
+		this.file = ownershipFile(dataDir);
 	}
 
 	/** The caller serializes operations across projects from journal read through app record commit. */
@@ -53,7 +55,7 @@ export class AppServeMappings {
 			const unavailable = serveUnavailable(readiness);
 			if (unavailable || !readiness.hostname) throw new Error(unavailable ?? "Enable MagicDNS in the Tailscale admin console under DNS.");
 			const hostname = readiness.hostname;
-			const ownership = await this.#readOwnership();
+			const ownership = await readAppServeOwnership(this.dataDir);
 			const serveStatus = await this.tailscale.serveStatus();
 			const recorded = app.serveMapping && ownership.find(owner => keptBy(owner, app));
 			if (!recorded) delete app.serveMapping;
@@ -99,7 +101,7 @@ export class AppServeMappings {
 	}
 
 	async removeOrphans(apps: readonly AppRecord[], enabled: boolean): Promise<void> {
-		const ownership = await this.#readOwnership();
+		const ownership = await readAppServeOwnership(this.dataDir);
 		let remaining = ownership;
 		for (const owner of ownership) {
 			if (enabled && apps.some(app => keptBy(owner, app))) continue;

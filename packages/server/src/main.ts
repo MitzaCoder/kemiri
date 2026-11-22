@@ -9,6 +9,10 @@ export async function runServerEntry(
 	args: readonly string[] = process.argv.slice(2),
 ): Promise<void> {
 	if (args[0] === OFFICIAL_AGENT_MCP_COMMAND) return runOfficialAgentMcpCommand(serverSettings);
+	if (args[0] === "tailscale") {
+		const { runTailscaleCli } = await import("./tailscale-status-cli.ts");
+		return runTailscaleCli(args.slice(1), settings ?? loadServerEnv(undefined, { readOnly: true }));
+	}
 	configureServerSettings(settings ?? loadServerEnv());
 	if (args.includes("--print-config")) {
 		console.log(JSON.stringify(resolvedServerConfig(), null, 2));

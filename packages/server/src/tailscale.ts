@@ -11,7 +11,8 @@ const runCommand: TailscaleCommand = (file, args) => new Promise(resolve => {
 });
 
 export type ServeMapping = { hostname: string; httpsPort: number; target: string };
-export type ServeStatus = { occupied: ReadonlySet<number>; matches(mapping: ServeMapping): boolean };
+export type ServeHttpsRoute = { hostname: string | null; httpsPort: number; path: string | null; target: string };
+export type ServeStatus = { occupied: ReadonlySet<number>; httpsRoutes: readonly ServeHttpsRoute[]; matches(mapping: ServeMapping): boolean };
 export function validServePort(port: number, backendPort?: number): boolean {
 	return Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 8443 && port !== backendPort;
 }
@@ -36,11 +37,30 @@ export function parseServeStatus(stdout: string): ServeStatus {
 	const config = stdout.trim() === "No serve config" ? {} : jsonObject(stdout);
 	const occupied = new Set<number>();
 	const conflicting = new Set<number>();
+	const httpsRoutes: ServeHttpsRoute[] = [];
 	const tcp = object(config.TCP) ?? {};
 	const web = object(config.Web) ?? {};
 	const authorityPort = (authority: string) => Number(authority.match(/:(\d+)$/)?.[1]);
 	// Include foreground sessions and Funnel in collision checks, but never claim them.
 	function collect(config: Record<string, unknown>, foreign: boolean) {
+		const transports = object(config.TCP) ?? {};
+		const sites = object(config.Web) ?? {};
+		for (const [port, transport] of Object.entries(transports)) {
+			if (object(transport)?.HTTPS !== true) continue;
+			const httpsPort = Number(port);
+			const firstRoute = httpsRoutes.length;
+			for (const [authority, site] of Object.entries(sites)) {
+				if (authorityPort(authority) !== httpsPort) continue;
+				const hostname = authority.slice(0, authority.lastIndexOf(":"));
+				for (const [path, handler] of Object.entries(object(object(site)?.Handlers) ?? {})) {
+					const fields = object(handler);
+					const target = typeof fields?.Proxy === "string" ? fields.Proxy :
+						typeof fields?.Path === "string" ? fields.Path : typeof fields?.Text === "string" ? "inline text" : "unknown target";
+					httpsRoutes.push({ hostname, httpsPort, path, target });
+				}
+			}
+			if (httpsRoutes.length === firstRoute) httpsRoutes.push({ hostname: null, httpsPort, path: null, target: "no web route" });
+		}
 		for (const [key, fields] of Object.entries(config)) {
 			if (fields === null) continue;
 			const entries = object(fields);
@@ -59,7 +79,9 @@ export function parseServeStatus(stdout: string): ServeStatus {
 		}
 	}
 	collect(config, false);
-	return { occupied, matches({ hostname, httpsPort, target }) {
+	httpsRoutes.sort((a, b) => a.httpsPort - b.httpsPort || (a.hostname ?? "").localeCompare(b.hostname ?? "") ||
+		(a.path ?? "").localeCompare(b.path ?? "") || a.target.localeCompare(b.target));
+	return { occupied, httpsRoutes, matches({ hostname, httpsPort, target }) {
 		const authority = `${hostname}:${httpsPort}`;
 		const transport = object(tcp[String(httpsPort)]);
 		const site = object(web[authority]);
@@ -77,10 +99,14 @@ export class TailscaleServe {
 
 	operatorFix(): string {
 		const flag = `--operator=${this.account().username}`;
-		return `Grant the backend account Serve permission: sudo tailscale set ${flag} (or add "${flag}" to services.tailscale.extraSetFlags on NixOS).`;
+		return `Grant the backend account Serve permission: sudo tailscale set ${flag} (on NixOS, set services.tailscale.extraSetFlags = [ "${flag}" ] in the system configuration).`;
 	}
 
 	async status(): Promise<TailscaleAppStatus> {
+		return (await this.inspectReadiness()).status;
+	}
+
+	async inspectReadiness() {
 		const result = await this.run("tailscale", ["status", "--json"]);
 		const installed = result.error !== "ENOENT";
 		let status: Record<string, unknown> = {};
@@ -95,18 +121,25 @@ export class TailscaleServe {
 			typeof domain === "string" && domain.replace(/\.$/, "").toLowerCase() === hostname);
 		const account = this.account();
 		let operator = running && account.uid === 0;
+		let operatorKnown = operator;
 		if (running && !operator) {
 			const prefs = await this.run("tailscale", ["debug", "prefs"]);
-			try { operator = !prefs.error && jsonObject(prefs.stdout).OperatorUser === account.username; } catch { /* Cannot confirm permission. */ }
+			try {
+				if (!prefs.error) {
+					operator = jsonObject(prefs.stdout).OperatorUser === account.username;
+					operatorKnown = true;
+				}
+			} catch { /* Cannot confirm permission. */ }
 		}
 		const statusLine = (ok: boolean, message: string) => ({ ok, message });
-		return { hostname: magicDns ? hostname : null,
+		const readiness: TailscaleAppStatus = { hostname: magicDns ? hostname : null,
 			installed: statusLine(installed, installed ? "Tailscale is installed." : "Install Tailscale: https://tailscale.com/download."),
 			running: statusLine(running, running ? "Tailscale is running." : "Start tailscaled, then run tailscale up and sign in to the tailnet."),
 			magicDns: statusLine(magicDns, magicDns ? `MagicDNS: ${hostname}` : "Enable MagicDNS in the Tailscale admin console under DNS."),
 			https: statusLine(https, https ? "HTTPS certificates are enabled." : "Enable HTTPS Certificates in the Tailscale admin console under DNS."),
 			operator: statusLine(operator, operator ? "The backend account has Serve permission." : this.operatorFix()),
 		};
+		return { status: readiness, backendUser: account.username, operatorKnown };
 	}
 
 	async serveStatus(): Promise<ServeStatus> {

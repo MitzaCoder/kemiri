@@ -12,6 +12,7 @@ Kemiri runs your agents and tools as **your user**, with your filesystem access 
 Each person installs their own backend. This experimental installer is for Linux and macOS, x64/arm64; Windows
 users run it inside WSL. There is no Node fallback. Fresh data starts with device sign-in **required**. This installer
 keeps loopback binding; network/Tailscale HTTPS setup is separate. Do not forward the port or expose it casually.
+Run `kemiri tailscale status` as the backend account to check Tailscale HTTPS setup without changing it.
 
 ## Upgrading existing installations
 
