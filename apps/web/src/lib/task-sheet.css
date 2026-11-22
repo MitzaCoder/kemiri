@@ -16,7 +16,10 @@
 [data-task-sheet] [data-task-refs] {
 	max-width: 42rem;
 }
+[data-task-sheet] .task-body-viewport { container-type: size; }
 [data-task-sheet] [data-task-body] {
+	/* Leave room for the strip and filters within the scrollport, not the whole window. */
+	--inline-media-slide-height-limit: max(10rem, calc(100cqh - 8rem));
 	padding: clamp(1.15rem, 3cqw, 2.25rem) var(--task-page-gutter) max(2rem, env(safe-area-inset-bottom));
 }
 [data-task-sheet] [data-task-reply] {

@@ -20,6 +20,9 @@
 	const model = createTaskViewModel(() => props, () => sheet);
 	const { task, taskId, loading } = $derived(model);
 	const { component: Design, sheetClass } = $derived(taskViewDesignPreference.current);
+	const coordinatorMessageCount = $derived(task && props.peerLinks
+		? props.peerMessages?.messages.filter(message => message.taskId === task.id).length ?? 0
+		: 0);
 
 	$effect(() => {
 		if (!sheet) return;
@@ -75,20 +78,20 @@
 			{/if}
 		{:else}
 			{#key task.id}<TaskCoordinatorRow {task} board={model.board} />{/key}
-			<Design {model} {editor} />
-			{#if props.peerMessages && props.peerLinks && props.peerMessages.messages.some(message => message.taskId === task.id)}
-				<div class="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-(--chat-border)">
-					<div class="task-reading mx-auto">
-						<ThreadMessagesFeed messages={props.peerMessages.messages} links={props.peerLinks} loaded={props.peerMessages.loaded} error={props.peerMessages.error} taskId={task.id} />
-					</div>
-				</div>
-			{/if}
+			<Design {model} {editor} coordinatorMessages={coordinatorMessageCount ? { count: coordinatorMessageCount, content: coordinatorMessages } : undefined} />
 		{/if}
 		{#if props.onquote}
 			<SelectionQuote scope={model.quoteScope} onquote={quote} />
 		{/if}
 	</Dialog.Content>
 </Dialog.Root>
+
+{#snippet coordinatorMessages()}
+	{#if task && props.peerMessages && props.peerLinks}
+		<ThreadMessagesFeed messages={props.peerMessages.messages} links={props.peerLinks} loaded={props.peerMessages.loaded}
+			error={props.peerMessages.error} taskId={task.id} showHeading={false} />
+	{/if}
+{/snippet}
 
 {#snippet editor()}
 	{#if task}

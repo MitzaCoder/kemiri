@@ -53,7 +53,7 @@ export function questionAnswers(question: Pick<BoardQuestion, 'kind' | 'choices'
 	return { kind: 'options', options: question.kind === 'warning' ? [] : question.options } as const;
 }
 
-const recordFoldDefaults = { checks: false, request: true, decided: false, activity: false } as const;
+const recordFoldDefaults = { checks: false, request: true, decided: false, coordinatorMessages: false, activity: false } as const;
 export type TaskRecordRow = keyof typeof recordFoldDefaults;
 
 type FoldStorage = Pick<Storage, 'getItem' | 'setItem'>;

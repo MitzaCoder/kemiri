@@ -7,6 +7,8 @@ export type TaskViewDesignProps = {
 	model: TaskViewModel;
 	/** Render this in place of the usual body when model.editing is true. */
 	editor: Snippet;
+	/** Task-linked correspondence, rendered inside the design's record. */
+	coordinatorMessages?: { count: number; content: Snippet };
 };
 
 export type TaskViewDesign = {

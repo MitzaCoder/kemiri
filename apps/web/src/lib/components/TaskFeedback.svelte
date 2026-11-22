@@ -6,9 +6,9 @@
 	import { feedbackStateWords, sortedFeedback } from '#lib/task-relations.js';
 	import { markdownText, type BoardFeedback } from '@kemiri/protocol';
 
-	let { entries, openCount, busy, problem, onset, threadName }: {
+	let { entries, loading, busy, problem, onset, threadName }: {
 		entries: readonly BoardFeedback[];
-		openCount: number;
+		loading: boolean;
 		busy: boolean;
 		problem?: string;
 		onset: (entry: BoardFeedback, state: 'dismissed' | 'open') => void;
@@ -39,7 +39,10 @@
 {/snippet}
 
 {#if problem}<p class="text-(--chat-danger)" role="alert">{problem}</p>
-{:else if sorted.length === 0 && openCount > 0}<p class="text-(--chat-fg-muted)" role="status">Loading notes…</p>{/if}
+{:else if sorted.length === 0}
+	{#if loading}<p class="text-(--chat-fg-muted)" role="status">Loading notes…</p>
+	{:else}<p class="text-(--chat-fg-muted)">No notes to show.</p>{/if}
+{/if}
 {#if sorted.length > 0}
 	<ul data-feedback>
 		{#each sorted as entry (entry.id)}

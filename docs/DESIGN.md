@@ -3246,7 +3246,8 @@ an open sheet without reloading, and other tabs on the same origin follow the st
 Add a web design component and register its ID, label, description, component and optional `sheetClass` in
 `apps/web/src/lib/task-view/designs.ts`. The shell is full-window unless the design docks or narrows it with
 `sheetClass`. It owns the dialog, loading and missing states, the editor snippet and selection quoting.
-Designs own their header, body and reply layout. Each gets the same reactive model from `model.svelte.ts`:
+Designs own their header, body and reply layout. The shell passes task-linked coordinator messages as a counted
+snippet; each design places it inside its scrollable record, never below the reply. Each gets the same reactive model from `model.svelte.ts`:
 use its derived task fields, actions and shared timeline read rather than fetching them again. Put
 `TaskViewDesignMenu` in the header, render the supplied `editor` snippet when `model.editing` is true, and
 register the quotable region and reply focus target with the model.
@@ -6462,15 +6463,20 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   subscription shares, separate API-key payments, worker and thread costs by model, and estimation notes. Old
   backends show no line. Board cards are unchanged.
 - **Your notes.** Feedback stays in the scrollable body, with the stored answer under each entry as Markdown.
-  Addressed and dismissed entries start folded and can be reopened; active entries can be dismissed.
+  On web the board's note count can reveal the section, but only a pending timeline read shows Loading notes.
+  An empty read shows No notes to show; a failed read shows its error. Addressed and dismissed entries start
+  folded and can be reopened; active entries can be dismissed.
 - **Files.** On web and Android, tasks with artifacts have a section directly after What you get, outside
   the record folds and the About column. The existing Files view shows HTML page cards, the media gallery
   (including before/after comparison and tag editing), and rows for Markdown, text and other files.
-  All open the existing viewers. The task feed requests all files linked to that task, without a date or
+  In Classic on web the inline preview is capped to the available body height, leaving room for the gallery
+  controls in short sheets. Full-screen media keeps its own layout. All open the existing viewers.
+  The task feed requests all files linked to that task, without a date or
   type filter. The default project feed and explicit list limits still cap their results.
 - **The record.** The request comes first and starts open (D104). “Done when” renders flat semicolon- or
   newline-separated criteria as a list and retains existing Markdown lists. Checks follows when available on
-  `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. Checks, Decided,
+  `task-fields` backends. Each check shows its pass/fail mark, name, and optional count and note. On web,
+  Coordinator messages shows a count and links into the original chats. Checks, Decided, Coordinator messages,
   and Activity start closed. Each row's open choice is stored independently in this browser. Activity contains timeline
   events (including worker events) and snapshot history. Snapshots retain typed blocks alongside their mirrors,
   including proof versions. Web history reports additions, removals and reordering of blocks separately from text.

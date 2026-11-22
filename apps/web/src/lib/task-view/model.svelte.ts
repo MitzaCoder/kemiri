@@ -192,6 +192,8 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		return () => { cancelled = true; };
 	});
 
+	const feedbackLoading = $derived(timelineReadKey !== undefined && timelineEntries === undefined && timelineError === undefined);
+
 	async function setFeedback(entry: BoardFeedback, state: 'dismissed' | 'open'): Promise<void> {
 		if (board === undefined || task === undefined || feedbackBusy) return;
 		feedbackBusy = true;
@@ -323,6 +325,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		get delivery() { return delivery; },
 		get timelineError() { return timelineError; },
 		get feedbackEntries() { return feedbackEntries; },
+		get feedbackLoading() { return feedbackLoading; },
 		get feedbackBusy() { return feedbackBusy; },
 		get feedbackProblem() { return feedbackProblem; },
 		get artifacts() { return artifacts; },

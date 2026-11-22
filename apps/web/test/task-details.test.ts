@@ -116,11 +116,12 @@ describe('record folds', () => {
 	test('the request is the first record row and the only one open without a saved choice', async () => {
 		const sheet = await Bun.file(new URL('../src/lib/components/task-view/ClassicTaskView.svelte', import.meta.url)).text();
 		const record = sheet.slice(sheet.indexOf('<section aria-label="The record">'), sheet.indexOf('<aside class="task-about"'));
-		expect(Array.from(record.matchAll(/<TaskRecordFold row="(\w+)"/g), match => match[1])).toEqual(['request', 'checks', 'decided', 'activity']);
+		expect(Array.from(record.matchAll(/<TaskRecordFold row="(\w+)"/g), match => match[1])).toEqual(['request', 'checks', 'decided', 'coordinatorMessages', 'activity']);
 		const emptyStorage = { getItem: () => null, setItem: () => {} };
 		expect(readTaskRecordFold('request', emptyStorage)).toBe(true);
 		expect(readTaskRecordFold('checks', emptyStorage)).toBe(false);
 		expect(readTaskRecordFold('decided', emptyStorage)).toBe(false);
+		expect(readTaskRecordFold('coordinatorMessages', emptyStorage)).toBe(false);
 		expect(readTaskRecordFold('activity', emptyStorage)).toBe(false);
 	});
 
@@ -129,10 +130,12 @@ describe('record folds', () => {
 		const storage = { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => { saved.set(key, value); } };
 		saveTaskRecordFold('request', false, storage);
 		saveTaskRecordFold('activity', true, storage);
+		saveTaskRecordFold('coordinatorMessages', true, storage);
 		saveTaskRecordFold('checks', true, storage);
 		expect(readTaskRecordFold('request', storage)).toBe(false);
 		expect(readTaskRecordFold('checks', storage)).toBe(true);
 		expect(readTaskRecordFold('activity', storage)).toBe(true);
+		expect(readTaskRecordFold('coordinatorMessages', storage)).toBe(true);
 		expect(readTaskRecordFold('decided', storage)).toBe(false);
 	});
 

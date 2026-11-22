@@ -49,7 +49,7 @@
 	import RouteReportSection from './route/RouteReportSection.svelte';
 	import './route/route.css';
 
-	let { model, editor }: TaskViewDesignProps = $props();
+	let { model, editor, coordinatorMessages }: TaskViewDesignProps = $props();
 	const { task, projectId, backend, fields, needsYou, supportsLinks, requestedId, taskFieldsEnabled } = $derived(model);
 	const hasResults = $derived(task && hasReportSection(task.report, 'results'));
 	const nextPlacement = $derived(task && taskNextPlacement(task.report, needsYou?.review ?? false));
@@ -308,7 +308,7 @@
 {/snippet}
 
 {#snippet taskNotes()}
-	{#if task}<TaskFeedback entries={model.feedbackEntries} openCount={openFeedbackCount(task)} busy={model.feedbackBusy}
+	{#if task}<TaskFeedback entries={model.feedbackEntries} loading={model.feedbackLoading} busy={model.feedbackBusy}
 		problem={model.feedbackProblem ?? model.timelineError} onset={model.setFeedback} threadName={model.threadName} />{/if}
 {/snippet}
 
@@ -369,6 +369,11 @@
 								<time class="route-quiet" datetime={row.at}>{exactTime(row.at)}</time>
 							</details>
 						{/each}
+					</TaskRecordFold>
+				{/if}
+				{#if coordinatorMessages}
+					<TaskRecordFold row="coordinatorMessages" title="Coordinator messages" count={coordinatorMessages.count}>
+						{@render coordinatorMessages.content()}
 					</TaskRecordFold>
 				{/if}
 				{#if supportsLinks || task.snapshots || model.taskWorkers.length || model.now}

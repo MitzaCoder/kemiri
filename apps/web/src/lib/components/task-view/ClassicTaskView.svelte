@@ -41,11 +41,11 @@
 	import TaskViewDesignMenu from './TaskViewDesignMenu.svelte';
 	import type { TaskViewDesignProps } from '#lib/task-view/designs.js';
 
-	let { model, editor }: TaskViewDesignProps = $props();
+	let { model, editor, coordinatorMessages }: TaskViewDesignProps = $props();
 	const {
 		task, backend, projectId, board, tasks, previousTask, requestedId, editing, waitingForm, confirmDrop, closing, problem,
 		needsYou, taskFieldsEnabled, fields, blockers, liveNow, news, staleReport, failedChecks, artifacts,
-		supportsLinks, feedbackEntries, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
+		supportsLinks, feedbackEntries, feedbackLoading, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
 		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks,
 	} = $derived(model);
 	const nextPlacement = $derived(task && taskNextPlacement(task.report, task.status === 'review'));
@@ -99,7 +99,7 @@
 		{/if}
 	</header>
 
-	<div class="relative flex min-h-0 flex-1 flex-col">
+	<div class="task-body-viewport relative flex min-h-0 flex-1 flex-col">
 		<div use:registerQuoteScope data-navigation-scroll="task-body" use:overlayScroll={'parent'}
 			class="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-task-body>
 			{#key model.viewTaskKey}
@@ -198,7 +198,7 @@
 							{#if supportsLinks && (feedbackEntries.length || openFeedbackCount(task) || feedbackProblem || timelineError)}
 								<section class="task-reading-section" aria-label="Your notes">
 									<h2 class="task-detail-heading">Your notes</h2>
-									<TaskFeedback entries={feedbackEntries} openCount={openFeedbackCount(task)} busy={feedbackBusy}
+									<TaskFeedback entries={feedbackEntries} loading={feedbackLoading} busy={feedbackBusy}
 										problem={feedbackProblem ?? timelineError} onset={model.setFeedback} threadName={model.threadName} />
 								</section>
 							{/if}
@@ -250,6 +250,11 @@
 												</li>
 											{/each}
 										</ul>
+									</TaskRecordFold>
+								{/if}
+								{#if coordinatorMessages}
+									<TaskRecordFold row="coordinatorMessages" title="Coordinator messages" count={coordinatorMessages.count}>
+										{@render coordinatorMessages.content()}
 									</TaskRecordFold>
 								{/if}
 								{#if supportsLinks || task.snapshots || taskWorkers.length || now}

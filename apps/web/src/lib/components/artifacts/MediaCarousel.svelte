@@ -337,7 +337,7 @@
 	.carousel {
 		container-type: inline-size;
 		--slide-w: 84cqw;
-		--slide-h: min(max(18rem, 48cqw), 60dvh);
+		--slide-h: min(max(18rem, 48cqw), 60dvh, var(--inline-media-slide-height-limit, 100dvh));
 		--slide-gap: 0.75rem;
 		border-radius: 1rem;
 		outline: none;

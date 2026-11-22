@@ -3,15 +3,15 @@
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import { threadMessageStatus, type ThreadMessageLinks } from '#lib/thread-messages.js';
-	let { messages, links, loaded, error, taskId }: { messages: readonly ThreadMessage[]; links: ThreadMessageLinks; loaded: boolean; error: boolean; taskId?: string } = $props();
+	let { messages, links, loaded, error, taskId, showHeading = true }: { messages: readonly ThreadMessage[]; links: ThreadMessageLinks; loaded: boolean; error: boolean; taskId?: string; showHeading?: boolean } = $props();
 	const rows = $derived(taskId ? messages.filter(message => message.taskId === taskId) : messages);
 	let visible = $state(6);
 	const clock = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 	const date = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 </script>
 
-<section class="peer-feed" aria-label={taskId ? 'Coordinator messages' : 'Between coordinators'}>
-	<h3 class="text-sm font-semibold">{taskId ? 'Coordinator messages' : 'Between coordinators'}</h3>
+<section class="peer-feed" class:standalone={showHeading} aria-label={showHeading ? (taskId ? 'Coordinator messages' : 'Between coordinators') : undefined}>
+	{#if showHeading}<h3 class="text-sm font-semibold">{taskId ? 'Coordinator messages' : 'Between coordinators'}</h3>{/if}
 	{#if error}
 		<p class="mt-2 text-xs text-(--chat-fg-muted)" role="status">Could not read coordinator messages.</p>
 	{:else if !loaded && !rows.length}
@@ -46,5 +46,6 @@
 </section>
 
 <style>
-	.peer-feed { padding: .75rem; min-width: 0; background: var(--chat-bg); }
+	.peer-feed { min-width: 0; }
+	.peer-feed.standalone { padding: .75rem; background: var(--chat-bg); }
 </style>
