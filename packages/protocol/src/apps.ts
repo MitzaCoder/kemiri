@@ -2,7 +2,20 @@ import { Type, type Static } from "typebox";
 
 const AddressOffSchema = Type.Object({ mode: Type.Literal("off") });
 const AddressTemplateSchema = Type.Object({ mode: Type.Literal("template"), template: Type.String({ minLength: 1, maxLength: 2048 }) });
-export const AppAddressesSchema = Type.Union([AddressOffSchema, AddressTemplateSchema]);
+const AddressTailscaleServeSchema = Type.Object({ mode: Type.Literal("tailscale-serve"), startPort: Type.Integer(), endPort: Type.Integer() });
+export const AppAddressesSchema = Type.Union([AddressOffSchema, AddressTemplateSchema, AddressTailscaleServeSchema]);
+export const DEFAULT_TAILSCALE_SERVE_RANGE = { startPort: 47300, endPort: 47319 } as const;
+
+const TailscaleStatusLineSchema = Type.Object({ ok: Type.Boolean(), message: Type.String() });
+const TailscaleAppStatusSchema = Type.Object({
+	hostname: Type.Union([Type.String(), Type.Null()]),
+	installed: TailscaleStatusLineSchema,
+	running: TailscaleStatusLineSchema,
+	magicDns: TailscaleStatusLineSchema,
+	https: TailscaleStatusLineSchema,
+	operator: TailscaleStatusLineSchema,
+});
+export type TailscaleAppStatus = Static<typeof TailscaleAppStatusSchema>;
 export const AppSettingsSchema = Type.Object({
 	addresses: AppAddressesSchema,
 	policy: Type.Union([Type.Literal("off"), Type.Literal("ask"), Type.Literal("on")]),
@@ -30,7 +43,8 @@ export const ProjectAppSchema = Type.Object({
 	publishedBy: AppPublisherSchema,
 	ownerPublished: Type.Optional(Type.Boolean()),
 	createdAt: Type.String(),
-	mode: Type.Union([Type.Literal("off"), Type.Literal("template")]),
+	mode: Type.Union([Type.Literal("off"), Type.Literal("template"), Type.Literal("tailscale-serve")]),
+	addressMessage: Type.Optional(Type.String()),
 });
 export type ProjectApp = Static<typeof ProjectAppSchema>;
 
@@ -51,7 +65,7 @@ export const AppsPublishDetectedResponseSchema = Type.Object({ type: Type.Litera
 export const AppsIgnoreDetectedRequestSchema = Type.Object({ type: Type.Literal("apps.ignoreDetected"), id: Id, projectId: Id, ...DetectedAppPortSchema.properties });
 export const AppsIgnoreDetectedResponseSchema = Type.Object({ type: Type.Literal("apps.ignoreDetected"), id: Id });
 export const AppsSettingsGetRequestSchema = Type.Object({ type: Type.Literal("apps.settings.get"), id: Id });
-export const AppsSettingsGetResponseSchema = Type.Object({ type: Type.Literal("apps.settings.get"), id: Id, settings: AppSettingsSchema });
+export const AppsSettingsGetResponseSchema = Type.Object({ type: Type.Literal("apps.settings.get"), id: Id, settings: AppSettingsSchema, tailscale: Type.Optional(TailscaleAppStatusSchema) });
 export const AppsSettingsSetRequestSchema = Type.Object({ type: Type.Literal("apps.settings.set"), id: Id, settings: AppSettingsSchema });
 export const AppsSettingsSetResponseSchema = Type.Object({ type: Type.Literal("apps.settings.set"), id: Id, settings: AppSettingsSchema });
 export const AppsChangedEventSchema = Type.Object({ type: Type.Literal("apps.changed"), projectId: Id });

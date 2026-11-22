@@ -2,6 +2,8 @@
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
 import { join } from 'node:path';
 import { createSetup, errorOf, TestClient, ViewClient } from '../test/support.ts';
+import { DEFAULT_TAILSCALE_SERVE_RANGE, type AppAddresses } from '@kemiri/protocol';
+import { fakeTailscale } from '../test/fake-tailscale.ts';
 import { serveWeb } from '../src/static-web.ts';
 
 const beforeDirectory = process.env.DEMO_BEFORE_WEB;
@@ -13,7 +15,10 @@ const before = web(beforeDirectory);
 const after = web(afterDirectory);
 const origins = [before?.url.origin, after?.url.origin, ...(process.env.DEMO_ORIGINS ?? '').split(',').filter(Boolean)]
 	.filter((origin): origin is string => origin !== undefined);
-const setup = await createSetup({ allowedOrigins: origins, terminals: false, log: console.log });
+const appAddresses: AppAddresses = process.env.DEMO_APP_ADDRESSES === 'tailscale-serve'
+	? { mode: 'tailscale-serve', ...DEFAULT_TAILSCALE_SERVE_RANGE }
+	: { mode: 'template', template: 'http://oven.example.test:{port}' };
+const setup = await createSetup({ allowedOrigins: origins, terminals: false, log: console.log, appTailscale: fakeTailscale().tailscale });
 const listener = Bun.serve({
 	hostname: '127.0.0.1', port: 0,
 	fetch: () => new Response('<h1>Bakery order form</h1><p>Sample orders only.</p>', { headers: { 'content-type': 'text/html' } }),
@@ -34,8 +39,7 @@ const task = await runtime.board.saveTask({ task: {
 const sampleFile = join(setup.projectDir, 'bakery-order-notes.txt');
 await Bun.write(sampleFile, 'Sample order: one rye loaf.');
 await setup.server.artifacts.save({ projectId, sourcePath: sampleFile, taskId: task.id, threadId: 'main', workerId: null });
-const template = 'http://oven.example.test:{port}';
-await client.request({ type: 'apps.settings.set', settings: { addresses: { mode: 'template', template }, policy: 'on' } });
+await client.request({ type: 'apps.settings.set', settings: { addresses: appAddresses, policy: 'on' } });
 setup.faux.setResponses(Array.from({ length: 40 }, () => request => {
 	const last = request.messages.findLast(message => message.role !== 'system');
 	const content = last?.content;
@@ -76,7 +80,7 @@ await apps.publish(projectId, { name: 'Receipt printer test page', port: receipt
 } }, runtime.activeApps);
 receipt.child.kill();
 await receipt.child.exited;
-await client.request({ type: 'apps.settings.set', settings: { addresses: { mode: 'template', template }, policy: 'ask' } });
+await client.request({ type: 'apps.settings.set', settings: { addresses: appAddresses, policy: process.env.DEMO_APP_RECORD ? 'on' : 'ask' } });
 // For the recording, stop the order form process without using the app's Stop button.
 process.on('SIGUSR2', () => { listener.stop(true); });
 const fixture = { url: setup.server.url, projectId, taskId: task.id, port: listener.port, detectedPort: detected.port,

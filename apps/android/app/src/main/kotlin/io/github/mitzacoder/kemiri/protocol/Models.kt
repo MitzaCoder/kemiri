@@ -1654,6 +1654,7 @@ data class UnknownAppAddresses(override val raw: JsonObject) : AppAddresses, Unk
 object AppAddressesSerializer : UnionSerializer<AppAddresses>("AppAddresses", "mode", mapOf(
     "off" to AppAddressesOff.serializer(),
     "template" to AppAddressesTemplate.serializer(),
+    "tailscale-serve" to AppAddressesTailscaleServe.serializer(),
 ), { it.`mode` }, ::UnknownAppAddresses)
 
 @Serializable
@@ -1665,6 +1666,13 @@ data class AppAddressesOff(
 data class AppAddressesTemplate(
     @kotlinx.serialization.EncodeDefault override val `mode`: String = "template",
     val `template`: String
+) : AppAddresses
+
+@Serializable
+data class AppAddressesTailscaleServe(
+    @kotlinx.serialization.EncodeDefault override val `mode`: String = "tailscale-serve",
+    val `startPort`: Long,
+    val `endPort`: Long
 ) : AppAddresses
 
 @Serializable
@@ -1688,7 +1696,8 @@ data class ProjectApp(
     val `publishedBy`: AppPublisher,
     val `ownerPublished`: Boolean? = null,
     val `createdAt`: String,
-    val `mode`: String
+    val `mode`: String,
+    val `addressMessage`: String? = null
 )
 
 @Serializable
@@ -1788,7 +1797,24 @@ data class AppsUnpublishResponse(
 data class AppsSettingsGetResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "apps.settings.get",
     val `id`: String,
-    val `settings`: AppSettings
+    val `settings`: AppSettings,
+    val `tailscale`: AppsSettingsGetResponseTailscale? = null
+)
+
+@Serializable
+data class AppsSettingsGetResponseTailscale(
+    val `hostname`: String?,
+    val `installed`: AppsSettingsGetResponseTailscaleInstalled,
+    val `running`: AppsSettingsGetResponseTailscaleInstalled,
+    val `magicDns`: AppsSettingsGetResponseTailscaleInstalled,
+    val `https`: AppsSettingsGetResponseTailscaleInstalled,
+    val `operator`: AppsSettingsGetResponseTailscaleInstalled
+)
+
+@Serializable
+data class AppsSettingsGetResponseTailscaleInstalled(
+    val `ok`: Boolean,
+    val `message`: String
 )
 
 @Serializable

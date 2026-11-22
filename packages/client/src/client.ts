@@ -704,7 +704,11 @@ export class HarnessClient {
 	}
 
 	async getAppSettings(): Promise<AppSettings> {
-		return (await this.#call<Extract<Response, { type: "apps.settings.get" }>>({ type: "apps.settings.get" })).settings;
+		return (await this.getAppSettingsWithStatus()).settings;
+	}
+
+	getAppSettingsWithStatus(): Promise<Extract<Response, { type: "apps.settings.get" }>> {
+		return this.#call({ type: "apps.settings.get" });
 	}
 
 	async setAppSettings(settings: AppSettings): Promise<AppSettings> {

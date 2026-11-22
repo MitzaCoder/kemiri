@@ -17,7 +17,7 @@ import {
 	THINKING_LEVELS,
 } from "@kemiri/protocol";
 import { ServerError } from "./errors.ts";
-import { readAppRegistry, type AppRegistryDocument } from "./app-registry-document.ts";
+import { encodeProjectAppRegistry, readAppRegistry, type AppRegistryDocument } from "./app-registry-document.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 
 export const PROJECT_FILE = "project.json";
@@ -406,7 +406,7 @@ export class ProjectStore {
 				if (change.archived) next.archived = true;
 				else delete next.archived;
 			}
-			await writeJsonFile(this.projectFile(id), next, 0o600);
+			await writeJsonFile(this.projectFile(id), encodeProjectAppRegistry(next), 0o600);
 			return next;
 		});
 	}
@@ -417,7 +417,7 @@ export class ProjectStore {
 			const project = await this.require(id);
 			const apps = project.apps ?? {};
 			const { result, changed } = await update(apps);
-			if (changed) await writeJsonFile(this.projectFile(id), { ...project, apps });
+			if (changed) await writeJsonFile(this.projectFile(id), encodeProjectAppRegistry({ ...project, apps }));
 			return result;
 		});
 	}

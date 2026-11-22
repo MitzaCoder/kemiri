@@ -837,9 +837,17 @@ export class ClientConnection {
 				}
 				case "apps.settings.get":
 				case "apps.settings.set": {
-					if (!this.#userSettings || !this.#features.includes("apps")) return this.#unknownRequest(request);
-					const settings = request.type === "apps.settings.set" ? await this.#userSettings.setAppSettings(request.settings) : this.#userSettings.appSettings;
-					this.#respond({ type: request.type, id: request.id, settings });
+					const apps = this.#manager.apps;
+					if (!this.#userSettings || !apps || !this.#features.includes("apps")) return this.#unknownRequest(request);
+					const previous = this.#userSettings.appSettings;
+					if (request.type === "apps.settings.get") {
+						const tailscale = await apps.tailscale.status();
+						this.#respond({ type: request.type, id: request.id, settings: this.#userSettings.appSettings, tailscale });
+					} else {
+						const settings = await this.#userSettings.setAppSettings(request.settings);
+						if (previous.addresses.mode === "tailscale-serve" || settings.addresses.mode === "tailscale-serve") await apps.refresh();
+						this.#respond({ type: request.type, id: request.id, settings });
+					}
 					return;
 				}
 				case "artifacts.list": {

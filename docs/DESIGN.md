@@ -497,7 +497,7 @@ The coordinator's lazy catalogue picks up that one addition on its next model re
 worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
 Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
 
-### Agent-served apps (T411, T412)
+### Agent-served apps (T411, T412, T413)
 
 The optional `apps` feature lets workers, threads and coordinators register an HTTP server they already run, with
 `app_publish`, `app_list` and `app_unpublish`. Workers default to their assigned task. Before publishing, the backend
@@ -508,7 +508,7 @@ The check is for explicit agent publish and approval only, not for listener disc
 Settings → Computers → the backend → Advanced on web, and Settings → This computer → Advanced on Android, store the publishing policy (`off`, `ask`, `on`) and address mode in
 that backend's existing settings. The defaults are `ask` and address mode `off`. With `ask`, a publish has no URL
 until the owner presses Allow in Running apps. This allows that app and later publishes in the same project, not
-in other projects. Settings changes apply to future publications. Mode `off` records the app without a link.
+in other projects. Mode `off` records new apps without a link.
 
 Address modes are separate from publishing policy and storage. Template mode substitutes `{port}` in the host or
 port and `{path}` in the path, or appends the path when `{path}` is absent, as in `http://oven.example.test:{port}`.
@@ -516,10 +516,31 @@ Templates use HTTP(S) only, without credentials, query or fragment. Links have a
 Kemiri origins. A template doesn't open a firewall, add a proxy or apply tailnet ACLs: the owner configures an
 address already reachable only by the intended tailnet devices. Kemiri sign-in does not protect these app links.
 
+Tailscale HTTPS (`tailscale-serve`) maps a reserved HTTPS port to the app's HTTP port on `127.0.0.1`, for example
+`https://vm.example-tailnet.ts.net:47300/`. The app must accept the public Host including the port. Kemiri uses
+Tailscale Serve, not Funnel, and edits neither the firewall nor Caddy. Tailnet ACLs still apply and Kemiri sign-in
+still does not protect the links. The Settings status checks installation, daemon state, MagicDNS, HTTPS certificates
+and operator permission. If Serve is unavailable the app stays registered without a URL and shows the fix.
+
+The range defaults to 47300–47319 and allows up to 100 ports, all at least 1024, excluding 8443 and Kemiri's own port.
+Allocation chooses the lowest port absent from all listening TCP sockets, Serve configuration and Kemiri's ownership
+list. Existing assignments keep their port when the range changes. Switching into Serve publishes already-live apps
+on refresh. Switching away clears their HTTPS links and removes Kemiri's matching mappings; publishing in the new mode
+is explicit. The address mode and publishing policy otherwise operate independently.
+
+Before invoking Serve, Kemiri atomically writes the app ID, project ID, hostname, HTTPS port and exact loopback target
+to a backend-wide ownership list. The app record stores the mapping too. Startup and refresh remove unclaimed mappings
+and repair a missing live mapping if its port is still free. Unpublishing, task cleanup and pruning also release matching
+mappings. A stopped app keeps its existing mapping until it is removed or pruned. Kemiri leaves occupied or changed
+mappings alone, including extra handlers or Funnel. The CLI has no owner field or compare-and-swap, so the checks cannot
+identify a separately recreated identical mapping or arbitrate a concurrent external write. Reserve the range for Kemiri.
+
 Each version-1 `project.json` holds optional app records, approval and the app activity log. Reads normalize absent
-fields; an older release can still read the project and ignores the app extension. Publishing, approval and
+fields; an older release can still read the project. Serve records are stored as mode `off` with optional Serve
+fields so a pre-Serve release can read the row without advertising a link. That release does not remove Serve
+mappings; select another mode before rolling back if the links must be revoked. Publishing, approval and
 unpublishing record the app, task and publisher, and who made the change. Stop unpublishes but never stops the
-process or revokes a copied address. A task that closes or archives loses its publications. For an app without a
+process. Only Serve mode can revoke a copied address by removing its mapping. A task that closes or archives loses its publications. For an app without a
 task, forgetting its worker or archiving its thread does the same. An attached publication can outlast its worker.
 
 On Linux, the backend samples `ss -ltnpH` on list requests and about every 30 seconds for registries and observed
@@ -534,7 +555,7 @@ its managed worker or thread checkout, or a linked Git or Jujutsu workspace. The
 privileged ports and ports already registered. It reads no process arguments and shows nothing if cwd is inaccessible.
 Detected ports are never registered or exposed automatically. The owner can explicitly Publish a detected port with a
 default name, or Ignore it until the socket disappears from a successful scan. Owner publication does not grant
-agents approval or set up forwarding; reachability still depends on the backend address mode and network controls.
+agents approval; it uses the same address mode and network controls as other publications.
 
 One generated Apps instruction line gives the bind and address facts on each run. The built-in `serve-apps` skill
 holds practical details, and coordinator project facts include active app names, tasks, addresses and states. There

@@ -21,7 +21,7 @@ export class UserSettingsStore {
 	readonly #compactionListeners = new Set<() => void>();
 	#pending: Promise<unknown> = Promise.resolve();
 	constructor(dataDir: string, readonly changed: (settings: UserSettings) => void = () => {},
-		readonly appsChanged: (settings: AppSettings) => void = () => {}) {
+		readonly appsChanged: (settings: AppSettings) => void = () => {}, readonly backendPort: () => number | undefined = () => undefined) {
 		this.file = join(dataDir, "user-settings.json");
 	}
 	async open(): Promise<void> {
@@ -39,7 +39,7 @@ export class UserSettingsStore {
 
 	setAppSettings(settings: AppSettings): Promise<AppSettings> {
 		const write = this.#pending.then(async () => {
-			const apps = validateAppSettings(settings);
+			const apps = validateAppSettings(settings, this.backendPort());
 			await writeJsonFile(this.file, { ...this.#settings, apps });
 			this.#apps = apps;
 			this.appsChanged(this.appSettings);

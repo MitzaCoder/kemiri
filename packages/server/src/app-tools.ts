@@ -1,8 +1,7 @@
 import { defineExtension, defineTool, section, type ToolRegistration } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { randomUUID } from "node:crypto";
-import type { AppSettings, ProjectApp } from "@kemiri/protocol";
-import { appInstructions } from "./app-addresses.ts";
+import type { ProjectApp } from "@kemiri/protocol";
 import { appPublishReceipt, type AgentApps, type AppAgent } from "./agent-apps.ts";
 import { errorMessage } from "./errors.ts";
 
@@ -29,7 +28,6 @@ export type ActiveApps = (requirePublisher?: boolean) => Promise<(app: Pick<Proj
 export function createAppExtension(options: {
 	projectId: string;
 	apps: AgentApps;
-	settings: () => AppSettings;
 	agent: (conversationId: number) => Promise<AppAgent | undefined>;
 	active: ActiveApps;
 	isCoordinator: (conversationId: number) => boolean;
@@ -68,7 +66,7 @@ export function createAppExtension(options: {
 		name: "agent-apps",
 		tools: [publish, unpublish, list] as ToolRegistration[],
 		sections: [section("apps", async input => {
-			const instructions = appInstructions(options.settings());
+			const instructions = await apps.instructions();
 			if (!options.isCoordinator(input.conversationId)) return instructions;
 			const active = (await apps.list(projectId)).filter(app => app.state !== "unpublished");
 			if (!active.length) return instructions;

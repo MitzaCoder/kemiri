@@ -45,6 +45,7 @@
 			<strong>{app.name}</strong>
 			{#if link}<div class="app-address">{link}</div>{/if}
 			<div class="app-meta">{[appStateLabel(app), detail].filter(Boolean).join(' · ')}</div>
+			{#if app.state === 'live' && app.addressMessage}<div class="app-warning">{app.addressMessage}</div>{/if}
 		</div>
 	</div>
 	{#if link || (update && app.state !== 'unpublished')}

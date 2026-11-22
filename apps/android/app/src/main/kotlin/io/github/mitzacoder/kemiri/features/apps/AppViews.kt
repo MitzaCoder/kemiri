@@ -131,6 +131,7 @@ private fun PublishedApp(app: ProjectApp, detail: String? = null, feed: ProjectA
     var copied by remember(link) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         AppRowDescription(app.name, listOfNotNull(appStateLabel(app), detail).joinToString(" · "), app.state, link)
+        if (app.state == "live") app.addressMessage?.let { AppMeta(it) }
         if (link != null || feed != null) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (link != null) {
                 Button(onClick = {

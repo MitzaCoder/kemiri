@@ -1,7 +1,9 @@
 import { request } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { AppPublisher, AppSettings, DetectedAppPort, ProjectApp } from "@kemiri/protocol";
-import { appAddress } from "./app-addresses.ts";
+import { appAddress, appInstructions } from "./app-addresses.ts";
+import { AppServeMappings } from "./app-serve-mappings.ts";
+import { TailscaleServe } from "./tailscale.ts";
 import type { AppActivity, AppRecord, AppRegistryDocument } from "./app-registry-document.ts";
 import { ServerError } from "./errors.ts";
 import { inAppWorkspace, isDetectableListener, linuxAppListenerSource, type AppListenerSource } from "./app-listeners.ts";
@@ -19,6 +21,8 @@ type AgentAppsOptions = {
 	changed: (projectId: string) => void;
 	now?: () => number;
 	listenerSource?: AppListenerSource;
+	tailscale?: TailscaleServe;
+	log?: (message: string) => void;
 };
 
 /** Probe only IPv4 loopback, including listeners bound to all interfaces. No redirects, body or caller-supplied path. */
@@ -39,14 +43,14 @@ const NO_ADDRESS = "No app address is configured on this backend. Attach screens
 export function appPublishReceipt(app: ProjectApp) {
 	return { appId: app.appId, url: app.url, host: app.url ? new URL(app.url).hostname : null, state: app.state,
 		warning: app.state === "pending" ? `The owner must allow this app in Running apps.${app.mode === "off" ? ` ${NO_ADDRESS}` : " No link is shown until approval."}` :
-			app.state === "unpublished" ? "This app was unpublished." : app.state === "stopped" ? "Nothing listens on this app’s port." : !app.url ? NO_ADDRESS : null };
+			app.state === "unpublished" ? "This app was unpublished." : app.state === "stopped" ? "Nothing listens on this app’s port." : !app.url ? app.addressMessage ?? NO_ADDRESS : null };
 }
 
 const LISTENER_INTERVAL = 30_000;
 const RETENTION_MS = 86_400_000;
 
 function publishedApp(record: AppRecord): ProjectApp {
-	const { stoppedAt, unpublishedAt: _, ...app } = record;
+	const { stoppedAt, unpublishedAt: _, serveMapping: __, ...app } = record;
 	return stoppedAt ? { ...app, state: "stopped", url: null } : app;
 }
 
@@ -61,7 +65,21 @@ export class AgentApps {
 	#refreshing: Promise<void> | undefined;
 	#timer: ReturnType<typeof setInterval> | undefined;
 
-	constructor(readonly options: AgentAppsOptions) { this.#source = options.listenerSource ?? linuxAppListenerSource(); }
+	readonly tailscale: TailscaleServe;
+	readonly #serveMappings: AppServeMappings;
+	#pending: Promise<unknown> = Promise.resolve();
+
+	constructor(readonly options: AgentAppsOptions) {
+		this.#source = options.listenerSource ?? linuxAppListenerSource();
+		this.tailscale = options.tailscale ?? new TailscaleServe();
+		this.#serveMappings = new AppServeMappings(options.store.dataDir, this.tailscale, options.backendPort, options.backendOrigins, options.log ?? console.warn);
+	}
+
+	async instructions(): Promise<string> {
+		const settings = this.options.settings();
+		const hostname = settings.addresses.mode === "tailscale-serve" && settings.policy !== "off" ? (await this.tailscale.status()).hostname : null;
+		return appInstructions(settings, hostname ?? undefined);
+	}
 
 	start(onError: (error: unknown) => void): void {
 		const tick = () => {
@@ -76,9 +94,11 @@ export class AgentApps {
 	async stop(): Promise<void> {
 		clearInterval(this.#timer);
 		await this.#refreshing;
+		await this.#pending;
 	}
 
 	async refresh(): Promise<void> {
+		await this.#releaseOrphans();
 		const projects = await this.options.store.list();
 		for (const project of projects) {
 			if (!project.apps?.records?.length && !project.apps?.activity?.length && !project.apps?.ignoredPorts?.length && !this.#observed.has(project.id)) continue;
@@ -139,7 +159,23 @@ export class AgentApps {
 		return this.#change(project.id, async document => {
 			const snapshot = detect || document.records?.some(app => app.state === "live" || app.state === "pending") || document.ignoredPorts?.length
 				? await this.#listeners() : null;
-			const changed = this.#updateLifecycle(document, snapshot);
+			let changed = this.#updateLifecycle(document, snapshot);
+			const { addresses } = this.options.settings();
+			for (const app of document.records ?? []) {
+				if (app.state !== "live") continue;
+				if (addresses.mode === "tailscale-serve" && (!app.stoppedAt || app.serveMapping)) {
+					const before = JSON.stringify(app);
+					await this.#serveMappings.resolve(app, addresses, () => this.#listeningPorts());
+					changed ||= before !== JSON.stringify(app);
+				} else if (addresses.mode !== "tailscale-serve" && app.mode === "tailscale-serve") {
+					// Leaving Serve revokes its links. Other modes apply to future publications.
+					app.mode = "off";
+					app.url = null;
+					delete app.serveMapping;
+					delete app.addressMessage;
+					changed = true;
+				}
+			}
 			const detected = detect ? await this.#detect(project, document, snapshot) : [];
 			const listenerChecksAvailable = snapshot !== null;
 			const signature = JSON.stringify([listenerChecksAvailable, detected]);
@@ -179,12 +215,12 @@ export class AgentApps {
 		const project = await this.options.store.require(projectId);
 		return this.#change(projectId, async document => {
 			await this.#requireDetected(project, document, port);
-			const app: ProjectApp = { projectId, appId: randomUUID(), port, name: `Port ${port}`, path: "/", url: null,
+			const app: AppRecord = { projectId, appId: randomUUID(), port, name: `Port ${port}`, path: "/", url: null,
 				state: "live", publishedBy: publisher, ownerPublished: true, mode: "off", createdAt: this.#timestamp() };
-			this.#makeLive(app, this.options.settings());
+			await this.#makeLive(app, this.options.settings());
 			(document.records ??= []).unshift(app);
 			this.#log(document, app, "published", "owner");
-			return { result: app, changed: true };
+			return { result: publishedApp(app), changed: true };
 		});
 	}
 
@@ -223,16 +259,16 @@ export class AgentApps {
 			const existing = document.records?.find(app => app.appId === appId);
 			if (existing) return { result: publishedApp(existing), changed: false };
 			const taskId = input.taskId ?? agent.taskId;
-			const app: ProjectApp = { appId, projectId, port, name, path, url: null, state: "pending", publishedBy: agent.publisher,
+			const app: AppRecord = { appId, projectId, port, name, path, url: null, state: "pending", publishedBy: agent.publisher,
 				...(taskId === undefined ? {} : { taskId }), mode: "off", createdAt: this.#timestamp() };
 			if (!(await active())(app)) throw new ServerError("bad_request", "Publish from an active conversation and use an open task in this project, or no task.");
 			const settings = this.options.settings();
 			if (settings.policy === "off") throw denied();
 			app.mode = settings.addresses.mode;
-			if (settings.policy === "on" || document.approved) this.#makeLive(app, settings);
+			if (settings.policy === "on" || document.approved) await this.#makeLive(app, settings);
 			(document.records ??= []).unshift(app);
 			this.#log(document, app, "published", agent.publisher);
-			return { result: app, changed: true };
+			return { result: publishedApp(app), changed: true };
 		});
 	}
 
@@ -248,10 +284,10 @@ export class AgentApps {
 			const latest = this.options.settings();
 			if (latest.policy === "off") throw denied();
 			if (!(await active())(app)) throw new ServerError("bad_request", "This app's task or conversation is no longer active.");
-			this.#makeLive(app, latest);
+			await this.#makeLive(app, latest);
 			document.approved = true;
 			this.#log(document, app, "allowed", "owner");
-			return { result: app, changed: true };
+			return { result: publishedApp(app), changed: true };
 		});
 	}
 
@@ -281,7 +317,17 @@ export class AgentApps {
 		return app;
 	}
 
-	#makeLive(app: ProjectApp, settings: AppSettings): void {
+	async #listeningPorts(): Promise<ReadonlySet<number> | undefined> {
+		const listeners = await this.#source.listeners();
+		return listeners === null ? undefined : new Set(listeners.map(listener => listener.port));
+	}
+
+	async #makeLive(app: AppRecord, settings: AppSettings): Promise<void> {
+		app.state = "live";
+		if (settings.addresses.mode === "tailscale-serve") {
+			await this.#serveMappings.resolve(app, settings.addresses, () => this.#listeningPorts());
+			return;
+		}
 		let url: URL | null;
 		try { url = appAddress(settings.addresses, app.port, app.path); }
 		catch { throw new ServerError("bad_request", "The address template did not make a valid URL for this port."); }
@@ -289,7 +335,6 @@ export class AgentApps {
 			throw new ServerError("bad_request", "An app must have a different origin from Kemiri.");
 		}
 		app.mode = settings.addresses.mode;
-		app.state = "live";
 		app.url = url?.href ?? null;
 	}
 
@@ -297,6 +342,8 @@ export class AgentApps {
 		if (app.state === "unpublished") return false;
 		app.state = "unpublished";
 		delete app.stoppedAt;
+		delete app.serveMapping;
+		delete app.addressMessage;
 		app.unpublishedAt = this.#timestamp();
 		app.url = null;
 		this.#log(document, app, "unpublished", actor);
@@ -312,11 +359,28 @@ export class AgentApps {
 			...(app.taskId === undefined ? {} : { taskId: app.taskId }) });
 	}
 
-	async #change<T>(projectId: string, update: (document: AppRegistryDocument) => Promise<{ result: T; changed: boolean; notify?: boolean }>): Promise<T> {
-		const change = await this.options.store.updateAppRegistry(projectId, async document => {
-			const change = await update(document);
-			return { result: change, changed: change.changed };
+	#serialize<T>(work: () => Promise<T>): Promise<T> {
+		const operation = this.#pending.then(work);
+		this.#pending = operation.catch(() => undefined);
+		return operation;
+	}
+
+	#releaseOrphans(): Promise<void> {
+		return this.#serialize(async () => {
+			const projects = await this.options.store.list();
+			await this.#serveMappings.removeOrphans(projects.flatMap(project => project.apps?.records ?? []),
+				this.options.settings().addresses.mode === "tailscale-serve");
 		});
+	}
+
+	async #change<T>(projectId: string, update: (document: AppRegistryDocument) => Promise<{ result: T; changed: boolean; notify?: boolean }>): Promise<T> {
+		const change = await this.#serialize(() => this.options.store.updateAppRegistry(projectId, async document => {
+			const ownedBefore = document.records?.filter(app => app.serveMapping).map(app => app.appId) ?? [];
+			const change = await update(document);
+			const release = ownedBefore.some(id => !document.records?.some(app => app.appId === id && app.serveMapping));
+			return { result: { ...change, release }, changed: change.changed };
+		}));
+		if (change.release) await this.#releaseOrphans();
 		if (change.changed || change.notify) this.options.changed(projectId);
 		return change.result;
 	}

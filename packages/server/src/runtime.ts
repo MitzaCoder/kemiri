@@ -1578,7 +1578,7 @@ export class ProjectManager {
 		};
 		const reconcileApps = () => this.apps?.reconcile(project.id, activeApps).catch(error => this.#log(`project ${project.id}: app cleanup: ${errorMessage(error)}`));
 		if (this.apps && this.#userSettings) registry.install(createAppExtension({
-			projectId: project.id, apps: this.apps, settings: () => this.#userSettings!.appSettings, active: activeApps,
+			projectId: project.id, apps: this.apps, active: activeApps,
 			isCoordinator: id => coordinators.placeOf(id)?.kind === "coordinator",
 			agent: async conversationId => {
 				const place = coordinators.placeOf(conversationId);
