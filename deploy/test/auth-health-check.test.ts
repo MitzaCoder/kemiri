@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startServer } from "../../packages/server/src/server.ts";
 import { createSetup, TestClient, type TestSetup } from "../../packages/server/test/support.ts";
 
 const checker = join(import.meta.dir, "../health-check.ts");
@@ -17,7 +18,7 @@ async function run(args: string[], env: Record<string, string | undefined>) {
 	return { code, stdout, stderr };
 }
 
-async function setup(mode: "off" | "optional" | "required") {
+async function setup(mode: "off" | "optional" | "required", hostname?: string) {
 	const releaseRoot = await mkdtemp(join(tmpdir(), "aiki-check-release-"));
 	cleanups.push(() => rm(releaseRoot, { recursive: true, force: true }));
 	await writeFile(join(releaseRoot, "RELEASE.json"), JSON.stringify({
@@ -34,8 +35,9 @@ async function setup(mode: "off" | "optional" | "required") {
 	s.server.auth.setMode(mode);
 	const config = join(s.root, "config/aiki");
 	await mkdir(config, { recursive: true });
-	await writeFile(join(config, "server.env"), `KEMIRI_DATA_DIR=${JSON.stringify(s.dataDir)}\n`, { mode: 0o600 });
-	return { s, projectId: added.project.id, env: { HOME: s.root, KEMIRI_DATA_DIR: undefined, KEMIRI_ENV_FILE: undefined, XDG_CONFIG_HOME: join(s.root, "config") } };
+	await writeFile(join(config, "server.env"), `KEMIRI_DATA_DIR=${JSON.stringify(s.dataDir)}\n` +
+		(hostname ? `KEMIRI_HOST=${hostname}\n` : ""), { mode: 0o600 });
+	return { s, releaseRoot, projectId: added.project.id, env: { HOME: s.root, KEMIRI_DATA_DIR: undefined, KEMIRI_ENV_FILE: undefined, XDG_CONFIG_HOME: join(s.root, "config") } };
 }
 
 for (const mode of ["off", "optional", "required"] as const) test(`real standalone checker: ${mode}, release, saved projects, deep and drain`, async () => {
@@ -74,6 +76,49 @@ for (const mode of ["off", "optional", "required"] as const) test(`real standalo
 		expect(wrongSocket.code).toBe(1);
 	}
 }, 15000);
+
+test("required checks use the configured bind address and keep owner socket identity and port checks", async () => {
+	const { s, env, releaseRoot, projectId } = await setup("required", "127.0.0.2");
+	await s.server.stop();
+	const server = await startServer({
+		hostname: "127.0.0.2", port: 0, auth: { mode: "required" }, terminals: false,
+		dataDir: s.dataDir, agentDir: s.agentDir, configDir: s.configDir, claudeDir: s.claudeDir,
+		models: s.models, credentials: s.credentials, homeDir: s.root, status: { releaseRoot }, log: () => {},
+	});
+	cleanups.push(() => server.stop());
+	const port = String(server.port);
+	server.auth.setMode("optional");
+	const client = await TestClient.open(server);
+	try {
+		await client.request({ type: "hello", protocolVersion: 1 });
+		await client.request({ type: "conversation.page", projectId, limit: 1 });
+	} finally { client.close(); }
+	server.auth.setMode("required");
+	const recorded = join(s.root, "open-projects");
+	const check = (...args: string[]) => run([`--bound-port=${port}`, "--timeout-ms=0", ...args], env);
+	expect((await run([`http://127.0.0.1:${port}`, "--timeout-ms=0"], env)).code).toBe(1);
+	const health = await check();
+	expect(health.stderr).toBe("");
+	expect(health.stdout).toContain(`http://127.0.0.2:${port} answers`);
+	expect((await check(`--record-open-projects=${recorded}`)).code).toBe(0);
+	expect(await readFile(recorded, "utf8")).toBe(`${projectId}\n`);
+	expect((await check("--deep", "--expect-commit=abc123", `--open-projects=${recorded}`)).stdout).toContain("paged the 1 project(s)");
+	expect((await check("--wait-idle", "--idle-timeout-ms=500")).stdout).toContain("is drained");
+
+	const statusURL = `${server.url}/auth/status`;
+	expect((await fetch(statusURL)).status).toBe(403);
+	const discovery = await (await fetch(statusURL, { headers: { host: `127.0.0.1:${port}` } })).json();
+	const discoveryOnWrongPort = Bun.serve({
+		hostname: "127.0.0.2", port: 0, fetch: () => Response.json(discovery),
+	});
+	try {
+		const result = await run([String(discoveryOnWrongPort.url), "--timeout-ms=0"], env);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("does not belong to the checked backend");
+	} finally {
+		await discoveryOnWrongPort.stop(true);
+	}
+});
 
 test("owner socket exposes only check RPCs, never enrollment or arbitrary mutations", async () => {
 	const { s } = await setup("required");

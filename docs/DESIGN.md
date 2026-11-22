@@ -1194,8 +1194,10 @@ exact-statement regression guards the capture/child-environment boundaries again
 | `AIKI_CHILD_PROCESS` | Generated child marker; `server-env.ts` discovery suppression and private owner-CLI guard |
 
 Deployment's standalone `health-check.ts` deliberately keeps its own read-only env-file/path resolution. It runs in
-the watcher/service-user environment, not the backend's command environment; tests cover required owner-socket deep
-checks/drain and persisted-mode rollback refusal, including when the backend is stopped.
+the watcher/service-user environment, not the backend's command environment. On-host checks derive the address from
+the selected server env, substituting loopback for wildcard binds. Required-auth discovery dials the local listener
+with the built-in loopback HTTP Host. Private requests still use the owner Unix socket and validate the discovered
+backend ID and port. Tests cover bound-address checks, drain and persisted-mode rollback refusal.
 
 Durable document/task kinds use `AIKI_STATE_NAMESPACE` (default `aiki`); the context extension and project context
 folder can also be configured. These are storage identities, not display names. Set them before the first restart of
@@ -1204,8 +1206,12 @@ Dependency upgrades can still migrate their own formats; consult the version-upg
 
 Deployment receives per-target env files from private `deploy/local/server-<target>.env` (`host` for this machine),
 installs them atomically in the target's XDG config directory before restart, and never includes them in release
-archives. Roots, service identities and private unit sources remain local overrides. Health/drain negotiate protocol
-features, never the server's display name. The watcher unit and state directory need not change.
+archives. Roots, service identities, user-unit sources and VAPID destinations can be set per target. In the absence
+of a VAPID destination override, deploy reads the target's server env before falling back to the global data
+override or the fresh-install data directory. User units use the pinned Bun installed before the first start.
+Health/drain negotiate protocol features, never the server's display name. The watcher unit and state directory
+need not change. A deploy-only change updates tools without restarting otherwise unchanged, healthy backends
+or swapping the published web release when the backend suggestions are unchanged.
 
 Hosted builds can supply `deploy/local/web.env` with `AIKI_LEGACY_STORAGE_PREFIX`: before stores load, browser state
 is copied to empty `aiki.*` keys without removing the source. Service-worker registration state is copied too; old

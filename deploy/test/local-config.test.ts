@@ -42,10 +42,9 @@ describe("private deployment configuration", () => {
 		const example = readFileSync(join(import.meta.dir, "../targets.example.json"), "utf8");
 		expect(parseTargets(example, {}).map((target) => target.name)).toEqual(["vm", "laptop"]);
 	});
-	test("deploy passes a stable published list into archive builds and prefers the private user unit", () => {
+	test("deploy passes a stable published list into archive builds and installs private env files", () => {
 		const source = readFileSync(join(import.meta.dir, "../deploy.sh"), "utf8");
 		expect(source.indexOf("export KEMIRI_PUBLISHED_BACKENDS_FILE=")).toBeLessThan(source.indexOf("git archive --format=tar"));
-		expect(source).toContain('local unit_source=${DEPLOY_USER_UNIT_FILE:-$DEPLOY_CONFIG_DIR/aiki.service}');
 		expect(source).toContain('install_target_env');
 		expect(source).toContain('install_host_env');
 	});

@@ -33,13 +33,14 @@
 	* the deploy restarts anyway, it just prefers not to interrupt work. A server that does not answer, or has neither
 	* feature, is not waited for.
 	*
-	* The deploy runs it against each backend's loopback (that decides a rollback) and, for the VM, from this host over the
-	* tailnet (warning only, `--alive-only`: hello, or required auth discovery).
+	* `--bound-port=<port>` checks the backend on its configured address (loopback for a wildcard bind).
+	* The deploy also checks from the deploying host over the tailnet (warning only, `--alive-only`).
 	* Required local checks use the owner-only Unix socket and the same limited RPC dispatch, never a device credential.
 	*/
 /** Copied standalone to each backend: built-in imports only, no workspace dependencies. */
 import { existsSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { isIP } from "node:net";
+import { homedir, networkInterfaces } from "node:os";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { Database } from "bun:sqlite";
@@ -60,6 +61,7 @@ const DEFAULT_IDLE_POLL_MS = 5_000;
 
 type Options = {
 	base: string;
+	boundPort: string | null;
 	timeoutMs: number;
 	expectCommit: string | null;
 	deep: boolean;
@@ -78,6 +80,7 @@ type Message = Record<string, unknown>;
 function parseOptions(argv: readonly string[]): Options {
 	const options: Options = {
 		base: DEFAULT_BASE,
+		boundPort: null,
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		expectCommit: null,
 		deep: false,
@@ -96,6 +99,10 @@ function parseOptions(argv: readonly string[]): Options {
 		}
 		const [name, value] = argument.split("=", 2);
 		switch (name) {
+			case "--bound-port":
+				if (!value || !/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) throw new Error("--bound-port needs a TCP port");
+				options.boundPort = String(Number(value));
+				continue;
 			case "--alive-only":
 				options.aliveOnly = true;
 				continue;
@@ -165,23 +172,48 @@ function defaultProductDirectory(base: string): string {
 	return canonical;
 }
 
-function dataDirectory(): string {
+function readServerSettings(): Record<string, string | undefined> {
 	const env = process.env;
 	const settings = normalizeEnvironment(env);
-	if (settings.KEMIRI_CHILD_PROCESS === "1" && !settings.KEMIRI_ENV_FILE) return resolveData(settings);
+	if (settings.KEMIRI_CHILD_PROCESS === "1" && !settings.KEMIRI_ENV_FILE) return settings;
 	const file = settings.KEMIRI_ENV_FILE || join(settings.KEMIRI_CONFIG_DIR || defaultProductDirectory(env.XDG_CONFIG_HOME || join(homedir(), ".config")), "server.env");
 	let source: string;
 	try { source = readFileSync(file, "utf8"); }
 	catch (error) {
-		if (!settings.KEMIRI_ENV_FILE && (error as NodeJS.ErrnoException).code === "ENOENT") return resolveData(settings);
+		if (!settings.KEMIRI_ENV_FILE && (error as NodeJS.ErrnoException).code === "ENOENT") return settings;
 		throw error;
 	}
 	const parsed = parseEnv(source);
 	for (const name of Object.keys(parsed)) if (!privateSetting(name)) throw new Error(`Server env file may only set KEMIRI_ settings: ${name}`);
 	const fileSettings = normalizeEnvironment(parsed);
 	for (const [name, value] of Object.entries(settings)) if (value !== undefined) fileSettings[name] = value;
-	return resolveData(fileSettings);
+	return fileSettings;
 }
+
+function dataDirectory(): string {
+	return resolveData(readServerSettings());
+}
+
+function boundBase(port: string): string {
+	const host = readServerSettings().KEMIRI_HOST?.trim();
+	const address = host && host !== "0.0.0.0" ? host : "127.0.0.1";
+	const hostname = isIP(address) === 6 ? new URL(`http://[${address}]`).hostname : address;
+	// An IPv6 wildcard also accepts IPv6 loopback, even on an IPv6-only socket.
+	if (hostname === "[::]") return `http://[::1]:${port}`;
+	return `http://${hostname}:${port}`;
+}
+
+function isOnHost(hostname: string): boolean {
+	if (hostname === "localhost" || hostname === "[::1]" || /^127\./.test(hostname) && isIP(hostname) === 4) return true;
+	const address = hostname.replace(/^\[|\]$/g, "");
+	if (!isIP(address)) return false;
+	return Object.values(networkInterfaces()).flat().some((entry) => {
+		if (!entry) return false;
+		const interfaceHost = entry.family === "IPv6" ? new URL(`http://[${entry.address}]`).hostname : entry.address;
+		return interfaceHost === hostname;
+	});
+}
+
 function resolveData(env: Record<string, string | undefined>): string {
 	const expand = (path: string) => path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 	const data = env.KEMIRI_DATA_DIR?.trim(), xdg = env.XDG_DATA_HOME?.trim();
@@ -229,11 +261,15 @@ class OwnerCheckSession {
 	close(): void {}
 }
 
-async function requiredBackendId(base: string): Promise<string | null> {
+async function requiredBackendId(base: string, boundPort: string | null = null): Promise<string | null> {
 	const url = new URL(base);
 	url.protocol = url.protocol === "wss:" ? "https:" : url.protocol === "ws:" ? "http:" : url.protocol;
 	url.pathname = "/auth/status"; url.search = ""; url.hash = "";
-	const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+	// Dial the local bind address but use the backend's built-in loopback HTTP host, not a public origin.
+	// This changes only discovery. Private RPCs still go exclusively through the owner Unix socket.
+	if (boundPort !== null && !isOnHost(url.hostname)) throw new Error("configured bind address is not on this host");
+	const headers = boundPort === null ? undefined : { host: `127.0.0.1:${boundPort}` };
+	const response = await fetch(url, { headers, proxy: boundPort === null ? undefined : false, redirect: "error", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 	if (response.status === 404) return null; // older releases
 	if (!response.ok) throw new Error(`auth status HTTP ${response.status}`);
 	let status: { authVersion?: unknown; backendId?: unknown; mode?: unknown };
@@ -244,10 +280,10 @@ async function requiredBackendId(base: string): Promise<string | null> {
 }
 
 async function connect(options: Options): Promise<CheckSession> {
-	const backendId = await requiredBackendId(options.base);
+	const backendId = await requiredBackendId(options.base, options.boundPort);
 	if (backendId) {
 		const url = new URL(options.base);
-		if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("required backend needs an on-host owner check");
+		if (!isOnHost(url.hostname)) throw new Error("required backend needs an on-host owner check");
 		return new OwnerCheckSession(backendId, url.port);
 	}
 	return Session.connect(webSocketUrl(options.base));
@@ -591,6 +627,8 @@ if (options.checkRelease) {
 	try { await checkRelease(options.checkRelease); process.exit(0); }
 	catch (error) { console.error(`release switch refused: ${message(error)}`); process.exit(1); }
 }
+
+if (options.boundPort !== null) options.base = boundBase(options.boundPort);
 
 if (options.recordOpen && options.openProjects !== null) {
 	const note = await recordOpenProjects(options, options.openProjects);

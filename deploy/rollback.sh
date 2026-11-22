@@ -46,6 +46,7 @@ function die() { log "ERROR: $*"; exit 1; }
 
 # shellcheck source=deploy/targets.sh
 source "$REPO_DIR/deploy/targets.sh"
+source "$REPO_DIR/deploy/server-env.sh"
 
 case $TARGET in
 web)
@@ -76,7 +77,7 @@ host)
 	load_targets
 	index=$(target_index "$TARGET") || die "unknown target ${TARGET}; use host, web or one of: ${TARGET_NAMES[*]}"
 	use_target "$index"
-	backend="$(remote_backend_env)bash $REMOTE_ROOT/tools/backend.sh $T_UNIT"
+	backend="$(remote_backend_env)KEMIRI_PORT=$T_PORT bash $REMOTE_ROOT/tools/backend.sh $T_UNIT"
 	if [[ ${ARGS[0]:-} == --list ]]; then
 		tssh "$backend list"
 	elif [[ ${ARGS[0]:-} == --status ]]; then

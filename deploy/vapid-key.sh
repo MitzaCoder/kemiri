@@ -13,7 +13,8 @@
 #
 # Overrides: KEMIRI_DATA_DIR or DEPLOY_HOST_DATA_DIR (this host's data directory),
 #            KEMIRI_VAPID_KEY_FILE (the key file itself),
-#            DEPLOY_VM_DATA_DIR (the remote data directory, expanded on the remote side),
+#            DEPLOY_VM_DATA_DIR (the remote data directory for standalone use),
+#            DEPLOY_REMOTE_VAPID_PATH (internal: a quoted remote shell word selected by deploy.sh),
 #            DEPLOY_SSH_OPTIONS (extra ssh arguments, split on spaces: the target's key, BatchMode, ConnectTimeout),
 #            DEPLOY_SSH_SHELL (the target's login shell when it is not bash: commands then go through `bash -c`).
 set -euo pipefail
@@ -24,7 +25,7 @@ DATA_DIR=${KEMIRI_DATA_DIR:-${DEPLOY_HOST_DATA_DIR:-$HOME/.local/share/aiki}}
 VAPID_FILE=${KEMIRI_VAPID_KEY_FILE:-$DATA_DIR/notifications/vapid.json}
 # Kept single-quoted on purpose: $HOME belongs to the remote shell.
 REMOTE_DATA_DIR=${DEPLOY_VM_DATA_DIR:-'$HOME/.local/share/aiki'}
-REMOTE_VAPID=$REMOTE_DATA_DIR/notifications/vapid.json
+REMOTE_VAPID_PATH=${DEPLOY_REMOTE_VAPID_PATH:-\"$REMOTE_DATA_DIR/notifications/vapid.json\"}
 
 # shellcheck disable=SC2206 # split on purpose
 SSH_OPTIONS=(${DEPLOY_SSH_OPTIONS:-})
@@ -33,7 +34,12 @@ SSH_SHELL=${DEPLOY_SSH_SHELL:-}
 # ssh runs a command through the user's login shell; a shell that is not bash gets a bash of its own to run it.
 function remote() { # <command>
 	local command=$1
-	if [[ -n $SSH_SHELL && $SSH_SHELL != bash ]]; then command="bash -c '${command//\'/\'\\\'\'}'"; fi
+	if [[ $SSH_SHELL == fish ]]; then
+		command=${command//\\/\\\\}
+		command="bash -c '${command//\'/\\\'}'"
+	elif [[ -n $SSH_SHELL && $SSH_SHELL != bash ]]; then
+		command="bash -c '${command//\'/\'\\\'\'}'"
+	fi
 	ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" "$command"
 }
 
@@ -50,7 +56,7 @@ if ! local_sum=$(sha256sum "$VAPID_FILE" | cut -d' ' -f1); then
 	exit 0
 fi
 
-if ! remote_sum=$(remote "if [ -f \"$REMOTE_VAPID\" ]; then sha256sum \"$REMOTE_VAPID\" | cut -d' ' -f1; fi"); then
+if ! remote_sum=$(remote "key=$REMOTE_VAPID_PATH; if [ -f \"\$key\" ]; then sha256sum <\"\$key\" | cut -d' ' -f1; fi"); then
 	warn "$SSH_TARGET did not answer; its backend keeps its own key"
 	exit 0
 fi
@@ -62,7 +68,7 @@ fi
 
 # A private temporary file next to the target, then a rename: a reader never sees a half-written key pair. 0600, like the
 # backend writes it, because a VAPID private key signs for every subscription of this user.
-if remote "umask 077 && mkdir -p \"\$(dirname \"$REMOTE_VAPID\")\" && cat > \"$REMOTE_VAPID.incoming\" && mv -f \"$REMOTE_VAPID.incoming\" \"$REMOTE_VAPID\"" <"$VAPID_FILE"; then
+if remote "key=$REMOTE_VAPID_PATH; umask 077 && mkdir -p \"\$(dirname -- \"\$key\")\" && tmp=\$(mktemp \"\$key.incoming.XXXXXX\") && cat >\"\$tmp\" && mv -f -- \"\$tmp\" \"\$key\"" <"$VAPID_FILE"; then
 	if [[ -n $remote_sum ]]; then
 		log "replaced the key on $SSH_TARGET; a device that subscribed against the old one must subscribe again"
 	else

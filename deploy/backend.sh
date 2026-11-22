@@ -339,7 +339,7 @@ function release_names() {
 function record_open_projects() {
 	local output
 	# The deploy account writes this file; the service account only reads it after restart.
-	output=$(health "http://127.0.0.1:$PORT" --record-open-projects=-) || output=""
+	output=$(health "--bound-port=$PORT" --record-open-projects=-) || output=""
 	if [[ -n $output ]]; then printf '%s\n' "$output" >"$OPEN_PROJECTS"; else : >"$OPEN_PROJECTS"; fi
 	chmod 0644 "$OPEN_PROJECTS"
 	local count=0
@@ -355,7 +355,7 @@ function wait_for_idle() {
 		log "not waiting for $SERVICE to be idle: it is not running"
 		return 0
 	fi
-	output=$(health "http://127.0.0.1:$PORT" --wait-idle \
+	output=$(health "--bound-port=$PORT" --wait-idle \
 		"--idle-timeout-ms=$((IDLE_TIMEOUT_SECONDS * 1000))" "--idle-poll-ms=$((IDLE_POLL_SECONDS * 1000))" 2>&1) || true
 	while IFS= read -r line; do
 		[[ -n $line ]] && log "idle: $line"
@@ -374,7 +374,7 @@ function restart_and_verify() {
 	fi
 	# A release from before RELEASE.json existed reports no commit; the deep check then skips that comparison.
 	commit=$(release_field "$dir" commit)
-	if output=$(health "http://127.0.0.1:$PORT" "--timeout-ms=$HEALTH_TIMEOUT_MS" --deep \
+	if output=$(health "--bound-port=$PORT" "--timeout-ms=$HEALTH_TIMEOUT_MS" --deep \
 		"--open-projects=$OPEN_PROJECTS" ${commit:+"--expect-commit=$commit"} 2>&1); then
 		log "healthy: $output"
 		return 0
@@ -573,7 +573,7 @@ function command_status() {
 }
 
 function command_health() {
-	health "http://127.0.0.1:$PORT" "--timeout-ms=${1:-5000}"
+	health "--bound-port=$PORT" "--timeout-ms=${1:-5000}"
 }
 
 # For a target reached over an unreliable link (a laptop): DEPLOY_SURVIVE_DISCONNECT=1 makes release, unchanged and

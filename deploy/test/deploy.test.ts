@@ -920,6 +920,34 @@ describe("deploy.sh", () => {
 		expect(vm.backendUnchanged).toBeUndefined();
 	}, 30_000);
 
+	test("deploy-only landing preserves the current backends and published web release", async () => {
+		const machine = makeMachine();
+		const sshLog = addSshStub(machine);
+		const { dir } = await makeRepository();
+		const running = await commitChanges(dir, []);
+		const sha = await commitChanges(dir, ["deploy/tool.sh"]);
+		seedRunning(machine.root, running);
+		seedRunning(vmRoot(machine), running);
+		const webRoot = join(machine.dir, "web");
+		const webRelease = `releases/20261101T000000Z-${running.slice(0, 7)}`;
+		mkdirSync(join(webRoot, webRelease, "_app"), { recursive: true });
+		writeFileSync(join(webRoot, webRelease, "_app", "asset.js"), "");
+		writeFileSync(join(webRoot, webRelease, "200.html"), "");
+		expect(Bun.spawnSync(["ln", "-s", webRelease, join(webRoot, "current")]).exitCode).toBe(0);
+		const backend = startBackend({ release: release(running) });
+
+		const result = await run(["bash", join(dir, "deploy/deploy.sh"), sha], {
+			...fullDeployEnvironment(machine, sshLog, backend), DEPLOY_APP_ROOT: webRoot,
+		});
+		expect(result.stdout).toContain("app: deploy tooling and documentation only; keeping");
+		expect(result.code).toBe(0);
+		expect(readdirSync(join(webRoot, "releases"))).toEqual([webRelease.split("/")[1]!]);
+		expect(restarts(machine)).toEqual([]);
+		for (const root of [machine.root, vmRoot(machine)]) {
+			expect(readJson<RecordedStatus>(join(root, "deploy-status.json"))).toMatchObject({ commit: sha, backendUnchanged: true });
+		}
+	}, 30_000);
+
 	test("restarts an unchanged VM that just received the VAPID key, which it reads at start", async () => {
 		const machine = makeMachine();
 		const sshLog = addSshStub(machine);
@@ -1221,6 +1249,49 @@ describe("deploy.sh", () => {
 				expect(remoteCommands(sshLog, Laptop_SSH)).toEqual(["true"]);
 				expect(restarts(machine)).toEqual([]);
 			});
+
+			test.each(["--only=portable", "--catch-up"])("first deploy of an optional user unit via %s", async (selection) => {
+				const machine = makeMachine();
+				const sshLog = addTargetsSshStub(machine);
+				const { dir, sha } = await repositoryWithWeb();
+				const remoteHome = laptopHome(machine);
+				const remoteRoot = laptopRoot(machine);
+				const environment = targetsEnvironment(machine, sshLog, null, false);
+				writeFileSync(environment.DEPLOY_TARGETS_FILE!, JSON.stringify({ targets: [{
+					name: "portable", label: "Portable", ssh: Laptop_SSH, unit: "user", shell: "fish",
+					optional: true, bun: "/unavailable/profile/bin/bun",
+				}] }));
+				const unit = join(machine.dir, "portable.service");
+				writeFileSync(unit, "[Service]\nExecStart=%h/.local/bin/bun run start\n");
+				const source = join(machine.dir, "portable.env");
+				writeFileSync(source, "KEMIRI_HOST=0.0.0.0\nKEMIRI_VAPID_KEY_FILE=~/private/vapid.json\n");
+				const key = join(machine.dir, "host-vapid.json");
+				writeFileSync(key, "synthetic key\n");
+				const config = join(remoteHome, "private", "server.env");
+				const pending = join(machine.dir, "state/aiki-deploy/pending/portable.json");
+				if (selection === "--catch-up") {
+					mkdirSync(join(pending, ".."), { recursive: true });
+					writeFileSync(pending, "{}\n");
+				}
+				// Provision the first pinned Bun without a real download or network access.
+				writeScript(join(machine.bin, "curl"), "exit 0");
+				writeScript(join(machine.bin, "unzip"), `cp "${environment.BUN}" "$4/bun"`);
+				const pinnedBun = join(remoteHome, ".local/bin/bun");
+				expect(existsSync(pinnedBun)).toBe(false);
+				const result = await run(["bash", join(dir, "deploy/deploy.sh"), selection, sha], {
+					...environment, KEMIRI_VAPID_KEY_FILE: key, DEPLOY_PORTABLE_ROOT: remoteRoot,
+					DEPLOY_PORTABLE_SERVICE: "portable.service", DEPLOY_PORTABLE_USER_UNIT_FILE: unit,
+					DEPLOY_PORTABLE_ENV_FILE: source, DEPLOY_PORTABLE_ENV_DEST: config,
+				});
+				expect(result.stdout).toContain("Portable backend: deployed");
+				expect(result.code).toBe(0);
+				expect(readFileSync(join(remoteHome, ".config/systemd/user/portable.service"), "utf8")).toBe(readFileSync(unit, "utf8"));
+				expect(readFileSync(config, "utf8")).toBe(readFileSync(source, "utf8"));
+				expect(readFileSync(join(remoteHome, "private/vapid.json"), "utf8")).toBe("synthetic key\n");
+				expect(existsSync(pinnedBun)).toBe(true);
+				expect(existsSync(pending)).toBe(false);
+				expect(restarts(machine)).toHaveLength(1);
+			}, 30_000);
 
 			test("deploys the current main to a laptop that is behind, and to nothing else, without re-running the checks", async () => {
 				const machine = makeMachine();

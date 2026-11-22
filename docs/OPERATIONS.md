@@ -24,7 +24,8 @@ absolute `DEPLOY_CONFIG_DIR`). Start from `deploy/targets.example.json`, `deploy
 - `config.env`: optional trusted shell configuration for deploy tooling, such as `DEPLOY_STATE_DIR` and
   `DEPLOY_WATCH_SERVICE`. This preserves existing state/lock/service identities during a source cleanup.
 - `aiki.service`: optional private user-mode backend unit, copied to remote tooling instead of the public
-  origin-free template. `DEPLOY_USER_UNIT_FILE` may select a differently named file. Host-managed system units are unchanged.
+  origin-free template. Set `DEPLOY_<TARGET>_USER_UNIT_FILE` for one target, or `DEPLOY_USER_UNIT_FILE` as the default.
+  Host-managed system units are unchanged.
 - `server-host.env`, `server-<target>.env`: optional per-installation `KEMIRI_*` settings. Deploy installs these atomically
   as mode 0600 at `${XDG_CONFIG_HOME:-~/.config}/aiki/server.env` on each target, outside releases. Override a source
   with `DEPLOY_HOST_ENV_FILE` / `DEPLOY_<TARGET>_ENV_FILE`, or destination with the corresponding `_ENV_DEST` variable.
@@ -51,7 +52,12 @@ absolute `DEPLOY_CONFIG_DIR`). Start from `deploy/targets.example.json`, `deploy
 Existing installations can retain all paths and unit names in `config.env`: `DEPLOY_HOST_ROOT`, `DEPLOY_HOST_SERVICE`,
 `DEPLOY_APP_ROOT`, `DEPLOY_REMOTE_ROOT`, `DEPLOY_REMOTE_SERVICE`, or per-target `DEPLOY_<TARGET>_ROOT` / `_SERVICE`.
 `DEPLOY_STATE_DIR` and `DEPLOY_WATCH_SERVICE` retain watcher state and identity without reinstalling its unit.
-Set `DEPLOY_HOST_DATA_DIR` and `DEPLOY_VM_DATA_DIR` for VAPID sharing when existing notification keys live elsewhere.
+For VAPID sharing, `KEMIRI_VAPID_KEY_FILE` or `DEPLOY_HOST_DATA_DIR` can locate the source key on the deploying host.
+For each remote target, `DEPLOY_<TARGET>_VAPID_KEY_FILE` overrides the destination. Otherwise deploy reads
+`KEMIRI_VAPID_KEY_FILE`, then `KEMIRI_DATA_DIR` (plus `notifications/vapid.json`), from that target's private server.env.
+Use absolute or `~/` paths there. Without either setting, deploy uses `DEPLOY_VM_DATA_DIR` if set, otherwise the fresh-install
+default `${XDG_DATA_HOME:-$HOME/.local/share}/kemiri`. For an existing installation using a legacy data directory or
+a different XDG root in its unit, set the destination explicitly.
 
 Use `bun packages/server/src/main.ts --print-config` to inspect effective paths, binding, origins and storage identity
 without opening or changing any data. For an existing store, set `KEMIRI_STATE_NAMESPACE` to its original document/task
@@ -180,7 +186,10 @@ On each move:
    `bun install --frozen-lockfile`, `bun test`, `bun run typecheck`, the web check and the web build once on that tree.
    A failure stops the deploy before anything is published and records the failed attempt on every backend that
    answers (`deploy-status.json` below), so the app can say that the commit never started.
-3. The app build goes to `/var/lib/aiki-web/releases/<name>`, then the `current` symlink moves. Caddy serves
+3. If a new revision only changes deploy tooling or docs since the published release and the published backend list
+   is unchanged, the app keeps that release. Checks and the web build still run. Set `DEPLOY_FORCE_WEB=1` for a full
+   deploy that must republish, for example after changing private `web.env` settings.
+   Otherwise the app build goes to `/var/lib/aiki-web/releases/<name>`, then the `current` symlink moves. Caddy serves
    `current`. If the published files do not verify, `deploy/web.sh` restores the previous release. The release carries
    `/backends.json` — the app's published backend list, built from `deploy/local/backends.json` — and a real `connect.html`
    beside the `200.html` fallback, so `/connect` works whether Caddy rewrites to the fallback or to `{path}.html`.
@@ -189,13 +198,14 @@ On each move:
 4. The backend on this host is published under `~/.local/share/aiki-deploy/` (unless nothing it runs changed,
    see below), drains the running server until no tool call executes (see below), and is restarted with
    `systemctl restart aiki.service`,
-   then health-checked deeply on `127.0.0.1:7317`. The system unit belongs to nix-config; while it does not exist the step logs a clear skip line and
+   then health-checked deeply on its configured bind address (loopback for a wildcard). The system unit belongs
+   to nix-config; while it does not exist the step logs a clear skip line and
    the rest of the deploy continues.
 5. Then each remote target in turn (the VM, then the laptop), the same way: `deploy/vapid-key.sh` first shares this
    host's Web Push VAPID key pair with it when its copy is missing or different (one browser subscription has to verify
    against the key every backend signs with; it only warns when it cannot, and the target keeps whatever key it has;
-   `KEMIRI_VAPID_KEY_FILE` names the host key, `DEPLOY_VM_DATA_DIR` the remote data directory). Then the tree and
-   the tooling go over ssh, and `backend.sh` publishes, drains, restarts and health-checks there on its loopback. The VM
+   the destination is resolved per target as described above). Then the tree and the tooling go over ssh, and
+   `backend.sh` publishes, drains, restarts and checks the backend on its configured address. The VM
    is a `demo` user service that the deploy installs; the laptop is a system service from nix-config (restarted through
    polkit like this host's, no unit file installed). Each target is then checked over the tailnet (warning only).
 6. Each backend rolls itself back to its previous release, restarts and re-checks if the new release is not healthy.
@@ -269,7 +279,12 @@ system unit), `identity` (a private key, passed as `-i … -o IdentitiesOnly=yes
 is not bash: commands then go through `bash -c`), `port`, `optional` and `enabled`. `deploy/targets.ts` reads it. The
 overrides that existed before still steer the VM (`DEPLOY_SSH_TARGET`, `DEPLOY_TAILNET_HOST`, empty skips the tailnet
 check), and every target answers `DEPLOY_<NAME>_SSH_TARGET`, `_TAILNET_HOST`, `_BUN`, `_IDENTITY`, `_SHELL`, `_PORT`,
-`_OPTIONAL` (1/0) and `_ENABLED` (0 leaves it out), e.g. `DEPLOY_laptop_ENABLED=0`; `DEPLOY_TARGETS_FILE` names another list.
+`_OPTIONAL` (1/0) and `_ENABLED` (0 leaves it out), e.g. `DEPLOY_LAPTOP_ENABLED=0`; `DEPLOY_TARGETS_FILE` names another list.
+Each target also accepts `_ROOT`, `_SERVICE`, `_ENV_FILE`, `_ENV_DEST`, `_USER_UNIT_FILE`, `_VAPID_KEY_FILE`,
+`_HEALTH_USER` and `_HEALTH_ENV_FILE`. The health checker normally uses the installed env file if deploy provides one.
+Use `_HEALTH_ENV_FILE` to match a unit that reads a different file. Required-auth checks only reach local addresses;
+discovery uses the built-in loopback HTTP Host and private checks go through the owner Unix socket.
+The optional external tailnet check cannot query a raw IP that the backend does not approve as an HTTP host.
 
 The laptop is `optional`: it is often asleep or away.
 
@@ -302,18 +317,22 @@ The laptop is `optional`: it is often asleep or away.
 
 ### Adding a backend host
 
-1. **nix-config:** the `aiki` system service on the machine (runs `bun run start` in `current` of
-   `~/.local/share/aiki-deploy`, as the user that owns the data, `KEMIRI_ALLOWED_ORIGINS=https://harness.example.test`,
-   `KEMIRI_HOST=0.0.0.0` with the port open on tailscale0 only), a polkit rule so that user can restart it without a
-   password, `bun` and `git` on the machine, ssh in with a deploy key (this PC's `~/.ssh/<host>`, listed in the machine's
-   `authorizedKeys`), linger for a user unit.
+1. **Service:** For a system unit, set up the unit and passwordless restart rule in the target's host config,
+   with Bun and Git on its PATH. For a user unit, deploy installs the unit; set `DEPLOY_<TARGET>_USER_UNIT_FILE`
+   for a custom one and enable linger separately for that user. Run the service as the data owner from the deploy
+   root's `current` directory. User units should start `%h/.local/bin/bun`: deploy provisions pinned Bun before
+   the first start and installs pinned zellij in the same directory. Use `KEMIRI_HOST=<tailnet IP>` in the private
+   server env to bind only that address, or a wildcard only if the firewall limits access. Set the web app's
+   origin with `KEMIRI_ALLOWED_ORIGINS` and keep the unit's env file path and port aligned with the deploy target.
+   Give the deploying account noninteractive SSH to the service account, using a key or Tailscale SSH.
 2. **Caddy vhost** on this host: `harness-<host>.example.test` → `<tailnet IP>:7317` (nix-config), so the app can
    reach it over HTTPS.
 3. **`deploy/local/targets.json`:** `name`, `label`, `ssh`, `tailnet`, `unit`, `bun`, `identity`, `shell`; `"optional": true`
    when the machine is often off. Check `ssh -o BatchMode=yes <ssh> true` works as this user from this host.
 4. **`deploy/local/backends.json`:** `{ "name": "harness-<host>", "url": "https://harness-<host>.example.test" }`, so the app
    offers it. Deploy once by hand (`deploy/deploy.sh --only=<name>`, or the first move of `main`): a target needs a first
-   release before `current` exists.
+   release before `current` exists. A disabled target can be selected for one run with
+   `DEPLOY_<TARGET>_ENABLED=1`. Enable it in the persistent config for the watcher to include it and catch it up.
 5. **Provider logins** on that machine, as the service user: whatever the models there use (the app's Backends and
    Settings pages start the sign-ins; credentials stay on that backend).
 6. **`gh auth login`** as the service user (pull request and issue state and cards), and `acli` if Jira links matter.
@@ -322,7 +341,10 @@ The laptop is `optional`: it is often asleep or away.
 
 A deploy refuses to run from inside the `aiki` unit's own cgroup — that is, from a tool of the server it is
 about to restart: the restart would kill the script after `current` moved, before the health check and the rollback.
-The message points at moving `main`, which is the supported way: the watcher is not in that cgroup.
+Moving `main` uses the watcher, which is not in that cgroup. For a remote-only first deploy from a backend tool,
+start a separate transient user **service** (not a shell child) with
+`systemd-run --user --wait --pipe --collect bash deploy/deploy.sh --only=<name>` from the deploying checkout.
+Use the deploying account and its normal deploy PATH. `--only` leaves the local backend and web app alone.
 
 The app root `/var/lib/aiki-web` is created and owned by `operator` in nix-config, as are Caddy, the
 `aiki` system unit and the polkit rule that lets `operator` restart it. The unit must set
@@ -365,5 +387,5 @@ ls ~/.local/state/aiki-deploy/pending                  # targets waiting for a d
 Overrides: `DEPLOY_SSH_TARGET`, `DEPLOY_TAILNET_HOST` (empty skips the tailnet check; both are the VM's, see Remote
 targets for the per-target names), `DEPLOY_TARGETS_FILE`, `DEPLOY_PROBE_TIMEOUT_SECONDS`, `DEPLOY_CATCHUP_SECONDS`, `DEPLOY_PORT`, `BUN`,
 `DEPLOY_POLL_SECONDS`, `DEPLOY_KEEP_RELEASES`, `DEPLOY_HEALTH_TIMEOUT_MS`, `DEPLOY_IDLE_TIMEOUT_SECONDS`,
-`DEPLOY_IDLE_POLL_SECONDS`, `DEPLOY_APP_ROOT`, `DEPLOY_HOST_ROOT`, `DEPLOY_HOST_SERVICE`, `DEPLOY_TARGET`,
-`KEMIRI_VAPID_KEY_FILE` and `DEPLOY_VM_DATA_DIR` (the VAPID key pair, see [Notifications](#notifications)).
+`DEPLOY_IDLE_POLL_SECONDS`, `DEPLOY_APP_ROOT`, `DEPLOY_FORCE_WEB`, `DEPLOY_HOST_ROOT`, `DEPLOY_HOST_SERVICE`, `DEPLOY_TARGET`.
+See [local configuration](#local-configuration-and-publication) for private units, environment files and VAPID overrides.

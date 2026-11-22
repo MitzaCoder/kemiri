@@ -1,8 +1,8 @@
 /** `deploy/targets.ts`: the list of remote backend targets, its environment overrides and what it refuses. */
 import "./clean-env.ts";
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatTarget, overrideVariable, parseTargets } from "../targets.ts";
 
@@ -82,6 +82,52 @@ describe("overrides", () => {
 		expect(parseTargets(REAL_LIST, { DEPLOY_LAPTOP_ENABLED: "0" }).map((target) => target.name)).toEqual(["vm"]);
 		expect(parseTargets(REAL_LIST, { DEPLOY_VM_ENABLED: "false" }).map((target) => target.name)).toEqual(["laptop"]);
 	});
+});
+
+test("resolves a private user unit, installed health env, pinned Bun and per-target VAPID destination", () => {
+	const directory = mkdtempSync(join(tmpdir(), "deploy-target-settings-"));
+	try {
+		const targetEnv = join(directory, "private.env");
+		const targetUnit = join(directory, "portable.service");
+		const globalUnit = join(directory, "fallback.service");
+		writeFileSync(targetUnit, "");
+		writeFileSync(globalUnit, "");
+		const targets = join(directory, "targets.json");
+		writeFileSync(targets, JSON.stringify({ targets: [
+			{ name: "vm", ssh: "user@vm.example.test", unit: "user" },
+			{ name: "my-portable", ssh: "user@portable.example.test", unit: "user", bun: "/usr/bin/bun", enabled: false },
+		] }));
+		const resolve = (target: string, overrides: Record<string, string> = {}) => {
+			const result = Bun.spawnSync(["bash", "-ec", [
+				'source "$REPO_DIR/deploy/server-env.sh"; source "$REPO_DIR/deploy/targets.sh"',
+				'die() { echo "$*" >&2; exit 1; }; load_targets; use_target "$(target_index "$1")"',
+				'path=$(target_vapid_path); eval "key=$path"',
+				'printf "%s\\n" "$T_USER_UNIT_FILE" "$key" "$(remote_bun)" "$(remote_backend_env)"',
+			].join("\n"), "bash", target], { env: {
+				...process.env, HOME: "/home/example", XDG_DATA_HOME: "/example/share",
+				REPO_DIR: join(import.meta.dir, "../.."), BUN, DEPLOY_CONFIG_DIR: directory, DEPLOY_TARGETS_FILE: targets,
+				DEPLOY_USER_UNIT_FILE: globalUnit, DEPLOY_MY_PORTABLE_ENABLED: "1",
+				DEPLOY_MY_PORTABLE_USER_UNIT_FILE: targetUnit, DEPLOY_MY_PORTABLE_ENV_FILE: targetEnv,
+				DEPLOY_MY_PORTABLE_ENV_DEST: "/example/config/server.env",
+				...overrides,
+			} });
+			expect(result.stderr.toString()).toBe("");
+			expect(result.exitCode).toBe(0);
+			return result.stdout.toString().trimEnd().split("\n");
+		};
+		writeFileSync(targetEnv, 'KEMIRI_VAPID_KEY_FILE="~/private key/\$literal.json"\nKEMIRI_DATA_DIR=/other\n');
+		const globalVapid = { DEPLOY_VM_DATA_DIR: "$HOME/legacy" };
+		const portable = resolve("my-portable", globalVapid);
+		expect(portable.slice(0, 3)).toEqual([targetUnit, "/home/example/private key/$literal.json", "$HOME/.local/bin/bun"]);
+		expect(portable[3]).toContain('DEPLOY_HEALTH_ENV_FILE="/example/config/server.env"');
+		expect(resolve("my-portable", { ...globalVapid, DEPLOY_MY_PORTABLE_VAPID_KEY_FILE: "$HOME/manual.json" })[1]).toBe("/home/example/manual.json");
+		writeFileSync(targetEnv, "KEMIRI_DATA_DIR=/example/data\n");
+		expect(resolve("my-portable", globalVapid)[1]).toBe("/example/data/notifications/vapid.json");
+		expect(resolve("vm", globalVapid).slice(0, 2)).toEqual([globalUnit, "/home/example/legacy/notifications/vapid.json"]);
+		expect(resolve("vm")[1]).toBe("/example/share/kemiri/notifications/vapid.json");
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 describe("validation", () => {

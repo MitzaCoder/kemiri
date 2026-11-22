@@ -14,7 +14,7 @@
 #   1. materialises the commit with `git archive` (never the working copy),
 #   2. runs `bun test`, `bun run typecheck`, the web check and the web build on that tree once, and stops if any fails —
 #      recording the failed attempt in each backend's deploy root first, so the app can show it,
-#   3. publishes the built app to the app root, with rollback if the files do not verify,
+#   3. publishes the built app to the app root, unless only deploy tooling or documentation changed,
 #   4. ships the tree to this host's backend and the VM's, and lets deploy/backend.sh publish, drain the backend (new
 #      tool calls wait) until no tool call executes, restart, health-check deeply and roll back each one independently — unless nothing that backend runs
 #      changed since the commit it runs (`git diff` against its current/RELEASE.json touches only the app, docs and the
@@ -242,6 +242,30 @@ function path_affects_backend() { # <path>
 	return 0
 }
 
+# A deployed web release's name carries its short commit. Compare source rather than build bytes:
+# Vite's generated version varies on every build. Unknown releases, changed published backend suggestions,
+# and explicit redeploys of the same revision all follow the normal publish path.
+function web_unchanged() { # <staged web build>
+	local build=$1 current=$APP_ROOT/current link running changed path
+	[[ ${DEPLOY_FORCE_WEB:-0} != 1 ]] || return 1
+	[[ -f $current/200.html && -d $current/_app ]] || return 1
+	link=$(readlink "$current") || return 1
+	[[ $link =~ ^releases/[0-9]{8}T[0-9]{6}Z-([[:xdigit:]]{7})$ ]] || return 1
+	running=$(git rev-parse --verify --quiet "${BASH_REMATCH[1]}^{commit}") || return 1
+	[[ $running != "$SHA" ]] || return 1
+	changed=$(git diff --name-only --no-renames "$running" "$SHA" --) || return 1
+	while IFS= read -r path; do
+		case $path in
+		"" | docs/* | deploy/*) ;;
+		*) return 1 ;;
+		esac
+	done <<<"$changed"
+	if [[ -e $current/backends.json || -e $build/backends.json ]]; then
+		cmp -s "$current/backends.json" "$build/backends.json" || return 1
+	fi
+	log "app: deploy tooling and documentation only; keeping ${link#releases/}"
+}
+
 # Whether a backend can keep running <running commit> for this deploy: true only when every path that changed between
 # it and $SHA cannot affect the server. An unknown running commit, one this repository lacks, or a diff that fails all
 # mean restart, as before this check existed.
@@ -388,6 +412,8 @@ if ((PARTIAL)); then
 elif [[ ! -d $APP_ROOT ]]; then
 	log "app: $APP_ROOT does not exist yet (nix-config creates it); skipping app deploy"
 	journal_event web pending
+elif web_unchanged "$STAGE/apps/web/build"; then
+	journal_event web ok
 elif KEMIRI_WEB_ROOT=$APP_ROOT DEPLOY_KEEP_RELEASES=$KEEP bash "$REPO_DIR/deploy/web.sh" release "$NAME" "$STAGE/apps/web/build"; then
 	log "app: deployed $NAME"
 	journal_event web ok
@@ -449,9 +475,13 @@ fi
 #     "replaced" then).
 VAPID_CHANGED=0
 function share_vapid_key() {
-	local vapid_output
+	local vapid_output destination
 	VAPID_CHANGED=0
-	if vapid_output=$(DEPLOY_SSH_OPTIONS="${SSH_OPTS[*]}" DEPLOY_SSH_SHELL=$T_SHELL bash "$REPO_DIR/deploy/vapid-key.sh" "$T_SSH"); then
+	if ! destination=$(target_vapid_path); then
+		log "WARNING: $T_LABEL backend: cannot resolve its notification key path"
+		return 0
+	fi
+	if vapid_output=$(DEPLOY_REMOTE_VAPID_PATH="$destination" DEPLOY_SSH_OPTIONS="${SSH_OPTS[*]}" DEPLOY_SSH_SHELL=$T_SHELL bash "$REPO_DIR/deploy/vapid-key.sh" "$T_SSH"); then
 		[[ -n $vapid_output ]] && printf '%s\n' "$vapid_output"
 		if grep -q -e 'copied the key to' -e 'replaced the key on' <<<"$vapid_output"; then VAPID_CHANGED=1; fi
 	else
@@ -507,9 +537,7 @@ function deploy_target() {
 	local tooling_ok=0
 	if tar -c -C "$REPO_DIR/deploy" "${tools[@]}" | tssh "tar -x -C $REMOTE_ROOT/tools"; then tooling_ok=1; fi
 	if [[ $T_UNIT == user && $tooling_ok == 1 ]]; then
-		local unit_source=${DEPLOY_USER_UNIT_FILE:-$DEPLOY_CONFIG_DIR/aiki.service}
-		if [[ ! -f $unit_source ]]; then unit_source=$REPO_DIR/deploy/systemd/aiki.service; fi
-		tssh "cat > $REMOTE_ROOT/tools/aiki.service" <"$unit_source" || tooling_ok=0
+		tssh "cat > $REMOTE_ROOT/tools/aiki.service" <"$T_USER_UNIT_FILE" || tooling_ok=0
 	fi
 	if ! install_target_env; then tooling_ok=0; fi
 	if ((!tooling_ok)); then
@@ -543,7 +571,7 @@ for index in "${ACTIVE[@]}"; do
 		if "$BUN" run "$REPO_DIR/deploy/health-check.ts" "http://$T_TAILNET:$T_PORT" --alive-only --timeout-ms=10000; then
 			log "reachable from here over the tailnet: http://$T_TAILNET:$T_PORT"
 		else
-			log "WARNING: ${SHA:0:12} is deployed but http://$T_TAILNET:$T_PORT does not answer from here; the server probably binds 127.0.0.1 (KEMIRI_HOST=0.0.0.0 in the unit?)"
+			log "WARNING: ${SHA:0:12} is deployed but http://$T_TAILNET:$T_PORT did not pass the external check; check the bind address, routing and approved HTTP hosts"
 		fi
 	fi
 done

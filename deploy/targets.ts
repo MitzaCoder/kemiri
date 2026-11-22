@@ -15,7 +15,8 @@
  *   - `tailnet`  the host the deploy requests over HTTP afterwards (a warning only); empty or absent skips that check.
  *   - `unit`     `user` (a systemd --user unit that deploy installs from tools/) or `system` (a system unit that belongs to
  *                nix-config, which deploy only restarts).
- *   - `bun`      the remote `bun` for a `system` unit, as the remote shell reads it (`bun`, or `$HOME/.local/bin/bun`).
+ *   - `bun`      the remote `bun` for a `system` unit, as the remote shell reads it. User units use the deploy-pinned
+ *                `$HOME/.local/bin/bun`, regardless of this field.
  *   - `identity` a private key for this target, passed as `-i <key> -o IdentitiesOnly=yes` (`~` is this host's home).
  *   - `optional` an intermittent target (a laptop): when it does not answer a quick probe it is skipped and left pending,
  *                not failed, and the watcher catches it up once it answers.

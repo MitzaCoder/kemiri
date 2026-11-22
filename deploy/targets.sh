@@ -69,8 +69,21 @@ function use_target() { # <index>
 	prefix=${prefix//-/_}
 	local root_variable=${prefix}_ROOT service_variable=${prefix}_SERVICE
 	local health_user_variable=${prefix}_HEALTH_USER health_env_variable=${prefix}_HEALTH_ENV_FILE
+	local unit_file_variable=${prefix}_USER_UNIT_FILE vapid_file_variable=${prefix}_VAPID_KEY_FILE
+	resolve_target_env "$prefix"
 	T_HEALTH_USER=${!health_user_variable:-}
 	T_HEALTH_ENV_FILE=${!health_env_variable:-}
+	T_HEALTH_ENV_FROM_DEST=0
+	if [[ -z $T_HEALTH_ENV_FILE && -f $T_ENV_SOURCE ]]; then
+		T_HEALTH_ENV_FILE=$T_ENV_DEST
+		T_HEALTH_ENV_FROM_DEST=1
+	fi
+	T_USER_UNIT_FILE=${!unit_file_variable:-}
+	if [[ -z $T_USER_UNIT_FILE ]]; then
+		T_USER_UNIT_FILE=${DEPLOY_USER_UNIT_FILE:-$DEPLOY_CONFIG_DIR/aiki.service}
+		if [[ ! -f $T_USER_UNIT_FILE ]]; then T_USER_UNIT_FILE=$REPO_DIR/deploy/systemd/aiki.service; fi
+	fi
+	T_VAPID_KEY_FILE=${!vapid_file_variable:-}
 	REMOTE_ROOT=${!root_variable:-${DEPLOY_REMOTE_ROOT:-'$HOME/.local/share/aiki-deploy'}}
 	T_SERVICE=${!service_variable:-${DEPLOY_REMOTE_SERVICE:-aiki.service}}
 	# A target that is not optional gets exactly `ssh <target> <command>`, as before targets were a list.
@@ -108,22 +121,26 @@ function probe_target() {
 }
 
 function remote_bun() {
-	if [[ -n $T_BUN ]]; then
-		printf '%s' "$T_BUN"
-	elif [[ $T_UNIT == user ]]; then
+	if [[ $T_UNIT == user ]]; then
 		printf '%s' '$HOME/.local/bin/bun'
+	elif [[ -n $T_BUN ]]; then
+		printf '%s' "$T_BUN"
 	else
 		printf '%s' bun
 	fi
 }
 
-# The environment a remote backend.sh gets besides the port: the system unit's bun, and for an intermittent target that
-# the script outlives a dropped connection (backend.sh DEPLOY_SURVIVE_DISCONNECT). Empty for the VM.
+# The environment a remote backend.sh gets besides the port: install paths, owner-check settings and Bun.
+# For intermittent targets the script also outlives a dropped SSH connection.
 function remote_backend_env() {
 	local text="DEPLOY_BACKEND_ROOT=$REMOTE_ROOT DEPLOY_BACKEND_SERVICE=$(printf '%q' "$T_SERVICE") "
 	if [[ -n $T_HEALTH_USER ]]; then text+="DEPLOY_HEALTH_USER=$(printf '%q' "$T_HEALTH_USER") "; fi
-	if [[ -n $T_HEALTH_ENV_FILE ]]; then text+="DEPLOY_HEALTH_ENV_FILE=$(printf '%q' "$T_HEALTH_ENV_FILE") "; fi
-	if [[ $T_UNIT == system && -n $T_BUN ]]; then text+="BUN=$T_BUN "; fi
+	if ((T_HEALTH_ENV_FROM_DEST)); then
+		text+="DEPLOY_HEALTH_ENV_FILE=\"$T_HEALTH_ENV_FILE\" "
+	elif [[ -n $T_HEALTH_ENV_FILE ]]; then
+		text+="DEPLOY_HEALTH_ENV_FILE=$(printf '%q' "$T_HEALTH_ENV_FILE") "
+	fi
+	if [[ $T_UNIT == user || -n $T_BUN ]]; then text+="BUN=$(remote_bun) "; fi
 	if [[ -n $T_OPTIONAL ]]; then text+="DEPLOY_SURVIVE_DISCONNECT=1 "; fi
 	printf '%s' "$text"
 }
