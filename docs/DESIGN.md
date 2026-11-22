@@ -785,7 +785,7 @@ Vitrine's task, kind, time, before-and-after and living lenses share project, ta
 keeps its shelf. Matched before pictures come before their after pictures. The compare lens uses the task gallery's
 image matching and wipe control, and titles pairs by their subject. Shelves look like objects
 rather than file rows, and rearrange with FLIP unless motion is reduced. On narrow screens shelves scroll sideways.
-HTML thumbnails share the existing sandbox and four live-frame slots.
+HTML thumbnails use the same stored WebP snapshots as project and task lists.
 
 Studio keeps the shelves mounted so closing it preserves the browsing position and filters. The existing artifact
 viewers still offer review on text and pages. An immutable version filmstrip marks the boundary at task settlement
@@ -3102,15 +3102,19 @@ later from this section.
   text. The UI category reuses the same HTML predicate for counts and filtering, without changing the stored kind.
   Task Files puts page cards before the media carousel and ordinary file rows; page groups initially show four.
   Opening a page still uses the ordinary artifact dialog/Android route, preserving Page/Source and review actions.
-  Web `ArtifactPageThumb.svelte` shares the viewer's opaque-origin sandbox, no-referrer policy, theme prelude and
-  project CSP setting (fail closed while project settings load). Frames are inert and out of the tab order; only
-  intersecting cells acquire one of four live-frame slots (`page-preview.ts`), released/destroyed when hidden.
-  Android `ArtifactPageThumb.kt` similarly admits only visible cells to two live WebViews; it shares the existing
-  origin-less loader, theme/CSP and WebView policy, **additionally disabling JavaScript** as a cheap static preview.
-  All native preview navigation is blocked and an overlay opens the full reader, not the thumbnail document.
-  Neither platform keeps a disk cache or signed URLs in saved state. Thumbnail source reads are capped at **1 MiB**
-  (separate from the full reader's 20 MiB limit); oversized/failed pages show an open-page fallback, never a partial
-  document. Hidden previews cancel their reads and discard source, so long lists do not keep running page scripts.
+  **Static HTML previews (F112).** The project tab, library shelves, chat cards and task lists share one static
+  thumbnail component on each platform. Only cells near the viewport ask for an image. A missing preview shows the
+  artifact's title. Signed URLs stay out of saved state, and no iframe or WebView is started by a listing.
+  The `artifact-thumbnails` capability adds `preview=1` to signed immutable artifact URLs for 400×225 WebPs. The original token authorizes
+  only the bytes or preview of the same artifact version. The first visible request renders and backfills a missing
+  snapshot, including versions saved before previews existed. Concurrent requests deduplicate and use a bounded,
+  single-render queue. No board update or catalogue read triggers rendering. Each cached image lives alongside its
+  version, so deleting or pruning the version also removes the preview. HTML over 1 MiB or an unavailable renderer
+  leaves a titled placeholder rather than a partial image.
+  Chromium runs outside the server process with a disposable profile and debugger pipes, without backend credentials.
+  The page loads in a sandboxed `srcdoc` frame, with no script execution, offline networking and a CSP that only
+  permits inline CSS and embedded images and fonts. This intentionally omits external assets and script-driven
+  rendering. The full viewer still renders pages under its own policy.
 - **The Files section of a task** shows pages first, **Media** (images and videos) as a carousel, and **other files**
   (text, audio, anything else) as the simple row list under it, opening `ArtifactDialog` as before. Media
   is ordered **oldest first** (save order), so a before/after sequence reads in order and "3 of 8" is stable while new
@@ -3125,8 +3129,7 @@ later from this section.
   seen, so the viewer defaults to rendering it, not quoting it. `ArtifactText` puts its bytes in an `<iframe>` that fills
   the roomy dialog's body (a viewport-based height, `clamp(16rem, calc(90dvh - 14rem), 46rem)`), and a small segmented
   control in the bar switches **Page** / **Source**; the choice is kept for the session (a module-scoped variable, like
-  the video details panel), and Copy always copies the source. Chat cards and lists render the page in the smaller
-  compact frame. The external-link button still opens the same page in a tab of its own.
+  the video details panel), and Copy always copies the source. Chat cards and lists show static thumbnails. The external-link button still opens the same page in a tab of its own.
 - **The sandbox is the same in both places.** `ARTIFACT_FRAME_SANDBOX` (`lib/artifact-preview.ts`) is
   `allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals` and both frames carry it. Scripts, charts and print dialogs work, and the
   document is still in an **opaque origin**: without `allow-same-origin` its `localStorage` throws, its cookies are its

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mitzacoder.kemiri.features.chat.ArtifactDownloadAction
 import io.github.mitzacoder.kemiri.features.chat.ArtifactThumb
+import io.github.mitzacoder.kemiri.features.chat.isHtmlArtifact
 import io.github.mitzacoder.kemiri.features.chat.ChatArtifactMetadata
 import io.github.mitzacoder.kemiri.features.chat.MarkdownContent
 import io.github.mitzacoder.kemiri.features.chat.QuotableSelection
@@ -162,7 +163,7 @@ private fun ReportProofBlock(block: ReportBlock.Proof, context: ProjectScreenCon
                     ChatArtifactMetadata.keep(context.backend.config.key, artifact)
                     context.navigate(Destination.Artifact(context.route, artifact.id))
                 }.semantics { contentDescription = "Open proof: $title" }) {
-                if (isMedia(artifact)) ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(8f / 5))
+                if (isMedia(artifact) || isHtmlArtifact(artifact.name, artifact.mimeType)) ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(8f / 5))
                 Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
                     Text(title, fontWeight = FontWeight.SemiBold, color = Jarvis.colors.fg)
                 }

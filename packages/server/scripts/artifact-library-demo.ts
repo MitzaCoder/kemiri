@@ -111,8 +111,9 @@ try {
 }
 
 function guidePage(name: string, version: number, title: string): string {
+	const [paper, ink] = title === "Field checklist" ? ["#f4e6bc", "#5a330a"] : title === "Volunteer brief" ? ["#dbe9fa", "#153c74"] : ["#e1f2e8", "#164f3e"];
 	return `<!doctype html><html lang="en"><meta charset="utf-8"><title>${title}</title>
-<style>body{font:18px/1.6 system-ui;margin:3rem auto;max-width:38em;padding:0 1.5rem}h1{font-family:Georgia,serif}</style>
+<style>body{font:18px/1.6 system-ui;margin:3rem auto;max-width:38em;padding:0 1.5rem;background:${paper};color:${ink}}h1{font:700 46px Georgia,serif;border-bottom:3px solid;padding-bottom:12px}</style>
 <p>${name} · Edition ${version}</p><h1>${title}</h1>
 <h2>Meeting point</h2><p>${version === 1 ? "Meet by the gate." : "Meet beside the east gate, near the blue sign."}</p>
 <h2>Routes</h2><ul><li>Courtyard loop · 15 minutes</li><li>Riverside walk · 35 minutes</li></ul></html>`;

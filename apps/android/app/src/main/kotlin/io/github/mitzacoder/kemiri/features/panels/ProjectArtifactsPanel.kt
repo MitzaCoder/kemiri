@@ -16,6 +16,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.ConnectionStatus
 import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.chat.ArtifactPinButton
+import io.github.mitzacoder.kemiri.features.chat.HtmlArtifactThumbnail
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import io.github.mitzacoder.kemiri.features.chat.artifactKindIcon
 import io.github.mitzacoder.kemiri.features.chat.artifactTitle
 import io.github.mitzacoder.kemiri.features.chat.isHtmlArtifact
@@ -135,8 +138,8 @@ private fun ArtifactRow(context: ProjectScreenContext, artifact: Artifact, taskT
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).clickable { open(artifact) }.padding(horizontal = 8.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-            LucideGlyph(if (html) Lucide.Paperclip else artifactKindIcon(artifact.kind), size = 18.dp,
-                tint = if (html) Jarvis.colors.accent2 else Jarvis.colors.fgMuted)
+            if (html) HtmlArtifactThumbnail(context, artifact, Modifier.size(88.dp, 50.dp).clip(RoundedCornerShape(6.dp)))
+            else LucideGlyph(artifactKindIcon(artifact.kind), size = 18.dp, tint = Jarvis.colors.fgMuted)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(artifactTitle(artifact), style = MaterialTheme.typography.titleSmall)
                 Text(task, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)

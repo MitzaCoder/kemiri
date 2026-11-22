@@ -110,6 +110,10 @@ internal fun ArtifactThumb(
     duration: Boolean = true,
     play: Boolean = true,
 ) {
+    if (isHtmlArtifact(artifact.name, artifact.mimeType)) {
+        HtmlArtifactThumbnail(context, artifact, modifier)
+        return
+    }
     val client = context.backend.client
     val backend = context.backend.config.key
     val contentId = artifactVersionAddress(artifact)

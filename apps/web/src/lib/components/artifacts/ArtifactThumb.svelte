@@ -1,7 +1,8 @@
 <script lang="ts">
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import type { HarnessClient } from '@kemiri/client';
-	import type { Artifact } from '@kemiri/protocol';
+	import { isHtmlArtifact, type Artifact } from '@kemiri/protocol';
+	import ArtifactPageThumb from './ArtifactPageThumb.svelte';
 	import { formatMediaDuration, MEDIA_RETRY_LIMIT } from '#lib/artifacts.js';
 	import { useArtifactSource } from '#lib/artifacts.svelte.js';
 	import { inView } from '#lib/in-view.js';
@@ -45,6 +46,9 @@
 	}
 </script>
 
+{#if isHtmlArtifact(artifact)}
+	<ArtifactPageThumb {artifact} {client} class={className} />
+{:else}
 <span
 	class="artifact-thumb relative grid shrink-0 place-items-center overflow-hidden {className}"
 	data-kind={artifact.kind}
@@ -95,6 +99,7 @@
 		<span class="duration absolute right-1 bottom-1 rounded px-1 font-mono text-[0.625rem] leading-4 tabular-nums">{length}</span>
 	{/if}
 </span>
+{/if}
 
 <style>
 	.artifact-thumb {

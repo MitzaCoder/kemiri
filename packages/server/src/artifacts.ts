@@ -12,6 +12,7 @@
  * The token is the only authorization, so nothing is served without one that verifies (compared in constant time) and
  * has not expired. Responses honor one byte range (206), so a `<video>` seeks.
  */
+import { ArtifactThumbnails } from "./artifact-thumbnails.ts";
 import { childEnvironment } from "./child-environment.ts";
 import { serverSettings } from "./server-settings.ts";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -274,6 +275,7 @@ export class ArtifactStore {
 	readonly #onChange: ((event: ArtifactsChangedEvent) => void) | undefined;
 	readonly #log: (message: string) => void;
 	/** The tail of each project's write queue. */
+	readonly thumbnails = new ArtifactThumbnails();
 	readonly #writes = new Map<string, Promise<unknown>>();
 
 	constructor(options: ArtifactStoreOptions) {
@@ -845,6 +847,19 @@ export async function serveArtifact(
 		if (options.signer.verify(projectId, artifactId, url.searchParams.get("token")) === undefined)
 			return text(403, "Invalid or expired artifact token");
 		const sessionId = options.signer.sessionId(url.searchParams.get("token"));
+		if (url.searchParams.get("preview") === "1") {
+			if (artifact.kind !== "text" || !isHtmlArtifact(artifact)) return text(404, "No preview");
+			const preview = await options.store.thumbnails.find(options.store.filePath(artifact), request.method === "GET");
+			if (options.signer.verify(projectId, artifactId, url.searchParams.get("token")) === undefined)
+				return text(403, "Invalid or expired artifact token");
+			if (!preview) return text(404, "No preview");
+			const picture = Bun.file(preview);
+			if (!(await picture.exists())) return text(404, "No preview");
+			return new Response(request.method === "HEAD" ? null : options.signer.stream(picture, sessionId), {
+				headers: { ...cors, "content-type": "image/webp", "content-length": String(picture.size),
+					"content-security-policy": "sandbox; default-src 'none'" },
+			});
+		}
 		const size = file.size;
 		const headers: Record<string, string> = {
 			...cors,

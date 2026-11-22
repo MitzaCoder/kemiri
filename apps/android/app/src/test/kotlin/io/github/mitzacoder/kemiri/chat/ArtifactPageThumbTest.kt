@@ -37,23 +37,13 @@ class ArtifactPageThumbTest {
         assertEquals(listOf("text", "file"), listOf(page.kind, mimePage.kind))
     }
 
-    @Test fun thumbnailIsStricterThanTheViewerOnlyByDisablingScripts() {
-        val policy = artifactPageThumbPolicy()
-        assertFalse(policy.javaScript)
-        assertEquals(artifactPagePolicy(), policy.copy(javaScript = true))
-        assertEquals(1024 * 1024, PAGE_PREVIEW_BYTES)
-    }
-
-    @Test fun webViewsAreBoundedOriginlessNonInteractiveAndDestroyedWhenHidden() {
+    @Test fun listsUseSignedImmutableImagesNotWebViews() {
         val source = File("src/main/kotlin/io/github/mitzacoder/kemiri/features/chat/ArtifactPageThumb.kt").readText()
-        assertTrue(source.contains("Semaphore(2)"))
-        assertTrue(source.contains("if (!visible || connection.status"))
+        assertTrue(source.contains("artifactVersionAddress(artifact)"))
+        assertTrue(source.contains("setQueryParameter(\"preview\", \"1\")"))
         assertTrue(source.contains("boundsInWindow()"))
-        assertTrue(source.contains("loadDataWithBaseURL(null, document"))
-        assertTrue(source.contains("artifactThemeTokens(colors), blockRequests, false"))
-        assertTrue(source.contains("view.destroy()"))
-        assertTrue(source.contains("continuation.invokeOnCancellation { call.cancel() }"))
-        assertTrue(source.contains("IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS"))
-        assertFalse(source.contains("addJavascriptInterface"))
+        assertTrue(source.contains("if (!visible || !online"))
+        assertTrue(source.contains("AsyncImage(model = picture"))
+        assertFalse(source.contains("import android.webkit"))
     }
 }

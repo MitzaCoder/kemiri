@@ -14,6 +14,7 @@
 	import ReportSectionView from './ReportSectionView.svelte';
 	import ReportSectionBody from './ReportSectionBody.svelte';
 	import ArtifactDialog from './artifacts/ArtifactDialog.svelte';
+	import { isHtmlArtifact } from '@kemiri/protocol';
 	import ArtifactThumb from './artifacts/ArtifactThumb.svelte';
 	import Markdown from './markdown/Markdown.svelte';
 	import ReportStepCopy from './ReportStepCopy.svelte';
@@ -57,9 +58,9 @@
 		{@const artifact = reportProofArtifact(block, proofFeed.current?.artifacts ?? [])}
 		<figure class="report-proof">
 			{#if artifact && artifactConnection}
-				<button type="button" class="proof-button" class:proof-media={isMedia(artifact)}
+				<button type="button" class="proof-button" class:proof-media={(isMedia(artifact) || isHtmlArtifact(artifact))}
 					aria-label="Open proof: {artifactTitle(artifact)}" onclick={() => { preview = artifact; previewOpen = true; }}>
-					{#if isMedia(artifact)}
+					{#if (isMedia(artifact) || isHtmlArtifact(artifact))}
 						<ArtifactThumb {artifact} client={artifactConnection.client} class="aspect-[8/5] w-full rounded-t-lg" />
 					{/if}
 					<span>{artifactTitle(artifact)}</span>

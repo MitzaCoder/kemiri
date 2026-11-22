@@ -1,5 +1,4 @@
 <script lang="ts">
-	import FileCodeIcon from '@lucide/svelte/icons/file-code';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import type { HarnessClient } from '@kemiri/client';
 	import type { Artifact, ArtifactsChangedEvent, BoardTask } from '@kemiri/protocol';
@@ -8,6 +7,7 @@
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import ArtifactDialog from './ArtifactDialog.svelte';
 	import ArtifactKindIcon from './ArtifactKindIcon.svelte';
+	import ArtifactPageThumb from './ArtifactPageThumb.svelte';
 	import ArtifactPinButton from './ArtifactPinButton.svelte';
 
 	let { client, projectId, tasks, ondiscuss }: {
@@ -72,7 +72,7 @@
 	<li class="flex items-center gap-1 border-b border-(--chat-border) last:border-b-0">
 		<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-md p-2 text-left hover:bg-(--chat-surface-2)" onclick={() => show(artifact)}>
 			{#if html}
-				<span class="grid size-8 shrink-0 place-items-center rounded-lg bg-(--accent-2)/10 text-(--accent-2)"><FileCodeIcon class="size-4" /></span>
+				<ArtifactPageThumb {artifact} {client} class="aspect-video w-23 rounded-md" />
 			{:else}
 				<ArtifactKindIcon kind={artifact.kind} class="size-4 shrink-0 text-(--chat-fg-subtle)" />
 			{/if}
