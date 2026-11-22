@@ -4,13 +4,17 @@ exports[`reports exact ownership, foreign conflicts and allowed vs missing origi
 {
   "appAddresses": {
     "check": {
-      "message": "tailscale-serve; HTTPS ports 47300–47319.",
+      "message": "Advanced operator mode; HTTPS ports 47300–47319.",
       "status": "ok",
     },
     "mode": "tailscale-serve",
     "portRange": {
       "endPort": 47319,
       "startPort": 47300,
+    },
+    "reservedPorts": {
+      "message": "HTTPS app ports are not reserved. Run kemiri tailscale enable --apps once on the backend, or choose Address template for plain links.",
+      "status": "missing",
     },
   },
   "backendOrigins": {
@@ -105,7 +109,7 @@ exports[`reports exact ownership, foreign conflicts and allowed vs missing origi
     ],
     "rangeConflicts": {
       "check": {
-        "message": "Foreign Serve configuration occupies app-range ports 47301, 47302. Set Tailscale HTTPS and a free port range in the backend’s Advanced settings under App addresses.",
+        "message": "Foreign Serve configuration occupies app-range ports 47301, 47302. Choose a free app port range.",
         "status": "warning",
       },
       "ports": [

@@ -25,11 +25,11 @@ export class UserSettingsStore {
 		this.file = join(dataDir, "user-settings.json");
 	}
 	async open(): Promise<void> {
-		const stored = await readJsonFile(this.file) as (Partial<UserSettings> & { apps?: AppSettings }) | undefined;
+		const stored = await readJsonFile(this.file) as (Partial<UserSettings> & { apps?: AppSettings; appAddressesVersion?: number }) | undefined;
 		if (stored !== undefined) {
 			if (typeof stored.userName !== "string") throw new Error("Invalid user settings");
 			this.#settings = { userName: normalizeUserName(stored.userName) };
-			this.#apps = readAppSettings(stored.apps);
+			this.#apps = readAppSettings(stored.apps, stored.appAddressesVersion === 2);
 			if (stored.coordinatorCompaction !== undefined) {
 				this.#settings.coordinatorCompaction = validateCompaction(stored.coordinatorCompaction);
 			}
@@ -40,7 +40,7 @@ export class UserSettingsStore {
 	setAppSettings(settings: AppSettings): Promise<AppSettings> {
 		const write = this.#pending.then(async () => {
 			const apps = validateAppSettings(settings, this.backendPort());
-			await writeJsonFile(this.file, { ...this.#settings, apps });
+			await writeJsonFile(this.file, { ...this.#settings, apps, appAddressesVersion: 2 });
 			this.#apps = apps;
 			this.appsChanged(this.appSettings);
 			return this.appSettings;
@@ -71,7 +71,7 @@ export class UserSettingsStore {
 			if (backgroundPercent !== DEFAULT_COORDINATOR_COMPACTION.backgroundPercent || blockingPercent !== DEFAULT_COORDINATOR_COMPACTION.blockingPercent) {
 				settings.coordinatorCompaction = { backgroundPercent, blockingPercent };
 			}
-			await writeJsonFile(this.file, { ...settings, ...(this.#apps === DEFAULT_APP_SETTINGS ? {} : { apps: this.#apps }) });
+			await writeJsonFile(this.file, { ...settings, ...(this.#apps === DEFAULT_APP_SETTINGS ? {} : { apps: this.#apps, appAddressesVersion: 2 }) });
 			this.#settings = settings;
 			this.changed(this.get());
 			if (compactionChanged) for (const listener of this.#compactionListeners) listener();

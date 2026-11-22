@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { readAppSettings } from "./app-addresses.ts";
+import { appPortReservationStatus, readAppPortReservation, reservationMappings } from "./app-port-reservations.ts";
 import { readAppServeOwnership } from "./app-serve-mappings.ts";
 import { CERTIFICATE_TRANSPARENCY_NOTE, readBackendServeRecord, type BackendServeRecord } from "./backend-tailscale.ts";
 import { readAllowedBackendOrigins } from "./device-auth.ts";
@@ -12,7 +13,7 @@ import type { AppAddresses } from "@kemiri/protocol";
 type CheckStatus = "ok" | "missing" | "warning";
 const check = (status: CheckStatus, message: string) => ({ status, message });
 const readinessCheck = (line: { ok: boolean; message: string }) => check(line.ok ? "ok" : "missing", line.message);
-const appAddressesFix = "Set Tailscale HTTPS and a free port range in the backend’s Advanced settings under App addresses.";
+const appAddressesFix = "Choose a free app port range.";
 const dnsFix = "Enable MagicDNS in the Tailscale admin console under DNS.";
 
 export async function inspectTailscaleStatus(env: Environment, tailscale = new TailscaleServe()) {
@@ -26,17 +27,15 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 
 	let addresses: AppAddresses | null = null;
 	try {
-		const saved = await readJsonFile(join(dataDir, "user-settings.json")) as { apps?: unknown } | undefined;
-		addresses = readAppSettings(saved?.apps).addresses;
+		const saved = await readJsonFile(join(dataDir, "user-settings.json")) as { apps?: unknown; appAddressesVersion?: number } | undefined;
+		addresses = readAppSettings(saved?.apps, saved?.appAddressesVersion === 2).addresses;
 	} catch { /* Don't mistake unreadable settings for the defaults. */ }
-	const portRange = addresses?.mode === "tailscale-serve" ? { startPort: addresses.startPort, endPort: addresses.endPort } : null;
-	const appAddresses = {
-		mode: addresses?.mode ?? null,
-		portRange,
-		check: !addresses ? check("warning", "Could not read App addresses. Restore the backend’s user-settings.json from a valid backup.") :
-			portRange ? check("ok", `${addresses.mode}; HTTPS ports ${portRange.startPort}–${portRange.endPort}.`) :
-				check("warning", `${addresses.mode}; no HTTPS port range in use. ${appAddressesFix}`),
-	};
+
+	let reservation: Awaited<ReturnType<typeof readAppPortReservation>>;
+	let reservationUnreadable = false;
+	try { reservation = await readAppPortReservation(dataDir); } catch { reservationUnreadable = true; }
+	const portRange = addresses?.mode === "tailscale-serve" ? { startPort: addresses.startPort, endPort: addresses.endPort } :
+		reservation ? { startPort: reservation.startPort, endPort: reservation.endPort } : null;
 
 	let backendServe: BackendServeRecord | undefined;
 	let ownershipReadable = true;
@@ -51,14 +50,24 @@ export async function inspectTailscaleStatus(env: Environment, tailscale = new T
 		} catch (error) { serveCheck = check("warning", (error as Error).message); }
 		if (serveStatus) {
 			try {
-				if (!ownershipReadable) throw new Error("Invalid backend Serve ownership");
+				if (!ownershipReadable || reservationUnreadable) throw new Error("Invalid backend Serve ownership");
 				ownedPorts = new Set((await readAppServeOwnership(dataDir)).filter(serveStatus.matches).map(mapping => mapping.httpsPort));
 				if (backendServe && serveStatus.matches(backendServe)) ownedPorts.add(backendServe.httpsPort);
+				if (reservation) for (const mapping of reservationMappings(reservation)) if (serveStatus.matches(mapping)) ownedPorts.add(mapping.httpsPort);
 			} catch {
-				serveCheck = check("warning", "Could not verify mapping ownership. Restore the backend’s app-serve-ownership.json or backend-serve.json from a valid backup.");
+				serveCheck = check("warning", "Could not verify mapping ownership. Restore the backend’s app-serve-ownership.json, app-port-reservations.json or backend-serve.json from a valid backup.");
 			}
 		}
 	}
+	const reserved = appPortReservationStatus(reservation, status.https.ok ? serveStatus : undefined, hostname, backendPort);
+	const appAddresses = {
+		mode: addresses?.mode ?? null,
+		portRange,
+		check: !addresses ? check("warning", "Could not read App addresses. Restore the backend’s user-settings.json from a valid backup.") :
+			addresses.mode === "tailscale-serve" && portRange ? check("ok", `Advanced operator mode; HTTPS ports ${portRange.startPort}–${portRange.endPort}.`) :
+				check("ok", `Address mode: ${addresses.mode}.`),
+		reservedPorts: check(reserved.ok ? "ok" : "missing", reserved.message),
+	};
 	const httpsMappings = (serveStatus?.httpsRoutes ?? []).map(route => ({ ...route,
 		ownership: !ownedPorts ? "unknown" as const : ownedPorts.has(route.httpsPort) ? "kemiri" as const : "foreign" as const,
 	}));
@@ -123,7 +132,7 @@ export function formatTailscaleStatus(report: Awaited<ReturnType<typeof inspectT
 		line("Tailscale running and signed in", report.running),
 		line("MagicDNS name", report.magicDns.check),
 		line("Tailnet HTTPS certificates", report.https),
-		line(`Serve operator (${report.operator.backendUser})`, report.operator.check),
+		line(`Serve operator, advanced mode only (${report.operator.backendUser})`, report.operator.check),
 		line("Serve", report.serve.check),
 		...(report.serve.backend ? [`  Backend Serve: ${report.serve.backend.publicOrigin} (${report.serve.backend.phase})`] : []),
 		...report.serve.httpsMappings.map(mapping => {
@@ -135,6 +144,7 @@ export function formatTailscaleStatus(report: Awaited<ReturnType<typeof inspectT
 			report.backendOrigins.candidates.map(({ origin, check }) => line(`Backend origin ${origin}`, check))),
 		line(`Trusted proxy (IPv4 loopback ${report.trustedLoopback.ipv4 ? "on" : "off"}, IPv6 loopback ${report.trustedLoopback.ipv6 ? "on" : "off"})`, report.trustedLoopback.check),
 		line("App addresses", report.appAddresses.check),
+		line("Reserved app HTTPS ports", report.appAddresses.reservedPorts),
 		`info: ${report.certificateTransparency}`,
 	].join("\n");
 }

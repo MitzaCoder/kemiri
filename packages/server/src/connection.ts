@@ -849,11 +849,14 @@ export class ClientConnection {
 					if (!this.#userSettings || !apps || !this.#features.includes("apps")) return this.#unknownRequest(request);
 					const previous = this.#userSettings.appSettings;
 					if (request.type === "apps.settings.get") {
-						const tailscale = await apps.tailscale.status();
+						const { status, reservationStatus } = await apps.reservedStatus();
+						const tailscale = { ...status, reservedPorts: reservationStatus };
 						this.#respond({ type: request.type, id: request.id, settings: this.#userSettings.appSettings, tailscale });
 					} else {
 						const settings = await this.#userSettings.setAppSettings(request.settings);
-						if (previous.addresses.mode === "tailscale-serve" || settings.addresses.mode === "tailscale-serve") await apps.refresh();
+						if (previous.addresses.mode !== settings.addresses.mode || settings.addresses.mode === "tailscale-serve") {
+							await apps.refresh(previous.addresses.mode === "tailscale-serve" && settings.addresses.mode !== "tailscale-reserved");
+						}
 						this.#respond({ type: request.type, id: request.id, settings });
 					}
 					return;

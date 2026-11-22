@@ -1,3 +1,4 @@
+import { isReservedAppPort, readAppPortReservation } from "./app-port-reservations.ts";
 import { DEFAULT_TAILSCALE_SERVE_RANGE, type AppAddresses } from "@kemiri/protocol";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -123,6 +124,7 @@ export class BackendTailscale {
 			if (httpsPort >= range.startPort && httpsPort <= range.endPort) {
 				throw new TailscaleSetupError(`The HTTPS port is in the agent-app range ${range.startPort}–${range.endPort}. Choose another --port.`);
 			}
+			if (isReservedAppPort(await readAppPortReservation(auth.dir), httpsPort)) throw new TailscaleSetupError(`App Serve reserves port ${httpsPort}. Choose another --port.`);
 			let appOwnership;
 			try { appOwnership = await readAppServeOwnership(auth.dir); }
 			catch { throw new TailscaleSetupError("Could not read app Serve ownership. Restore the backend’s app-serve-ownership.json from a valid backup."); }

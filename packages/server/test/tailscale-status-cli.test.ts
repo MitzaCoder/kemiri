@@ -63,7 +63,7 @@ test("reports exact ownership, foreign conflicts and allowed vs missing origins 
 	const authFile = join(dataDir, "auth.sqlite");
 	const before = await readFile(authFile);
 	await writeFile(join(dataDir, "app-serve-ownership.json"), JSON.stringify(journal));
-	await writeFile(join(dataDir, "user-settings.json"), JSON.stringify({ userName: "", apps: {
+	await writeFile(join(dataDir, "user-settings.json"), JSON.stringify({ userName: "", appAddressesVersion: 2, apps: {
 		addresses: { mode: "tailscale-serve", startPort: 47300, endPort: 47319 }, policy: "on",
 	} }));
 	mapping(443, "http://127.0.0.1:47100");

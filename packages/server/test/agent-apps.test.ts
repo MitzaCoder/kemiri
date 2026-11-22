@@ -86,7 +86,7 @@ test("templates substitute only valid HTTP addresses, and agent instructions sta
 		expect(() => validateAppSettings({ addresses: { mode: "template", template: invalid }, policy: "ask" })).toThrow("Use an HTTP or HTTPS address");
 	}
 	expect(appInstructions({ addresses: template, policy: "ask" })).toBe("Apps: this backend can publish an app you serve to the owner's devices. Serve on 0.0.0.0, and use app_start with the command and port. Devices reach it at http://oven.example.test:PORT/; the app must accept the Host name oven.example.test. Managed apps survive backend service restarts when a user scope is available. A localhost link only works on the server itself; never give one to the owner.");
-	expect(appInstructions(DEFAULT_APP_SETTINGS)).toBe("Apps: No app address is configured on this backend. Attach screenshots or an HTML artifact instead. A localhost link only works on the server itself; never give one to the owner.");
+	expect(appInstructions(DEFAULT_APP_SETTINGS)).toContain("Ask the owner to run kemiri tailscale enable --apps on the backend");
 });
 
 test("publishing rejects low, own, silent and missing ports, unsafe paths, a shared origin and policy off", async () => {

@@ -1654,6 +1654,7 @@ data class UnknownAppAddresses(override val raw: JsonObject) : AppAddresses, Unk
 object AppAddressesSerializer : UnionSerializer<AppAddresses>("AppAddresses", "mode", mapOf(
     "off" to AppAddressesOff.serializer(),
     "template" to AppAddressesTemplate.serializer(),
+    "tailscale-reserved" to AppAddressesTailscaleReserved.serializer(),
     "tailscale-serve" to AppAddressesTailscaleServe.serializer(),
 ), { it.`mode` }, ::UnknownAppAddresses)
 
@@ -1666,6 +1667,11 @@ data class AppAddressesOff(
 data class AppAddressesTemplate(
     @kotlinx.serialization.EncodeDefault override val `mode`: String = "template",
     val `template`: String
+) : AppAddresses
+
+@Serializable
+data class AppAddressesTailscaleReserved(
+    @kotlinx.serialization.EncodeDefault override val `mode`: String = "tailscale-reserved"
 ) : AppAddresses
 
 @Serializable
@@ -1830,13 +1836,27 @@ data class AppsSettingsGetResponseTailscale(
     val `running`: AppsSettingsGetResponseTailscaleInstalled,
     val `magicDns`: AppsSettingsGetResponseTailscaleInstalled,
     val `https`: AppsSettingsGetResponseTailscaleInstalled,
-    val `operator`: AppsSettingsGetResponseTailscaleInstalled
+    val `operator`: AppsSettingsGetResponseTailscaleInstalled,
+    val `reservedPorts`: AppsSettingsGetResponseTailscaleReservedPorts? = null
 )
 
 @Serializable
 data class AppsSettingsGetResponseTailscaleInstalled(
     val `ok`: Boolean,
     val `message`: String
+)
+
+@Serializable
+data class AppsSettingsGetResponseTailscaleReservedPorts(
+    val `ok`: Boolean,
+    val `message`: String,
+    val `range`: AppsSettingsGetResponseTailscaleReservedPortsRange? = null
+)
+
+@Serializable
+data class AppsSettingsGetResponseTailscaleReservedPortsRange(
+    val `startPort`: Long,
+    val `endPort`: Long
 )
 
 @Serializable

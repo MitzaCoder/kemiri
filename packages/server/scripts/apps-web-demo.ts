@@ -3,6 +3,7 @@ import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/provid
 import { join } from 'node:path';
 import { createSetup, errorOf, TestClient, ViewClient } from '../test/support.ts';
 import { DEFAULT_TAILSCALE_SERVE_RANGE, type AppAddresses } from '@kemiri/protocol';
+import { AppPortSetup } from '../src/app-port-setup.ts';
 import { fakeTailscale } from '../test/fake-tailscale.ts';
 import { serveWeb } from '../src/static-web.ts';
 
@@ -17,8 +18,16 @@ const origins = [before?.url.origin, after?.url.origin, ...(process.env.DEMO_ORI
 	.filter((origin): origin is string => origin !== undefined);
 const appAddresses: AppAddresses = process.env.DEMO_APP_ADDRESSES === 'tailscale-serve'
 	? { mode: 'tailscale-serve', ...DEFAULT_TAILSCALE_SERVE_RANGE }
+	: process.env.DEMO_APP_ADDRESSES?.startsWith('tailscale-reserved') ? { mode: 'tailscale-reserved' }
 	: { mode: 'template', template: process.env.DEMO_MANAGED === '1' ? 'http://127.0.0.1:{port}' : 'http://oven.example.test:{port}' };
-const setup = await createSetup({ reusePortOnRestart: true, allowedOrigins: origins, terminals: false, log: console.log, appTailscale: fakeTailscale().tailscale });
+const fake = fakeTailscale();
+const setup = await createSetup({ reusePortOnRestart: true, allowedOrigins: origins, terminals: false, log: console.log, appTailscale: fake.tailscale });
+if (process.env.DEMO_APP_ADDRESSES === 'tailscale-reserved') {
+	const dataDir = setup.server.manager.apps!.options.store.dataDir;
+	await new AppPortSetup(dataDir, setup.server.port, fake.tailscale).enable();
+	fake.operator.value = false;
+	fake.writeDenied.value = true;
+}
 const listener = Bun.serve({
 	hostname: '127.0.0.1', port: 0,
 	fetch: () => new Response('<h1>Bakery order form</h1><p>Sample orders only.</p>', { headers: { 'content-type': 'text/html' } }),

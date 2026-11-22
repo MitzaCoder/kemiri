@@ -2,9 +2,12 @@ import { Type, type Static } from "typebox";
 
 const AddressOffSchema = Type.Object({ mode: Type.Literal("off") });
 const AddressTemplateSchema = Type.Object({ mode: Type.Literal("template"), template: Type.String({ minLength: 1, maxLength: 2048 }) });
+const AddressTailscaleReservedSchema = Type.Object({ mode: Type.Literal("tailscale-reserved") });
 const AddressTailscaleServeSchema = Type.Object({ mode: Type.Literal("tailscale-serve"), startPort: Type.Integer(), endPort: Type.Integer() });
-export const AppAddressesSchema = Type.Union([AddressOffSchema, AddressTemplateSchema, AddressTailscaleServeSchema]);
+export const AppAddressesSchema = Type.Union([AddressOffSchema, AddressTemplateSchema, AddressTailscaleReservedSchema, AddressTailscaleServeSchema]);
 export const DEFAULT_TAILSCALE_SERVE_RANGE = { startPort: 47300, endPort: 47319 } as const;
+
+export const APP_PORT_SETUP_COMMAND = "kemiri tailscale enable --apps";
 
 const TailscaleStatusLineSchema = Type.Object({ ok: Type.Boolean(), message: Type.String() });
 const TailscaleAppStatusSchema = Type.Object({
@@ -14,6 +17,9 @@ const TailscaleAppStatusSchema = Type.Object({
 	magicDns: TailscaleStatusLineSchema,
 	https: TailscaleStatusLineSchema,
 	operator: TailscaleStatusLineSchema,
+	reservedPorts: Type.Optional(Type.Object({ ok: Type.Boolean(), message: Type.String(),
+		range: Type.Optional(Type.Object({ startPort: Type.Integer(), endPort: Type.Integer() })),
+	})),
 });
 export type TailscaleAppStatus = Static<typeof TailscaleAppStatusSchema>;
 export const AppSettingsSchema = Type.Object({
@@ -22,7 +28,7 @@ export const AppSettingsSchema = Type.Object({
 });
 export type AppSettings = Static<typeof AppSettingsSchema>;
 export type AppAddresses = AppSettings["addresses"];
-export const DEFAULT_APP_SETTINGS: AppSettings = { addresses: { mode: "off" }, policy: "ask" };
+export const DEFAULT_APP_SETTINGS: AppSettings = { addresses: { mode: "tailscale-reserved" }, policy: "ask" };
 
 export const AppPublisherSchema = Type.Object({
 	id: Type.String(),
@@ -44,7 +50,7 @@ export const ProjectAppSchema = Type.Object({
 	publishedBy: AppPublisherSchema,
 	ownerPublished: Type.Optional(Type.Boolean()),
 	createdAt: Type.String(),
-	mode: Type.Union([Type.Literal("off"), Type.Literal("template"), Type.Literal("tailscale-serve")]),
+	mode: Type.Union([Type.Literal("off"), Type.Literal("template"), Type.Literal("tailscale-reserved"), Type.Literal("tailscale-serve")]),
 	addressMessage: Type.Optional(Type.String()),
 	managed: Type.Optional(ManagedAppStatusSchema),
 });

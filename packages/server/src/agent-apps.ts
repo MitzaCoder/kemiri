@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { request } from "node:http";
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -6,9 +7,12 @@ import { randomUUID } from "node:crypto";
 import type { AppPublisher, AppSettings, DetectedAppPort, ProjectApp } from "@kemiri/protocol";
 import { appAddress, appInstructions } from "./app-addresses.ts";
 import { AppServeMappings } from "./app-serve-mappings.ts";
-import { TailscaleServe } from "./tailscale.ts";
+import { serveUnavailable, TailscaleServe } from "./tailscale.ts";
+import { AppForwarders } from "./app-forwarders.ts";
+import { appPortReservationFile, appPortReservationStatus, isReservedAppPort, readAppPortReservation, reservationMappings } from "./app-port-reservations.ts";
+import { errorMessage, ServerError } from "./errors.ts";
 import type { AppActivity, AppRecord, AppRegistryDocument } from "./app-registry-document.ts";
-import { ServerError } from "./errors.ts";
+
 import { inAppWorkspace, isDetectableListener, linuxAppListenerSource, type AppListenerSource } from "./app-listeners.ts";
 import type { Project, ProjectStore } from "./projects.ts";
 
@@ -64,7 +68,7 @@ const LISTENER_INTERVAL = 30_000;
 const RETENTION_MS = 86_400_000;
 
 function publishedApp(record: AppRecord): ProjectApp {
-	const { stoppedAt, unpublishedAt: _, serveMapping: __, managedProcess, ...app } = record;
+	const { stoppedAt, unpublishedAt: _, serveMapping: __, reservedHttpsPort: ___, managedProcess, ...app } = record;
 	if (managedProcess) app.managed = { survivesRestart: managedProcess.process?.unit !== undefined };
 	return stoppedAt ? { ...app, state: "stopped", url: null } : app;
 }
@@ -82,6 +86,7 @@ export class AgentApps {
 
 	readonly tailscale: TailscaleServe;
 	readonly #serveMappings: AppServeMappings;
+	readonly #forwarders = new AppForwarders();
 	readonly #processes: ManagedAppProcesses;
 	readonly #starts = new Map<string, Promise<ProjectApp>>();
 	readonly #startingPorts = new Set<number>();
@@ -96,7 +101,14 @@ export class AgentApps {
 
 	async instructions(): Promise<string> {
 		const settings = this.options.settings();
-		const hostname = settings.addresses.mode === "tailscale-serve" && settings.policy !== "off" ? (await this.tailscale.status()).hostname : null;
+		if (settings.policy === "off") return appInstructions(settings);
+		if (settings.addresses.mode === "tailscale-reserved") {
+			// Keep prompt construction on its fast path until setup exists. Settings and publishing do the full check.
+			if (!existsSync(appPortReservationFile(this.options.store.dataDir))) return appInstructions(settings);
+			const { status, reservationStatus } = await this.reservedStatus();
+			return appInstructions(settings, status.hostname ?? undefined, reservationStatus.ok);
+		}
+		const hostname = settings.addresses.mode === "tailscale-serve" ? (await this.tailscale.status()).hostname : null;
 		return appInstructions(settings, hostname ?? undefined);
 	}
 
@@ -115,10 +127,11 @@ export class AgentApps {
 		await this.#refreshing;
 		await Promise.allSettled(this.#starts.values());
 		await this.#pending;
+		this.#forwarders.close();
 	}
 
-	async refresh(): Promise<void> {
-		await this.#releaseOrphans();
+	async refresh(leavingOperatorMode = false): Promise<void> {
+		await this.#releaseOrphans(leavingOperatorMode);
 		const projects = await this.options.store.list();
 		for (const project of projects) {
 			if (!project.apps?.records?.length && !project.apps?.activity?.length && !project.apps?.ignoredPorts?.length && !this.#observed.has(project.id)) continue;
@@ -141,8 +154,9 @@ export class AgentApps {
 		if (!fresh && this.#snapshot && this.#snapshot.expiresAt > this.#now()) return this.#snapshot.pending;
 		const pending = this.#source.listeners().then(async listeners => {
 			if (listeners === null) return null;
+			const reservation = await readAppPortReservation(this.options.store.dataDir).catch(() => undefined);
 			const cwdByPid = new Map<number, Promise<string | null>>();
-			const candidates = (await Promise.all(listeners.filter(listener => isDetectableListener(listener, this.options.backendPort()))
+			const candidates = (await Promise.all(listeners.filter(listener => isDetectableListener(listener, this.options.backendPort()) && !isReservedAppPort(reservation, listener.port))
 				.flatMap(listener => listener.pids.map(async pid => {
 					let pending = cwdByPid.get(pid);
 					if (!pending) cwdByPid.set(pid, pending = this.#source.cwd(pid));
@@ -183,18 +197,39 @@ export class AgentApps {
 		return this.#change(project.id, async document => {
 			let changed = await this.#updateLifecycle(document, snapshot, project.apps);
 			const { addresses } = this.options.settings();
+			let reservedStatus: Awaited<ReturnType<AgentApps["reservedStatus"]>> | undefined;
 			for (const app of document.records ?? []) {
 				if (app.state !== "live") continue;
-				if (addresses.mode === "tailscale-serve" && (!app.stoppedAt || app.serveMapping)) {
+				if (addresses.mode === "tailscale-reserved") {
+					const before = JSON.stringify(app);
+					if (!app.stoppedAt && !project.archived) {
+						reservedStatus ??= await this.reservedStatus();
+						await this.#resolveReserved(app, reservedStatus);
+					} else {
+						delete app.reservedHttpsPort;
+						app.url = null;
+					}
+					delete app.serveMapping;
+					changed ||= before !== JSON.stringify(app);
+				} else if (addresses.mode === "tailscale-serve" && (!app.stoppedAt || app.serveMapping)) {
+					delete app.reservedHttpsPort;
 					const before = JSON.stringify(app);
 					await this.#serveMappings.resolve(app, addresses, () => this.#listeningPorts());
 					changed ||= before !== JSON.stringify(app);
-				} else if (addresses.mode !== "tailscale-serve" && app.mode === "tailscale-serve") {
-					// Leaving Serve revokes its links. Other modes apply to future publications.
+				} else if (addresses.mode !== "tailscale-serve" && (app.mode === "tailscale-serve" || app.mode === "tailscale-reserved")) {
 					app.mode = "off";
 					app.url = null;
+					delete app.reservedHttpsPort;
 					delete app.serveMapping;
 					delete app.addressMessage;
+					if (addresses.mode === "template" && !app.stoppedAt && !project.archived) {
+						try {
+							const url = appAddress(addresses, app.port, app.path);
+							if (url && this.options.backendOrigins().includes(url.origin)) throw new Error("An app must have a different origin from Kemiri.");
+							app.mode = "template";
+							app.url = url?.href ?? null;
+						} catch { app.addressMessage = "The address template cannot make a separate app URL for this port."; }
+					}
 					changed = true;
 				}
 			}
@@ -340,6 +375,7 @@ export class AgentApps {
 		const app = this.#draft(projectId, input, agent, appId);
 		const existing = (await this.options.store.require(projectId)).apps?.records?.find(app => app.appId === appId);
 		if (existing) return publishedApp(existing);
+		await this.#requireUnreservedPort(app.port);
 		if (!await answersHttp(app.port)) throw new ServerError("bad_request", `Nothing answered HTTP on port ${app.port} on this backend.`);
 		this.#snapshot = undefined;
 		return this.#change(projectId, async document => {
@@ -384,6 +420,7 @@ export class AgentApps {
 		const reserved = await this.#change(projectId, async document => {
 			if (document.records?.some(row => row.appId === appId)) return { result: false, changed: false };
 			await this.#checkPublication(app, active);
+			await this.#requireUnreservedPort(app.port);
 			if (document.records?.some(row => row.port === app.port && row.managedProcess?.starting) ||
 				(await this.#listeningPorts())?.has(app.port) || !availableLoopbackPort(app.port)) {
 				throw new ServerError("bad_request", `App port ${app.port} is already in use on this backend.`);
@@ -513,8 +550,66 @@ export class AgentApps {
 		return listeners === null ? undefined : new Set(listeners.map(listener => listener.port));
 	}
 
+	async reservedStatus() {
+		const status = await this.tailscale.status();
+		const backendPort = this.options.backendPort();
+		try {
+			const reservation = await readAppPortReservation(this.options.store.dataDir);
+			const serve = reservation && !serveUnavailable(status, false) ? await this.tailscale.serveStatus() : undefined;
+			const reservationStatus = appPortReservationStatus(reservation, serve, status.hostname, backendPort);
+			return { status, reservationStatus, reservation, error: undefined };
+		} catch (error) {
+			const reservationStatus = appPortReservationStatus(undefined, undefined, status.hostname, backendPort);
+			return { status, reservationStatus, reservation: undefined, error: errorMessage(error) };
+		}
+	}
+
+	async #requireUnreservedPort(port: number) {
+		if (isReservedAppPort(await readAppPortReservation(this.options.store.dataDir), port)) {
+			throw new ServerError("bad_request", "Choose an app port outside Kemiri’s reserved HTTPS and loopback forwarder ranges.");
+		}
+	}
+
+	async #resolveReserved(app: AppRecord, { reservation, reservationStatus, status, error }: Awaited<ReturnType<AgentApps["reservedStatus"]>>) {
+		app.mode = "tailscale-reserved";
+		app.url = null;
+		if (!reservation || !reservationStatus.ok) {
+			app.addressMessage = [reservationStatus.message, error ?? serveUnavailable(status, false)].filter(Boolean).join(" ");
+			return;
+		}
+		if (isReservedAppPort(reservation, app.port) || app.port === this.options.backendPort()) {
+			app.addressMessage = "Use an app port outside Kemiri’s reserved ranges and backend port.";
+			return;
+		}
+		const reservedPorts = reservationMappings(reservation).map(mapping => mapping.httpsPort);
+		const pinned = app.reservedHttpsPort !== undefined && reservedPorts.includes(app.reservedHttpsPort) ? app.reservedHttpsPort : undefined;
+		// Keep persisted assignments across backend restarts, independent of project traversal order.
+		const assigned = pinned === undefined ? new Set((await this.options.store.list()).flatMap(project =>
+			(project.apps?.records ?? []).flatMap(row => row.state === "live" && !row.stoppedAt && row.reservedHttpsPort !== undefined ? [row.reservedHttpsPort] : []))) : new Set<number>();
+		try {
+			for (const port of pinned === undefined ? reservedPorts : [pinned]) {
+				if (assigned.has(port)) continue;
+				const url = new URL(`https://${reservation.hostname}:${port}/`);
+				if (this.options.backendOrigins().includes(url.origin)) continue;
+				if (!await this.#forwarders.assign(port, app)) continue;
+				url.pathname = app.path;
+				app.reservedHttpsPort = port;
+				app.url = url.href;
+				delete app.addressMessage;
+				return;
+			}
+			app.addressMessage = pinned === undefined ? "No reserved HTTPS port is free. Unpublish an app to free a port, or choose Address template." :
+				"This app’s reserved HTTPS port is busy. Free the loopback forwarder port, or unpublish the app and publish it again.";
+		} catch (error) { app.addressMessage = `Could not start the loopback forwarder: ${errorMessage(error)}`; }
+	}
+
 	async #makeLive(app: AppRecord, settings: AppSettings): Promise<void> {
+		await this.#requireUnreservedPort(app.port);
 		app.state = "live";
+		if (settings.addresses.mode === "tailscale-reserved") {
+			await this.#resolveReserved(app, await this.reservedStatus());
+			return;
+		}
 		if (settings.addresses.mode === "tailscale-serve") {
 			await this.#serveMappings.resolve(app, settings.addresses, () => this.#listeningPorts());
 			return;
@@ -533,6 +628,7 @@ export class AgentApps {
 		if (app.state === "unpublished") return false;
 		app.state = "unpublished";
 		delete app.stoppedAt;
+		delete app.reservedHttpsPort;
 		delete app.serveMapping;
 		delete app.addressMessage;
 		app.unpublishedAt = this.#timestamp();
@@ -557,8 +653,9 @@ export class AgentApps {
 		return operation;
 	}
 
-	#releaseOrphans(): Promise<void> {
+	#releaseOrphans(leavingOperatorMode = false): Promise<void> {
 		return this.serializeServeChange(async () => {
+			if (!leavingOperatorMode && this.options.settings().addresses.mode !== "tailscale-serve") return;
 			const projects = await this.options.store.list();
 			await this.#serveMappings.removeOrphans(projects.flatMap(project => project.apps?.records ?? []),
 				this.options.settings().addresses.mode === "tailscale-serve");
@@ -566,12 +663,23 @@ export class AgentApps {
 	}
 
 	async #change<T>(projectId: string, update: (document: AppRegistryDocument) => Promise<{ result: T; changed: boolean; notify?: boolean }>): Promise<T> {
-		const change = await this.serializeServeChange(() => this.options.store.updateAppRegistry(projectId, async document => {
-			const ownedBefore = document.records?.filter(app => app.serveMapping).map(app => app.appId) ?? [];
-			const change = await update(document);
-			const release = ownedBefore.some(id => !document.records?.some(app => app.appId === id && app.serveMapping));
-			return { result: { ...change, release }, changed: change.changed };
-		}));
+		const change = await this.serializeServeChange(async () => {
+			let previous: AppRecord[] = [];
+			try {
+				const committed = await this.options.store.updateAppRegistry(projectId, async document => {
+					previous = structuredClone(document.records ?? []);
+					const change = await update(document);
+					const records = document.records ?? [];
+					const release = previous.some(app => app.serveMapping && !records.some(row => row.appId === app.appId && row.serveMapping));
+					return { result: { ...change, release, records }, changed: change.changed };
+				});
+				this.#forwarders.keep(projectId, committed.records);
+				return committed;
+			} catch (error) {
+				this.#forwarders.keep(projectId, previous);
+				throw error;
+			}
+		});
 		if (change.release) await this.#releaseOrphans();
 		if (change.changed || change.notify) this.options.changed(projectId);
 		return change.result;

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { AppAddresses } from "@kemiri/protocol";
+import { isReservedAppPort, readAppPortReservation } from "./app-port-reservations.ts";
 import { validateAppSettings } from "./app-addresses.ts";
 import type { AppRecord } from "./app-registry-document.ts";
 import { errorMessage } from "./errors.ts";
@@ -18,10 +19,10 @@ export function isAppServeMapping(mapping: unknown, appPort?: number): mapping i
 		(appPort === undefined || targetPort === appPort);
 }
 
-const ownershipFile = (dataDir: string) => join(dataDir, "app-serve-ownership.json");
+export const appServeOwnershipFile = (dataDir: string) => join(dataDir, "app-serve-ownership.json");
 
 export async function readAppServeOwnership(dataDir: string): Promise<ServeOwnership[]> {
-	const saved = await readJsonFile(ownershipFile(dataDir));
+	const saved = await readJsonFile(appServeOwnershipFile(dataDir));
 	if (saved === undefined) return [];
 	if (!Array.isArray(saved) || !saved.every(owner => isAppServeMapping(owner) &&
 		typeof (owner as ServeOwnership).projectId === "string" && typeof (owner as ServeOwnership).appId === "string") ||
@@ -43,7 +44,7 @@ export class AppServeMappings {
 	readonly file: string;
 	constructor(readonly dataDir: string, readonly tailscale: TailscaleServe, readonly backendPort: () => number,
 		readonly backendOrigins: () => readonly string[], readonly log: (message: string) => void) {
-		this.file = ownershipFile(dataDir);
+		this.file = appServeOwnershipFile(dataDir);
 	}
 
 	/** The caller serializes operations across projects from journal read through app record commit. */
@@ -57,6 +58,7 @@ export class AppServeMappings {
 			const hostname = readiness.hostname;
 			const ownership = await readAppServeOwnership(this.dataDir);
 			const serveStatus = await this.tailscale.serveStatus();
+			const reservation = await readAppPortReservation(this.dataDir);
 			const recorded = app.serveMapping && ownership.find(owner => keptBy(owner, app));
 			if (!recorded) delete app.serveMapping;
 			if (app.port === this.backendPort()) throw new Error("Cannot serve Kemiri’s own port.");
@@ -65,7 +67,7 @@ export class AppServeMappings {
 				url.pathname = app.path;
 				return url;
 			};
-			const usable = (port: number) => validServePort(port, this.backendPort()) && !this.backendOrigins().includes(address(port).origin);
+			const usable = (port: number) => !isReservedAppPort(reservation, port) && validServePort(port, this.backendPort()) && !this.backendOrigins().includes(address(port).origin);
 			if (recorded && (recorded.hostname !== hostname || !usable(recorded.httpsPort))) {
 				// Let the orphan pass clean up the previous hostname before allocating again.
 				delete app.serveMapping;

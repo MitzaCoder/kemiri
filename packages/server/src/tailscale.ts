@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { userInfo } from "node:os";
 import type { TailscaleAppStatus } from "@kemiri/protocol";
 import { childEnvironment } from "./child-environment.ts";
@@ -9,6 +9,23 @@ const runCommand: TailscaleCommand = (file, args) => new Promise(resolve => {
 	execFile(file, args, { env: childEnvironment(), timeout: 5000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) =>
 		resolve({ stdout, stderr, ...(error ? { error: String(error.code ?? error.signal ?? "failed") } : {}) }));
 });
+
+/** Elevate only the owner CLI's Serve writes; never give the backend operator rights. */
+export function appSetupTailscale(): TailscaleServe {
+	const tailscale = new TailscaleServe();
+	let operator: boolean | undefined;
+	return new TailscaleServe(async (file, args) => {
+		if (args[0] !== "serve" || args[1] === "status" || (operator ??= (await tailscale.status()).operator.ok)) return runCommand(file, args);
+		const binary = Bun.which(file);
+		if (!binary) throw new Error("Install Tailscale before reserving HTTPS app ports.");
+		const child = spawn("sudo", ["--", binary, ...args], { env: childEnvironment(), stdio: "inherit", signal: AbortSignal.timeout(120_000) });
+		await new Promise<void>((resolve, reject) => {
+			child.once("error", reject);
+			child.once("exit", code => code === 0 ? resolve() : reject(new Error("Could not change Tailscale Serve with sudo. Run the command in a terminal as the backend account.")));
+		});
+		return { stdout: "", stderr: "" };
+	});
+}
 
 export type ServeMapping = { hostname: string; httpsPort: number; target: string };
 export type ServeHttpsRoute = { hostname: string | null; httpsPort: number; path: string | null; target: string };
@@ -191,6 +208,6 @@ export class TailscaleServe {
 	}
 }
 
-export function serveUnavailable(status: TailscaleAppStatus): string | undefined {
-	return [status.installed, status.running, status.magicDns, status.https, status.operator].find(line => !line.ok)?.message;
+export function serveUnavailable(status: TailscaleAppStatus, requireOperator = true): string | undefined {
+	return [status.installed, status.running, status.magicDns, status.https, ...(requireOperator ? [status.operator] : [])].find(line => !line.ok)?.message;
 }

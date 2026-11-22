@@ -32,6 +32,7 @@ internal fun AppAddressSettings(client: HarnessClient, ready: Boolean) {
     val scope = rememberCoroutineScope()
     val settings = AppSettings(when (mode) {
         "template" -> AppAddressesTemplate(template = template.trim())
+        "tailscale-reserved" -> AppAddressesTailscaleReserved()
         "tailscale-serve" -> AppAddressesTailscaleServe(startPort = startPort.toLongOrNull() ?: 0, endPort = endPort.toLongOrNull() ?: 0)
         else -> AppAddressesOff()
     }, policy)
@@ -39,6 +40,7 @@ internal fun AppAddressSettings(client: HarnessClient, ready: Boolean) {
     val dirty = saved != null && settings != saved
     fun fill(value: AppSettings) {
         mode = when (value.addresses) {
+            is AppAddressesTailscaleReserved -> "tailscale-reserved"
             is AppAddressesTailscaleServe -> "tailscale-serve"
             is AppAddressesTemplate -> "template"
             else -> "off"
@@ -79,9 +81,17 @@ internal fun AppAddressSettings(client: HarnessClient, ready: Boolean) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(mode == "off", { mode = "off" }, label = { Text("Off") }, enabled = enabled)
                 FilterChip(mode == "template", { mode = "template" }, label = { Text("Address template") }, enabled = enabled)
-                if (tailscale != null) FilterChip(mode == "tailscale-serve", { mode = "tailscale-serve" },
-                    label = { Text("Tailscale HTTPS") }, enabled = enabled)
+                if (tailscale != null || mode == "tailscale-reserved") FilterChip(mode == "tailscale-reserved", { mode = "tailscale-reserved" },
+                    label = { Text("Tailscale HTTPS (reserved ports)") }, enabled = enabled)
+                if (tailscale != null || mode == "tailscale-serve") FilterChip(mode == "tailscale-serve", { mode = "tailscale-serve" },
+                    label = { Text("Tailscale HTTPS (advanced)") }, enabled = enabled)
             }
+            tailscale?.reservedPorts?.let { reservation ->
+                Text(reservation.message, style = MaterialTheme.typography.bodySmall,
+                    color = if (reservation.ok) Jarvis.colors.fgMuted else Jarvis.colors.warning)
+            }
+            if (mode == "tailscale-serve") Text("Advanced: gives Kemiri the right to change Tailscale Serve. Reserved ports do not need this permission.",
+                style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.warning)
             if (mode == "template") OutlinedTextField(template, { template = it }, Modifier.fillMaxWidth(), enabled = enabled,
                 label = { Text("Address template") }, placeholder = { Text("http://oven.example.test:{port}") }, singleLine = true,
                 supportingText = { Text("Use {port} in the host or port. Optionally put {path} in the URL path.") })

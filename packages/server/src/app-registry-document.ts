@@ -14,7 +14,7 @@ export type AppActivity = {
 };
 
 /** A stopped app stays encoded as live on disk so a Stage 1 rollback can still read the row. */
-export type AppRecord = ProjectApp & { stoppedAt?: string | undefined; unpublishedAt?: string | undefined; serveMapping?: ServeMapping; managedProcess?: ManagedApp };
+export type AppRecord = ProjectApp & { stoppedAt?: string | undefined; unpublishedAt?: string | undefined; serveMapping?: ServeMapping; reservedHttpsPort?: number; managedProcess?: ManagedApp };
 
 /** Optional version-1 project fields; older servers ignore this entire extension. */
 export type AppRegistryDocument = {
@@ -26,9 +26,10 @@ export type AppRegistryDocument = {
 
 /** Park Serve records as off on disk so previous releases keep the row without exposing a stale link. */
 export function encodeProjectAppRegistry<T extends { apps?: AppRegistryDocument }>(project: T) {
-	if (!project.apps?.records?.some(app => app.mode === "tailscale-serve")) return project;
+	if (!project.apps?.records?.some(app => app.mode === "tailscale-serve" || app.mode === "tailscale-reserved")) return project;
 	return { ...project, apps: { ...project.apps, records: project.apps.records.map(app => app.mode === "tailscale-serve"
-		? { ...app, mode: "off", tailscaleServe: true } : app) } };
+		? { ...app, mode: "off", tailscaleServe: true } : app.mode === "tailscale-reserved"
+		? { ...app, mode: "off", tailscaleReserved: true } : app) } };
 }
 
 function readAppUrl(record: ProjectApp): string | null {
@@ -53,8 +54,9 @@ export function readAppRegistry(value: unknown, projectId: string): AppRegistryD
 		...(document.approved === true ? { approved: true } : {}),
 		records: Array.isArray(document.records) ? document.records.filter(record =>
 			Check(ProjectAppSchema, record) && record.projectId === projectId).map(saved => {
-				const { tailscaleServe, serveMapping, managedProcess, managed: _, ...record } = saved as AppRecord & { tailscaleServe?: true };
+				const { tailscaleServe, tailscaleReserved, reservedHttpsPort, serveMapping, managedProcess, managed: _, ...record } = saved as AppRecord & { tailscaleServe?: true; tailscaleReserved?: true };
 				if (record.mode === "off" && tailscaleServe === true) record.mode = "tailscale-serve";
+				else if (record.mode === "off" && tailscaleReserved === true) record.mode = "tailscale-reserved";
 				return {
 					...record,
 					...(managedProcess && validManagedAppId(record.appId) && typeof managedProcess.command === "string" &&
@@ -64,6 +66,7 @@ export function readAppRegistry(value: unknown, projectId: string): AppRegistryD
 							...(validManagedProcess(managedProcess.process, record.appId) ? { process: managedProcess.process } : {}),
 						} } : {}),
 					...(record.mode === "tailscale-serve" && isAppServeMapping(serveMapping, record.port) ? { serveMapping } : {}),
+					...(record.mode === "tailscale-reserved" && reservedHttpsPort !== undefined && Number.isInteger(reservedHttpsPort) ? { reservedHttpsPort } : {}),
 					url: readAppUrl(record),
 					...(record.state === "live" && validTimestamp(record.stoppedAt) ? { stoppedAt: record.stoppedAt } : { stoppedAt: undefined }),
 					...(record.state === "unpublished" ? { unpublishedAt: validTimestamp(record.unpublishedAt) ? record.unpublishedAt : unpublishedAt.get(record.appId) ?? record.createdAt } : { unpublishedAt: undefined }),

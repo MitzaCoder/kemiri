@@ -497,7 +497,7 @@ The coordinator's lazy catalogue picks up that one addition on its next model re
 worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
 Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
 
-### Agent-served apps (T411, T412, T413)
+### Agent-served apps (T411, T412, T413, T420)
 
 The optional `apps` feature lets workers, threads and coordinators register an HTTP server they already run, with
 `app_publish`, `app_list` and `app_unpublish`. Workers default to their assigned task. Before publishing, the backend
@@ -506,7 +506,7 @@ its own port and ports below 1024. The port check does not prove that a device c
 The check is for explicit agent publish and approval only, not for listener discovery.
 
 Settings → Computers → the backend → Advanced on web, and Settings → This computer → Advanced on Android, store the publishing policy (`off`, `ask`, `on`) and address mode in
-that backend's existing settings. The defaults are `ask` and address mode `off`. With `ask`, a publish has no URL
+that backend's existing settings. The defaults are `ask` and Tailscale HTTPS (reserved ports). Without setup this mode publishes no link. With `ask`, a publish has no URL
 until the owner presses Allow in Running apps. This allows that app and later publishes in the same project, not
 in other projects. Mode `off` records new apps without a link.
 
@@ -516,38 +516,43 @@ Templates use HTTP(S) only, without credentials, query or fragment. Links have a
 Kemiri origins. A template doesn't open a firewall, add a proxy or apply tailnet ACLs: the owner configures an
 address already reachable only by the intended tailnet devices. Kemiri sign-in does not protect these app links.
 
-Tailscale HTTPS (`tailscale-serve`) maps a reserved HTTPS port to the app's HTTP port on `127.0.0.1`, for example
-`https://vm.example-tailnet.ts.net:47300/`. The app must accept the public Host including the port. Kemiri uses
-Tailscale Serve, not Funnel, and edits neither the firewall nor Caddy. Tailnet ACLs still apply and Kemiri sign-in
-still does not protect the links. The Settings status checks installation, daemon state, MagicDNS, HTTPS certificates
-and operator permission. If Serve is unavailable the app stays registered without a URL and shows the fix.
+Tailscale HTTPS (reserved ports, `tailscale-reserved`) uses the owner’s one-time Serve setup. It does not
+need operator rights in the backend. The range defaults to HTTPS 47300–47319, mapped one-to-one to IPv4
+loopback 57300–57319. Serve terminates TLS and Kemiri binds a TCP proxy only for an assigned app. It passes
+HTTP and WebSocket upgrades as-is, so the app must accept the public Host and port, such as
+`https://oven.example-tailnet.ts.net:47300/`. App ports must be outside both reserved ranges. Do not run other
+programs on the loopback forwarder ports, even while no app is assigned. Neither mode uses Funnel, modifies the
+firewall or configures Caddy. Tailnet ACLs still apply; Kemiri sign-in does not protect these links.
 
-The range defaults to 47300–47319 and allows up to 100 ports, all at least 1024, excluding 8443 and Kemiri's own port.
-Allocation chooses the lowest port absent from all listening TCP sockets, Serve configuration and Kemiri's ownership
-list. Existing assignments keep their port when the range changes. Switching into Serve publishes already-live apps
-on refresh. Switching away clears their HTTPS links and removes Kemiri's matching mappings; publishing in the new mode
-is explicit. The address mode and publishing policy otherwise operate independently.
+The backend reads Serve status and its reservation journal and does not change Serve configuration in reserved
+mode. If the reservation is unverified or full, an app stays registered without a URL and shows the reason. The
+owner can select Address template instead for links that are already reachable over the tailnet. Publishing
+allocates an available proxy across all projects, skipping busy loopback listeners and known backend origins.
+Live assignments keep their port across backend restarts. Unpublishing, process stop and cleanup close the proxy
+and active connections. Ports can be reused for other apps, so an old URL is not a permanent app identity.
+Switching to an HTTPS mode updates running apps; switching away closes reserved proxies and updates their URLs.
 
-Before invoking Serve, Kemiri atomically writes the app ID, project ID, hostname, HTTPS port and exact loopback target
-to a backend-wide ownership list. The app record stores the mapping too. Startup and refresh remove unclaimed mappings
-and repair a missing live mapping if its port is still free. Unpublishing, task cleanup and pruning also release matching
-mappings. A stopped app keeps its existing mapping until it is removed or pruned. Kemiri leaves occupied or changed
-mappings alone, including extra handlers or Funnel. The CLI has no owner field or compare-and-swap, so the checks cannot
-identify a separately recreated identical mapping or arbitrate a concurrent external write. Reserve the range for Kemiri.
+Tailscale HTTPS (advanced, `tailscale-serve`) lets Kemiri change Serve at runtime. It requires separately granting
+the backend account operator permission. It allocates from the configured range, skipping host listeners, Serve
+configuration, reserved ports and app-owned ports. The backend journals each app’s exact route before writing it,
+repairs missing live mappings and removes unclaimed matching routes while in operator mode. A stopped app keeps
+its mapping until removed or pruned. Existing operator settings migrate to reserved ports without changing Serve;
+explicit Off and Address template choices and publishing policy are preserved. Saving advanced mode again is an
+explicit opt-in. The owner’s app setup commands also clean up matching legacy app routes. Until then, old copied
+operator URLs may still resolve even if Kemiri no longer shows them.
 
 Each version-1 `project.json` holds optional app records, approval and the app activity log. Reads normalize absent
 fields; an older release can still read the project. Serve records are stored as mode `off` with optional Serve
-fields so a pre-Serve release can read the row without advertising a link. That release does not remove Serve
-mappings; select another mode before rolling back if the links must be revoked. Publishing, approval and
+fields so an older release can read the row without advertising a link. Before rolling back, the owner can run
+`kemiri tailscale disable --apps` to remove app Serve routes. Publishing, approval and
 unpublishing record the app, task and publisher, and who made the change. Unpublish only removes the link when
-Kemiri did not start the process. Only Serve mode can revoke a copied address by removing its mapping. A task that closes or archives loses its publications. For an app without a
+Kemiri did not start the process. Reserved mode closes the local proxy; operator mode revokes copied addresses by removing matching Serve routes. A task that closes or archives loses its publications. For an app without a
 task, forgetting its worker or archiving its thread does the same. An attached publication can outlast its worker.
 
 On Linux, the backend samples `ss -ltnpH` on list requests and about every 30 seconds for registries and observed
 projects. Listener and workspace probes run before taking the project document update lock. A stale scan does not
 apply to rows added or changed while it was running. It never connects to a port to check liveness. If nothing listens on a published port, the app becomes
-stopped and its link is disabled. If a listener returns within a day, the app becomes live again with its original
-address. Stopped and unpublished records and old activity are pruned after one day. A stopped record is stored as
+stopped and its link is disabled. If a listener returns within a day, the app becomes live again. Reserved mode can assign a new address if the previous port was reused. Stopped and unpublished records and old activity are pruned after one day. A stopped record is stored as
 live plus an optional `stoppedAt` timestamp so rollback can still read the same version-1 record. Stage 1 does not
 interpret that timestamp. An unavailable listener scan leaves the previous app state intact and shows a note in the list.
 
@@ -1503,7 +1508,7 @@ Only CLI displays secrets, never service journal. Local channel commands never e
 `kemiri tailscale status [--json]` is a read-only preflight for the owner, run as the backend's OS account
 with the same private settings. It skips env-file migration and opens any auth database read-only. It shares
 readiness and exact mapping ownership checks with agent apps. It shows HTTPS mappings and foreign Serve ports
-in the active App addresses range, not host listener availability. The allowlist check shows the standard HTTPS
+in the app port range, and whether the reserved app routes are ready, not host listener availability. The allowlist check shows the standard HTTPS
 origin, the backend's configured port and existing root HTTPS routes to its loopback target. Only the chosen
 backend origin needs to be allowed. The command also checks IPv4 loopback trust for Serve and notes that issued
 certificates put machine names in public transparency logs. JSON has `version: 1` and the same checks and fixes.
@@ -1520,6 +1525,19 @@ from a trusted peer, cannot redeem a local first-device grant. API-only backends
 allowed web app. `kemiri tailscale disable` revokes the managed additions and clears only a still-matching Serve
 port. A changed or unrelated mapping and preexisting host/proxy entries are left alone. Neither command changes
 sign-in mode, modifies firewall or Caddy settings, or enables Funnel.
+
+`kemiri tailscale enable --apps [--ports START-END]` is separate from backend access and pairing. The owner runs
+it as the backend OS account so it uses that installation’s data directory and configuration. If the account is
+not a Tailscale operator, the command runs only its Serve writes through `sudo`; do not run the whole CLI as root
+for a non-root installation. MagicDNS and HTTPS Certificates must already be enabled. Start Kemiri once before
+setup. The range allows 1–100 ports, all from 1024 to 55535, excluding 8443 and the backend’s port. Each proxy uses
+the HTTPS port plus 10000, and must also avoid the backend’s port. Setup refuses occupied Serve ports (including
+identical unowned routes), backend Serve claims and conflicting local listeners. It records intent in the private
+app reservation journal before writes and marks it active only after checking every route. Rerunning the command
+retains the selected range and repairs missing routes. To change the range, run `kemiri tailscale disable --apps`
+first. Disable removes only exact matching Kemiri app routes, not the backend’s mapping, foreign handlers or Funnel.
+Tailscale has no ownership field or compare-and-swap; do not manually recreate identical routes or edit Serve
+concurrently with setup. The Settings App addresses row shows whether the ports are reserved and the setup command.
 
 Updated legacy clients persist pending claim proofs, register via HTTP, display comparison codes and poll. Owner reviews
 fixed `migration list` inventory (ID/code/label/platform/first/last-seen/coarse source), approves **exact IDs** under durable

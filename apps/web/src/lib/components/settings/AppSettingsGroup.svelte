@@ -53,11 +53,22 @@
 
 <SettingsGroup title="Agent apps">
 	<SettingsRow label="App addresses" for="app-address-mode" hint="How app links reach devices. Links are not behind Kemiri sign-in.">
-		<select id="app-address-mode" bind:value={mode} disabled={!saved || busy} class="app-setting-control">
+		<select id="app-address-mode" bind:value={mode} disabled={!saved || busy} class="app-setting-control w-full">
 			<option value="off">Off</option>
 			<option value="template">Address template</option>
-			{#if tailscale}<option value="tailscale-serve">Tailscale HTTPS</option>{/if}
+			{#if tailscale || mode === 'tailscale-reserved'}<option value="tailscale-reserved">Tailscale HTTPS (reserved ports)</option>{/if}
+			{#if tailscale || mode === 'tailscale-serve'}<option value="tailscale-serve">Tailscale HTTPS (advanced)</option>{/if}
 		</select>
+		{#snippet below()}
+			{#if tailscale?.reservedPorts}
+				<p class={tailscale.reservedPorts.ok ? 'text-sm text-muted-foreground' : 'text-sm text-(--chat-warning)'}>
+					{tailscale.reservedPorts.message}
+				</p>
+			{/if}
+			{#if mode === 'tailscale-serve'}
+				<p class="text-sm text-(--chat-warning)">Advanced: gives Kemiri the right to change Tailscale Serve. Reserved ports do not need this permission.</p>
+			{/if}
+		{/snippet}
 	</SettingsRow>
 	{#if mode === 'template'}
 		<SettingsRow label="Address template" for="app-address-template" hint={'Use an HTTP or HTTPS URL containing {port}. Add {path} to place the app path, or it will be appended.'} control="full">
@@ -87,7 +98,7 @@
 			<option value="on">On</option>
 		</select>
 	</SettingsRow>
-	<SettingsRow label="App settings" hint="Switching to Tailscale HTTPS updates running apps. Switching away removes their HTTPS links." control="auto">
+	<SettingsRow label="App settings" hint="Changing the address mode updates running apps and may change their links." control="auto">
 		<Button size="sm" class="max-sm:min-h-11" disabled={!dirty || busy || backend.connection.status !== 'ready'} onclick={() => void save()}>Save app settings</Button>
 	</SettingsRow>
 	{#if error}<p role="alert" class="px-4 py-2 text-sm text-(--chat-danger)">{error}</p>{/if}
