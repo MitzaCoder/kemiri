@@ -36,6 +36,7 @@ try {
 		return Buffer.from(bytes, "base64");
 	}
 	const favicon = square(logo, 472);
+	await save('apps/web/static/favicon-urgent.svg', favicon.replace('</svg>', '<circle cx="409" cy="113" r="57" fill="#e43d50" stroke="#fff" stroke-width="12"/></svg>'));
 	const normal = square(logo, 410, "#f0edff");
 	// The entire mark fits within the central 80% diameter safe circle.
 	const maskable = square(logo, 340, "#6366f1");

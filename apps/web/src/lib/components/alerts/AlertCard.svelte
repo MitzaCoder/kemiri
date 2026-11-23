@@ -5,7 +5,7 @@
 	import { alerts, type AlertPopup } from '#lib/alerts.svelte.js';
 
 	let { popup, projectName, sourceLabel, href, onopen, pager }: {
-		popup: AlertPopup; projectName: string; sourceLabel: string; href: string; onopen: (event: MouseEvent) => void;
+		popup: AlertPopup; projectName: string; sourceLabel: string; href?: string; onopen: (event: MouseEvent) => void;
 		pager?: { position: number; total: number; onnext: () => void };
 	} = $props();
 
@@ -103,7 +103,11 @@
 				</button>
 			{/each}
 		{/if}
-		<a class="alert-open" data-alert-open {href} onclick={open}>Open <ArrowUpRight size={14} aria-hidden="true" /></a>
+		{#if href}
+			<a class="alert-open" data-alert-open {href} onclick={open}>Open <ArrowUpRight size={14} aria-hidden="true" /></a>
+		{:else}
+			<button class="alert-open" type="button" data-alert-open onclick={open}>Open <ArrowUpRight size={14} aria-hidden="true" /></button>
+		{/if}
 	</div>
 	{#if answer?.selected && !answer.sending && !alerts.hideText}<p class="alert-confirm" role="status">Tap the choice again to send.</p>{/if}
 </article>

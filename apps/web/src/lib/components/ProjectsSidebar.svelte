@@ -30,6 +30,7 @@
 	import { backgroundJobsText } from '#lib/threads.js';
 	import { attentionCount, needsYouLinks, sidebarStatus } from '#lib/sidebar-attention.js';
 	import NeedsYou from '#lib/components/NeedsYou.svelte';
+	import AlertInboxButton from '#lib/components/alerts/AlertInboxButton.svelte';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
 	import {
 		PROJECTS_NAV_WIDE_QUERY,
@@ -121,12 +122,14 @@
 		<div
 			class="flex shrink-0 items-center gap-1 px-1.5 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1"
 			class:justify-center={rail}
+			class:flex-col={rail}
 		>
 			{#if !rail}
 				<h2 class="min-w-0 flex-1 truncate px-1.5 text-[0.6875rem] font-semibold tracking-wide uppercase text-(--chat-fg-subtle)">
 					Projects
 				</h2>
 			{/if}
+			{#if !drawer}<AlertInboxButton />{/if}
 			{#if drawer}
 				<Button
 					variant="ghost"

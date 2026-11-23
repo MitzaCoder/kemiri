@@ -7,6 +7,10 @@ import { createSetup, TestClient } from '../test/support.ts';
 const allowedOrigins = (process.env.DEMO_ORIGINS ?? 'http://localhost:5173').split(',');
 const output = process.env.DEMO_OUTPUT ?? '/tmp/in-app-alerts-demo.json';
 const model = { provider: 'faux', modelId: 'faux-1' };
+const demoQuestions = [
+	{ text: 'Which units should the spring recipes use?', choices: [{ label: 'Grams', recommended: true }, { label: 'Cups' }] },
+	{ text: 'What batch size should the recipe import use?', choices: [{ label: 'Single batch', recommended: true }, { label: 'Double batch' }] },
+];
 const tool = (name: string, input: Record<string, unknown>) =>
 	fauxAssistantMessage([fauxToolCall(name, input as never)], { stopReason: 'toolUse' });
 
@@ -24,14 +28,15 @@ async function startBackend(id: string, name: string, projectNames: string[]) {
 		if (configured.type !== 'projects.configure') throw new Error(JSON.stringify(configured));
 		projects.push({ id: added.project.id, name });
 	}
+	let questionNumber = 0;
 	setup.faux.setResponses(Array.from({ length: 500 }, () => request => {
 		const last = request.messages.findLast(message => message.role !== 'system');
 		const text = JSON.stringify(last?.content ?? '');
 		if (last?.role === 'toolResult') return fauxAssistantMessage('Noted.');
-		if (text.startsWith('"Demo question"') || text.includes('"text":"Demo question"')) return tool('board', {
-			action: 'ask', text: 'Which units should the spring recipes use?',
-			choices: [{ label: 'Grams', recommended: true }, { label: 'Cups' }],
-		});
+		if (text.startsWith('"Demo question"') || text.includes('"text":"Demo question"')) {
+			const question = demoQuestions[questionNumber++ % demoQuestions.length]!;
+			return tool('board', { action: 'ask', ...question });
+		}
 		if (text.includes('Demo worker assignment')) return fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'The recipe import stopped at the header.' });
 		if (text.includes('Demo failure')) return tool('worker_spawn', { id: `recipe-import-${workerNumber++}`, task: 'Demo worker assignment' });
 		const review = text.match(/Demo review (T\d+) revision (\d+)/);

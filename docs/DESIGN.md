@@ -7541,9 +7541,8 @@ coordinator in the same project can pop up, but silently. The fourth eligible li
 five seconds merges that burst into a count. A matching tag replaces the old card, and a resolution closes it.
 
 Desktop shows up to three pop-ups above the composer, ordered urgent first and then newest. When a task dialog
-is open, the stack lives inside it, above its reply area. Phone widths show one banner under the safe area with a
-count to page through the rest. A sideways swipe dismisses it, and a tap
-opens the linked screen. Queued and hidden cards do not age, and hover or focus pauses visible time. Info lasts
+is open, the stack lives inside it, above its reply area. Phone widths show one banner below the app bar with an
+inline count to page through the rest. A sideways swipe dismisses it, and a tap opens the linked screen. Queued and hidden cards do not age, and hover or focus pauses visible time. Info lasts
 six seconds and important lasts ten. Urgent alerts and warnings fold into the overflow after ten visible minutes.
 Alt+N focuses the newest displayed alert. Esc dismisses the focused alert and restores focus.
 
@@ -7551,8 +7550,23 @@ Opening uses the existing push routes. Short, non-warning and non-approval quest
 choice, with the revision sent on confirmation. A stale revision keeps Open and shows “This question changed”.
 Only displayed cards acknowledge `notifications.shown`. Tabs share shown, read and dismiss marks over
 `BroadcastChannel` or storage events. The browser retains alert rows and their read/done state for seven days,
-including events that never pop up. No inbox, badge, sound playback, mute controls or in-app settings UI is wired
-here. The store exposes sound eligibility and the pop-up and text privacy settings for those stages.
+including events that never pop up. The store exposes sound eligibility and the pop-up and text privacy settings.
+
+### Web inbox and attention indicators
+
+The sidebar and phone app bar have an Inbox bell with the count of unread items. The inbox is history, separate
+from the live Needs you list. It keeps the newest wording per backend and tag, merges backends newest first,
+and groups rows by local calendar day. Needs me filters to open urgent and important rows, Failures uses the
+shared failure kinds, and Finished shows completed work, threads and schedules. Opening an item marks it read
+and uses its push route. Mark all read and individual read marks sync across tabs of one browser. A settled item
+shows Done without changing its read mark. Desktop overflow, burst and catch-up summaries open the inbox.
+
+The tab title prefix and installed-app badge use exactly the sidebar's Needs you total, not inbox unread count.
+The favicon dot means at least one retained urgent item is unresolved, even if read or dismissed. The default-on
+`tabTitleAndIconCount` preference lives with the web alert settings and turns off all three indicators.
+
+The root and scoped push workers still post the OS notification. When a same-origin app window is visible, they
+post it silently without a replacement buzz, even for failures. With no visible app window, delivery is unchanged.
 
 ### Timed mutes on one device
 

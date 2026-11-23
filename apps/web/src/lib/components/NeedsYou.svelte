@@ -5,9 +5,9 @@
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
-	import type { ProjectAttentionLink } from '#lib/sidebar-attention.js';
+	import { needsYouTotal, type ProjectAttentionLink } from '#lib/sidebar-attention.js';
 	let { links, onnavigate }: { links: ProjectAttentionLink[]; onnavigate: () => void } = $props();
-	const count = $derived(links.reduce((sum, link) => sum + link.count, 0));
+	const count = $derived(needsYouTotal(links));
 </script>
 
 {#snippet action(link: ProjectAttentionLink)}

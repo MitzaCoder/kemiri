@@ -14,6 +14,9 @@ export function installPushEvents(worker: ServiceWorkerGlobalScope): void {
 				const payload = readPushPayload(event.data);
 				const url = payload === null ? "/" : notificationUrl(payload);
 				const title = payload?.title ?? "Kemiri";
+				// Scoped push workers do not control the root app. They still see its same-origin windows.
+				const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true }).catch(() => []);
+				const silent = windows.some(client => client.visibilityState === "visible" && new URL(client.url).origin === worker.location.origin);
 				const options: NotificationOptions & { renotify?: boolean; timestamp?: number } = {
 					body:
 						payload?.kind === "board_question"
@@ -22,8 +25,9 @@ export function installPushEvents(worker: ServiceWorkerGlobalScope): void {
 					icon: ICON,
 					badge: BADGE,
 					tag: payload?.tag ?? "aiki",
-					// A failure replaces the last notice of the same tag and buzzes again; a reply must not.
-					renotify: payload !== null && isNotificationFailure(payload.kind),
+					// An open window keeps the OS copy quiet, even when a failure replaces an earlier notice.
+					...(silent ? { silent: true } : {}),
+					renotify: !silent && payload !== null && isNotificationFailure(payload.kind),
 					data: { url, payload },
 				};
 				const at = payload === null ? Number.NaN : Date.parse(payload.at);

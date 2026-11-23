@@ -35,6 +35,10 @@ export function needsYouLinks(backends: readonly { id: string; name: string; pro
 	})))).sort((left, right) => priority[left.kind] - priority[right.kind]);
 }
 
+export function needsYouTotal(links: readonly Pick<ProjectAttentionLink, 'count'>[]): number {
+	return links.reduce((sum, link) => sum + link.count, 0);
+}
+
 export function sidebarStatus(project: ProjectSummary, row: ProjectRow): { label: string; glyph: string; urgent: boolean; working: boolean } {
 	const action = projectAttentionActions(project)[0];
 	const working = project.activity?.coordinator === "working" || (project.attention?.runningWorkers ?? project.activity?.runningWorkers ?? 0) > 0;

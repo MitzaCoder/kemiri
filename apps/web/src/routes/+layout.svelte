@@ -4,6 +4,8 @@
 	import { onMount, untrack } from 'svelte';
 	import { alerts } from '#lib/alerts.svelte.js';
 	import AlertStack from '#lib/components/alerts/AlertStack.svelte';
+	import AlertInbox from '#lib/components/alerts/AlertInbox.svelte';
+	import AttentionBadge from '#lib/components/alerts/AttentionBadge.svelte';
 	import { taskFromUrl } from '#lib/tasks.js';
 	import { installSettingsNavigation } from '#lib/settings-navigation.svelte.js';
 	import { page } from '$app/state';
@@ -148,6 +150,8 @@
 	</div>
 </div>
 <AlertStack />
+<AlertInbox />
+<AttentionBadge />
 <UsageModal />
 <PairingApproval />
 {/if}

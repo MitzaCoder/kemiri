@@ -58,6 +58,8 @@
 	import DiskBanner from '#lib/components/DiskBanner.svelte';
 	import MemoryPanel from '#lib/components/MemoryPanel.svelte';
 	import ProjectsMenuButton from '#lib/components/ProjectsMenuButton.svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { PROJECTS_NAV_WIDE_QUERY } from '#lib/projects.js';
 	import ReleaseLine from '#lib/components/ReleaseLine.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Popover from '#lib/components/ui/popover/index.js';
@@ -529,7 +531,9 @@
 
 	const headerActions = $derived([...tabActions, ...utilityActions]);
 	/** Labels where they fit beside the project's name, icons where they do not, and a menu when even those are too many. */
-	const headerRowLayout = $derived(headerLayout(headerWidth, headerActions));
+	const wideProjectsSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
+	// The inbox bell and its gap share the Projects button's slot when the sidebar is a drawer.
+	const headerRowLayout = $derived(headerLayout(headerWidth - (wideProjectsSidebar.current ? 0 : 48), headerActions));
 	const shownHeaderActions = $derived(visibleHeaderActions(headerRowLayout, headerActions));
 	const shownTabActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'tab'));
 	const shownUtilityActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'utility'));

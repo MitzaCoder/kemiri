@@ -12,6 +12,7 @@ const ROWS_PREFIX = 'aiki.alert-rows.v1:';
 const TAB_SYNC_KEY = 'aiki.alert-marks.v1';
 const RETENTION_SWEEP_MS = 60_000;
 
+export type InAppAlertSettings = { popupSetting: AlertPopupSetting; hideText: boolean; tabTitleAndIconCount: boolean };
 type AlertBackend = { id: string; client: HarnessClient };
 type AlertMark = { backendId: string; id: string; kind: 'shown' | 'dismissed' | 'read' };
 type LiveEntry = { entry: NotificationRecentEntry; context: AlertContext; arrivedAt: number };
@@ -83,6 +84,9 @@ class Alerts {
 	taskComposerHeight = $state(0);
 	popupSetting = $state<AlertPopupSetting>(DEFAULT_ALERT_POPUPS);
 	hideText = $state(false);
+	tabTitleAndIconCount = $state(true);
+	inboxOpen = $state(false);
+	inboxTrigger?: HTMLElement;
 	#screen: () => AlertScreen | undefined = () => undefined;
 	#connections = new Map<string, AlertConnection>();
 	#channel?: BroadcastChannel;
@@ -154,18 +158,20 @@ class Alerts {
 		};
 	}
 
-	setSettings(settings: { popupSetting: AlertPopupSetting; hideText: boolean }): void {
-		writeStored(SETTINGS_KEY, settings);
-		this.#applySettings(settings);
+	setSettings(settings: Partial<InAppAlertSettings>): void {
+		const next = { popupSetting: this.popupSetting, hideText: this.hideText, tabTitleAndIconCount: this.tabTitleAndIconCount, ...settings };
+		writeStored(SETTINGS_KEY, next);
+		this.#applySettings(next);
 	}
 
 	#loadSettings(): void {
-		this.#applySettings(readStored<{ popupSetting?: unknown; hideText?: unknown }>(SETTINGS_KEY));
+		this.#applySettings(readStored<Partial<Record<keyof InAppAlertSettings, unknown>>>(SETTINGS_KEY));
 	}
 
-	#applySettings(settings?: { popupSetting?: unknown; hideText?: unknown }): void {
+	#applySettings(settings?: Partial<Record<keyof InAppAlertSettings, unknown>>): void {
 		this.popupSetting = alertPopupSetting(settings?.popupSetting);
 		this.hideText = settings?.hideText === true;
+		this.tabTitleAndIconCount = settings?.tabTitleAndIconCount !== false;
 		if (this.popupSetting === 'off') this.popups = [];
 	}
 
@@ -418,9 +424,26 @@ class Alerts {
 		this.#mark(marks);
 	}
 
+	showInbox(trigger?: HTMLElement): void {
+		this.inboxTrigger = trigger;
+		this.inboxOpen = true;
+	}
+
+	markRead(row: AlertRow): void {
+		if (!row.read) this.#mark([{ backendId: row.backendId, id: alertRowId(row), kind: 'read' }]);
+	}
+
+	markAllRead(): void {
+		this.#mark(this.rows.filter(row => !row.read).map(row => ({ backendId: row.backendId, id: alertRowId(row), kind: 'read' })));
+	}
+
 	dismiss(popup: AlertPopup): void { this.#markPopup(popup, 'dismissed'); }
 	open(popup: AlertPopup): void {
 		this.#markPopup(popup, 'read');
+		this.hidePopup(popup);
+	}
+
+	hidePopup(popup: AlertPopup): void {
 		this.popups = this.popups.filter(entry => entry.id !== popup.id);
 	}
 

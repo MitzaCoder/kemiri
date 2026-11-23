@@ -1,18 +1,14 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { untrack } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { Portal } from 'bits-ui';
 	import { notificationUrl } from '@kemiri/client';
 	import { alertRowId, alertSourceLabel } from '#lib/alerts.js';
 	import { alerts, type AlertPopup } from '#lib/alerts.svelte.js';
 	import { harness } from '#lib/harness.svelte.js';
-	import { projectsNav } from '#lib/projects-nav.svelte.js';
-	import { PROJECTS_NAV_WIDE_QUERY } from '#lib/projects.js';
-	import { needsYouLinks } from '#lib/sidebar-attention.js';
 	import AlertCard from './AlertCard.svelte';
 
 	const phone = new MediaQuery('(width < 640px)');
-	const wideSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
 	const chatBannerHost = $derived(phone.current && !alerts.taskSheet ? alerts.chatBannerHost : undefined);
 	const popupHost = $derived(alerts.taskSheet ?? chatBannerHost);
 	const connectedBackends = $derived(harness.backends.filter(backend => backend.ready).length);
@@ -25,8 +21,8 @@
 	const latest = $derived(sorted.filter(popup => !popup.folded).slice(0, pageSize));
 	const queued = $derived(sorted.slice(latest.length));
 	const lastPage = $derived(Math.ceil(queued.length / pageSize));
-	const displayPage = $derived(Math.min(lastPage, pageIndex));
-	const cards = $derived(!alerts.visible ? [] : displayPage === 0 ? latest : queued.slice((displayPage - 1) * pageSize, displayPage * pageSize));
+	const displayPage = $derived(phone.current ? Math.min(lastPage, pageIndex) : 0);
+	const cards = $derived(!alerts.visible || alerts.inboxOpen ? [] : displayPage === 0 ? latest : queued.slice((displayPage - 1) * pageSize, displayPage * pageSize));
 	const phonePosition = $derived(Math.max(1, sorted.indexOf(cards[0]!) + 1));
 	// Only real slots count toward display time; acknowledge after the DOM has had a frame to paint.
 	const paintedMembers = $derived(JSON.stringify(cards.map(popup => [popup.id, popup.members.map(({ row }) => alertRowId(row))])));
@@ -39,7 +35,7 @@
 		const frame = requestAnimationFrame(() => { paint = requestAnimationFrame(() => alerts.markDisplayed(ids)); });
 		return () => { cancelAnimationFrame(frame); cancelAnimationFrame(paint); };
 	});
-	$effect(() => { if (pageIndex > lastPage) pageIndex = lastPage; });
+	$effect(() => { if (!phone.current) pageIndex = 0; else if (pageIndex > lastPage) pageIndex = lastPage; });
 
 	function popupSource(popup: AlertPopup): { projectName: string; sourceLabel: string } {
 		const { row } = popup.members[0]!;
@@ -51,23 +47,17 @@
 		};
 	}
 
-	function popupHref(popup: AlertPopup): string {
+	function popupHref(popup: AlertPopup): string | undefined {
 		const { row } = popup.members[0]!;
-		return popup.kind === 'catch-up' ? '/' : notificationUrl({ ...row.alert, backendKey: row.backendId });
+		return popup.kind !== 'alert' ? undefined : notificationUrl({ ...row.alert, backendKey: row.backendId });
 	}
 
 	function openPopup(event: MouseEvent, popup: AlertPopup): void {
 		if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-		alerts.open(popup);
-		if (popup.kind !== 'alert' && !alerts.taskSheet && needsYouLinks(harness.backends).length) {
-			event.preventDefault();
-			if (wideSidebar.current) projectsNav.setCollapsed(false);
-			else projectsNav.openDrawer();
-			void tick().then(() => {
-				const link = [...document.querySelectorAll<HTMLElement>('[data-sidebar-attention] a')].find(element => element.getClientRects().length);
-				link?.focus();
-			});
-		}
+		if (popup.kind !== 'alert') {
+			alerts.hidePopup(popup);
+			alerts.showInbox();
+		} else alerts.open(popup);
 	}
 
 	function handleKeys(event: KeyboardEvent): void {
@@ -101,14 +91,14 @@
 
 <svelte:window onkeydowncapture={handleKeys} />
 
-{#if alerts.visible && sorted.length}
+{#if alerts.visible && !alerts.inboxOpen && sorted.length}
 	<Portal to={popupHost} disabled={!popupHost}>
 		<section class="alert-stack" class:under-chat-app-bar={chatBannerHost !== undefined} aria-label="Notifications" bind:this={region}
 			style:--alert-composer-height="{alerts.taskSheet ? alerts.taskComposerHeight : alerts.composerHeight}px">
 			{#if queued.length && (!phone.current || !cards.length)}
-				<button type="button" class="alert-overflow" onclick={advancePage}
-					aria-label={displayPage === 0 ? `Show ${queued.length} more notifications` : 'Show next page of notifications'}>
-					{displayPage === 0 ? `+${queued.length} more` : `${displayPage} of ${lastPage} · More notifications`}
+				<button type="button" class="alert-overflow" onclick={(event) => alerts.showInbox(event.currentTarget)}
+					aria-label={`Open inbox (${queued.length} more notifications)`}>
+					+{queued.length} more
 				</button>
 			{/if}
 			{#each cards as popup (popup.id)}
