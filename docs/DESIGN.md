@@ -6391,11 +6391,15 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   (`API_KEY_PLAN_PROVIDERS`); other keys (the `opencode` Zen provider,
   anthropic, openai) are pay-as-you-go with no plan limits and are left out.
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the
-  live samples. In the request log, `limit_samples` keeps changes in percent or reset time plus the last reading
-  in a flat run. Samples are pruned at 90 days. `limit_periods` preserves observed periods across restarts, including
-  window length, label and model or surface scope. A period closes at its scheduled reset, when a reading moves
-  the reset by more than five minutes, or when use drops. A recent credit spend confirmed through Kemiri marks a
-  drop on the affected period as a manual reset, unless the scheduled reset has already passed.
+  live samples. `limit_periods` preserves observed periods across restarts, including window length, label and
+  model or surface scope. A period closes at its scheduled reset, when a reading moves the known reset by more
+  than five minutes, or when use drops more than two percentage points below the period high. A missing reset
+  time does not move the reset. A recent credit spend confirmed through Kemiri makes any drop on the affected
+  period a manual reset, unless the scheduled reset has already passed.
+  Otherwise a dip of up to two points keeps `last_percent` and the recorded sample at the period high, so the
+  rebound adds no measured use. `limit_samples` keeps changes in this recorded level or reset time plus the last
+  reading in a flat run, and samples are pruned at 90 days. Previously split periods are left as recorded and can
+  still affect value estimates.
 - Subscription and plan-key requests bind to the longest observed unscoped window's period at request start, with
   no binding before the first reading or in a reset gap. The raw binding-period totals can still grow when late
   rows arrive. The value estimate instead uses request ends (`start + duration`) in observed reading intervals.

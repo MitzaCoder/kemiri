@@ -53,10 +53,10 @@ it("closes a period at the scheduled reset when a reading passes it", () => {
 	f.read(93);
 	f.advance(DAY + MINUTE);
 	expect(f.store.ledger.bindingPeriodId(PROVIDER, f.now)).toBeNull();
-	f.read(1, { resetsAt: iso(f.now + DAY) });
+	f.read(92);
 	expect(f.periods()).toMatchObject([
 		{ id: 1, ended_at: START + DAY, end_reason: "reset", last_percent: 93 },
-		{ id: 2, started_at: f.now, ended_at: null, first_percent: 1 },
+		{ id: 2, started_at: f.now, ended_at: null, first_percent: 92 },
 	]);
 });
 
@@ -64,20 +64,60 @@ it("records small reset-time changes but starts a new period when it moves by ov
 	const f = fixture();
 	f.read(25);
 	f.advance(MINUTE);
-	f.read(25, { resetsAt: iso(START + DAY + 5 * MINUTE) });
-	expect(f.periods()).toHaveLength(1);
+	f.read(24, { resetsAt: iso(START + DAY + 5 * MINUTE) });
+	expect(f.periods()).toMatchObject([{ last_percent: 25, resets_at: START + DAY + 5 * MINUTE, ended_at: null }]);
 	expect(f.samples()).toHaveLength(2);
 	f.advance(MINUTE);
-	f.read(25, { resetsAt: iso(START + DAY - MINUTE) });
-	expect(f.periods()).toMatchObject([{ ended_at: f.now, end_reason: "reset" }, { ended_at: null, first_percent: 25 }]);
+	f.read(24, { resetsAt: iso(START + DAY - MINUTE) });
+	expect(f.periods()).toMatchObject([{ ended_at: f.now, end_reason: "reset" }, { ended_at: null, first_percent: 24 }]);
 });
 
-it("closes a period when use drops without a reset-time change", () => {
+it("keeps flickering readings in one period and counts only new highs as use", () => {
 	const f = fixture();
-	f.read(30);
+	for (const [index, percent] of [40, 41, 40, 41, 42, 41, 43].entries()) {
+		if (index > 0) f.advance(5 * MINUTE);
+		if (index === 1 || index === 6) f.store.insert(request({ at: f.now - MINUTE }));
+		f.read(percent, { source: index % 2 === 0 ? "usage_api" : "response_headers" });
+	}
+	expect(f.periods()).toMatchObject([{
+		id: 1, first_percent: 40, last_percent: 43, ended_at: null,
+		kemiri_points: 2, elsewhere_points: 41, observed_api_value: 0.25, measured_through: f.now,
+	}]);
+	expect(f.samples()).toMatchObject([
+		{ at: START, used_percent: 40 },
+		{ at: START + 5 * MINUTE, used_percent: 41 },
+		{ at: START + 15 * MINUTE, used_percent: 41 },
+		{ at: START + 20 * MINUTE, used_percent: 42 },
+		{ at: START + 25 * MINUTE, used_percent: 42 },
+		{ at: START + 30 * MINUTE, used_percent: 43 },
+	]);
+});
+
+it.each([7, 2])("closes a period on a drop from the high of 10 to %i", (percent) => {
+	const f = fixture();
+	f.read(10);
 	f.advance(MINUTE);
-	f.read(12);
-	expect(f.periods()).toMatchObject([{ end_reason: "drop", last_percent: 30 }, { first_percent: 12, ended_at: null }]);
+	f.read(8);
+	expect(f.periods()).toMatchObject([{ last_percent: 10, ended_at: null }]);
+	f.reopen();
+	f.advance(MINUTE);
+	f.read(percent);
+	expect(f.periods()).toMatchObject([
+		{ end_reason: "drop", last_percent: 10, ended_at: f.now },
+		{ first_percent: percent, ended_at: null },
+	]);
+});
+
+it("still closes a period for a small drop after a confirmed manual reset", () => {
+	const f = fixture();
+	f.read(2);
+	f.advance(MINUTE);
+	f.store.ledger.manualReset(PROVIDER, ["weekly"], f.now);
+	f.read(0);
+	expect(f.periods()).toMatchObject([
+		{ end_reason: "manual_reset", last_percent: 2, ended_at: f.now },
+		{ first_percent: 0, ended_at: null },
+	]);
 });
 
 it("continues the same period after reopening and keeps only the two ends of a flat run", () => {

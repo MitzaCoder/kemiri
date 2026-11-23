@@ -15,6 +15,7 @@ export function matchesModelScope(scope: string, model: string): boolean {
 }
 
 export const RESET_TOLERANCE_MS = 5 * 60_000;
+const DROP_TOLERANCE_POINTS = 2;
 
 export type LimitReading = {
 	id: string;
@@ -114,15 +115,19 @@ export class LimitLedger {
 			const previousReset = period?.resets_at ?? null;
 			const passedReset = previousReset !== null && at >= previousReset;
 			const movedReset = previousReset !== null && reset !== null && Math.abs(reset - previousReset) > RESET_TOLERANCE_MS;
-			const dropped = period?.last_percent != null && percent !== null && percent < period.last_percent;
+			const previousPercent = period?.last_percent ?? null;
+			const percentDrop = previousPercent !== null && percent !== null ? previousPercent - percent : 0;
+			const manualReset = period !== null && percentDrop > 0 && !passedReset && at <= (this.#manualResets.get(period.id) ?? -Infinity);
+			const startsNewPeriod = period === null || passedReset || movedReset || manualReset || percentDrop > DROP_TOLERANCE_POINTS;
+			// Record a tolerated dip as a flat reading so the rebound adds no measured use.
+			const samplePercent = !startsNewPeriod && percentDrop > 0 ? previousPercent : percent;
 			const windowMinutes = window.windowMinutes ?? period?.window_minutes ?? null;
 			const label = window.windowMinutes === null && period?.window_minutes != null ? period.label : window.label;
 			let periodId: number;
-			if (period === null || passedReset || movedReset || dropped) {
+			if (startsNewPeriod) {
 				if (period) {
 					this.#measure(period.id);
-					const manual = dropped && !passedReset && at <= (this.#manualResets.get(period.id) ?? -Infinity);
-					const reason = manual ? "manual_reset" : passedReset || movedReset ? "reset" : "drop";
+					const reason = manualReset ? "manual_reset" : passedReset || movedReset ? "reset" : "drop";
 					this.#db.query("UPDATE limit_periods SET ended_at = ?, end_reason = ? WHERE id = ?")
 						.run(passedReset ? previousReset : at, reason, period.id);
 				}
@@ -137,8 +142,8 @@ export class LimitLedger {
 				this.#db.query(`UPDATE limit_periods SET label = ?, window_minutes = ?,
 					resets_at = coalesce(?, resets_at), first_percent = coalesce(first_percent, ?),
 					last_percent = coalesce(?, last_percent) WHERE id = ?`
-				).run(label, windowMinutes, reset !== null && reset > at ? reset : null, percent, percent, periodId);
-				const matches = (sample: Sample | undefined) => sample !== undefined && sample.used_percent === percent && sample.resets_at === reset;
+				).run(label, windowMinutes, reset !== null && reset > at ? reset : null, samplePercent, samplePercent, periodId);
+				const matches = (sample: Sample | undefined) => sample !== undefined && sample.used_percent === samplePercent && sample.resets_at === reset;
 				if (last && matches(last)) {
 					if (last.at === at) return;
 					// Keep the first and most recent readings of a flat run, even across a restart.
@@ -150,7 +155,7 @@ export class LimitLedger {
 				}
 			}
 			this.#db.query(`INSERT INTO limit_samples (at, provider, window_id, period_id, used_percent, resets_at, source)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`).run(at, provider, window.id, periodId, percent, reset, window.source);
+				VALUES (?, ?, ?, ?, ?, ?, ?)`).run(at, provider, window.id, periodId, samplePercent, reset, window.source);
 			this.#measure(periodId);
 			return periodId === period?.id ? undefined : period?.id;
 		})();
