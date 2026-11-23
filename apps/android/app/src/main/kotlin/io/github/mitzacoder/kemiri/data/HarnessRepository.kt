@@ -155,6 +155,7 @@ class HarnessRepository(private val store: DeviceStore, private val authStore: D
     suspend fun rememberUsedComputer(backendKey: String) = update { it.copy(lastUsedComputerKey = backendKey) }
     suspend fun setUsageComputer(backendKey: String?) = update { it.copy(usageComputerKey = backendKey) }
     suspend fun setNotifications(transform: (NotificationSettings) -> NotificationSettings) = update { it.copy(notifications = transform(it.notifications)) }
+    suspend fun setInAppAlerts(transform: (io.github.mitzacoder.kemiri.features.notifications.InAppAlertSettings) -> io.github.mitzacoder.kemiri.features.notifications.InAppAlertSettings) = update { it.copy(inAppAlerts = transform(it.inAppAlerts)) }
     suspend fun setWorkDayStart(start: String) = update { it.copy(workDayStart = normalizeWorkDayStart(start)) }
     suspend fun setTimeFormat(format: TimeFormat) = update { it.copy(timeFormat = format) }
     internal suspend fun setTaskViewDesign(id: String) = update { it.copy(taskViewDesignId = id) }

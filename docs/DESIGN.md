@@ -7312,7 +7312,9 @@ setting, restart and retry steps; the raw error remains a small secondary detail
   project, `<data>/notifications/fcm-service-account.json` or `AIKI_FCM_KEY_FILE`, mode 0600, never committed;
   without it FCM is off (said once at start), FCM devices stay registered, and `notifications.config` answers
   `fcm: null` so the app can say why nothing arrives. Messages are data-only and high priority: the app draws the
-  notification itself (channel per kind, tap opens the payload's route).
+  notification itself (channel per kind, tap opens the payload's route). If Android has already drawn that tag in
+  the current foreground session, the same or an older update is posted silently to the shade on its usual channel.
+  In-app delivery does not require Firebase or notification permission.
 
 - **Independent VAPID keys and subscriptions per backend.** Web push needs no relay account. Per D51, a relay
   account is optional and only used for Android relay notifications. Each backend generates and persists its own pair at
@@ -7469,6 +7471,27 @@ or a pop-up the app already showed.
   `notifications.test.ts` (socket scope over the wire), `push-relay-transport.test.ts` (snapshot overrides stale
   presence), `in-app-alerts.test.ts` (live fanout, sound target, shown holds, history and resolutions),
   `apps/web/test/interaction.test.ts`, and Android `InteractionReporterTest` and `NotificationsTest`.
+
+### Android in-app alerts
+
+`NotificationCenter` watches `in-app-alerts` on each connected backend. It reads `notifications.recent` on reconnect and
+persists an epoch and cursor per configured backend. A new epoch or first connection only starts the cursor. Up to
+three recent unresolved, eligible alerts replay as banners; a larger or older backlog is grouped into one summary.
+Replay has no sound grant. Live updates replace by tag; resolution removes the affected alerts. Four pending alerts
+from a project within five seconds group into one banner. `notifications.shown` acknowledges the keys only after the
+banner reaches the focused foreground window. A later interaction can then retire the held push.
+
+A banner sits just below the status bar and only the banner actually displayed spends its visible time. It is quiet
+for another coordinator in the project already on screen, and suppressed for the exact chat or open task. Urgent
+alerts and warnings fold away after ten minutes; important and info cards last ten and six seconds. Dismissal does
+not settle the item. Grouped cards and the count chip lead to the existing Needs you panel. A short ordinary question
+can be answered in two taps, guarded by its board revision. Warnings and approvals open the existing route instead.
+
+Settings → Notifications → In the app is device-wide, independent of push enablement. Pop-ups default to Things that
+need me, sounds to Only urgent, and message text is shown. Do not disturb pauses both locally; tomorrow morning ends
+at 08:00 local time. Notification-volume chimes require the server's live sound grant and obey quiet hours, the
+system interruption filter, an eight-second device limit, and a two-minute soft-tone limit per project. When the
+ringer is not normal, only an urgent alert may request a short vibration. `InAppAlertsTest` covers the policy.
 
 ## Stack
 

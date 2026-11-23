@@ -54,9 +54,9 @@ class CenterProjectMute(private val center: NotificationCenter) : ProjectMute {
 
 /** Tell the notification center which project is on screen; the activity's start and stop say whether it is visible. */
 @Composable
-fun ReportScreenPresence(backendKey: String?, projectId: String?) {
+fun ReportScreenPresence(backendKey: String?, projectId: String?, coordinatorId: String?, taskId: String?) {
     val center = LocalNotificationCenter.current ?: return
-    SideEffect { center.setScreen(backendKey, projectId) }
+    SideEffect { center.setScreen(backendKey, projectId, coordinatorId, taskId) }
 }
 
 /** Open a project link or a notification's target once the backends have loaded; [onUnknownBackend] gets the ID of a backend not here. */
@@ -101,6 +101,7 @@ internal fun NotificationsSection(repository: HarnessRepository) {
     }
     val unavailable = center?.pushUnavailableReason
     SettingsSectionPage(GeneralSection.Notifications) {
+        InAppAlertSettingsGroup(deviceSettings.inAppAlerts) { transform -> scope.launch { repository.setInAppAlerts(transform) } }
         SettingsGroup(title = "This device", actions = { StatusChip(if (settings.enabled) "On" else "Off", if (settings.enabled) ChipTone.Ok else ChipTone.Muted) }) {
             SettingsRow(
                 "Notifications on this device", hint = unavailable ?: "With the app open, a notification waits 15 seconds and is dropped if you use the app.", control = RowControl.Inline,
@@ -194,6 +195,37 @@ internal fun NotificationsSection(repository: HarnessRepository) {
                     }
                 } }
             }
+        }
+    }
+}
+
+@Composable
+private fun InAppAlertSettingsGroup(settings: InAppAlertSettings, update: ((InAppAlertSettings) -> InAppAlertSettings) -> Unit) {
+    val until = settings.doNotDisturbUntil
+    var now by remember(until) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(until) {
+        if (until != null && until != Long.MAX_VALUE && until > now) {
+            kotlinx.coroutines.delay(until - now)
+            now = System.currentTimeMillis()
+        }
+    }
+    val pause = if (settings.disturbedAt(now)) settings.doNotDisturb else AlertPause.Off
+    SettingsGroup(title = "In the app") {
+        SettingsRow("Pop-ups", hint = "Show a small card when another project needs attention.") {
+            Combobox(AlertPopUps.entries.map { ComboOption(it.name, it.label) }, settings.popUps.name,
+                { pick -> update { it.copy(popUps = AlertPopUps.valueOf(pick)) } }, "Pop-ups")
+        }
+        SettingsRow("Sounds", hint = "Plays on the screen used last. Follows quiet hours below.") {
+            Combobox(AlertSoundsSetting.entries.map { ComboOption(it.name, it.label) }, settings.sounds.name,
+                { pick -> update { it.copy(sounds = AlertSoundsSetting.valueOf(pick)) } }, "Sounds")
+        }
+        SettingsRow("Show message text", hint = "Hide the details and answers on shared screens.", control = RowControl.Inline) {
+            SettingsSwitch(settings.showMessageText, { show -> update { it.copy(showMessageText = show) } }, "Show message text")
+        }
+        SettingsRow("Do not disturb", hint = "Pause pop-ups and sounds without changing push.") {
+            Combobox(AlertPause.entries.map { ComboOption(it.name, it.label) }, pause.name,
+                { pick -> update { it.withPause(AlertPause.valueOf(pick), System.currentTimeMillis()) } },
+                "Do not disturb")
         }
     }
 }

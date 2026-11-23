@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.mitzacoder.kemiri.features.notifications.NotificationSettings
+import io.github.mitzacoder.kemiri.features.notifications.InAppAlertSettings
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
@@ -46,6 +47,7 @@ data class DeviceSettings(
     val dismissedDeploys: List<String> = emptyList(),
     /** Push: what this device wants from every backend, and its FCM token. */
     val notifications: NotificationSettings = NotificationSettings(),
+    val inAppAlerts: InAppAlertSettings = InAppAlertSettings(),
     /** "wrap" or "scroll" once the reader chose with a code block's Wrap toggle, null before (web `aiki.code-wrap.v1`). */
     val codeWrap: String? = null,
     /** One independent open/closed preference per record row, across tasks on this device. */

@@ -14,7 +14,7 @@ class HarnessApplication : Application() {
     val repository by lazy { HarnessRepository(DeviceStore(this), io.github.mitzacoder.kemiri.data.DeviceAuthStore(this)) }
     /** Started by the activity (or a token change), not by every push: a push alone must not open every backend's socket. */
     val notifications by lazy {
-        NotificationCenter(repository, FirebasePush, "${Build.MODEL} · Android app", relay = { relayNotifications })
+        NotificationCenter(repository, FirebasePush, "${Build.MODEL} · Android app", relay = { relayNotifications }, context = this)
             .also { started = it }
     }
     /** A wrapper only; Firebase Auth itself is never created until notification opt-in. */

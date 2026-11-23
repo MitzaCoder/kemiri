@@ -56,6 +56,8 @@ fun canPostNotifications(context: Context): Boolean =
  * user interacted, so a push that arrives is one to show, even for the project on screen.
  */
 fun showPushNotification(context: Context, payload: NotificationPayload): Boolean {
+    val silent = (context.applicationContext as? io.github.mitzacoder.kemiri.HarnessApplication)
+        ?.notificationsIfStarted?.silentPush(payload) == true
     if (!canPostNotifications(context)) return false
     val open = Intent(context, MainActivity::class.java)
         .setAction(ACTION_OPEN_NOTIFICATION)
@@ -72,6 +74,7 @@ fun showPushNotification(context: Context, payload: NotificationPayload): Boolea
         .setStyle(NotificationCompat.BigTextStyle().bigText(if (payload.kind == "board_question") markdownText(payload.body) else payload.body))
         .setContentIntent(tap)
         .setAutoCancel(true)
+        .setSilent(silent)
         .setOnlyAlertOnce(!isNotificationFailure(payload.kind))
         .setWhen(runCatching { java.time.Instant.parse(payload.at).toEpochMilli() }.getOrDefault(System.currentTimeMillis()))
         .setShowWhen(true)
@@ -84,7 +87,7 @@ fun showPushNotification(context: Context, payload: NotificationPayload): Boolea
             val summary = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(if (payload.coordinatorId == null) payload.title else payload.title.substringBeforeLast(" · "))
                 .setGroup(projectGroup).setGroupSummary(true).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-                .setContentIntent(tap).setAutoCancel(true).build()
+                .setContentIntent(tap).setAutoCancel(true).setSilent(silent).build()
             manager.notify(projectGroup, 0, summary)
         }
         true

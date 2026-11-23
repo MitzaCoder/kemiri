@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  * The fixed reply box sends to Main chat with the task ID even when opened from a thread.
  */
 @Composable
-fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: LazyListState, previousTaskId: String? = null) {
+fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, bodyState: LazyListState, previousTaskId: String? = null, overlay: @Composable () -> Unit = {}) {
     val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
     val design = TaskViewDesigns.resolve(deviceSettings.taskViewDesignId)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -74,6 +74,7 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
                 ) {
                     key(taskId) { TaskSheetContent(context, taskId, sideSheet, onDismiss, previousTaskId, bodyState, deviceSettings, design) }
                 }
+                overlay()
             }
         }
     }

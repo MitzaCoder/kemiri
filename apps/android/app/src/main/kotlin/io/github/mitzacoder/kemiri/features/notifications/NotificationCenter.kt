@@ -1,16 +1,23 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
+import android.content.Context
+import android.os.SystemClock
+import java.time.Instant
 import io.github.mitzacoder.kemiri.data.localizedTimeFormatter
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.channels.Channel
 
 /**
  * Whether this app is open: the web's page visibility (the activity is started), plus the route's project, for
  * `notifications.presence`. A visible app makes each backend hold its pushes for 15 s.
  */
-data class AppPresence(val visible: Boolean = false, val backendKey: String? = null, val projectId: String? = null) {
+data class AppPresence(
+    val visible: Boolean = false, val backendKey: String? = null, val projectId: String? = null,
+    val coordinatorId: String? = null, val taskId: String? = null,
+) {
     /** The project this computer's connection reports: only the backend on screen sees one. */
     fun projectOn(backendKey: String): String? = projectId.takeIf { visible && this.backendKey == backendKey }
 }
@@ -41,6 +48,7 @@ class NotificationCenter(
     private val label: String,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val relay: () -> io.github.mitzacoder.kemiri.features.notifications.relay.RelayNotifications? = { null },
+    context: Context? = null,
 ) {
     /** Throttled: the first interaction goes out at once, a burst becomes one trailing message every 5 s. */
     private val interactions = InteractionReporter(
@@ -54,8 +62,30 @@ class NotificationCenter(
     val pushUnavailableReason: String? get() = tokens.unavailableReason
     val appFirebaseProject: String? get() = tokens.projectId
 
+    private val alertLock = Any()
+    private val alertQueue = AlertBannerQueue()
+    private val soundPolicy = AlertSoundPolicy()
+    private val alertSounds = context?.applicationContext?.let(::AlertSounds)
+    private val cursorStore = context?.getSharedPreferences("in-app-alert-cursors", Context.MODE_PRIVATE)
+    private val cursors = mutableMapOf<String, AlertCursor>()
+    private val shownTags = mutableMapOf<Pair<String, String>, NotificationAlert>()
+    private val mutableBanners = MutableStateFlow<List<AlertBanner>>(emptyList())
+    internal val banners = mutableBanners.asStateFlow()
+
     init {
+        scope.launch {
+            repository.settings.map { it.inAppAlerts to it.notifications.mutedProjects }.distinctUntilChanged().collect {
+                synchronized(alertLock) { filterBanners() }
+            }
+        }
         repository.notificationCleanup = { key ->
+            synchronized(alertLock) {
+                cursors.remove(key)
+                cursorStore?.edit()?.remove(key)?.apply()
+                shownTags.keys.removeAll { it.first == key }
+                alertQueue.retain { it.backendKey != key }
+                publishBanners()
+            }
             if (repository.settings.value.notifications.relayEnabled) {
                 relay()?.removeBackend(key)
                 scope.launch { runCatching { relay()?.routes?.cleanupBackend() } }
@@ -115,13 +145,165 @@ class NotificationCenter(
     }
 
     fun setVisible(visible: Boolean) {
-        mutablePresence.update { it.copy(visible = visible) }
+        synchronized(alertLock) {
+            mutablePresence.update { it.copy(visible = visible) }
+            if (!visible) shownTags.clear()
+        }
         if (visible) scope.launch {
             repository.loaded.first { it }
             if (repository.settings.value.notifications.relayEnabled) runCatching { relay()?.foreground() }
         }
     }
-    fun setScreen(backendKey: String?, projectId: String?) = mutablePresence.update { it.copy(backendKey = backendKey, projectId = projectId) }
+    fun setScreen(backendKey: String?, projectId: String?, coordinatorId: String? = null, taskId: String? = null) {
+        synchronized(alertLock) {
+            val current = presence.value
+            val next = current.copy(backendKey = backendKey, projectId = projectId, coordinatorId = coordinatorId, taskId = taskId)
+            if (next != current) {
+                mutablePresence.value = next
+                filterBanners()
+            }
+        }
+    }
+
+    private fun eligible(item: InAppAlert, now: Long, screen: AppPresence = presence.value): Boolean {
+        val settings = repository.settings.value
+        val muted = item.alert.projectId?.let { settings.notifications.isMuted(item.backendKey, it) } == true
+        return item.canPopUp(screen, settings.inAppAlerts, muted, now)
+    }
+
+    private fun publishBanners() { mutableBanners.value = alertQueue.ordered }
+
+    private fun filterBanners() {
+        val now = System.currentTimeMillis()
+        // A background transition pauses already visible banners instead of expiring them.
+        val screen = presence.value.copy(visible = true)
+        alertQueue.retain { eligible(it, now, screen) }
+        publishBanners()
+    }
+
+    internal fun dismissBanner(id: Long) = synchronized(alertLock) {
+        alertQueue.dismiss(id)
+        publishBanners()
+    }
+
+    internal fun startBannerClock(id: Long): Long? = synchronized(alertLock) {
+        if (!presence.value.visible) null else alertQueue.startPresenting(id, SystemClock.elapsedRealtime())
+    }
+
+    internal fun stopBannerClock(id: Long) = synchronized(alertLock) {
+        alertQueue.stopPresenting(id, SystemClock.elapsedRealtime())
+        publishBanners()
+    }
+
+    /** Called after a frame, only for keys represented in the visible banner. */
+    internal fun bannerShown(banner: AlertBanner) {
+        val newlyShown = synchronized(alertLock) {
+            if (!presence.value.visible || alertQueue.ordered.firstOrNull()?.alerts != banner.alerts) return
+            banner.alerts.filter { item ->
+                val tag = item.backendKey to item.alert.tag
+                if (shownTags[tag]?.key == item.alert.key) false
+                else { shownTags[tag] = item.alert; true }
+            }
+        }
+        newlyShown.groupBy { it.backendKey }.forEach { (key, alerts) ->
+            val client = repository.session(key)?.client ?: return@forEach
+            scope.launch {
+                try { client.request(NotificationsShownRequest(keys = alerts.map { it.alert.key })) }
+                catch (error: CancellationException) { throw error }
+                catch (_: Exception) { /* If the socket closed, the hold still supplies push. */ }
+            }
+        }
+    }
+
+    internal suspend fun answerAlert(item: InAppAlert, answer: String): String? {
+        val question = item.alert
+        if (item.inlineChoices().none { it.label == answer }) return "Open this question to answer it."
+        val client = repository.session(item.backendKey)?.client ?: return "This computer is not connected."
+        return try {
+            client.request(BoardQuestionAnswerRequest(projectId = question.projectId!!, questionId = question.questionId!!,
+                expectedRevision = question.questionRevision!!, answer = answer))
+            synchronized(alertLock) {
+                // A newer alert, if any, must not be closed by an older response.
+                alertQueue.retain { it.identity != item.identity }
+                publishBanners()
+            }
+            null
+        } catch (error: CancellationException) { throw error }
+        catch (error: ClientException) {
+            if (error.code == "board_conflict" || error.code == "unknown_task") QUESTION_CHANGED else "Could not send the answer. Try again."
+        } catch (_: Exception) { "Could not send the answer. Try again." }
+    }
+
+    private fun cursor(key: String): AlertCursor? = cursors[key] ?: cursorStore?.getString(key, null)?.let { raw ->
+        runCatching { wireJson.decodeFromString(AlertCursor.serializer(), raw) }.getOrNull()?.also { cursors[key] = it }
+    }
+
+    private fun saveCursor(key: String, cursor: AlertCursor) {
+        cursors[key] = cursor
+        cursorStore?.edit()?.putString(key, wireJson.encodeToString(AlertCursor.serializer(), cursor))?.apply()
+    }
+
+    /** Subscribe before reading the replay so live traffic concurrent with that request cannot fall in a gap. */
+    private suspend fun watchAlerts(session: BackendSession) = coroutineScope {
+        val client = session.client
+        val key = session.config.key
+        val live = Channel<ProtocolEvent>(Channel.UNLIMITED)
+        launch(start = CoroutineStart.UNDISPATCHED) {
+            client.events.collect { event ->
+                if (event is NotificationsAlertEvent || event is NotificationsResolvedEvent) live.send(event)
+            }
+        }
+        val saved = synchronized(alertLock) { cursor(key) }
+        val recent = readRecentAlerts(client, saved?.seq ?: 0)
+        synchronized(alertLock) {
+            if (saved?.epoch != recent.backendEpoch) {
+                alertQueue.retain { it.backendKey != key }
+                shownTags.keys.removeAll { it.first == key }
+            } else {
+                recent.events.filterIsInstance<NotificationRecentEntryResolved>().forEach {
+                    alertQueue.resolve(key, it.tags.toSet())
+                }
+                val now = System.currentTimeMillis()
+                alertQueue.addCatchUp(alertCatchUp(key, saved, recent, now) { eligible(it, now) }, SystemClock.elapsedRealtime())
+            }
+            saveCursor(key, AlertCursor(recent.backendEpoch, recent.latestSeq))
+            publishBanners()
+        }
+        for (event in live) synchronized(alertLock) {
+            val seen = cursor(key) ?: return@synchronized
+            when (event) {
+                is NotificationsAlertEvent -> {
+                    val alert = event.alert
+                    if (alert.backendEpoch != seen.epoch || alert.seq <= seen.seq) return@synchronized
+                    val item = InAppAlert(key, alert)
+                    val settings = repository.settings.value
+                    val now = System.currentTimeMillis()
+                    val elapsed = SystemClock.elapsedRealtime()
+                    if (eligible(item, now)) alertQueue.add(item, elapsed)
+                    else alertQueue.resolve(key, setOf(alert.tag))
+                    val muted = alert.projectId?.let { settings.notifications.isMuted(key, it) } == true
+                    soundPolicy.play(item, event.sound, presence.value, settings.inAppAlerts, muted,
+                        settings.notifications.quietHours, now, elapsed) { alertSounds?.play(it) == true }
+                    saveCursor(key, AlertCursor(alert.backendEpoch, alert.seq))
+                }
+                is NotificationsResolvedEvent -> {
+                    if (event.backendEpoch != seen.epoch || event.seq <= seen.seq) return@synchronized
+                    alertQueue.resolve(key, event.tags.toSet())
+                    saveCursor(key, AlertCursor(event.backendEpoch, event.seq))
+                }
+                else -> Unit
+            }
+            publishBanners()
+        }
+    }
+
+    private suspend fun readRecentAlerts(client: HarnessClient, after: Long): NotificationsRecentResponse {
+        while (true) {
+            try { return client.request(NotificationsRecentRequest(after = after)) }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { delay(2_000) }
+        }
+    }
 
     /** Turn push on: make sure there is a token; each backend then registers it. Returns why it could not, if so. */
     suspend fun enable(): String? {
@@ -200,6 +382,7 @@ class NotificationCenter(
             setState(key) { it.copy(connected = ready, supportsNotifications = connection.supports("notifications"), supportsFcm = connection.supports("fcm-push"), supportsRelay = connection.supports("fcm-relay-v1"), configRead = it.configRead && ready) }
             if (!ready || !connection.supports("notifications")) return@collectLatest
             coroutineScope {
+                if (connection.supports(IN_APP_ALERTS_FEATURE)) launch(start = CoroutineStart.UNDISPATCHED) { watchAlerts(session) }
                 launch {
                     presence.map { it.visible to it.projectOn(key) }.distinctUntilChanged().collect { (visible, projectId) ->
                         try {
@@ -247,8 +430,12 @@ class NotificationCenter(
         catch (_: Exception) { }
     }
 
-    /** Draw a push. The backend already held it while the app was open, so nothing is filtered here. */
-    fun show(context: android.content.Context, payload: NotificationPayload) = showPushNotification(context, payload)
+    /** Keep the push in the shade, but do not alert again for a tag already shown in the foreground. */
+    internal fun silentPush(payload: NotificationPayload): Boolean = synchronized(alertLock) {
+        if (!presence.value.visible) return@synchronized false
+        val shown = shownTags[payload.backendKey to payload.tag] ?: return@synchronized false
+        runCatching { Instant.parse(payload.at) <= Instant.parse(shown.at) }.getOrDefault(false)
+    }
 }
 
 /** What a backend's card says: the status words and the detail line (web `backendNotificationView`, for FCM). */

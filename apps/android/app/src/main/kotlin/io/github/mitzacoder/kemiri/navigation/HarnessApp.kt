@@ -34,6 +34,11 @@ import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.features.notifications.HandleAppLink
 import io.github.mitzacoder.kemiri.features.notifications.PendingAppLink
 import io.github.mitzacoder.kemiri.features.notifications.ReportScreenPresence
+import io.github.mitzacoder.kemiri.features.notifications.AppLink
+import io.github.mitzacoder.kemiri.features.notifications.InAppAlert
+import io.github.mitzacoder.kemiri.features.notifications.InAppBannerHost
+import io.github.mitzacoder.kemiri.features.notifications.notificationLink
+import io.github.mitzacoder.kemiri.features.notifications.pushPayload
 import io.github.mitzacoder.kemiri.features.refs.ProvideRefLinks
 import io.github.mitzacoder.kemiri.features.tasks.ProvideTaskLinks
 import io.github.mitzacoder.kemiri.features.tasks.TaskSheet
@@ -172,7 +177,20 @@ private fun HarnessNavigation(
     }
 
     val chat = current.chatRoute()
-    ReportScreenPresence(chat?.backendKey, chat?.projectId)
+    val coordinatorOnScreen = (current as? Destination.Chat)?.takeIf { it.workerId == null }
+        ?.let { it.threadId ?: io.github.mitzacoder.kemiri.protocol.MAIN_THREAD_ID }
+    ReportScreenPresence(chat?.backendKey, chat?.projectId, coordinatorOnScreen, (current as? Destination.Task)?.taskId)
+    val openAlert: (InAppAlert) -> Unit = { item ->
+        (notificationLink(item.pushPayload(), sessions.map { it.config }) as? AppLink.Open)?.destinations?.forEach(navigate)
+    }
+    val openAlertNeedsYou: () -> Unit = {
+        updateBackStack { previous ->
+            var uncovered = previous
+            while (uncovered.canGoBack && (uncovered.current is Destination.Panel || uncovered.current is Destination.Task)) uncovered = uncovered.back()
+            uncovered
+        }
+        if (wide) sidebarCollapsed = false else scope.launch { drawer.open() }
+    }
     val backend = sessions.firstOrNull { it.config.key == chat?.backendKey }
     val terminal = current as? Destination.Terminal
     val codeView = current is Destination.Changes || current is Destination.WorkingChanges || current is Destination.Files
@@ -308,7 +326,10 @@ private fun HarnessNavigation(
                             }
                         }
                     }
-                    panelBody(Modifier.fillMaxSize())
+                    Box(Modifier.fillMaxSize()) {
+                        panelBody(Modifier.fillMaxSize())
+                        if (current !is Destination.Task) InAppBannerHost(repository, openAlert, openAlertNeedsYou)
+                    }
                 }
             }
             // After the panel's dialog, so the sheet opens over it.
@@ -316,10 +337,13 @@ private fun HarnessNavigation(
                 val previousTask = (stack.getOrNull(stack.lastIndex - 1) as? Destination.Task)?.takeIf { it.chat == current.chat && it.taskId == current.fromTaskId }
                 screenState.SaveableStateProvider("task-sheet:" + current.screenStateKey() + ":" + current.taskId) {
                     // Dialog recreates its registry on return; keep the reading position outside it.
-                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId)
+                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId, overlay = { InAppBannerHost(repository, openAlert, openAlertNeedsYou) })
                 }
             }
             if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)
+            if (current !is Destination.Task && (panel == null || sideBySide) && drawer.isClosed) {
+                InAppBannerHost(repository, openAlert, openAlertNeedsYou)
+            }
         }
         } }
         }
