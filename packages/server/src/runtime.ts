@@ -3,6 +3,7 @@ import { createAppExtension, type ActiveApps } from "./app-tools.ts";
 import type { AgentApps } from "./agent-apps.ts";
 import type { ArtifactsLibraryRequest } from "@kemiri/protocol";
 import { artifactLibrary, artifactTrail } from "./artifact-library.ts";
+import { requestPartIds } from "./request-digest.ts";
 import { artifactBoardFacts } from "./artifact-board-facts.ts";
 import { BoardStorageJobs } from "./board-storage-jobs.ts";
 import { DEFAULT_TASK_WATCHER, type TaskWatcherStatus } from "@kemiri/protocol";
@@ -261,6 +262,7 @@ export type ProjectManagerOptions = {
  taskState?: boolean;
  taskPartStates?: boolean;
  requestAttention?: boolean;
+ requestDigest?: boolean;
  taskLive?: boolean;
 	reportAudit?: boolean;
  taskWatcher?: boolean;
@@ -366,6 +368,7 @@ export class ProjectManager {
  readonly #taskPartStates: boolean;
  readonly #requestAttention: boolean;
  readonly #onAnswersChanged: ProjectManagerOptions["onAnswersChanged"];
+ readonly #requestDigest: boolean;
  readonly #taskLive: boolean;
 	readonly #reportAudit: boolean;
  readonly #taskWatcher: boolean;
@@ -442,6 +445,7 @@ export class ProjectManager {
   this.#taskPartStates = options.taskPartStates !== false;
   this.#requestAttention = options.requestAttention !== false;
   this.#onAnswersChanged = options.onAnswersChanged;
+  this.#requestDigest = options.requestDigest !== false;
   this.#taskLive = options.taskLive !== false;
 		this.#reportAudit = options.reportAudit !== false;
   this.#taskWatcher = this.#taskLive && options.taskWatcher !== false;
@@ -841,6 +845,16 @@ export class ProjectManager {
 		});
 	}
 
+	/** Task evidence can be read on an unopened project, without resuming its conversations. */
+	async requestPartIds(projectId: string, taskId: string): Promise<string[]> {
+		const runtime = this.#runtimes.get(projectId)?.runtime;
+		if (runtime) {
+			const board = await runtime.harness.snapshot(BoardDoc, runtime.conversation.id, BACKGROUND_CONTEXT);
+			return requestPartIds(board?.tasks ?? [], taskId);
+		}
+		return this.#boardStorage.run({ type: "request-parts", path: this.store.sessionPath(projectId), taskId });
+	}
+
 	artifactTrail(projectId: string, artifactId: string) {
 		return artifactTrail(this.store, this.artifacts, projectId, artifactId, artifact => this.#boardStorage.run({
 			type: "artifact-trail", path: this.store.sessionPath(projectId), projectId, artifact, now: this.#clock(),
@@ -865,12 +879,13 @@ export class ProjectManager {
 	}
 
 	/** A board task's timeline and feedback; `unknown_task` when the board has no such task. */
-	async boardTaskTimeline(projectId: string, taskId: string, kinds?: readonly BoardTimelineKind[], grouped = false, includeDelivery = false) {
+	async boardTaskTimeline(projectId: string, taskId: string, kinds?: readonly BoardTimelineKind[], grouped = false, includeDelivery = false, withRequestDigest = false) {
 		const { runtime } = await this.open(projectId);
 		const timeline = await runtime.board.timeline(taskId, kinds, grouped);
 		if (!includeDelivery) return timeline;
 		try {
-			const changes = await runtime.taskChanges.delivery(taskId);
+			const partIds = withRequestDigest ? await this.requestPartIds(projectId, taskId) : [];
+			const changes = await runtime.taskChanges.delivery(taskId, partIds);
 			if (!changes) return timeline;
 			const deployment = await runtime.board.taskDeployment(taskId);
 			return { ...timeline, delivery: { ...changes, ...(deployment === undefined ? {} : { deployment }) } };
@@ -1479,6 +1494,7 @@ export class ProjectManager {
    taskState: this.#taskState,
    taskPartStates: this.#taskPartStates,
    requestAttention: this.#requestAttention,
+   requestDigest: this.#requestDigest,
    taskLive: this.#taskLive,
    ...(this.#taskWatcher ? {
     watcherModels: this.#requestLog?.observeInternalModels(this.models, project.id, "task_watcher") ?? this.models,

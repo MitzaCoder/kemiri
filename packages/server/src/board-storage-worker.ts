@@ -2,12 +2,13 @@ import { configureServerSettings } from "./server-settings.ts";
 import { parentPort, workerData } from "node:worker_threads";
 import type { Artifact, ArtifactTaskFacts, ArtifactsTrailResponse, ProjectAttention } from "@kemiri/protocol";
 import { maintainBoardStorage, type BoardMaintenance } from "./board-checkpoint.ts";
-import { readArtifactBoardFacts, readArtifactTrail } from "./artifact-board-facts.ts";
+import { readArtifactBoardFacts, readArtifactTrail, readRequestPartIds } from "./artifact-board-facts.ts";
 import { readStoredAttention } from "./sidebar-attention-migration.ts";
 
 export type BoardStorageRequest = { path: string } & (
 	| { type: "maintenance" }
 	| { type: "attention"; now: number }
+	| { type: "request-parts"; taskId: string }
 	| { type: "artifact-tasks"; projectId: string; taskIds: readonly string[]; now: number }
 	| { type: "artifact-trail"; projectId: string; artifact: Artifact; now: number }
 );
@@ -15,6 +16,7 @@ export type BoardStorageRequest = { path: string } & (
 export type BoardStorageResults = {
 	maintenance: BoardMaintenance;
 	attention: ProjectAttention;
+	"request-parts": string[];
 	"artifact-tasks": ArtifactTaskFacts[];
 	"artifact-trail": Omit<ArtifactsTrailResponse, "id" | "type" | "artifact">;
 };
@@ -23,6 +25,7 @@ async function dispatch(request: BoardStorageRequest): Promise<BoardStorageResul
 	switch (request.type) {
 		case "maintenance": return maintainBoardStorage(request.path);
 		case "attention": return readStoredAttention(request.path, request.now);
+		case "request-parts": return readRequestPartIds(request.path, request.taskId);
 		case "artifact-tasks": return readArtifactBoardFacts(request.path, request.projectId, request.taskIds, request.now);
 		case "artifact-trail": return readArtifactTrail(request.path, request.projectId, request.artifact, request.now);
 	}

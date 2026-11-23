@@ -267,11 +267,43 @@ test("slow Git commands time out without exposing process output", async () => {
 		// Use a child so changing PATH cannot affect the running test server or other tests.
 		const child = Bun.spawn([process.execPath, "-e", `
 			import { ProjectChanges } from "./packages/server/src/project-changes.ts";
-			try { await new ProjectChanges(process.cwd(), undefined, async () => []).list({ kind: "commit", hash: "a".repeat(40) }); }
+			try { await new ProjectChanges(process.cwd(), undefined, async () => new Map()).list({ kind: "commit", hash: "a".repeat(40) }); }
 			catch (error) { console.log(JSON.stringify({ code: error.code, message: error.message })); }
 		`], { env: { ...process.env, PATH: `${tools}:${process.env.PATH}` }, stdout: "pipe", stderr: "pipe" });
 		const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
 		expect(exit).toBe(0); expect(stderr).toBe("");
 		expect(JSON.parse(stdout)).toEqual({ code: "harness_failed", message: "Git change read timed out" });
 	} finally { await rm(tools, { recursive: true, force: true }); }
+}, 20_000);
+
+test("request Changes and Delivery gather nested commits without double counting", async () => {
+ await withChanges(async ({ write, commit, list, setup, projectId, client }) => {
+  await write("samples.txt", "base\n"); commit("Start a sample catalogue");
+  const { runtime } = await setup.server.manager.open(projectId);
+  for (const parent of [undefined, "T1", "T2"]) {
+   await runtime.board.saveTask({ task: { ...task, ...(parent ? { parent } : {}) } }, "harness");
+  }
+  await write("samples.txt", "Labels\n"); const shared = commit("Add labels");
+  await write("samples.txt", "Labels and cartons\n"); const nested = commit("Add cartons");
+  await runtime.taskChanges.declareChanges([shared], ["T1", "T2", "T3"], "manual");
+  await runtime.taskChanges.declareChanges([nested], ["T3"], "manual");
+  const capable = await TestClient.open(setup.server);
+  try {
+   await capable.request({ type: "hello", protocolVersion: 1, client: { name: "test", version: "0", features: ["request-digest"] } });
+   const changes = { type: "changes.list", projectId, source: byTask("T1") } as const;
+   const delivery = { type: "board.task.timeline", projectId, taskId: "T1", delivery: true } as const;
+   const before = await list(byTask("T1"));
+   if (before.type !== "changes.list") throw Error("Expected Changes");
+   expect(before.commits.map(({ hash, partIds }) => [hash, partIds])).toEqual([[shared, undefined]]);
+   expect(await client.request(delivery)).toMatchObject({ delivery: { commits: [shared], integration: { landed: 1 } } });
+   expect(await capable.request(changes)).toMatchObject({ type: "changes.list", contiguous: true, commits: [
+    { hash: shared, partIds: ["T2", "T3"] }, { hash: nested, partIds: ["T3"] },
+   ] });
+   expect(await capable.request(delivery)).toMatchObject({ delivery: { commits: [shared, nested], integration: { landed: 2 },
+    partCommits: [{ partId: "T2", commits: [shared] }, { partId: "T3", commits: [shared, nested] }],
+   } });
+   expect(await capable.request({ ...changes, type: "changes.file", path: "samples.txt" })).toMatchObject({ after: { text: "Labels and cartons\n" } });
+   expect(await capable.request({ ...changes, source: byTask("T2") })).toMatchObject({ commits: [{ hash: shared }] });
+  } finally { capable.close(); }
+ });
 }, 20_000);

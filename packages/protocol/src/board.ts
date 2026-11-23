@@ -352,7 +352,35 @@ export function liveCounterLabels(counters: BoardLiveCounters | undefined): stri
 }
 export type BoardTaskLive = Static<typeof BoardTaskLiveSchema>;
 
+const DigestCount = Type.Integer({ minimum: 0 });
+
+const PartDigestSchema = Type.Object({
+ id: Type.String(),
+ parentId: Type.String(),
+ title: Type.String(),
+ state: BoardTaskStateSchema.properties.kind,
+ summary: Type.String(),
+ checks: Type.Object({ passed: DigestCount, failed: DigestCount, total: DigestCount }),
+ notDoneCount: DigestCount,
+ closedAt: Type.Optional(Type.String()),
+ closedBy: Type.Optional(BoardAuthorSchema),
+ dropReason: Type.Optional(Type.String()),
+});
+
+export const PartsDigestSchema = Type.Object({
+ parts: Type.Array(PartDigestSchema, { description: "Parts in depth-first board order, with parentId for nesting. Includes archived and dropped parts." }),
+ done: DigestCount,
+ total: DigestCount,
+ working: DigestCount,
+ needsOwner: DigestCount,
+}, { description: "Progress totals cover direct parts, excluding dropped, like the parts bar." });
+export type PartsDigest = Static<typeof PartsDigestSchema>;
+
 export const BoardTaskSchema = Type.Object({
+ partsDigest: Type.Optional(PartsDigestSchema),
+ derivedNotDone: Type.Optional(Type.Array(Type.Object({ partId: Type.String(), text: Type.String() }), {
+  description: "request-digest: read-time Not done lines. Append to the request report for display; never write them back.",
+ })),
  requestId: Type.Optional(Type.String({ description: "request-attention: the root request of a part." })),
  live: Type.Optional(BoardTaskLiveSchema),
  state: Type.Optional(BoardTaskStateSchema),
@@ -752,6 +780,9 @@ export type BoardTaskHistoryResponse = Static<typeof BoardTaskHistoryResponseSch
 const TaskDeliverySchema = Type.Object({
 	commits: Type.Array(Type.String(), { minItems: 1 }),
 	integration: Type.Optional(Type.Object({ ref: Type.String(), landed: Type.Integer({ minimum: 0 }) })),
+	partCommits: Type.Optional(Type.Array(Type.Object({ partId: Type.String(), commits: Type.Array(Type.String()) }), {
+  description: "request-digest: commit hashes grouped by contributing part, in digest order. The top-level commits array is deduplicated.",
+ })),
 	deployment: Type.Optional(Type.Union([Type.Literal("live"), Type.Literal("pending"), Type.Literal("failed"), Type.Literal("unknown")])),
 });
 

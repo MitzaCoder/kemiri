@@ -286,20 +286,36 @@ export class TaskChangeObserver {
 		await this.#deliver(ledger);
 	}); }
 
-	/** The current ledger attribution for one canonical Git store, shared by Delivery and Changes. */
-	async attributedHashes(repo: string, taskId: string): Promise<string[]> {
+	/** Each attributed hash once, with the contributing parts in request order. */
+	async attributedCommits(repo: string, taskId: string, partIds: readonly string[] = []): Promise<Map<string, string[]>> {
 		const state = (await this.#ledger()).repositories[repo];
-		return state ? [...new Set(state.changes.filter(change => change.taskId === taskId).flatMap(change => change.commits))] : [];
+		const hashesByTask = new Map([taskId, ...partIds].map(id => [id, new Set<string>()]));
+		for (const change of state?.changes ?? []) {
+			const hashes = hashesByTask.get(change.taskId);
+			if (hashes) for (const hash of change.commits) hashes.add(hash);
+		}
+		const attribution = new Map<string, string[]>();
+		for (const [id, hashes] of hashesByTask) for (const hash of hashes) {
+			const contributors = attribution.get(hash) ?? [];
+			if (id !== taskId) contributors.push(id);
+			attribution.set(hash, contributors);
+		}
+		return attribution;
 	}
 
 	/** Present attribution, not the union of historical milestone rows. Read only the configured repository/ref. */
-	async delivery(taskId: string): Promise<{ commits: string[]; integration?: { ref: string; landed: number } } | undefined> {
+	async delivery(taskId: string, partIds: readonly string[] = []) {
 		const repo = await gitRepository(this.#options.path);
 		if (!repo) return undefined;
-		const commits = await this.attributedHashes(repo, taskId);
+		const attribution = await this.attributedCommits(repo, taskId, partIds);
+		const commits = [...attribution.keys()];
 		if (!commits.length) return undefined;
+		const hashesByPart = new Map(partIds.map(partId => [partId, [] as string[]]));
+		for (const [hash, contributors] of attribution) for (const partId of contributors) hashesByPart.get(partId)!.push(hash);
+		const partCommits = [...hashesByPart].flatMap(([partId, hashes]) => hashes.length ? [{ partId, commits: hashes }] : []);
+		const delivery = { commits, ...(partCommits.length ? { partCommits } : {}) };
 		const integration = await gitIntegrationTip(args => this.#git(repo, args), this.#options.integrationRef());
-		if (!integration) return { commits };
+		if (!integration) return delivery;
 		const { ref, tip } = integration;
 
 		// Check reachability at one tip, including already-landed manual attributions and ref rewrites.
@@ -310,7 +326,7 @@ export class TaskChangeObserver {
 				["merge-base", "--is-ancestor", hash, tip]).then(() => true, () => false)));
 			landed += reachability.filter(Boolean).length;
 		}
-		return { commits, integration: { ref, landed } };
+		return { ...delivery, integration: { ref, landed } };
 	}
 
 	/** Verified deployment range, using the same ledger corrections and portable trailers as integration. */

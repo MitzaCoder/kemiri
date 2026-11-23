@@ -20,6 +20,7 @@ import { constants, createReadStream, createWriteStream, fstatSync } from "node:
 import { pipeline } from "node:stream/promises";
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import type { PartProofCount } from "@kemiri/protocol";
 import { ARTIFACT_LIVING_VERSION_LIMIT, type Artifact, type ArtifactKind, type ArtifactsChangedEvent, isHtmlArtifact, normalizeTags } from "@kemiri/protocol";
 import { ServerError, errorMessage } from "./errors.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
@@ -450,19 +451,31 @@ export class ArtifactStore {
 
 	/** Newest first, narrowed by every filter given. Task-scoped lists and catalogues are uncapped by default. */
 	async list(projectId: string, filter: ArtifactListFilter = {}): Promise<Artifact[]> {
+		return (await this.listTaskEvidence(projectId, filter, [])).artifacts;
+	}
+
+	/** Part proof counts are computed before limits and filters, from the same catalogue read as the list. */
+	async listTaskEvidence(projectId: string, filter: ArtifactListFilter, partIds: readonly string[]): Promise<{ artifacts: Artifact[]; partProof?: PartProofCount[] }> {
 		const index = await this.#read(projectId);
+		const proofByPart = new Map<string, PartProofCount>(partIds.map(partId => [partId, { partId, images: 0, videos: 0, html: 0, files: 0 }]));
+		const matching: Artifact[] = [];
+		for (const artifact of index.artifacts) {
+			const attributedParts = proofByPart.size ? [artifact.taskId, ...(artifact.laterTaskIds ?? [])]
+				.filter((id): id is string => id !== null && proofByPart.has(id)) : [];
+			if (attributedParts.length) {
+				const kind = artifact.kind === "image" ? "images" : artifact.kind === "video" ? "videos" : isHtmlArtifact(artifact) ? "html" : "files";
+				for (const partId of attributedParts) proofByPart.get(partId)![kind]++;
+			}
+			if ((filter.artifactId === undefined || artifact.id === filter.artifactId) &&
+				(filter.threadId === undefined || artifact.threadId === filter.threadId) &&
+				(filter.workerId === undefined || artifact.workerId === filter.workerId) &&
+				(filter.taskId === undefined || artifact.taskId === filter.taskId || artifact.laterTaskIds?.includes(filter.taskId) || attributedParts.length)) {
+				matching.push(attributedParts.length ? { ...artifact, partIds: attributedParts } : artifact);
+			}
+		}
 		const limit = filter.limit ?? (filter.taskId === undefined && !filter.catalogue ? DEFAULT_ARTIFACT_LIST_LIMIT : undefined);
-		return index.artifacts
-			.filter(
-				(artifact) =>
-					(filter.artifactId === undefined || artifact.id === filter.artifactId) &&
-					(filter.threadId === undefined || artifact.threadId === filter.threadId) &&
-					(filter.workerId === undefined || artifact.workerId === filter.workerId) &&
-					(filter.taskId === undefined || artifact.taskId === filter.taskId || artifact.laterTaskIds?.includes(filter.taskId)),
-			)
-			.reverse()
-			.slice(0, limit)
-			.map(filter.catalogue ? ({ versions: _versions, ...latest }) => latest : withVersions);
+		const artifacts = matching.reverse().slice(0, limit).map(filter.catalogue ? ({ versions: _versions, ...latest }) => latest : withVersions);
+		return { artifacts, ...(proofByPart.size ? { partProof: [...proofByPart.values()] } : {}) };
 	}
 
 	/** Uncapped latest rows for cross-project paging. Only hydrate version metadata on the page. */

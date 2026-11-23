@@ -1751,6 +1751,7 @@ data class Artifact(
     val `versionCount`: Long? = null,
     val `versions`: List<ArtifactVersion>? = null,
     val `laterTaskIds`: List<String>? = null,
+    val `partIds`: List<String>? = null,
     val `living`: ArtifactLiving? = null,
     val `pinned`: Boolean? = null
 )
@@ -2061,9 +2062,19 @@ data class ArtifactsUpdateRequest(
 
 @Serializable
 data class ArtifactsListResponse(
+    val `partProof`: List<ArtifactsListResponsePartProofItem>? = null,
     @kotlinx.serialization.EncodeDefault val `type`: String = "artifacts.list",
     val `id`: String,
     val `artifacts`: List<Artifact>
+)
+
+@Serializable
+data class ArtifactsListResponsePartProofItem(
+    val `partId`: String,
+    val `images`: Long,
+    val `videos`: Long,
+    val `html`: Long,
+    val `files`: Long
 )
 
 @Serializable
@@ -3460,6 +3471,8 @@ data class RefDetailsJiraParent(
 
 @Serializable
 data class BoardTask(
+    val `partsDigest`: PartsDigest? = null,
+    val `derivedNotDone`: List<BoardTaskDerivedNotDoneItem>? = null,
     val `requestId`: String? = null,
     val `live`: BoardTaskLive? = null,
     val `state`: BoardTaskState? = null,
@@ -3502,6 +3515,42 @@ data class BoardTask(
     val `settledAt`: String?,
     val `archived`: Boolean,
     val `goal`: String? = null
+)
+
+@Serializable
+data class BoardTaskDerivedNotDoneItem(
+    val `partId`: String,
+    val `text`: String
+)
+
+@Serializable
+data class PartsDigest(
+    val `parts`: List<PartsDigestPartsItem>,
+    val `done`: Long,
+    val `total`: Long,
+    val `working`: Long,
+    val `needsOwner`: Long
+)
+
+@Serializable
+data class PartsDigestPartsItem(
+    val `id`: String,
+    val `parentId`: String,
+    val `title`: String,
+    val `state`: String,
+    val `summary`: String,
+    val `checks`: PartsDigestPartsItemChecks,
+    val `notDoneCount`: Long,
+    val `closedAt`: String? = null,
+    val `closedBy`: String? = null,
+    val `dropReason`: String? = null
+)
+
+@Serializable
+data class PartsDigestPartsItemChecks(
+    val `passed`: Long,
+    val `failed`: Long,
+    val `total`: Long
 )
 
 @Serializable
@@ -4055,6 +4104,7 @@ data class BoardTaskTimelineResponse(
 data class BoardTaskTimelineResponseDelivery(
     val `commits`: List<String>,
     val `integration`: BoardTaskTimelineResponseDeliveryIntegration? = null,
+    val `partCommits`: List<BoardTaskTimelineResponseDeliveryPartCommitsItem>? = null,
     val `deployment`: String? = null
 )
 
@@ -4065,12 +4115,19 @@ data class BoardTaskTimelineResponseDeliveryIntegration(
 )
 
 @Serializable
+data class BoardTaskTimelineResponseDeliveryPartCommitsItem(
+    val `partId`: String,
+    val `commits`: List<String>
+)
+
+@Serializable
 data class ChangeCommit(
     val `hash`: String,
     val `subject`: String,
     val `author`: String,
     val `time`: String,
-    val `landed`: Boolean
+    val `landed`: Boolean,
+    val `partIds`: List<String>? = null
 )
 
 @Serializable

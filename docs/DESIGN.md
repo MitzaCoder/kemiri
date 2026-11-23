@@ -3045,6 +3045,13 @@ URL with byte ranges. They stay on the backend; publishing them elsewhere is up 
 
 Status: backend done (`packages/server/src/artifacts.ts`, `artifact-tools.ts`); the app is not built yet.
 
+- **Request proof (T458).** If both peers advertise `request-digest`, `artifacts.list` for a root request
+  includes artifacts from all required parts, tagged with `partIds`. The home task and later task links
+  still decide attribution. Each stable artifact is listed once. The same catalogue read adds `partProof`,
+  per-part counts of images, videos, HTML and other files before filters and limits. Versions are not
+  separate files. The board does not read this catalogue; the request's media read supplies these counts.
+  An unopened project resolves its part links in a read-only latest-board job without resuming the harness.
+
 - Store: `<data>/projects/<id>/artifacts/<artifactId>/<name>` plus `index.json` (the `Artifact` rows, newest last). A
   save copies into `<artifactId>.partial/` and renames it into place before the index names it. MIME from the
   extension and the first bytes (the bytes win, except a media extension on a container that holds video or audio:
@@ -3311,6 +3318,11 @@ is where they talk.
   Android keeps blocks as opaque JSON on the wire and decodes them at the presentation boundary, so an unknown kind
   or malformed section cannot break board/history decoding.
   `show_task` and worker reads use the readable mirrors without fetching artifact bytes. The compact list is unchanged.
+- **Request rollup (T458).** The coordinator writes the request report for the whole result. The board reads
+  each part's first Summary line (or first Results line), named check counts and Not done item count for the
+  checklist. The request's `derivedNotDone` entries name dropped parts and their reasons alongside, not inside,
+  the authored report. Older drops may have no recorded reason. `show_task` prints these Not done lines and a
+  compact Parts digest from the live board, without reading any part history or proof files.
 - **Pinned report section views (T356).** `task-report-section-views` advertises optional `report.sectionViews`
   for Results and Not done. A coordinator can attach one saved HTML artifact per section in `board.write_report`,
   by task-scoped ID, exact retained version and a short button label (up to 80 characters). The source limit is
@@ -4005,7 +4017,22 @@ An agent's attempt to send a part to review applies the same rules and explains 
 instead. Only the owner can mark a request done or dropped. For a part, both `drop_task` and `update_task`
 with status dropped accept `reason`. A nonblank reason is required. It is stored in `partDropReasons` on
 `BoardDoc` by task ID while the part is dropped, and kept in its status history. The snapshot keeps the
-coordinator as writer. No new protocol fields or statuses are sent. Older apps read these as ordinary closes.
+coordinator as writer. Older apps read these as ordinary closes.
+
+**Request digest (T458 / D135).** When both server and client advertise `request-digest`, a root task with
+parts carries optional `partsDigest` in board views and task replies. Rows are in depth-first board order
+with `parentId` for nesting. Dropped and archived parts stay in the checklist. The progress totals follow the
+parts bar: direct parts only, excluding drops from the denominator. The board computes the digest from its
+current state, with no per-part history, catalogue or other storage read on a board update. The existing close
+clock supplies the date. An optional close-actor record on the same board document distinguishes owner,
+coordinator and harness closes even after edits. Old boards use the then-current author only if the edit and
+close timestamps agree. The document version and report contents do not change.
+
+Task Changes and Delivery use the same live commit attribution ledger and gather commits from the request
+and its nested parts. Changes tags each contributing commit with `partIds`; Delivery groups hashes in
+`partCommits`. Shared hashes count once in request totals. Combined diffs still require one first-parent
+chain. Deployment still describes the request's own observed attempt, never inferred from a part's commit.
+Without the feature, the board, task artifacts, Changes and Delivery keep their prior shape and scope.
 
 **Close choice.** User `board.task.save` has optional `openParts: "close" | "follow_up"`.
 Closing a parent with any open direct part (including review/waiting) without it returns

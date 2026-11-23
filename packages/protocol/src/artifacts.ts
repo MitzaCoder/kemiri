@@ -65,6 +65,7 @@ export const ArtifactSchema = Type.Object({
 			description: "Every task other than the home task that ever made a version, first one first; kept when old versions are pruned.",
 		}),
 	),
+	partIds: Type.Optional(Type.Array(Type.String(), { description: "request-digest: parts of the requested task this artifact was saved for." })),
 	living: Type.Optional(ArtifactLivingSchema),
 	pinned: Type.Optional(Type.Boolean({ description: "Pinned HTML artifact in its project; protects retained versions from pruning." })),
 });
@@ -195,7 +196,14 @@ export type ArtifactLibraryProject = Static<typeof ArtifactLibraryProjectSchema>
 
 // --- responses ---------------------------------------------------------------------------------------------------
 
+const ProofCount = Type.Integer({ minimum: 0 });
+const PartProofCountSchema = Type.Object({
+ partId: Type.String(), images: ProofCount, videos: ProofCount, html: ProofCount, files: ProofCount,
+});
+export type PartProofCount = Static<typeof PartProofCountSchema>;
+
 export const ArtifactsListResponseSchema = Type.Object({
+ partProof: Type.Optional(Type.Array(PartProofCountSchema, { description: "request-digest: unfiltered proof counts per part in digest order. Counts latest stable artifacts, not versions." })),
 	type: Type.Literal("artifacts.list"),
 	id: RequestIdSchema,
 	artifacts: Type.Array(ArtifactSchema),

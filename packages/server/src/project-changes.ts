@@ -102,7 +102,7 @@ async function readChanges<T>(read: () => Promise<T>): Promise<T> {
 
 export class ProjectChanges {
 	constructor(readonly projectPath: string, readonly integrationRef: string | null | undefined,
-		readonly attributedHashes: (gitStore: string, taskId: string) => Promise<string[]>) {}
+		readonly attributedCommits: (gitStore: string, taskId: string) => Promise<ReadonlyMap<string, string[]>>) {}
 
 	async list(source: ChangeSource): Promise<ListPayload> { return readChanges(async () => {
 		const repository = await this.#repository();
@@ -142,11 +142,16 @@ export class ProjectChanges {
 	async #selection(repository: GitChanges, source: ChangeSource): Promise<{
 		commits: Commit[]; range?: CommitRange; nonContiguousReason?: ListPayload["nonContiguousReason"];
 	}> {
-		const hashes = source.kind === "commit" ? [source.hash.toLowerCase()] : await this.attributedHashes(repository.gitStore, source.taskId);
+		const attribution = source.kind === "commit" ? new Map([[source.hash.toLowerCase(), [] as string[]]]) : await this.attributedCommits(repository.gitStore, source.taskId);
+		const hashes = [...attribution.keys()];
 		if (!hashes.length) return { commits: [], nonContiguousReason: "no-commits" };
 		const commits: Commit[] = [];
 		for (let offset = 0; offset < hashes.length; offset += 8) {
-			commits.push(...await Promise.all(hashes.slice(offset, offset + 8).map(hash => repository.commit(hash))));
+			commits.push(...await Promise.all(hashes.slice(offset, offset + 8).map(async hash => {
+				const commit = await repository.commit(hash);
+				const partIds = attribution.get(hash)!;
+				return partIds.length ? { ...commit, partIds } : commit;
+			})));
 		}
 		const chain = firstParentChain(commits);
 		if (!chain) return { commits, nonContiguousReason: "not-first-parent-chain" };

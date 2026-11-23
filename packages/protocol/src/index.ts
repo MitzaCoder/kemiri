@@ -559,6 +559,7 @@ import {
 import {
 	type BoardTaskStatus,
 	BoardTaskStatusSchema,
+	PartsDigestSchema,
 	type BoardAuthor,
 	BoardAuthorSchema,
 	type BoardTask,
@@ -1647,6 +1648,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	BoardTaskStatus: BoardTaskStatusSchema,
 	BoardAuthor: BoardAuthorSchema,
 	BoardTask: BoardTaskSchema,
+	PartsDigest: PartsDigestSchema,
 	BoardQuestionChoice: BoardQuestionChoiceSchema,
 	BoardQuestionExchange: BoardQuestionExchangeSchema,
 	BoardQuestionClarifyRequest: BoardQuestionClarifyRequestSchema,
@@ -2223,3 +2225,6 @@ export * from "./search-fuzzy.ts";
 export { ThreadMessageKindSchema, ThreadMessageSchema, type ThreadMessage, type ThreadMessageKind } from "./threads.ts";
 
 export { NotificationRecentEntrySchema };
+
+export { PartsDigestSchema, type PartsDigest } from "./board.ts";
+export type { PartProofCount } from "./artifacts.ts";

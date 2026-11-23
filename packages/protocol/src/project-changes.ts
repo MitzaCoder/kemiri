@@ -28,6 +28,7 @@ export const ChangeCommitSchema = Type.Object({
 	author: Type.String(),
 	time: Type.String({ description: "ISO 8601 author time." }),
 	landed: Type.Boolean(),
+	partIds: Type.Optional(Type.Array(Type.String(), { description: "request-digest: the contributing parts of the requested task." })),
 });
 export type ChangeCommit = Static<typeof ChangeCommitSchema>;
 

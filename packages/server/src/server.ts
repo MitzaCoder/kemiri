@@ -768,6 +768,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskState: features.includes("task-state"),
   taskPartStates: features.includes("task-part-states"),
   requestAttention: features.includes("request-attention"),
+  requestDigest: features.includes("request-digest"),
   taskLive: features.includes("task-live"),
   taskWatcher: features.includes("task-live-watcher"),
 		reportAudit: features.includes("report-audit"),

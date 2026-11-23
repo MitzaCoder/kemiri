@@ -79,6 +79,7 @@ import { createHash } from "node:crypto";
 import { type Static, Type } from "typebox";
 import type { Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
+import { compareBoardTaskOrder, digestPart, droppedPartLines, orderedDescendantIds, partProgress } from "./request-digest.ts";
 import { requestAttention, topRequest } from "./request-attention.ts";
 import { type Notifier, boardQuestionNotification, projectDeployProblemNotification, taskReviewNotification, taskStepsNotification } from "./notifications.ts";
 import type { OutsideModelApproval } from "./outside-model-approvals.ts";
@@ -134,8 +135,10 @@ export type BoardState = {
  taskWatcherPublications?: Record<string, WatcherPublication>;
  taskStateMigrated?: boolean;
  partsReviewMigrated?: true;
- /** Reasons for coordinator drops, indexed by task ID. Kept off the wire until the request digest exposes them. */
+ /** Reasons for part drops, indexed by task ID. */
  partDropReasons?: Record<string, string>;
+ /** Current close attribution, independent of later edits to the task. */
+ taskClosures?: Record<string, { by: BoardAuthor; at: string }>;
  pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
  taskFocus?: Record<string, string>;
@@ -1166,9 +1169,11 @@ export function isArchivedAt(task: BoardTask, now: number): boolean {
 }
 
 /** Account for a status change in the task's in_progress clock, before the status is set. */
-function clockStatus(state: BoardState, task: BoardTask | { id: string; status: null }, status: BoardTask["status"], now: string): void {
+function clockStatus(state: BoardState, task: BoardTask | { id: string; status: null }, status: BoardTask["status"], now: string, author: BoardAuthor): void {
  if (task.status !== status) { const tracking = activityTracking(state, task.id); tracking.status = status; tracking.statusSince = now; tracking.statusChanges = (tracking.statusChanges ?? 0) + 1; }
 	if (task.status === status) return;
+	if (SETTLED.has(status)) (state.taskClosures ??= {})[task.id] = { by: author, at: now };
+	else if (state.taskClosures?.[task.id]) delete state.taskClosures[task.id];
 	const clocks = (state.inProgress ??= {});
 	const clock = clocks[task.id] ?? { ms: 0, since: null };
 	if (clock.since !== null && status !== "in_progress") {
@@ -1200,18 +1205,16 @@ export function sweepArchive(state: BoardState, now: number): boolean {
 }
 
 /** The board as the protocol shows it: by order, archived tasks only when asked for, questions open first. */
-export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId = mainCoordinator, withRequestAttention = false): Board {
-	return boardViews(state, now, includeArchived, coordinatorId, withRequestAttention).board;
+export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId = mainCoordinator, withRequestAttention = false, withRequestDigest = false): Board {
+	return boardViews(state, now, includeArchived, coordinatorId, withRequestAttention, withRequestDigest).board;
 }
 
 const mainCoordinator = (_owner: string | null | undefined): string => "main";
 
 /** Share task-state and link work between clients with and without request attention. */
-function boardViews(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId: typeof mainCoordinator, withRequestAttention: boolean): { board: Board; legacyBoard: Board } {
-	const byOrder = (left: { order: number; id: string }, right: { order: number; id: string }): number =>
-		left.order - right.order || compareIds(left.id, right.id);
+function boardViews(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId: typeof mainCoordinator, withRequestAttention: boolean, withRequestDigest: boolean): { board: Board; legacyBoard: Board } {
 	// Links are derived over every task, archived ones too: a link to a closed task stays.
-	const ordered = [...state.tasks].sort(byOrder);
+	const ordered = [...state.tasks].sort(compareBoardTaskOrder);
 	const reverse = (pick: (task: BoardTask) => readonly string[]): Map<string, string[]> => {
 		const map = new Map<string, string[]>();
 		for (const task of ordered) for (const target of pick(task)) map.set(target, [...(map.get(target) ?? []), task.id]);
@@ -1252,10 +1255,8 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
    const live = state.taskLiveEnabled && !isSettled(task) ? taskLive(tracking, activity?.actor) : undefined;
    let shown = derived;
    if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
-    const done = subtaskStates.filter(kind => kind === "done").length;
-    const working = subtaskStates.filter(kind => kind === "working").length;
-    const needsYou = subtaskStates.filter(kind => ["failed", "answer_needed", "steps_needed", "review"].includes(kind)).length;
-    activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${subtaskStates.length} parts done${working ? ` · ${working} working` : ""}${needsYou ? ` · ${needsYou} needs you` : ""}`, since: derived.since, refs: derived.refs };
+    const { done, total, working, needsOwner } = partProgress(subtaskStates);
+    activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${total} parts done${working ? ` · ${working} working` : ""}${needsOwner ? ` · ${needsOwner} needs you` : ""}`, since: derived.since, refs: derived.refs };
     shown = { ...derived, sentence: { ...activity, ageFormat: "none" } };
    }
 			return {
@@ -1280,7 +1281,21 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
 				...(minutes === undefined ? {} : { inProgressMinutes: minutes }),
 			};
 		});
-	const tasks = all.filter((task) => includeArchived || !task.archived).sort(byOrder);
+	const tasks = all.filter((task) => includeArchived || !task.archived).sort(compareBoardTaskOrder).map(task => {
+		if (!withRequestDigest || task.parent != null || !task.subtasks.length) return task;
+		const parts = Array.from(orderedDescendantIds(task.id, children), id => {
+			const part = byId.get(id)!;
+			const close = state.taskClosures?.[id];
+			const closedBy = !isSettled(part) ? undefined : close && close.at === part.settledAt ? close.by
+				: part.updatedAt === part.settledAt ? part.updatedBy : undefined;
+			return digestPart(part, stateFor(part).kind, closedBy, part.status === "dropped" ? partDropReason(state, id) : undefined);
+		});
+		const derivedNotDone = droppedPartLines(parts);
+		return {
+			...task, partsDigest: { parts, ...partProgress(parts.filter(part => part.parentId === task.id).map(part => part.state)) },
+			...(derivedNotDone.length ? { derivedNotDone } : {}),
+		};
+	});
 	const shown = new Set(tasks.map((task) => task.id));
 	const wanted = new Set<string>();
 	for (const task of tasks) {
@@ -1290,7 +1305,7 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
 	}
 	const archivedLinks: BoardTaskBrief[] = all
 		.filter((task) => wanted.has(task.id))
-		.sort(byOrder)
+		.sort(compareBoardTaskOrder)
 		.map((task) => ({ id: task.id, title: task.title, status: task.status, archived: task.archived }));
 	const open = state.questions.filter((question) => question.status === "open");
 	const settled = state.questions
@@ -1540,7 +1555,7 @@ function closeTaskParts(state: BoardState, task: BoardTask, status: BoardTask["s
   if (choice === "follow_up") { makeFollowUp(state, part, task.id, now); notices.push(`${part.id} kept as a follow-up of ${task.id}.`); }
   else {
    notices.push(...closeTaskParts(state, part, status, choice, now));
-   touchByHarness(state, part, status, now);
+   touchByHarness(state, part, status, now, "user");
    const running = runningWorkersOnTask(state, part.id);
    notices.push(`${part.id} closed as ${status}.${running.length ? ` Workers still running on ${part.id}: ${running.join(", ")}; stop them or explain why not.` : ""}`);
   }
@@ -1604,7 +1619,8 @@ export function saveTask(
 		checkLinks(state, null, fields);
 		state.counters.task += 1;
 		const id = `T${state.counters.task}`;
-		clockStatus(state, { id, status: null }, fields.status, now);
+		clockStatus(state, { id, status: null }, fields.status, now, author);
+		if (parent != null && fields.status === "dropped" && reason) (state.partDropReasons ??= {})[id] = reason;
 		const created: BoardTask = {
 			id,
 			revision: 1,
@@ -1676,11 +1692,11 @@ export function saveTask(
  if (openParts.length) notices.push(...closeTaskParts(state, existing, fields.status, input.openParts!, now));
 	if (fields.status !== existing.status) {
   if (existing.status === "dropped" && state.partDropReasons) delete state.partDropReasons[existing.id];
-  if (coordinatorSetsStatus && fields.status === "dropped" && reason) {
+  if (parent != null && fields.status === "dropped" && reason) {
    state.partDropReasons ??= {};
    state.partDropReasons[existing.id] = reason;
   }
-		clockStatus(state, existing, fields.status, now);
+		clockStatus(state, existing, fields.status, now, author);
 		existing.status = fields.status;
 		existing.settledAt = SETTLED.has(fields.status) ? now : null;
 		existing.archived = false;
@@ -1991,11 +2007,11 @@ function claimHarnessKey(state: BoardState, key: string): boolean {
 	return true;
 }
 
-function touchByHarness(state: BoardState, task: BoardTask, status: BoardTask["status"], now: string, actor: NonNullable<TaskFact["actor"]> = "harness"): void {
+function touchByHarness(state: BoardState, task: BoardTask, status: BoardTask["status"], now: string, actor: BoardAuthor = "harness"): void {
 	if (status !== "waiting") delete task.waiting;
 	if (status !== task.status) {
   if (task.status === "dropped" && state.partDropReasons) delete state.partDropReasons[task.id];
-		clockStatus(state, task, status, now);
+		clockStatus(state, task, status, now, actor);
 		task.status = status;
 		noteTaskFact(state, task.id, { actor, kind: "status", reason: `stage changed to ${status}`, at: now });
 		task.settledAt = SETTLED.has(status) ? now : null;
@@ -2355,7 +2371,13 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 	if (report.steps?.trim()) lines.push(`Your steps:\n${report.steps}`);
 	if (report.summary) lines.push(`summary: ${report.summary}`);
 	lines.push(`results: ${report.results === "" ? "(empty)" : report.results}`);
-	if (report.notDone) lines.push(`Not done:\n${report.notDone}`);
+	const notDone = [report.notDone, ...(task.derivedNotDone?.map(line => `- ${line.text}`) ?? [])].filter(Boolean);
+	if (notDone.length) lines.push(`Not done:\n${notDone.join("\n")}`);
+	if (task.partsDigest) {
+		const { parts, done, total } = task.partsDigest;
+		lines.push(`Parts digest (${done}/${total} done):`);
+		for (const part of parts) lines.push(`- ${part.id}${part.parentId === task.id ? "" : ` (part of ${part.parentId})`} [${part.state}] ${clip(part.summary || part.title, 120)} · ${part.checks.passed}/${part.checks.total} checks passed${part.checks.failed ? `, ${part.checks.failed} failed` : ""}`);
+	}
 	lines.push(...sectionViews);
 	lines.push(`next: ${report.next === "" ? "(empty)" : report.next}`);
 	if (report.checks?.length) lines.push(`Checks:\n${report.checks.map(check =>
@@ -2537,6 +2559,7 @@ export type BoardServiceOptions = {
  taskState?: boolean;
  taskPartStates?: boolean;
  requestAttention?: boolean;
+ requestDigest?: boolean;
  taskLive?: boolean;
  watcherModels?: Models;
  watcherStatusChanged?: (status: TaskWatcherStatus) => Promise<void>;
@@ -3010,7 +3033,7 @@ export class BoardService {
 				sweepArchive(doc, now);
 			});
 		}
-		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false);
+		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false);
   return this.#liveWatch?.project(board, state) ?? board;
 	}
 
@@ -3280,7 +3303,7 @@ export class BoardService {
    const parent = state.tasks.find(task => task.id === fields.task.parent);
    const inherited = parent === undefined ? undefined : this.coordinatorId(parent.ownerThreadId);
    const owner = requestedOwner !== undefined ? requestedOwner : fields.taskId === undefined && inherited !== undefined ? inherited === "main" ? null : inherited : undefined;
-   const saved = saveTask(state, { ...fields, ownerThreadId: owner, author, now });
+   const saved = saveTask(state, { ...fields, ownerThreadId: owner, author, now, ...(author === "user" && note ? { reason: note } : {}) });
    if (author === "user" && saved.before && owner !== undefined) {
     const from = this.coordinatorId(saved.before.ownerThreadId);
     const to = this.coordinatorId(owner);
@@ -3732,7 +3755,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		let boardState = watch.value;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
-			const { board, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false);
+			const { board, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false, this.#options.requestDigest !== false);
    if (state.taskLiveEnabled && this.#liveWatch) {
     if (!liveOnly) this.#liveWatch.sync(state);
     this.#liveWatch.project(board, state);
@@ -3986,7 +4009,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   await this.requireTask(taskId);
   return this.#commit(USER_WRITER, (state) => {
    markReportStale(state, taskId, sections, reason, this.#iso(), "user");
-   return plain(boardView(state, this.#options.now(), true, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false).tasks.find(task => task.id === taskId)!);
+   return plain(boardView(state, this.#options.now(), true, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false).tasks.find(task => task.id === taskId)!);
   });
  }
 

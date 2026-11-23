@@ -169,14 +169,21 @@ function withLegacyTaskKinds(task: BoardTask): BoardTask {
 	return state === task.state && subtaskStates === task.subtaskStates ? task : { ...task, state, subtaskStates };
 }
 
-function withLegacyTaskState(message: ServerMessage): ServerMessage {
+function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolean, withRequestDigest: boolean): ServerMessage {
+	if (withTaskSteps && withRequestDigest) return message;
+	const projectTask = (task: BoardTask) => {
+		if (!withTaskSteps) task = withLegacyTaskKinds(task);
+		if (withRequestDigest || !task.partsDigest) return task;
+		const { partsDigest: _digest, derivedNotDone: _notDone, ...legacy } = task;
+		return legacy;
+	};
 	switch (message.type) {
 		case "board.get":
 		case "board.state":
-			return { ...message, board: { ...message.board, tasks: message.board.tasks.map(withLegacyTaskKinds) } };
+			return { ...message, board: { ...message.board, tasks: message.board.tasks.map(projectTask) } };
 		case "board.report.stale":
 		case "board.task.save":
-			return { ...message, task: withLegacyTaskKinds(message.task) };
+			return { ...message, task: projectTask(message.task) };
 		default:
 			return message;
 	}
@@ -219,6 +226,7 @@ export class ClientConnection {
 	#clientSupportsThreadMessages = false;
 	#clientSupportsTaskSteps = false;
 	#clientSupportsRequestAttention = false;
+	#clientSupportsRequestDigest = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
 	#closed = false;
@@ -977,15 +985,17 @@ export class ClientConnection {
 				case "artifacts.list": {
 					await this.#manager.requireProject(request.projectId);
 					if (!this.#authorized()) return;
-					const artifacts = await this.#manager.artifacts.list(request.projectId, {
+					const partIds = this.#clientSupportsRequestDigest && request.taskId !== undefined
+						? await this.#manager.requestPartIds(request.projectId, request.taskId) : [];
+					const evidence = await this.#manager.artifacts.listTaskEvidence(request.projectId, {
 						...(request.catalogue === true ? { catalogue: true } : {}),
 						...(request.artifactId === undefined ? {} : { artifactId: request.artifactId }),
 						...(request.threadId === undefined ? {} : { threadId: request.threadId }),
 						...(request.workerId === undefined ? {} : { workerId: request.workerId }),
 						...(request.taskId === undefined ? {} : { taskId: request.taskId }),
 						...(request.limit === undefined ? {} : { limit: request.limit }),
-					});
-					this.#respond({ type: "artifacts.list", id: request.id, artifacts });
+					}, partIds);
+					this.#respond({ type: "artifacts.list", id: request.id, ...evidence });
 					return;
 				}
 				case "artifacts.url": {
@@ -1197,7 +1207,8 @@ export class ClientConnection {
 					const changes = new ProjectChanges(project.path, project.integrationRef, async (gitStore, taskId) => {
 						const { runtime } = await this.#manager.open(project.id);
 						await runtime.board.requireTask(taskId);
-						return runtime.taskChanges.attributedHashes(gitStore, taskId);
+						const partIds = this.#clientSupportsRequestDigest ? await this.#manager.requestPartIds(project.id, taskId) : [];
+						return runtime.taskChanges.attributedCommits(gitStore, taskId, partIds);
 					});
 					if (request.type === "changes.list") this.#respond({ type: request.type, id: request.id, ...await changes.list(request.source) });
 					else this.#respond({ type: request.type, id: request.id, ...await changes.file(request.source, request.path) });
@@ -1211,6 +1222,7 @@ export class ClientConnection {
 						request.kinds,
 						request.grouped === true && this.#features.includes("task-timeline-groups"),
 						request.delivery === true && this.#features.includes("task-delivery"),
+						this.#clientSupportsRequestDigest,
 					);
 					this.#respond({ type: "board.task.timeline", id: request.id, taskId: request.taskId, ...timeline });
 					return;
@@ -1721,6 +1733,7 @@ export class ClientConnection {
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
 		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
+		this.#clientSupportsRequestDigest = this.#features.includes("request-digest") && request.client?.features?.includes("request-digest") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
 		this.#clientSupportsInAppAlerts = this.#features.includes("in-app-alerts") && request.client?.features?.includes("in-app-alerts") === true;
@@ -1983,7 +1996,7 @@ export class ClientConnection {
 				const { requestId: _, ...question } = message.question;
 				message = { ...message, question };
 			}
-			this.#io.send(this.#clientSupportsTaskSteps ? message : withLegacyTaskState(message));
+			this.#io.send(withBoardTaskCapabilities(message, this.#clientSupportsTaskSteps, this.#clientSupportsRequestDigest));
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);
 			this.#io.close(1011, "send failed");

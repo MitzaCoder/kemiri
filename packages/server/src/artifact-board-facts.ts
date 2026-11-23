@@ -7,6 +7,7 @@ import type {
 import { existsSync } from "node:fs";
 import { isArchivedAt, type BoardState, type TaskHistoryState } from "./board.ts";
 import { openStorageReadOnly } from "./request-backfill.ts";
+import { requestPartIds } from "./request-digest.ts";
 import { stateKind } from "./state-identity.ts";
 
 const scope = { kind: "conversation", conversationId: ROOT_CONVERSATION_ID } as const;
@@ -25,6 +26,10 @@ async function readBoard<T>(path: string, read: (board: BoardState | undefined, 
 async function readDocument<T>(storage: Storage, kind: string, key?: string): Promise<T | undefined> {
 	const record = await storage.findDocument({ scope, kind, ...(key === undefined ? {} : { key }) }, "current", BACKGROUND_CONTEXT);
 	return record === undefined ? undefined : (await storage.document(record.id, "current", BACKGROUND_CONTEXT))?.value as T | undefined;
+}
+
+export function readRequestPartIds(path: string, taskId: string): Promise<string[]> {
+	return readBoard(path, board => requestPartIds(board?.tasks ?? [], taskId));
 }
 
 export function artifactTaskIds(artifact: Artifact): string[] {

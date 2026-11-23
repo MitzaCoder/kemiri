@@ -1,10 +1,11 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, expect, it, spyOn } from "bun:test";
+import { join } from "node:path";
 import type { BoardTask, BoardTaskInput } from "@kemiri/protocol";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
 import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
-import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, recordScheduledReport, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
+import { BoardDoc, TaskHistoryDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, recordScheduledReport, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
 import { activityTracking, endActivitySource, taskState, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
 import { boardAttention } from "../src/sidebar-attention.ts";
 import { topRequest } from "../src/request-attention.ts";
@@ -663,3 +664,126 @@ it("records a schedule run's Results on a part without putting it up for review"
  expect(change?.after.status).toBe("in_progress");
  expect(change?.after.report.results).toContain("Boxes packed.");
 });
+
+it("projects live parts, drops and reports on the request without touching evidence storage", async () => {
+ const features = ["request-digest", "task-steps"];
+ const project = await integration(undefined, features);
+ const { setup, client, runtime, projectId, hello } = project;
+ const legacy = await TestClient.open(setup.server); cleanups.push(async () => legacy.close()); await legacy.hello();
+ expect(hello.type === "hello" && hello.features).toContain("request-digest");
+ expect(LEGACY_HARNESS_FEATURES).not.toContain("request-digest");
+ const oldBoard = defineDoc<Omit<BoardState, "taskClosures" | "tasks"> & {
+  tasks: Omit<BoardTask, "partsDigest" | "derivedNotDone">[];
+ }>({ ...BoardDoc.definition, scope: "conversation", history: "latest", fork: "initial" });
+ const artifacts = spyOn(setup.server.artifacts, "listTaskEvidence");
+ const catalogue = spyOn(setup.server.artifacts, "libraryRows");
+ const snapshot = spyOn(runtime.harness, "snapshot");
+ try {
+  await runtime.harness.commit(async tx => {
+   const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+   add(state, { title: "Ship the boxes" });
+   add(state, { title: "Pack the boxes", parent: "T1", status: "in_progress" });
+   const nested = add(state, { title: "Print labels", parent: "T2" });
+   add(state, { title: "Order cartons", parent: "T1" });
+   const drop = add(state, { title: "Print flyers", parent: "T1" });
+   add(state, { title: "Arrange pickup", parent: "T1" });
+   add(state, { title: "Offer gift wrap", foundWhile: "T1" });
+   add(state, { title: "Order stickers", parent: "T2", status: "dropped" });
+   writeReport(state, { taskId: "T1", by: HARNESS_WRITER, now: at(), sections: { notDone: "No weekend pickup." } });
+   writeReport(state, { taskId: "T2", by: HARNESS_WRITER, now: at(), sections: { results: "\n- Packed the samples.\nMore detail.", checks: [{ name: "Seal", result: "failed", count: 5 }] } });
+   writeReport(state, { taskId: "T3", by: HARNESS_WRITER, now: at(), sections: { summary: "  Labels fit.\nAnother detail.", results: "Should not be the summary.", checks: [{ name: "Fit", result: "passed", count: 12 }] }, blocks: { notDone: [{ kind: "risk", title: "Colors", text: "No color printing." }] } });
+   writeReport(state, { taskId: "T6", by: HARNESS_WRITER, now: at(), sections: { steps: "1. Choose a pickup time." } });
+   update(state, nested.id, { status: "done" });
+   const checked = state.tasks.find(task => task.id === nested.id)!;
+   saveTask(state, { taskId: nested.id, expectedRevision: checked.revision, task: { ...checked, title: "Print shipping labels" }, author: "user", now: at(20) });
+   state.tasks.find(task => task.id === nested.id)!.archived = true;
+   update(state, "T4", { status: "done" }, "user");
+   saveTask(state, { taskId: drop.id, expectedRevision: drop.revision, task: { ...drop, status: "dropped" }, author: "coordinator", now: at(15), reason: "The boxes already have inserts." });
+   state.tasks.find(task => task.id === "T4")!.order = 0;
+  }, BACKGROUND_CONTEXT);
+  const requestChanged = (message: import("@kemiri/protocol").ServerMessage) => message.type === "board.state" && message.board.tasks.some(task => task.id === "T8");
+  const pushed = await client.waitFor(requestChanged);
+  const legacyPush = await legacy.waitFor(requestChanged);
+  const read = await client.request({ type: "board.get", projectId });
+  if (pushed.type !== "board.state" || legacyPush.type !== "board.state" || read.type !== "board.get") throw Error("Expected board views");
+  expect(artifacts).not.toHaveBeenCalled();
+  expect(catalogue).not.toHaveBeenCalled();
+  expect(snapshot.mock.calls.some(([token]) => Object.is(token, TaskHistoryDoc))).toBe(false);
+  const request = read.board.tasks.find(task => task.id === "T1")!;
+  expect(request.partsDigest).toMatchObject({ done: 1, total: 3, working: 1, needsOwner: 1, parts: [
+   { id: "T4", parentId: "T1", state: "done", closedBy: "user", closedAt: at(10) },
+   { id: "T2", parentId: "T1", state: "working", summary: "Packed the samples.", checks: { passed: 0, failed: 1, total: 1 }, notDoneCount: 0 },
+   { id: "T3", parentId: "T2", state: "done", title: "Print shipping labels", summary: "Labels fit.", checks: { passed: 1, failed: 0, total: 1 }, notDoneCount: 1, closedBy: "coordinator", closedAt: at(10) },
+   { id: "T8", parentId: "T2", state: "dropped", closedBy: "user" },
+   { id: "T5", parentId: "T1", state: "dropped", closedBy: "coordinator", dropReason: "The boxes already have inserts." },
+   { id: "T6", parentId: "T1", state: "steps_needed" },
+  ] });
+  expect(read.board.tasks.some(task => task.id === "T3")).toBe(false);
+  expect(read.board.tasks.filter(task => task.partsDigest).map(task => task.id)).toEqual(["T1"]);
+  expect(pushed.board.tasks.find(task => task.id === "T1")?.partsDigest).toEqual(request.partsDigest);
+  expect(legacyPush.board.tasks.every(task => !task.partsDigest && !task.derivedNotDone)).toBe(true);
+  expect(request.derivedNotDone).toEqual([
+   { partId: "T8", text: "Order stickers was dropped: No reason recorded." },
+   { partId: "T5", text: "Print flyers was dropped: The boxes already have inserts." },
+  ]);
+  expect(request.report.notDone).toBe("No weekend pickup.");
+  const old = await runtime.harness.snapshot(oldBoard, runtime.conversation.id, BACKGROUND_CONTEXT);
+  expect(old?.tasks[0]?.report.notDone).toBe("No weekend pickup.");
+  expect(JSON.stringify(old?.tasks)).not.toMatch(/"(?:partsDigest|derivedNotDone)":/);
+  const [shown] = await runBoardTool(project, { action: "show_task", id: "T1" });
+  expect(shown?.text).toContain("Parts digest (1/3 done):");
+  expect(shown?.text).toContain("T3 (part of T2) [done] Labels fit. · 1/1 checks passed");
+  expect(shown?.text).toContain("T2 [working] Packed the samples. · 0/1 checks passed, 1 failed");
+  expect(shown?.text).toContain("No weekend pickup.\n- Order stickers was dropped: No reason recorded.\n- Print flyers was dropped: The boxes already have inserts.");
+ } finally {
+  artifacts.mockRestore(); catalogue.mockRestore(); snapshot.mockRestore();
+ }
+}, 20_000);
+
+it.each([true, false])("task media gathers part proof only for a negotiated feature (server %s)", async serverEnabled => {
+ const { setup, client, runtime, projectId, hello } = await integration(HARNESS_FEATURES.filter(feature => serverEnabled || feature !== "request-digest"), ["request-digest"]);
+ const legacy = await TestClient.open(setup.server); cleanups.push(async () => legacy.close()); await legacy.hello();
+ expect(hello.type === "hello" && hello.features?.includes("request-digest")).toBe(serverEnabled);
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state); add(state, { parent: "T1" }); add(state, { parent: "T2" }); add(state, { foundWhile: "T1" });
+ }, BACKGROUND_CONTEXT);
+ const read = await client.request({ type: "board.get", projectId });
+ expect(read.type === "board.get" && !!read.board.tasks[0]?.partsDigest).toBe(serverEnabled);
+ const save = async (taskId: string, name: string, continueArtifactId?: string) => {
+  const sourcePath = join(setup.projectDir, name);
+  await Bun.write(sourcePath, "Synthetic proof");
+  return setup.server.artifacts.save({ projectId, taskId, sourcePath, threadId: "main", workerId: null, ...(continueArtifactId ? { continueArtifactId } : {}) });
+ };
+ const own = await save("T1", "samples.txt");
+ const image = await save("T2", "labels.png");
+ await save("T2", "labels.png"); // A version, not a second proof file.
+ const video = await save("T2", "labels.webm");
+ const html = await save("T3", "report.html");
+ const nested = await save("T3", "details.txt");
+ await save("T3", "samples.txt", own.id); // The request and a part share one stable artifact.
+ await save("T4", "unrelated.txt");
+ const request = { type: "artifacts.list", projectId, taskId: "T1" } as const;
+ const before = await legacy.request(request);
+ if (before.type !== "artifacts.list") throw errorOf(before);
+ expect(before.artifacts.map(({ id, partIds }) => ({ id, partIds }))).toEqual([{ id: own.id, partIds: undefined }]);
+ expect(before.partProof).toBeUndefined();
+ const after = await client.request(request);
+ if (after.type !== "artifacts.list") throw errorOf(after);
+ if (!serverEnabled) {
+  expect(after.artifacts).toEqual(before.artifacts);
+  expect(after.partProof).toBeUndefined();
+ } else {
+  expect(after.artifacts.map(({ id, partIds }) => [id, partIds]).sort()).toEqual([
+   [own.id, ["T3"]], [image.id, ["T2"]], [video.id, ["T2"]], [html.id, ["T3"]], [nested.id, ["T3"]],
+  ].sort());
+  expect(after.partProof).toEqual([
+   { partId: "T2", images: 1, videos: 1, html: 0, files: 0 },
+   { partId: "T3", images: 0, videos: 0, html: 1, files: 2 },
+  ]);
+  expect(await client.request({ ...request, limit: 1 })).toMatchObject({ partProof: after.partProof });
+  const part = await client.request({ ...request, taskId: "T2" });
+  expect(part).toMatchObject({ artifacts: [expect.objectContaining({ id: video.id }), expect.objectContaining({ id: image.id })] });
+  expect(part.type === "artifacts.list" && part.partProof).toBeUndefined();
+ }
+}, 20_000);
