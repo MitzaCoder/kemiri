@@ -33,7 +33,7 @@ it("serves current board totals through archived and moved descendants, excludin
 		const { runtime } = await setup.server.manager.open(projectId);
 		for (const task of [taskInput("Root"), taskInput("Part", { parent: "T1" }),
 			taskInput("Archived leaf", { parent: "T2", status: "done" }), taskInput("Found separately", { foundWhile: "T1" }),
-			taskInput("Other root"), taskInput("Sibling", { parent: "T1" })]) await runtime.board.saveTask({ task }, "coordinator");
+			taskInput("Other root"), taskInput("Sibling", { parent: "T1" })]) await runtime.board.saveTask({ task }, "user");
 		const store = setup.server.requestLog!.store;
 		record(store, projectId, now, "T1", 1);
 		record(store, projectId, now, "T2", 2);

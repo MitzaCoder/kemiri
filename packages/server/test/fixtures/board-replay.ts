@@ -9,7 +9,7 @@ const OTHER_KIND = "fixture.task-history";
 export function syntheticBoard(taskCount: number, closedCount: number, reportBytes: number) {
 	const board = emptyBoardState();
 	for (let index = 0; index < taskCount; index++) {
-		saveTask(board, { author: "coordinator", now: START, task: {
+		saveTask(board, { author: "user", now: START, task: {
 			title: `Synthetic project task ${index + 1}`, status: index < closedCount ? "done" : "todo",
 			description: "A task in the synthetic print shop.", acceptance: null, blockedBy: [], blockedReason: null, writeScopes: [],
 		} });

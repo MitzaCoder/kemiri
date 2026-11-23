@@ -176,7 +176,7 @@ describe("harness moves", () => {
 		expect(state.tasks).toHaveLength(1);
 		expect(state.tasks[0]).toMatchObject({ revision: 2, blockedReason: "skipped: still running" });
 
-		saveTask(state, { taskId: "T1", expectedRevision: 2, task: input("Nightly", { status: "done" }), author: "coordinator", now: NOW });
+		saveTask(state, { taskId: "T1", expectedRevision: 2, task: input("Nightly", { status: "done" }), author: "user", now: NOW });
 		recordScheduleProblem(state, { key: "schedule-run:s@3", scheduleId: "s", title: "Nightly", reason: "failed again", now: NOW });
 		expect(state.tasks.map((task) => [task.id, task.status])).toEqual([["T1", "done"], ["T2", "blocked"]]);
 	});
@@ -207,7 +207,7 @@ describe("the board in a compaction summary", () => {
 	function busyBoard(todos: number): BoardState {
 		const state = emptyBoardState();
 		const add = (title: string, extra: Partial<BoardTaskInput>, minute: number): BoardTask =>
-			saveTask(state, { task: input(title, extra), author: "coordinator", now: at(minute) }).after;
+			saveTask(state, { task: input(title, extra), author: "user", now: at(minute) }).after;
 		add("Running task", { status: "in_progress", description: "The full description of the running task." }, 0);
 		add("Reviewed task", { status: "review" }, 1);
 		add("Stuck task", { status: "blocked", blockedReason: "waiting on CI" }, 2);
@@ -242,7 +242,7 @@ describe("the board in a compaction summary", () => {
 	it("shrinks the todo list first, then the done list, and never cuts active tasks or questions", () => {
 		const state = busyBoard(25);
 		for (let index = 1; index <= 30; index += 1) {
-			saveTask(state, { task: input(`Finished piece ${index} with a fairly long title to take room`, { status: "done" }), author: "coordinator", now: at(6) });
+			saveTask(state, { task: input(`Finished piece ${index} with a fairly long title to take room`, { status: "done" }), author: "user", now: at(6) });
 		}
 		const full = summaryBoardView(state, { now: Date.parse(at(60)), since: null, budgetTokens: 100_000 });
 		const tight = summaryBoardView(state, { now: Date.parse(at(60)), since: null, budgetTokens: 600 });

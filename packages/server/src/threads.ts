@@ -303,7 +303,7 @@ export function threadInstructions(options: {
 	const task =
 		options.taskId === undefined || options.taskId === null
 			? ""
-			: `\n\nYou were started for the board task ${options.taskId} and hold it. The user reads that task, not this conversation: keep Results and Next current with \`board.write_report\`, giving each result its own block. Now is automatic. Move the task to review when it is ready for the owner.`;
+			: `\n\nYou were started for the board task ${options.taskId} and hold it. The user reads that task, not this conversation: keep Results and Next current with \`board.write_report\`, giving each result its own block. Now is automatic. If it is a request, move it to review once its whole outcome is ready; if it is a part, mark it done once you have checked it.`;
 	const workspace =
 		checkoutKind === "jj"
 			? `Your workspace is ${checkout}, a jj workspace of the project's repository, started from main's working copy. Do your work and merge your workers' changes there, and commit it; name the change IDs in your summary. Add an \`Kemiri-Task: T…\` trailer to commit descriptions.`
@@ -323,7 +323,9 @@ ${workspace} Never edit the project checkout at ${project.path}: it is main's.
 
 ${starter} Only your summary (thread_finish) reaches your parent coordinator, so put everything they need in it.
 
-A subtask is a required part of its parent; the parent goes to review/waiting only when its parts are done, in review or waiting. Follow-ups use foundWhile; wait for another task with status todo and blockedBy (freed when it closes), while blocked requires blockedReason for failure or being stuck.
+Only the owner closes a request, a task with no parent. You close its parts: set a part done when you have checked it. Never send a part to review. When a task's work is done but it waits on something outside the owner's control that the owner named (a review, a release, a reply), move it to waiting with that waitingFor note.
+
+Work needed to finish the request gets a required part with \`parent\` only, even if unplanned. Separate work discovered along the way gets \`foundWhile\`; a see-also gets \`related\`. Move the request to review once, when every part is done, dropped or waiting and the whole outcome is ready. Write its summary for the whole request. If the owner sends a request back, fix it on that request, not as a new task. Ask the owner on the request. Wait for another task with status todo and blockedBy (freed when it closes), while blocked requires blockedReason for failure or being stuck.
 
 Ending a turn does not end the thread. To wait for a worker's report, an answer to a board question or a message, end your turn: you resume when it arrives. Call thread_finish once, when the work is done or cannot go on.${task}`;
 }

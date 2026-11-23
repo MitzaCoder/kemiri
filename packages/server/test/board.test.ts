@@ -337,9 +337,9 @@ describe("board and the coordinator", () => {
 		await view.waitForView((value) => value.entries.some((entry) => entryText(entry) === "finished"));
 
 		expect(outputs[0]).toContain("changed since you read it");
-		// Only the user closes a task.
-		expect(outputs[1]).toContain("Only the user closes a task");
-		expect(outputs[2]).toContain("Only the user closes a task");
+		// Only the owner closes a request.
+		expect(outputs[1]).toContain("Only the owner closes a request");
+		expect(outputs[2]).toContain("Only the owner closes a request");
 		expect(outputs[3]).toContain("T1 r2 [in_progress · working] Ship it | 0m in progress");
 		const board = await getBoard(client, projectId);
 		expect(board.tasks[0]).toMatchObject({

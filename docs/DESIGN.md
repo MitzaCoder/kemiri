@@ -3352,9 +3352,10 @@ is where they talk.
   labels for older clients and the answer is still the label. An `ask` with only `options` works as before.
 - **History.** A report write may name a milestone; that and every status change save a snapshot. The task page
   steps through snapshots and shows what changed between two.
-- **Only the user closes.** The agents move a task to `review` when it is ready for the user (a `task_review`
-  notification goes out); `done` and `dropped` are the user's. A worker's report no longer moves its task to
-  `review`: that is now the coordinator's call after checking the work.
+- **Only the owner closes a request.** A task with no parent is a request. The coordinator moves the whole
+  request to `review` once it is ready (a `task_review` notification goes out), but cannot close it. A task with
+  a parent is a part. The coordinator checks it and marks it `done`, or drops it with a reason. A worker's
+  report does not close a part or send a request to review.
 - **Talking about a task.** A message can name a task (`submit.taskId`, shown as a chip; the input starts with
   `[task T12] `), from the chat's composer or from the reply box on the task page. Both go to main, which forwards to
   a background thread when that thread owns the task.
@@ -3365,7 +3366,7 @@ is where they talk.
   link to their task. Main and background coordinators put anything the user will need again on the task first.
   Manual actions go in Your steps: one numbered, verb-led step per action, with exact values and commands in
   `copyText` for typed steps. Agents' next actions stay separate in Next, in one or two sentences. Choices go
-  in `ask`: open with the question a choice can answer, then give at most three short lines needed to choose.
+  in `ask` on the request: open with the question a choice can answer, then give at most three short lines needed to choose.
   Put the answer in each choice's label and what happens in its effect. Mark at most one choice as recommended
   and say why in the question context.
   Title each finding in Results and say what held or didn't. Put conditions in setup, caption proof with what
@@ -3909,9 +3910,9 @@ board tool keeps stored status visible, e.g. `[in_progress · paused]`, `[todo �
 The activity line remains available for extra detail, independent of this grouping contract.
 A shared delivery/pause expiry timer republishes at the boundary; no polling writes or
 per-second writes. One `[board]` follow-up nudges the owning coordinator (else main):
-“T12 is in progress but nothing has run on it for 15 minutes. Move it to review if it is
-finished, back to To do if it is not being worked on, or ask the user.” The durable outbox
-and episode-derived request ID deduplicate crash replay. The admitted/nudged episode survives
+“T12 is in progress but nothing has run on it for 15 minutes.” It suggests moving a finished request
+into review or marking a checked part done. Otherwise it suggests To do or asking the owner on the request.
+The durable outbox and episode-derived request ID deduplicate crash replay. The admitted/nudged episode survives
 restart; overdue pauses nudge once. Only a status change or new running work starts another
 episode; editing prose does not. A parent following live parts is not paused and receives no
 pause nudge; queued notices are revalidated against the same derived board before delivery.
@@ -3960,7 +3961,8 @@ excluding dropped (including archived done parts), next to the existing `subtask
 It is derived, never persisted as a new task fact. The done/total count and array cover the
 same parts. Old clients ignore it; new clients without the capability or field keep the ring.
 A parent's activity/state sentence is “N of M parts done”, appending nonzero “· K working”
-and “· K needs you” counts (failed/answer_needed/steps_needed/review). Its own Needs you or Waiting
+and “· K needs you” counts (failed/answer_needed/steps_needed/review). The close rule in D135 changes who can
+close a part but not this display contract; owners can still reopen a part. Its own Needs you or Waiting
 sentence takes precedence; closed parents retain Done/Dropped. List metadata renders the
 summary once inside the fold disclosure instead of repeating it as an activity line.
 Ages share the existing local minute clock, with no additional reads. Board moves offer To do,
@@ -3969,15 +3971,23 @@ The shared save path asks about open direct parts for sheet/editor/board closure
 `open_parts` response: Close them too / Keep as follow-ups / Cancel. Native Back cancels; choices
 send `openParts`, with revision checks and 48dp native dialog actions.
 
-**Required direct parts.** A parent cannot be ahead of its parts. An agent cannot move it
-to review/waiting while any direct part is todo/in_progress/blocked. Parts already in
-review/waiting/done/dropped allow the parent to go to review. An agent cannot add any open
-part under a review/waiting/done/dropped parent. Follow-up work uses `foundWhile` instead.
-Starting a part pulls a todo parent into in_progress, level by level. Reopening a part
-pulls a review/waiting parent back to in_progress; under a closed parent it becomes a
-follow-up instead. Repairs are harness moves, with timeline snapshots, and the tool/user
-board notice explains them. Owner writes that would leave a review/waiting parent ahead
-of its parts are repaired back to in_progress too.
+**Required direct parts.** An agent can move a request to review or waiting only when every direct part is
+`done`, `dropped` or `waiting`. A part still in review is unfinished for this check. An agent cannot add an
+open part under a review/waiting/done/dropped parent. Add work needed to finish the request as a part even if
+unplanned. Separate follow-up work uses `foundWhile`. Fix work the owner sends back on the same request.
+Starting a part pulls a todo parent into in_progress, level by level. Closing a part does not reopen its
+parent. Reopening a part pulls a review/waiting parent back to in_progress. Under a closed parent, a reopened
+part becomes a follow-up instead. A part already waiting under a checked parent keeps its link until it resumes.
+Repairs are harness moves with timeline snapshots. Owner writes that would leave a review/waiting parent ahead
+of todo/in_progress/blocked parts are repaired back to in_progress too.
+
+**Coordinator closes (T456 / D135).** The board tool marks a part done only if it has Results (text or typed
+blocks), no failed check, no open question or warning, and no running worker. It lists each unmet condition.
+An agent's attempt to send a part to review applies the same rules and explains that the part was marked done
+instead. Only the owner can mark a request done or dropped. For a part, both `drop_task` and `update_task`
+with status dropped accept `reason`. A nonblank reason is required. It is stored in `partDropReasons` on
+`BoardDoc` by task ID while the part is dropped, and kept in its status history. The snapshot keeps the
+coordinator as writer. No new protocol fields or statuses are sent. Older apps read these as ordinary closes.
 
 **Close choice.** User `board.task.save` has optional `openParts: "close" | "follow_up"`.
 Closing a parent with any open direct part (including review/waiting) without it returns
@@ -3989,7 +3999,7 @@ refreshing the board. Escape cancels, focus returns, and closes with a parts cho
 only open direct parts, setting foundWhile to the parent; an existing different foundWhile
 is preserved and related links the parent instead. Every link/move is recorded in history.
 The coalesced `[board]` notice names closed parts and workers still running on them, so the
-coordinator can stop them or explain why not. Agents still cannot close tasks.
+coordinator can stop them or explain why not. This owner choice is unchanged by coordinator part closes.
 
 **Blockers.** Both done and dropped resolve a blocker and trigger `noticeUnblocked` once.
 Agents cannot move to in_progress/review with an open blocker, unless that same write removes
@@ -4012,11 +4022,16 @@ except for the close-choice error):
 **One-time migration.** On board open, a durable `taskStateMigrated` marker guards a lossless
 transaction over all tasks, including archived ones. Open parts of done/dropped parents,
 and todo/in_progress/blocked parts of review/waiting parents, become follow-ups (or related
-when another origin is occupied). A todo parent with a part in in_progress/review/waiting/done
+when another origin is occupied). Waiting descendants of a done part keep their links. A todo parent with a part in in_progress/review/waiting/done
 moves to in_progress, climbing level by level. Open blockers on review/waiting tasks become
 related links. Touched tasks get link events/status snapshots and a server log summarizes
 the migration. Nothing is deleted, no title/description/report is rewritten, and questions
 and decisions stay intact. Reopening the board does not repeat it.
+
+The separate `partsReviewMigrated` marker guards the D135 upgrade. The harness marks parts in `review` as
+`done` in the same transaction as their status history and the marker. History says the request is reviewed
+instead. This step leaves other statuses, links and reports alone, including requests already in review.
+If an older release loses the marker, a previously upgraded part is already done and gets no second snapshot.
 
 ### Waiting tasks (D29, T42)
 
@@ -4024,9 +4039,10 @@ and decisions stay intact. Reopening the board does not repeat it.
   (a review, release or reply). It is distinct from blocked work. The user or coordinator supplies a required short
   `waitingFor` note and optional ISO `waitUntil`; the task stores optional `waiting: { note, since, until?, by }`.
   Leaving waiting clears this record; status snapshots and the timeline retain it.
-- Dated waits return to review on the server, including overdue waits after restart. The server persists pending
-  return notices, sends a `task_review` through Notifier (including its 15-second hold), and sends the owning
-  coordinator a deduplicated `[board]` follow-up. Undated waits do not wake up.
+- Dated waits return to review on the server, including overdue waits after restart. A coordinator's dated wait
+  on a part returns it to in progress instead. The server persists pending returns and sends the owning coordinator
+  a deduplicated `[board]` follow-up. A return to review also sends `task_review` through Notifier (with its
+  15-second hold). Undated waits do not wake up.
 - Lists place a collapsed `Waiting · N` group immediately after Review; rows show the note, elapsed waiting time
   and optional return date. The kanban has a Waiting column after Review, including the legacy board panel.
 - The task header metadata includes “Waiting for … · since … · back on …” (T62; previously the Dashboard summary). Its header replaces Done/Drop/Reopen
@@ -5083,12 +5099,13 @@ its own list, and a timeline; the description stays the original ask and the rep
 - **Four kinds of link, each shown from both sides.** Stored on the task that declares it (`parent`, `foundWhile`,
   `related`, `blockedBy`); the board view derives the other side (`subtasks`, `ledTo`, `blocks`).
   - `subtask of` / `has subtasks` (`parent`): a required part. The parent shows direct-part progress
-    (`subtaskCount`, "2/5 done"; dropped parts are left out), and cannot go to review/waiting before its parts
-    are done, in review or waiting. Closing with open parts requires the user's explicit close/follow-up choice.
-    At most one parent; no cycles through any depth. See "Task states (T208 / D86)" for rules and migration.
+    (`subtaskCount`, "2/5 done"; dropped parts are left out). An agent cannot send a request to review/waiting
+    before its direct parts are done, dropped or waiting. An owner close with open parts still needs the explicit
+    close/follow-up choice. At most one parent; no cycles through any depth. See "Task states (T208 / D86)"
+    for rules and the later D135 migration.
   - `found while working on` / `led to` (`foundWhile`): the origin of an unplanned task discovered during work on
-    another. At most one; no cycles. A planned piece gets `parent` only (T199). If both point at the same task, keep
-    the parent: saves and parent links remove the duplicate origin, and an origin link to the existing parent is
+    another. At most one; no cycles. Work needed for the request gets `parent` only, even if unplanned. If both
+    point at the same task, keep the parent: saves and parent links remove the duplicate origin, and an origin link to the existing parent is
     ignored. Tool replies explain this. `normalizeBoard` cleans existing duplicates on load, including archived tasks,
     without changing any other link; historical timeline facts stay intact. The board view and both clients also hide
     duplicate origins in old wire data: no same-target Found while, and no subtask repeated under Led to.
@@ -5330,11 +5347,11 @@ brief and instructions, same report — with the schedule's title, brief, model,
     it, so the history shows `review → in_progress`), a failed start or run moves it to `blocked` with the reason,
     as before, and a skipped run ("previous run still running") also marks it blocked, as before. Success depends on
     `onReport`: with `review` nothing else happens, the coordinator is woken by the report, checks it and moves the task
-    to `review` like for any worker's task. With `record` nobody is woken, so the harness does what the coordinator
-    would: `results` becomes the latest run (time, worker and the start of its report; the full report stays on the
-    worker), `now` is cleared, and a task still `in_progress` goes to `review`, without a `task_review`
-    notification (the user chose a quiet schedule). A task someone else moved is not moved. Only the user closes the
-    task: closing it is how they say "read it", and the next run starts a new one.
+    to `review` for a request or marks the part `done`. With `record` nobody is woken. The harness records the latest
+    run in `results` (time, worker and the start of its report; the full report stays on the worker) and clears `now`.
+    A request still `in_progress` goes to `review`, without a `task_review` notification (the user chose a quiet
+    schedule). Parts wait for their coordinator to check them. A task someone else moved is not moved. Only the
+    owner closes the schedule's request: closing it is how they say "read it", and the next run starts a new one.
   - **Threads and events.** A `thread` schedule's thread claims the same task when it starts (as it did).
     Event runs are unchanged: one task per event run, no `scheduleId`.
   - "Workers without a task" stays: it catches a coordinator's own `worker_spawn` without a task.
@@ -6255,8 +6272,9 @@ Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts
   `refs` is optional on input: a save without it keeps the task's refs (so the Android app, which does not know them,
   never clears them), and tasks saved before refs read as none. How refs link and show their state: "Ticket and pull
   request links" above.
-- The coordinator changes it with a `board` tool; only the user closes it. A worker spawn moves its task
-  to `in_progress`, a failure to `blocked` with a reason; its report leaves status for the coordinator to review.
+- The coordinator changes it with a `board` tool. Only the owner closes requests; the coordinator checks and closes
+  parts. A worker spawn moves its task to `in_progress`, a failure to `blocked` with a reason. A worker's report
+  leaves the status unchanged so the coordinator can check the work.
   `blocked` means failure or being stuck and requires blockedReason for agent writes. Waiting on another task
   uses todo + blockedBy, derived as Waiting; done or dropped blockers free it and notify the coordinator.
   Open blockers refuse agent start/review/spawn; user start-now overrides them to related links.

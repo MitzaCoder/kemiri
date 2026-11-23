@@ -2,8 +2,9 @@ import { afterEach, expect, it } from "bun:test";
 import type { BoardTask, BoardTaskInput } from "@kemiri/protocol";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/projects.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, saveTask, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
+import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
+import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
+import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
 import { activityTracking, endActivitySource, taskState, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
@@ -109,7 +110,7 @@ it("paused begins at exactly 15 minutes of quiet, max(status start, run end), wi
 it.each(["review", "waiting"] as const)("agent parent %s refuses unfinished direct parts with a way out", status => {
  const s = emptyBoardState(); add(s); add(s, { parent: "T1" }); add(s, { parent: "T1", status: "in_progress" });
  expect(() => update(s, "T1", { status, waitingFor: "Council reply" })).toThrow(`T1 can't go to ${status}: its parts T2 (to do) and T3 (in progress) are not finished. Finish them first. If one is a follow-up rather than a part of T1, make it one: update_task id=T2 parent=null foundWhile=T1.`);
- update(s, "T2", { status: "review" }); update(s, "T3", { status: "waiting", waitingFor: "Reply" }); update(s, "T1", { status, waitingFor: "Reply" });
+ update(s, "T2", { status: "done" }, "user"); update(s, "T3", { status: "waiting", waitingFor: "Reply" }); update(s, "T1", { status, waitingFor: "Reply" });
  expect(s.tasks[0]!.status).toBe(status);
 });
 
@@ -217,6 +218,125 @@ async function integration() {
  return { setup, client, runtime, projectId: added.project.id, clock: (ms: number) => { now = START + ms; } };
 }
 
+async function runBoardTool({ setup, runtime }: Awaited<ReturnType<typeof integration>>, ...calls: JsonObject[]) {
+ const results: { text: string; isError: boolean }[] = [];
+ const capture = (request: Parameters<FauxResponseFactory>[0]) => {
+  const last = request.messages.at(-1);
+  if (last?.role === "toolResult" && last.toolName === "board") results.push({
+   text: last.content.flatMap(block => block.type === "text" ? [block.text] : []).join("\n"), isError: last.isError,
+  });
+ };
+ setup.faux.setResponses([
+  ...calls.map((call): FauxResponseFactory => request => {
+   capture(request);
+   return fauxAssistantMessage([fauxToolCall("board", call)], { stopReason: "toolUse" });
+  }),
+  request => { capture(request); return fauxAssistantMessage("Noted."); },
+  ...Array.from({ length: 5 }, () => () => fauxAssistantMessage("Noted.")),
+ ]);
+ const turn = await runtime.conversation.submit({ type: "input", content: "Check the synthetic tasks." }, BACKGROUND_CONTEXT);
+ await turn.wait(BACKGROUND_CONTEXT);
+ await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+ expect(results).toHaveLength(calls.length);
+ return results;
+}
+
+it("a checked nested part replaces review with done and frees its sibling only after all four guards pass", async () => {
+ const project = await integration();
+ const { runtime, client, projectId } = project;
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { status: "in_progress" }); add(state, { parent: "T1", status: "in_progress" });
+  add(state, { parent: "T2", status: "in_progress", title: "Verify the label" });
+  add(state, { parent: "T2", blockedBy: ["T3"], title: "Print the label" });
+  writeReport(state, { taskId: "T3", sections: { results: "  ", checks: [{ name: "Label size", result: "failed" }] }, by: HARNESS_WRITER, now: at() });
+  askQuestion(state, { taskId: "T3", text: "Which size?", options: [], blocksWork: false, now: at() });
+  askQuestion(state, { taskId: "T3", text: "The proof is out of date.", options: [], kind: "warning", now: at() });
+  activityTracking(state, "T3").sources["run-1"] = { actor: { id: "run-1", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run-1" }, state: "running", since: at(), title: "Measure the label" };
+ }, BACKGROUND_CONTEXT);
+ const [done, review, addInReview] = await runBoardTool(project,
+  { action: "update_task", id: "T3", expectedRevision: 1, status: "done" },
+  { action: "update_task", id: "T3", expectedRevision: 1, status: "review" },
+  { action: "add_task", parent: "T2", title: "Unverified part", status: "review" });
+ const guardLines = ["Write Results for the part.", "Resolve the failed checks: Label size.", "Resolve the open questions or warnings: Q1, Q2.", "Wait for the running workers to finish: fern."].join("\n");
+ expect(done).toEqual({ text: guardLines, isError: true });
+ expect(review).toEqual({ text: `Parts no longer go to review.\n${guardLines}`, isError: true });
+ expect(addInReview).toMatchObject({ text: expect.stringContaining("Parts no longer go to review."), isError: true });
+ expect((await runtime.board.state()).tasks[2]).toMatchObject({ status: "in_progress", revision: 1 });
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  writeReport(state, { taskId: "T3", sections: { checks: [{ name: "Label size", result: "passed" }] }, blocks: { results: [{ kind: "outcome", text: "The label fits the box." }] }, by: HARNESS_WRITER, now: at() });
+  // The typed blocks alone satisfy the guard, even without the legacy Markdown mirror.
+  state.tasks[2]!.report.results = "";
+  endActivitySource(activityTracking(state, "T3"), "run-1", at());
+  for (const question of state.questions) settleQuestion(state, { questionId: question.id, expectedRevision: question.revision, answer: "Resolved", now: at(), actor: "user" });
+ }, BACKGROUND_CONTEXT);
+ const view = new ViewClient(client); await view.start(projectId);
+ const [checked, started] = await runBoardTool(project,
+  { action: "update_task", id: "T3", expectedRevision: 1, status: "review" },
+  { action: "update_task", id: "T4", expectedRevision: 1, status: "in_progress" });
+ expect(checked).toMatchObject({ text: expect.stringContaining("Parts no longer go to review: T3 was marked done because you checked it."), isError: false });
+ expect(started).toMatchObject({ text: expect.stringContaining("T4 (now r2, in_progress)"), isError: false });
+ await view.waitForView(value => value.entries.some(entry => entryText(entry).includes('T4 "Print the label" has all its blockers closed and can start.')));
+ expect((await runtime.board.history("T3")).at(-1)).toMatchObject({ label: "in_progress → done", by: { author: "coordinator", threadId: "main" } });
+});
+
+it("the board tool requires drop reasons and keeps request review and closure separate", async () => {
+ const project = await integration();
+ const { runtime, client, projectId } = project;
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { status: "in_progress" }); add(state, { parent: "T1", status: "review" });
+  add(state, { parent: "T1", status: "waiting", waitingFor: "A reply" }); add(state, { parent: "T1" }); add(state, { parent: "T1" });
+  writeReport(state, { taskId: "T2", sections: { results: "The label fits the box." }, by: HARNESS_WRITER, now: at() });
+ }, BACKGROUND_CONTEXT);
+ const root = { action: "update_task", id: "T1", expectedRevision: 1 };
+ const [review, waiting, close, dropRequest, noReason, blankReason, done, dropped, droppedViaUpdate, accepted] = await runBoardTool(project,
+  { ...root, status: "review" }, { ...root, status: "waiting", waitingFor: "A reply" }, { ...root, status: "done" },
+  { ...root, action: "drop_task", reason: "Not needed." },
+  { action: "drop_task", id: "T4", expectedRevision: 1 },
+  { action: "update_task", id: "T5", expectedRevision: 1, status: "dropped", reason: "   " },
+  { action: "update_task", id: "T2", expectedRevision: 1, status: "done" },
+  { action: "drop_task", id: "T4", expectedRevision: 1, reason: "  The box needs only one label.  " },
+  { action: "update_task", id: "T5", expectedRevision: 1, status: "dropped", reason: "The label comes preprinted." },
+  { ...root, status: "review" });
+ for (const result of [review, waiting]) expect(result).toMatchObject({ isError: true, text: expect.stringContaining("T2 (in review) and T4 (to do) and T5 (to do)") });
+ for (const result of [close, dropRequest]) expect(result).toMatchObject({ isError: true, text: expect.stringContaining("Only the owner closes a request.") });
+ for (const result of [noReason, blankReason]) expect(result).toMatchObject({ isError: true, text: expect.stringContaining("needs a reason to be dropped") });
+ for (const result of [done, dropped, droppedViaUpdate, accepted]) expect(result?.isError).toBe(false);
+ const state = await runtime.board.state();
+ expect(state.tasks.map(task => task.status)).toEqual(["review", "done", "waiting", "dropped", "dropped"]);
+ expect(partDropReason(state, "T4")).toBe("The box needs only one label.");
+ expect(partDropReason(state, "T5")).toBe("The label comes preprinted.");
+ expect((await runtime.board.timeline("T4")).entries).toContainEqual(expect.objectContaining({
+  kind: "status", label: "todo → dropped: The box needs only one label.", by: { author: "coordinator", threadId: "main", workerId: null },
+ }));
+ const wire = await client.request({ type: "board.get", projectId });
+ expect(wire.type).toBe("board.get");
+ expect(JSON.stringify(wire)).not.toContain("The box needs only one label.");
+ // An ordinary app edit may still reopen the part, and reopens its reviewed request.
+ const reopened = await client.request({ type: "board.task.save", projectId, taskId: "T4", expectedRevision: 2, task: input({ status: "todo" }) });
+ expect(reopened.type).toBe("board.task.save");
+ expect((await runtime.board.state()).tasks[0]!.status).toBe("in_progress");
+ expect(partDropReason(await runtime.board.state(), "T4")).toBeUndefined();
+});
+
+it("closing parts does not reopen their request when it is already waiting or in review", async () => {
+ const project = await integration();
+ const { runtime } = project;
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { status: "review" }); add(state, { status: "review", parent: "T1" });
+  add(state, { status: "waiting", waitingFor: "A reply" }); add(state, { status: "waiting", waitingFor: "A reply", parent: "T3" });
+  writeReport(state, { taskId: "T2", sections: { results: "The label fits the box." }, by: HARNESS_WRITER, now: at() });
+ }, BACKGROUND_CONTEXT);
+ const results = await runBoardTool(project,
+  { action: "update_task", id: "T2", expectedRevision: 1, status: "done" },
+  { action: "drop_task", id: "T4", expectedRevision: 1, reason: "No second label is needed." });
+ expect(results.map(result => result.isError)).toEqual([false, false]);
+ expect((await runtime.board.state()).tasks.map(task => task.status)).toEqual(["review", "done", "waiting", "dropped"]);
+});
+
 it("wire close refusal, recursive close and repairs have timeline snapshots; start-now links are recorded", async () => {
  const { client, projectId, runtime } = await integration();
  const root = await runtime.board.saveTask({ task: input() }, "user");
@@ -269,6 +389,63 @@ it("migration is applied once at open and records links/moves in touched task ti
  const before = await reopened.board.timeline("T2"); await reopened.board.ensureDocument(); expect(await reopened.board.timeline("T2")).toEqual(before);
 }, 20_000);
 
+
+it("the upgrade closes only parts in review and remains safe after an old-shape rewrite", async () => {
+ const { runtime, setup, projectId } = await integration();
+ const previousBoardDoc = defineDoc<Omit<BoardState, "partsReviewMigrated" | "partDropReasons">>({
+  ...BoardDoc.definition, scope: "conversation", history: "latest", fork: "initial",
+ });
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { status: "review" }); add(state, { parent: "T1", status: "review" });
+  add(state, { parent: "T2", status: "waiting", waitingFor: "A reply" });
+  add(state, { status: "in_progress" }); add(state, { parent: "T4" });
+  writeReport(state, { taskId: "T2", sections: { results: "Preserve this report." }, by: HARNESS_WRITER, now: at() });
+  delete state.partsReviewMigrated;
+ }, BACKGROUND_CONTEXT);
+ await setup.restart();
+ const reopened = (await setup.server.manager.open(projectId)).runtime;
+ const board = await reopened.board.state();
+ expect(board.partsReviewMigrated).toBe(true);
+ expect(board.tasks.map(task => [task.status, task.parent])).toEqual([
+  ["review", null], ["done", "T1"], ["waiting", "T2"], ["in_progress", null], ["todo", "T4"],
+ ]);
+ const history = await reopened.board.history("T2");
+ expect(history).toEqual([expect.objectContaining({
+  status: "done", by: HARNESS_WRITER, report: expect.objectContaining({ results: "Preserve this report." }),
+  label: "review → done: Marked done at upgrade. Parts no longer go to review. The request is reviewed instead.",
+ })]);
+ expect((await reopened.board.timeline("T2")).entries[0]?.kind).toBe("status");
+ await reopened.board.ensureDocument();
+ expect(await reopened.board.history("T2")).toEqual(history);
+ await reopened.harness.commit(async tx => {
+  const old = (await tx.doc(previousBoardDoc, reopened.conversation.id))!;
+  expect(old.tasks[1]).toMatchObject({ status: "done", parent: "T1", updatedBy: "harness" });
+  // Simulate an older writer reconstructing the document from fields it knows.
+  delete (old as BoardState).partsReviewMigrated;
+  old.tasks[4]!.description = "Edited by the older release.";
+ }, BACKGROUND_CONTEXT);
+ await reopened.board.ensureDocument();
+ const after = await reopened.board.state();
+ expect(after.partsReviewMigrated).toBe(true);
+ expect(after.tasks[4]).toMatchObject({ status: "todo", description: "Edited by the older release." });
+ expect(after.tasks[2]).toMatchObject({ status: "waiting", parent: "T2" });
+ expect(await reopened.board.history("T2")).toEqual(history);
+}, 20_000);
+
+it("check-again sends an agent's waiting part back to the coordinator, not to review", async () => {
+ const project = await integration();
+ const { runtime, clock } = project;
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { status: "in_progress" }); add(state, { parent: "T1", status: "in_progress" });
+ }, BACKGROUND_CONTEXT);
+ const [result] = await runBoardTool(project, { action: "update_task", id: "T2", expectedRevision: 1, status: "waiting", waitingFor: "A reply", waitUntil: at(5000) });
+ expect(result?.isError).toBe(false);
+ clock(5000);
+ await runtime.board.checkWaiting();
+ expect((await runtime.board.history("T2")).map(snapshot => snapshot.status)).toEqual(["waiting", "in_progress"]);
+});
 
 it.each(["in_progress", "review"] as const)("agent cannot add an open blocker while already %s, including link action", status => {
  const s = emptyBoardState(); add(s); add(s, { status });

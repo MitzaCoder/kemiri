@@ -42,7 +42,7 @@ describe("workerInstructions", () => {
 			expect(text).toContain("Your steps is for manual actions: one numbered step block per action, starting with a verb. Keep exact values and commands in `copyText`.");
 			expect(text).toContain("Clear Your steps when done; rewriting Next leaves it alone.");
 			expect(text).toContain("Next is for one or two actions agents will take.");
-			expect(text).toContain("A choice → `ask`. The first sentence is the question, and a choice can answer it.");
+			expect(text).toContain("A choice → `ask`. Ask the owner on the request. The first sentence is the question, and a choice can answer it.");
 			expect(text).toContain("at most three short lines after the question; don't retell the task.");
 			expect(text).toContain("Use `choices` with a short `label` and an `effect` saying what happens if picked. Set `recommended` on at most one choice and say why in a line.");
 			expect(text).toContain("Prefer `blocks` for new reports.");
@@ -95,12 +95,14 @@ describe("workerInstructions", () => {
 		expect(worker).toBe(workerInstructions(options));
 	});
 
-	it("tells main and background threads that planned pieces get parent only", () => {
+	it("tells main and background threads where to put work needed for a request", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("required part");
-   expect(text).toContain("parts are done, in review or waiting");
+   expect(text).toContain("every part is done, dropped or waiting");
    expect(text).toContain("blockedReason");
-			expect(text).toContain("unplanned task discovered while working on another");
+			expect(text).toContain("even if unplanned");
+			expect(text).toContain("If the owner sends a request back, fix it on that request, not as a new task.");
+			expect(text).toContain("Never send a part to review.");
 		}
 	});
 
@@ -123,7 +125,7 @@ describe("workerInstructions", () => {
 			expect(report).toBeGreaterThanOrEqual(0);
 			expect(stale).toBeGreaterThan(report);
 			expect(text).toContain("Attach a `sectionViews` view only for a real table, diagram or visual comparison, after the conclusions are in blocks. Never put required facts only in the view.");
-			expect(stale).toBeLessThan(text.indexOf("Only the user closes a task."));
+			expect(stale).toBeLessThan(text.indexOf("Only the owner closes a request, a task with no parent."));
 			expect(text).toContain("Rewrite only stale sections; file missing detail using the routes above, not in another chat reply.");
 			expect(text).toContain("pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked");
 		}

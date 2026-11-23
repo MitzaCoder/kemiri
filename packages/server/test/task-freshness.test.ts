@@ -167,7 +167,7 @@ it.each(["done", "dropped"] as const)("owner can request an update on %s without
 });
 
 it.each(["review", "done"] as const)("empty Results at %s needs a write, but unwritten Next is not marked", status => {
-	const state = task(); move(state, status, "coordinator");
+	const state = task(); move(state, status, status === "done" ? "user" : "coordinator");
 	markReportStale(state, "T1", undefined, undefined, at(), "user");
 	prepareReportNudges(state, START, owner);
 	expect(meta(state).results.stale).toBe(true);
@@ -658,7 +658,7 @@ it("failed feedback writes do not exempt a user discussion", async () => {
 it.each(["done", "dropped"] as const)("mentions of %s tasks never count even in a user turn", async status => {
  const { setup, runtime } = await integration();
  const row = (await runtime.board.state()).tasks[0]!;
- await runtime.board.saveTask({ taskId: row.id, expectedRevision: row.revision, task: { ...row, status } }, "coordinator");
+ await runtime.board.saveTask({ taskId: row.id, expectedRevision: row.revision, task: { ...row, status } }, "user");
  const before = (await runtime.board.state()).tasks[0]!.eventSeq;
  setup.faux.setResponses([fauxAssistantMessage("T1 now has synthetic verification evidence and is ready for a careful owner review before publication.")]);
  const turn = await runtime.conversation.submit({ type: "input", content: "What changed on T1?", entry: { kind: OWNER_CHAT_ENTRY }, requestId: "closed-mention" }, BACKGROUND_CONTEXT);

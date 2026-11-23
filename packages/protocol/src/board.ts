@@ -17,8 +17,8 @@
  * Every subject the user raises is a task, and each task carries a short `report` the agents keep current by rewriting
  * it in place: what is happening now, what came out of it, what comes next. The user reads tasks instead of the chat.
  * A report change that names a milestone, and every status change, saves a snapshot of the task, listed by
- * `board.task.history`. Only the user closes a task (`done` or `dropped`); the agents move it to `review` when it is
- * ready for the user to look at.
+ * `board.task.history`. Only the owner closes a request (a task with no parent). The coordinator marks a checked
+ * part `done` or drops it with a reason. Only requests go to `review` through the board tool.
  *
  * Tasks link to each other (parent, origin, related, blockedBy; each shown from both sides), and the user's messages
  * about a task become feedback entries on it with a state of their own. `board.task.timeline` lists everything that
@@ -49,7 +49,7 @@ export const BoardTaskStatusSchema = Type.Union(
 	],
 	{
 		description:
-			"todo: not started. in_progress: being worked on. blocked: waiting on a dependency or stopped by a failure (see blockedReason). review: ready for the user to review. done: the user closed it. dropped: the user decided it will not be done. Only the user sets done and dropped.",
+			"todo: not started. in_progress: being worked on. blocked: waiting on a dependency or stopped by a failure (see blockedReason). review: ready for the user to review. done: closed. dropped: will not be done. Only the owner closes requests; coordinators close parts.",
 	},
 );
 export type BoardTaskStatus = Static<typeof BoardTaskStatusSchema>;

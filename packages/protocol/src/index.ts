@@ -2145,7 +2145,7 @@ export {
 	NOTIFICATION_HOLD_MS,
 	NOTIFICATION_PRESETS,
 } from "./notifications.ts";
-export { BOARD_PREFIX, TASK_REFERENCE_PREFIX, BoardQuestionChoiceSchema, BoardReportCheckSchema, BoardTaskGoalSchema } from "./board.ts";
+export { BOARD_PREFIX, TASK_REFERENCE_PREFIX, BoardQuestionChoiceSchema, BoardReportCheckSchema, BoardTaskGoalSchema, BoardTaskStatusSchema } from "./board.ts";
 export {
 	ARTIFACT_LIVING_VERSION_LIMIT,
 	ARTIFACT_MAX_TAG_LENGTH,

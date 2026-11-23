@@ -59,6 +59,7 @@ import {
 	BoardQuestionChoiceSchema,
 	BoardReportCheckSchema,
 	BoardTaskGoalSchema,
+	BoardTaskStatusSchema,
 	type BoardQuestion,
 	type BoardQuestionChoice,
 	type BoardReportCheck,
@@ -129,6 +130,9 @@ export type BoardState = {
  taskWatcherJobs?: Record<string, WatcherJob>;
  taskWatcherPublications?: Record<string, WatcherPublication>;
  taskStateMigrated?: boolean;
+ partsReviewMigrated?: true;
+ /** Reasons for coordinator drops, indexed by task ID. Kept off the wire until the request digest exposes them. */
+ partDropReasons?: Record<string, string>;
  pausedNotices?: { taskId: string; episode: string; owner: string }[];
  taskActivity?: Record<string, TaskActivityTracking>;
  taskFocus?: Record<string, string>;
@@ -184,6 +188,11 @@ export const BoardDoc = defineDoc<BoardState>({
 
 export function emptyBoardState(): BoardState {
 	return { tasks: [], questions: [], decisions: [], counters: { task: 0, question: 0, decision: 0 }, updatedAt: null };
+}
+
+export function partDropReason(state: Readonly<BoardState>, taskId: string): string | undefined {
+ const reason = state.partDropReasons?.[taskId];
+ return typeof reason === "string" ? reason.trim() || undefined : undefined;
 }
 
 /**
@@ -428,14 +437,15 @@ export async function snapshotStatusChanges(
 	mainId: ConversationId,
 	state: BoardState,
 	before: ReadonlyMap<string, BoardTask["status"]>,
-	input: { by: BoardWriter; at: string; key?: string | undefined },
+	input: { by: BoardWriter; at: string; key?: string | undefined; statusLabels?: ReadonlyMap<string, string> | undefined },
 ): Promise<void> {
 	for (const task of state.tasks) {
 		const was = before.get(task.id);
 		if ((was === undefined && task.waiting === undefined) || was === task.status) continue;
 		const history = await openTaskHistory(tx, mainId, task.id);
+		const reason = task.status === "dropped" ? partDropReason(state, task.id) : undefined;
 		addSnapshot(history, task, {
-			label: `${was ?? "new"} → ${task.status}`,
+			label: input.statusLabels?.get(task.id) ?? `${was ?? "new"} → ${task.status}${reason ? `: ${reason}` : ""}`,
 			questions: state.questions,
 			by: task.updatedBy === "harness" ? HARNESS_WRITER : input.by,
 			at: input.at,
@@ -1048,9 +1058,9 @@ function need<T>(value: T | undefined, action: string, field: string): T {
 
 // --- the timeline ------------------------------------------------------------------------------------------------
 
-/** A snapshot label of the form "in_progress → review" is a status move; any other label names a report milestone. */
+/** Status snapshots start with the transition and may include its reason. */
 function isStatusLabel(label: string): boolean {
-	return /^[a-z_]+ → [a-z_]+$/.test(label);
+	return /^[a-z_]+ → [a-z_]+(?:: [\s\S]+)?$/.test(label);
 }
 
 /**
@@ -1355,20 +1365,56 @@ const OPEN_FOR_REVIEW = new Set(["todo", "in_progress", "blocked"]);
 const statusWords = (status: string): string => ({ todo: "to do", in_progress: "in progress", review: "in review" }[status] ?? status);
 const namedParts = (parts: readonly BoardTask[]): string => parts.map(t => `${t.id} (${statusWords(t.status)})`).join(" and ");
 
+function onlyUserCloses(status: "done" | "dropped"): string {
+ return `Only the owner closes a request. You cannot mark it ${status}. Move it to review when the whole outcome is ready, and put any manual checks in Steps.`;
+}
+
+function runningWorkersOnTask(state: Readonly<BoardState>, taskId: string): string[] {
+ return Object.values(state.taskActivity?.[taskId]?.sources ?? {}).filter(source => source.state === "running" && source.actor.kind === "worker").map(source => source.actor.name);
+}
+
+function statusForCoordinatorSave(state: Readonly<BoardState>, current: BoardTask | undefined, parent: string | null | undefined, status: BoardTask["status"], reason: string | undefined): BoardTask["status"] {
+ const partsDoNotGoToReview = "Parts no longer go to review.";
+ if (parent == null) {
+  if (status === "done" || status === "dropped") throw new ServerError("bad_request", onlyUserCloses(status));
+  return status;
+ }
+ if (current && current.parent == null && (status === "done" || status === "dropped" || status === "review")) {
+  throw new ServerError("bad_request", onlyUserCloses(status === "dropped" ? "dropped" : "done"));
+ }
+ if (status === "dropped") {
+  if (!current) throw new ServerError("bad_request", "Add the part first, then drop it with a reason.");
+  if (!reason) throw new ServerError("bad_request", `${current.id} needs a reason to be dropped. Pass it in reason.`);
+  return status;
+ }
+ if (status !== "done" && status !== "review") return status;
+ if (!current) throw new ServerError("bad_request", `${status === "review" ? `${partsDoNotGoToReview}\n` : ""}Add the part and write its Results before marking it done.`);
+ const missing: string[] = [];
+ if (reportSectionFacts(current.report, "results") === "[]") missing.push("Write Results for the part.");
+ const failed = current.report.checks?.filter(check => check.result === "failed").map(check => check.name);
+ if (failed?.length) missing.push(`Resolve the failed checks: ${failed.join(", ")}.`);
+ const open = state.questions.filter(question => question.taskId === current.id && question.status === "open");
+ if (open.length) missing.push(`Resolve the open questions or warnings: ${open.map(question => question.id).join(", ")}.`);
+ const running = runningWorkersOnTask(state, current.id);
+ if (running.length) missing.push(`Wait for the running workers to finish: ${running.join(", ")}.`);
+ if (missing.length) throw new ServerError("bad_request", [...(status === "review" ? [partsDoNotGoToReview] : []), ...missing].join("\n"));
+ return "done";
+}
+
 export function refuseOpenBlockers(task: Pick<BoardTask, "id" | "blockedBy">, tasks: readonly BoardTask[], status = "in_progress"): void {
  const blockers = openTaskBlockers(task, tasks);
  if (!blockers.length) return;
  throw new ServerError("bad_request", `${task.id} is blocked by ${namedParts(blockers)}. Wait for ${blockers.map(t => t.id).join(" and ")} to close, or if ${task.id} no longer needs it, remove the blocker in the same call: update_task id=${task.id} status=${status} blockedBy=[]`);
 }
 
-function checkTaskRules(state: BoardState, task: Pick<BoardTask, "id" | "status" | "blockedBy" | "blockedReason" | "parent">, before?: BoardTask): void {
+function checkTaskRules(state: BoardState, task: Pick<BoardTask, "id" | "status" | "blockedBy" | "blockedReason" | "parent">, before?: BoardTask, strictRequestReview = false): void {
  if (task.status === "blocked" && !task.blockedReason?.trim()) throw new ServerError("bad_request", "Status blocked is for a failure or being stuck; give blockedReason. To wait for another task, keep status todo and set blockedBy.");
  if ((before?.status === task.status || task.status === "waiting") && ["in_progress", "review", "waiting"].includes(task.status) && task.blockedBy.some(id => !before?.blockedBy.includes(id) && openTaskBlockers({ blockedBy: [id] }, state.tasks).length)) {
   throw new ServerError("bad_request", `${task.id} can't add an open blocker while ${statusWords(task.status)}. Move it to todo in the same call: update_task id=${task.id} status=todo blockedBy=[${task.blockedBy.join(",")}].`);
  }
  if (["in_progress", "review"].includes(task.status)) refuseOpenBlockers(task, state.tasks, task.status);
  if (["review", "waiting"].includes(task.status)) {
-  const parts = state.tasks.filter(t => t.parent === task.id && OPEN_FOR_REVIEW.has(t.status));
+  const parts = state.tasks.filter(t => t.parent === task.id && (OPEN_FOR_REVIEW.has(t.status) || (strictRequestReview && task.parent == null && t.status === "review")));
   if (parts.length) throw new ServerError("bad_request", `${task.id} can't go to ${task.status}: its parts ${namedParts(parts)} are not finished. Finish them first. If one is a follow-up rather than a part of ${task.id}, make it one: update_task id=${parts[0]!.id} parent=null foundWhile=${task.id}.`);
  }
  if (task.parent && task.parent !== before?.parent && !SETTLED.has(task.status)) {
@@ -1386,7 +1432,7 @@ function makeFollowUp(state: BoardState, part: BoardTask, parentId: string, now:
 }
 
 /** Repairs climb direct links only. Also called by transaction snapshotting for harness writers. */
-export function repairTaskParts(state: BoardState, now: string): string[] {
+export function repairTaskParts(state: BoardState, now: string, newlyWaitingPartId?: string): string[] {
  const notices: string[] = [];
  let changed = true;
  while (changed) {
@@ -1396,6 +1442,9 @@ export function repairTaskParts(state: BoardState, now: string): string[] {
    const parent = state.tasks.find(t => t.id === part.parent);
    if (!parent) continue;
    if (isSettled(parent)) {
+    // A part may already be waiting when its own parent is checked or migrated from review.
+    // Keep its link until it resumes, unless the owner just reopened or added it under a closed parent.
+    if (parent.parent != null && parent.status === "done" && part.status === "waiting" && part.id !== newlyWaitingPartId) continue;
     makeFollowUp(state, part, parent.id, now);
     notices.push(`${part.id} is now a follow-up of closed ${parent.id}.`); changed = true;
    } else if ((parent.status === "todo" && part.status === "in_progress") || (["review", "waiting"].includes(parent.status) && OPEN_FOR_REVIEW.has(part.status))) {
@@ -1414,7 +1463,7 @@ export function migrateTaskStates(state: BoardState, now: string): string[] {
  for (const part of state.tasks) {
   const parent = state.tasks.find(t => t.id === part.parent);
   if (!parent) continue;
-  if ((!isSettled(part) && isSettled(parent)) || (OPEN_FOR_REVIEW.has(part.status) && ["review", "waiting"].includes(parent.status))) {
+  if ((!isSettled(part) && isSettled(parent) && !(parent.parent != null && parent.status === "done" && part.status === "waiting")) || (OPEN_FOR_REVIEW.has(part.status) && ["review", "waiting"].includes(parent.status))) {
    makeFollowUp(state, part, parent.id, now); notices.push(`${part.id}: parent ${parent.id} became a follow-up link`);
   }
  }
@@ -1436,6 +1485,16 @@ export function migrateTaskStates(state: BoardState, now: string): string[] {
  return notices;
 }
 
+/** Run inside the same transaction that records the status snapshots and saves the marker. */
+function migratePartsInReview(state: BoardState, now: string, statusLabels: Map<string, string>): void {
+ if (state.partsReviewMigrated === true) return;
+ for (const part of state.tasks) if (part.parent != null && part.status === "review") {
+  touchByHarness(state, part, "done", now);
+  statusLabels.set(part.id, "review → done: Marked done at upgrade. Parts no longer go to review. The request is reviewed instead.");
+ }
+ state.partsReviewMigrated = true;
+}
+
 function closeTaskParts(state: BoardState, task: BoardTask, status: BoardTask["status"], choice: "close" | "follow_up", now: string): string[] {
  const notices: string[] = [];
  for (const part of state.tasks.filter(t => t.parent === task.id && !isSettled(t))) {
@@ -1443,7 +1502,7 @@ function closeTaskParts(state: BoardState, task: BoardTask, status: BoardTask["s
   else {
    notices.push(...closeTaskParts(state, part, status, choice, now));
    touchByHarness(state, part, status, now);
-   const running = Object.values(state.taskActivity?.[part.id]?.sources ?? {}).filter(s => s.state === "running" && s.actor.kind === "worker").map(s => s.actor.name);
+   const running = runningWorkersOnTask(state, part.id);
    notices.push(`${part.id} closed as ${status}.${running.length ? ` Workers still running on ${part.id}: ${running.join(", ")}; stop them or explain why not.` : ""}`);
   }
  }
@@ -1456,9 +1515,10 @@ export function saveTask(
 	input: {
 		taskId?: string | undefined;
 		expectedRevision?: number | undefined;
-		task: BoardTaskInput;
+		task: Omit<BoardTaskInput, "status"> & { status?: BoardTask["status"] | undefined };
   ownerThreadId?: string | null | undefined;
   openParts?: "close" | "follow_up" | undefined;
+  reason?: string | undefined;
 		author: BoardAuthor;
 		now: string;
 	},
@@ -1472,11 +1532,15 @@ export function saveTask(
  }
 	const parent = requested.parent === undefined ? current?.parent : requested.parent;
 	const foundWhile = requested.foundWhile === undefined ? current?.foundWhile : requested.foundWhile;
-	const fields = parent != null && foundWhile === parent ? { ...requested, foundWhile: null } : requested;
+ const reason = input.reason?.trim();
+ const { status: requestedStatus } = requested;
+ const coordinatorSetsStatus = author === "coordinator" && requestedStatus !== undefined;
+ const status = coordinatorSetsStatus ? statusForCoordinatorSave(state, current, parent, requestedStatus, reason) : requestedStatus ?? current?.status ?? "todo";
+ const fields = { ...requested, status, ...(parent != null && foundWhile === parent ? { foundWhile: null } : {}) };
 	let blockedBy = unique(fields.blockedBy);
  const notices: string[] = [];
  const candidate = { ...fields, id: current?.id ?? `T${state.counters.task + 1}`, parent: parent ?? null, blockedBy };
- if (author !== "user") checkTaskRules(state, candidate, current);
+ if (author !== "user") checkTaskRules(state, candidate, current, coordinatorSetsStatus);
  const override = author === "user" && ["in_progress", "review"].includes(fields.status) ? openTaskBlockers(candidate, state.tasks).map(t => t.id) : [];
  if (override.length) {
   blockedBy = blockedBy.filter(id => !override.includes(id));
@@ -1539,7 +1603,7 @@ export function saveTask(
 		if (stored.status === "review" || stored.status === "done") noteTaskFact(state, stored.id, { actor: author, kind: "status", reason: `Results empty at ${stored.status}`, at: now });
 		state.updatedAt = now;
 		if (override.length) setRelated(state, stored, [...(stored.related ?? []), ...override]);
-  notices.push(...repairTaskParts(state, now));
+  notices.push(...repairTaskParts(state, now, fields.status === "waiting" ? id : undefined));
   return { before: null, after: plain(stored), notices };
 	}
 	const existing = state.tasks.find((task) => task.id === input.taskId);
@@ -1571,6 +1635,11 @@ export function saveTask(
 	if (fields.related !== undefined || override.length) setRelated(state, existing, [...(fields.related ?? existing.related ?? []), ...override]);
  if (openParts.length) notices.push(...closeTaskParts(state, existing, fields.status, input.openParts!, now));
 	if (fields.status !== existing.status) {
+  if (existing.status === "dropped" && state.partDropReasons) delete state.partDropReasons[existing.id];
+  if (coordinatorSetsStatus && fields.status === "dropped" && reason) {
+   state.partDropReasons ??= {};
+   state.partDropReasons[existing.id] = reason;
+  }
 		clockStatus(state, existing, fields.status, now);
 		existing.status = fields.status;
 		existing.settledAt = SETTLED.has(fields.status) ? now : null;
@@ -1586,7 +1655,8 @@ export function saveTask(
 	}
 	if (before.status === existing.status && JSON.stringify(before.waiting) !== JSON.stringify(existing.waiting)) noteTaskFact(state, existing.id, { actor: author, kind: "status", reason: "waiting stage changed", at: now });
 	if (before.blockedBy.some((id) => !existing.blockedBy.includes(id)) || (before.blockedReason !== null && existing.blockedReason === null)) noteTaskFact(state, existing.id, { actor: author, kind: "blocker_resolved", reason: "blocker resolved", at: now });
-	notices.push(...repairTaskParts(state, now));
+ const newlyWaiting = existing.status === "waiting" && (before.status !== "waiting" || before.parent !== existing.parent);
+	notices.push(...repairTaskParts(state, now, newlyWaiting ? existing.id : undefined));
  return { before, after: plain(existing), notices };
 }
 
@@ -1884,6 +1954,7 @@ function claimHarnessKey(state: BoardState, key: string): boolean {
 function touchByHarness(state: BoardState, task: BoardTask, status: BoardTask["status"], now: string, actor: NonNullable<TaskFact["actor"]> = "harness"): void {
 	if (status !== "waiting") delete task.waiting;
 	if (status !== task.status) {
+  if (task.status === "dropped" && state.partDropReasons) delete state.partDropReasons[task.id];
 		clockStatus(state, task, status, now);
 		task.status = status;
 		noteTaskFact(state, task.id, { actor, kind: "status", reason: `stage changed to ${status}`, at: now });
@@ -1901,7 +1972,7 @@ export type WorkerMove = { kind: "spawned"; workerId: string } | { kind: "failed
 
 /**
  * Move a task for its worker: a spawn takes it to `in_progress` (and records the worker), a failure to `blocked` with
- * the reason. A worker's report moves nothing: the coordinator checks the work and moves the task to `review` itself. A
+ * the reason. A worker's report moves nothing: the coordinator checks the work before closing a part or reviewing a request. A
  * failure leaves a task the coordinator or the user already settled alone. Applied once per `key`; undefined when
  * nothing changed.
  */
@@ -1934,7 +2005,8 @@ export function moveTaskForWorker(
  * A `record` clock run's worker reported and nobody will review it: put the run into the schedule's task the way the
  * coordinator would. `results` becomes this run (the time, the worker and the start of its report; the full report stays
  * on the worker), `now` is cleared, and a task still `in_progress` goes to `review` so it does not read as working until
- * the next run. A task the coordinator or the user already moved is not moved. Applied once per `key`; undefined when
+ * the next run, unless it is now a part and needs its coordinator to check it. A task the coordinator or the user
+ * already moved is not moved. Applied once per `key`; undefined when
  * it was already applied. An event run's task is not the schedule's, so it is left alone.
  */
 export function recordScheduledReport(
@@ -1956,7 +2028,7 @@ export function recordScheduledReport(
 		coveredEventSeq: task.eventSeq,
 		now: input.now,
 	});
-	if (task.status === "in_progress") { checkTaskRules(state, { ...task, status: "review" }, task); touchByHarness(state, task, "review", input.now); }
+	if (task.status === "in_progress" && task.parent == null) { checkTaskRules(state, { ...task, status: "review" }, task); touchByHarness(state, task, "review", input.now); }
 	return { before, after: plain(task) };
 }
 
@@ -2855,10 +2927,14 @@ export class BoardService {
    state.taskPartStatesEnabled = this.#options.taskPartStates !== false;
    state.taskLiveEnabled = this.#options.taskLive !== false;
    this.#setWatcherSettings(state);
-   await this.#change(tx, HARNESS_WRITER, "task-state-migration", (doc, now) => {
-    const notices = migrateTaskStates(doc, now);
-    if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
-   });
+   if (!state.taskStateMigrated || state.partsReviewMigrated !== true) {
+    const statusLabels = new Map<string, string>();
+    await this.#change(tx, HARNESS_WRITER, undefined, (doc, now) => {
+     migratePartsInReview(doc, now, statusLabels);
+     const notices = migrateTaskStates(doc, now);
+     if (notices.length) this.#options.log(`board task-state migration: ${notices.join("; ")}`);
+    }, { statusLabels, skipPartRepair: true });
+   }
 			state.lastReportSweep ??= this.#options.now();
    if (state.taskActivityEnabled) for (const task of state.tasks) {
     const tracking = activityTracking(state, task.id);
@@ -2896,7 +2972,7 @@ export class BoardService {
 	}
 
 	/** Open the board in `tx`, run `change`, and snapshot each task whose status it changed. */
-	async #change<T>(tx: Tx, by: BoardWriter, key: string | undefined, change: (state: BoardState, now: string) => T | Promise<T>): Promise<T> {
+	async #change<T>(tx: Tx, by: BoardWriter, key: string | undefined, change: (state: BoardState, now: string) => T | Promise<T>, options?: { statusLabels: ReadonlyMap<string, string>; skipPartRepair: true }): Promise<T> {
 		const state = await openBoard(tx, this.#mainId);
 		const before = statusesOf(state);
   const threadRunsBefore = this.#threadRunStates(state);
@@ -2905,7 +2981,7 @@ export class BoardService {
  const ownersBefore = new Map(state.tasks.map(task => [task.id, task.ownerThreadId]));
 		const now = this.#iso();
 		const result = await change(state, now);
-  repairTaskParts(state, now);
+  if (!options?.skipPartRepair) repairTaskParts(state, now);
 		if (this.#options.notifications && by.author === "coordinator") {
 			const reviewed = state.tasks.filter(task => task.status === "review" && before.get(task.id) !== "review");
 			if (reviewed.length) {
@@ -2925,7 +3001,7 @@ export class BoardService {
    tracking.statusSince = now;
   }
 		sweepArchive(state, this.#options.now());
-		await snapshotStatusChanges(tx, this.#mainId, state, before, { by, at: now, key });
+		await snapshotStatusChanges(tx, this.#mainId, state, before, { by, at: now, key, statusLabels: options?.statusLabels });
 		for (const task of state.tasks) {
 			if (task.status !== "waiting" || before.get(task.id) !== "waiting" || waitingBefore.get(task.id) === JSON.stringify(task.waiting)) continue;
 			addSnapshot(await openTaskHistory(tx, this.#mainId, task.id), task, { label: "Waiting updated", questions: state.questions, by, at: now, key: key === undefined ? undefined : `${key}:${task.id}:waiting` });
@@ -3720,7 +3796,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    if (valid) {
     const target = this.knowsThread(notice.owner) ? notice.owner : "main";
     const conversation = await this.#conversationOf(target);
-    await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${notice.taskId} is in progress but nothing has run on it for 15 minutes. Move it to review if it is finished, back to To do if it is not being worked on, or ask the user.`, whenBusy: "followUp", requestId: `board-paused:${notice.taskId}:${createHash("sha256").update(notice.episode).digest("hex")}` });
+    const finish = task.parent ? "Mark it done if you have checked it" : "Move it to review if it is finished";
+    const ask = task.parent ? "ask the owner on the request" : "ask the owner";
+    await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${notice.taskId} is in progress but nothing has run on it for 15 minutes. ${finish}, move it back to To do if it is not being worked on, or ${ask}.`, whenBusy: "followUp", requestId: `board-paused:${notice.taskId}:${createHash("sha256").update(notice.episode).digest("hex")}` });
     await this.#woke(target);
    }
    await this.#commit(HARNESS_WRITER, doc => {
@@ -3738,7 +3816,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				for (const task of doc.tasks) {
 					if (task.status !== "waiting" || task.waiting?.until === undefined || Date.parse(task.waiting.until) > now) continue;
 					const note = task.waiting.note;
-					touchByHarness(doc, task, "review", new Date(now).toISOString());
+					touchByHarness(doc, task, task.parent && task.waiting.by === "coordinator" ? "in_progress" : "review", new Date(now).toISOString());
 					doc.waitingReturns ??= [];
 					doc.waitingReturns.push({ task: plain(task), note });
 				}
@@ -3747,13 +3825,16 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		for (const returned of (await this.state()).waitingReturns ?? []) {
 			const { task, note } = returned;
 			const project = this.#options.project();
-			await this.#options.notifications?.deliver({
+			if (task.status === "review") await this.#options.notifications?.deliver({
 				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
 				body: `${task.id} is back for review: waiting for ${note}`,
 			});
 			const target = await this.#deliveryThread(task.ownerThreadId);
 			const conversation = await this.#conversationOf(target);
-			await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${task.id} is back for review: waiting for ${note}. Its check-again date has passed; check the external dependency with the user.`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` });
+   const content = task.status === "review"
+    ? `${task.id} is back for review: waiting for ${note}. Its check-again date has passed; check the external dependency with the user.`
+    : `${task.id} is back in progress. Its check-again date for ${note} has passed. Check the dependency and ask the owner on the request if needed.`;
+			await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${content}`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` });
 			await this.#woke(target);
 			await this.#commit(HARNESS_WRITER, (doc) => {
 				doc.waitingReturns = (doc.waitingReturns ?? []).filter((entry) => entry.task.id !== task.id || entry.task.revision !== task.revision);
@@ -4025,11 +4106,11 @@ const BoardToolParameters = Type.Object({
 		],
 		{
 			description:
-				"list: the board. add_task: needs title. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: refused; only the user drops a task. write_report: needs id and at least one of summary, results, notDone, next, steps, blocks, sectionViews or checks; Now is automatic; replaces the sections you pass, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
+				"list: the board. add_task: needs title; use parent for any work needed to finish a request. Add a part before closing it. update_task: needs id and expectedRevision, changes only the fields you pass. drop_task: needs a part ID, expectedRevision and reason. Only the owner can drop a request. write_report: needs id and at least one of summary, results, notDone, next, steps, blocks, sectionViews or checks; Now is automatic; replaces the sections you pass, never conflicts; milestone saves a snapshot. show_task: needs id; the task in full with its report, questions, warnings, decisions, workers and snapshots. ask: needs text; the user sees it as a waiting question, or as a warning with kind \"warning\". reply_question: needs id, expectedRevision and text; replies under an open clarification, optional revisedText/revisedOptions keep earlier wording. reopen_question: same fields; reopen an answered question once when its answer was really a question. Neither applies to MCP approvals. resolve_question: needs id; with answer it records the answer you got in the chat, without it withdraws the question. decide: needs text. claim: needs id and expectedRevision; makes the task yours, refused when another thread holds it. release: needs id and expectedRevision; gives up a task you hold. handoff: needs id, expectedRevision and toThread; passes a task you hold to another thread (\"main\" for main), which is told. link: needs id, link and to; adds one link from task id to task to (no revision needed). unlink: needs id, link, and to (optional for parent and foundWhile); removes it. feedback: needs id (the task), feedbackId and state; sets what became of a user's feedback entry (see state, note).",
 		},
 	),
 	waitingFor: Type.Optional(Type.String({ maxLength: 2000, description: "Required when setting waiting: the external review, release or reply the user named." })),
-	waitUntil: Type.Optional(Type.String({ description: "Optional ISO check-again date or timestamp; returns to review automatically." })),
+	waitUntil: Type.Optional(Type.String({ description: "Optional ISO check-again date or timestamp. Returns a request to review, or a part to its coordinator." })),
 	id: Type.Optional(Type.String({ minLength: 1, description: "A task ID (T3) for update_task, write_report and show_task, a question ID (Q2) for resolve_question." })),
 	expectedRevision: Type.Optional(
 		Type.Integer({ minimum: 1, description: "The row's revision from the last list (the rN). A stale one is refused: list again." }),
@@ -4050,15 +4131,11 @@ const BoardToolParameters = Type.Object({
 				'add_task, update_task: what the task is about elsewhere, as full links, e.g. ["https://acme.atlassian.net/browse/EX-1234", "https://github.com/acme/app/pull/1234"]. When you only know a ticket key or PR number, look up its link (gh, acli) first. update_task replaces the whole list.',
 		}),
 	),
-	status: Type.Optional(
-		Type.Union(
-			["todo", "in_progress", "blocked", "review", "waiting", "done", "dropped"].map((status) => Type.Literal(status)),
-			{
-				description:
-					"Default todo. blocked: waiting or stopped (say why in blockedReason). review: ready for the user to check; put manual checks in steps. done and dropped are the user's alone: you cannot set them.",
-			},
-		),
-	),
+	status: Type.Optional({
+		...BoardTaskStatusSchema,
+		description: "Default todo. blocked: failure or stuck (say why in blockedReason). review is for requests only; put manual checks in steps. A part is done after you check its Results and checks and there are no open questions, warnings or running workers. To drop a part, give a reason. Only the owner sets done or dropped on a request.",
+	}),
+	reason: Type.Optional(Type.String({ maxLength: 2000, description: "Required to drop a part with drop_task or update_task status=dropped. Say why it is not being done." })),
 	blockedBy: Type.Optional(Type.Array(Type.String(), { description: "Task IDs this one waits for; they must exist and not form a cycle." })),
 	blockedReason: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	writeScopes: Type.Optional(Type.Array(Type.String(), { description: "Paths the task will change; advisory." })),
@@ -4095,13 +4172,13 @@ const BoardToolParameters = Type.Object({
 	parent: Type.Optional(
 		Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
 			description:
-				"add_task, update_task: the task this is a subtask of, for a planned piece of a bigger task. A required part: the parent goes to review/waiting only when its parts are done, in review or waiting. Follow-ups use foundWhile instead. At most one; no cycles. update_task: null removes it.",
+				"add_task, update_task: the task this is a required part of, even when the work was not planned. Mark a part done once checked; never send it to review. A request can go to review or waiting only once all its direct parts are done, dropped or waiting. Follow-ups use foundWhile instead. At most one parent; no cycles. update_task: null removes it.",
 		}),
 	),
 	foundWhile: Type.Optional(
 		Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
 			description:
-				"add_task, update_task: the task whose work led you to find this one (a bug, more to build, an analysis). Always set it for a task found while working on another. At most one. update_task: null removes it.",
+				"add_task, update_task: the task whose work led you to find this separate follow-up. If the work is needed for the request, use parent instead. At most one. update_task: null removes it.",
 		}),
 	),
 	related: Type.Optional(
@@ -4128,10 +4205,6 @@ const BoardToolParameters = Type.Object({
 type BoardToolArguments = Static<typeof BoardToolParameters>;
 
 
-function onlyUserCloses(status: "done" | "dropped"): string {
-	return `Only the user closes a task: you cannot set it ${status}. Move it to review (status review) instead, and write in its report's next what the user should check. The user marks it ${status} when they agree.`;
-}
-
 function createBoardExtension(service: BoardService): Extension {
 	const boardTool = defineTool({
 		name: "board",
@@ -4139,13 +4212,13 @@ function createBoardExtension(service: BoardService): Extension {
 			"Your working board for this project: tasks (with dependencies and the workers that ran them), questions waiting on the user, and decisions. " +
 			"It is durable and always current; read it with action `list` instead of remembering it. Keep it in step with the work: add tasks as you plan, " +
 			'each titled with a short, plain outcome the user reads at a glance ("Complete the example change"), with its tickets and pull requests in its refs as full links, not in the title; ' +
-			"move a task to `review` when it is ready for the user (only the user sets `done` or `dropped`), keep Results and Next current with `write_report` (Now is automatic), " +
-			"ask the user with `ask` when you need their call (they get a notification and answer in the app), warn them of what they must not miss with `ask` kind `warning`, and " +
+			"move a request to `review` when the whole outcome is ready (only the owner sets `done` or `dropped` on a request). Mark a part `done` when checked or `dropped` with a reason. Keep Results and Next current with `write_report` (Now is automatic), " +
+			"ask the owner on the request with `ask` when you need their call (they get a notification and answer in the app), warn them of what they must not miss with `ask` kind `warning`, and " +
 			"record choices worth keeping with `decide`. The user edits it too; their edits arrive as `[board]` messages. " +
 			"Every update names the row's revision from your last list, so you never overwrite a newer edit. The board is shared by every thread of the project: " +
 			"claim a task before you work on it, so no other thread takes it too, and release or hand it over when you stop. " +
 			"Tasks link to each other, each link shown from both sides: a required part (`parent`), the task a new one was found while working on (`foundWhile`), `related`, and `blockedBy`. " +
-			"A planned piece of a bigger task gets parent only. foundWhile is for unplanned tasks discovered while working on another task, never a duplicate of parent. " +
+			"Work needed to finish a request gets parent only, even if unplanned. foundWhile is for separate work discovered along the way, never a duplicate of parent. If the owner sends a request back, fix it on that request, not as a new task. " +
 			"Messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done. " +
 			"Write task text in whole sentences with their small words; short is good, shorthand is not. Limit each line, not the number of lines. Style warnings are advisory: the text is saved.",
 		parameters: BoardToolParameters,
@@ -4177,7 +4250,6 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "add_task": {
 						const explicitOwner = input.owner === undefined ? undefined : await service.coordinatorOwner(input.owner);
-						if (input.status === "done" || input.status === "dropped") return toolText(onlyUserCloses(input.status), { isError: true });
 						const change = await service.commitFor(
 							countEntityWrite((result: TaskChange) => result.after.id, [input.description, input.goal]),
 							(state, now) =>
@@ -4216,9 +4288,8 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "update_task":
 					case "drop_task": {
-						if (input.action === "drop_task") return toolText(onlyUserCloses("dropped"), { isError: true });
-						if (input.status === "done" || input.status === "dropped") return toolText(onlyUserCloses(input.status), { isError: true });
-						if (input.status === "waiting" && !input.waitingFor?.trim()) return toolText("Waiting requires a waitingFor note: what external review, release or reply is this waiting for?", { isError: true });
+						const status = input.action === "drop_task" ? "dropped" : input.status;
+						if (status === "waiting" && !input.waitingFor?.trim()) return toolText("Waiting requires a waitingFor note: what external review, release or reply is this waiting for?", { isError: true });
 						const id = need(input.id, input.action, "id");
 						const expectedRevision = need(input.expectedRevision, input.action, "expectedRevision");
 						const { change, unblocked } = await service.commitFor(
@@ -4229,6 +4300,7 @@ function createBoardExtension(service: BoardService): Extension {
 								const change = saveTask(state, {
 									taskId: id,
 									expectedRevision,
+          reason: input.reason,
 									task: {
 										title: input.title ?? current.title,
 										description: input.description ?? current.description,
@@ -4237,7 +4309,7 @@ function createBoardExtension(service: BoardService): Extension {
 										refs: input.refs ?? current.refs ?? [],
 										...(input.waitingFor === undefined ? {} : { waitingFor: input.waitingFor }),
 										...(input.waitUntil === undefined ? {} : { waitUntil: input.waitUntil }),
-										status: input.status ?? current.status,
+										status,
 										blockedBy: input.blockedBy ?? current.blockedBy,
 										blockedReason: input.blockedReason === undefined ? current.blockedReason : input.blockedReason,
 										writeScopes: input.writeScopes ?? current.writeScopes,
@@ -4252,13 +4324,14 @@ function createBoardExtension(service: BoardService): Extension {
 							},
 							writer,
 							callKey,
-       input.status === undefined ? undefined : id,
+       status === undefined ? undefined : id,
 						);
 						const task = change.after;
 						service.noticeReview(change);
 						await service.noticeUnblocked(task, unblocked);
+       const checkedPart = status === "review" && task.status === "done" ? `\nParts no longer go to review: ${task.id} was marked done because you checked it. Move its request to review once every part is done, dropped or waiting and the whole outcome is ready.` : "";
 						const warnings = taskTextWarnings({ name: "Description", text: input.description }, { name: "Done when", text: input.acceptance });
-						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).${duplicateOriginNotice(change, input.foundWhile)}${warnings}`, { details: { taskId: task.id } });
+						return toolText(`Updated ${task.id} (now r${task.revision}, ${task.status}).${checkedPart}${duplicateOriginNotice(change, input.foundWhile)}${warnings}`, { details: { taskId: task.id } });
 					}
 					case "ask": {
 						const question = await service.commitFor(
