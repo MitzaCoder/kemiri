@@ -9,8 +9,8 @@
 	import type { BoardTaskTimelineResponse, ChangeSource } from '@kemiri/protocol';
 	import { changeCounts, withChanges, type ChangeList } from '#lib/code/project-changes.js';
 
-	let { delivery, changesClient, projectId, taskId, showHeading = true }: {
-		delivery: NonNullable<BoardTaskTimelineResponse['delivery']>; changesClient?: HarnessClient; projectId: string; taskId: string; showHeading?: boolean;
+	let { delivery, changesClient, projectId, taskId }: {
+		delivery: NonNullable<BoardTaskTimelineResponse['delivery']>; changesClient?: HarnessClient; projectId: string; taskId: string;
 	} = $props();
 	let expanded = $state(false);
 	let details = $state<Record<string, ChangeList | null>>({});
@@ -48,8 +48,8 @@
 	const deployLabel = { live: 'Deploy succeeded', pending: 'Not fully live', failed: 'Deploy failed', unknown: 'Status unknown' };
 </script>
 
-<section aria-label={showHeading ? 'Delivery' : undefined} data-task-delivery>
-	{#if showHeading}<h3 class="task-detail-heading mb-2">Delivery</h3>{/if}
+<section aria-label="Delivery" data-task-delivery>
+	<h3 class="task-detail-heading mb-2">Delivery</h3>
 	<ol role="list" class="flex flex-col gap-1 text-sm">
 		<li class="delivery-step"><CheckIcon class="size-4 shrink-0 text-(--chat-success)" aria-hidden="true" /><span>Built <span class="delivery-detail">{count} {count === 1 ? 'commit' : 'commits'}</span></span></li>
 		<li class="delivery-step">

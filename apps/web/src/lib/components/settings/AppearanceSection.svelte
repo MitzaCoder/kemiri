@@ -94,13 +94,15 @@
 			<Segmented label="Light or dark" options={schemeOptions} value={colorScheme.preference} onchange={(next) => colorScheme.set(parseColorScheme(next))} />
 		</SettingsRow>
 	</SettingsGroup>
-	<SettingsGroup title="Tasks">
-		<SettingsRow label="Task view" chip="This device only" for="task-view-design">
-			<select id="task-view-design" value={taskViewDesignPreference.current.id} onchange={(event) => taskViewDesignPreference.set(event.currentTarget.value)} class="min-h-11 rounded-md border border-(--chat-border) bg-(--chat-bg) px-3 text-base">
-				{#each TASK_VIEW_DESIGNS as design (design.id)}<option value={design.id}>{design.label}</option>{/each}
-			</select>
-		</SettingsRow>
-	</SettingsGroup>
+	{#if TASK_VIEW_DESIGNS.length > 1}
+		<SettingsGroup title="Tasks">
+			<SettingsRow label="Task view" chip="This device only" for="task-view-design">
+				<select id="task-view-design" value={taskViewDesignPreference.current.id} onchange={(event) => taskViewDesignPreference.set(event.currentTarget.value)} class="min-h-11 rounded-md border border-(--chat-border) bg-(--chat-bg) px-3 text-base">
+					{#each TASK_VIEW_DESIGNS as design (design.id)}<option value={design.id}>{design.label}</option>{/each}
+				</select>
+			</SettingsRow>
+		</SettingsGroup>
+	{/if}
 	<SettingsGroup title="Time">
 		<SettingsRow label="Time format" hint="Automatic follows your browser locale. Saved in this browser.">
 			<select aria-label="Time format" value={timeFormat.current} onchange={(event) => setTimeFormat(event.currentTarget.value as TimeFormat)} class="min-h-11 rounded-md border border-(--chat-border) bg-(--chat-bg) px-3 text-base">

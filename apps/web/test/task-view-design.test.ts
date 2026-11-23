@@ -28,9 +28,6 @@ beforeAll(async () => {
 			build.onResolve({ filter: /^#lib\/components\/task-view\/ClassicTaskView\.svelte$/ }, () => ({
 				path: join(root, 'test/fixtures/task-view/ClassicFixture.svelte'),
 			}));
-			build.onResolve({ filter: /^#lib\/components\/task-view\/RouteTaskView\.svelte$/ }, () => ({
-				path: join(root, 'test/fixtures/task-view/SecondDesign.svelte'),
-			}));
 			build.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
 				contents: compile(await Bun.file(filename).text(), { filename, generate: 'client' }).js.code, loader: 'js',
 			}));
@@ -40,7 +37,7 @@ beforeAll(async () => {
 		} }],
 	});
 	const document = join(directory, 'index.html');
-	await Bun.write(document, `<main></main><script>addEventListener('error', e => document.body.appendChild(document.createElement('output')).textContent = e.message);localStorage.setItem('kemiri.task-view-design.v1', 'removed-design')</script><script type="module">${(await bundle.outputs[0]!.text()).replaceAll('</script', '<\\/script')}</script>`);
+	await Bun.write(document, `<main></main><script>addEventListener('error', e => document.body.appendChild(document.createElement('output')).textContent = e.message);localStorage.setItem('kemiri.task-view-design.v1', 'route')</script><script type="module">${(await bundle.outputs[0]!.text()).replaceAll('</script', '<\\/script')}</script>`);
 	const dom = await renderChromiumDocument(document, join(directory, 'profile'));
 	const json = dom.match(/<pre id="result">(.+)<\/pre>/)?.[1];
 	if (!json) throw new Error('Task view design fixture did not render: ' + (dom.match(/<output>(.+)<\/output>/s)?.[1] ?? dom.slice(-600)));
@@ -49,10 +46,9 @@ beforeAll(async () => {
 
 afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
 
-test('Classic is registered and missing or unknown IDs fall back to it', () => {
-	expect(result.registered).toContain('classic: Classic');
-	expect(result.registered).toContain('route: Route');
-	expect(result.fallbacks).toEqual(['classic', 'classic']);
+test('Classic is the only registered design and missing, unknown or retired IDs fall back to it', () => {
+	expect(result.registered).toEqual(['classic: Classic']);
+	expect(result.fallbacks).toEqual(['classic', 'classic', 'classic']);
 	expect(result.initial).toBe('Classic: An example task');
 });
 

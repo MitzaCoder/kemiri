@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
 import type { Artifact, ReportBlock, ReportBlocks } from '@kemiri/protocol';
-import { reportGlance } from '../src/lib/report-glance.js';
 import { automaticReportProof, readReportSection, reportBlockGroups, reportProofArtifact, type TaskReportSections } from '../src/lib/report-sections.js';
 import { taskChanges } from '../src/lib/tasks.js';
 
@@ -59,28 +58,6 @@ test('replaces a cited automatic thumbnail without shrinking Files or substituti
 	expect(reportProofArtifact(proof, artifacts)?.id).toBe('replay~2');
 	expect(reportProofArtifact(proof, [{ ...replay, versions: [newest] }])).toBeUndefined();
 	expect(automaticReportProof({ ...report, blocks: wireBlocks([proof, { kind: 'future' }]) }, artifacts)).toEqual(artifacts);
-});
-
-test('extracts glance facts in source order without showing mirror copies', () => {
-	const typed: ReportBlocks = {
-		summary: [{ kind: 'outcome', text: 'The desk handles the **morning** queue.' }, outcome],
-		results: [outcome, { kind: 'finding', title: 'Limit 1 held', text: 'The clerk served ten people.' },
-			{ kind: 'metric', label: 'People served', value: 10, unit: 'people' }, { kind: 'risk', title: 'Overflow', text: 'The waiting area is small.' }],
-		notDone: [{ kind: 'risk', title: 'Rain plan', text: 'The covered area was not tested.' }],
-		next: [{ kind: 'nextAction', text: 'The team will [read the notes](https://example.test/notes).' }, { kind: 'nextAction', text: 'The desk will reopen.' }],
-	};
-	expect(reportGlance({ report: { ...report, blocks: typed } })).toEqual({
-		firstOutcome: 'The desk handles the morning queue.', metrics: [{ label: 'People served', value: 10, unit: 'people' }],
-		findingTitles: ['Limit 1 held'], riskTitles: ['Overflow', 'Rain plan'], firstNextAction: 'The team will read the notes.',
-	});
-	expect(reportGlance({ report: { ...report, blocks: { results: [outcome] } } }).firstOutcome).toBe(outcome.text);
-});
-
-test('glances at legacy or unsupported Markdown without guessing titles or metrics', () => {
-	expect(reportGlance({ report: { ...report, results: '- **First line.**\n- Second line.', blocks: wireBlocks([{ kind: 'future' }]) } })).toEqual({
-		firstOutcome: 'First line.', firstNextAction: 'The crew will return.', metrics: [], findingTitles: [], riskTitles: [],
-	});
-	expect(reportGlance({ report: { results: '', next: '' } }).firstOutcome).toBeUndefined();
 });
 
 const snapshot = (results: string, blocks?: ReportBlocks) => ({ title: 'Booking rehearsal', status: 'done' as const, report: { now: '', results, next: '', blocks } });

@@ -3389,10 +3389,12 @@ is where they talk.
 
 ### Web task view designs (T366)
 
-Classic is the default. The owner can change designs from More → Task view in the task header or from
-Settings → This device → Appearance. Both selectors use the same registry and remember the choice in
-`localStorage` (`kemiri.task-view-design.v1`). A missing or unknown ID falls back to Classic. Switching redraws
-an open sheet without reloading, and other tabs on the same origin follow the stored choice.
+Classic is the default and only registered design. The task header's More → Task view picker and the
+Settings → This device → Appearance picker appear only when the registry has more than one design.
+Both selectors use the same registry and store the choice in `localStorage` (`kemiri.task-view-design.v1`).
+Missing or unrecognized IDs, including the retired `route` ID, resolve to Classic. Switching redraws an
+open sheet without reloading, and other tabs on the same origin follow the stored choice. The backend does
+not store either client's task view preference.
 
 Add a web design component and register its ID, label, description, component and optional `sheetClass` in
 `apps/web/src/lib/task-view/designs.ts`. The shell is full-window unless the design docks or narrows it with
@@ -3402,33 +3404,6 @@ snippet; each design places it inside its scrollable record, never below the rep
 use its derived task fields, actions and shared timeline read rather than fetching them again. Put
 `TaskViewDesignMenu` in the header, render the supplied `editor` snippet when `model.editing` is true, and
 register the quotable region and reply focus target with the model.
-
-### Route task view (T367)
-
-Route fills the web window. At 1,000 CSS pixels of sheet width it shows Doors: one raised platform and two
-short, usable summaries. Below that it shows Calm: the scrollable line, live card, Your stop, Arrived and Ahead
-stack in reading order. The owner can answer a question without opening Your stop. The initial door is Your stop
-if something needs attention, otherwise Arrived. A manual choice stays with the open task view, not the URL.
-
-The line uses the active run plan first, then ordered subtasks, then the stored task state. It marks the owner's
-interchange from open questions, warnings, steps, review and blockers, never by guessing from a plan step's name.
-The live card reveals counters and recent lines under So far. The record opens in place with the request first.
-Reply opens the existing task composer from the corner or from the review controls.
-
-Route uses the same report section renderer as Classic on web and Android. Arrived shows Summary and Results;
-Ahead shows Not done and agent Next. Both keep the shaped Markdown fallback and pinned section views.
-Closed doors use the shared glance facts: Arrived leads with the first outcome and finding titles, and Ahead
-shows risk titles and the first next action, with brief Markdown fallbacks. Your stop shows manual instructions
-from Your steps, or legacy Next under Check the work in review. Typed Next never becomes a review instruction.
-A Results proof block replaces its automatic thumbnail without removing the file from Files.
-Route labels Delivery itself in Arrived: a heading in Doors and a disclosure in Calm. The shared
-Delivery component renders its own heading only in Classic.
-
-**Android Route (T368).** The owner selects Route from Task view, without changing Classic or its default.
-Route fills the task window. Calm keeps the current stop in view on a horizontal line above the reading sections.
-At 840dp, Doors opens one rounded platform beside two flat summaries. The first question remains answerable
-in a closed Your stop door. Door widths animate only with motion enabled. Both layouts share the existing
-task actions and reply composer. `RouteReportSection.kt` delegates report bodies to the shared native renderer.
 
 ### Task changes and integration refs (T124)
 
@@ -3633,7 +3608,7 @@ In unified diffs, removed line numbers sit in the gutter without shifting the de
 
 ### Code view on Android: Changes and line comments
 
-On Android, the shared Classic and Route task sheet exposes **Delivery → Changes** when the backend
+On Android, the task sheet exposes **Delivery → Changes** when the backend
 advertises `project-changes`. A commit row opens that commit; **Review changes** opens the task range.
 Changes is a native destination on the existing back stack, so Back returns to the originating task.
 The commit picker offers a combined diff only for contiguous ranges, and says why otherwise. The file
@@ -6850,12 +6825,12 @@ lines; a stale one offers the existing update action. There is no section naviga
 - The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
   sync. See Compact refs and keyboard space above.
 
-**Android task view designs.** Classic (`classic`) is the default and keeps the existing sheet layout.
-The owner can choose a design from Task view in the sheet header overflow or in Settings → Appearance.
+**Android task view designs.** Classic (`classic`) is the default and only registered design.
+Task view in the sheet header and in Settings → This device → Appearance appears only with multiple designs.
 The choice is saved on this device for all projects and applies to an open task without reopening it.
-Missing or unrecognized choices display Classic. Each entry in `TaskViewDesigns` supplies a stable ID,
-label, description and composable. Designs share `TaskSheetState` for the open task, including its
-queries, actions and reply; each design decides how to lay it out.
+Missing or unrecognized choices, including the retired `route` ID, display Classic. Each entry in
+`TaskViewDesigns` supplies a stable ID, label, description and composable. Designs share `TaskSheetState`
+for the open task, including its queries, actions and reply; each design decides how to lay it out.
 
 **Android record (T299).** With `task-delivery`, Android requests the delivery projection and uses the same
 explicit-citation and day-grouping rules as web. Decided expands to show the question, answer and attribution.

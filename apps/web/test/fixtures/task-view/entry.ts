@@ -6,7 +6,7 @@ import type { TaskViewDesign, TaskViewDesignProps } from '../../../src/lib/task-
 import SecondDesign from './SecondDesign.svelte';
 
 const registered = TASK_VIEW_DESIGNS.map(design => design.id + ': ' + design.label);
-const fallbacks = [null, 'removed-design'].map(id => resolveTaskViewDesign(id).id);
+const fallbacks = [null, 'unknown-design', 'route'].map(id => resolveTaskViewDesign(id).id);
 const testRegistry = TASK_VIEW_DESIGNS as TaskViewDesign[];
 testRegistry.push({ id: 'second', label: 'Second', description: 'Test-only view', component: SecondDesign });
 const target = document.querySelector('main')!;

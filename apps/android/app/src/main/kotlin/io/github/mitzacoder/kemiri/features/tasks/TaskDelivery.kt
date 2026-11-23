@@ -53,12 +53,11 @@ internal fun TaskDelivery(
     context: ProjectScreenContext,
     task: BoardTask,
     delivery: BoardTaskTimelineResponseDelivery,
-    showHeading: Boolean = true,
 ) {
     val colors = Jarvis.colors
     val steps = deliverySteps(delivery)
     if (steps.isEmpty()) return
-    TaskReadingSection(if (showHeading) "Delivery" else null) {
+    TaskReadingSection("Delivery") {
         steps.forEach { step ->
             Row(Modifier.semantics(mergeDescendants = true) { stateDescription = if (step.complete) "Complete" else "Not complete" },
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -46,8 +46,6 @@ class ReportBlocksTest {
         assertEquals(listOf(ReportBlock.Risk("Late arrivals", "The team has not tested the side door.")), blocks(report, ReportSectionKind.NotDone))
         assertEquals(listOf(ReportBlock.NextAction("The clerk will check the [map](https://example.test/map).")), blocks(report, ReportSectionKind.Next))
         assertEquals(listOf(ReportBlock.Step("Print the sign.", null, null)), blocks(report, ReportSectionKind.Steps))
-        assertEquals(ReportGlance("The desk is open.", listOf(ReportBlock.Metric("Wait", 12.5, "seconds", "One morning session.")),
-            listOf("Names match"), listOf("Small group", "Late arrivals"), "The clerk will check the map."), reportGlance(report))
     }
 
     @Test fun unknownOrMalformedBlocksReplaceTheEntireSectionWithItsMirror() {
@@ -104,14 +102,6 @@ class ReportBlocksTest {
         for (payload in listOf("""[{"kind":"nextAction","text":"The clerk will check."}]""", """[{"kind":"futureKind"}]""", "42")) {
             assertEquals(ReportNextPlacement.Next, reportNextPlacement(report("""{"next":$payload}"""), review = true))
         }
-    }
-
-    @Test fun legacyGlanceSkipsCodeAndDoesNotInventMetricsOrTitles() {
-        val legacy = mirrors.copy(summary = " ", results = "```\nNot the lead\n```\n\n- **Ready** at the east doors.\n- Another fact.",
-            next = "### Check the desk\n\nDetails below.")
-        assertEquals(ReportGlance("Ready at the east doors.", emptyList(), emptyList(), emptyList(), "Check the desk", "Not done mirror"), reportGlance(legacy))
-        val typedOutcome = report("""{"results":[{"kind":"outcome","text":"The east doors are open."}]}""").copy(summary = "")
-        assertEquals("The east doors are open.", reportGlance(typedOutcome).firstOutcome)
     }
 
     private fun artifact(id: String, kind: String = "image", version: Long? = null) = Artifact(

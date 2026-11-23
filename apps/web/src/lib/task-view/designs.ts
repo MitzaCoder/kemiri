@@ -1,6 +1,5 @@
 import type { Component, Snippet } from 'svelte';
 import ClassicTaskView from '#lib/components/task-view/ClassicTaskView.svelte';
-import RouteTaskView from '#lib/components/task-view/RouteTaskView.svelte';
 import type { TaskViewModel } from './model.svelte.js';
 
 export type TaskViewDesignProps = {
@@ -30,7 +29,6 @@ export const CLASSIC_TASK_VIEW_DESIGN: TaskViewDesign = {
 
 export const TASK_VIEW_DESIGNS: readonly TaskViewDesign[] = [
 	CLASSIC_TASK_VIEW_DESIGN,
-	{ id: 'route', label: 'Route', description: 'Doors on wide windows, a calm stack on narrow ones', component: RouteTaskView },
 ];
 
 export function resolveTaskViewDesign(id: string | null): TaskViewDesign {

@@ -19,6 +19,8 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 /** The same Task view picker can sit in any design's header. */
 @Composable
 internal fun TaskViewMenu(designId: String, onSelectDesign: (String) -> Unit) {
+    if (TaskViewDesigns.entries.size <= 1) return
+
     var expanded by remember { mutableStateOf(false) }
     val colors = Jarvis.colors
     Box {
