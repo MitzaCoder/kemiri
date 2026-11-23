@@ -18,7 +18,7 @@ import { OWNER_CHAT_ENTRY } from "./wire.ts";
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord/context";
-import type { Conversation, ConversationView, EntryRecord } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationView, EntryRecord, LiveState } from "@earendil-works/pi-durable";
 import type { ProjectActivity, ProjectRunningTool } from "@kemiri/protocol";
 
 type LiveToolSlot = { callId: string; name: string; status: string };
@@ -272,7 +272,13 @@ export function activityFromView(view: ConversationView, previously: ProjectActi
 }
 
 /** A coordinator answer the project had not published yet, so it is new since the last value. */
-export type ReplyNotice = { entryId: number; at: string; text: string };
+export type ReplyNotice = {
+	entryId: number;
+	at: string;
+	text: string;
+	/** Check the inputs that were placed in the answering run, not the waiting inbox. */
+	hasOwnerChat(): Promise<boolean>;
+};
 
 /** `pi.live.n`: the newest compaction that failed, kept until a compaction produces a summary again. */
 export type CompactionFailureNotice = { taskId: number; reason?: string; error: string };
@@ -494,15 +500,36 @@ export class ProjectActivityService {
 	#notifyReply(entryId: number, at: string | null): void {
 		if (this.#onReply === undefined) return;
 		const entry = this.#entryById(entryId);
+		const view = this.#view;
 		try {
 			this.#onReply({
 				entryId,
 				at: at ?? new Date().toISOString(),
 				text: entry === undefined ? "" : finalAnswerText(entry),
+				hasOwnerChat: () => this.#hasOwnerChat(view, entryId),
 			});
 		} catch (error) {
 			this.#log(`reply listener failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	async #hasOwnerChat(view: ConversationView | undefined, replyId: number): Promise<boolean> {
+		if (!view) return false;
+		const run = (view.docs["pi.live"] as Readonly<LiveState> | undefined)?.run;
+		const first = run?.first;
+		// The board's afterRun hook keeps the answering run in this revision. Replayed replies without that
+		// boundary, and old unmarked pi.user entries, cannot prove the owner was part of the turn.
+		if (!run?.afterRun || first === undefined || first >= replyId || latestAssistant(view)?.entryId !== replyId) return false;
+		if (view.entries.some(entry => entry.id >= first && entry.id < replyId && entry.kind === OWNER_CHAT_ENTRY)) return true;
+		if (view.before === undefined || view.before < first) return false;
+		// A long run can outgrow the watch window. Read only its missing prefix, not older turns.
+		let cursor: Parameters<Conversation["entries"]>[2];
+		do {
+			const page = await this.#conversation.entries({ minEntryId: first, maxEntryId: view.before }, 200, cursor, BACKGROUND_CONTEXT);
+			if (page.items.some(entry => entry.kind === OWNER_CHAT_ENTRY)) return true;
+			cursor = page.next;
+		} while (cursor !== undefined);
+		return false;
 	}
 
 	#entryById(entryId: number): EntryRecord | undefined {

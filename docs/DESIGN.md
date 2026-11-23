@@ -2874,7 +2874,7 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   `taskId` when supplied. A matched reply wakes the asker; a plain reply steers a busy turn
   or is written silently. A `note` never wakes. Held coordinators stay held. The static peer
   prompt asks for `awaitReply` when ending a turn to wait, and `kind: "reply"` in answer.
-  Peer-only coordinator turns do not set the unread reply mark or send a reply notification.
+  Peer-only coordinator turns do not set the unread reply mark. See reply notices below.
   There is no back-and-forth counter or warning.
 - **Finishing.** A background thread ends with `thread_finish` and a summary, which reaches the thread that started
   it (main for schedules) as `[thread <id> finished] …`, reviewed or recorded (`onFinish`). Threads started by a
@@ -7470,6 +7470,12 @@ setting, restart and retry steps; the raw error remains a small secondary detail
 - **The backend decides, the device only stores.** Each backend keeps the devices registered with it (subscription,
   label, what the device calls that backend, preferences) and pushes its own events; nothing is synced between
   backends. A payload carries the device's name for that backend, so a deep link lands on the right one.
+- **Reply notices are for owner chat.** General and area coordinators send a `reply` only if their answering run
+  handled at least one app composer input. The activity watch checks for the durable owner-chat entry between
+  the run start and its final answer, including steers placed after tools but not inputs still waiting for the
+  next run. Unmarked history does not qualify. Board actions and answers, worker reports, check-ins, report
+  nudges, peer messages and other harness inputs alone do not raise an event, so there is no push or in-app
+  alert. Reply text and tags, the unread mark, and other notices such as `work_finished` are unchanged.
 - **No duplicate notifications.** Events carry a dedupe key (`reply:<project>:<entry>`, `deploy:<commit>:<attempt>`,
   `schedule:<project>:<schedule>:<due time>:<outcome>`, `compaction:<project>:<task>`, …) and the keys are persisted,
   so a restart that replays a watch, re-reads a deploy status or resumes a reporter notifies nothing twice. The

@@ -1884,13 +1884,14 @@ export class ProjectManager {
 				if (next.coordinator === "idle") void board.audit?.check("idle").catch(error => this.#log(`report audit failed: ${errorMessage(error)}`));
 				work.update({ coordinatorWorking: next.coordinator === "working" });
 			},
-			// A new final answer and a failed compaction are worth a push; the notifier decides which devices hear it.
 			onReply: (reply) => {
 				work.reply(reply.text);
 				// While workers or threads still run, the answer is not the end of the work: work_finished tells it later.
-				if (work.othersRunning) return;
-				void threads.titleOf(MAIN_THREAD_ID).then(title => this.#notifications?.notify(
-					replyNotification({
+				if (work.othersRunning || !this.#notifications) return;
+				void reply.hasOwnerChat().then(async ownerChat => {
+					if (!ownerChat) return;
+					const title = await threads.titleOf(MAIN_THREAD_ID);
+					this.#notifications?.notify(replyNotification({
 						projectId: project.id,
 						projectName: entry.project.name,
 						entryId: reply.entryId,
@@ -1898,8 +1899,8 @@ export class ProjectManager {
 						coordinatorTitle: title ?? "General",
 						at: reply.at,
 						text: reply.text,
-					}),
-				)).catch(error => this.#log(`coordinator reply notification: ${errorMessage(error)}`));
+					}));
+				}).catch(error => this.#log(`coordinator reply notification: ${errorMessage(error)}`));
 			},
 			onFailure: ({ entryId, error }) => this.#notifications?.notify(coordinatorFailedNotification({
 				projectId: project.id, projectName: entry.project.name, threadId: MAIN_THREAD_ID, title: "Main",

@@ -6,6 +6,7 @@
  * real push service makes. No network, no service worker.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { Conversation, JsonObject } from "@earendil-works/pi-durable";
@@ -741,6 +742,89 @@ describe("events", () => {
 		expect(push.ofKind("reply").length).toBe(1);
 	}, 30_000);
 
+	for (const coordinator of ["main", "area"] as const) {
+		it(`notifies for owner chat, including a steer, but not harness-only turns in the ${coordinator} coordinator`, async () => {
+			const { test, push } = await setupWithPush();
+			const client = await connect(test.server);
+			await client.hello();
+			const projectId = await addProject(client, test.projectDir);
+			await configureCoordinator(client, projectId);
+			await registerDevice(client, push);
+			const { runtime } = await test.server.manager.open(projectId);
+			const area = await runtime.threads.create({ title: "Packing", area: "Pack sample orders." }, "packing");
+			const threadId = coordinator === "main" ? "main" : area.id;
+			const conversation = await runtime.threads.conversation(threadId);
+			const submitOwnerChat = async (content: string, whenBusy?: "steer" | "followUp") => {
+				const response = await client.request({ type: "conversation.submit", projectId, threadId, content, requestId: content,
+					...(whenBusy === undefined ? {} : { whenBusy }) });
+				if (response.type !== "conversation.submit") throw errorOf(response);
+				return response;
+			};
+			const harnessInputs = [
+				["worker-report", "[worker reader reported] Read the sample."],
+				["check-in", "[check-in] Check on the sample."],
+				["board-notice", "[board] The sample was updated."],
+				["board-answer", "[board] The owner answered Q1: Yes."],
+				["report-nudge", "[reports] File the sample results."],
+				["landing-turn", "[turn] The landing turn is yours."],
+				["usage-pause", "The provider is paused."],
+				["schedule-wake", "Check the sample orders."],
+			] as const;
+			for (const [requestId, content] of harnessInputs) {
+				test.faux.setResponses([fauxAssistantMessage(`Handled ${requestId}.`)]);
+				const submitted = await conversation.submit({ type: "input", content, requestId }, BACKGROUND_CONTEXT);
+				expect((await submitted.wait(BACKGROUND_CONTEXT)).status).toBe("done");
+			}
+
+			test.faux.setResponses([fauxAssistantMessage("Handled peer message.")]);
+			const peerId = "fixture-peer-request";
+			await runtime.threads.deliver({ sender: coordinator === "main" ? area.id : "main", receiver: threadId,
+				message: "Count the boxes.", kind: "request", callId: peerId });
+			await until(async () => (await conversation.entries({ order: "descending" }, 1, undefined, BACKGROUND_CONTEXT))
+				.items[0]?.model?.some(message => message.role === "assistant" && message.content.some(block => block.type === "text" && block.text === "Handled peer message.")) === true);
+
+			test.faux.setResponses([fauxAssistantMessage("Direct reply.\nSecond line.")]);
+			// The marker, not a familiar harness prefix, decides whether this is owner chat.
+			await submitOwnerChat("[board] What does this prefix mean?");
+			await until(() => push.ofKind("reply").some(push => push.payload?.body === "Direct reply."));
+
+			for (const whenBusy of ["steer", "followUp"] as const) {
+				const entered = Promise.withResolvers<void>();
+				const release = Promise.withResolvers<void>();
+				const ownerText = `Owner ${whenBusy} message.`;
+				const ownerReply = `Handled owner ${whenBusy}.`;
+				test.faux.setResponses([
+					async () => {
+						entered.resolve();
+						await release.promise;
+						return whenBusy === "steer"
+							? fauxAssistantMessage([fauxToolCall("board", { action: "list" })], { stopReason: "toolUse" })
+							: fauxAssistantMessage("Harness reply before follow-up.");
+					},
+					(request: TranscriptContext) => {
+						expect(request.messages.at(-1)).toMatchObject({ role: "user", content: ownerText });
+						return fauxAssistantMessage(ownerReply);
+					},
+				]);
+				await conversation.submit({ type: "input", content: "[check-in] Review the sample.", requestId: `check-${whenBusy}` }, BACKGROUND_CONTEXT);
+				try {
+					await entered.promise;
+					expect((await submitOwnerChat(ownerText, whenBusy)).status).toBe("queued");
+				} finally {
+					release.resolve();
+				}
+				await until(() => push.ofKind("reply").some(push => push.payload?.body === ownerReply));
+			}
+
+			const expectedBodies = ["Direct reply.", "Handled owner steer.", "Handled owner followUp."];
+			const replies = push.ofKind("reply").map(push => push.payload);
+			expect(replies.map(reply => reply?.body)).toEqual(expectedBodies);
+			for (const reply of replies) expect(reply).toMatchObject({ projectId, coordinatorId: threadId, tag: `reply:${projectId}:${threadId}` });
+			const recent = await test.server.notifications.recent(0);
+			expect(recent?.events.flatMap(event => event.type === "alert" && event.alert.kind === "reply" ? [event.alert.body] : [])).toEqual(expectedBodies);
+		}, 30_000);
+	}
+
 	it("says nothing for an archived project, and notifies again once it is unarchived", async () => {
 		const { test, push } = await setupWithPush();
 		const client = await connect(test.server);
@@ -991,8 +1075,8 @@ describe("events", () => {
 			body: "All read.",
 			projectId,
 		});
-		// The last answer came with nothing running: that one is a reply like any other.
-		expect(push.ofKind("reply")).toHaveLength(1);
+		// The final answer handled only the worker report: work_finished still uses it, but there is no reply notice.
+		expect(push.ofKind("reply")).toHaveLength(0);
 
 		const restarted = await test.restart();
 		const again = await connect(restarted);

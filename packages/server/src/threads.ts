@@ -78,7 +78,7 @@ import {
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "typebox";
-import { DEFAULT_ACTIVITY, ProjectActivityService } from "./activity.ts";
+import { DEFAULT_ACTIVITY, ProjectActivityService, type ReplyNotice } from "./activity.ts";
 import {
 	type BoardService,
 	HARNESS_WRITER,
@@ -100,6 +100,7 @@ import { JjError, ensureJjWorkspace, jjRoot } from "./jj.ts";
 import { type Notifier, replyNotification, threadFailedNotification, threadFinishedNotification } from "./notifications.ts";
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
+import { OWNER_CHAT_ENTRY } from "./wire.ts";
 import {
 	DELEGATED_MODEL_OVERRIDE_DESCRIPTION,
 	DELEGATED_THINKING_DESCRIPTION,
@@ -1045,11 +1046,15 @@ export class ThreadService {
 				void this.#enqueue(() => this.#settleStatus(record.id));
 				this.#changed();
 			},
-			...(record.kind !== "coordinator" ? {} : { onReply: (reply: { entryId: number; at: string; text: string }) => {
-				void this.titleOf(record.id).then(title => this.#options.notifications?.notify(replyNotification({
-					projectId: this.project.id, projectName: this.project.name, coordinatorId: record.id,
-					coordinatorTitle: title ?? record.title, entryId: reply.entryId, at: reply.at, text: reply.text,
-				}))).catch(error => this.log(`coordinator reply notification: ${errorMessage(error)}`));
+			...(record.kind !== "coordinator" || !this.#options.notifications ? {} : { onReply: (reply: ReplyNotice) => {
+				void reply.hasOwnerChat().then(async ownerChat => {
+					if (!ownerChat) return;
+					const title = await this.titleOf(record.id);
+					this.#options.notifications?.notify(replyNotification({
+						projectId: this.project.id, projectName: this.project.name, coordinatorId: record.id,
+						coordinatorTitle: title ?? record.title, entryId: reply.entryId, at: reply.at, text: reply.text,
+					}));
+				}).catch(error => this.log(`coordinator reply notification: ${errorMessage(error)}`));
 			} }),
 			log: (message) => this.#options.log(`thread ${record.id}: ${message}`),
 		});
@@ -1598,8 +1603,13 @@ export class ThreadService {
 				const items = record.heldInputs ?? [];
 				const content = heldText(items);
 				const peerData = heldPeerData(items);
+				const ownerChat = items.some(item => item.entry?.kind === OWNER_CHAT_ENTRY);
+				const entry = ownerChat || peerData ? {
+					kind: ownerChat ? OWNER_CHAT_ENTRY : THREAD_MESSAGE_ENTRY,
+					...(peerData ? { data: peerData } : {}),
+				} : undefined;
 				this.#clearHold(record);
-				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}`, ...(peerData ? { entry: { kind: THREAD_MESSAGE_ENTRY, data: peerData } } : {}) });
+				if (content) await conversation.submit(tx, { type: "input", content, whenBusy: "followUp", requestId: `thread-resume:${requestId}`, ...(entry ? { entry } : {}) });
 			}
 		}, BACKGROUND_CONTEXT);
 		this.#landingTurnChanged();
