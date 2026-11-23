@@ -75,6 +75,7 @@ export type SubscriptionUsageOptions = {
 	ledger?: Pick<LimitLedger, "reading" | "manualReset">;
 	terms?: SubscriptionTerms;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
+	onReading?: (providerId: string, windows: readonly WindowReading[]) => void;
 	fetch?: typeof fetch;
 	readAntigravityQuota?: (signal: AbortSignal) => Promise<UsageReading>;
 	now?: () => number;
@@ -122,6 +123,7 @@ export class SubscriptionUsageService {
 	readonly #models: Models;
 	readonly #credentials: CredentialStore;
 	readonly #onChange: (subscriptions: SubscriptionUsage[]) => void;
+	readonly #onReading: SubscriptionUsageOptions["onReading"];
 	readonly #fetch: typeof fetch;
 	readonly #now: () => number;
 	readonly #anthropicBaseUrl: string;
@@ -154,6 +156,7 @@ export class SubscriptionUsageService {
 		this.#models = options.models;
 		this.#credentials = options.credentials;
 		this.#onChange = options.onChange ?? (() => {});
+		this.#onReading = options.onReading;
 		this.#fetch = options.fetch ?? fetch;
 		this.#now = options.now ?? Date.now;
 		this.#anthropicBaseUrl = options.anthropicBaseUrl ?? ANTHROPIC_API_BASE_URL;
@@ -571,6 +574,11 @@ export class SubscriptionUsageService {
 			catch (error) { this.#log(`limit ledger: could not record a reading: ${errorMessage(error)}`); }
 		}
 		state.usage = applyReading(state.usage, reading, new Date(at).toISOString());
+		const credential = this.#storedCredentialTypes.get(providerId);
+		if (credential === "oauth" || (credential === "api_key" && API_KEY_PLAN_PROVIDERS.has(providerId))) {
+			try { this.#onReading?.(providerId, reading.windows); }
+			catch (error) { this.#log(`subscription usage: could not hold exhausted login: ${errorMessage(error)}`); }
+		}
 	}
 
 	#observeTerms(providerId: string, plan: string | null, at: number, loginChanged = false): void {

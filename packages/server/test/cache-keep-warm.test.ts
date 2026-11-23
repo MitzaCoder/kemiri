@@ -82,7 +82,7 @@ it("keeps refresh spend separate from requests, misses, wakes and what-if", () =
 
 
 it("the coordinator watch stops real scheduling on turn, compaction, reset, model and instructions changes without a transcript write", async () => {
-    for (const change of ["turn", "queue", "compaction", "reset", "model", "system", "disable", "cold"]) {
+    for (const change of ["turn", "queue", "compaction", "reset", "model", "system", "disable", "cold", "pause"]) {
         const clock = new Clock();
         const store = RequestLogStore.open(":memory:");
         const warming = new CoordinatorCacheWarm(store, clock);
@@ -109,6 +109,7 @@ it("the coordinator watch stops real scheduling on turn, compaction, reset, mode
         expect(store.rows({ from: 0, to: clock.at+1 })[0]?.source).toBe("keepWarm");
         const before = JSON.stringify(view.entries);
         if (change === "disable") enabled = false;
+        if (change === "pause") warming.skipWhileUsagePaused(provider => provider === "anthropic");
         if (change === "queue") (view.docs as Record<string,unknown>)["pi.inbox"] = { items: [{ id: 1, mode: "followUp" }] };
         if (change === "turn") (view.docs as Record<string,unknown>)["pi.live"] = { run: 1 };
         if (change === "model") (view.docs as Record<string,unknown>)["pi.agent"] = { model: "codex" };
@@ -116,7 +117,8 @@ it("the coordinator watch stops real scheduling on turn, compaction, reset, mode
         await callback({ kind: "value", value: view, ops: [], retired: false });
         await clock.advance(8 * 3_600_000);
         expect(sent).toBe(1);
-        if (["turn", "disable", "model", "cold"].includes(change)) expect(JSON.stringify(view.entries)).toBe(before);
+        if (["turn", "disable", "model", "cold", "pause"].includes(change)) expect(JSON.stringify(view.entries)).toBe(before);
+        if (change === "pause") expect(store.warmStretches("p", 1).at(-1)?.stopped).toBe("Subscription requests paused");
         warming.close(); store.close();
     }
 });

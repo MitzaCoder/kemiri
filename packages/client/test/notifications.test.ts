@@ -368,6 +368,7 @@ describe("notification payload to URL", () => {
 			"schedule_problem",
 			"deploy_problem",
 			"login_prompt",
+			"usage_limit_reached",
 			"compaction_failed",
 			"maintenance_failed",
 			"board_question",
@@ -610,10 +611,12 @@ describe("device settings", () => {
 			"disk_low",
 		] as const;
 		expect(migrateDefaultKinds(previous, 3)).toContain("task_review");
-		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(6);
+		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(7);
 		expect(migrateDefaultKinds([...previous, "task_review"], 4)).toContain("coordinator_failed");
 		const versionFive = [...previous, "task_review", "coordinator_failed"] as const;
 		expect(migrateDefaultKinds(versionFive, 5)).toContain("task_steps");
+		expect(migrateDefaultKinds([...versionFive, "task_steps"], 6)).toContain("usage_limit_reached");
+		expect(migrateDefaultKinds(previous, 3)).toContain("usage_limit_reached");
 		expect(migrateDefaultKinds(["reply", "task_review"], 5)).toEqual(["reply", "task_review"]);
 		const defaults = { kinds: [...DEFAULT_NOTIFICATION_KINDS], mutedProjects: {}, quietHours: null } as DeviceNotificationSettings;
 		expect(preferencesForBackend(defaults, "fixture", true, false).kinds).not.toContain("task_steps");

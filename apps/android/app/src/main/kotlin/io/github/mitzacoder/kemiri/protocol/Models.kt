@@ -2784,6 +2784,62 @@ data class SubscriptionsUsageEvent(
 ) : ProtocolEvent
 
 @Serializable
+data class UsagePause(
+    val `providerLogin`: String,
+    val `pausedBy`: String,
+    val `reason`: String,
+    val `since`: String,
+    val `until`: String? = null
+)
+
+@Serializable
+data class UsagePauseGetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.get",
+    val `id`: String = java.util.UUID.randomUUID().toString()
+)
+
+@Serializable
+data class UsagePausePauseRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.pause",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `providerLogin`: String
+)
+
+@Serializable
+data class UsagePauseResumeRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.resume",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `providerLogin`: String
+)
+
+@Serializable
+data class UsagePauseGetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.get",
+    val `id`: String,
+    val `pauses`: List<UsagePause>
+)
+
+@Serializable
+data class UsagePausePauseResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.pause",
+    val `id`: String,
+    val `pauses`: List<UsagePause>
+)
+
+@Serializable
+data class UsagePauseResumeResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.resume",
+    val `id`: String,
+    val `pauses`: List<UsagePause>
+)
+
+@Serializable
+data class UsagePauseEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "usage-pause.changed",
+    val `pauses`: List<UsagePause>
+) : ProtocolEvent
+
+@Serializable
 data class CacheTotals(
     val `requests`: Long,
     val `inputTokens`: Long,
@@ -5099,6 +5155,7 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "threads.state" -> json.decodeFromJsonElement(ThreadsStateEvent.serializer(), raw)
     "threads.message" -> json.decodeFromJsonElement(ThreadsMessageEvent.serializer(), raw)
     "subscriptions.usage.changed" -> json.decodeFromJsonElement(SubscriptionsUsageEvent.serializer(), raw)
+    "usage-pause.changed" -> json.decodeFromJsonElement(UsagePauseEvent.serializer(), raw)
     "board.state" -> json.decodeFromJsonElement(BoardStateEvent.serializer(), raw)
     "notifications.alert" -> json.decodeFromJsonElement(NotificationsAlertEvent.serializer(), raw)
     "notifications.resolved" -> json.decodeFromJsonElement(NotificationsResolvedEvent.serializer(), raw)

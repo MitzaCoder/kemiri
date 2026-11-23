@@ -31,6 +31,7 @@ export class CoordinatorCacheWarm {
 	readonly #revision = new Map<string, number>();
 	readonly #ttl = new Map<string, number>();
 	#models: Models | undefined;
+	#isUsagePaused: (provider: string) => boolean = () => false;
 	constructor(store: RequestLogStore, clock?: CacheWarmClock, billingFor = async (_provider: string): Promise<RequestBilling | null> => null) {
 		this.#store = store;
 		this.#clock = clock;
@@ -42,6 +43,7 @@ export class CoordinatorCacheWarm {
         return project.prefixRevision?.(conversationId);
     }
 	useModels(models: Models): void { this.#models = models; }
+	skipWhileUsagePaused(isPaused: (provider: string) => boolean): void { this.#isUsagePaused = isPaused; }
 	async restore(projectId: string): Promise<void> {
 		if (this.#models === undefined) return;
 		for (const saved of this.#store.warmSnapshots(projectId) as WarmSnapshot[]) {
@@ -116,13 +118,14 @@ export class CoordinatorCacheWarm {
 			hours: project.settings().promptCacheWarmHours,
 			onStop: reason => { summary.stopped ??= reason; try { save(); if (!this.#armed.get(key)?.preserveSnapshot) this.#store.deleteWarmSnapshots(row.projectId, row.conversationId); } catch {} this.#armed.delete(key); void watch.stop().catch(() => undefined); },
 			ping: async signal => {
+				if (this.#isUsagePaused(row.provider)) { schedule.stop("Subscription requests paused"); return false; }
 				if (!valid() || !idle()) { schedule.stop("Conversation changed"); return false; }
 				persist(); // Preflight the log before spending; a broken log disarms maintenance.
 				if (await project.prefixRevision?.(row.conversationId) !== prefixRevision) { schedule.stop("System prompt or tools changed"); return false; }
 				if (!valid() || !idle() || signal.aborted) return false;
 				const at = this.#clock?.now() ?? Date.now();
 				const response = await refreshAnthropicCache({ models: request.models, model: request.model, context: request.context,
-					requestOptions: request.options, payload, ...(request.authFingerprint === undefined ? {} : { authFingerprint: request.authFingerprint }), ...(request.cacheHeaders === undefined ? {} : { cacheHeaders: request.cacheHeaders }), signal, admit: () => valid() && idle() });
+					requestOptions: request.options, payload, ...(request.authFingerprint === undefined ? {} : { authFingerprint: request.authFingerprint }), ...(request.cacheHeaders === undefined ? {} : { cacheHeaders: request.cacheHeaders }), signal, admit: () => valid() && idle() && !this.#isUsagePaused(row.provider) });
 				const usage = response.usage;
 				summary.attempts += 1;
 				summary.lastAt = at;

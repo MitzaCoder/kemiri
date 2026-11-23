@@ -1005,6 +1005,9 @@ export class HarnessClient {
 		const response = await this.#call<NotificationsRegisterResponse>({
 			type: "notifications.register",
 			...registration,
+			preferences: this.#state.features?.includes("usage-pause") ? registration.preferences : {
+				...registration.preferences, kinds: registration.preferences.kinds.filter(kind => kind !== "usage_limit_reached"),
+			},
 		});
 		return response.device;
 	}

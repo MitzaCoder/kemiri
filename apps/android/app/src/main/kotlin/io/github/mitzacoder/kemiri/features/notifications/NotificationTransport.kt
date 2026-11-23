@@ -30,7 +30,8 @@ class HarnessNotificationRegistrationRpc(private val client: HarnessClient) : No
 internal fun NotificationPreferences.forBackend(connection: ConnectionState): NotificationPreferences =
     copy(kinds = kinds.filter { kind ->
         (kind != "coordinator_failed" || connection.supports("in-app-alerts")) &&
-            (kind != "task_steps" || connection.supports("task-step-alerts"))
+            (kind != "task_steps" || connection.supports("task-step-alerts")) &&
+            (kind != "usage_limit_reached" || connection.supports("usage-pause"))
     })
 
 /** Off is exactly the existing FCM registration branch. Relay selection is exclusive and cannot fall back on failure. */

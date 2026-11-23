@@ -49,7 +49,9 @@ const DEFAULT_KINDS_BY_VERSION: readonly (readonly NotificationKind[])[] = [
 		"thread_finished", "thread_failed", "work_finished", "disk_low", "task_review"],
 	["reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question",
 		"thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review"],
-	[...DEFAULT_NOTIFICATION_KINDS],
+	["reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question",
+		"thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"],
+	DEFAULT_NOTIFICATION_KINDS,
 ];
 
 /** The defaults version this build writes; settings stored without one are version 0. */

@@ -6403,6 +6403,38 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
   `subscription-usage.json`. Only `opencode-go` counts among API keys
   (`API_KEY_PLAN_PROVIDERS`); other keys (the `opencode` Zen provider,
   anthropic, openai) are pay-as-you-go with no plan limits and are left out.
+
+#### Subscription request gate (`usage-pause`)
+
+One `UsagePauseGate` per backend holds new requests across all projects, by the active subscription credential slot
+(`providerLogin`, the provider ID, not a model). An explicit credential replacement clears that slot's hold. The gate
+exposes `pause`, `holdUntil`, `resume` and `state`. A temporary exemption names a project and durable conversation;
+it bypasses a drain-monitor hold, not a manual or exhausted-limit hold. Exemptions do not persist. `usage-pause.get`,
+`usage-pause.pause` and `usage-pause.resume` return the state, and negotiated `usage-pause.changed` updates other
+connected clients. The atomically replaced private `usage-pause.json` has version 1 with optional pause and override
+lists. An expired timestamp is already open, even on startup before the timer runs.
+
+The shared model wrapper admits requests before opening a provider stream, so a worker, coordinator, scheduled job,
+compaction or memory request does not start its HTTP deadline while held. Already-streaming responses and currently
+running tools finish. A keep-warm ping skips the paused provider and disarms that stretch; the next real request can
+arm a new one. The `beforeRequest` hook only labels generation requests for conversation exemptions. The spike used
+real pi-durable storage and a synthetic provider: the hook wait did not send or retry while held, Stop cancelled it,
+and reopening the Harness re-entered the wait and sent once after release. Generation is already in the `request`
+phase before that hook, so reopening consumes one of pi-durable's ordinary interrupted-attempt retries. The wrapper
+also inherits that retry budget when a project reopens. Repeated restarts of the same held run can exhaust it;
+compaction uses its own restart limit. This is not a new pi-durable checkpoint or a retry loop.
+
+A fresh header, stream or usage-endpoint reading of 100% or more holds the login until the latest reported reset plus
+15 seconds. Stale readings whose reset has passed do not re-arm it. A confirmed provider subscription denial also
+holds, using the reset carried by the provider when available. A denial before streamed content waits and retries
+once in the model wrapper; a second denial or one following partial output is surfaced without an extra generic
+429 retry. Ordinary throttling and pay-as-you-go billing errors are not subscription holds. An unknown reset waits
+for new reset evidence or an explicit Resume. Explicit Resume suppresses re-arming from the same readings, not a new
+provider denial. `usage_limit_reached` uses existing notifications once when a limit hold starts. There is no push
+on automatic resume: clients receive the updated state, and waiting work resumes on its own.
+
+#### Subscription ledger and value
+
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the
   live samples. `limit_periods` preserves observed periods across restarts, including window length, label and
   model or surface scope. A period closes at its scheduled reset, when a reading moves the known reset by more
@@ -7369,7 +7401,8 @@ setting, restart and retry steps; the raw error remains a small secondary detail
 The `in-app-alerts` feature uses the same sources and dedupe keys as push. After claiming the key and excluding archived
 projects, the notifier records and publishes the alert before it checks push devices, kinds, mutes or quiet hours.
 Test pushes do not enter the stream. Every kind has a server-assigned level: urgent, important, info or inbox.
-Board warnings are important; questions and tool approvals are urgent. The compaction and maintenance failure levels
+Board warnings and subscription limit alerts (`usage_limit_reached`) are important; questions and tool approvals
+are urgent. The compaction and maintenance failure levels
 are info, but clients keep them in the inbox. Coordinator failures use the same transcript error that drives Needs you
 and are enabled by default for push.
 

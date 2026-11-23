@@ -28,6 +28,7 @@ export const NotificationKindSchema = Type.Union(
 		Type.Literal("schedule_problem"),
 		Type.Literal("deploy_problem"),
 		Type.Literal("login_prompt"),
+		Type.Literal("usage_limit_reached"),
 		Type.Literal("compaction_failed"),
 		Type.Literal("maintenance_failed"),
 		Type.Literal("board_question"),
@@ -41,7 +42,7 @@ export const NotificationKindSchema = Type.Union(
 	],
 	{
 		description:
-			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a backend or project deploy failed or rolled back. login_prompt: a provider login waits for an answer. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low. task_review: a task is ready for review. task_steps: a task has new manual steps for the owner.",
+			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a backend or project deploy failed or rolled back. login_prompt: a provider login waits for an answer. usage_limit_reached: a subscription reached its limit and work is waiting. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low. task_review: a task is ready for review. task_steps: a task has new manual steps for the owner.",
 	},
 );
 export type NotificationKind = Static<typeof NotificationKindSchema>;
@@ -66,6 +67,7 @@ export const DEFAULT_NOTIFICATION_KINDS: readonly NotificationKind[] = [
 	"schedule_problem",
 	"deploy_problem",
 	"login_prompt",
+	"usage_limit_reached",
 	"board_question",
 	"thread_finished",
 	"thread_failed",

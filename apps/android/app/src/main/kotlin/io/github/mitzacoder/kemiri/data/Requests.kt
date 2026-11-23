@@ -360,6 +360,18 @@ suspend fun HarnessClient.request(value: SubscriptionsUsageRequest, explicitNull
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(SubscriptionsUsageRequest.serializer(), value).jsonObject, explicitNulls), SubscriptionsUsageResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: UsagePauseGetRequest, explicitNulls: Set<String> = emptySet()): UsagePauseGetResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(UsagePauseGetRequest.serializer(), value).jsonObject, explicitNulls), UsagePauseGetResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: UsagePausePauseRequest, explicitNulls: Set<String> = emptySet()): UsagePausePauseResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(UsagePausePauseRequest.serializer(), value).jsonObject, explicitNulls), UsagePausePauseResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: UsagePauseResumeRequest, explicitNulls: Set<String> = emptySet()): UsagePauseResumeResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(UsagePauseResumeRequest.serializer(), value).jsonObject, explicitNulls), UsagePauseResumeResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: UsageDetailRequest, explicitNulls: Set<String> = emptySet()): UsageDetailResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(UsageDetailRequest.serializer(), value).jsonObject, explicitNulls), UsageDetailResponse.serializer()
 )

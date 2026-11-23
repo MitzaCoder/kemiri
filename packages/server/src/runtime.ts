@@ -26,6 +26,7 @@ import { createHash } from "node:crypto";
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import type { UsagePauseModels } from "./usage-pause-models.ts";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Conversation, ConversationView, Harness, Registry } from "@earendil-works/pi-durable";
 import { Harness as HarnessImpl, LiveDoc, createRegistry } from "@earendil-works/pi-durable";
@@ -211,6 +212,7 @@ export type ProjectManagerOptions = {
 	models: Models;
 	/** Logs every turn's model request; each project installs its extension, which tells it the conversation. */
 	requestLog?: RequestLog;
+	usagePauseModels?: UsagePauseModels;
 	/** Sets each turn's cache retention from the project's `longPromptCache`; `models` must be wrapped by it. */
 	cacheRetention?: PromptCacheRetention;
 	/** Every project's schedules, on disk and shared by all of them. */
@@ -389,6 +391,7 @@ export class ProjectManager {
 	readonly #workFinished: { minWorkMs: number; quietMs: number };
 	readonly #diskWarnings: (() => string[]) | undefined;
 	readonly #requestLog: RequestLog | undefined;
+	readonly #usagePauseModels: UsagePauseModels | undefined;
 	readonly #cacheRetention: PromptCacheRetention | undefined;
 	/** One sandbox for every project this manager opens; fresh per process, like a restart in tests. */
 	readonly #codemodeSandbox: CodemodeSandbox;
@@ -445,6 +448,7 @@ export class ProjectManager {
 		this.drain = options.drain ?? new ToolCallDrain({ log: this.#log });
 		this.#diskWarnings = options.diskWarnings;
 		this.#requestLog = options.requestLog;
+		this.#usagePauseModels = options.usagePauseModels;
 		this.#cacheRetention = options.cacheRetention;
 		this.#workFinished = {
 			minWorkMs: options.workFinished?.minWorkMs ?? resolveWorkFinishedMs(),
@@ -1777,6 +1781,7 @@ export class ProjectManager {
 		}
 		// Keep the memory index after the shared working sections, before per-conversation instructions.
 		registry.install(memory.extension);
+		if (this.#usagePauseModels) registry.install(this.#usagePauseModels.extension(project.id));
 		// Install drain last so its wraps see every tool and it holds only calls no other hook blocked.
 		registry.install(this.drain.extension(registry.snapshot().tools().map(({ tool }) => tool.name)));
 		try {

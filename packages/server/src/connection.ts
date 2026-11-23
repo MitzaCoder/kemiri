@@ -68,6 +68,8 @@ import { credentialBilling, requestBilling } from "./request-billing.ts";
 import { subscriptionBilling } from "./subscription-terms.ts";
 import { readSubscriptionValue, valueMonth } from "./subscription-value.ts";
 import { readTaskUsage } from "./task-usage.ts";
+import type { UsagePause } from "@kemiri/protocol";
+import type { UsagePauseGate } from "./usage-pause.ts";
 import type { SubscriptionUsageService } from "./subscription-usage.ts";
 import { readRecordedUsage, recordedUsageRange } from "./recorded-usage.ts";
 import { readCacheStats } from "./cache-stats.ts";
@@ -118,6 +120,8 @@ export type ClientConnectionOptions = {
 	drain: (timeoutMs: number) => { drainingUntil: string | null; toolCalls: number };
 	/** Subscription usage for `subscriptions.usage`; told when a credential is set or deleted. */
 	subscriptionUsage?: SubscriptionUsageService;
+	usagePause?: UsagePauseGate;
+	isSubscriptionLogin?: (providerId: string) => Promise<boolean>;
 	/** The request log `cache.stats` sums; without it the request fails. */
 	requestLog?: RequestLog;
 	/**
@@ -197,6 +201,9 @@ export class ClientConnection {
 	readonly #serverStatus: () => Promise<ServerStatus>;
 	readonly #drain: ClientConnectionOptions["drain"];
 	readonly #subscriptionUsage: SubscriptionUsageService | undefined;
+	readonly #usagePause: UsagePauseGate | undefined;
+	readonly #isSubscriptionLogin: ClientConnectionOptions["isSubscriptionLogin"];
+	#clientSupportsUsagePause = false;
 	readonly #requestLog: RequestLog | undefined;
 	readonly #artifactUrls: { signer: ArtifactUrlSigner; origin: string } | undefined;
 	readonly #terminalHost: TerminalHost | undefined;
@@ -233,6 +240,8 @@ export class ClientConnection {
 		this.#updateHolding = options.updateHolding;
 		this.#drain = options.drain;
 		this.#subscriptionUsage = options.subscriptionUsage;
+		this.#usagePause = options.usagePause;
+		this.#isSubscriptionLogin = options.isSubscriptionLogin;
 		this.#requestLog = options.requestLog;
 		this.#artifactUrls = options.artifactUrls;
 		this.#terminalHost = options.terminals;
@@ -312,6 +321,10 @@ export class ClientConnection {
 	/** Push the release or deploy outcome when it changed; `busy` rides along for whoever reads it. */
 	notifyServerStatus(status: ServerStatus): void {
 		this.#respond({ type: "server.status.changed", status });
+	}
+
+	notifyUsagePause(pauses: UsagePause[]): void {
+		if (this.#clientSupportsUsagePause) this.#respond({ type: "usage-pause.changed", pauses });
 	}
 
 	/** Push every subscription's usage when a read changed its numbers. */
@@ -735,6 +748,18 @@ export class ClientConnection {
 					this.#notifications.shown(request.keys);
 					this.#respond({ type: request.type, id: request.id });
 					return;
+				}
+				case "usage-pause.get":
+				case "usage-pause.pause":
+				case "usage-pause.resume": {
+					const gate = this.#usagePause;
+					if (!gate || !this.#features.includes("usage-pause")) return this.#unknownRequest(request);
+					if (request.type === "usage-pause.pause") {
+						if (!await this.#isSubscriptionLogin?.(request.providerLogin)) throw new ServerError("bad_request", "No subscription is signed in for that provider");
+						gate.pause(request.providerLogin, "Paused by the owner.", { pausedBy: "owner" });
+					} else if (request.type === "usage-pause.resume") gate.resume(request.providerLogin, "Resumed by the owner");
+					this.#respond({ type: request.type, id: request.id, pauses: gate.state() });
+					break;
 				}
 				case "subscriptions.reset": {
 					if (!this.#features.includes("subscription-resets")) return this.#unknownRequest(request);
@@ -1636,6 +1661,7 @@ export class ClientConnection {
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
 		this.#clientSupportsInAppAlerts = this.#features.includes("in-app-alerts") && request.client?.features?.includes("in-app-alerts") === true;
+		this.#clientSupportsUsagePause = this.#features.includes("usage-pause") && request.client?.features?.includes("usage-pause") === true;
 		this.#ready = true;
 		this.#respond({
 			type: "hello",
@@ -1670,6 +1696,7 @@ export class ClientConnection {
 		const accounts = officialAgentAccounts.get(provider);
 		if (accounts) await accounts.setApiKey(key);
 		else await this.#credentials.modify(providerId, async () => ({ type: "api_key", key }));
+		this.#usagePause?.credentialsChanged(providerId);
 		this.#subscriptionUsage?.credentialsChanged(providerId);
 		this.#respond({
 			type: "credentials.set",
@@ -1688,7 +1715,10 @@ export class ClientConnection {
 			existed = (await this.#credentials.list()).some(credential => credential.providerId === providerId);
 			await this.#credentials.delete(providerId);
 		}
-		if (existed) this.#subscriptionUsage?.credentialsChanged(providerId);
+		if (existed) {
+			this.#usagePause?.credentialsChanged(providerId);
+			this.#subscriptionUsage?.credentialsChanged(providerId);
+		}
 		this.#respond({ type: "credentials.delete", id, deleted: existed });
 	}
 

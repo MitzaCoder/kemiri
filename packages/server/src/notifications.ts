@@ -1058,6 +1058,19 @@ export function loginPromptNotification(login: AuthLogin): NotificationEvent | u
 	};
 }
 
+export function usageLimitReachedNotification(input: { providerLogin: string; label: string; reason: string; since: string; until?: string }): NotificationEvent {
+	const when = input.until ? `${input.until.slice(0, 10)} at ${input.until.slice(11, 16)} UTC` : undefined;
+	return {
+		kind: "usage_limit_reached",
+		title: notificationLine(input.reason, 80),
+		body: when ? `${input.label} work on this computer waits until ${when} and then continues by itself.`
+			: `${input.label} work on this computer waits. The provider did not give a reset time. Resume from Usage.`,
+		projectId: null,
+		tag: `usage-limit:${input.providerLogin}`,
+		key: `usage-limit:${input.providerLogin}:${input.since}`,
+	};
+}
+
 /** A compaction of the coordinator failed; `pi.live.n` reports it once per failed task. */
 export function compactionFailureNotification(input: {
 	projectId: string;

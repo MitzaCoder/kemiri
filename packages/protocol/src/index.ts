@@ -694,6 +694,17 @@ import {
 	SubscriptionsUsageEventSchema,
 } from "./subscription-usage.ts";
 import {
+	type UsagePause,
+	UsagePauseSchema,
+	UsagePauseGetRequestSchema,
+	UsagePausePauseRequestSchema,
+	UsagePauseResumeRequestSchema,
+	UsagePauseGetResponseSchema,
+	UsagePausePauseResponseSchema,
+	UsagePauseResumeResponseSchema,
+	UsagePauseEventSchema,
+} from "./usage-pause.ts";
+import {
 	RecordedUsageSchema,
 	RecordedUsageGroupSchema,
 	UsageSelectionSchema,
@@ -988,6 +999,9 @@ export const ClientMessageSchema = Type.Union([
 	SubscriptionsPriceSetRequestSchema,
 	SubscriptionsUsageRequestSchema,
 	SubscriptionsResetRequestSchema,
+	UsagePauseGetRequestSchema,
+	UsagePausePauseRequestSchema,
+	UsagePauseResumeRequestSchema,
 	UsageDetailRequestSchema,
 	CacheStatsRequestSchema,
 	RefsStatusRequestSchema,
@@ -1025,6 +1039,7 @@ export const ClientMessageSchema = Type.Union([
 	DraftsAttachmentPutRequestSchema,
 	DraftsAttachmentGetRequestSchema,
 ]);
+export { UsagePauseSchema };
 export type ClientMessage = Static<typeof ClientMessageSchema>;
 
 /** The `type` of every request this protocol version knows. */
@@ -1137,6 +1152,9 @@ export const ResponseSchema = Type.Union([
 	SubscriptionsPriceSetResponseSchema,
 	SubscriptionsUsageResponseSchema,
 	SubscriptionsResetResponseSchema,
+	UsagePauseGetResponseSchema,
+	UsagePausePauseResponseSchema,
+	UsagePauseResumeResponseSchema,
 	UsageDetailResponseSchema,
 	CacheStatsResponseSchema,
 	RefsStatusResponseSchema,
@@ -1195,6 +1213,7 @@ export const ServerEventSchema = Type.Union([
 	SchedulesStateEventSchema,
 	BoardStateEventSchema,
 	SubscriptionsUsageEventSchema,
+	UsagePauseEventSchema,
 	AppsChangedEventSchema,
 	AppsSettingsChangedEventSchema,
 	ArtifactsChangedEventSchema,
@@ -1531,6 +1550,14 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	SubscriptionsUsageRequest: SubscriptionsUsageRequestSchema,
 	SubscriptionsUsageResponse: SubscriptionsUsageResponseSchema,
 	SubscriptionsUsageEvent: SubscriptionsUsageEventSchema,
+	UsagePause: UsagePauseSchema,
+	UsagePauseGetRequest: UsagePauseGetRequestSchema,
+	UsagePausePauseRequest: UsagePausePauseRequestSchema,
+	UsagePauseResumeRequest: UsagePauseResumeRequestSchema,
+	UsagePauseGetResponse: UsagePauseGetResponseSchema,
+	UsagePausePauseResponse: UsagePausePauseResponseSchema,
+	UsagePauseResumeResponse: UsagePauseResumeResponseSchema,
+	UsagePauseEvent: UsagePauseEventSchema,
 	WakeReason: WakeReasonSchema,
 	CacheTotals: CacheTotalsSchema,
 	CacheGroup: CacheGroupSchema,
@@ -1921,6 +1948,7 @@ export type {
 	SubscriptionsUsageRequest,
 	SubscriptionsUsageResponse,
 	SubscriptionsUsageEvent,
+	UsagePause,
 	BoardTaskStatus,
 	BoardAuthor,
 	BoardTask,

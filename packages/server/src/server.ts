@@ -40,6 +40,9 @@ import { ClientConnection, type ClientConnectionOptions } from "./connection.ts"
 import { type LoadedSkill, loadAgentContext } from "./context.ts";
 import { FileCredentialStore } from "./credentials.ts";
 import { SubscriptionUsageService, type SubscriptionUsageOptions } from "./subscription-usage.ts";
+import { UsagePauseGate } from "./usage-pause.ts";
+import { UsagePauseModels } from "./usage-pause-models.ts";
+import type { UsagePause } from "@kemiri/protocol";
 import {
 	DEFAULT_HOSTNAME,
 	ensureDataDir,
@@ -70,6 +73,7 @@ import {
 	NotificationStore,
 	loadOrCreateVapidKeys,
 	loginPromptNotification,
+	usageLimitReachedNotification,
 	maintenanceFailureNotification,
 	resolveVapidKeyFile,
 	resolveVapidSubject,
@@ -280,6 +284,7 @@ export type HarnessServer = {
 	readonly notifications: Notifier;
 	/** Every logged-in subscription's rate-limit windows. */
 	readonly subscriptionUsage: SubscriptionUsageService;
+	readonly usagePause: UsagePauseGate | undefined;
 	/** Every project's artifacts, served at `/artifacts/<projectId>/<artifactId>` with a signed token. */
 	readonly artifacts: ArtifactStore;
 	/** The attached terminals; undefined when terminals are off. */
@@ -338,7 +343,16 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			? { catalogPricing: { provider: antigravity.id, modelRates: antigravity.modelRates } } : {}),
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
+	let notifyUsageLimit: ((pause: UsagePause) => void) | undefined;
+	const usagePause = (options.features ?? HARNESS_FEATURES).includes("usage-pause") ? await UsagePauseGate.open({
+		dataDir, log,
+		...(options.now === undefined ? {} : { now: options.now }),
+		...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
+		onChange: pauses => { for (const connection of connections) connection.notifyUsagePause(pauses); },
+		onLimitReached: pause => notifyUsageLimit?.(pause),
+	}) : undefined;
 	const subscriptionUsage = new SubscriptionUsageService({
+		onReading: (providerId, windows) => usagePause?.observeReading(providerId, windows),
 		...(requestLog === undefined ? {} : { ledger: requestLog.store.ledger, terms: requestLog.store.subscriptionTerms }),
 		models: unobservedModels,
 		credentials,
@@ -362,7 +376,17 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	// conversation asks for is added to its request's options, so the log records it.
 	const usageModels = subscriptionUsage.observeModels(unobservedModels);
 	const cacheRetention = new PromptCacheRetention();
-	const models = cacheRetention.applyTo(requestLog?.observeModels(usageModels) ?? usageModels);
+	const observedModels = cacheRetention.applyTo(requestLog?.observeModels(usageModels) ?? usageModels);
+	const isSubscriptionLogin = async (providerId: string) => {
+		const billing = await requestBilling(credentials, unobservedModels, providerId);
+		return billing === "subscription" || billing === "plan_key";
+	};
+	const usagePauseModels = usagePause && new UsagePauseModels({
+		gate: usagePause, isSubscriptionLogin, label: login => subscriptionUsage.label(login),
+		...(options.now === undefined ? {} : { now: options.now }),
+	});
+	const models = usagePauseModels?.wrap(observedModels) ?? observedModels;
+	if (usagePause) requestLog?.warming.skipWhileUsagePaused(login => usagePause.isPaused(login));
 	const hostname = options.hostname ?? DEFAULT_HOSTNAME;
 	const port = options.port ?? resolvePort();
 	let boundPort = port;
@@ -463,6 +487,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	// Events that were in their hold when the last process ended carry on with the rest of their time.
 	notifications.restore();
+	notifyUsageLimit = pause => notifications.notify(usageLimitReachedNotification({ ...pause, label: subscriptionUsage.label(pause.providerLogin) }));
 	log(
 		`kemiri: notifications ${notificationStore.file} (VAPID key ${vapidKeyFile}, sub ${notifications.subject})`,
 	);
@@ -517,7 +542,10 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.logins?.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.logins.idleTimeoutMs }),
 		onChange: (login) => {
 			for (const connection of connections) connection.notifyLogin(login);
-			if (login.status === "succeeded") subscriptionUsage.credentialsChanged(login.providerId);
+			if (login.status === "succeeded") {
+				usagePause?.credentialsChanged(login.providerId);
+				subscriptionUsage.credentialsChanged(login.providerId);
+			}
 		},
 		onPrompt: (login) => {
 			const event = loginPromptNotification(login);
@@ -666,6 +694,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		models,
 		...(requestLog === undefined ? {} : { requestLog }),
 		cacheRetention,
+		...(usagePauseModels ? { usagePauseModels } : {}),
 		memory,
 		maintenance: memoryMaintenance,
 		schedules,
@@ -844,6 +873,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			};
 		},
 		subscriptionUsage,
+		...(usagePause ? { usagePause, isSubscriptionLogin } : {}),
 		...(requestLog === undefined ? {} : { requestLog }),
 		...(terminals === undefined ? {} : { terminals }),
 		drafts,
@@ -1260,6 +1290,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		releaseUpdates,
 		notifications,
 		subscriptionUsage,
+		usagePause,
 		artifacts,
 		terminals,
 		requestLog,
@@ -1274,6 +1305,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			scheduleScheduler.stop();
 			scheduleEvents.stop();
 			maintenanceClock.stop();
+			usagePause?.stopBackgroundWaits();
 			await memoryMaintenance.stop().catch(() => undefined);
 			await releaseUpdates.stop();
 			serverStatus.stop();
@@ -1289,6 +1321,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			connections.clear();
 			await terminals?.stop().catch(() => undefined);
 			await manager.closeAll();
+			usagePause?.close();
 			await boardMaintenance;
 			await officialAgents.close();
 			await mcp.close();

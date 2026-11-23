@@ -36,6 +36,7 @@ export function notificationPreset(kinds: readonly NotificationKind[]): keyof ty
 }
 
 export const NOTIFICATION_ALERT_GROUPS = [
+ { label: 'Subscription', kinds: ['usage_limit_reached'] },
  { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review', 'task_steps'] },
  { label: 'Work finished', kinds: ['reply', 'worker_report', 'work_finished', 'thread_finished', 'schedule_done'] },
  { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'coordinator_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
@@ -97,6 +98,8 @@ export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICAT
 				description: "A provider login waits for a code or a decision.",
 				failure: false,
 			};
+		case "usage_limit_reached":
+			return { kind, label: "Subscription limits", description: "A subscription reached its limit and work is waiting.", failure: false };
 		case "compaction_failed":
 			return {
 				kind,
