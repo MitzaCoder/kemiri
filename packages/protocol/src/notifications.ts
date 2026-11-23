@@ -17,6 +17,7 @@
  * hold: the push goes out at once.
  */
 import { type Static, Type } from "typebox";
+import { AnswerIdSchema } from "./answers.ts";
 import { ProjectIdSchema, RequestIdSchema } from "./common.ts";
 
 export const NotificationKindSchema = Type.Union(
@@ -251,6 +252,7 @@ export const NotificationPayloadSchema = Type.Object({
 	),
 	tag: Type.String({ description: "Notifications with the same tag replace each other." }),
 	at: Type.String(),
+	answerId: Type.Optional(AnswerIdSchema),
 });
 export type NotificationPayload = Static<typeof NotificationPayloadSchema>;
 

@@ -1048,7 +1048,7 @@ export class ThreadService {
 				void this.#enqueue(() => this.#settleStatus(record.id));
 				this.#changed();
 			},
-			...(record.kind !== "coordinator" || !this.#options.notifications ? {} : { onReply: (reply: ReplyNotice) => {
+			...(record.kind !== "coordinator" || this.#options.board.answers || !this.#options.notifications ? {} : { onReply: (reply: ReplyNotice) => {
 				void reply.hasOwnerChat().then(async ownerChat => {
 					if (!ownerChat) return;
 					const title = await this.titleOf(record.id);
@@ -1562,7 +1562,7 @@ export class ThreadService {
 				const peerData = heldPeerData(items, draft.content);
 				this.#clearHold(record);
 				await this.#rosterNote(tx, place.threadId, conversation.id, record.title, "resumed");
-				if (queued) return conversation.submit(tx, { ...draft, ...(peerData && draft.entry ? { entry: { ...draft.entry, data: peerData } } : {}), whenBusy: "followUp", content: typeof draft.content === "string"
+				if (queued) return conversation.submit(tx, { ...draft, ...(peerData && draft.entry ? { entry: { ...draft.entry, data: { ...(draft.entry.data as object | undefined), ...peerData } } } : {}), whenBusy: "followUp", content: typeof draft.content === "string"
 					? typeof queued === "string" ? `${draft.content}\n\n${queued}` : [{ type: "text", text: draft.content }, ...queued]
 					: [...draft.content, ...(typeof queued === "string" ? [{ type: "text" as const, text: queued }] : queued)] });
 			}

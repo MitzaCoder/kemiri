@@ -903,8 +903,33 @@ import {
 	DraftsSetResponseSchema,
 } from "./drafts.ts";
 
+import {
+	AnswerExchangeSchema,
+	AnswerSchema,
+	AnswersListRequestSchema,
+	AnswersGetRequestSchema,
+	AnswersUpdateRequestSchema,
+	AnswersDeleteRequestSchema,
+	AnswersAskRequestSchema,
+	AnswersTurnIntoTaskRequestSchema,
+	AnswersListResponseSchema,
+	AnswersGetResponseSchema,
+	AnswersUpdateResponseSchema,
+	AnswersDeleteResponseSchema,
+	AnswersAskResponseSchema,
+	AnswersTurnIntoTaskResponseSchema,
+	AnswersChangedEventSchema,
+} from "./answers.ts";
+export * from "./answers.ts";
+
 /** Everything a client may send. */
 export const ClientMessageSchema = Type.Union([
+	AnswersListRequestSchema,
+	AnswersGetRequestSchema,
+	AnswersUpdateRequestSchema,
+	AnswersDeleteRequestSchema,
+	AnswersAskRequestSchema,
+	AnswersTurnIntoTaskRequestSchema,
  UserSettingsGetRequestSchema, UserSettingsSetRequestSchema,
  McpOAuthStartRequestSchema, McpOAuthCompleteRequestSchema, McpOAuthCancelRequestSchema,
 	McpListRequestSchema,
@@ -1058,6 +1083,12 @@ export const RequestSchema = ClientMessageSchema;
 export type Request = ClientMessage;
 
 export const ResponseSchema = Type.Union([
+	AnswersListResponseSchema,
+	AnswersGetResponseSchema,
+	AnswersUpdateResponseSchema,
+	AnswersDeleteResponseSchema,
+	AnswersAskResponseSchema,
+	AnswersTurnIntoTaskResponseSchema,
  UserSettingsGetResponseSchema, UserSettingsSetResponseSchema,
  McpOAuthStartResponseSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelResponseSchema,
 	McpListResponseSchema,
@@ -1202,6 +1233,7 @@ export const ResponseSchema = Type.Union([
 export type Response = Static<typeof ResponseSchema>;
 
 export const ServerEventSchema = Type.Union([
+	AnswersChangedEventSchema,
  UserSettingsChangedEventSchema,
  SkillsProjectChangedEventSchema,
  McpOAuthChangedEventSchema,
@@ -1242,6 +1274,21 @@ export type ServerMessage = Static<typeof ServerMessageSchema>;
  * them to a generator directly.
  */
 export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
+	AnswerExchange: AnswerExchangeSchema,
+	Answer: AnswerSchema,
+	AnswersListRequest: AnswersListRequestSchema,
+	AnswersGetRequest: AnswersGetRequestSchema,
+	AnswersUpdateRequest: AnswersUpdateRequestSchema,
+	AnswersDeleteRequest: AnswersDeleteRequestSchema,
+	AnswersAskRequest: AnswersAskRequestSchema,
+	AnswersTurnIntoTaskRequest: AnswersTurnIntoTaskRequestSchema,
+	AnswersListResponse: AnswersListResponseSchema,
+	AnswersGetResponse: AnswersGetResponseSchema,
+	AnswersUpdateResponse: AnswersUpdateResponseSchema,
+	AnswersDeleteResponse: AnswersDeleteResponseSchema,
+	AnswersAskResponse: AnswersAskResponseSchema,
+	AnswersTurnIntoTaskResponse: AnswersTurnIntoTaskResponseSchema,
+	AnswersChangedEvent: AnswersChangedEventSchema,
  SkillRole: SkillRoleSchema,
  ProjectSkill: ProjectSkillSchema,
 

@@ -210,6 +210,7 @@ export class ClientConnection {
 	readonly #drafts: DraftStore | undefined;
 	readonly #io: ConnectionIO;
 	readonly #log: (message: string) => void;
+	readonly #answerSubscriptions = new Set<string>();
 	readonly #watches = new Map<string, WatchState>();
 	/** The terminals this connection has attached, by the ID its binary frames use. */
 	readonly #terminals = new Map<number, TerminalAttachment>();
@@ -290,6 +291,11 @@ export class ClientConnection {
 	/** Push a project's whole worker list when it changes. */
 	notifyWorkers(projectId: string, workers: WorkerSummary[], defaults: WorkerDefaults): void {
 		this.#respond({ type: "workers.state", projectId, workers, defaults });
+	}
+
+	/** Invalidate the catalogue only for connections that opened it with live updates. */
+	notifyAnswer(projectId: string, answerId: string, deleted?: true): void {
+		if (this.#answerSubscriptions.has(projectId)) this.#respond({ type: "answers.changed", projectId, answerId, ...(deleted ? { deleted } : {}) });
 	}
 
 	/** Push a project's board (without archived tasks) when it changes. */
@@ -916,6 +922,58 @@ export class ClientConnection {
 					}
 					return;
 				}
+				case "answers.list":
+				case "answers.get":
+				case "answers.update":
+				case "answers.delete":
+				case "answers.ask":
+				case "answers.turnIntoTask": {
+					if (!this.#features.includes("answers")) return this.#unknownRequest(request);
+					const { runtime } = await this.#manager.open(request.projectId);
+					if (!this.#authorized(0, request.id)) return;
+					const answers = runtime.board.answers!;
+					switch (request.type) {
+						case "answers.list": {
+							if (request.subscribe === true) this.#answerSubscriptions.add(request.projectId);
+							if (request.subscribe === false) this.#answerSubscriptions.delete(request.projectId);
+							this.#respond({ type: request.type, id: request.id, answers: await answers.list(request.query) });
+							break;
+						}
+						case "answers.get":
+							this.#respond({ type: request.type, id: request.id, answer: await answers.get(request.answerId) });
+							break;
+						case "answers.update":
+							this.#respond({ type: request.type, id: request.id, answer: await answers.update(request.answerId, {
+								...(request.pinned === undefined ? {} : { pinned: request.pinned }), ...(request.read === undefined ? {} : { read: request.read }),
+							}) });
+							break;
+						case "answers.delete":
+							await answers.delete(request.answerId);
+							this.#respond({ type: request.type, id: request.id });
+							break;
+						case "answers.ask": {
+							const answer = await answers.get(request.answerId);
+							const question = request.question ?? answer.exchanges.at(-1)?.question ?? answer.question;
+							if (!question.trim()) throw new ServerError("bad_request", "Write a question first.");
+							const conversation = await runtime.threads.conversation(answer.coordinatorId);
+							await runtime.threads.revive(answer.coordinatorId);
+							if (!this.#authorized(0, request.id)) return;
+							if (this.#updateHolding?.()) throw new ServerError("bad_request", "Kemiri is restarting for an update. Try again after reconnecting.");
+							const prefix = `[answer ${answer.id}] The owner ${request.question === undefined ? "asked again" : "asked a follow-up"}. File the new reply with board answer and answerId ${answer.id}.`;
+							await runtime.threads.submitOwner(conversation, {
+								type: "input", whenBusy: "followUp", requestId: `answer:${answer.id}:${request.requestId}`,
+								entry: { kind: OWNER_CHAT_ENTRY, data: { answerId: answer.id, ownerQuestion: question } },
+								content: `${prefix}\n\n${question}`,
+							});
+							this.#respond({ type: request.type, id: request.id, coordinatorId: answer.coordinatorId });
+							break;
+						}
+						case "answers.turnIntoTask":
+							this.#respond({ type: request.type, id: request.id, taskId: await runtime.board.turnAnswerIntoTask(request.answerId, request.title, request.description) });
+							break;
+					}
+					return;
+				}
 				case "artifacts.list": {
 					await this.#manager.requireProject(request.projectId);
 					if (!this.#authorized()) return;
@@ -1352,7 +1410,7 @@ export class ClientConnection {
 					const submission = await runtime.threads.submitOwner(conversation,
 						{
 							type: "input",
-							entry: { kind: OWNER_CHAT_ENTRY },
+							entry: { kind: OWNER_CHAT_ENTRY, ...(runtime.board.answers ? { data: { ownerQuestion: describeContent(request.content).text, ...(request.taskId === undefined ? {} : { taskId: request.taskId }) } } : {}) },
 							content:
 								request.taskId === undefined
 									? content

@@ -60,6 +60,141 @@ open class UnionSerializer<T : Any>(
 }
 
 @Serializable
+data class AnswerExchange(
+    val `question`: String,
+    val `answer`: String,
+    val `at`: String,
+    val `coordinatorId`: String,
+    val `coordinatorTitle`: String,
+    val `filedBy`: String,
+    val `questionEntryId`: Long? = null,
+    val `entryId`: Long? = null
+)
+
+@Serializable
+data class Answer(
+    val `question`: String,
+    val `answer`: String,
+    val `at`: String,
+    val `coordinatorId`: String,
+    val `coordinatorTitle`: String,
+    val `filedBy`: String,
+    val `questionEntryId`: Long? = null,
+    val `entryId`: Long? = null,
+    val `id`: String,
+    val `title`: String,
+    val `related`: List<String>,
+    val `taskId`: String? = null,
+    val `pinned`: Boolean,
+    val `read`: Boolean,
+    val `exchanges`: List<AnswerExchange>
+)
+
+@Serializable
+data class AnswersListRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.list",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `query`: String? = null,
+    val `subscribe`: Boolean? = null
+)
+
+@Serializable
+data class AnswersGetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.get",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `answerId`: String
+)
+
+@Serializable
+data class AnswersUpdateRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.update",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `answerId`: String,
+    val `pinned`: Boolean? = null,
+    val `read`: Boolean? = null
+)
+
+@Serializable
+data class AnswersDeleteRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.delete",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `answerId`: String
+)
+
+@Serializable
+data class AnswersAskRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.ask",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `answerId`: String,
+    val `requestId`: String,
+    val `question`: String? = null
+)
+
+@Serializable
+data class AnswersTurnIntoTaskRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.turnIntoTask",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `answerId`: String,
+    val `title`: String? = null,
+    val `description`: String? = null
+)
+
+@Serializable
+data class AnswersListResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.list",
+    val `id`: String,
+    val `answers`: List<Answer>
+)
+
+@Serializable
+data class AnswersGetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.get",
+    val `id`: String,
+    val `answer`: Answer
+)
+
+@Serializable
+data class AnswersUpdateResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.update",
+    val `id`: String,
+    val `answer`: Answer
+)
+
+@Serializable
+data class AnswersDeleteResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.delete",
+    val `id`: String
+)
+
+@Serializable
+data class AnswersAskResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.ask",
+    val `id`: String,
+    val `coordinatorId`: String
+)
+
+@Serializable
+data class AnswersTurnIntoTaskResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.turnIntoTask",
+    val `id`: String,
+    val `taskId`: String
+)
+
+@Serializable
+data class AnswersChangedEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.changed",
+    val `projectId`: String,
+    val `answerId`: String,
+    val `deleted`: Boolean? = null
+) : ProtocolEvent
+
+@Serializable
 data class ProjectSkill(
     val `name`: String,
     val `description`: String,
@@ -3343,6 +3478,7 @@ data class BoardTask(
     val `blockedReason`: String?,
     val `parent`: String? = null,
     val `foundWhile`: String? = null,
+    val `fromAnswer`: String? = null,
     val `related`: List<String>? = null,
     val `subtasks`: List<String>? = null,
     val `ledTo`: List<String>? = null,
@@ -4210,7 +4346,8 @@ data class NotificationPayload(
     val `artifactId`: String? = null,
     val `taskId`: String? = null,
     val `tag`: String,
-    val `at`: String
+    val `at`: String,
+    val `answerId`: String? = null
 )
 
 @Serializable
@@ -4371,6 +4508,7 @@ data class NotificationAlert(
     val `taskId`: String? = null,
     val `tag`: String,
     val `at`: String,
+    val `answerId`: String? = null,
     val `seq`: Long,
     val `key`: String,
     val `level`: String,
@@ -5189,6 +5327,7 @@ data class FilesWriteResponseConflictCurrent(
 data class UnknownEvent(val raw: JsonObject) : ProtocolEvent
 
 fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["type"]?.jsonPrimitive?.content) {
+    "answers.changed" -> json.decodeFromJsonElement(AnswersChangedEvent.serializer(), raw)
     "user.settings.changed" -> json.decodeFromJsonElement(UserSettingsChangedEvent.serializer(), raw)
     "skills.project.changed" -> json.decodeFromJsonElement(SkillsProjectChangedEvent.serializer(), raw)
     "mcp.oauth.changed" -> json.decodeFromJsonElement(McpOAuthChangedEvent.serializer(), raw)

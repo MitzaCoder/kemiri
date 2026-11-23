@@ -3289,8 +3289,10 @@ The problem: with several subjects going at once, results, reports and worker ch
 chat, and a question or warning about one subject gets buried. The answer: the task is what the user reads; the chat
 is where they talk.
 
-- **Every subject is a task.** The coordinator creates a board task for each subject the user brings up, before
-  replying, and says which task it filed the message under. No exceptions for now; we will see if it is too much.
+- **Work to review is a task.** With `answers` enabled, the coordinator replies in chat and files quick questions,
+  status checks and small errands with `board answer`. Work with a result to review or that needs a worker for more
+  than a few minutes gets a task. Questions about a task still go on that task. Without the feature, every subject
+  still gets a task.
 - **A report per task, rewritten in place.** Now is automatic. Prefer typed blocks for new reports, with one fact
   per block. A short Next or a long numbered procedure can still be plain Markdown. Lead with what changed for
   the reader. Write whole sentences with verbs and small words, about 20 words per prose line, without semicolon
@@ -6262,6 +6264,35 @@ summaries use the conversation's persisted pi-durable `ProviderDoc` identity, ju
 legacy conversations initialize that document before requesting a summary. IDs contain no paths or secrets.
 Cache refreshes retain the session ID from their captured conversation request options.
 
+### Answers
+
+Quick owner asks can live outside the task board without a status, review or place in Needs you. The `answers`
+server feature enables the board action and prompt as well as the wire API. The coordinator replies in the chat
+and files the full Markdown with `board answer` and a short title. The tool reads the latest owner-chat text from
+that run, even if it joined as a steer. Optional `related` names tasks. `answerId` adds an exchange to an existing
+answer; earlier replies are kept newest first under the latest reply. The answer records which coordinator replied,
+when, and the question and reply entry IDs for opening the chat.
+
+The end-of-run hook files a fallback with `filedBy: "harness"` only for owner-started turns with a non-empty final
+reply, no successful `add_task` and no filed answer. The owner text must be under 400 characters and question-shaped,
+or the reply must be at least 600 characters. The first line of the ask supplies the title. This uses no model call
+and doesn't look through past turns. The answers and the per-coordinator write marker live in separate version 1
+latest-value documents in the project session, with bounded checkpoint tails. A list, read or no-op edit makes no
+revision. Filing also satisfies the end-of-turn check for reusable details that would otherwise be only in chat.
+
+`answers.list` sorts pinned answers first, newest reply first within each group. Its `query` matches title, question
+and reply text, including older exchanges. `subscribe: true` opts the connection into per-project `answers.changed`
+invalidations, and `subscribe: false` clears that subscription. A client can fetch one with `answers.get`, change
+its pin or read flag with `answers.update`, or delete it. `answers.ask` uses an owner input in the same coordinator
+with the answer ID and the original question or a new follow-up. Replies are dated snapshots, not refreshed on a
+schedule. `answers.turnIntoTask` makes a request as the owner and uses the usual `[board]` notice. That action and
+`board add_task` with `fromAnswer` copy the question and answer into the request and record both links atomically.
+Deleting the answer does not remove the request or its copied text.
+
+The board keeps its previous document version and only adds an optional `fromAnswer` field. Older clients never
+subscribe to answer events and still see the replies in chat. The server stages the wire behavior ahead of the
+clients' Answers tabs. Old question tasks stay as tasks.
+
 ### Board
 
 The board keeps only its current value. Task histories are separate documents. Closed-task normalization changes
@@ -7510,6 +7541,11 @@ setting, restart and retry steps; the raw error remains a small secondary detail
   next run. Unmarked history does not qualify. Board actions and answers, worker reports, check-ins, report
   nudges, peer messages and other harness inputs alone do not raise an event, so there is no push or in-app
   alert. Reply text and tags, the unread mark, and other notices such as `work_finished` are unchanged.
+
+  With `answers` enabled, the end-of-run hook checks the same boundary and settles filing before sending a
+  single `reply`. In an owner-started turn, a filed answer supplies `answerId` and the notice text in place of that
+  turn's ordinary reply. Older clients use the unchanged coordinator and entry IDs to open chat. An ordinary reply
+  still waits for `work_finished` when other work is running in General.
 - **Only requests send review notices.** Part questions, warnings and Your steps use the top request's title
   and say “asked while building <part title>”. The push and in-app alert use the same event and link to the
   original part or question. Checking off a part does not wake its coordinator with a board edit notice. An

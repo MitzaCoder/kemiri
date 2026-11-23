@@ -85,11 +85,16 @@ function messageLines(message: Message): string[] {
 	}
 }
 
+// Keep the public transcript label independent of the internal owner-chat marker.
+function historyEntryKind(entry: EntryRecord): string {
+	return entry.kind === OWNER_CHAT_ENTRY ? "pi.user" : entry.kind;
+}
+
 /** An entry's text as the tool shows it: its messages in order, each clipped. */
 export function describeEntry(entry: EntryRecord, entryChars = READ_ENTRY_CHARS): string {
 	const lines = (entry.model ?? []).flatMap(messageLines);
-	if (lines.length === 0) return `#${entry.id} ${entry.kind}\n  (no text)`;
-	return `#${entry.id} ${entry.kind}\n${lines.map((line) => `  ${clip(line, entryChars)}`).join("\n")}`;
+	if (lines.length === 0) return `#${entry.id} ${historyEntryKind(entry)}\n  (no text)`;
+	return `#${entry.id} ${historyEntryKind(entry)}\n${lines.map((line) => `  ${clip(line, entryChars)}`).join("\n")}`;
 }
 
 /** An entry's text for matching, one line, without the role labels. */
@@ -146,7 +151,7 @@ function hitsOf(entries: readonly EntryRecord[], terms: readonly string[]): Hist
 	for (const entry of entries) {
 		const text = searchableText(entry);
 		if (!terms.every((term) => text.includes(term))) continue;
-		hits.push({ id: entry.id, kind: entry.kind === OWNER_CHAT_ENTRY ? "pi.user" : entry.kind, role: entryRole(entry), snippet: snippetAround(text, terms) });
+		hits.push({ id: entry.id, kind: historyEntryKind(entry), role: entryRole(entry), snippet: snippetAround(text, terms) });
 	}
 	return hits;
 }

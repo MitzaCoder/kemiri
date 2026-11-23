@@ -812,6 +812,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of connections) connection.notifyThreads(projectId, threads, landingTurn);
 		},
 		...(options.boardEditDebounceMs === undefined ? {} : { boardEditDebounceMs: options.boardEditDebounceMs }),
+  ...(features.includes("answers") ? { onAnswersChanged: (projectId: string, answerId: string, deleted?: true) => {
+   for (const connection of connections) connection.notifyAnswer(projectId, answerId, deleted);
+  } } : {}),
 		onWorkersState: (projectId, workers, defaults) => {
 			for (const connection of connections) connection.notifyWorkers(projectId, workers, defaults);
 		},

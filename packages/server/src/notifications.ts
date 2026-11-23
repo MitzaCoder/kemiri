@@ -723,6 +723,7 @@ export type NotificationEvent = {
 	threadId?: string | null;
 	coordinatorId?: string;
 	entryId?: number;
+	answerId?: string;
 	/** The board task it is about; the app opens that task. */
 	taskId?: string | null;
 	/** Extra board fields for the in-app stream, not for push payloads. */
@@ -796,6 +797,7 @@ export function notificationPayload(
 		...(event.threadId === undefined ? {} : { threadId: event.threadId }),
 		...(event.coordinatorId === undefined ? {} : { coordinatorId: event.coordinatorId }),
 		...(event.entryId === undefined ? {} : { entryId: event.entryId }),
+		...(event.answerId === undefined ? {} : { answerId: event.answerId }),
 		...(event.taskId === undefined ? {} : { taskId: event.taskId }),
 		tag: event.tag ?? notificationTag(event),
 		at,
@@ -811,11 +813,13 @@ export function replyNotification(input: {
 	text: string;
 	coordinatorId?: string;
 	coordinatorTitle?: string;
+	answerId?: string;
 }): NotificationEvent {
 	return {
 		kind: "reply",
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.projectName} replied`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId, threadId: input.coordinatorId, entryId: input.entryId } : {}),
+		...(input.answerId === undefined ? {} : { answerId: input.answerId }),
 		body: notificationLine(input.text) || "The coordinator finished an answer.",
 		projectId: input.projectId,
 		tag: `reply:${input.projectId}${input.coordinatorId ? `:${input.coordinatorId}` : ""}`,

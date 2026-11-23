@@ -426,8 +426,9 @@ it("button/audit use the same stale path, do not move status, and are feature-ga
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function integration(features?: readonly string[]) {
- const setup = await createSetup({ ...(features === undefined ? {} : { features }), now: () => START, boardEditDebounceMs: 60_000 });
+// These tests exercise report coverage without the independent Answers filing path.
+async function integration(features: readonly string[] = HARNESS_FEATURES.filter(feature => feature !== "answers")) {
+ const setup = await createSetup({ features, now: () => START, boardEditDebounceMs: 60_000 });
  cleanups.push(setup.cleanup);
  const client = await TestClient.open(setup.server); cleanups.push(async () => client.close());
  await client.hello();

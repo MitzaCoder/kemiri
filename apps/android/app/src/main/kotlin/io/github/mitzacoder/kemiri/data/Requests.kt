@@ -4,6 +4,30 @@ package io.github.mitzacoder.kemiri.data
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.serialization.json.*
 
+suspend fun HarnessClient.request(value: AnswersListRequest, explicitNulls: Set<String> = emptySet()): AnswersListResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersListRequest.serializer(), value).jsonObject, explicitNulls), AnswersListResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AnswersGetRequest, explicitNulls: Set<String> = emptySet()): AnswersGetResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersGetRequest.serializer(), value).jsonObject, explicitNulls), AnswersGetResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AnswersUpdateRequest, explicitNulls: Set<String> = emptySet()): AnswersUpdateResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersUpdateRequest.serializer(), value).jsonObject, explicitNulls), AnswersUpdateResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AnswersDeleteRequest, explicitNulls: Set<String> = emptySet()): AnswersDeleteResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersDeleteRequest.serializer(), value).jsonObject, explicitNulls), AnswersDeleteResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AnswersAskRequest, explicitNulls: Set<String> = emptySet()): AnswersAskResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersAskRequest.serializer(), value).jsonObject, explicitNulls), AnswersAskResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: AnswersTurnIntoTaskRequest, explicitNulls: Set<String> = emptySet()): AnswersTurnIntoTaskResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(AnswersTurnIntoTaskRequest.serializer(), value).jsonObject, explicitNulls), AnswersTurnIntoTaskResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: UserSettingsGetRequest, explicitNulls: Set<String> = emptySet()): UserSettingsGetResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(UserSettingsGetRequest.serializer(), value).jsonObject, explicitNulls), UserSettingsGetResponse.serializer()
 )

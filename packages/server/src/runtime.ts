@@ -250,6 +250,7 @@ export type ProjectManagerOptions = {
 	onWorkersState?: (projectId: string, workers: WorkerSummary[], defaults: WorkerDefaults) => void;
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
 	onBoardState?: (projectId: string, board: Board, legacyBoard: Board) => void;
+	onAnswersChanged?: (projectId: string, answerId: string, deleted?: true) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
 	onThreadsMessage?: (event: ThreadsMessageEvent) => void;
 	onThreadsState?: (projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void;
@@ -364,6 +365,7 @@ export class ProjectManager {
  readonly #taskState: boolean;
  readonly #taskPartStates: boolean;
  readonly #requestAttention: boolean;
+ readonly #onAnswersChanged: ProjectManagerOptions["onAnswersChanged"];
  readonly #taskLive: boolean;
 	readonly #reportAudit: boolean;
  readonly #taskWatcher: boolean;
@@ -439,6 +441,7 @@ export class ProjectManager {
   this.#taskState = options.taskState !== false;
   this.#taskPartStates = options.taskPartStates !== false;
   this.#requestAttention = options.requestAttention !== false;
+  this.#onAnswersChanged = options.onAnswersChanged;
   this.#taskLive = options.taskLive !== false;
 		this.#reportAudit = options.reportAudit !== false;
   this.#taskWatcher = this.#taskLive && options.taskWatcher !== false;
@@ -1457,7 +1460,20 @@ export class ProjectManager {
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
 		const history = new HistoryService({ conversation, coordinators });
-		const board = new BoardService({
+		const board: BoardService = new BoardService({
+			...(this.#onAnswersChanged ? { answers: {
+				changed: (answerId: string, deleted?: true) => this.#onAnswersChanged?.(project.id, answerId, deleted),
+				reply: input => {
+					if (!this.#notifications) return;
+					void (async () => {
+						// Ordinary replies keep the previous work-finished and jobs rules. A filed answer is itself an outcome.
+						if (!input.answerId && (input.coordinatorId === MAIN_THREAD_ID ? work.othersRunning :
+							(await threads.record(input.coordinatorId))?.kind !== "coordinator")) return;
+						const coordinatorTitle = await board.answerCoordinatorTitle(input.coordinatorId);
+						this.#notifications?.notify(replyNotification({ ...input, projectId: project.id, projectName: entry.project.name, coordinatorTitle }));
+					})().catch(error => this.#log(`coordinator reply notification: ${errorMessage(error)}`));
+				},
+			} } : {}),
 			taskFreshness: this.#taskFreshness,
    taskActivity: this.#taskActivity,
    taskState: this.#taskState,
@@ -1546,6 +1562,7 @@ export class ProjectManager {
 		const workers = new WorkerService({
 			...(this.apps === undefined ? {} : { apps: { registry: this.apps, active: requirePublisher => activeApps(requirePublisher) } }),
 			taskLive: this.#taskLive,
+			answers: board.answers !== undefined,
 			artifacts: this.artifacts,
 			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
 			browsers: this.browsers,
@@ -1892,7 +1909,7 @@ export class ProjectManager {
 			onReply: (reply) => {
 				work.reply(reply.text);
 				// While workers or threads still run, the answer is not the end of the work: work_finished tells it later.
-				if (work.othersRunning || !this.#notifications) return;
+				if (board.answers || work.othersRunning || !this.#notifications) return;
 				void reply.hasOwnerChat().then(async ownerChat => {
 					if (!ownerChat) return;
 					const title = await threads.titleOf(MAIN_THREAD_ID);

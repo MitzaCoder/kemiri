@@ -1318,7 +1318,7 @@ threadTest("keeps coordinator lifecycle, routing and prompt bytes across restart
 	expect(received.size).toBe(0);
 	const initial = await context(client, projectId, { threadId: packing });
 	const general = await context(client, projectId, { threadId: "main" });
-	const boardTaskRule = 'Every subject the user raises is a task on the project\'s board';
+	const boardTaskRule = "Not every message needs a task.";
 	const boardInputRule = 'Messages starting with "[board]" bring the user\'s edits and answers';
 	expect(initial.systemPrompt).toContain(boardTaskRule);
 	expect(initial.systemPrompt).toContain(boardInputRule);
@@ -1334,7 +1334,7 @@ threadTest("keeps coordinator lifecycle, routing and prompt bytes across restart
 	expect(initial.systemPrompt).not.toContain("Count stored items.");
 	expect(initial.tools.map(tool => tool.name)).not.toContain("thread_finish");
 	expect(JSON.stringify(initial.tools)).toBe(JSON.stringify(general.tools));
-	for (const shared of [coordinatorSection(runtime.threads.project), PEER_THREADS_SECTION]) {
+	for (const shared of [coordinatorSection(runtime.threads.project, true), PEER_THREADS_SECTION]) {
 		expect(general.systemPrompt).toContain(shared);
 		expect(initial.systemPrompt).toContain(shared);
 	}

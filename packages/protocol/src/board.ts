@@ -385,6 +385,7 @@ export const BoardTaskSchema = Type.Object({
 			description: "The task whose work led to finding this one (its origin). At most one.",
 		}),
 	),
+	fromAnswer: Type.Optional(Type.String({ description: "The answer this request was made from." })),
 	related: Type.Optional(Type.Array(Type.String(), { description: "Tasks to see also; symmetric (each lists the other)." })),
 	subtasks: Type.Optional(Type.Array(Type.String(), { description: "Derived: the tasks whose `parent` is this one, by order." })),
 	ledTo: Type.Optional(Type.Array(Type.String(), { description: "Derived: the tasks whose `foundWhile` is this one." })),

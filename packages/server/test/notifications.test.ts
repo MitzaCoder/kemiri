@@ -710,14 +710,17 @@ describe("the requests", () => {
 });
 
 describe("events", () => {
-	it("announces a reply once, and not again when the activity watch replays after a restart", async () => {
+	it("announces a filed answer once instead of the chat reply, including across a restart", async () => {
 		const { test, push } = await setupWithPush();
 		const client = await connect(test.server);
 		await client.hello();
 		const projectId = await addProject(client, test.projectDir);
 		await configureCoordinator(client, projectId);
 		await registerDevice(client, push);
-		test.faux.setResponses([fauxAssistantMessage("All green.\nTwo checks passed.")]);
+		test.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("board", { action: "answer", title: "Checks", answer: "All green.\nTwo checks passed." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("The verification is complete."),
+		]);
 
 		await submit(client, projectId, "How is it?", "req-1");
 		await until(() => push.ofKind("reply").length === 1);
@@ -726,10 +729,16 @@ describe("events", () => {
 			title: "project · General",
 			coordinatorId: "main",
 			entryId: expect.any(Number),
+			answerId: "A1",
 			body: "All green.",
 			projectId,
 			backendKey: "harness-pc",
 		});
+
+		const alerts = await test.server.notifications.recent(0);
+		expect(alerts?.events.filter(event => event.type === "alert" && event.alert.kind === "reply")).toEqual([
+			expect.objectContaining({ alert: expect.objectContaining({ kind: "reply", answerId: "A1", entryId: expect.any(Number) }) }),
+		]);
 
 		// The activity's last reply is persisted before the restart, so replaying the transcript notifies nothing.
 		await until(async () => (await lastReplyId(test)) !== null);
