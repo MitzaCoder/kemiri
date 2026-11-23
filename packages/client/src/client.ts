@@ -227,6 +227,8 @@ export type ProjectChange = {
 	coordinatorModel?: ModelRef | null;
 	coordinatorThinkingLevel?: ThinkingLevel | null;
 	workerModels?: WorkerModel[] | null;
+	/** Feature `outside-model-limit`; null disables the limit. */
+	outsideModelRunLimit?: number | null;
 	/** `null` restores the server's defaults (enabled, every 10 minutes). */
 	checkIns?: ProjectCheckIns | null;
 	/** `null` restores the server's default (`coordinators`). */
@@ -752,6 +754,7 @@ export class HarnessClient {
 				? {}
 				: { coordinatorThinkingLevel: change.coordinatorThinkingLevel }),
 			...(change.workerModels === undefined ? {} : { workerModels: change.workerModels }),
+			...(change.outsideModelRunLimit === undefined ? {} : { outsideModelRunLimit: change.outsideModelRunLimit }),
 			...(change.checkIns === undefined ? {} : { checkIns: change.checkIns }),
 			...(change.longPromptCache === undefined ? {} : { longPromptCache: change.longPromptCache }),
 			...(change.keepPromptCacheWarm === undefined ? {} : { keepPromptCacheWarm: change.keepPromptCacheWarm }),

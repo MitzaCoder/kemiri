@@ -438,6 +438,7 @@ export const BoardQuestionSchema = Type.Object({
  exchanges: Type.Optional(Type.Array(BoardQuestionExchangeSchema, { description: "Oldest first; revisions retain earlier wording on the reply." })),
  noReplyYet: Type.Optional(Type.Boolean({ description: "Returned to the owner after an unanswered reminder or failed run." })),
  reopened: Type.Optional(Type.Boolean({ description: "The agent has used this question's one allowed reopening." })),
+ outsideModelApproval: Type.Optional(Type.Literal(true, { description: "A run approval: offer only the listed choices, with no clarification or reopen." })),
  mcpApproval: Type.Optional(Type.Boolean({ description: "Tool approval: never offer Ask back or reopen." })),
  blocksWork: Type.Optional(Type.Boolean({ description: "Questions default true, warnings false. Only blocking open entries replace task activity." })),
  activitySourceId: Type.Optional(Type.String({ description: "Warning acknowledgement clears only this linked failure source." })),

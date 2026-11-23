@@ -6,6 +6,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { slide } from 'svelte/transition';
+	import { runApprovalQuestionId } from '#lib/workers.js';
 	import { exitCodeOf, isCodingTool, toolCardStatus, type ToolCardStatus, type ToolPart } from '#lib/transcript.js';
 	import { toolHeadline, toolIcon, toolSummary } from '#lib/chat/tools.js';
 	import ToolBody from './ToolBody.svelte';
@@ -45,7 +46,8 @@
 	const args = $derived((part.arguments ?? {}) as Record<string, unknown>);
 	const Icon = $derived(toolIcon(part.name));
 	const summary = $derived(toolSummary(part.name, args, cwd));
-	const headline = $derived(toolHeadline(part.name));
+	const approvalQuestionId = $derived(runApprovalQuestionId(part));
+	const headline = $derived(approvalQuestionId ? `Asked to start a ${part.name === 'thread_start' ? 'job' : 'worker'}` : toolHeadline(part.name));
 </script>
 
 <div
@@ -69,7 +71,7 @@
 			<span class="shrink-0 text-[0.8125rem] font-semibold" title={headline === undefined ? undefined : part.name}>
 				{headline ?? (part.name || '…')}
 			</span>
-			<span class="truncate text-xs text-(--chat-fg-muted)" class:font-mono={headline === undefined}>{summary}</span>
+			<span class="truncate text-xs text-(--chat-fg-muted)" class:font-mono={headline === undefined}>{approvalQuestionId ? `${approvalQuestionId} · ${summary}` : summary}</span>
 			{#if part.viaScript !== undefined}
 				<span class="shrink-0 text-[0.6875rem] text-(--chat-fg-subtle)" title="Run through a code mode script">via script</span>
 			{/if}

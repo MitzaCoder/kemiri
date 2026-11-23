@@ -452,7 +452,7 @@ export type ThreadStartInput = {
 	id?: string;
 };
 
-export type ThreadStartResult = { ok: true; record: ThreadRecord; existed: boolean; notices?: string[] } | { ok: false; message: string };
+export type ThreadStartResult = { ok: true; record: ThreadRecord; existed: boolean; notices?: string[] } | { ok: false; message: string; approvalQuestionId?: string };
 
 export type ScheduledThreadInput = {
 	ownerThreadId?: string;
@@ -605,6 +605,10 @@ export class ThreadService {
 		return Object.values((await this.state(context)).threads)
 			.filter(record => record.kind === "job" && record.startedBy === "main" && record.modelNamedByAgent === true && record.status === "running" && !record.archived)
 			.map(record => record.model);
+	}
+
+	serializeAgentStart<T>(start: () => Promise<T>): Promise<T> {
+		return this.#options.workers.outsideModelApprovals?.serialize(start) ?? start();
 	}
 
 	async modelOverrideNotice(model: ModelRef, context: Context): Promise<string> {
@@ -1213,6 +1217,7 @@ export class ThreadService {
 		input: ThreadStartInput,
 		commit: <T>(change: (tx: Tx) => Promise<T>) => Promise<T> = (change) =>
 			this.#options.harness.commit(change, BACKGROUND_CONTEXT),
+		approvalContext?: Context,
 	): Promise<ThreadStartResult> {
 		const project = this.project;
 		const state = await this.state();
@@ -1267,6 +1272,13 @@ export class ThreadService {
 			}
 		} else if (input.scheduleId === null && input.coordinator === undefined) {
 			return { ok: false, message: "A thread needs the board task it works on (taskId)." };
+		}
+
+		if (approvalContext && agentStartedJob && input.model !== null) {
+			const question = await this.#options.workers.outsideModelApprovals?.requestIfAtLimit(threadModel, input.key, {
+				kind: "job", args: { ...input, id }, threadId: parentThreadId, conversationId: parentId,
+			}, commit, approvalContext);
+			if (question) return { ok: false, message: question.message, approvalQuestionId: question.id };
 		}
 
 		let place: { checkout: string; kind: "jj" | "directory" };
@@ -2052,7 +2064,7 @@ function createThreadStartExtension(service: ThreadService): Extension {
 		execute: async (args, api, context) => {
 			const parent = service.coordinators.placeOf(api.conversationId);
 			if (parent?.kind !== "coordinator") return toolText("Only coordinators can start background jobs; jobs cannot start jobs.", { isError: true });
-			const started = await service.start(
+			const started = await service.serializeAgentStart(() => service.start(
 				{
 					title: args.title,
 					brief: args.brief,
@@ -2066,8 +2078,10 @@ function createThreadStartExtension(service: ThreadService): Extension {
 					key: api.callId,
 				},
 				(change) => api.commit(change, context),
-			);
-			if (!started.ok) return toolText(started.message, { isError: true });
+				context,
+			));
+			if (!started.ok) return toolText(started.message, started.approvalQuestionId === undefined
+				? { isError: true } : { details: { questionId: started.approvalQuestionId } });
 			const { record } = started;
 			const details = { threadId: record.id, conversationId: record.conversationId };
 			await api.details(details, context);

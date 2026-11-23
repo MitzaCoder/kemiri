@@ -687,6 +687,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskWatcher: features.includes("task-live-watcher"),
 		reportAudit: features.includes("report-audit"),
 		workerPickerProjectDefault: features.includes("worker-picker-project-default"),
+		outsideModelLimit: features.includes("outside-model-limit"),
 		projectRepository: features.includes("project-repository"),
 		diskWarnings: () => diskMonitor?.warnings() ?? [],
 		store,

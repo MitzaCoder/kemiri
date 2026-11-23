@@ -11,6 +11,7 @@ object HarnessFeature {
     const val APPS = "apps"
     const val PROJECT_REPOSITORY = "project-repository"
     const val MEMORY_MAINTENANCE_ENABLED = "memory-maintenance-enabled"
+    const val OUTSIDE_MODEL_LIMIT = "outside-model-limit"
     const val WORKER_PICKER_PROJECT_DEFAULT = "worker-picker-project-default"
     const val STORAGE = "storage"
     const val TASK_DELIVERY = "task-delivery"
@@ -130,6 +131,7 @@ suspend fun HarnessClient.saveBoardTask(
 sealed interface ProjectSetting {
     /** "coordinators", "all" or "off"; null restores the server's default. */
     data class LongPromptCache(val value: String?) : ProjectSetting
+    data class OutsideModelRunLimit(val value: Long?) : ProjectSetting
     data class KeepPromptCacheWarm(val value: Boolean?) : ProjectSetting
     data class PromptCacheWarmHours(val value: Long?) : ProjectSetting
     /** "off", "screenshots" or "screenshots-and-videos" (Show UI changes); null restores the server's default. */
@@ -139,8 +141,10 @@ sealed interface ProjectSetting {
 }
 
 suspend fun HarnessClient.configureProject(projectId: String, setting: ProjectSetting): ProjectSummary {
+    if (setting is ProjectSetting.OutsideModelRunLimit) requireFeature(HarnessFeature.OUTSIDE_MODEL_LIMIT)
     val (request, cleared) = when (setting) {
         is ProjectSetting.LongPromptCache -> ProjectsConfigureRequest(projectId = projectId, longPromptCache = setting.value) to "longPromptCache".takeIf { setting.value == null }
+        is ProjectSetting.OutsideModelRunLimit -> ProjectsConfigureRequest(projectId = projectId, outsideModelRunLimit = setting.value) to "outsideModelRunLimit".takeIf { setting.value == null }
         is ProjectSetting.KeepPromptCacheWarm -> ProjectsConfigureRequest(projectId = projectId, keepPromptCacheWarm = setting.value) to "keepPromptCacheWarm".takeIf { setting.value == null }
         is ProjectSetting.PromptCacheWarmHours -> ProjectsConfigureRequest(projectId = projectId, promptCacheWarmHours = setting.value) to "promptCacheWarmHours".takeIf { setting.value == null }
         is ProjectSetting.UiProof -> ProjectsConfigureRequest(projectId = projectId, uiProof = setting.value) to "uiProof".takeIf { setting.value == null }

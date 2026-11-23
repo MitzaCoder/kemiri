@@ -76,7 +76,11 @@ import { type Static, Type } from "typebox";
 import type { Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import { type Notifier, boardQuestionNotification, projectDeployProblemNotification, taskReviewNotification, taskStepsNotification } from "./notifications.ts";
+import type { OutsideModelApproval } from "./outside-model-approvals.ts";
 import type { Project } from "./projects.ts";
+
+export const START_OUTSIDE_MODEL_RUN = "Start this run";
+export const DECLINE_OUTSIDE_MODEL_RUN = "Don't start it";
 
 /** How long a done or dropped task stays in the coordinator's view. */
 export const ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -145,6 +149,7 @@ export type BoardState = {
 	reportAudit?: ReportAuditRecord;
 	tasks: BoardTask[];
 	questions: BoardQuestion[];
+	outsideModelApprovals?: Record<string, OutsideModelApproval>;
  clarificationReminders?: Record<string, { revision: number; reminded: boolean; pending?: boolean }>;
 	decisions: BoardDecision[];
 	/** The last number given to a task, question and decision; IDs are never reused. */
@@ -1601,7 +1606,7 @@ export function reorderTasks(state: BoardState, taskIds: readonly string[], now:
 
 export function askQuestion(
 	state: BoardState,
-	input: { text: string; options: readonly string[]; choices?: readonly BoardQuestionChoice[] | undefined; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined },
+	input: { text: string; options: readonly string[]; choices?: readonly BoardQuestionChoice[] | undefined; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined; outsideModelApproval?: true },
 ): BoardQuestion {
 	if (input.taskId !== null && !state.tasks.some((task) => task.id === input.taskId)) throw unknownTask(input.taskId);
 	const warning = input.kind === "warning";
@@ -1614,6 +1619,7 @@ export function askQuestion(
 		id: `Q${state.counters.question}`,
 		revision: 1,
 		...(warning ? { kind: "warning" as const } : {}),
+		...(input.outsideModelApproval ? { outsideModelApproval: true as const } : {}),
   ...(input.blocksWork === undefined ? {} : { blocksWork: input.blocksWork }),
   ...(input.activitySourceId === undefined ? {} : { activitySourceId: input.activitySourceId }),
 		text: input.text,
@@ -1636,7 +1642,7 @@ export function askQuestion(
 /** Answer an open question (the user's answer, or the coordinator's when the user answered in the chat), or withdraw it. */
 export function settleQuestion(
 	state: BoardState,
-	input: { questionId: string; expectedRevision?: number | undefined; answer: string | null; now: string; actor?: TaskFact["actor"] },
+	input: { questionId: string; expectedRevision?: number | undefined; answer: string | null; now: string; actor?: TaskFact["actor"]; ownerApproval?: true },
 ): BoardQuestion {
 	const question = state.questions.find((candidate) => candidate.id === input.questionId);
 	if (question === undefined) throw new ServerError("unknown_task", `No question "${input.questionId}" on the board`, { questionId: input.questionId });
@@ -1648,6 +1654,18 @@ export function settleQuestion(
 			id: question.id,
 			revision: question.revision,
 		});
+	}
+	if (question.outsideModelApproval) {
+		const approval = state.outsideModelApprovals?.[question.id];
+		if (input.answer !== null) {
+			if (!input.ownerApproval) throw new ServerError("bad_request", "Only the owner can answer this run approval. Withdraw it instead.");
+			if (input.answer !== START_OUTSIDE_MODEL_RUN && input.answer !== DECLINE_OUTSIDE_MODEL_RUN) {
+				throw new ServerError("bad_request", `Choose “${START_OUTSIDE_MODEL_RUN}” or “${DECLINE_OUTSIDE_MODEL_RUN}”.`);
+			}
+			if (approval?.request) approval.approved = input.answer === START_OUTSIDE_MODEL_RUN;
+		} else if (approval) {
+			delete approval.request;
+		}
 	}
 	delete question.waitingOn;
  delete question.noReplyYet;
@@ -1671,6 +1689,7 @@ function requireClarifiableQuestion(state: BoardState, id: string, revision: num
  const question = state.questions.find(q => q.id === id);
  if (!question) throw new ServerError("unknown_task", `No question "${id}" on the board`);
  if (question.revision !== revision) throw conflict("Question", id, question.revision, revision);
+ if (question.outsideModelApproval) throw new ServerError("bad_request", "Run approvals cannot be clarified or reopened.");
  if (question.mcpApproval) throw new ServerError("bad_request", "MCP approvals cannot be clarified or reopened.");
  return question;
 }
@@ -2413,6 +2432,7 @@ export type BoardServiceOptions = {
 type PendingEdit = { before: BoardTask | null; after: BoardTask; notes: string[] };
 
 export class BoardService {
+ onOutsideModelApprovalSettled: (() => void) | undefined;
  onMcpAnswer: ((questionId: string, answer: string) => Promise<void>) | undefined;
 	readonly #options: BoardServiceOptions;
  #liveWatch: TaskLiveWatch | undefined;
@@ -3235,7 +3255,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
  async answer(input: { questionId: string; expectedRevision: number; answer: string }): Promise<BoardQuestion> {
 		const now = this.#iso();
-		const question = await this.#commit(USER_WRITER, (state) => settleQuestion(state, { ...input, now, actor: "user" }));
+		const question = await this.#commit(USER_WRITER, (state) => settleQuestion(state, { ...input, now, actor: "user", ownerApproval: true }));
+		if (question.outsideModelApproval) {
+			this.onOutsideModelApprovalSettled?.();
+			return question;
+		}
 		await this.onMcpAnswer?.(question.id, input.answer);
 		const text = `${BOARD_PREFIX} The user answered ${question.id} (${JSON.stringify(clip(question.text, 200))}): ${input.answer}`;
 		try {
@@ -3247,6 +3271,14 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 			this.#options.log(`board: could not deliver the answer to ${question.id}: ${errorMessage(error)}`);
 		}
 		return question;
+	}
+
+	async deliverOutsideModelOutcome(threadId: string, questionId: string, content: string): Promise<void> {
+		const target = await this.#deliveryThread(threadId);
+		await this.#submitInput(await this.#conversationOf(target), {
+			type: "input", content, whenBusy: "followUp", requestId: `outside-model-outcome:${questionId}`,
+		});
+		await this.#woke(target);
 	}
 
 	/** Tell the user's devices once about a question or warning a coordinator asked. */

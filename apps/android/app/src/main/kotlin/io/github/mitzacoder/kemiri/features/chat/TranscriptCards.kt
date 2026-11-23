@@ -193,6 +193,7 @@ private const val ORB_MIN_WIDTH_DP = 640
         worker != null && context != null -> WorkerCallCard(part,worker,scope.workerTitlesBefore[part.key],worker.scheduleId?.let { scope.scheduleTitles[it] }) {
             context.navigate(context.route.copy(workerId = worker.id,threadId = worker.threadId ?: context.route.threadId))
         }
+        runApprovalQuestionId(part) != null -> GenericToolCard(part, scope)
         part.name.startsWith("thread_") -> ThreadToolCard(part,scope.threads.find { it.id == threadCallId(part) },context,scope.artifacts)
         publishedApp != null && apps != null -> io.github.mitzacoder.kemiri.features.apps.AppPublishCard(publishedApp, apps)
         part.name == "artifact_save" -> ArtifactCallCard(part,context,scope.artifacts)
@@ -252,8 +253,10 @@ private fun stepIcon(part: ChatPart): LucideIcon = when {
 @Composable private fun GenericToolCard(part: ChatPart, scope: TranscriptScope) {
     val context = scope.context
     var expanded by rememberSaveable(part.key) { mutableStateOf(false) }
-    TranscriptSurface(title = toolHeadline(part.name) ?: part.name,icon = stepIcon(part),expanded = expanded,onToggle = { expanded = !expanded },
-        subtitle = toolSummary(part).ifBlank { null },
+    val approval = runApprovalQuestionId(part)
+    val title = if (approval != null) "Asked to start a ${if (part.name == "thread_start") "job" else "worker"}" else toolHeadline(part.name) ?: part.name
+    TranscriptSurface(title = title,icon = stepIcon(part),expanded = expanded,onToggle = { expanded = !expanded },
+        subtitle = listOfNotNull(approval, toolSummary(part).ifBlank { null }).joinToString(" · ").ifBlank { null },
         status = listOfNotNull(friendlyStatus(part),if(part.viaScript != null) "via script" else null).joinToString(" · "),tone = callTone(part)) {
         ToolDisclosure(expanded) {
             Text("${part.name} · ${toolStatusLabel(part)}",style = MaterialTheme.typography.labelMedium,fontFamily = FontFamily.Monospace)

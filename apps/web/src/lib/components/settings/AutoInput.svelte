@@ -16,6 +16,7 @@
 		id,
 		type = 'text',
 		placeholder,
+		inputmode,
 		min,
 		max,
 		step,
@@ -30,6 +31,7 @@
 		id?: string;
 		type?: 'text' | 'number' | 'time';
 		placeholder?: string;
+		inputmode?: "numeric";
 		min?: number;
 		max?: number;
 		step?: number;
@@ -69,6 +71,7 @@
 			{id}
 			{type}
 			{placeholder}
+			{inputmode}
 			{min}
 			{max}
 			{step}

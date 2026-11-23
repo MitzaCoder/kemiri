@@ -1,6 +1,14 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.data.ProjectSetting
+import io.github.mitzacoder.kemiri.data.configureProject
+import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.ModelRef
+import io.github.mitzacoder.kemiri.protocol.ProjectSummary
 import io.github.mitzacoder.kemiri.protocol.WorkerModel
 
 /** Edits of a project's ordered default worker models (web `lib/workers.ts`). Each returns the same list when nothing changes. */
@@ -28,3 +36,24 @@ fun workerModelsSignature(models: List<WorkerModel>) = models.joinToString(",") 
 
 /** The check-in interval a text field may hold (web `commitMinutes`): a whole number of minutes from 1 to 1440, else null. */
 fun parseCheckInMinutes(text: String): Long? = text.trim().toLongOrNull()?.takeIf { it in 1L..1440L }
+
+@Composable
+internal fun OutsideModelRunLimitRow(context: ProjectScreenContext, project: ProjectSummary) {
+    val save = rememberSaveState(project.id)
+    SettingsRow(
+        "Outside-model run limit",
+        hint = "Agents may run at most this many workers or jobs at once on models outside this list. A further one asks you first. Leave empty for no limit.",
+        status = save,
+        control = RowControl.Auto,
+    ) {
+        AutoInput(
+            project.outsideModelRunLimit?.toString().orEmpty(), save, Modifier.widthIn(max = 128.dp),
+            placeholder = "No limit", numeric = true, label = "Outside-model run limit",
+        ) { text ->
+            val limit = if (text.isEmpty()) null else text.toLongOrNull()?.takeIf { it in 0L..9_007_199_254_740_991L }
+                ?: throw IllegalArgumentException("Enter a whole number of 0 or more, or leave empty.")
+            context.backend.client.configureProject(project.id, ProjectSetting.OutsideModelRunLimit(limit))
+            context.backend.refreshProjects()
+        }
+    }
+}

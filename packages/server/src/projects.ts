@@ -9,6 +9,7 @@ import { basename, dirname, join } from "node:path";
 import type { ReportAuditSettings, LongPromptCache, ModelRef, ProjectCheckIns, ProjectLinks, ThinkingLevel, UiProof, WorkerModel } from "@kemiri/protocol";
 import {
 	DEFAULT_CHECK_INS,
+	DEFAULT_OUTSIDE_MODEL_RUN_LIMIT,
 	DEFAULT_REPORT_AUDIT,
 	DEFAULT_LONG_PROMPT_CACHE,
 	DEFAULT_UI_PROOF,
@@ -38,6 +39,7 @@ export type Project = {
 	};
 	/** Defaults for workers, in order of preference, when nobody picked a worker model for this project yet. */
 	workerModels: WorkerModel[];
+	outsideModelRunLimit?: number | null;
 	/** The coordinator's periodic check-ins on running workers. */
 	checkIns: ProjectCheckIns;
 	/** Which conversations ask for the one-hour prompt cache. */
@@ -68,6 +70,7 @@ export type ProjectChange = {
 	coordinatorModel?: ModelRef | null;
 	coordinatorThinkingLevel?: ThinkingLevel | null;
 	workerModels?: WorkerModel[] | null;
+	outsideModelRunLimit?: number | null;
 	/** `null` restores `DEFAULT_CHECK_INS`. */
 	checkIns?: ProjectCheckIns | null;
 	/** `null` restores `DEFAULT_LONG_PROMPT_CACHE`. */
@@ -115,6 +118,7 @@ function defaultProject(id: string, name: string, path: string): Project {
 		createdAt: new Date().toISOString(),
 		coordinator: { model: null, thinkingLevel: null },
 		workerModels: [],
+		outsideModelRunLimit: DEFAULT_OUTSIDE_MODEL_RUN_LIMIT,
 		checkIns: { ...DEFAULT_CHECK_INS },
 		longPromptCache: DEFAULT_LONG_PROMPT_CACHE,
 		keepPromptCacheWarm: true,
@@ -126,6 +130,10 @@ function defaultProject(id: string, name: string, path: string): Project {
 		chatDetailNudges: true,
 		links: null,
 	};
+}
+
+export function normalizeOutsideModelRunLimit(limit: number | null | undefined): number | null {
+	return limit === null || (limit !== undefined && Number.isSafeInteger(limit) && limit >= 0) ? limit : DEFAULT_OUTSIDE_MODEL_RUN_LIMIT;
 }
 
 function parseProject(value: unknown, id: string): Project | undefined {
@@ -158,6 +166,7 @@ function parseProject(value: unknown, id: string): Project | undefined {
 			thinkingLevel: thinkingLevel as ThinkingLevel | null,
 		},
 		workerModels: parseWorkerModels(record.workerModels),
+		outsideModelRunLimit: normalizeOutsideModelRunLimit(record.outsideModelRunLimit),
 		checkIns: parseCheckIns(record.checkIns),
 		longPromptCache: parseLongPromptCache(record.longPromptCache),
 		keepPromptCacheWarm: typeof record.keepPromptCacheWarm === "boolean" ? record.keepPromptCacheWarm : true,
@@ -379,6 +388,7 @@ export class ProjectStore {
 							: change.coordinatorThinkingLevel,
 				},
 				workerModels: change.workerModels === undefined ? project.workerModels : (change.workerModels ?? []),
+				outsideModelRunLimit: normalizeOutsideModelRunLimit(change.outsideModelRunLimit === undefined ? project.outsideModelRunLimit : change.outsideModelRunLimit),
 				checkIns:
 					change.checkIns === undefined
 						? project.checkIns

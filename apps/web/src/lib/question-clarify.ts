@@ -5,7 +5,7 @@ export function questionClarifySupported(features: readonly string[] | undefined
 }
 
 export function canClarifyQuestion(question: BoardQuestion, enabled: boolean): boolean {
-	return enabled && question.status === 'open' && !question.mcpApproval;
+	return enabled && question.status === 'open' && !question.mcpApproval && !question.outsideModelApproval;
 }
 
 /** Highlighting is a hint, not automatic classification: Send still records an answer. */

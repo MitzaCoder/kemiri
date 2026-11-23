@@ -186,6 +186,11 @@ export const ProjectAttentionSchema = Type.Object({
 });
 export type ProjectAttention = Static<typeof ProjectAttentionSchema>;
 
+export const DEFAULT_OUTSIDE_MODEL_RUN_LIMIT = 2;
+const OutsideModelRunLimitSchema = Type.Union([Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }), Type.Null()], {
+	description: "Concurrent agent-named runs outside the project worker models before asking for approval; null means no limit.",
+});
+
 export const ProjectSummarySchema = Type.Object({
 	id: ProjectIdSchema,
 	name: Type.String(),
@@ -198,6 +203,7 @@ export const ProjectSummarySchema = Type.Object({
 		description:
 			"Default models for new workers, in order of preference. The composer picker moves its model to the front. A model named by the coordinator or schedule takes precedence.",
 	}),
+	outsideModelRunLimit: Type.Optional(OutsideModelRunLimitSchema),
 	checkIns: ProjectCheckInsSchema,
 	/** Absent on servers older than this field. */
 	longPromptCache: Type.Optional(LongPromptCacheSchema),
@@ -277,6 +283,7 @@ export const ProjectsConfigureRequestSchema = Type.Object({
 				"Replaces the ordered worker model defaults. The composer picker changes the first entry. Without a thinkingLevel, the model's default applies.",
 		}),
 	),
+	outsideModelRunLimit: Type.Optional(OutsideModelRunLimitSchema),
 	checkIns: Type.Optional(
 		Type.Union([ProjectCheckInsSchema, Type.Null()], {
 			description: "Replaces the check-in settings; null restores the defaults (enabled, every 10 minutes).",
@@ -432,6 +439,7 @@ export const HARNESS_FEATURES = [
 	"subscription-value",
 	"task-usage",
 	"worker-picker-project-default",
+	"outside-model-limit",
 	"memory-maintenance-enabled",
 	"project-repository",
 	"task-report-blocks",
@@ -449,7 +457,7 @@ export type HarnessFeature = (typeof HARNESS_FEATURES)[number];
 
 /** The original capabilities assumed when a legacy server omits hello.features. */
 export const LEGACY_HARNESS_FEATURES = HARNESS_FEATURES.filter(
-	(feature) => feature !== "in-app-alerts" && feature !== "task-step-alerts" && feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "coordinator-compaction-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live-watcher" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "project-changes" && feature !== "project-changes-working" && feature !== "project-files" && feature !== "project-files-write" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value" && feature !== "task-usage" &&
+	(feature) => feature !== "outside-model-limit" && feature !== "in-app-alerts" && feature !== "task-step-alerts" && feature !== "question-clarify" && feature !== "thread-state" && feature !== "user-settings" && feature !== "coordinator-compaction-settings" && feature !== "project-skills" && feature !== "artifact-versions" && feature !== "mcp-servers" && feature !== "chat-files-v1" && feature !== "task-timeline-groups" && feature !== "task-live-watcher" && feature !== "task-live" && feature !== "task-deploys" && feature !== "task-activity" && feature !== "task-state" && feature !== "task-part-states" && feature !== "report-audit" && feature !== "task-freshness" && feature !== "task-changes" && feature !== "project-changes" && feature !== "project-changes-working" && feature !== "project-files" && feature !== "project-files-write" && feature !== "fcm-relay-v1" && feature !== "device-auth-v1" && feature !== "device-pairing-v1" && feature !== "device-management-v1" && feature !== "task-steps" && feature !== "task-fields" && feature !== "task-delivery" && feature !== "subscription-value" && feature !== "task-usage" &&
 		feature !== "worker-picker-project-default" && feature !== "memory-maintenance-enabled" && feature !== "project-repository" && feature !== "task-report-blocks" && feature !== "task-report-section-views" && feature !== "coordinators" && feature !== "thread-model-settings" && feature !== "task-coordinator" && feature !== "memory-notes" && feature !== "coordinator-messages" && feature !== "landing-turn" && feature !== "coordinator-schedules" && feature !== "recorded-usage" && feature !== "apps" && feature !== "project-artifacts" && feature !== "artifact-thumbnails" && feature !== "usage-pause",
 );
 
@@ -535,6 +543,7 @@ export const HarnessFeatureSchema = Type.Union([
 	Type.Literal("subscription-value"),
 	Type.Literal("task-usage"),
 	Type.Literal("worker-picker-project-default"),
+	Type.Literal("outside-model-limit"),
 	Type.Literal("memory-maintenance-enabled"),
 	Type.Literal("project-repository"),
 	Type.Literal("task-report-blocks"),

@@ -72,7 +72,7 @@ import {
 	type WorkerStatus,
 	type WorkerSummary,
 } from "@kemiri/protocol";
-import { Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { mkdir } from "node:fs/promises";
 import {
 	BoardDoc,
@@ -105,6 +105,7 @@ import {
 	scheduleFailureNotification,
 	workerNotification,
 } from "./notifications.ts";
+import type { OutsideModelApprovals } from "./outside-model-approvals.ts";
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
 import type { MemoryStore } from "./memory.ts";
@@ -600,7 +601,7 @@ export type ResolveWorkerModelResult =
 	| { ok: true; value: ResolvedWorkerModel }
 	| { ok: false; message: string };
 
-function projectWorkerModel(projectModels: readonly WorkerModel[], ref: ModelRef): WorkerModel | undefined {
+export function projectWorkerModel(projectModels: readonly WorkerModel[], ref: ModelRef): WorkerModel | undefined {
 	return projectModels.find((model) => model.provider === ref.provider && model.modelId === ref.modelId);
 }
 
@@ -1356,6 +1357,145 @@ export class WorkerService {
 		const count = await countRunningModelOverrides(this, projectModels, context);
 		const list = projectModels.map(({ provider, modelId }) => `${provider}/${modelId}`).join(", ") || "none set";
 		return ` This model is not one of the project's worker models (${list}). ${count} ${count === 1 ? "run started by an agent on a model outside that list is" : "runs started by agents on models outside that list are"} live in this project.`;
+	}
+
+	outsideModelApprovals?: OutsideModelApprovals;
+
+	/** The tool and a later owner-approved start use the same validation and create transaction. */
+	async spawnAgentWorker(args: WorkerSpawnArgs, options: {
+		conversationId: ConversationId;
+		callId: string;
+		commit: <T>(change: (tx: Tx) => Promise<T>) => Promise<T>;
+		/** Present only for an approval. Also detects a worker started while the question was open. */
+		previousConversationId?: number | null;
+	}, context: Context): Promise<ReturnType<typeof toolText>> {
+		const { conversationId, callId, commit, previousConversationId } = options;
+		// A worker never gets these tools, and one selected into a worker conversation still cannot use them.
+		const place = this.placeOf(conversationId);
+		if (place === undefined) {
+			return toolText(this.notCoordinatorMessage("worker_spawn"), { isError: true });
+		}
+		const board = args.taskId === undefined ? undefined : ((await this.harness.snapshot(BoardDoc, this.mainId as ConversationId, context)) as BoardState | undefined);
+		const task = args.taskId === undefined ? undefined : board?.tasks.find((candidate) => candidate.id === args.taskId);
+		if (args.taskId !== undefined && task === undefined) {
+			return toolText(`No task "${args.taskId}" on the board (unknown_task). List the board, or spawn without taskId.`, {
+				isError: true,
+				details: { code: "unknown_task", taskId: args.taskId },
+			});
+		}
+		if (previousConversationId !== undefined && task && (task.archived || task.status === "done" || task.status === "dropped")) {
+			return toolText(`Task ${task.id} is closed.`, { isError: true });
+		}
+		const owner = task?.ownerThreadId ?? null;
+		if (task !== undefined && owner !== null && owner !== place.threadId) {
+			return toolText(
+				`${task.id} is claimed by thread "${owner}", so another thread works on it. Leave it to that thread, or ask it to hand the task over.`,
+				{ isError: true, details: { code: "board_conflict", taskId: task.id, ownerThreadId: owner } },
+			);
+		}
+		const state = (await this.harness.snapshot(WorkersDoc, conversationId, context)) ?? emptyWorkersState();
+		const legacyDefaults = this.usesProjectWorkerDefault ? undefined : this.coordinators.isMain(conversationId)
+			? defaultsOf(state)
+			: defaultsOf(await this.harness.snapshot(WorkersDoc, this.mainId as ConversationId, context));
+		const existing = state.workers[args.id];
+		if (previousConversationId !== undefined && (existing?.conversationId ?? null) !== previousConversationId) {
+			return toolText(`Worker "${args.id}" was already started in the meantime.`, { isError: true });
+		}
+		if (existing !== undefined && existing.status !== "done") {
+			if (existing.spawnedByCallId === callId) {
+				const modelNotice = args.model === undefined ? "" : await this.modelOverrideNotice(existing.model, context);
+				return toolText(`Worker "${args.id}" is already started (${describeStatus(existing)}).${modelNotice}`, {
+					details: { workerId: existing.id, conversationId: existing.conversationId },
+				});
+			}
+			return toolText(
+				`A worker named "${args.id}" already exists (${describeStatus(existing)}). Send it a message with worker_send, or pick another name.`,
+				{ isError: true },
+			);
+		}
+
+		const resolved = resolveWorkerModel({
+			explicit: args.model,
+			explicitThinkingLevel: args.thinkingLevel,
+			legacyDefaults,
+			threadWorkerModel: place.workerModel,
+			projectModels: this.project.workerModels,
+			models: this.#options.models,
+		});
+		if (!resolved.ok) return toolText(resolved.message, { isError: true });
+		const { model, thinkingLevel } = resolved.value;
+		if (previousConversationId === undefined && args.model !== undefined) {
+			const question = await this.outsideModelApprovals?.requestIfAtLimit(model, callId, {
+				kind: "worker", args, conversationId, threadId: place.threadId, previousConversationId: existing?.conversationId ?? null,
+			}, commit, context);
+			if (question) return toolText(question.message, { details: { questionId: question.id } });
+		}
+
+		const isolation: WorkerIsolation = args.isolation ?? "shared";
+		let workspace: string | null = null;
+		let workspaceRevision: string | null = null;
+		if (isolation === "workspace") {
+			try {
+				workspace = await this.createWorkspace(args.id, place);
+				workspaceRevision = await jjWorkspaceRevision(workspace);
+			} catch (error) {
+				return toolText(
+					error instanceof WorkerError ? error.message : `Could not create a workspace: ${errorMessage(error)}`,
+					{ isError: true },
+				);
+			}
+		}
+
+		const title = args.title ?? args.task.split("\n")[0]?.slice(0, 120) ?? args.task.slice(0, 120);
+		const checkIn = await this.checkInNeeded(context, conversationId);
+		const browserAvailability = this.isOfficialAgent(model) ? "Official-agent worker" : await this.ensureBrowserReady();
+		const created = await commit(async (tx) => {
+			const current = (await tx.doc(WorkersDoc, conversationId)).workers[args.id];
+			if ((current?.conversationId ?? null) !== (existing?.conversationId ?? null) || (current && current.status !== "done")) {
+				throw new ServerError("board_conflict", `Worker "${args.id}" was already started in the meantime.`);
+			}
+			if (previousConversationId !== undefined && args.taskId !== undefined) {
+				const task = (await openBoard(tx, this.mainId as ConversationId)).tasks.find(row => row.id === args.taskId);
+				if (!task || task.archived || task.status === "done" || task.status === "dropped" || (task.ownerThreadId != null && task.ownerThreadId !== place.threadId)) {
+					throw new ServerError("board_conflict", `Task ${args.taskId} is now closed or belongs to another coordinator.`);
+				}
+			}
+			const boardNotices: string[] = [];
+			const workerConversationId = await this.createWorkerIn(tx, conversationId, {
+				browserAvailability,
+				boardNotices,
+				id: args.id,
+				title,
+				task: args.task,
+				model,
+				thinkingLevel,
+				isolation,
+				workspace,
+				workspaceRevision,
+				scheduleId: null,
+				taskId: task?.id ?? null,
+				spawnedByCallId: callId,
+				...(args.model === undefined ? {} : { modelNamedByAgent: true }),
+				callId,
+				followUp: false,
+				checkIn,
+				schedule: undefined,
+			});
+			return { conversationId: workerConversationId, boardNotices };
+		});
+
+		const where =
+			workspace !== null ? workspace : this.coordinators.isMain(conversationId) ? "the project checkout" : `your workspace ${place.checkout}`;
+		const overlaps = isolation === "shared" && task !== undefined && board !== undefined ? scopeOverlaps(state, board, args.id, task.writeScopes) : [];
+		const warning =
+			overlaps.length === 0
+				? ""
+				: `\nWarning: ${task?.id}'s write scopes (${task?.writeScopes.join(", ")}) overlap ${overlaps.join("; ")}. Both work in the same checkout, so their edits can collide: tell them apart in the briefs, or give one a workspace.`;
+		const modelNotice = args.model === undefined ? "" : await this.modelOverrideNotice(model, context);
+		return toolText(
+			`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}.${modelNotice} Its report arrives as a message when it answers; keep going meanwhile.${created.boardNotices.length ? ` ${created.boardNotices.join(" ")}` : ""}${warning}`,
+			{ details: { workerId: args.id, conversationId: created.conversationId } },
+		);
 	}
 
 	/** Where a coordinator's workers work; undefined for anything that is not a coordinator. */
@@ -2279,6 +2419,34 @@ function scopeOverlaps(state: WorkersState, board: BoardState, workerId: string,
 	return overlaps;
 }
 
+const workerSpawnParameters = Type.Object({
+	id: Type.String({
+		minLength: 1,
+		maxLength: 48,
+		pattern: WORKER_ID_PATTERN,
+		description: "Short name for the worker, unique among the project's live workers.",
+	}),
+	task: Type.String({
+		minLength: 1,
+		description: "The brief: goal, files, constraints, how to verify, and what you need in the report.",
+	}),
+	title: Type.Optional(Type.String({ description: "One line for the worker list: what it is doing." })),
+	isolation: Type.Optional(
+		Type.Union([Type.Literal("shared"), Type.Literal("workspace")], {
+			description: 'Default "shared". "workspace" gives it its own jj workspace in the data directory.',
+		}),
+	),
+	model: Type.Optional(modelRefSchema),
+	thinkingLevel: Type.Optional(thinkingLevelSchema),
+	taskId: Type.Optional(
+		Type.String({
+			minLength: 1,
+			description: "The board task (T3) this worker runs. It moves to in_progress now and to blocked if the worker fails. The worker keeps the task's report current; its final report does not move the task, you move it to review once you checked the work.",
+		}),
+	),
+});
+export type WorkerSpawnArgs = Omit<Static<typeof workerSpawnParameters>, "thinkingLevel"> & { thinkingLevel?: ThinkingLevel | undefined };
+
 function createWorkerExtension(service: WorkerService): Extension {
 	const spawnTool = defineTool({
 		name: "worker_spawn",
@@ -2289,139 +2457,15 @@ function createWorkerExtension(service: WorkerService): Extension {
 			"The worker keeps its own conversation, remembers the messages you send it, and survives restarts. Only its " +
 			"final report enters your context. Pick `isolation: \"workspace\"` when its edits must stay out of the project " +
 			"checkout until you merge them (needs a jj repository); `shared` runs in the project directory.",
-		parameters: Type.Object({
-			id: Type.String({
-				minLength: 1,
-				maxLength: 48,
-				pattern: WORKER_ID_PATTERN,
-				description: "Short name for the worker, unique among the project's live workers.",
-			}),
-			task: Type.String({
-				minLength: 1,
-				description: "The brief: goal, files, constraints, how to verify, and what you need in the report.",
-			}),
-			title: Type.Optional(Type.String({ description: "One line for the worker list: what it is doing." })),
-			isolation: Type.Optional(
-				Type.Union([Type.Literal("shared"), Type.Literal("workspace")], {
-					description: 'Default "shared". "workspace" gives it its own jj workspace in the data directory.',
-				}),
-			),
-			model: Type.Optional(modelRefSchema),
-			thinkingLevel: Type.Optional(thinkingLevelSchema),
-			taskId: Type.Optional(
-				Type.String({
-					minLength: 1,
-					description: "The board task (T3) this worker runs. It moves to in_progress now and to blocked if the worker fails. The worker keeps the task's report current; its final report does not move the task, you move it to review once you checked the work.",
-				}),
-			),
-		}),
+		parameters: workerSpawnParameters,
 		replay: "safe",
 		execute: async (args, api, context) => {
-			// A worker never gets these tools, and one selected into a worker conversation still cannot use them.
-			const place = service.placeOf(api.conversationId);
-			if (place === undefined) {
-				return toolText(service.notCoordinatorMessage("worker_spawn"), { isError: true });
-			}
-			const board = args.taskId === undefined ? undefined : ((await api.snapshot(BoardDoc, service.mainId as ConversationId, context)) as BoardState | undefined);
-			const task = args.taskId === undefined ? undefined : board?.tasks.find((candidate) => candidate.id === args.taskId);
-			if (args.taskId !== undefined && task === undefined) {
-				return toolText(`No task "${args.taskId}" on the board (unknown_task). List the board, or spawn without taskId.`, {
-					isError: true,
-					details: { code: "unknown_task", taskId: args.taskId },
-				});
-			}
-			const owner = task?.ownerThreadId ?? null;
-			if (task !== undefined && owner !== null && owner !== place.threadId) {
-				return toolText(
-					`${task.id} is claimed by thread "${owner}", so another thread works on it. Leave it to that thread, or ask it to hand the task over.`,
-					{ isError: true, details: { code: "board_conflict", taskId: task.id, ownerThreadId: owner } },
-				);
-			}
-			const state = (await api.snapshot(WorkersDoc, api.conversationId, context)) ?? emptyWorkersState();
-			const legacyDefaults = service.usesProjectWorkerDefault ? undefined : service.coordinators.isMain(api.conversationId)
-				? defaultsOf(state)
-				: defaultsOf(await api.snapshot(WorkersDoc, service.mainId as ConversationId, context));
-			const existing = state.workers[args.id];
-			if (existing !== undefined && existing.status !== "done") {
-				if (existing.spawnedByCallId === api.callId) {
-					const modelNotice = args.model === undefined ? "" : await service.modelOverrideNotice(existing.model, context);
-					return toolText(`Worker "${args.id}" is already started (${describeStatus(existing)}).${modelNotice}`, {
-						details: { workerId: existing.id, conversationId: existing.conversationId },
-					});
-				}
-				return toolText(
-					`A worker named "${args.id}" already exists (${describeStatus(existing)}). Send it a message with worker_send, or pick another name.`,
-					{ isError: true },
-				);
-			}
-
-			const resolved = resolveWorkerModel({
-				explicit: args.model,
-				explicitThinkingLevel: args.thinkingLevel,
-				legacyDefaults,
-				threadWorkerModel: place.workerModel,
-				projectModels: service.project.workerModels,
-				models: api.models,
-			});
-			if (!resolved.ok) return toolText(resolved.message, { isError: true });
-			const { model, thinkingLevel } = resolved.value;
-
-			const isolation: WorkerIsolation = args.isolation ?? "shared";
-			let workspace: string | null = null;
-			let workspaceRevision: string | null = null;
-			if (isolation === "workspace") {
-				try {
-					workspace = await service.createWorkspace(args.id, place);
-					workspaceRevision = await jjWorkspaceRevision(workspace);
-				} catch (error) {
-					return toolText(
-						error instanceof WorkerError ? error.message : `Could not create a workspace: ${errorMessage(error)}`,
-						{ isError: true },
-					);
-				}
-			}
-
-			const title = args.title ?? args.task.split("\n")[0]?.slice(0, 120) ?? args.task.slice(0, 120);
-			const checkIn = await service.checkInNeeded(context, api.conversationId);
-			const browserAvailability = service.isOfficialAgent(model) ? "Official-agent worker" : await service.ensureBrowserReady();
-			const created = await api.commit(async (tx) => {
-    const boardNotices: string[] = [];
-    const conversationId = await service.createWorkerIn(tx, api.conversationId, {
-					browserAvailability,
-     boardNotices,
-					id: args.id,
-					title,
-					task: args.task,
-					model,
-					thinkingLevel,
-					isolation,
-					workspace,
-					workspaceRevision,
-					scheduleId: null,
-					taskId: task?.id ?? null,
-					spawnedByCallId: api.callId,
-					...(args.model === undefined ? {} : { modelNamedByAgent: true }),
-					callId: api.callId,
-					followUp: false,
-					checkIn,
-					schedule: undefined,
-    });
-    return { conversationId, boardNotices };
-   }, context);
-
-			await api.details({ workerId: args.id, conversationId: created.conversationId }, context);
-			const where =
-				workspace !== null ? workspace : service.coordinators.isMain(api.conversationId) ? "the project checkout" : `your workspace ${place.checkout}`;
-			const overlaps = isolation === "shared" && task !== undefined && board !== undefined ? scopeOverlaps(state, board, args.id, task.writeScopes) : [];
-			const warning =
-				overlaps.length === 0
-					? ""
-					: `\nWarning: ${task?.id}'s write scopes (${task?.writeScopes.join(", ")}) overlap ${overlaps.join("; ")}. Both work in the same checkout, so their edits can collide: tell them apart in the briefs, or give one a workspace.`;
-			const modelNotice = args.model === undefined ? "" : await service.modelOverrideNotice(model, context);
-			return toolText(
-				`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}.${modelNotice} Its report arrives as a message when it answers; keep going meanwhile.${created.boardNotices.length ? ` ${created.boardNotices.join(" ")}` : ""}${warning}`,
-				{ details: { workerId: args.id, conversationId: created.conversationId } },
-			);
+			const start = () => service.spawnAgentWorker(args, {
+				conversationId: api.conversationId, callId: api.callId, commit: change => api.commit(change, context),
+			}, context);
+			const result = await (service.outsideModelApprovals?.serialize(start) ?? start());
+			if (result.details?.conversationId !== undefined) await api.details(result.details, context);
+			return result;
 		},
 	});
 

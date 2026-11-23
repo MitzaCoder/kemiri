@@ -18,7 +18,7 @@ import type {
 } from "@kemiri/protocol";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { type BoardState, changeOwner, emptyBoardState, askQuestion, openBoard, saveTask } from "../src/board.ts";
+import { DECLINE_OUTSIDE_MODEL_RUN, START_OUTSIDE_MODEL_RUN, type BoardState, changeOwner, emptyBoardState, askQuestion, openBoard, saveTask } from "../src/board.ts";
 import { THREAD_ARCHIVE_AFTER_MS, MAIN_THREADS_SECTION, PEER_THREADS_SECTION, ThreadsDoc, threadInstructions } from "../src/threads.ts";
 import { stateKind } from "../src/state-identity.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
@@ -324,8 +324,15 @@ describe("background threads", () => {
 
 		await submit(client, projectId, "Start a worker on the alternate model.");
 		await view.waitForView(value => toolResultTexts(value, "worker_spawn").length > 0);
-		expect(toolResultTexts(view.view, "worker_spawn")[0]?.text).toContain("3 runs started by agents on models outside that list are live in this project.");
+		expect(toolResultTexts(view.view, "worker_spawn")[0]?.text).toContain("Not started yet. Waiting for the owner's approval in Q1.");
 		const { runtime } = await test.server.manager.open(projectId);
+		const question = (await runtime.board.state()).questions[0]!;
+		expect(question).toMatchObject({ id: "Q1", taskId: null, threadId: "main", status: "open", outsideModelApproval: true });
+		expect(await countRunningModelOverrides(runtime.workers)).toBe(2);
+		expect((await workers(client, projectId, "main")).workers).not.toContainEqual(expect.objectContaining({ id: "reader" }));
+		const response = await client.request({ type: "board.question.answer", projectId, questionId: question.id, expectedRevision: question.revision, answer: START_OUTSIDE_MODEL_RUN });
+		expect(response.type).toBe("board.question.answer");
+		await view.waitForView(value => userEntries(value, "[worker reader started after the owner's approval in Q1]").length === 1);
 		expect(await countRunningModelOverrides(runtime.workers)).toBe(3);
 		const updated = await client.request({ type: "threads.update", projectId, threadId: "jira-run", model });
 		expect(updated.type).toBe("threads.update");
@@ -333,6 +340,118 @@ describe("background threads", () => {
 		workerGate.release();
 		await until(async () => (await workers(client, projectId)).workers.every(worker => worker.status !== "running"));
 		await until(async () => (await countRunningModelOverrides(runtime.workers)) === 0);
+	});
+
+	threadTest("asks for job approval, survives restart, and delivers refusal without starting", async () => {
+		const outside = fauxProvider({ provider: "fixture", models: [{ id: "outside" }] });
+		const model = { provider: "fixture", modelId: "outside" };
+		const test = await setup({ configureModels: models => models.setProvider(outside.provider) });
+		const { client, projectId, view } = await openProject(test);
+		const configured = await client.request({ type: "projects.configure", projectId, outsideModelRunLimit: 0 });
+		expect(configured).toMatchObject({ type: "projects.configure", project: { outsideModelRunLimit: 0 } });
+		script(test, turn => {
+			if (turn.text === "Approve it from the agent.") return call("board", { action: "resolve_question", id: "Q1", answer: START_OUTSIDE_MODEL_RUN });
+			if (turn.text === "Withdraw the job.") return call("board", { action: "resolve_question", id: "Q2" });
+		}, { model, thinkingLevel: "high", onFinish: "record" });
+		await submit(client, projectId, "Start the thread.");
+		await view.waitForView(value => toolResultTexts(value, "thread_start").length === 1);
+		expect(toolResultTexts(view.view, "thread_start")[0]).toMatchObject({ isError: false, text: expect.stringContaining("Waiting for the owner's approval in Q1") });
+		await submit(client, projectId, "Approve it from the agent.");
+		await view.waitForView(value => toolResultTexts(value, "board").some(result => result.isError && result.text.includes("Only the owner")));
+		expect(await thread(client, projectId, "jira-run")).toBeUndefined();
+		client.close();
+		await test.restart();
+		const reopened = await connect(test.server);
+		await reopened.hello();
+		const reopenedView = new ViewClient(reopened);
+		await reopenedView.start(projectId);
+		const { runtime } = await test.server.manager.open(projectId);
+		const question = (await runtime.board.state()).questions.find(q => q.id === "Q1")!;
+		expect(question).toMatchObject({ status: "open", taskId: "T1", options: [START_OUTSIDE_MODEL_RUN, DECLINE_OUTSIDE_MODEL_RUN] });
+		const refused = await reopened.request({ type: "board.question.answer", projectId, questionId: question.id, expectedRevision: question.revision, answer: DECLINE_OUTSIDE_MODEL_RUN });
+		expect(refused.type).toBe("board.question.answer");
+		await reopenedView.waitForView(value => userEntries(value, "[job jira-run was not started: the owner declined Q1").length === 1);
+		expect(await thread(reopened, projectId, "jira-run")).toBeUndefined();
+
+		await submit(reopened, projectId, "Start the thread.");
+		await reopenedView.waitForView(value => toolResultTexts(value, "thread_start").some(result => result.text.includes("approval in Q2")));
+		await submit(reopened, projectId, "Withdraw the job.");
+		await reopenedView.waitForView(value => toolResultTexts(value, "board").some(result => result.text.includes("Q2 is withdrawn")));
+		expect((await runtime.board.state()).outsideModelApprovals?.Q2?.request).toBeUndefined();
+
+		await submit(reopened, projectId, "Start the thread.");
+		await reopenedView.waitForView(value => toolResultTexts(value, "thread_start").some(result => result.text.includes("approval in Q3")));
+		const approved = await reopened.request({ type: "board.question.answer", projectId, questionId: "Q3", expectedRevision: 1, answer: START_OUTSIDE_MODEL_RUN });
+		expect(approved.type).toBe("board.question.answer");
+		await reopenedView.waitForView(value => userEntries(value, "[job jira-run started after the owner's approval in Q3]").length === 1);
+		expect(await thread(reopened, projectId, "jira-run")).toMatchObject({ model, thinkingLevel: "high", onFinish: "record", taskId: "T3" });
+	});
+
+	threadTest("an approved worker does not replace a worker started on a project model while waiting", async () => {
+		const outside = fauxProvider({ provider: "fixture", models: [{ id: "outside" }] });
+		const model = { provider: "fixture", modelId: "outside" };
+		const test = await setup({ configureModels: models => models.setProvider(outside.provider) });
+		const { client, projectId, view } = await openProject(test);
+		await client.request({ type: "projects.configure", projectId, outsideModelRunLimit: 0 });
+		script(test, turn => {
+			if (turn.text === "Try outside.") return call("worker_spawn", { id: "reader", task: WORKER_BRIEF, model });
+			if (turn.text === "Use the default instead.") return call("worker_spawn", { id: "reader", task: WORKER_BRIEF });
+		});
+		await submit(client, projectId, "Try outside.");
+		await view.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => result.text.includes("approval in Q1")));
+		await submit(client, projectId, "Use the default instead.");
+		await view.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => result.text.includes('Started worker "reader" on faux/faux-1')));
+		const approved = await client.request({ type: "board.question.answer", projectId, questionId: "Q1", expectedRevision: 1, answer: START_OUTSIDE_MODEL_RUN });
+		expect(approved.type).toBe("board.question.answer");
+		await view.waitForView(value => userEntries(value, '[worker reader was not started: Worker "reader" was already started').length === 1);
+		expect((await workers(client, projectId)).workers.find(worker => worker.id === "reader")?.model).toEqual(FAUX);
+	});
+
+	threadTest("counts neither owner choices, schedules, nor the project's worker models", async () => {
+		const outside = fauxProvider({ provider: "fixture", models: [{ id: "outside" }] });
+		const model = { provider: "fixture", modelId: "outside" };
+		const test = await setup({ configureModels: models => models.setProvider(outside.provider) });
+		const { client, projectId, view } = await openProject(test);
+		const { runtime } = await test.server.manager.open(projectId);
+		const gate = deferredGate();
+		try {
+			script(test, async turn => {
+				if (turn.who === "worker") await hold(gate.promise, turn.signal);
+				if (turn.text === "Use the project model.") return call("worker_spawn", { id: "project-model", task: WORKER_BRIEF, model: FAUX });
+				if (turn.text === "Use the composer pick.") return call("worker_spawn", { id: "composer-pick", task: WORKER_BRIEF });
+				if (turn.text === "Use the alternate model.") return call("worker_spawn", { id: "outside", task: WORKER_BRIEF, model });
+			});
+			outside.setResponses(Array.from({ length: 20 }, () => async (_request, options) => {
+				await hold(gate.promise, options?.signal);
+				return fauxAssistantMessage("## Report\nOutcome: done");
+			}));
+			const projects = await client.request({ type: "projects.list" });
+			expect(projects.type === "projects.list" && projects.projects[0]?.outsideModelRunLimit).toBe(2);
+			await client.request({ type: "projects.configure", projectId, outsideModelRunLimit: 0 });
+			await submit(client, projectId, "Use the project model.");
+			await view.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => result.text.includes('Started worker "project-model"')));
+			const schedule = await client.request({ type: "schedules.save", projectId, schedule: {
+				title: "Read on a schedule", brief: WORKER_BRIEF, spec: { kind: "interval", everyMinutes: 60 },
+				model, thinkingLevel: null, onReport: "record", isolation: "shared", enabled: false,
+			} });
+			if (schedule.type !== "schedules.save") throw new Error(JSON.stringify(schedule));
+			const scheduled = await client.request({ type: "schedules.run", projectId, scheduleId: schedule.schedule.id });
+			expect(scheduled).toMatchObject({ type: "schedules.run", run: { outcome: "started" } });
+			const submitted = await client.request({ type: "conversation.submit", projectId, requestId: "composer-pick", content: "Use the composer pick.", workerModel: model });
+			expect(submitted.type).toBe("conversation.submit");
+			await view.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => result.text.includes('Started worker "composer-pick" on fixture/outside')));
+			await client.request({ type: "projects.configure", projectId, workerModels: [FAUX] });
+			expect(await countRunningModelOverrides(runtime.workers)).toBe(0);
+			expect((await runtime.board.state()).questions).toHaveLength(0);
+
+			const disabled = await client.request({ type: "projects.configure", projectId, outsideModelRunLimit: null });
+			expect(disabled).toMatchObject({ type: "projects.configure", project: { outsideModelRunLimit: null } });
+			await submit(client, projectId, "Use the alternate model.");
+			await view.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => result.text.includes('Started worker "outside"')));
+			expect(await countRunningModelOverrides(runtime.workers)).toBe(1);
+		} finally {
+			gate.release();
+		}
 	});
 
 	threadTest("main starts a thread, which works in its own workspace and finishes with a summary main reviews", async () => {

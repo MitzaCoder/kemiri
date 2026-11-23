@@ -201,6 +201,7 @@ internal fun WorkersSection(context: ProjectScreenContext, project: ProjectSumma
                     placeholder = if (addable.isEmpty()) "Every model is in the list" else "Add a model…", searchPlaceholder = "Search models or providers…", enabled = addable.isNotEmpty(),
                 )
             }
+            if (connection.supports(HarnessFeature.OUTSIDE_MODEL_LIMIT)) OutsideModelRunLimitRow(context, project)
         }
         SettingsGroup(title = "Check-ins") {
             SettingsRow(

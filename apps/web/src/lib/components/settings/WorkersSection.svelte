@@ -126,6 +126,14 @@
 		await saveCheckIns({ enabled: checkIns.enabled, intervalMinutes: minutes });
 	}
 
+	async function commitOutsideModelRunLimit(text: string): Promise<void> {
+		const limit = text === '' ? null : Number(text);
+		if (limit !== null && (!/^\d+$/.test(text) || !Number.isSafeInteger(limit))) {
+			throw new Error('Enter a whole number of 0 or more, or leave empty.');
+		}
+		await backend.configureProject(projectId, { outsideModelRunLimit: limit });
+	}
+
 	onMount(() => {
 		void backend.ensureLoaded();
 	});
@@ -203,6 +211,13 @@
 				disabled={addable.length === 0}
 			/>
 		</SettingsRow>
+		{#if backend.supports('outside-model-limit') && project}
+			<SettingsRow label="Outside-model run limit" for="outside-model-run-limit" control="auto"
+				hint="Agents may run at most this many workers or jobs at once on models outside this list. A further one asks you first. Leave empty for no limit.">
+				<AutoInput id="outside-model-run-limit" inputmode="numeric" class="w-28" placeholder="No limit"
+					value={project.outsideModelRunLimit?.toString() ?? ''} commit={commitOutsideModelRunLimit} />
+			</SettingsRow>
+		{/if}
 	</SettingsGroup>
 
 	<SettingsGroup title="Check-ins">

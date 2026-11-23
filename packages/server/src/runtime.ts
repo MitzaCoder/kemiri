@@ -107,7 +107,8 @@ import {
 } from "./notifications.ts";
 import { ProjectStorage } from "./storage.ts";
 import { DEFAULT_WORK_QUIET_MS, WorkFinishedWatch, resolveWorkFinishedMs } from "./work-finished.ts";
-import { isRepositoryPath, type Project, type ProjectChange, type ProjectStore } from "./projects.ts";
+import { OutsideModelApprovals } from "./outside-model-approvals.ts";
+import { isRepositoryPath, normalizeOutsideModelRunLimit, type Project, type ProjectChange, type ProjectStore } from "./projects.ts";
 import { ProjectLinkDetector } from "./project-links.ts";
 import type { FireEventOptions, ReviewRequest, ScheduleEventPoller } from "./schedule-events.ts";
 import { RefDetailsService } from "./ref-details.ts";
@@ -260,6 +261,7 @@ export type ProjectManagerOptions = {
 	reportAudit?: boolean;
  taskWatcher?: boolean;
 	workerPickerProjectDefault?: boolean;
+	outsideModelLimit?: boolean;
 	projectRepository?: boolean;
 	/**
 	 * The backend's memory scopes. Default: one over the store's data directory, without change notifications, which only
@@ -312,6 +314,7 @@ function projectSummary(
 			thinkingLevel: project.coordinator.thinkingLevel,
 		},
 		workerModels: project.workerModels,
+		outsideModelRunLimit: normalizeOutsideModelRunLimit(project.outsideModelRunLimit),
 		checkIns: project.checkIns,
 		longPromptCache: project.longPromptCache,
 		keepPromptCacheWarm: project.keepPromptCacheWarm,
@@ -344,6 +347,7 @@ export class ProjectManager {
 	readonly artifacts: ArtifactStore;
 	readonly #log: (message: string) => void;
 	readonly #workerPickerProjectDefault: boolean;
+	readonly #outsideModelLimit: boolean;
 	readonly #projectRepository: boolean;
 	readonly #repositoryByPath = new Map<string, Promise<boolean>>();
 	readonly #onProjectState: ((summary: ProjectSummary) => void) | undefined;
@@ -416,6 +420,7 @@ export class ProjectManager {
 		this.browsers = options.browsers ?? new WorkerBrowserService({ dataDir: options.store.dataDir, log: this.#log });
 		this.artifacts = options.artifacts ?? new ArtifactStore({ dataDir: options.store.dataDir, log: this.#log });
 		this.#workerPickerProjectDefault = options.workerPickerProjectDefault !== false;
+		this.#outsideModelLimit = options.outsideModelLimit !== false;
 		this.#projectRepository = options.projectRepository !== false;
 		this.#onProjectState = options.onProjectState;
 		this.#onArchivedChange = options.onArchivedChange;
@@ -1606,6 +1611,9 @@ export class ProjectManager {
 			onMessage: this.#onThreadsMessage,
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
+		const outsideModelApprovals = new OutsideModelApprovals(board, workers, threads, this.#outsideModelLimit);
+		workers.outsideModelApprovals = outsideModelApprovals;
+		board.onOutsideModelApprovalSettled = () => { void outsideModelApprovals.deliver(); };
 		const activeApps: ActiveApps = async requirePublisher => {
 			const [boardState, threadList, workerList] = await Promise.all([board.state(), threads.list(false), workers.list()]);
 			const openTasks = new Set(boardState.tasks.filter(task => !task.archived && task.status !== "done" && task.status !== "dropped").map(task => task.id));
@@ -2007,6 +2015,7 @@ export class ProjectManager {
 		entry.stopTaskChanges = async () => { await taskDeploys.stop(); await taskChanges.stop(); };
 		await threads.startWatches();
 		await board.deliverUserMoveNotices();
+		void outsideModelApprovals.deliver();
 		// Continue any run the last process left unfinished.
 		harness.resume();
 

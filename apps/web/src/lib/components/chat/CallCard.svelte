@@ -3,7 +3,7 @@
 	import type { MemoryScope, WorkerSummary } from '@kemiri/protocol';
 	import { BOARD_TOOL_NAME, boardCallView } from '#lib/board.js';
 	import { hasThreadCard, threadIdOfCall, type ThreadCards } from '#lib/threads.js';
-	import { workerForToolCall } from '#lib/workers.js';
+	import { runApprovalQuestionId, workerForToolCall } from '#lib/workers.js';
 	import { ARTIFACT_SAVE_TOOL } from '#lib/artifacts.js';
 	import { isCodemodeTool } from '#lib/chat/codemode.js';
 	import { isMemoryTool } from '#lib/chat/memory-tools.js';
@@ -66,6 +66,8 @@
 		{scheduleName}
 		previousTitle={workerTitlesBefore?.get(part.callId)}
 	/>
+{:else if runApprovalQuestionId(part)}
+	<ToolCard {part} {cwd} />
 {:else if threadCard && threadCards !== undefined}
 	<ThreadCallCard
 		{part}

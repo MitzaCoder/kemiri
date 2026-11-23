@@ -28,8 +28,10 @@ internal fun artifactForViewing(projectId: String, id: String, recent: List<Arti
     ?: Artifact(id = id, projectId = projectId, name = id, title = null, note = null, kind = "file", mimeType = "application/octet-stream", size = -1, durationSeconds = null, threadId = "main", workerId = null, taskId = null, sourcePath = "", createdAt = "")
 internal fun workerCallId(part: ChatPart): String? = if(part.name in setOf("worker_spawn","worker_send","worker_stop","worker_peek","worker_forget")) part.arguments.record()?.s("id")?.takeIf(String::isNotBlank) else null
 internal fun sameThread(first: String?, second: String?): Boolean = first.orEmpty().ifBlank { "main" } == second.orEmpty().ifBlank { "main" }
-internal fun workerForCall(part: ChatPart, workers: List<WorkerSummary>, threadId: String?): WorkerSummary? = workers.firstOrNull {
-    sameThread(it.threadId,threadId) && (it.id == workerCallId(part) || (part.name == "worker_spawn" && it.spawnedByCallId != null && part.key == "call-${it.spawnedByCallId}"))
+internal fun runApprovalQuestionId(part: ChatPart): String? = if (part.name == "worker_spawn" || part.name == "thread_start") part.details.record()?.s("questionId") else null
+internal fun workerForCall(part: ChatPart, workers: List<WorkerSummary>, threadId: String?): WorkerSummary? {
+    val spawned = workers.firstOrNull { sameThread(it.threadId, threadId) && part.name == "worker_spawn" && it.spawnedByCallId != null && part.key == "call-${it.spawnedByCallId}" }
+    return spawned ?: if (runApprovalQuestionId(part) != null) null else workers.firstOrNull { sameThread(it.threadId, threadId) && it.id == workerCallId(part) }
 }
 internal fun imageCanRenew(attempts: Int): Boolean = attempts in 0..1
 

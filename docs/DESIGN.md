@@ -2498,6 +2498,17 @@ Status: backend, protocol, client and web UI done (milestone 2).
   provider and model ID against the current list. It excludes schedules and owner-set defaults. An optional record
   field distinguishes an agent-named model from a default without changing document versions; older records with
   no explicit-choice marker do not count.
+- Project settings → Workers has an outside-model run limit (`outside-model-limit`). The default is two at once;
+  an empty field saves `null` for no limit, and zero asks before every agent-named run outside the list. The same
+  count applies across the project. Owner picks and schedules are exempt, as are models on the project list.
+- At the limit, an agent's `worker_spawn` or `thread_start` returns with a board question ID and no run. It can
+  use a project worker model meanwhile. The question asks the owner instead of refusing work the owner might
+  want, and the tool does not wait for a human and hold up the deploy drain. The board stores the validated start
+  and its caller beside the question. Only the owner can approve it, bypassing the limit for that one start.
+  A decline leaves it unstarted. A withdrawal discards the start, and a stale request (such as a replaced worker
+  or a closed task) cannot replace existing work. Approval or decline commits to the board before dispatch. The
+  normal start path records success in the same transaction that creates the run. A separate, deduplicated message
+  tells the caller what happened. A restart preserves both open questions and undelivered outcomes.
 - Worker input request IDs derive from the sending tool call; report IDs derive from the final answer. A rerun after
   a crash neither sends a message nor posts a report twice. T85 reproduced duplicate transcript/timeline entries when
   spawn and steer reporters shared an answer: the old per-call report key treated each as different, and the unchanged

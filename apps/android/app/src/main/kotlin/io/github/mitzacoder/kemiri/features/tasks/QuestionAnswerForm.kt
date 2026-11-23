@@ -28,7 +28,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 internal fun questionCanAnswer(question: BoardQuestion, readOnly: Boolean = false): Boolean = question.status == "open" && !readOnly
 internal fun questionCanAnswerExpanded(question: BoardQuestion, readOnly: Boolean = false): Boolean = questionCanAnswer(question, readOnly)
 internal fun questionCanClarify(question: BoardQuestion, supported: Boolean, readOnly: Boolean = false): Boolean =
-    supported && questionCanAnswer(question, readOnly) && question.mcpApproval != true
+    supported && questionCanAnswer(question, readOnly) && question.mcpApproval != true && question.outsideModelApproval != true
 internal fun askBackIsPrimary(text: String): Boolean = text.trimEnd().endsWith("?")
 internal fun askBackText(question: BoardQuestion, draft: String): String =
     draft.trim().ifEmpty { if (question.noReplyYet == true) question.exchanges.orEmpty().lastOrNull { it.author.author == "user" }?.text.orEmpty() else "" }
@@ -81,7 +81,7 @@ internal fun QuestionAnswerForm(
                 }
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (question.outsideModelApproval != true) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,

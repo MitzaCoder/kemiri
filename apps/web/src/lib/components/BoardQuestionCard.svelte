@@ -128,7 +128,7 @@
 </script>
 
 {#snippet answerForm(expanded: boolean)}
-	{@const answers = questionAnswers(question, taskFieldsEnabled && !optionsOnly && (!strip || expanded))}
+	{@const answers = questionAnswers(question, (!optionsOnly && (!strip || expanded)) && (taskFieldsEnabled || question.outsideModelApproval === true))}
 	{#if answers.kind === 'choices'}
 		<ul role="list" aria-label="Suggested answers" class="flex flex-col gap-1.5 {expanded ? 'question-answer-choices' : ''}">
 			{#each answers.choices as choice}
@@ -164,7 +164,7 @@
 		</div>
 	{/if}
 
-	{#if !optionsOnly}
+	{#if !optionsOnly && !question.outsideModelApproval}
 	<div class="flex flex-wrap items-end justify-end gap-1.5">
 		<Textarea
 			bind:value={text}

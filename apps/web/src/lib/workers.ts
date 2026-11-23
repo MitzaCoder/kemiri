@@ -71,16 +71,22 @@ export function parseCheckIn(text: string): string | undefined {
  */
 export function workerForToolCall(
 	workers: readonly WorkerSummary[],
-	call: { callId: string; name: string; arguments?: unknown },
+	call: { callId: string; name: string; arguments?: unknown; details?: unknown },
 ): WorkerSummary | undefined {
 	if (!isWorkerTool(call.name)) return undefined;
 	const spawned = workerSpawnedByCall(workers, call.callId);
 	if (spawned !== undefined) return spawned;
+	if (runApprovalQuestionId(call)) return undefined;
 	const args = call.arguments;
 	if (typeof args !== "object" || args === null) return undefined;
 	const id = (args as { id?: unknown }).id;
 	if (typeof id !== "string" || id.length === 0) return undefined;
 	return workers.find((worker) => worker.id === id);
+}
+
+/** Only delegation starts use a question ID to mean the run did not start. */
+export function runApprovalQuestionId(call: { name: string; details?: unknown }): string | undefined {
+	return call.name === "worker_spawn" || call.name === "thread_start" ? stringArgument(call.details, "questionId") : undefined;
 }
 
 /**

@@ -499,6 +499,7 @@ export class ClientConnection {
 							? {}
 							: { coordinatorThinkingLevel: request.coordinatorThinkingLevel }),
 						...(request.workerModels === undefined ? {} : { workerModels: request.workerModels }),
+						...(request.outsideModelRunLimit === undefined ? {} : { outsideModelRunLimit: request.outsideModelRunLimit }),
 						...(request.checkIns === undefined ? {} : { checkIns: request.checkIns }),
 						...(request.longPromptCache === undefined ? {} : { longPromptCache: request.longPromptCache }),
 						...(request.keepPromptCacheWarm === undefined ? {} : { keepPromptCacheWarm: request.keepPromptCacheWarm }),
