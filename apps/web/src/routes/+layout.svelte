@@ -19,6 +19,7 @@
 	import { currentProject, projectSeenKey } from '#lib/projects.js';
 	import { suggestedBackends } from '#lib/suggested-backends.svelte.js';
 	import ProjectsSidebar from '#lib/components/ProjectsSidebar.svelte';
+	import CoordinatorCreation from '#lib/components/CoordinatorCreation.svelte';
 	import UsageModal from '#lib/components/usage/UsageModal.svelte';
 	import { theme } from '#lib/themes/theme.svelte.js';
 	import type { LayoutProps } from './$types';
@@ -151,12 +152,14 @@
 {#if page.url.pathname === '/pair'}
 	{@render children()}
 {:else}
-<div class="flex h-dvh w-full overflow-hidden">
-	<ProjectsSidebar />
-	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-		{@render children()}
+<CoordinatorCreation>
+	<div class="flex h-dvh w-full overflow-hidden">
+		<ProjectsSidebar />
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+			{@render children()}
+		</div>
 	</div>
-</div>
+</CoordinatorCreation>
 <AlertStack />
 <AlertInbox />
 <AttentionBadge />

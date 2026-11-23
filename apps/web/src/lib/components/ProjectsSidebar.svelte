@@ -32,6 +32,7 @@
 	import NeedsYou from '#lib/components/NeedsYou.svelte';
 	import AlertInboxButton from '#lib/components/alerts/AlertInboxButton.svelte';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
+	import { getCoordinatorCreation } from '#lib/coordinator-creation.js';
 	import {
 		PROJECTS_NAV_WIDE_QUERY,
 		activeProjects,
@@ -57,6 +58,7 @@
 	 * device).
 	 */
 	const wide = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
+	const coordinatorCreation = getCoordinatorCreation();
 	const current = $derived(currentProject(page.url.pathname));
 	let openJobThreads = $state<ProjectThreads | undefined>(undefined);
 	const openJob = $derived(openJobThreads?.threads.some(thread => thread.id === page.params.threadId && thread.kind === 'coordinator') ? undefined : openBackgroundJobLabel(page.params.threadId, openJobThreads?.threads ?? []));
@@ -288,8 +290,8 @@
 								{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
 							</a>
 						{/if}
-						{#if !rail && backend.supports('coordinators') && isCurrent(backend.id, project.id) && currentRoster.length > 1}
-							<div class="ml-5 grid gap-0.5 border-l border-(--chat-border) pl-1.5" aria-label="Project coordinators">
+						{#if !rail && backend.supports('coordinators') && isCurrent(backend.id, project.id) && currentRoster.length > 0}
+							<div class="ml-5 grid gap-0.5 border-l border-(--chat-border) pl-1.5" role="group" aria-label="Project coordinators">
 								{#each currentRoster as coordinator (coordinator.id)}
 									{@const here = coordinator.id === (page.params.threadId ?? 'main')}
 									<a href={coordinatorHref(backend.id, project.id, coordinator.id)} aria-current={here ? 'page' : undefined} onclick={() => projectsNav.closeDrawer()}
@@ -298,6 +300,11 @@
 										<CoordinatorBadges thread={coordinator} seen={projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, project.id, `seen:${coordinator.id}`))} />
 									</a>
 								{/each}
+								<button type="button" aria-haspopup="dialog" onclick={() => coordinatorCreation.open(backend, project.id)}
+									class="flex min-h-8 items-center gap-1.5 rounded-md border border-dashed border-(--chat-border) px-1.5 text-left text-xs font-medium text-(--chat-fg-muted) hover:bg-(--chat-surface-2) focus-visible:outline-2 focus-visible:outline-(--accent-2)">
+									<PlusIcon class="size-3.5 shrink-0" aria-hidden="true" />
+									New coordinator
+								</button>
 							</div>
 						{/if}
 					{/each}

@@ -2915,8 +2915,11 @@ General route or overriding Back/Forward. The title menu (Alt+J) and scrollable 
 (Alt+1–9) use roster order; jobs nest under their coordinator. Colour and letter marks
 identify owners across the sidebar, roster and tasks. An amber badge counts attention,
 while working, explicit pause and unread replies have independent marks. Reply stamps
-are local to the device. New and Manage use `operationId` again for a retry of the same
-mutation; no keep-warm control is exposed here.
+are local to the device. The open project's sidebar roster ends with New coordinator,
+even when General is the only coordinator. The desktop sidebar, phone drawer, chat
+chip and title menu share the same creation dialog. The phone drawer stays open behind
+the form, so cancel returns to the roster. New and Manage use `operationId` again for a
+retry of the same mutation; no keep-warm control is exposed here.
 
 **Web task scope.** On `task-coordinator` backends, the Tasks panel defaults to the
 open coordinator. Its per-coordinator device preference also supports All coordinators,

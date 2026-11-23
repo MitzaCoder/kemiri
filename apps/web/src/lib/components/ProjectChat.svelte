@@ -17,6 +17,7 @@
 	import { countWorkersOutsideModels, PROJECT_WORKER_MODELS } from '#lib/workers.js';
 	import { page } from '$app/state';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
+	import { getCoordinatorCreation } from '#lib/coordinator-creation.js';
 	import { goto } from '$app/navigation';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import CoordinatorBadges from './CoordinatorBadges.svelte';
@@ -262,7 +263,9 @@
 	const coordinatorChat = $derived(supportsCoordinators && (!isThread || thread?.kind === 'coordinator'));
 	const archivedCoordinator = $derived(coordinatorChat && thread?.archived === true);
 	const jobs = $derived(supportsCoordinators ? threadList.filter(row => row.kind !== 'coordinator' && (row.parentThreadId ?? 'main') === coordinatorId) : threadList);
-	let manager = $state<'new' | 'manage' | ThreadSummary>();
+	let manager = $state<'manage' | ThreadSummary>();
+	const coordinatorCreation = getCoordinatorCreation();
+	function openCoordinatorCreation() { coordinatorCreation.open(backend, projectId); }
 	let taskScope = $state<'coordinator' | 'all'>('coordinator');
 	let hiddenCoordinators = $state<Set<string>>(new Set());
 	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, `scope:${threadId ?? 'main'}`));
@@ -294,7 +297,7 @@
 		if (href !== page.url.pathname) void goto(href);
 	}
 	function coordinatorKeys(event: KeyboardEvent) {
-		if (!shown || event.defaultPrevented || manager || roster.length < 2) return;
+		if (!shown || event.defaultPrevented || manager || coordinatorCreation.isOpen() || roster.length < 2) return;
 		const index = coordinatorShortcut(event);
 		const target = index === undefined ? undefined : roster[index];
 		if (target) { event.preventDefault(); switchCoordinator(target.id); }
@@ -986,7 +989,7 @@
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={() => manager = 'new'} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
+						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
@@ -1070,7 +1073,7 @@
 								<CoordinatorMark thread={row} /><span class="min-w-0 truncate" title={row.title}>{row.title}</span><CoordinatorBadges thread={row} seen={seen(row.id)} />
 							</a>
 						{/each}
-						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" onclick={() => manager = 'new'}>+ New</button>
+						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" aria-haspopup="dialog" onclick={openCoordinatorCreation}>+ New</button>
 					</nav>
 				{/if}
 				{#if outsideWorkerCount > 0}

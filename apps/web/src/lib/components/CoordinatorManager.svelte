@@ -14,7 +14,7 @@
 		mode: 'new' | 'manage' | ThreadSummary; store: ProjectThreads; roster: readonly ThreadSummary[];
 		tasks: readonly BoardTask[]; models: readonly ModelInfo[]; onclose: () => void;
 		messages?: Snippet; supportsSchedules: boolean;
-		oncreated: (id: string) => void; onarchived: (id: string) => void;
+		oncreated: (id: string) => void; onarchived?: (id: string) => void;
 	} = $props();
 
 	let screen = $state<'new' | 'manage' | 'edit' | 'archive' | 'promote'>('manage');
@@ -96,7 +96,7 @@
 		void mutate(['archive', thread.id, archived, destination, disposition], async operationId => {
 			requireSuccess(await store.archiveCoordinator(thread.id, archived, operationId, destination, disposition));
 			screen = 'manage';
-			if (archived) onarchived(thread.id);
+			if (archived) onarchived?.(thread.id);
 		});
 	}
 	function reorder(index: number, delta: number) {
