@@ -354,6 +354,7 @@ export async function readCacheStats(options: {
 	});
 	if (options.recorded || options.month !== undefined) {
 		stats.recorded = await readRecordedUsage(options.store, { from, to, ...projectFilter }, projectNames, options.boardTasks);
+		stats.apiKeySpendRates = options.store.apiKeySpendRates(now, options.projectId);
 	}
 	return stats;
 }

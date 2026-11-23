@@ -75,6 +75,7 @@ export type SubscriptionUsageOptions = {
 	ledger?: Pick<LimitLedger, "reading" | "manualReset">;
 	terms?: SubscriptionTerms;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
+	forecast?: (providerId: string, window: UsageWindow, now: number) => UsageWindow["forecast"];
 	onReading?: (providerId: string, windows: readonly WindowReading[], observedAt: number) => void;
 	onRequestStart?: (providerId: string, model: string, at: number) => void;
 	onCredentialsChanged?: (providerId: string) => void;
@@ -127,6 +128,7 @@ export class SubscriptionUsageService {
 	readonly #credentials: CredentialStore;
 	readonly #onChange: (subscriptions: SubscriptionUsage[]) => void;
 	readonly #onReading: SubscriptionUsageOptions["onReading"];
+	readonly #forecast: SubscriptionUsageOptions["forecast"];
 	readonly #onRequestStart: SubscriptionUsageOptions["onRequestStart"];
 	readonly #onCredentialsChanged: SubscriptionUsageOptions["onCredentialsChanged"];
 	readonly #hasRecentRequests: SubscriptionUsageOptions["hasRecentRequests"];
@@ -163,6 +165,7 @@ export class SubscriptionUsageService {
 		this.#credentials = options.credentials;
 		this.#onChange = options.onChange ?? (() => {});
 		this.#onReading = options.onReading;
+		this.#forecast = options.forecast;
 		this.#onRequestStart = options.onRequestStart;
 		this.#onCredentialsChanged = options.onCredentialsChanged;
 		this.#hasRecentRequests = options.hasRecentRequests;
@@ -193,7 +196,7 @@ export class SubscriptionUsageService {
 		if (options?.refresh === true) {
 			await Promise.all(providers.map((providerId) => this.#read(providerId, { force: true })));
 		}
-		return this.#list();
+		return this.#snapshot();
 	}
 
 	/** Confirmed reset; fresh discovery gates the action. Mutation is never automatically retried. */
@@ -647,8 +650,16 @@ export class SubscriptionUsageService {
 			.sort((a, b) => a.providerId.localeCompare(b.providerId));
 	}
 
+	#snapshot(): SubscriptionUsage[] {
+		const now = this.#now();
+		return this.#list().map(usage => ({ ...usage, windows: usage.windows.map(window => {
+			const forecast = this.#forecast?.(usage.providerId, window, now);
+			return forecast === undefined ? window : { ...window, forecast };
+		}) }));
+	}
+
 	#publishIfChanged(): void {
-		const subscriptions = this.#list();
+		const subscriptions = this.#snapshot();
 		const signature = JSON.stringify(subscriptions.map(usageSignature));
 		if (signature === this.#lastSignature) return;
 		this.#lastSignature = signature;

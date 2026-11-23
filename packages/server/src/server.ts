@@ -42,6 +42,7 @@ import { ClientConnection, type ClientConnectionOptions } from "./connection.ts"
 import { type LoadedSkill, loadAgentContext } from "./context.ts";
 import { FileCredentialStore } from "./credentials.ts";
 import { SubscriptionUsageService, type SubscriptionUsageOptions } from "./subscription-usage.ts";
+import { usageRoleLabel } from "./usage-analysis.ts";
 import { UsageDrainMonitor } from "./usage-drain.ts";
 import { UsagePauseGate } from "./usage-pause.ts";
 import { UsagePauseModels } from "./usage-pause-models.ts";
@@ -367,6 +368,19 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		onResume: login => usageDrain?.startMeasuringAgain(login),
 	}) : undefined;
 	const subscriptionUsage = new SubscriptionUsageService({
+		forecast: (providerId, window, now) => {
+			const forecast = usageDrain?.forecast(providerId, window, now);
+			if (!forecast || !requestLog) return undefined;
+			const { scope, ...pace } = forecast;
+			const spenders = requestLog.store.subscriptionSpendersSince(providerId, now - 10 * 60_000, scope)
+				.filter(spender => spender.apiValue > 0).slice(0, 3).map(spender => ({
+					label: spender.workerId ?? (spender.taskId ? `Task ${spender.taskId}`
+						: spender.threadId && spender.threadId !== "main" ? spender.threadId : usageRoleLabel(spender.role)),
+					model: spender.model,
+					apiValue: spender.apiValue,
+				}));
+			return { ...pace, spenders };
+		},
 		onReading: (providerId, windows, at) => {
 			usagePause?.observeReading(providerId, windows);
 			usageDrain?.observe(providerId, windows, at);

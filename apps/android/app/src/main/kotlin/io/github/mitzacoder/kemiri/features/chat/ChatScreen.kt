@@ -286,7 +286,12 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         if (coordinator == null && isBackgroundJobPage(context.route)) activeThread?.let {
             BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get), roster.find { row -> row.id == (it.parentThreadId ?: "main") }?.title ?: "Main chat")
         }
-        val transcriptScope = TranscriptScope(context,workers,artifacts,threads,titlesBefore,scheduleTitles,messages)
+        if (context.route.workerId == null) {
+            val outsideWorkerCount = countWorkersOutsideModels(workers.filter { sameThread(it.threadId, context.route.threadId) }, project?.workerModels)
+            if (outsideWorkerCount > 0) Text("$outsideWorkerCount on other models", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        val transcriptScope = TranscriptScope(context, workers, artifacts, threads, titlesBefore, scheduleTitles, messages, project?.workerModels)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
         Box(Modifier.weight(1f).fillMaxWidth()) {

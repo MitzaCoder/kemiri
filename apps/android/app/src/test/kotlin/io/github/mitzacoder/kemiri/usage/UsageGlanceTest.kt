@@ -14,6 +14,15 @@ class UsageGlanceTest {
     private val now = Instant.parse("2026-03-22T10:00:00Z")
     private val nowMillis = now.toEpochMilli().toDouble()
 
+    @Test fun `forecast uses the server pace and stays quiet if the pace is missing stale or ends after reset`() {
+        val forecast = UsageWindowForecast(minutesLeft = 50.0, minutesToReset = 230.0, validUntil = now.plusSeconds(300).toString(), spenders = emptyList())
+        assertEquals("At this pace: runs out in 50 minutes, 3 hours before the reset", limitForecastText(forecast, nowMillis))
+        assertEquals("At this pace: runs out in 1 hour 1 minute, 1 minute before the reset", limitForecastText(forecast.copy(minutesLeft = 61.0, minutesToReset = 61.2), nowMillis))
+        assertNull(limitForecastText(forecast.copy(minutesLeft = 231.0), nowMillis))
+        assertNull(limitForecastText(forecast, nowMillis + 300_000))
+        assertNull(limitForecastText(null, nowMillis))
+    }
+
     @Test fun `overview and detail have the same local calendar and rolling ranges`() {
         val zone = ZoneId.of("America/New_York")
         UsagePeriod.entries.forEach { period ->
@@ -52,7 +61,7 @@ class UsageGlanceTest {
         assertEquals(listOf("closest", "stale", "hot", "third", "fourth", "room", "unknown"), ranked.map { it.window.id })
         assertEquals(listOf(LimitStatus.Near, LimitStatus.Unknown, LimitStatus.Hot), ranked.take(3).map { it.status })
         assertTrue(ranked[1].stale)
-        assertEquals(listOf("fourth", "room"), quietLimits(ranked).map { it.window.id })
+        assertEquals(listOf("fourth", "room"), quietLimits(ranked, nowMillis).map { it.window.id })
     }
 
     @Test fun `project and task identities do not cross computers but models and callers aggregate`() {

@@ -8,6 +8,7 @@ import type { CacheWarmStretch } from "@kemiri/protocol";
 import { Database } from "bun:sqlite";
 import { existsSync, renameSync, rmSync } from "node:fs";
 import {
+	type ApiKeySpendRate,
 	type CacheMissReason,
 	type ConversationKind,
 	LONG_PROMPT_CACHE_TTL_MS,
@@ -735,6 +736,16 @@ export class RequestLogStore {
 			ORDER BY apiValue DESC, requests DESC, projectId, conversationId, model
 		`).all(provider, from, through);
 		return scope === undefined ? rows : rows.filter(row => matchesModelScope(scope, row.model));
+	}
+
+	/** Recorded rolling-hour API value, independent of the Usage screen's selected period. */
+	apiKeySpendRates(now: number, projectId?: string): ApiKeySpendRate[] {
+		return this.#db.query<ApiKeySpendRate, [number, number, ...string[]]>(`
+			SELECT provider AS providerId, SUM(cost) AS apiValuePerHour
+			FROM requests WHERE at > ? AND at <= ? AND billing = 'api_key'
+			${projectId === undefined ? "" : "AND project_id = ?"}
+			GROUP BY provider ORDER BY provider
+		`).all(now - 60 * 60_000, now, ...(projectId === undefined ? [] : [projectId]));
 	}
 
 	taskUsage(projectId: string, taskIds: readonly string[]): TaskUsageGroup[] {

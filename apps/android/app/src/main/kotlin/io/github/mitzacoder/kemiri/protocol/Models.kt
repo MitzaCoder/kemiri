@@ -2526,7 +2526,23 @@ data class UsageWindow(
     val `usedPercent`: Double?,
     val `resetsAt`: String?,
     val `windowMinutes`: Long?,
-    val `samples`: List<UsageSample>
+    val `samples`: List<UsageSample>,
+    val `forecast`: UsageWindowForecast? = null
+)
+
+@Serializable
+data class UsageWindowForecast(
+    val `minutesLeft`: Double,
+    val `minutesToReset`: Double,
+    val `validUntil`: String,
+    val `spenders`: List<UsageDrainSpender>
+)
+
+@Serializable
+data class UsageDrainSpender(
+    val `label`: String,
+    val `model`: String,
+    val `apiValue`: Double
 )
 
 @Serializable
@@ -3051,7 +3067,8 @@ data class CacheStats(
     val `days`: List<CacheDay>,
     val `conversations`: List<CacheConversation>,
     val `misses`: List<CacheMissDetail>,
-    val `longCache`: LongCacheWhatIf
+    val `longCache`: LongCacheWhatIf,
+    val `apiKeySpendRates`: List<ApiKeySpendRate>? = null
 )
 
 @Serializable
@@ -3088,6 +3105,12 @@ data class CacheStatsKeepWarm(
     val `cachedTokens`: Double,
     val `cost`: Double,
     val `failedWriteCost`: Double
+)
+
+@Serializable
+data class ApiKeySpendRate(
+    val `providerId`: String,
+    val `apiValuePerHour`: Double
 )
 
 @Serializable

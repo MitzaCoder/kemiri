@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.BackendConfig
 import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.protocol.CacheStats
@@ -86,7 +87,7 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
     var bySubscription by rememberSaveable { mutableStateOf(false) }
     var showingQuiet by rememberSaveable { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<Pair<SubscriptionIdentity, String>?>(null) }
-    val quiet = quietLimits(limits).map { it.key }.toSet()
+    val quiet = quietLimits(limits, now).map { it.key }.toSet()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
             GlanceHeading("Limits")
@@ -153,8 +154,26 @@ internal fun GlanceLimitRow(limit: GlanceLimit, now: Double, expanded: Boolean, 
         val computerKeys = limit.subscription.computers.map { it.key }
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
             pauseBackends.filter { it.config.key in computerKeys }.forEach { backend -> key(backend.config.key) {
-                UsagePauseAction(backend, reading.providerId, reading.label, showComputer = computerKeys.size > 1)
+                val pauses by backend.usagePause.pauses.collectAsStateWithLifecycle()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (pauses.orEmpty().any { it.providerLogin == reading.providerId }) ValueNote("Paused")
+                    UsagePauseAction(backend, reading.providerId, reading.label, showComputer = computerKeys.size > 1)
+                }
             } }
+        }
+        limitForecasts(limit, now).forEach { forecast ->
+            Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ValueNote(if (computerKeys.size > 1) "${forecast.computer.name} · ${forecast.text}" else forecast.text)
+                if (forecast.spenders.isNotEmpty()) ValueNote("Top spenders here · last 10 minutes · API value")
+                forecast.spenders.forEach { spender ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${spender.label} · ${spender.model}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ValueNote(usageMoney(spender.apiValue))
+                    }
+                }
+            }
         }
         if (expanded) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             HorizontalDivider()
@@ -228,7 +247,7 @@ internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Un
             }
             if (unpriced > 0) ValueNote("$unpriced requests had no catalog price.")
             if (recorded.any { it.second.approximate }) ValueNote("Older daily totals may cross a period boundary.")
-            if (providerRows.isNotEmpty()) ProviderBreakdown(providerRows, openSpend)
+            if (providerRows.isNotEmpty()) ProviderBreakdown(providerRows, stats, openSpend)
         }
         GlanceHeading("What cost most")
         UsageFilters(SpendDimension.entries, dimension, { it.label }) { dimension = it; showingAll = false }
@@ -247,7 +266,7 @@ internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Un
 }
 
 @Composable
-private fun ProviderBreakdown(rows: List<SpendRow>, openSpend: (SpendRow) -> Unit) {
+private fun ProviderBreakdown(rows: List<SpendRow>, stats: List<Pair<BackendConfig, CacheStats>>, openSpend: (SpendRow) -> Unit) {
     var showingProviders by rememberSaveable { mutableStateOf(false) }
     val accent = Jarvis.colors
     val colors = listOf(accent.accent1, accent.accent2, accent.accent3, accent.warning, MaterialTheme.colorScheme.tertiary)
@@ -264,7 +283,9 @@ private fun ProviderBreakdown(rows: List<SpendRow>, openSpend: (SpendRow) -> Uni
     if (showingProviders) rows.forEachIndexed { index, row ->
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Canvas(Modifier.size(8.dp)) { drawCircle(colors[index % colors.size]) }
-            UsageAmountRow(row.label, row.cost, note = computerNames(row.computers), onClick = { openSpend(row) })
+            val rate = apiKeySpendRate(row, stats)
+            val note = listOfNotNull(computerNames(row.computers), rate?.let { "${usageMoney(it)}/h · last hour at API prices" }).joinToString("\n")
+            UsageAmountRow(row.label, row.cost, note = note, onClick = { openSpend(row) })
         }
     }
 }

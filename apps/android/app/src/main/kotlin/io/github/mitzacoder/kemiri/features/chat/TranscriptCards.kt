@@ -27,6 +27,7 @@ import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.features.tasks.rememberReducedMotion
 import io.github.mitzacoder.kemiri.protocol.Artifact
 import io.github.mitzacoder.kemiri.protocol.ThreadSummary
+import io.github.mitzacoder.kemiri.protocol.WorkerModel
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -46,6 +47,7 @@ data class TranscriptScope(
     /** Schedule titles by ID, for a worker a schedule started. */
     val scheduleTitles: Map<String,String> = emptyMap(),
     val peerMessages: Map<String, io.github.mitzacoder.kemiri.protocol.ThreadsMessagesResponseMessagesItem> = emptyMap(),
+    val projectWorkerModels: List<WorkerModel>? = null,
 )
 
 @Composable private fun ToolDestination(part: ChatPart, context: ProjectScreenContext) {
@@ -190,7 +192,7 @@ private const val ORB_MIN_WIDTH_DP = 640
     val publishedApp = if (apps != null) io.github.mitzacoder.kemiri.features.apps.appIdFromCall(part) else null
     val board = if(part.name == "board") boardCallView(part.arguments,part.text) else null
     when {
-        worker != null && context != null -> WorkerCallCard(part,worker,scope.workerTitlesBefore[part.key],worker.scheduleId?.let { scope.scheduleTitles[it] }) {
+        worker != null && context != null -> WorkerCallCard(part, worker, scope.workerTitlesBefore[part.key], worker.scheduleId?.let { scope.scheduleTitles[it] }, scope.projectWorkerModels) {
             context.navigate(context.route.copy(workerId = worker.id,threadId = worker.threadId ?: context.route.threadId))
         }
         runApprovalQuestionId(part) != null -> GenericToolCard(part, scope)

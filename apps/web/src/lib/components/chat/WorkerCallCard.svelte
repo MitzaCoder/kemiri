@@ -4,9 +4,10 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { workerScheduleLabel } from '#lib/schedules.js';
-	import type { WorkerSummary } from '@kemiri/protocol';
+	import type { ModelRef, WorkerSummary } from '@kemiri/protocol';
+	import { getContext } from 'svelte';
 	import type { ToolPart } from '#lib/transcript.js';
-	import { workerPlace, workerSendLine, workerToolAction } from '#lib/workers.js';
+	import { isOutsideWorkerModels, PROJECT_WORKER_MODELS, workerPlace, workerSendLine, workerToolAction } from '#lib/workers.js';
 	import WorkerStatusBadge from './WorkerStatusBadge.svelte';
 
 	/**
@@ -31,6 +32,8 @@
 		previousTitle?: string;
 	} = $props();
 
+	const projectModels = getContext<(() => readonly ModelRef[] | undefined) | undefined>(PROJECT_WORKER_MODELS);
+	const outsideWorkerModels = $derived(isOutsideWorkerModels(worker.model, projectModels?.()));
 	const sentLine = $derived(workerSendLine(part, previousTitle));
 
 	const scheduleId = $derived(worker.scheduleId ?? undefined);
@@ -56,6 +59,9 @@
 				.filter((piece) => piece !== undefined)
 				.join(' · ')}
 		</span>
+		{#if outsideWorkerModels}
+			<span class="w-fit rounded bg-(--chat-surface-2) px-1.5 text-[0.6875rem] text-(--chat-fg-muted)">outside worker models</span>
+		{/if}
 		{#if scheduleTag}
 			<Badge
 				variant="secondary"

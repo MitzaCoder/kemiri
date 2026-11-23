@@ -3,6 +3,7 @@ package io.github.mitzacoder.kemiri.chat
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.protocol.EntryRecord
 import io.github.mitzacoder.kemiri.protocol.ModelRef
+import io.github.mitzacoder.kemiri.protocol.WorkerModel
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
@@ -13,6 +14,17 @@ import org.junit.Test
  * (tools.test.ts), steps rows and coding headers (transcript.test.ts), worker sends and check-ins (workers.test.ts).
  */
 class TaskLinkedChatTest {
+    @Test fun outsideWorkerModelsCompareProviderAndModelAndCountUnfinishedWorkers() {
+        val listed = worker("listed", "Listed")
+        val outside = worker("outside", "Outside").copy(model = ModelRef("example", listed.model.modelId))
+        val models = listOf(WorkerModel(listed.model.provider, listed.model.modelId, "high"))
+        assertFalse(isOutsideWorkerModels(listed.model, null))
+        assertTrue(isOutsideWorkerModels(listed.model, emptyList()))
+        assertFalse(isOutsideWorkerModels(listed.model, models))
+        assertTrue(isOutsideWorkerModels(outside.model, models))
+        assertEquals(2, countWorkersOutsideModels(listOf(listed, outside, outside.copy(id = "idle", status = "idle"), outside.copy(id = "done", status = "done")), models))
+    }
+
     @Test fun boardNotesReadAsASummaryAndTheWholeNote() {
         assertEquals(BoardNotice("You answered Q2: ship it", "You answered Q2: ship it\nT4 unblocked"), parseBoardNotice("[board] You answered Q2: ship it\nT4 unblocked"))
         assertEquals("You answered Q1 (\"Which db?\"): pg", parseBoardNotice("[board] The user answered Q1 (\"Which db?\"): pg")?.summary)

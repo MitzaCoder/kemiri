@@ -1,5 +1,5 @@
 import { windowPace } from '@kemiri/client';
-import type { CacheStats, RecordedUsageGroup, SubscriptionPrice, SubscriptionUsage, SubscriptionValue, UsageValueResponse, UsageDetailRequest, UsageSelection, UsagePause, UsageWindow } from '@kemiri/protocol';
+import type { CacheStats, RecordedUsageGroup, SubscriptionPrice, SubscriptionUsage, SubscriptionValue, UsageValueResponse, UsageDetailRequest, UsageSelection, UsagePause, UsageWindow, UsageWindowForecast } from '@kemiri/protocol';
 import { isStale } from './subscription-usage.ts';
 
 export const USAGE_BACKEND_KEY = 'aiki.usage.backend.v1';
@@ -55,6 +55,26 @@ export function pauseWaitLabel(pause: UsagePause): string {
 	return `New requests continue automatically at ${local}.`;
 }
 
+function forecastDuration(minutes: number): string {
+	const rounded = Math.max(1, Math.round(minutes));
+	const hours = Math.floor(rounded / 60);
+	const rest = rounded % 60;
+	return [hours && `${hours} ${hours === 1 ? 'hour' : 'hours'}`, rest && `${rest} ${rest === 1 ? 'minute' : 'minutes'}`].filter(Boolean).join(' ');
+}
+
+export function limitForecastText(forecast: UsageWindowForecast | undefined, now: number): string | undefined {
+	if (!forecast || !(Date.parse(forecast.validUntil) > now) || !(forecast.minutesLeft > 0 && forecast.minutesLeft < forecast.minutesToReset)) return;
+	return `At this pace: runs out in ${forecastDuration(forecast.minutesLeft)}, ${forecastDuration(forecast.minutesToReset - forecast.minutesLeft)} before the reset`;
+}
+
+export function limitForecasts(limit: GlanceLimit, now: number) {
+	return limit.subscription.members.flatMap(({ computer, subscription }) => {
+		const forecast = subscription.windows.find(window => window.id === limit.window.id && window.resetsAt === limit.window.resetsAt)?.forecast;
+		const text = limitForecastText(forecast, now);
+		return forecast && text ? [{ computer, text, spenders: forecast.spenders }] : [];
+	});
+}
+
 export const LIMIT_LABELS = { near: 'Nearly out', hot: 'Running hot', room: 'Room to spare', unknown: 'Not measured' } as const;
 export function rankedLimits(subscriptions: readonly GlanceSubscription[], now: number) {
 	return subscriptions.flatMap(subscription => subscription.windows.map(window => {
@@ -69,8 +89,8 @@ export function rankedLimits(subscriptions: readonly GlanceSubscription[], now: 
 }
 export type GlanceLimit = ReturnType<typeof rankedLimits>[number];
 
-export function quietLimits(limits: readonly GlanceLimit[]): GlanceLimit[] {
-	return limits.filter((limit, index) => index >= 4 && limit.status === 'room' && limit.window.usedPercent! < 45);
+export function quietLimits(limits: readonly GlanceLimit[], now: number): GlanceLimit[] {
+	return limits.filter((limit, index) => index >= 4 && limit.status === 'room' && limit.window.usedPercent! < 45 && !limitForecasts(limit, now).length);
 }
 
 export type SpendPortion = { computer: UsageComputer; group: RecordedUsageGroup; selection: UsageSelection | null };
@@ -128,6 +148,12 @@ export function providerSpend(reports: readonly UsageOnComputer[], subscriptions
 		rows.set(key, row);
 	}
 	return [...rows.values()].sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key));
+}
+
+export function apiKeySpendRate(row: SpendRow, reports: readonly UsageOnComputer[]): number | undefined {
+	const selection = row.portions[0]?.selection;
+	if (selection?.kind !== 'providerBilling' || selection.billing !== 'api_key' || !reports.length || reports.some(({ stats }) => !stats.apiKeySpendRates)) return;
+	return reports.reduce((sum, { stats }) => sum + (stats.apiKeySpendRates?.find(rate => rate.providerId === selection.provider)?.apiValuePerHour ?? 0), 0);
 }
 
 export function computerNames(computers: readonly UsageComputer[]): string {

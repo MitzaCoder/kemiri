@@ -7,6 +7,7 @@ import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
+import kotlin.math.roundToLong
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -53,6 +54,20 @@ internal fun mergeSubscriptions(readings: List<ComputerSubscription>): List<Glan
     SubscriptionIdentity(reading.providerId, account, reading.plan.takeIf { account != null }, computer.key.takeIf { account == null })
 }.map { (identity, members) -> GlanceSubscription(identity, members.sortedByDescending { parseTime(it.reading.updatedAt) }) }
 
+private fun forecastDuration(minutes: Double): String {
+    val rounded = minutes.roundToLong().coerceAtLeast(1)
+    val hours = rounded / 60
+    val rest = rounded % 60
+    return listOfNotNull("$hours ${if (hours == 1L) "hour" else "hours"}".takeIf { hours > 0 },
+        "$rest ${if (rest == 1L) "minute" else "minutes"}".takeIf { rest > 0 }).joinToString(" ")
+}
+
+internal fun limitForecastText(forecast: UsageWindowForecast?, now: Double): String? {
+    if (forecast == null || (parseTime(forecast.validUntil) ?: return null) <= now ||
+        !(forecast.minutesLeft > 0 && forecast.minutesLeft < forecast.minutesToReset)) return null
+    return "At this pace: runs out in ${forecastDuration(forecast.minutesLeft)}, ${forecastDuration(forecast.minutesToReset - forecast.minutesLeft)} before the reset"
+}
+
 internal enum class LimitStatus(val label: String) {
     Near("Nearly out"), Hot("Running hot"), Room("Room to spare"), Unknown("Not measured"),
 }
@@ -76,7 +91,17 @@ internal fun rankedLimits(subscriptions: List<GlanceSubscription>, now: Double):
     }
 }.sortedWith(compareByDescending<GlanceLimit> { it.window.usedPercent ?: -1.0 }.thenBy { it.pace.resetsAt ?: Double.POSITIVE_INFINITY })
 
-internal fun quietLimits(limits: List<GlanceLimit>) = limits.drop(4).filter { it.status == LimitStatus.Room && (it.window.usedPercent ?: 100.0) < 45 }
+internal data class ComputerLimitForecast(val computer: BackendConfig, val text: String, val spenders: List<UsageDrainSpender>)
+
+internal fun limitForecasts(limit: GlanceLimit, now: Double): List<ComputerLimitForecast> = limit.subscription.members.mapNotNull { member ->
+    val forecast = member.reading.windows.firstOrNull { it.id == limit.window.id && it.resetsAt == limit.window.resetsAt }?.forecast ?: return@mapNotNull null
+    val text = limitForecastText(forecast, now) ?: return@mapNotNull null
+    ComputerLimitForecast(member.computer, text, forecast.spenders)
+}
+
+internal fun quietLimits(limits: List<GlanceLimit>, now: Double) = limits.drop(4).filter {
+    it.status == LimitStatus.Room && (it.window.usedPercent ?: 100.0) < 45 && limitForecasts(it, now).isEmpty()
+}
 
 internal enum class SpendDimension(val label: String, val kind: String, val groups: (RecordedUsage) -> List<RecordedUsageGroup>) {
     Tasks("Tasks", "task", { it.byTask }), Projects("Projects", "project", { it.byProject }),
@@ -136,6 +161,12 @@ internal fun providerSpend(reports: List<Pair<BackendConfig, RecordedUsage>>, su
     return portions.groupBy { (subscription, _, portion) -> subscription to portion.group.key.takeIf { subscription == null } }.values.map { members ->
         SpendRow(members.first().second, members.map { it.third }, members.first().first)
     }.sortedByDescending { it.cost }
+}
+
+internal fun apiKeySpendRate(row: SpendRow, stats: List<Pair<BackendConfig, CacheStats>>): Double? {
+    val selection = row.portions.firstOrNull()?.selection as? UsageSelectionProviderBilling ?: return null
+    if (selection.billing != "api_key" || stats.isEmpty() || stats.any { it.second.apiKeySpendRates == null }) return null
+    return stats.sumOf { (_, report) -> report.apiKeySpendRates?.firstOrNull { it.providerId == selection.provider }?.apiValuePerHour ?: 0.0 }
 }
 
 private fun matchingSubscription(subscriptions: List<GlanceSubscription>, computer: BackendConfig, provider: String) =

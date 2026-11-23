@@ -15,6 +15,16 @@ import {
 import { sameModel } from "./models.ts";
 import type { ToolPart, TranscriptItem } from "./transcript.ts";
 
+export const PROJECT_WORKER_MODELS = Symbol('project-worker-models');
+
+export function isOutsideWorkerModels(model: ModelRef, projectModels: readonly ModelRef[] | undefined): boolean {
+	return projectModels !== undefined && !projectModels.some(candidate => sameModel(candidate, model));
+}
+
+export function countWorkersOutsideModels(workers: readonly WorkerSummary[], projectModels: readonly ModelRef[] | undefined): number {
+	return workers.filter(worker => (worker.status === 'running' || worker.status === 'idle') && isOutsideWorkerModels(worker.model, projectModels)).length;
+}
+
 /** The tools only the coordinator has; a call to one of them can point at a worker. */
 const WORKER_TOOLS = new Set([
 	"worker_spawn",

@@ -17,7 +17,7 @@
 	import { providerMark, resetLabel, updatedLabel } from '#lib/subscription-usage.js';
 	import { usageBoard } from '#lib/subscription-usage.svelte.js';
 	import { localValueMonth, valueMonthRequest } from '#lib/subscription-value.js';
-	import { computerNames, mergeSubscriptions, providerSpend, quietLimits, rankedLimits, spendRows, subscriptionMonths,
+	import { apiKeySpendRate, computerNames, mergeSubscriptions, providerSpend, quietLimits, rankedLimits, spendRows, subscriptionMonths,
 		SPEND_DIMENSIONS, USAGE_BACKEND_KEY, USAGE_PERIODS, usagePeriodRequest, type SpendDimension, type SpendRow, type UsagePeriod } from '#lib/usage-glance.js';
 	import { usageMoney } from '#lib/usage-money.js';
 	import CacheSection from './CacheSection.svelte';
@@ -59,7 +59,7 @@
 	const usageSources = $derived(selectedBackends.filter(backend => backend.supports('subscription-usage') && backend.ready).map(backend => usageBoard.for(backend)));
 	const subscriptions = $derived(mergeSubscriptions(usageSources.flatMap(source => source.subscriptions.map(subscription => ({ computer: source.backend, subscription })))));
 	const limits = $derived(rankedLimits(subscriptions, now));
-	const quiet = $derived(quietLimits(limits));
+	const quiet = $derived(quietLimits(limits, now));
 	const quietKeys = $derived(new Set(quiet.map(limit => limit.key)));
 	const visibleLimits = $derived(showQuiet ? limits : limits.filter(limit => !quietKeys.has(limit.key)));
 	const attention = $derived(limits.filter(limit => limit.status === 'near' || limit.status === 'hot').slice(0, 2));
@@ -305,11 +305,13 @@
 {/snippet}
 
 {#snippet spendButton(row: SpendRow, ranking: boolean)}
+	{@const rate = apiKeySpendRate(row, recorded)}
 	<button class="spend-row" type="button" onclick={() => openSpend(row)}>
 		{#if row.provider}<ProviderMark providerId={row.provider} label={row.label} size={23} />{/if}
 		<span class="min-w-0 flex-1">
 			<span class="block break-words font-medium">{row.label}</span>
 			<span class="block text-[0.6875rem] text-muted-foreground">{computerNames(row.portions.map(portion => portion.computer))}</span>
+			{#if rate !== undefined}<span class="block text-[0.6875rem] text-muted-foreground">{usageMoney(rate)}/h · last hour at API prices</span>{/if}
 			{#if ranking && rankedSpend[0] && rankedSpend[0].cost > 0}<span aria-hidden="true" class="rank-bar"><span style:width="{100 * row.cost / rankedSpend[0].cost}%"></span></span>{/if}
 		</span>
 		<span class="shrink-0 text-right font-semibold tabular-nums">{usageMoney(row.cost)}{#if ranking && total > 0}<small class="block font-normal text-muted-foreground">{Math.round(100 * row.cost / total)}%</small>{/if}</span>

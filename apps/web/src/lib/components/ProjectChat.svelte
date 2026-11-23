@@ -15,6 +15,7 @@
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import { onMount, untrack, type Component } from 'svelte';
+	import { countWorkersOutsideModels, PROJECT_WORKER_MODELS } from '#lib/workers.js';
 	import { page } from '$app/state';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
 	import { goto } from '$app/navigation';
@@ -140,6 +141,7 @@
 	};
 
 	const project = $derived(backend.projects.find((entry) => entry.id === projectId));
+	setContext(PROJECT_WORKER_MODELS, () => project?.workerModels);
 	const filesNavigation = provideFilesNavigation(() => shown && backend.features?.includes('project-files') === true,
 		() => threadId ? { kind: 'thread', threadId } : PROJECT_ROOT, () => threadId ? undefined : project?.path);
 
@@ -344,6 +346,7 @@
 	const thinkingLevels = $derived<readonly ThinkingLevel[]>(currentModel?.thinkingLevels ?? []);
 
 	const workerList = $derived(workers?.workers ?? []);
+	const outsideWorkerCount = $derived(countWorkersOutsideModels(workerList, project?.workerModels));
 	const usesProjectWorkerDefault = $derived(backend.supports('worker-picker-project-default'));
 	const firstWorkerModel = $derived(project?.workerModels[0]);
 	const workerDefaults = $derived(isThread
@@ -1084,6 +1087,9 @@
 						{/each}
 						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" onclick={() => manager = 'new'}>+ New</button>
 					</nav>
+				{/if}
+				{#if outsideWorkerCount > 0}
+					<p class="text-xs text-muted-foreground">{outsideWorkerCount} on other models</p>
 				{/if}
 				{#if backend.features?.includes('apps')}
 					<RunningApps tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />

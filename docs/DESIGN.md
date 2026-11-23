@@ -6517,6 +6517,23 @@ in place for manual Resume. A manual or exhausted-limit hold can supersede an in
 show that a drain pause is being looked into, and link to the exact question when the owner needs to choose.
 **Tell me only** keeps the ordinary warning and starts no investigations.
 
+#### Usage forecast and outside-model workers
+
+Usage snapshots and pushes attach the drain monitor's latest pace to each matching limit. The line is shown only
+when a measured rise projects exhaustion before reset. Otherwise the row stays quiet rather than adding a reassuring
+line to every limit. A forecast expires with the evidence or when it would no longer exhaust the limit before reset.
+The chart's longer-window projection is separate. Forecasts are live only and are not written to disk.
+
+Below the forecast, each computer lists up to three local spenders by worker or task, model and API value. These are
+priced subscription or plan-key requests in the last ten minutes of minute rollups, scoped to the model when the
+limit is scoped. Shared subscriptions can show separate forecasts for the same reset period, with each computer named.
+A paused login shows a Paused label beside Resume on its own computer. Pay-as-you-go providers show the recorded API
+value per hour over the last hour at the Usage read, independent of the selected spend period, with no ceiling.
+
+Web and Android chat cards mark workers whose provider and model are not on the project's worker-model list. Thinking
+level and who chose the model do not affect the badge. The chat header counts running and idle workers on other models
+in that conversation. This is a display rule, not the outside-model approval count.
+
 #### Subscription ledger and value
 
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the

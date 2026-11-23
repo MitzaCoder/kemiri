@@ -89,7 +89,8 @@ internal fun SubscriptionGlanceSheet(subscription: GlanceSubscription, month: Su
     Text("Live limits", style = MaterialTheme.typography.titleMedium)
     if (limits.isEmpty()) ValueNote("No windows reported.")
     limits.forEach { limit -> key(limit.key) {
-        GlanceLimitRow(limit, now, expanded == limit.window.id, false, { expanded = limit.window.id.takeUnless { expanded == it } })
+        GlanceLimitRow(limit, now, expanded == limit.window.id, false, { expanded = limit.window.id.takeUnless { expanded == it } },
+            pauseBackends = computers.map { it.backend })
     } }
     // Send an explicit free-reset confirmation to the backend that supplied the displayed credit.
     val resetSource = subscription.members.firstOrNull { it.reading.manualResets != null } ?: subscription.latest

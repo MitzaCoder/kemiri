@@ -1,4 +1,4 @@
-import type { UsageDrainMode } from "@kemiri/protocol";
+import type { UsageDrainMode, UsageWindow, UsageWindowForecast } from "@kemiri/protocol";
 import type { WindowReading } from "./subscription-usage.ts";
 
 const MINUTE_MS = 60_000;
@@ -81,10 +81,11 @@ function forecastPeriod(
 }
 
 type UsageDrainAlert = UsageDrainForecast & { level: "warning" | "pause" };
+type LimitEvidence = { readings: MeasuredReading[]; lastAt: number; forecast?: UsageDrainForecast };
 
 /** Live evidence is not carried over a restart, a credential change, or an explicit Resume. */
 export class UsageDrainMonitor {
-	readonly #providers = new Map<string, Map<string, { readings: MeasuredReading[]; lastAt: number }>>();
+	readonly #providers = new Map<string, Map<string, LimitEvidence>>();
 	readonly #measureFrom = new Map<string, number>();
 	readonly #warnedUntil = new Map<string, number>();
 	#mode: UsageDrainMode | undefined;
@@ -113,22 +114,37 @@ export class UsageDrainMonitor {
 		this.#mode = mode;
 	}
 
+	/** Reuse the rule's last forecast, only for the same live period. Never rebuild pace from chart samples. */
+	forecast(providerLogin: string, window: UsageWindow, now: number): (Omit<UsageWindowForecast, "spenders"> & { scope?: string }) | undefined {
+		const evidence = this.#providers.get(providerLogin)?.get(window.id);
+		const forecast = evidence?.forecast;
+		if (!evidence || forecast?.minutesLeft == null || forecast.minutesLeft <= 0 || forecast.limit.resetsAt !== window.resetsAt ||
+			window.resetsAt === null || window.usedPercent !== forecast.limit.usedPercent) return;
+		const validUntil = evidence.lastAt + MAX_READING_GAP_MS;
+		const minutesToReset = (Date.parse(window.resetsAt) - now) / MINUTE_MS;
+		if (now >= validUntil || !(forecast.minutesLeft < minutesToReset)) return;
+		return { minutesLeft: forecast.minutesLeft, minutesToReset,
+			validUntil: new Date(Math.min(validUntil, Date.parse(window.resetsAt) - forecast.minutesLeft * MINUTE_MS)).toISOString(),
+			...(forecast.limit.scope === undefined ? {} : { scope: forecast.limit.scope }) };
+	}
+
 	observe(providerLogin: string, windows: readonly WindowReading[], at: number): void {
 		this.settingsChanged();
 		const now = this.options.now?.() ?? Date.now();
 		if (this.#mode === "off" || at < this.#modeChangedAt || at < (this.#measureFrom.get(providerLogin) ?? -Infinity) ||
 			at > now || now - at > MAX_READING_GAP_MS || this.options.isPaused(providerLogin)) return;
-		const seriesByLimit = this.#providers.get(providerLogin) ?? new Map();
+		const seriesByLimit = this.#providers.get(providerLogin) ?? new Map<string, LimitEvidence>();
 		this.#providers.set(providerLogin, seriesByLimit);
 		const forecasts: UsageDrainAlert[] = [];
 		for (const limit of windows) {
-			const series = seriesByLimit.get(limit.id) ?? { readings: [], lastAt: -Infinity };
+			const series: LimitEvidence = seriesByLimit.get(limit.id) ?? { readings: [], lastAt: -Infinity };
 			if (at < series.lastAt) continue;
 			series.lastAt = at;
 			seriesByLimit.set(limit.id, series);
 			appendReading(series.readings, { ...limit, at });
 			const forecast = forecastPeriod(limit, series.readings, now, (from, through, scope) =>
 				this.options.hasLocalRequests(providerLogin, from, through, scope));
+			series.forecast = forecast;
 			if (forecast.level !== "none") forecasts.push({ ...forecast, level: forecast.level });
 		}
 		const pause = this.#mode !== "tell-only" && forecasts.find(forecast => forecast.level === "pause" && !this.options.ignorePause?.(providerLogin, forecast));

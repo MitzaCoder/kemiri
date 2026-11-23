@@ -1,7 +1,8 @@
 <script lang="ts">
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import { clockTime, paceView, resetLabel } from '#lib/subscription-usage.js';
-	import { computerNames, LIMIT_LABELS, type GlanceLimit } from '#lib/usage-glance.js';
+	import { computerNames, limitForecasts, LIMIT_LABELS, type GlanceLimit } from '#lib/usage-glance.js';
+	import { usageMoney } from '#lib/usage-money.js';
 	import { harness } from '#lib/harness.svelte.js';
 	import UsagePauseAction from './UsagePauseAction.svelte';
 	import ProviderMark from './ProviderMark.svelte';
@@ -18,6 +19,7 @@
 		const backend = harness.backend(member.computer.id);
 		return backend?.usagePauseLoaded && backend.ready ? [backend] : [];
 	}));
+	const forecasts = $derived(limitForecasts(limit, now));
 	const reset = $derived(resetLabel(limit.pace, now));
 	const exactReset = $derived(limit.pace.resetsAt !== null ? clockTime(limit.pace.resetsAt, now) : null);
 	const paceDetail = $derived(limit.stale ? 'The provider has not reported a new reading yet.'
@@ -51,12 +53,30 @@
 	{#if pauseComputers.length}
 		<div class="pause-actions">
 			{#each pauseComputers as backend (backend.id)}
-				<UsagePauseAction {backend} providerLogin={subscription.providerId} label={subscription.label}
-					showComputer={limit.subscription.members.length > 1} />
+				<div class="flex items-center gap-2">
+					{#if backend.usagePauses.some(pause => pause.providerLogin === subscription.providerId)}
+						<span class="rounded bg-(--chat-surface-2) px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground">Paused</span>
+					{/if}
+					<UsagePauseAction {backend} providerLogin={subscription.providerId} label={subscription.label}
+						showComputer={limit.subscription.members.length > 1} />
+				</div>
 			{/each}
 		</div>
 	{/if}
 	</div>
+	{#each forecasts as forecast (forecast.computer.id)}
+		<div class="space-y-0.5 px-3 pb-2 text-xs text-muted-foreground sm:px-4">
+			<p>{limit.subscription.members.length > 1 ? `${forecast.computer.name} · ` : ''}{forecast.text}</p>
+			{#if forecast.spenders.length}
+				<p class="pt-0.5 text-[0.6875rem]">Top spenders here · last 10 minutes · API value</p>
+				<ul>
+					{#each forecast.spenders as spender}
+						<li class="flex items-baseline justify-between gap-2"><span class="min-w-0 break-words">{spender.label} · {spender.model}</span><span class="shrink-0 tabular-nums">{usageMoney(spender.apiValue)}</span></li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/each}
 	{#if open}
 		<div id={chartId} class="grid gap-3 border-t border-(--chat-border) px-3 py-3 sm:grid-cols-2 sm:px-4">
 			<div>

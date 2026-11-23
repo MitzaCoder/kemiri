@@ -15,6 +15,21 @@ export const UsageSampleSchema = Type.Object({
 });
 export type UsageSample = Static<typeof UsageSampleSchema>;
 
+export const UsageDrainSpenderSchema = Type.Object({
+	label: Type.String({ description: "Worker, task or other run that made the requests." }),
+	model: Type.String(),
+	apiValue: Type.Number({ minimum: 0 }),
+});
+export type UsageDrainSpender = Static<typeof UsageDrainSpenderSchema>;
+
+export const UsageWindowForecastSchema = Type.Object({
+	minutesLeft: Type.Number({ minimum: 0 }),
+	minutesToReset: Type.Number({ minimum: 0 }),
+	validUntil: Type.String({ description: "ISO 8601. The pace is too old to show after this time." }),
+	spenders: Type.Array(UsageDrainSpenderSchema, { maxItems: 3, description: "Largest local spenders from the last ten minutes." }),
+});
+export type UsageWindowForecast = Static<typeof UsageWindowForecastSchema>;
+
 export const UsageWindowSchema = Type.Object({
 	id: Type.String({ minLength: 1, description: 'Stable per subscription, e.g. "five_hour", "seven_day", "seven_day_opus".' }),
 	label: Type.String({ description: 'For humans, e.g. "5-hour limit", "Weekly limit", "Weekly · Opus".' }),
@@ -24,6 +39,7 @@ export const UsageWindowSchema = Type.Object({
 		description: "The window's length, for the pace (how much of it has passed).",
 	}),
 	samples: Type.Array(UsageSampleSchema, { description: "Oldest first, this window's current period only." }),
+	forecast: Type.Optional(UsageWindowForecastSchema),
 });
 export type UsageWindow = Static<typeof UsageWindowSchema>;
 

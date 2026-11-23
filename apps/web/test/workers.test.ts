@@ -7,7 +7,9 @@ import { describe, expect, test } from "bun:test";
 import type { WorkerSummary } from "@kemiri/protocol";
 import {
 	addWorkerModel,
+	countWorkersOutsideModels,
 	hasWorkerModel,
+	isOutsideWorkerModels,
 	moveWorkerModel,
 	parseCheckIn,
 	parseWorkerNotice,
@@ -47,6 +49,19 @@ function worker(overrides: Partial<WorkerSummary> & { id: string }): WorkerSumma
 		...overrides,
 	};
 }
+
+test('outside-model badges compare provider and model, and the count excludes finished workers', () => {
+	const listed = { provider: 'anthropic', modelId: 'claude', thinkingLevel: 'high' } as const;
+	const otherProvider = { provider: 'example', modelId: 'claude' };
+	expect(isOutsideWorkerModels(listed, undefined)).toBe(false);
+	expect(isOutsideWorkerModels(listed, [])).toBe(true);
+	expect(isOutsideWorkerModels(listed, [listed])).toBe(false);
+	expect(isOutsideWorkerModels(otherProvider, [listed])).toBe(true);
+	expect(countWorkersOutsideModels([
+		worker({ id: 'listed' }), worker({ id: 'outside', model: otherProvider }),
+		worker({ id: 'idle', model: otherProvider, status: 'idle' }), worker({ id: 'done', model: otherProvider, status: 'done' }),
+	], [listed])).toBe(2);
+});
 
 describe("parseWorkerNotice", () => {
 	test("recognises a report and keeps its body", () => {

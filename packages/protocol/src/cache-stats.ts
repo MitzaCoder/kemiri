@@ -256,6 +256,12 @@ export const UsageDetailResponseSchema = Type.Object({
 });
 export type UsageDetailResponse = Static<typeof UsageDetailResponseSchema>;
 
+export const ApiKeySpendRateSchema = Type.Object({
+	providerId: Type.String(),
+	apiValuePerHour: Type.Number({ minimum: 0, description: "Recorded API value in the hour ending at the stats read time." }),
+});
+export type ApiKeySpendRate = Static<typeof ApiKeySpendRateSchema>;
+
 export const CacheStatsSchema = Type.Object({
  usage: Type.Optional(UsageAnalysisSchema),
 	recorded: Type.Optional(RecordedUsageSchema),
@@ -276,6 +282,7 @@ export const CacheStatsSchema = Type.Object({
 	conversations: Type.Array(CacheConversationSchema, { description: "The costliest in missed cache first." }),
 	misses: Type.Array(CacheMissDetailSchema, { description: "The costliest misses of the range, newest first." }),
 	longCache: LongCacheWhatIfSchema,
+	apiKeySpendRates: Type.Optional(Type.Array(ApiKeySpendRateSchema)),
 });
 export type CacheStats = Static<typeof CacheStatsSchema>;
 

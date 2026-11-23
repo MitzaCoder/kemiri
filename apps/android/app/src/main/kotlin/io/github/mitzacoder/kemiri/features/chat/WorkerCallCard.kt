@@ -15,6 +15,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.protocol.ModelRef
+import io.github.mitzacoder.kemiri.protocol.WorkerModel
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -69,7 +71,14 @@ fun workerTitlesBeforeSend(rows: List<ChatRow>, workers: List<WorkerSummary>): M
 /** "Scheduled task" for a worker a schedule started whose schedule this screen does not know by name. */
 fun workerScheduleLabel(scheduleId: String?, title: String?): String? = if (scheduleId.isNullOrEmpty()) null else title?.takeIf(String::isNotEmpty) ?: "Scheduled task"
 
-@Composable internal fun WorkerCallCard(part: ChatPart, worker: WorkerSummary, previousTitle: String?, scheduleTitle: String?, onOpen: (() -> Unit)?) {
+internal fun isOutsideWorkerModels(model: ModelRef, projectModels: List<WorkerModel>?): Boolean =
+    projectModels?.none { it.provider == model.provider && it.modelId == model.modelId } == true
+
+internal fun countWorkersOutsideModels(workers: List<WorkerSummary>, projectModels: List<WorkerModel>?): Int =
+    workers.count { (it.status == "running" || it.status == "idle") && isOutsideWorkerModels(it.model, projectModels) }
+
+@Composable internal fun WorkerCallCard(part: ChatPart, worker: WorkerSummary, previousTitle: String?, scheduleTitle: String?,
+    projectWorkerModels: List<WorkerModel>?, onOpen: (() -> Unit)?) {
     val sent = workerSendLine(part, previousTitle)
     val schedule = workerScheduleLabel(worker.scheduleId, scheduleTitle)
     val shape = RoundedCornerShape(16.dp)
@@ -90,6 +99,10 @@ fun workerScheduleLabel(scheduleId: String?, title: String?): String? = if (sche
             sent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
             Text(listOfNotNull(if (sent == null) workerToolAction(part.name) else null, workerPlace(worker), worker.model.modelId).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (isOutsideWorkerModels(worker.model, projectWorkerModels)) {
+                Text("outside worker models", Modifier.clip(MaterialTheme.shapes.extraSmall).background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 5.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             schedule?.let { Text("Scheduled · $it", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
         StatusBadge(worker.status, domain = "worker")

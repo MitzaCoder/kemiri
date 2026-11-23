@@ -35,6 +35,7 @@ import {
 } from "./project-changes.ts";
 export * from "./user-settings.ts";
 export * from "./subscription-value.ts";
+export type { UsageWindowForecast, UsageDrainSpender } from "./subscription-usage.ts";
 import {
 	SubscriptionPriceSchema,
 	ValueRangeSchema,
@@ -684,6 +685,8 @@ import {
 	UsageSampleSchema,
 	type UsageWindow,
 	UsageWindowSchema,
+	UsageWindowForecastSchema,
+	UsageDrainSpenderSchema,
 	type SubscriptionUsage,
 	SubscriptionUsageSchema,
 	type SubscriptionsUsageRequest,
@@ -705,6 +708,7 @@ import {
 	UsagePauseEventSchema,
 } from "./usage-pause.ts";
 import {
+	ApiKeySpendRateSchema,
 	RecordedUsageSchema,
 	RecordedUsageGroupSchema,
 	UsageSelectionSchema,
@@ -1524,6 +1528,8 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	ThreadsMessageEvent: ThreadsMessageEventSchema,
 	UsageSample: UsageSampleSchema,
 	UsageWindow: UsageWindowSchema,
+	UsageWindowForecast: UsageWindowForecastSchema,
+	UsageDrainSpender: UsageDrainSpenderSchema,
 	SubscriptionResetCredit: SubscriptionResetCreditSchema,
 	SubscriptionResets: SubscriptionResetsSchema,
 	SubscriptionsResetRequest: SubscriptionsResetRequestSchema,
@@ -1573,6 +1579,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	UsageDetailRequest: UsageDetailRequestSchema,
 	UsageDetailResponse: UsageDetailResponseSchema,
 	CacheStats: CacheStatsSchema,
+	ApiKeySpendRate: ApiKeySpendRateSchema,
 	CacheStatsRequest: CacheStatsRequestSchema,
 	CacheStatsResponse: CacheStatsResponseSchema,
 	ProjectLinks: ProjectLinksSchema,
