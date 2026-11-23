@@ -1,4 +1,4 @@
-import { coordinatorSection } from "../src/workers.ts";
+import { coordinatorSection, countRunningModelOverrides } from "../src/workers.ts";
 import { Database } from "bun:sqlite";
 import { Value } from "typebox/value";
 import { ThreadSummarySchema } from "../../protocol/src/threads.ts";
@@ -273,6 +273,68 @@ async function resume(test: TestSetup, projectId: string): Promise<void> {
 // --- tests -----------------------------------------------------------------------------------------------------------
 
 describe("background threads", () => {
+	threadTest("starts an unnamed job on the project's worker model and thinking level", async () => {
+		const delegated = fauxProvider({ provider: "fixture", models: [{ id: "delegate", reasoning: true }] });
+		const model = { provider: "fixture", modelId: "delegate" };
+		const test = await setup({ configureModels: models => models.setProvider(delegated.provider) });
+		const { client, projectId, view } = await openProject(test);
+		await client.request({ type: "projects.configure", projectId, workerModels: [{ ...model, thinkingLevel: "high" }] });
+		script(test);
+		delegated.setResponses(Array.from({ length: 10 }, () => call("thread_finish", { summary: SUMMARY })));
+		await submit(client, projectId, "Start the thread.");
+		await view.waitForView(value => toolResultTexts(value, "thread_start").length > 0);
+		const result = toolResultTexts(view.view, "thread_start")[0]!;
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain('Started background thread "jira-run" on fixture/delegate');
+		expect(result.text).not.toContain("not one of the project's worker models");
+		await until(async () => (await thread(client, projectId, "jira-run"))?.status === "done");
+		expect(await thread(client, projectId, "jira-run")).toMatchObject({ model, thinkingLevel: "high" });
+	});
+
+	threadTest("counts agent-named outside models across the parent, its record-only job, and the job's workers", async () => {
+		const outside = fauxProvider({ provider: "fixture", models: [{ id: "outside" }] });
+		const model = { provider: "fixture", modelId: "outside" };
+		const test = await setup({ configureModels: models => models.setProvider(outside.provider) });
+		const { client, projectId, view } = await openProject(test);
+		const jobGate = deferredGate();
+		const workerGate = deferredGate();
+		script(test, turn => {
+			if (turn.text === "Start a worker on the alternate model.") return call("worker_spawn", { id: "reader", task: WORKER_BRIEF, model });
+		}, { model, onFinish: "record" });
+		outside.setResponses(Array.from({ length: 30 }, () => async (request, options) => {
+			const turn = turnOf(request, options?.signal);
+			if (turn.who === "thread" && turn.text === THREAD_BRIEF) {
+				await hold(jobGate.promise, turn.signal);
+				return call("worker_spawn", { id: "reader", task: WORKER_BRIEF, model });
+			}
+			if (turn.who === "worker") await hold(workerGate.promise, turn.signal);
+			return fauxAssistantMessage("Reviewed.");
+		}));
+		await submit(client, projectId, "Start the thread.");
+		await view.waitForView(value => toolResultTexts(value, "thread_start").length > 0);
+		const started = toolResultTexts(view.view, "thread_start")[0]!;
+		expect(started.text).toContain("This model is not one of the project's worker models (faux/faux-1).");
+		expect(started.text).toContain("1 run started by an agent on a model outside that list is live in this project.");
+
+		const jobView = new ViewClient(client);
+		await jobView.start(projectId, { threadId: "jira-run" });
+		jobGate.release();
+		await jobView.waitForView(value => toolResultTexts(value, "worker_spawn").length > 0);
+		expect(toolResultTexts(jobView.view, "worker_spawn")[0]?.text).toContain("2 runs started by agents on models outside that list are live in this project.");
+
+		await submit(client, projectId, "Start a worker on the alternate model.");
+		await view.waitForView(value => toolResultTexts(value, "worker_spawn").length > 0);
+		expect(toolResultTexts(view.view, "worker_spawn")[0]?.text).toContain("3 runs started by agents on models outside that list are live in this project.");
+		const { runtime } = await test.server.manager.open(projectId);
+		expect(await countRunningModelOverrides(runtime.workers)).toBe(3);
+		const updated = await client.request({ type: "threads.update", projectId, threadId: "jira-run", model });
+		expect(updated.type).toBe("threads.update");
+		expect(await countRunningModelOverrides(runtime.workers)).toBe(2);
+		workerGate.release();
+		await until(async () => (await workers(client, projectId)).workers.every(worker => worker.status !== "running"));
+		await until(async () => (await countRunningModelOverrides(runtime.workers)) === 0);
+	});
+
 	threadTest("main starts a thread, which works in its own workspace and finishes with a summary main reviews", async () => {
 		const test = await setup();
 		script(test);
@@ -309,7 +371,7 @@ describe("background threads", () => {
 			startedBy: "main",
 			scheduleId: null,
 			model: FAUX,
-			thinkingLevel: "low",
+			thinkingLevel: null,
 			onFinish: "review",
 			summary: SUMMARY,
 			failure: null,

@@ -2404,11 +2404,12 @@ Status: backend, protocol, client and web UI done (milestone 2).
   one-line worker answer `Nothing new.`, are passive writes: kept in the coordinator transcript without a turn or push.
   Workers use that line only for an already-covered queued request with no new result, warning or question. Coordinators
   end without a chat reply for already-handled or unchanged reports, just as for uneventful check-ins.
-- `worker_forget` marks the worker done and withdraws its queued inputs in one commit, without aborting its running
-  answer or tools. Pending reporters never deliver new work to a forgotten worker. Late output (including failures) is
-  recorded only, keeps done status, and cannot change its board task or notify devices. Missing/pruned records count as
-  forgotten; conversation identity prevents an old reporter affecting a reused worker ID. Decisions and delivery are
-  durable together, so late delivery cannot race past release.
+- `worker_forget` aborts the running answer and tools and withdraws queued inputs before marking the worker done.
+  Reporter admission is serialized with abort and release, so pending reporters cannot deliver another run in between.
+  Passive writes stay for history. `worker_stop` also aborts any work left running on a worker released by an older
+  backend, without reviving it. Late output from old runs is recorded only, keeps done status, and cannot change the
+  board task or notify devices. Missing/pruned records count as forgotten; conversation identity prevents an old
+  reporter affecting a reused worker ID.
 - A coordinator answer with no content produces no web turn or Android row; tool/thinking steps remain when present.
   No UI change is needed for silent turns.
 - Only the worker's final answer enters the coordinator's context, as a message starting with
@@ -2436,12 +2437,14 @@ Status: backend, protocol, client and web UI done (milestone 2).
   the worker conversation's `pi.agent` (`AgentDoc`), not regenerated on restart or `worker_send`; memory edits affect
   only workers created later, preserving each worker's prompt cache. No duplicate worker-record snapshot is needed.
 - `worker_peek` describes one worker without waiting for its report: status, how long since it last produced anything,
-  the tool calls and results it is running, and the tail of its text and thinking. It is the same digest the check-ins
-  carry, just larger, and it is trimmed to a few hundred tokens.
+  its recent tools and text, its model and thinking level, and its logged requests and API value. The usage read is
+  scoped by project and worker conversation, so reusing a name or changing tasks does not mix totals. It covers
+  retained request-log rows, not an in-flight request. API value is an estimate, not a bill.
 - Check-ins: while at least one worker runs, the harness wakes the coordinator every `checkIns.intervalMinutes` minutes
   (default 10, on by default; per project, in `project.json` and the project summary) with an input starting with
-  `[check-in]` that carries that digest for each running worker and asks it to judge whether one is stuck or on a wrong
-  path. The input is submitted as a follow-up, so it never interrupts a run: the coordinator handles it at its next turn
+  `[check-in]` that asks it to judge whether a worker is stuck or on a wrong path. One model, thinking and usage line
+  per running worker comes before the recent activity, so the 4,000-character budget cuts activity first. The
+  input is submitted as a follow-up, so it never interrupts a run: the coordinator handles it at its next turn
   boundary. Nothing is sent while no worker runs, and at most one check-in waits in the inbox at a time. The wait is a
   durable sleep in a background task (`aiki.worker-checkin`), and the input's request ID derives from the task and the
   deadline, so a restart neither loses a check-in nor repeats one; the next deadline is computed from the current time,
@@ -2487,7 +2490,14 @@ Status: backend, protocol, client and web UI done (milestone 2).
   ordered `workerModels`. A composer pick changes the first entry, not a separate override. With no available
   model, the tool explains what to set. There are no built-in worker defaults.
 - Thinking level: the named level wins, else the level stored for that model in `workerModels`; a null or absent
-  level uses the model's default.
+  level uses the model's default. The coordinator prompts say to plan with the model the owner named and build with
+  the project's worker model. The `worker_spawn` and `thread_start` tool schemas say to leave model and thinking
+  level out unless the owner asked for them on this task, and not to carry that request forward.
+- An explicit model outside `workerModels` earns a notice from both tools. It lists the project models and counts
+  running agent-named overrides across the project's workers and jobs, including record-only jobs. The count matches
+  provider and model ID against the current list. It excludes schedules and owner-set defaults. An optional record
+  field distinguishes an agent-named model from a default without changing document versions; older records with
+  no explicit-choice marker do not count.
 - Worker input request IDs derive from the sending tool call; report IDs derive from the final answer. A rerun after
   a crash neither sends a message nor posts a report twice. T85 reproduced duplicate transcript/timeline entries when
   spawn and steer reporters shared an answer: the old per-call report key treated each as different, and the unchanged
@@ -2990,6 +3000,9 @@ Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-
   their optional `threadMessageId` metadata pairs the entries with the log. Web renders the
   linked cards, the All coordinators feed (rail or tab), the Manage feed, and task messages.
   An older client keeps the ordinary tool card and `[from …]` bubble.
+- **Job model.** `thread_start` uses the first available project worker model that can run a job when no model is
+  named, taking its configured thinking level. Official-agent models can only run workers. Scheduled threads and
+  persistent coordinator creation keep their own model selection rules.
 - **Schedules.** `kind: "thread"` runs as `<scheduleId>-<yyyy-mm-dd-hhmm>`; the next run is skipped while the
   previous thread is `running` or `idle` (a failed or stopped one does not block). `onReport` is `onFinish`, and a
   `record` thread does not keep main's check-ins going.

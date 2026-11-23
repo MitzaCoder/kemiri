@@ -450,6 +450,23 @@ describe("cache stats", () => {
 		...overrides,
 	});
 
+	it("totals retained requests by worker conversation, not by a reused worker name or task", () => {
+		const store = RequestLogStore.open(":memory:");
+		try {
+			const worker = { kind: "worker" as const, conversationId: 2, workerId: "reader", priced: true };
+			store.insert(row({ ...worker, at: 1, taskId: "T1", cost: 0.25 }));
+			store.insert(row({ ...worker, at: 2, taskId: "T2", cost: 0.5 }));
+			store.insert(row({ ...worker, at: 3, priced: false, cost: 0 }));
+			store.insert(row({ ...worker, at: 4, conversationId: 3 }));
+			store.insert(row({ ...worker, at: 5, projectId: "other" }));
+			store.insert(row({ ...worker, at: 6, purpose: "report_audit" }));
+			expect(store.workerRequestTotals("p", 2)).toEqual({ requests: 3, cost: 0.75, unpriced: 1 });
+			expect(store.workerRequestTotals("p", 4)).toEqual({ requests: 0, cost: 0, unpriced: 0 });
+		} finally {
+			store.close();
+		}
+	});
+
 	it("prices a one-hour cache with pi-ai's rates: idle misses within the hour saved, every write dearer", () => {
 		const models = createHarnessModels({ credentials: { read: async () => undefined } as never });
 		const rows = [

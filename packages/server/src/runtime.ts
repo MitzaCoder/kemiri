@@ -1553,6 +1553,8 @@ export class ProjectManager {
 				},
 			} : {}),
 			invalidateRequestIdentity: conversationId => this.#requestLog?.invalidateIdentity(project.id, conversationId),
+			...(this.#requestLog === undefined ? {} : { requestLogStore: this.#requestLog.store }),
+			runningJobModelOverrides: context => threads.runningJobModelOverrides(context),
 			taskChanges,
    taskArtifactSaves: () => board.taskArtifactSaves(),
 			harness,

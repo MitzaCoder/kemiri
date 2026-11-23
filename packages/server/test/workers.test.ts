@@ -1153,7 +1153,10 @@ describe("worker peek", () => {
 		await view.start(projectId);
 		await client.request({ type: "conversation.submit", projectId, requestId: "r1", content: "Delegate the reading." });
 		await until(async () => toolResults(view.view).length >= 1);
-		await until(async () => (await listWorkers(client, projectId)).workers[0]?.status === "running");
+		await until(async () => {
+			const worker = (await listWorkers(client, projectId)).workers[0];
+			return worker?.status === "running" && test.server.requestLog!.store.workerRequestTotals(projectId, worker.conversationId).requests === 1;
+		});
 
 		await client.request({ type: "conversation.submit", projectId, requestId: "r2", content: "How is the reader doing?" });
 		const peeked = await view.waitForView((value) =>
@@ -1162,6 +1165,7 @@ describe("worker peek", () => {
 		const digest = entryText(toolResults(peeked).find((entry) => entryText(entry).includes("reader —"))!);
 		expect(digest).toContain("status: running, a run is in progress");
 		expect(digest).toContain("last activity");
+		expect(digest).toContain("model: faux/faux-1 (thinking default); 1 logged request, $0.0000 API value");
 		expect(digest).toContain("call read ");
 		expect(digest).toContain("README.md");
 		expect(digest).toContain("you: Summarize the project's README");
@@ -1255,7 +1259,10 @@ describe("worker check-ins", () => {
 		const view = new ViewClient(client);
 		await view.start(projectId);
 		await client.request({ type: "conversation.submit", projectId, requestId: "r1", content: "Delegate the reading." });
-		await until(async () => (await listWorkers(client, projectId)).workers[0]?.status === "running");
+		await until(async () => {
+			const worker = (await listWorkers(client, projectId)).workers[0];
+			return worker?.status === "running" && test.server.requestLog!.store.workerRequestTotals(projectId, worker.conversationId).requests === 1;
+		});
 
 		// Nothing before the interval is up.
 		clock.advance(30_000);
@@ -1271,6 +1278,7 @@ describe("worker check-ins", () => {
 		expect(text).toContain("[check-in]");
 		expect(text).toContain("1 worker is still running");
 		expect(text).toContain("reader —");
+		expect(text).toContain("reader: faux/faux-1 (thinking default); 1 logged request, $0.0000 API value");
 		expect(text).toContain("status: running");
 		expect(text).toContain("worker_stop");
 		expect(text).toContain("Weigh what the remaining work would still add against what is already achieved.");
@@ -1499,6 +1507,7 @@ describe("quiet worker reports", () => {
 				if (workerRequests === 1 && options.held) {
 					opts?.signal?.addEventListener("abort", () => { aborted = true; }, { once: true });
 					await holdUntil(gate.promise, opts);
+					if (opts?.signal?.aborted) return fauxAssistantMessage("Aborted.");
 				}
 				if (workerRequests <= (options.toolBoundaries ?? (options.toolBoundary ? 1 : 0))) {
 					return fauxAssistantMessage([fauxToolCall("read", { path: "README.md" })], { stopReason: "toolUse" });
@@ -1515,6 +1524,7 @@ describe("quiet worker reports", () => {
 			}
 			if (text === "Spawn") return fauxAssistantMessage([fauxToolCall("worker_spawn", { id: "reader", task: BRIEF, taskId: "T1" })], { stopReason: "toolUse" });
 			if (text === "Forget") return fauxAssistantMessage([fauxToolCall("worker_forget", { id: "reader", removeWorkspace: false })], { stopReason: "toolUse" });
+			if (text === "Stop") return fauxAssistantMessage([fauxToolCall("worker_stop", { id: "reader" })], { stopReason: "toolUse" });
 			if (text === "Queue" || text === "Amend") return fauxAssistantMessage([fauxToolCall("worker_send", { id: "reader", message: "Covered request", interrupt: text === "Amend" })], { stopReason: "toolUse" });
 			return fauxAssistantMessage("Idle.");
 		};
@@ -1536,16 +1546,22 @@ describe("quiet worker reports", () => {
 		const worker = (await listWorkers(client, projectId)).workers[0]!;
 		const reports = () => view.view!.entries.filter((e) => entryText(e).startsWith("[worker reader reported]"));
 		const settle = async (count: number) => {
-			await view.waitForView(() => reports().length === count);
+			if (count > 0) await view.waitForView(() => reports().length === count);
+			// A stop should settle reporters without writing a report.
 			await until(async () => !(await runtime.harness.inspect(BACKGROUND_CONTEXT)).tasks.some((t) => t.record.kind === "aiki.worker-reporter" && t.record.state.status !== "terminal"));
 			await conversation.waitForIdle(BACKGROUND_CONTEXT);
+			expect(reports()).toHaveLength(count);
 		};
+		const markReleasedWithoutAbort = () => runtime.harness.commit(async (tx) => {
+			const doc = await tx.doc(WorkersDoc, conversation.id);
+			doc.workers["reader"]!.status = "done";
+		}, BACKGROUND_CONTEXT);
 		const timeline = async (reader = client) => {
 			const history = await reader.request({ type: "board.task.timeline", projectId, taskId: "T1" });
 			if (history.type !== "board.task.timeline") throw errorOf(history);
 			return history.entries.filter((event) => event.label === "Worker reader reported" || (event.ref === "reader" && event.live && event.label.startsWith("reader worked") && !/ · (failed|stopped)$/.test(event.label)));
 		};
-		return { test, client, projectId, view, runtime, conversation, worker, send, gate, busyGate, reports, settle, timeline, counts: () => ({ workerRequests, workerAnswers, reportTurns, reportNotifications, aborted, busyRequests }) };
+		return { test, client, projectId, view, runtime, conversation, worker, send, gate, busyGate, reports, settle, timeline, markReleasedWithoutAbort, counts: () => ({ workerRequests, workerAnswers, reportTurns, reportNotifications, aborted, busyRequests }) };
 	}
 
 	workerTest("records identical answers without starting a second coordinator turn, including after restart", async () => {
@@ -1638,7 +1654,7 @@ describe("quiet worker reports", () => {
 		expect(s.counts()).toMatchObject({ reportTurns: 0, reportNotifications: 0 });
 	});
 
-	workerTest("forget withdraws queued inputs without aborting the answer and records late output quietly", async () => {
+	workerTest("forget stops the running request before release and never starts queued work", async () => {
 		const s = await scenario({ held: true });
 		await s.send("Queue");
 		await until(async () => (await s.runtime.harness.snapshot(InboxDoc, s.worker.conversationId as never, BACKGROUND_CONTEXT))!.items.length === 1);
@@ -1646,14 +1662,24 @@ describe("quiet worker reports", () => {
 		const workerConversation = (await s.runtime.harness.conversation(s.worker.conversationId as never, BACKGROUND_CONTEXT))!;
 		const passive = await workerConversation.submit({ type: "write", entry: { kind: "pi.user", model: [{ role: "user", content: "Keep for history", timestamp: Date.now() }] } }, BACKGROUND_CONTEXT);
 		await s.send("Forget");
-		expect((await s.runtime.harness.snapshot(InboxDoc, s.worker.conversationId as never, BACKGROUND_CONTEXT))!.items.map((item) => item.mode)).toEqual(["write"]);
 		expect(await (await s.runtime.harness.submission(queued.id, BACKGROUND_CONTEXT))!.status(BACKGROUND_CONTEXT)).toMatchObject({ status: "unanswered", reason: "aborted" });
-		expect(s.counts().aborted).toBe(false);
-		s.gate.release();
-		await s.settle(1);
-		expect(s.counts()).toMatchObject({ workerRequests: 1, reportTurns: 0, reportNotifications: 0 });
+		expect(s.counts().aborted).toBe(true);
+		await s.settle(0);
+		expect(s.counts()).toMatchObject({ workerRequests: 1, workerAnswers: 0, reportTurns: 0, reportNotifications: 0 });
 		expect((await listWorkers(s.client, s.projectId)).workers[0]?.status).toBe("done");
-		expect((await passive.status(BACKGROUND_CONTEXT)).status).toBe("done");
+		const inbox = await s.runtime.harness.snapshot(InboxDoc, s.worker.conversationId as never, BACKGROUND_CONTEXT);
+		expect((await passive.status(BACKGROUND_CONTEXT)).status === "done" || inbox?.items.some(item => item.id === passive.id && item.mode === "write")).toBe(true);
+	});
+
+	workerTest("stop aborts a worker released by the old behavior without reviving it", async () => {
+		const s = await scenario({ held: true });
+		await s.markReleasedWithoutAbort();
+		expect(s.counts().aborted).toBe(false);
+		await s.send("Stop");
+		await s.settle(0);
+		expect(s.counts()).toMatchObject({ aborted: true, workerRequests: 1, workerAnswers: 0, reportTurns: 0 });
+		expect((await listWorkers(s.client, s.projectId)).workers[0]?.status).toBe("done");
+		expect(toolResults(s.view.view).map(entryText).join("\n")).toContain('Stopped any remaining work on worker "reader". It stays released.');
 	});
 
 	workerTest("a reporter not yet admitted when forgotten never submits its message", async () => {
@@ -1664,14 +1690,13 @@ describe("quiet worker reports", () => {
 		}, { ownership: { kind: "conversation" }, conversationId: s.conversation.id, background: true }), BACKGROUND_CONTEXT);
 		await until(async () => !(await s.runtime.harness.inspect(BACKGROUND_CONTEXT)).tasks.some((t) => t.record.kind === "aiki.worker-reporter" && t.record.id === pending && t.record.state.status !== "terminal"));
 		expect(await s.runtime.harness.commit((tx) => tx.submissionByRequest(s.worker.conversationId as never, "worker-message:delayed-send"), BACKGROUND_CONTEXT)).toBeUndefined();
-		s.gate.release();
-		await s.settle(1);
+		await s.settle(0);
 		expect(s.counts().reportTurns).toBe(0);
 	});
 
 	workerTest("an old reporter cannot update a replacement with the same worker ID", async () => {
 		const s = await scenario({ held: true });
-		await s.send("Forget");
+		await s.markReleasedWithoutAbort();
 		await s.runtime.harness.commit(async (tx) => {
 			const doc = await tx.doc(WorkersDoc, s.conversation.id);
 			const replacement = doc.workers["reader"]!;
@@ -1687,7 +1712,7 @@ describe("quiet worker reports", () => {
 
 	workerTest("late reports from a pruned worker are still recorded without waking", async () => {
 		const s = await scenario({ held: true });
-		await s.send("Forget");
+		await s.markReleasedWithoutAbort();
 		await s.runtime.harness.commit(async (tx) => { const doc = await tx.doc(WorkersDoc, s.conversation.id); delete doc.workers["reader"]; }, BACKGROUND_CONTEXT);
 		s.gate.release();
 		await s.settle(1);

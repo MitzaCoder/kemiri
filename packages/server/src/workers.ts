@@ -108,6 +108,7 @@ import {
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
 import type { MemoryStore } from "./memory.ts";
+import type { RequestLogStore } from "./request-log-store.ts";
 import { readWorkerBrief } from "./worker-brief.ts";
 
 /** How many forgotten workers stay in the list as history. */
@@ -126,6 +127,8 @@ export type WorkerRecord = {
 	model: ModelRef;
 	thinkingLevel: ThinkingLevel | null;
 	status: WorkerStatus;
+	/** Missing on older records and on starts without an explicit agent choice. */
+	modelNamedByAgent?: true;
 	/** The schedule that started this worker, when the harness started it rather than the coordinator. */
 	scheduleId?: string | null;
 	/** The board task the worker runs, when the coordinator named one; absent on workers started before the board. */
@@ -597,14 +600,27 @@ export type ResolveWorkerModelResult =
 	| { ok: true; value: ResolvedWorkerModel }
 	| { ok: false; message: string };
 
-/**
- * The thinking level a default worker model carries in the project's list, if the resolved model is in it. Missing and
- * `null` both mean the model's own default.
- */
-function levelIn(projectModels: readonly WorkerModel[], ref: ModelRef): ThinkingLevel | null {
-	const entry = projectModels.find((model) => model.provider === ref.provider && model.modelId === ref.modelId);
-	return entry?.thinkingLevel ?? null;
+function projectWorkerModel(projectModels: readonly WorkerModel[], ref: ModelRef): WorkerModel | undefined {
+	return projectModels.find((model) => model.provider === ref.provider && model.modelId === ref.modelId);
 }
+
+/** Running agent-named overrides across all of the project's worker lists and background jobs. */
+export async function countRunningModelOverrides(
+	service: WorkerService,
+	projectModels: readonly WorkerModel[] = service.project.workerModels,
+	context: Context = BACKGROUND_CONTEXT,
+): Promise<number> {
+	const jobs = await service.runningJobModelOverrides(context);
+	let count = jobs.filter((model) => !projectWorkerModel(projectModels, model)).length;
+	for (const place of service.coordinators.places()) {
+		const workers = await service.runningWorkers(context, place.conversationId);
+		count += workers.filter((worker) => worker.modelNamedByAgent === true && !projectWorkerModel(projectModels, worker.model)).length;
+	}
+	return count;
+}
+
+export const DELEGATED_MODEL_OVERRIDE_DESCRIPTION = "Name a model only if the owner asked for it for this task; that request does not carry to the next task.";
+export const DELEGATED_THINKING_DESCRIPTION = "Leave out to use the chosen worker model's configured thinking level or its own default. Set a level only if the owner asked for it for this task; that request does not carry to the next task.";
 
 /**
  * Use the model named by the coordinator or schedule, else the thread's worker pick, else the first available
@@ -625,7 +641,8 @@ export function resolveWorkerModel(options: {
 		thinkingLevel:
 			options.explicitThinkingLevel ??
 			options.legacyDefaults?.thinkingLevel ??
-			levelIn(options.projectModels, model),
+			projectWorkerModel(options.projectModels, model)?.thinkingLevel ??
+			null,
 	});
 
 	if (options.explicit !== undefined) {
@@ -719,6 +736,8 @@ function checkInsParagraph(project: Project): string {
 }
 
 /** Shared by main and background coordinators. */
+const DELEGATED_MODEL_RULE = "Plan with the model the owner named, and build with the project's worker model.";
+
 const WORKER_MESSAGE_RULES = "To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report. Queue only a separate next task. To move a task-linked worker to another board task, wait for it to finish and pass taskId with the new title. When a report repeats one already handled or adds nothing new, end the turn without a chat reply; do not acknowledge it, just as with uneventful check-ins.";
 
 const BOARD_TASK_RULES = `Every subject the user raises is a task on the project's board, kept with the \`board\` tool. Before you reply, find its task or add one with add_task. Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. An unplanned task discovered while working on another (a bug, more to build, an analysis) gets \`foundWhile\` set to that task; a required part of a bigger task gets \`parent\` only; its parent goes to review/waiting only when its parts are done, in review or waiting; a see-also gets \`related\`. Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.`;
@@ -741,6 +760,7 @@ Work like this:
 5. When a worker's work is merged and reported, release it with worker_forget (removes its workspace). Send more work to the same worker with worker_send while it lives: it remembers its earlier messages. When you hand it a new task, pass a new title too, so the worker list says what it does now. worker_stop aborts what it is doing and keeps it usable; worker_list shows every worker, its status, model, isolation and workspace.
 6. worker_peek shows what a worker is doing right now without waiting for a report: its status, how long since it last produced anything, its running tool calls and results, and the tail of its text. Use it when the user asks how something is going, or before you decide a worker is stuck.
 
+${DELEGATED_MODEL_RULE}
 ${WORKER_MESSAGE_RULES}
 
 ${BOARD_TASK_RULES}
@@ -787,6 +807,7 @@ Work like this:
 4. Review a report, then inspect the result yourself. Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. Merge an isolated worker's change into your workspace, for example \`jj squash --from <change> --into @\` or \`jj rebase -s <change> -d @\`; hand a conflict to a new worker.
 5. Release a worker whose work is merged with worker_forget; worker_send gives a live worker more work (pass a new title when it is a new task), worker_stop aborts what it does, worker_list and worker_peek show your workers.
 
+${DELEGATED_MODEL_RULE}
 ${WORKER_MESSAGE_RULES}
 
 Report on the task you were started for as you go. A subtask is a required part: set \`parent\` only, and move its parent to review/waiting only when the parts are done, in review or waiting. Wait for another task with status todo and blockedBy; blocked is for failure or being stuck and requires blockedReason. Use \`foundWhile\` for an unplanned task discovered while working on another task, never a duplicate pointing at its parent.
@@ -1014,8 +1035,9 @@ export function describeWorkerActivity(options: {
 	lines: number;
 	lineChars: number;
 	maxChars: number;
+	modelUsageLine?: string;
 }): string {
-	const { record, entries, live, now, lines, lineChars, maxChars } = options;
+	const { record, entries, live, now, lines, lineChars, maxChars, modelUsageLine } = options;
 	const running = live?.run !== undefined;
 	const activity = [...entries].reverse().flatMap((entry) => entryLines(entry, lineChars));
 	const current = liveLines(live, lineChars);
@@ -1030,14 +1052,10 @@ export function describeWorkerActivity(options: {
 				: "running, no model request in flight yet"
 			: describeStatus(record);
 	const since = last === undefined ? "nothing yet" : `${formatDuration(now - last)} ago`;
-	const model = `${record.model.provider}/${record.model.modelId}${record.thinkingLevel === null ? "" : ` (thinking ${record.thinkingLevel})`}`;
 	const place = record.isolation === "workspace" ? `workspace ${record.workspacePath ?? "(removed)"}` : "shared checkout";
 
-	const body = [
-		header,
-		`status: ${state}; last activity ${since}`,
-		`model: ${model}; isolation: ${place}`,
-	];
+	const body = [header, `status: ${state}; last activity ${since}`];
+	if (modelUsageLine !== undefined) body.push(modelUsageLine, `isolation: ${place}`);
 	if (recent.length > 0) {
 		body.push("activity:");
 		for (const line of recent) body.push(`  ${line}`);
@@ -1163,6 +1181,8 @@ export type WorkerServiceOptions = {
 	/** Records base/tip provenance before workspace cleanup. */
  taskArtifactSaves?: () => Promise<readonly TaskArtifactSave[]>;
 	invalidateRequestIdentity?: (conversationId: number) => void;
+	requestLogStore?: Pick<RequestLogStore, "workerRequestTotals">;
+	runningJobModelOverrides?: (context: Context) => Promise<readonly ModelRef[]>;
 	taskChanges?: Pick<TaskChangeObserver, "rememberWorkspace" | "recordWorkspace" | "forgetWorkspace">;
 	/**
 	 * Extensions a worker removes besides the worker tools: the coordinator's memory, compaction, history and schedule
@@ -1229,6 +1249,7 @@ type CreateWorkerInput = {
 	/** The board task this worker runs: it moves to in_progress in the same commit. */
 	taskId: string | null;
 	spawnedByCallId: string | null;
+	modelNamedByAgent?: true;
 	callId: string;
 	followUp: boolean;
 	/** Whether this start has to arm the check-in timer. */
@@ -1323,6 +1344,18 @@ export class WorkerService {
 		const place = this.#coordinators.placeOf(conversationId);
 		if (place?.kind !== "coordinator" || this.#threadCheckIns === undefined) return 0;
 		return this.#threadCheckIns.running(place.threadId, context);
+	}
+
+	runningJobModelOverrides(context: Context): Promise<readonly ModelRef[]> {
+		return this.#options.runningJobModelOverrides?.(context) ?? Promise.resolve([]);
+	}
+
+	async modelOverrideNotice(model: ModelRef, context: Context): Promise<string> {
+		const projectModels = this.project.workerModels;
+		if (projectWorkerModel(projectModels, model)) return "";
+		const count = await countRunningModelOverrides(this, projectModels, context);
+		const list = projectModels.map(({ provider, modelId }) => `${provider}/${modelId}`).join(", ") || "none set";
+		return ` This model is not one of the project's worker models (${list}). ${count} ${count === 1 ? "run started by an agent on a model outside that list is" : "runs started by agents on models outside that list are"} live in this project.`;
 	}
 
 	/** Where a coordinator's workers work; undefined for anything that is not a coordinator. */
@@ -1720,6 +1753,14 @@ export class WorkerService {
 		return Object.values(state.workers).filter((record) => record.status === "running");
 	}
 
+	#workerModelUsageLine(record: WorkerRecord): string {
+		const model = `${record.model.provider}/${record.model.modelId} (thinking ${record.thinkingLevel ?? "default"})`;
+		const usage = this.#options.requestLogStore?.workerRequestTotals(this.project.id, record.conversationId);
+		if (usage === undefined) return `${model}; request log unavailable`;
+		const apiValue = usage.cost > 0 && usage.cost < 0.0001 ? "<$0.0001" : `$${usage.cost.toFixed(4)}`;
+		return `${model}; ${usage.requests} logged ${usage.requests === 1 ? "request" : "requests"}, ${apiValue} API value${usage.unpriced > 0 ? ` (${usage.unpriced} unpriced)` : ""}`;
+	}
+
 	/**
 	 * What a worker is doing right now: its status, how long since it last produced anything, and the tail of its
 	 * transcript. `worker_peek` and the check-ins share it; only the budget differs.
@@ -1727,7 +1768,7 @@ export class WorkerService {
 	async describe(
 		record: WorkerRecord,
 		now: number,
-		budget: { lines: number; lineChars: number; maxChars: number; entries: number },
+		budget: { lines: number; lineChars: number; maxChars: number; entries: number; includeModelUsage?: false },
 		context: Context = BACKGROUND_CONTEXT,
 	): Promise<string> {
 		const conversationId = record.conversationId as ConversationId;
@@ -1748,6 +1789,7 @@ export class WorkerService {
 			lines: budget.lines,
 			lineChars: budget.lineChars,
 			maxChars: budget.maxChars,
+			...(budget.includeModelUsage === false ? {} : { modelUsageLine: `model: ${this.#workerModelUsageLine(record)}` }),
 		});
 	}
 
@@ -1794,7 +1836,13 @@ export class WorkerService {
 			CHECK_IN_PREFIX,
 			`${count} still running. Decide whether any is stuck or on a wrong path: steer it with worker_send (interrupt: true), stop it with worker_stop, or say nothing when it is making progress. Do not answer just to acknowledge.`,
 		];
-		return checkInText(header, digests.join("\n\n"), [question, ...this.#diskLines(conversationId)]);
+		return checkInText(header, this.#checkInBody(running, digests), [question, ...this.#diskLines(conversationId)]);
+	}
+
+	/** Show model and usage for all workers before the activity tails that may be cut for space. */
+	#checkInBody(running: readonly WorkerRecord[], digests: readonly string[]): string {
+		const usage = running.map((record) => `${record.id}: ${this.#workerModelUsageLine(record)}`);
+		return [...(usage.length > 0 ? [usage.join("\n")] : []), ...digests].join("\n\n");
 	}
 
 	/** Each running worker's digest, with how long its task has been in progress, and the question that closes the check-in. */
@@ -1811,7 +1859,7 @@ export class WorkerService {
 			const digest = await this.describe(
 				record,
 				now,
-				{ lines: CHECK_IN_ENTRIES, lineChars: CHECK_IN_LINE_CHARS, maxChars: budget, entries: CHECK_IN_ENTRIES },
+				{ lines: CHECK_IN_ENTRIES, lineChars: CHECK_IN_LINE_CHARS, maxChars: budget, entries: CHECK_IN_ENTRIES, includeModelUsage: false },
 				context,
 			);
 			const time = board === undefined ? undefined : workerTaskTime(board, record, now);
@@ -1844,7 +1892,7 @@ export class WorkerService {
 			CHECK_IN_PREFIX,
 			`${workers}${threads} ${verb} still running. Decide whether any is stuck or on a wrong path: steer a worker with worker_send (interrupt: true) or stop it with worker_stop; steer a thread with thread_send or stop it with thread_stop; say nothing when it is making progress. Do not answer just to acknowledge.`,
 		];
-		const body = [...digests, ...threadDigests.map((digest) => `thread ${digest}`)].join("\n\n");
+		const body = this.#checkInBody(running, [...digests, ...threadDigests.map((digest) => `thread ${digest}`)]);
 		return checkInText(header, body, [question, ...this.#diskLines(conversationId)]);
 	}
 
@@ -1932,6 +1980,7 @@ export class WorkerService {
 			scheduleId: input.scheduleId,
 			taskId: input.taskId,
 			spawnedByCallId: input.spawnedByCallId,
+			...(input.modelNamedByAgent === true ? { modelNamedByAgent: true } : {}),
    activityRunId: input.callId,
 			createdAt: now,
 			updatedAt: now,
@@ -2210,9 +2259,9 @@ const WORKER_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._-]*$";
 const modelRefSchema = Type.Object({
 	provider: Type.String({ minLength: 1, description: 'For example "anthropic".' }),
 	modelId: Type.String({ minLength: 1 }),
-});
+}, { description: `Leave out to use the project's worker model (or a worker model the owner set for this thread). ${DELEGATED_MODEL_OVERRIDE_DESCRIPTION}` });
 
-const thinkingLevelSchema = Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)));
+const thinkingLevelSchema = Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)), { description: DELEGATED_THINKING_DESCRIPTION });
 
 /**
  * The running `shared` workers whose tasks' write scopes overlap `scopes`, as text for the spawn's warning. Workspace
@@ -2295,7 +2344,8 @@ function createWorkerExtension(service: WorkerService): Extension {
 			const existing = state.workers[args.id];
 			if (existing !== undefined && existing.status !== "done") {
 				if (existing.spawnedByCallId === api.callId) {
-					return toolText(`Worker "${args.id}" is already started (${describeStatus(existing)}).`, {
+					const modelNotice = args.model === undefined ? "" : await service.modelOverrideNotice(existing.model, context);
+					return toolText(`Worker "${args.id}" is already started (${describeStatus(existing)}).${modelNotice}`, {
 						details: { workerId: existing.id, conversationId: existing.conversationId },
 					});
 				}
@@ -2350,6 +2400,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 					scheduleId: null,
 					taskId: task?.id ?? null,
 					spawnedByCallId: api.callId,
+					...(args.model === undefined ? {} : { modelNamedByAgent: true }),
 					callId: api.callId,
 					followUp: false,
 					checkIn,
@@ -2366,8 +2417,9 @@ function createWorkerExtension(service: WorkerService): Extension {
 				overlaps.length === 0
 					? ""
 					: `\nWarning: ${task?.id}'s write scopes (${task?.writeScopes.join(", ")}) overlap ${overlaps.join("; ")}. Both work in the same checkout, so their edits can collide: tell them apart in the briefs, or give one a workspace.`;
+			const modelNotice = args.model === undefined ? "" : await service.modelOverrideNotice(model, context);
 			return toolText(
-				`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}. Its report arrives as a message when it answers; keep going meanwhile.${created.boardNotices.length ? ` ${created.boardNotices.join(" ")}` : ""}${warning}`,
+				`Started worker "${args.id}" on ${model.provider}/${model.modelId}, working in ${where}${task === undefined ? "" : ` on ${task.id}`}.${modelNotice} Its report arrives as a message when it answers; keep going meanwhile.${created.boardNotices.length ? ` ${created.boardNotices.join(" ")}` : ""}${warning}`,
 				{ details: { workerId: args.id, conversationId: created.conversationId } },
 			);
 		},
@@ -2493,7 +2545,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 		callers: ["model"],
 		description:
 			"Stop what a worker is doing: its running answer and tools are aborted and its queued messages withdrawn. " +
-			"The worker stays usable with worker_send.",
+			"The worker stays usable with worker_send unless it was already released. This also stops any remaining work on a released worker.",
 		parameters: Type.Object({
 			id: Type.String({ minLength: 1, description: "The worker's ID." }),
 		}),
@@ -2509,15 +2561,15 @@ function createWorkerExtension(service: WorkerService): Extension {
 			if (record === undefined) {
 				return toolText(`No worker named "${args.id}".`, { isError: true });
 			}
-			if (record.status === "done") return toolText(`Worker "${args.id}" is already forgotten.`);
 			const worker = await api.conversation(record.conversationId as ConversationId, context);
 			await worker?.abort(context);
-			void service.cleanupBrowser(record.conversationId);
+			const released = record.status === "done";
+			void service.cleanupBrowser(record.conversationId, released);
 			await service.closeOfficialAgent(record.conversationId);
-			await api.commit(async (tx) => {
+			if (!released) await api.commit(async (tx) => {
 				const doc = await tx.doc(WorkersDoc, api.conversationId);
 				const current = doc.workers[args.id];
-				if (current === undefined) return;
+				if (current === undefined || current.status === "done" || current.conversationId !== record.conversationId) return;
 				if (current.status !== "stopped" && current.taskId != null) {
 					const board = await openBoard(tx, service.mainId as ConversationId);
 					noteTaskFact(board, current.taskId, { actor: "worker", kind: "worker_stop", reason: "worker stopped", at: new Date().toISOString() });
@@ -2527,7 +2579,9 @@ function createWorkerExtension(service: WorkerService): Extension {
     await syncWorkerActivity(tx, service, current, api.conversationId);
 			}, context);
 			await api.details({ workerId: args.id, conversationId: record.conversationId }, context);
-			return toolText(`Stopped worker "${args.id}". It keeps its conversation; worker_send wakes it up again.`, {
+			return toolText(released
+				? `Stopped any remaining work on worker "${args.id}". It stays released.`
+				: `Stopped worker "${args.id}". It keeps its conversation; worker_send wakes it up again.`, {
 				details: { workerId: args.id, conversationId: record.conversationId },
 			});
 		},
@@ -2607,9 +2661,8 @@ function createWorkerExtension(service: WorkerService): Extension {
 		// Releases a worker; a script may only read them (worker_list, worker_peek), never start, message, stop or forget one.
 		callers: ["model"],
 		description:
-			"Release a worker once its work is merged: removes its jj workspace (unless `removeWorkspace: false`) and " +
-			"drops it from the active list and withdraws queued messages without aborting running work. " +
-			"Late output is recorded without waking you. Its conversation stays for history.",
+			"Release a worker: first abort its running answer and tools and withdraw queued messages, then drop it from the active list. " +
+			"This removes its jj workspace (unless `removeWorkspace: false`). Its conversation stays for history.",
 		parameters: Type.Object({
 			id: Type.String({ minLength: 1, description: "The worker's ID." }),
 			removeWorkspace: Type.Optional(
@@ -2630,25 +2683,33 @@ function createWorkerExtension(service: WorkerService): Extension {
 
 			const remove = args.removeWorkspace !== false;
 			const path = record.workspacePath;
-			if (path !== null) await service.recordWorkspaceChanges(path, record, service.coordinators.placeOf(api.conversationId)?.threadId ?? "main");
-			await service.withReportAdmission(() => api.commit(async (tx) => {
-				const doc = await tx.doc(WorkersDoc, api.conversationId);
-				const inbox = await tx.doc(InboxDoc, record.conversationId as ConversationId);
-				const current = doc.workers[args.id];
-				if (current === undefined) return;
-				current.status = "done";
-				current.updatedAt = new Date().toISOString();
-    await syncWorkerActivity(tx, service, current, api.conversationId);
-				if (remove && current.isolation === "workspace") current.workspacePath = null;
-				// Withdraw only waiting inputs. Running answers/tools and passive writes are untouched.
-				for (const item of inbox.items) {
-					if (item.mode !== "write") tx.settleSubmission(item.id, { status: "unanswered", reason: "aborted" });
-				}
-				inbox.items = inbox.items.filter((item) => item.mode === "write");
-				pruneDone(doc);
-			}, context));
+			const didRelease = await service.withReportAdmission(async () => {
+				const latest = (await api.snapshot(WorkersDoc, api.conversationId, context))?.workers[args.id];
+				if (latest?.conversationId !== record.conversationId || latest.status === "done") return false;
+				// Do not let a reporter deliver another message between aborting the turn and releasing the worker.
+				const worker = await api.conversation(record.conversationId as ConversationId, context);
+				await worker?.abort(context);
+				await service.closeOfficialAgent(record.conversationId);
+				await api.commit(async (tx) => {
+					const doc = await tx.doc(WorkersDoc, api.conversationId);
+					const inbox = await tx.doc(InboxDoc, record.conversationId as ConversationId);
+					const current = doc.workers[args.id]!;
+					current.status = "done";
+					current.updatedAt = new Date().toISOString();
+					await syncWorkerActivity(tx, service, current, api.conversationId);
+					if (remove && current.isolation === "workspace") current.workspacePath = null;
+					// Release withdraws even an input set to survive an ordinary abort. Passive writes stay for history.
+					for (const item of inbox.items) {
+						if (item.mode !== "write") tx.settleSubmission(item.id, { status: "unanswered", reason: "aborted" });
+					}
+					inbox.items = inbox.items.filter(item => item.mode === "write");
+					pruneDone(doc);
+				}, context);
+				return true;
+			});
+			if (!didRelease) return toolText(`Worker "${args.id}" is already forgotten.`);
 			void service.cleanupBrowser(record.conversationId, true);
-			await service.closeOfficialAgent(record.conversationId);
+			if (path !== null) await service.recordWorkspaceChanges(path, record, service.coordinators.placeOf(api.conversationId)?.threadId ?? "main");
 			let cleanup = "";
 			if (remove && record.isolation === "workspace" && path !== null) {
 				try {

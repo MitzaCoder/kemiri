@@ -676,6 +676,15 @@ export class RequestLogStore {
 		return { rows, approximate };
 	}
 
+	/** Retained model requests for one worker conversation, even if its task changed or its name was reused. */
+	workerRequestTotals(projectId: string, conversationId: number): { requests: number; cost: number; unpriced: number } {
+		return this.#db.query<{ requests: number; cost: number; unpriced: number }, [string, number]>(`
+			SELECT count(*) AS requests, coalesce(sum(cost), 0) AS cost, count(*) FILTER (WHERE priced = 0) AS unpriced
+			FROM requests WHERE project_id = ? AND conversation_id = ? AND conversation_kind = 'worker'
+			AND source != 'keepWarm' AND purpose IS NULL
+		`).get(projectId, conversationId)!;
+	}
+
 	/** Lifetime totals, including usage that has aged out of the request log. */
 	taskUsage(projectId: string, taskIds: readonly string[]): TaskUsageGroup[] {
 		return this.#db.query<TaskUsageGroup, [string, string]>(`

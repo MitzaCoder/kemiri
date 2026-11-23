@@ -101,6 +101,8 @@ import { type Notifier, replyNotification, threadFailedNotification, threadFinis
 import type { Project } from "./projects.ts";
 import { formatRunStamp } from "./schedules.ts";
 import {
+	DELEGATED_MODEL_OVERRIDE_DESCRIPTION,
+	DELEGATED_THINKING_DESCRIPTION,
 	type WorkerService,
 	WorkersDoc,
 	entryLines,
@@ -108,6 +110,7 @@ import {
 	formatDuration,
 	lastActivityAt,
 	liveLines,
+	resolveWorkerModel,
 } from "./workers.ts";
 
 /** Threads a schedule started are archived this long after they finish. */
@@ -149,6 +152,8 @@ export type ThreadRecord = {
 	taskId?: string | null;
 	/** The tool call (main's `thread_start`) or schedule slot that started it, so a rerun finds this thread. */
 	startedByKey: string;
+	/** Set by an explicit agent choice at start and cleared when the owner picks a model. */
+	modelNamedByAgent?: true;
 	model: ModelRef;
 	thinkingLevel: ThinkingLevel | null;
 	workerModel?: WorkerModel;
@@ -593,6 +598,17 @@ export class ThreadService {
 	async state(context: Context = BACKGROUND_CONTEXT): Promise<ThreadsState> {
 		const state = await this.#options.harness.snapshot(ThreadsDoc, this.#mainId, context);
 		return normalizeThreadsState(state);
+	}
+
+	/** Includes record-only jobs, which are left out of check-ins. */
+	async runningJobModelOverrides(context: Context): Promise<ModelRef[]> {
+		return Object.values((await this.state(context)).threads)
+			.filter(record => record.kind === "job" && record.startedBy === "main" && record.modelNamedByAgent === true && record.status === "running" && !record.archived)
+			.map(record => record.model);
+	}
+
+	async modelOverrideNotice(model: ModelRef, context: Context): Promise<string> {
+		return this.#options.workers.modelOverrideNotice(model, context);
 	}
 
 	async titleOf(threadId: string): Promise<string | undefined> {
@@ -1206,7 +1222,25 @@ export class ThreadService {
 		const existing = Object.values(state.threads).find((record) => record.startedByKey === input.key);
 		if (existing !== undefined) return { ok: true, record: existing, existed: true };
 
-		const model = input.model ?? project.coordinator.model;
+		const agentStartedJob = input.startedBy === "main" && input.coordinator === undefined;
+		let model = input.model ?? project.coordinator.model;
+		let thinkingLevel = input.thinkingLevel ?? (input.model === null ? project.coordinator.thinkingLevel : null);
+		if (agentStartedJob) {
+			const models = this.#options.models;
+			if (input.model !== null && isWorkerOnlyModel(models, input.model)) {
+				return { ok: false, message: "Official-agent models run only in worker conversations, not coordinator threads." };
+			}
+			const resolved = resolveWorkerModel({
+				explicit: input.model ?? undefined,
+				explicitThinkingLevel: input.thinkingLevel ?? undefined,
+				projectModels: project.workerModels.filter(ref => !isWorkerOnlyModel(models, ref)),
+				models,
+			});
+			if (!resolved.ok) return { ok: false, message: input.model === null
+				? "No project worker model is available for background threads. Pick one in Settings → Workers, or use worker_spawn for an official-agent model."
+				: resolved.message };
+			({ model, thinkingLevel } = resolved.value);
+		}
 		if (model === null) {
 			return { ok: false, message: "No model for the thread: name one, or set the project's coordinator model." };
 		}
@@ -1214,7 +1248,7 @@ export class ThreadService {
 		if (this.#options.models.getModel(model.provider, model.modelId) === undefined) {
 			return { ok: false, message: `Unknown model ${model.provider}/${model.modelId}.` };
 		}
-		const thinkingLevel = input.thinkingLevel ?? (input.model === null ? project.coordinator.thinkingLevel : null);
+		const threadModel = model;
 		const id = input.id ?? this.#freeId(state, input.title);
 		if (state.threads[id] !== undefined || id === MAIN_THREAD_ID || !THREAD_ID_PATTERN.test(id)) {
 			return { ok: false, message: `The thread ID "${id}" is taken or not valid.` };
@@ -1277,7 +1311,7 @@ export class ThreadService {
 			const anchor = await tx.createTask(ThreadAnchor, null, background);
 			const conversation = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
 			await configure(tx, conversation.id, {
-				model,
+				model: threadModel,
 				thinkingLevel,
 				cwd: place.checkout,
 				extensions: this.extensionsFor(input.coordinator ? "coordinator" : "job"),
@@ -1307,7 +1341,8 @@ export class ThreadService {
 				scheduleId: input.scheduleId,
 				taskId,
 				startedByKey: input.key,
-				model: { provider: model.provider, modelId: model.modelId },
+				...(agentStartedJob && input.model !== null ? { modelNamedByAgent: true } : {}),
+				model: { provider: threadModel.provider, modelId: threadModel.modelId },
 				thinkingLevel,
 				onFinish: input.onFinish,
 				status: input.coordinator && moved.length === 0 ? "idle" : "running",
@@ -1437,7 +1472,10 @@ export class ThreadService {
 			if (color !== undefined) record.color = color;
 			if (paths !== undefined) record.paths = paths;
 			if (order !== undefined) record.order = order;
-			if (model !== undefined) record.model = model;
+			if (model !== undefined) {
+				record.model = model;
+				delete record.modelNamedByAgent;
+			}
 			if (thinkingLevel !== undefined) record.thinkingLevel = thinkingLevel;
 			if (workerModel === null) delete record.workerModel;
 			else if (workerModel !== undefined) record.workerModel = workerModel;
@@ -1995,8 +2033,11 @@ function createThreadStartExtension(service: ThreadService): Extension {
 				minLength: 1,
 				description: "The complete brief: goal, scope, constraints, how to verify, what the summary must say. The thread never sees this conversation.",
 			}),
-			model: Type.Optional(modelRefSchema),
-			thinkingLevel: Type.Optional(thinkingLevelSchema),
+			model: Type.Optional({
+				...modelRefSchema,
+				description: `Leave out to use the project's first available worker model that can run background threads. ${DELEGATED_MODEL_OVERRIDE_DESCRIPTION}`,
+			}),
+			thinkingLevel: Type.Optional({ ...thinkingLevelSchema, description: DELEGATED_THINKING_DESCRIPTION }),
 			onFinish: Type.Optional(
 				Type.Union([Type.Literal("review"), Type.Literal("record")], {
 					description: '"review" (default): its summary wakes you to review it. "record": the summary is kept for your next turn without waking you.',
@@ -2030,9 +2071,10 @@ function createThreadStartExtension(service: ThreadService): Extension {
 			const { record } = started;
 			const details = { threadId: record.id, conversationId: record.conversationId };
 			await api.details(details, context);
-			if (started.existed) return toolText(`Background thread "${record.id}" is already started (${record.status}).`, { details });
+			const modelNotice = args.model === undefined ? "" : await service.modelOverrideNotice(record.model, context);
+			if (started.existed) return toolText(`Background thread "${record.id}" is already started (${record.status}).${modelNotice}`, { details });
 			return toolText(
-				`Started background thread "${record.id}" on ${record.model.provider}/${record.model.modelId}, working in ${record.checkout}. ` +
+				`Started background thread "${record.id}" on ${record.model.provider}/${record.model.modelId}, working in ${record.checkout}.${modelNotice} ` +
 					`It works on its own: its summary arrives as "[thread ${record.id} finished]" (or "[thread ${record.id} failed: ...]"). ` +
 					`Look in with thread_peek, steer it with thread_send, stop it with thread_stop; keep going meanwhile.${started.notices?.length ? ` ${started.notices.join(" ")}` : ""}`,
 				{ details },

@@ -288,7 +288,7 @@ it("a thread's own task and touched tasks work this turn, not every task it hold
   call("decide", { taskId: "T2", text: "Keep synthetic evidence" }),
   async () => { resolveSample(); return fauxAssistantMessage("Finished this turn."); },
  ]);
- const started = await runtime.threads.start({ id: "thread-a", title: "Card view", brief: "Check the tasks", model: null, thinkingLevel: null, onFinish: "record", startedBy: "main", scheduleId: null, taskId: "T1", key: "inferred-thread" });
+ const started = await runtime.threads.start({ id: "thread-a", title: "Card view", brief: "Check the tasks", model: { provider: "faux", modelId: "faux-1" }, thinkingLevel: null, onFinish: "record", startedBy: "main", scheduleId: null, taskId: "T1", key: "inferred-thread" });
  if (!started.ok) throw new Error(started.message);
  await sampled;
  const conversation = await runtime.harness.conversation(started.record.conversationId as typeof runtime.conversation.id, BACKGROUND_CONTEXT);
