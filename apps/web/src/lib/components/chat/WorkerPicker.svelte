@@ -31,6 +31,7 @@
 		projectWorkerModels = [],
 		workerSettingsHref,
 		usesProjectWorkerDefault = false,
+		usesThreadWorkerDefault = false,
 		model,
 		thinkingLevel,
 		onModelChange,
@@ -42,6 +43,7 @@
 		projectWorkerModels?: readonly WorkerModel[];
 		workerSettingsHref?: string;
 		usesProjectWorkerDefault?: boolean;
+		usesThreadWorkerDefault?: boolean;
 		model: ModelRef | null;
 		thinkingLevel: ThinkingLevel | null;
 		onModelChange: (model: ModelInfo | null) => void;
@@ -56,7 +58,9 @@
 			? undefined
 			: models.find((entry) => entry.provider === model?.provider && entry.modelId === model?.modelId)
 	);
-	const projectRows = $derived(projectWorkerModelRows(projectWorkerModels, models, usesProjectWorkerDefault ? null : thinkingLevel));
+	const projectRows = $derived(projectWorkerModelRows(projectWorkerModels, models, usesProjectWorkerDefault || usesThreadWorkerDefault ? null : thinkingLevel));
+	const inheritedLabel = $derived(usesThreadWorkerDefault ? 'Project default' : 'Worker default');
+	const label = $derived(current?.name ?? model?.modelId ?? (usesProjectWorkerDefault ? 'No worker model' : inheritedLabel));
 	const defaultSummary = $derived(projectRows.length === 0
 		? 'No project worker models. No backend fallback. Choose a model in Project settings → Workers.'
 		: `Project settings → Workers\n${projectRows.map((row) => `${row.order}. ${row.name} · ${row.provider} · ${row.thinking ?? 'model default'} · ${row.role}`).join('\n')}`);
@@ -73,10 +77,10 @@
 		class="chip max-w-[min(13rem,100%)] max-sm:w-8 max-sm:shrink-0 max-sm:justify-center max-sm:px-0"
 		{disabled}
 		title={defaultSummary}
-		aria-label="Worker model: {current?.name ?? model?.modelId ?? (usesProjectWorkerDefault ? 'No worker model' : 'default')}"
+		aria-label="Worker model: {label}"
 	>
 		<BotIcon class="size-3.5 shrink-0 text-(--accent-2)" />
-		<span class="truncate max-sm:hidden">{current?.name ?? model?.modelId ?? (usesProjectWorkerDefault ? 'No worker model' : 'Worker default')}</span>
+		<span class="truncate max-sm:hidden">{label}</span>
 		{#if thinkingLevel !== null}
 			<span class="shrink-0 text-(--chat-fg-subtle) max-sm:hidden">· {thinkingLevel}</span>
 		{/if}
@@ -90,7 +94,7 @@
 			selected={(entry) => model !== null && sameModel(entry, model)}
 			onpick={(entry) => {
 				onModelChange(entry);
-				if (usesProjectWorkerDefault) open = false;
+				if (usesProjectWorkerDefault || usesThreadWorkerDefault) open = false;
 			}}
 			placeholder="Search models for new workers…"
 		>
@@ -100,7 +104,7 @@
 						<h3 class="font-semibold">Project worker models</h3>
 						{#if workerSettingsHref}<a class="shrink-0 text-(--accent-2) underline underline-offset-2" href={workerSettingsHref}>{usesProjectWorkerDefault ? 'Settings → Workers' : 'Change'}</a>{/if}
 					</div>
-					<p class="mt-1 text-[0.6875rem] text-(--chat-fg-subtle)">{usesProjectWorkerDefault ? "Changes this project's default worker model." : 'From project settings · tried in order'}</p>
+					<p class="mt-1 text-[0.6875rem] text-(--chat-fg-subtle)">{usesProjectWorkerDefault ? "Changes this project's default worker model." : usesThreadWorkerDefault ? 'A model picked here applies only to this chat’s new workers.' : 'From project settings · tried in order'}</p>
 					<ol class="mt-2 space-y-2">
 						{#each projectRows as row (row.key)}
 							<li class="flex items-start gap-2 text-xs">
@@ -112,7 +116,7 @@
 							<li class="text-xs text-(--chat-fg-muted)">None set. No backend fallback; choose a worker model to start workers.</li>
 						{/each}
 					</ol>
-					{#if !usesProjectWorkerDefault}<p class="mt-2 text-[0.6875rem] text-(--chat-fg-subtle)">{model !== null ? 'Your composer pick overrides this list. ' : ''}{thinkingLevel !== null ? 'Thinking comes from your composer pick. ' : ''}The coordinator can name another model.</p>{/if}
+					{#if !usesProjectWorkerDefault}<p class="mt-2 text-[0.6875rem] text-(--chat-fg-subtle)">{model !== null ? 'Your composer pick overrides this list. ' : ''}{!usesThreadWorkerDefault && thinkingLevel !== null ? 'Thinking comes from your composer pick. ' : ''}The coordinator can name another model.</p>{/if}
 				</section>
 				{#if !usesProjectWorkerDefault}
 				<button
@@ -125,9 +129,9 @@
 				>
 					<BotIcon class="size-4 shrink-0 text-(--chat-fg-subtle)" />
 					<span class="min-w-0 flex-1">
-						<span class="block text-sm font-medium">Worker default</span>
+						<span class="block text-sm font-medium">{inheritedLabel}</span>
 						<span class="block text-[0.6875rem] text-(--chat-fg-subtle)">
-							Whatever the coordinator names, else the project's worker models
+							{usesThreadWorkerDefault ? 'Use the project worker models in order' : "Whatever the coordinator names, else the project's worker models"}
 						</span>
 					</span>
 					<CheckIcon class="size-4 shrink-0 {model === null ? 'text-(--accent-2)' : 'invisible'}" />
@@ -136,7 +140,7 @@
 			{/snippet}
 
 			{#snippet footer()}
-				{#if !usesProjectWorkerDefault || model !== null}
+				{#if model !== null || (!usesProjectWorkerDefault && !usesThreadWorkerDefault)}
 				<div class="border-t border-(--chat-border) p-2">
 					<p
 						class="px-1.5 pt-0.5 pb-1.5 text-[0.6875rem] font-semibold tracking-wide text-(--chat-fg-subtle) uppercase"

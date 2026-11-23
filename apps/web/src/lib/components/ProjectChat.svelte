@@ -28,7 +28,7 @@
 	import CoordinatorManager from './CoordinatorManager.svelte';
 	import { coordinatorBadges, coordinatorColor, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
 	import { provideCoordinatorTaskView } from '#lib/coordinator-task-view.js';
-	import type { ThreadSummary } from '@kemiri/protocol';
+	import type { ThreadSummary, ThreadsUpdateRequest } from '@kemiri/protocol';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FilesHost from './files/FilesHost.svelte';
 	import { provideFilesNavigation } from '#lib/code/files-navigation.svelte.js';
@@ -164,6 +164,7 @@
 	let aborting = $state(false);
 	let sendError = $state<string | undefined>(undefined);
 	let modelError = $state<string | undefined>(undefined);
+	let savingThreadModelSettings = $state(false);
 	let transcript = $state<TranscriptHandle | undefined>(undefined);
 	let composer = $state<{ focus(): void; addQuote(quote: string): void; restore(text: string, taskId?: string, images?: HeldImage[], files?: ChatFile[]): void } | undefined>(undefined);
 	setContext<() => DiscussionChat | undefined>(DISCUSSION_CHAT, () => isThread ? undefined : {
@@ -314,21 +315,20 @@
 	const canPickModel = $derived(
 		project !== undefined && backend.ready && backend.supports('projects') && backend.supports('models')
 	);
-	const currentModel = $derived(
-		project?.coordinator.model === null || project?.coordinator.model === undefined
-			? undefined
-			: backend.models.find(
-					(model) =>
-						model.provider === project?.coordinator.model?.provider &&
-						model.modelId === project?.coordinator.model?.modelId
-				)
-	);
+	const showsThreadModelSettings = $derived(isThread && thread !== undefined && !thread.archived &&
+		backend.supports('coordinators') && backend.supports('thread-model-settings'));
+	const chatModel = $derived((isThread ? thread?.model : project?.coordinator.model) ?? null);
+	const chatThinkingLevel = $derived((isThread ? thread?.thinkingLevel : project?.coordinator.thinkingLevel) ?? null);
+	const currentModel = $derived(backend.models.find(model =>
+		model.provider === chatModel?.provider && model.modelId === chatModel?.modelId));
 	const thinkingLevels = $derived<readonly ThinkingLevel[]>(currentModel?.thinkingLevels ?? []);
 
 	const workerList = $derived(workers?.workers ?? []);
 	const usesProjectWorkerDefault = $derived(backend.supports('worker-picker-project-default'));
 	const firstWorkerModel = $derived(project?.workerModels[0]);
-	const workerDefaults = $derived(usesProjectWorkerDefault
+	const workerDefaults = $derived(isThread
+		? { model: thread?.workerModel ?? null, thinkingLevel: thread?.workerModel?.thinkingLevel ?? null }
+		: usesProjectWorkerDefault
 		? { model: firstWorkerModel ?? null, thinkingLevel: firstWorkerModel?.thinkingLevel ?? null }
 		: workers?.defaults ?? { model: null, thinkingLevel: null });
 
@@ -753,6 +753,7 @@
 	async function send(text: string, taskId?: string, images: HeldImage[] = [], files: ChatFile[] = []): Promise<boolean> {
 		const body = text.trim();
 		if (body.length === 0 && images.length === 0 && files.length === 0) return true;
+		if (savingThreadModelSettings) return false;
 		if (!canChat) {
 			sendError = 'Choose a main chat model in the composer before sending.';
 			return false;
@@ -810,15 +811,32 @@
 		if (current?.watch.earlierError) throw new Error(current.watch.earlierError);
 	}
 
+	async function saveThreadModelSettings(fields: Pick<ThreadsUpdateRequest, 'model' | 'thinkingLevel' | 'workerModel'>): Promise<void> {
+		const id = threadId;
+		const roster = threads;
+		if (!id || !roster || !showsThreadModelSettings || !canPickModel || savingThreadModelSettings) return;
+		modelError = undefined;
+		savingThreadModelSettings = true;
+		try {
+			if (!await roster.updateCoordinator(id, fields)) {
+				modelError = roster.actionError?.message ?? 'Could not save the model settings.';
+			}
+		} finally {
+			savingThreadModelSettings = false;
+		}
+	}
+
 	/** Changing the model drops a thinking level the new model does not offer. */
 	async function changeModel(model: ModelInfo): Promise<void> {
 		if (project === undefined) return;
 		modelError = undefined;
-		const level = project.coordinator.thinkingLevel;
+		const level = chatThinkingLevel;
 		const keep = level !== null && model.thinkingLevels.includes(level);
+		const modelRef = { provider: model.provider, modelId: model.modelId };
+		if (isThread) return saveThreadModelSettings({ model: modelRef, ...(keep ? {} : { thinkingLevel: null }) });
 		try {
 			await backend.configureProject(projectId, {
-				coordinatorModel: { provider: model.provider, modelId: model.modelId },
+				coordinatorModel: modelRef,
 				...(keep ? {} : { coordinatorThinkingLevel: null }),
 			});
 		} catch (error) {
@@ -827,6 +845,7 @@
 	}
 
 	async function changeThinkingLevel(level: ThinkingLevel | null): Promise<void> {
+		if (isThread) return saveThreadModelSettings({ thinkingLevel: level });
 		modelError = undefined;
 		try {
 			await backend.configureProject(projectId, { coordinatorThinkingLevel: level });
@@ -840,18 +859,24 @@
 	 * keeps the choice on the next message instead. The server pushes the stored choice back to every device.
 	 */
 	function changeWorkerModel(model: ModelInfo | null): void {
-		if (workers === undefined) return;
 		const level = workerDefaults.thinkingLevel;
-		const keep = model !== null && level !== null && model.thinkingLevels.includes(level);
-		void workers.pick(
-			model === null ? null : { provider: model.provider, modelId: model.modelId },
-			keep ? level : null
-		);
+		const thinkingLevel = model !== null && level !== null && model.thinkingLevels.includes(level) ? level : null;
+		const ref = model === null ? null : { provider: model.provider, modelId: model.modelId };
+		if (isThread) {
+			void saveThreadModelSettings({ workerModel: ref === null ? null : { ...ref, thinkingLevel } });
+			return;
+		}
+		void workers?.pick(ref, thinkingLevel);
 	}
 
 	function changeWorkerThinking(level: ThinkingLevel | null): void {
-		if (usesProjectWorkerDefault && workerDefaults.model === null) return;
-		void workers?.pick(workerDefaults.model, level);
+		const model = workerDefaults.model;
+		if (isThread) {
+			if (model !== null) void saveThreadModelSettings({ workerModel: { ...model, thinkingLevel: level } });
+			return;
+		}
+		if (usesProjectWorkerDefault && model === null) return;
+		void workers?.pick(model, level);
 	}
 </script>
 
@@ -1170,23 +1195,25 @@
 							discussionChat={isThread ? undefined : { backend, projectId }}
 							models={backend.models}
 							providers={backend.providers}
-							model={project?.coordinator.model ?? null}
-							thinkingLevel={project?.coordinator.thinkingLevel ?? null}
+							model={chatModel}
+							thinkingLevel={chatThinkingLevel}
 							{thinkingLevels}
 							workerModels={backend.models}
 							workerProviders={backend.providers}
 							projectWorkerModels={project?.workerModels ?? []}
-							{usesProjectWorkerDefault}
+							usesProjectWorkerDefault={!isThread && usesProjectWorkerDefault}
+							usesThreadWorkerDefault={showsThreadModelSettings}
 							workerSettingsHref={projectSettingsHref(backend.id, projectId, 'workers')}
 							workerModel={workerDefaults.model}
 							workerThinkingLevel={workerDefaults.thinkingLevel}
-							showWorkerPicker={supportsWorkers && canPickModel && !isThread}
-							showModelPicker={!isThread}
+							showWorkerPicker={supportsWorkers && (isThread ? showsThreadModelSettings : canPickModel)}
+							showModelPicker={!isThread || showsThreadModelSettings}
+							modelPickersDisabled={isThread && (!canPickModel || savingThreadModelSettings)}
 							modelNote={isThread && thread?.model ? `Runs on ${modelLabel(thread.model, backend.models)}` : undefined}
-							workerPickerDisabled={workers?.loaded !== true}
+							workerPickerDisabled={isThread ? !canPickModel || savingThreadModelSettings : workers?.loaded !== true}
 							tasks={taskChoices}
 							busy={busy || aborting}
-							disabled={!canSend}
+							disabled={!canSend || savingThreadModelSettings}
 							placeholder={!canChat
 								? 'Choose a main chat model first'
 								: !backend.ready

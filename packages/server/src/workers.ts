@@ -605,14 +605,15 @@ function levelIn(projectModels: readonly WorkerModel[], ref: ModelRef): Thinking
 }
 
 /**
- * Use the model named by the coordinator or schedule, else the first available project worker model. A named
- * thinking level wins; otherwise use the level stored for that model, or the model's default. A server without
- * `worker-picker-project-default` still honors the legacy composer override ahead of the project list.
+ * Use the model named by the coordinator or schedule, else the thread's worker pick, else the first available
+ * project worker model. A named thinking level wins; otherwise use the level stored for the chosen model.
+ * A server without `worker-picker-project-default` still honors the legacy project composer override.
  */
 export function resolveWorkerModel(options: {
 	explicit?: ModelRef | undefined;
 	explicitThinkingLevel?: ThinkingLevel | undefined;
 	legacyDefaults?: WorkerDefaults | undefined;
+	threadWorkerModel?: WorkerModel | undefined;
 	projectModels: readonly WorkerModel[];
 	models: Models;
 }): ResolveWorkerModelResult {
@@ -633,6 +634,12 @@ export function resolveWorkerModel(options: {
 			};
 		}
 		return { ok: true, value: resolve(options.explicit) };
+	}
+
+	const fromThread = options.threadWorkerModel;
+	if (fromThread !== undefined && available(fromThread)) {
+		const { provider, modelId } = fromThread;
+		return { ok: true, value: { model: { provider, modelId }, thinkingLevel: options.explicitThinkingLevel ?? fromThread.thinkingLevel ?? null } };
 	}
 
 	const fromUser = options.legacyDefaults?.model;
@@ -2006,6 +2013,7 @@ export class WorkerService {
 			explicit: run.model ?? undefined,
 			explicitThinkingLevel: run.thinkingLevel ?? undefined,
 			legacyDefaults: this.usesProjectWorkerDefault ? undefined : defaultsOf(state),
+			threadWorkerModel: place.workerModel,
 			projectModels: this.project.workerModels,
 			models: this.#options.models,
 		});
@@ -2294,6 +2302,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 				explicit: args.model,
 				explicitThinkingLevel: args.thinkingLevel,
 				legacyDefaults,
+				threadWorkerModel: place.workerModel,
 				projectModels: service.project.workerModels,
 				models: api.models,
 			});
@@ -2575,6 +2584,11 @@ function createWorkerExtension(service: WorkerService): Extension {
 					defaults.thinkingLevel === null ? "" : ` (thinking ${defaults.thinkingLevel})`
 				}`;
 				header = `Worker model from your messages: ${chosen}. ${header}`;
+			}
+			const threadWorkerModel = service.placeOf(api.conversationId)?.workerModel;
+			if (threadWorkerModel) {
+				const { provider, modelId, thinkingLevel } = threadWorkerModel;
+				header = `Thread worker model: ${provider}/${modelId}${thinkingLevel == null ? "" : ` (thinking ${thinkingLevel})`}. ${header}`;
 			}
 			if (records.length === 0) return toolText(`${header}\nNo workers yet. Start one with worker_spawn.`);
 			return toolText(`${header}\n\n${records.map(describeWorkerRecord).join("\n\n")}`);

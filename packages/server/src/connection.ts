@@ -998,7 +998,8 @@ export class ClientConnection {
 					return;
 				}
 				case "threads.update": {
-					if (!this.#features.includes("coordinators") || (request.promote && !this.#features.includes("coordinator-schedules"))) return this.#unknownRequest(request);
+					if (!this.#features.includes("coordinators") || (request.promote && !this.#features.includes("coordinator-schedules")) ||
+						(request.workerModel !== undefined && !this.#features.includes("thread-model-settings"))) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					const thread = await runtime.threads.update(request.threadId, request);
 					this.#respond({ type: request.type, id: request.id, thread });

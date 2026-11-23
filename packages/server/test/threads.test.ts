@@ -5,7 +5,7 @@ import { ThreadSummarySchema } from "../../protocol/src/threads.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { defineDoc, type JsonObject, type SetTimer } from "@earendil-works/pi-durable";
 import { DEFAULT_CHECK_INS, DEFAULT_LONG_PROMPT_CACHE, DEFAULT_UI_PROOF } from "@kemiri/protocol";
 import type {
@@ -1412,6 +1412,83 @@ threadTest("board add_task hints at near-duplicates across coordinators but stil
 });
 
 
+threadTest("hot swaps an area's model and worker default without replacing its conversation", async () => {
+	const alternate = fauxProvider({ provider: "fixture", models: [{ id: "faux-2", reasoning: true }] });
+	const newModel = { provider: "fixture", modelId: "faux-2" };
+	const workerOnly = { provider: "antigravity", modelId: "gemini-3.8-flash" };
+	const test = await setup({
+		configureModels: models => models.setProvider(alternate.provider),
+		antigravityCommand: new URL("./fixtures/fake-acp.ts", import.meta.url).pathname,
+	});
+	let { client, projectId } = await openProject(test);
+	const created = await client.request({ type: "threads.create", projectId, title: "Packing", area: "Pack sample orders." });
+	if (created.type !== "threads.create") throw errorOf(created);
+	const threadId = created.thread.id;
+	const { runtime } = await test.server.manager.open(projectId);
+	const conversation = await runtime.threads.conversation(threadId);
+	const sibling = await runtime.threads.create({ title: "Stock", area: "Count stored items." }, "stock-model-test");
+
+	const running = Promise.withResolvers<void>();
+	const finish = Promise.withResolvers<void>();
+	script(test, async turn => {
+		if (turn.text !== "Remember the old label.") return undefined;
+		running.resolve();
+		await finish.promise;
+		return fauxAssistantMessage("The old label is saved.");
+	});
+	alternate.setResponses(Array.from({ length: 16 }, () => (request, options, _state, model) => {
+		const turn = turnOf(request, options?.signal);
+		const hasPriorReply = request.messages.some(message => message.role === "assistant" && textOf(message.content) === "The old label is saved.");
+		if (turn.text === "Check the new model.") return fauxAssistantMessage(`${model.id}, ${options?.reasoning}, prior reply: ${hasPriorReply}`);
+		if (turn.who === "thread" && turn.text === "Delegate a label check.") {
+			return call("worker_spawn", { id: "labels", task: "Check the sample labels." });
+		}
+		return fauxAssistantMessage("Fixture response.");
+	}));
+	const chat = new ViewClient(client);
+	await chat.start(projectId, { threadId });
+	await submit(client, projectId, "Remember the old label.", threadId);
+	try {
+		await running.promise;
+		const updated = await client.request({ type: "threads.update", projectId, threadId, model: newModel,
+			thinkingLevel: "high", workerModel: { ...newModel, thinkingLevel: "medium" } });
+		expect(updated).toMatchObject({ type: "threads.update", thread: { conversationId: conversation.id,
+			model: newModel, thinkingLevel: "high", workerModel: { ...newModel, thinkingLevel: "medium" } } });
+	} finally {
+		finish.resolve();
+	}
+	await chat.waitForView(value => value.entries.some(entry => entryText(entry) === "The old label is saved."));
+	await conversation.waitForIdle(BACKGROUND_CONTEXT);
+	await submit(client, projectId, "Check the new model.", threadId);
+	await chat.waitForView(value => value.entries.some(entry => entryText(entry) === "faux-2, high, prior reply: true"));
+	for (const fields of [{ model: workerOnly }, { workerModel: { provider: "missing", modelId: "missing" } }]) {
+		expect(await client.request({ type: "threads.update", projectId, threadId, ...fields })).toMatchObject({ type: "error", error: { code: "bad_request" } });
+	}
+
+	const restarted = await test.restart();
+	client = await connect(restarted);
+	expect(await client.hello()).toMatchObject({ type: "hello", features: expect.arrayContaining(["thread-model-settings"]) });
+	const reopenedChat = new ViewClient(client);
+	await reopenedChat.start(projectId, { threadId });
+	const restored = await threads(client, projectId);
+	expect(restored.find(row => row.id === threadId)).toMatchObject({ conversationId: conversation.id,
+		model: newModel, thinkingLevel: "high", workerModel: { ...newModel, thinkingLevel: "medium" } });
+	for (const id of ["main", sibling.id]) {
+		const row = restored.find(row => row.id === id);
+		expect(row?.model).toEqual(FAUX);
+		expect(row?.thinkingLevel).toBe("low");
+		expect(row?.workerModel).toBeUndefined();
+	}
+	await submit(client, projectId, "Delegate a label check.", threadId);
+	await reopenedChat.waitForView(value => toolResultTexts(value, "worker_spawn").some(result => !result.isError));
+	expect((await workers(client, projectId, threadId)).workers).toMatchObject([{ id: "labels", model: newModel, thinkingLevel: "medium" }]);
+	expect((await workers(client, projectId)).defaults.model).toEqual(FAUX);
+	const reset = await client.request({ type: "threads.update", projectId, threadId, workerModel: null });
+	if (reset.type !== "threads.update") throw errorOf(reset);
+	expect(reset.thread.workerModel).toBeUndefined();
+	expect((await restarted.manager.open(projectId)).runtime.workers.coordinators.placeOfThread(threadId)?.workerModel).toBeUndefined();
+});
+
 threadTest("routes an area’s job summary, failure and released tasks to its parent", async () => {
 	const test = await setup();
 	const { client, projectId, view: general } = await openProject(test);
@@ -1429,6 +1506,8 @@ threadTest("routes an area’s job summary, failure and released tasks to its pa
 	await submit(client, projectId, "Start the label audit.", parent.id);
 	await until(async () => (await thread(client, projectId, "label-audit"))?.parentThreadId === parent.id);
 	const job = (await runtime.threads.record("label-audit"))!;
+	expect(await client.request({ type: "threads.update", projectId, threadId: job.id, thinkingLevel: "high", workerModel: { ...FAUX, thinkingLevel: "medium" } }))
+		.toMatchObject({ type: "threads.update", thread: { kind: "job", conversationId: job.conversationId, thinkingLevel: "high", workerModel: { ...FAUX, thinkingLevel: "medium" } } });
 	expect((await runtime.board.get()).tasks.find(row => row.id === task.id)).toMatchObject({ ownerThreadId: job.id, coordinatorId: parent.id });
 	const jobView = new ViewClient(client);
 	await jobView.start(projectId, { threadId: job.id });

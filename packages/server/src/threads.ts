@@ -72,6 +72,7 @@ import {
 	type ThreadStatus,
 	type ThreadSummary,
 	type LandingTurn,
+	type WorkerModel,
 	type WorkerSummary,
 } from "@kemiri/protocol";
 import { mkdir, stat } from "node:fs/promises";
@@ -150,6 +151,7 @@ export type ThreadRecord = {
 	startedByKey: string;
 	model: ModelRef;
 	thinkingLevel: ThinkingLevel | null;
+	workerModel?: WorkerModel;
 	onFinish: "review" | "record";
 	status: ThreadStatus;
 	summary: string | null;
@@ -658,11 +660,12 @@ export class ThreadService {
 		await this.#queue.catch(() => undefined);
 	}
 
-	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout" | "kind" | "parentThreadId" | "model">): CoordinatorPlace {
+	placeFor(record: Pick<ThreadRecord, "id" | "conversationId" | "checkout" | "kind" | "parentThreadId" | "model" | "workerModel">): CoordinatorPlace {
 		return {
 			threadId: record.id,
 			kind: record.kind,
 			model: record.model,
+			...(record.workerModel === undefined ? {} : { workerModel: record.workerModel }),
 			...(record.parentThreadId === undefined ? {} : { parentThreadId: record.parentThreadId }),
 			conversationId: record.conversationId,
 			checkout: record.checkout,
@@ -732,6 +735,7 @@ export class ThreadService {
 			taskId: record.taskId ?? null,
 			conversationId: record.conversationId,
 			model: record.model,
+			...(record.workerModel === undefined ? {} : { workerModel: record.workerModel }),
 			thinkingLevel: record.thinkingLevel,
 			onFinish: record.onFinish,
 			runningWorkers: running,
@@ -1374,15 +1378,19 @@ export class ThreadService {
 	async update(threadId: string, input: Omit<ThreadsUpdateRequest, "type" | "id" | "projectId" | "threadId">): Promise<ThreadSummary> {
 		const title = input.title === undefined ? undefined : requiredText(input.title, "Title");
 		const area = input.area === undefined ? undefined : requiredText(input.area, "Area");
-		const { model, thinkingLevel, color, paths, order } = input;
+		const { model, thinkingLevel, workerModel, color, paths, order } = input;
+		const changesModelSettings = model !== undefined || thinkingLevel !== undefined || workerModel !== undefined;
 		if (model && (isWorkerOnlyModel(this.#options.models, model) || !this.#options.models.getModel(model.provider, model.modelId))) {
 			throw new ServerError("bad_request", "Choose a valid coordinator model.");
+		}
+		if (workerModel && !this.#options.models.getModel(workerModel.provider, workerModel.modelId)) {
+			throw new ServerError("bad_request", "Choose a valid worker model.");
 		}
 		await this.#options.harness.commit(async tx => {
 			const doc = await tx.doc(ThreadsDoc, this.#mainId);
 			if (threadId === MAIN_THREAD_ID) {
 				if (input.promote) throw new ServerError("bad_request", "General is already a coordinator.");
-				if ([model, thinkingLevel, paths, order].some(field => field !== undefined)) throw new ServerError("bad_request", "Only title, area and color can be edited for General here.");
+				if (changesModelSettings || paths !== undefined || order !== undefined) throw new ServerError("bad_request", "Only title, area and color can be edited for General here.");
 				if (title === undefined && area === undefined && color === undefined) return;
 				doc.main ??= { ...GENERAL };
 				if (!applyLifecycleOperation(doc.main, "update", input.operationId)) return;
@@ -1401,6 +1409,9 @@ export class ThreadService {
 			const record = doc.threads[threadId];
 			if (!record) throw new ServerError("bad_request", "Choose a coordinator or job.");
 			if (!applyLifecycleOperation(record, "update", input.operationId)) return;
+			if (changesModelSettings && isThreadArchived(normalizeThreadRecord(record), this.now())) {
+				throw new ServerError("bad_request", "Restore this thread before changing its model settings.");
+			}
 			const promoting = input.promote === true && record.kind !== "coordinator";
 			if (promoting) {
 				if (area === undefined || isThreadArchived(normalizeThreadRecord(record), this.now())) throw new ServerError("bad_request", "Choose an area and restore the job before keeping it as a coordinator.");
@@ -1411,7 +1422,10 @@ export class ThreadService {
 				if (record.status !== "running") record.status = "idle";
 				record.finishedAt = null;
 				record.failure = null;
-			} else if (record.kind !== "coordinator") throw new ServerError("bad_request", "Choose a coordinator to edit.");
+			} else if (record.kind !== "coordinator" && (!changesModelSettings ||
+				[title, area, color, paths, order].some(field => field !== undefined))) {
+				throw new ServerError("bad_request", "Only model settings can be edited for a job.");
+			}
 			const before = JSON.stringify(record);
 			const renamed = title !== undefined && title !== record.title;
 			const rescoped = (area !== undefined && area !== record.area) || (paths !== undefined && JSON.stringify(paths) !== JSON.stringify(record.paths));
@@ -1422,6 +1436,8 @@ export class ThreadService {
 			if (order !== undefined) record.order = order;
 			if (model !== undefined) record.model = model;
 			if (thinkingLevel !== undefined) record.thinkingLevel = thinkingLevel;
+			if (workerModel === null) delete record.workerModel;
+			else if (workerModel !== undefined) record.workerModel = workerModel;
 			if (before !== JSON.stringify(record)) record.updatedAt = new Date(this.now()).toISOString();
 			if (promoting) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "kept as a coordinator", area);
 			else if (renamed) await this.#rosterNote(tx, threadId, record.conversationId, record.title, "renamed");
@@ -1436,7 +1452,7 @@ export class ThreadService {
 		}, BACKGROUND_CONTEXT);
 		const state = await this.state();
 		const updated = state.threads[threadId];
-		if ((input.promote || model !== undefined) && updated?.kind === "coordinator") this.coordinators.add(this.placeFor(updated));
+		if (updated && (input.promote || model !== undefined || workerModel !== undefined)) this.coordinators.add(this.placeFor(updated));
 		this.#changed();
 		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(updated!);
 	}

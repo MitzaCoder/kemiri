@@ -22,6 +22,7 @@ function resolve(options: {
 	explicitThinkingLevel?: ThinkingLevel;
 	defaults?: { model: ModelRef | null; thinkingLevel: ThinkingLevel | null };
 	projectModels?: readonly WorkerModel[];
+	threadWorkerModel?: WorkerModel;
 }) {
 	return resolveWorkerModel({
 		...(options.explicit === undefined ? {} : { explicit: options.explicit }),
@@ -29,6 +30,7 @@ function resolve(options: {
 			? {}
 			: { explicitThinkingLevel: options.explicitThinkingLevel }),
 		legacyDefaults: options.defaults,
+		threadWorkerModel: options.threadWorkerModel,
 		projectModels: options.projectModels ?? [],
 		models,
 	});
@@ -80,6 +82,14 @@ describe("resolveWorkerModel", () => {
 			ok: true,
 			value: { model: FAUX, thinkingLevel: null },
 		});
+	});
+
+	it("uses the thread choice ahead of the project, but a named worker model wins", () => {
+		const projectModels: WorkerModel[] = [{ ...FAUX, thinkingLevel: "high" }];
+		const threadWorkerModel = { ...OTHER, thinkingLevel: null };
+		expect(resolve({ projectModels, threadWorkerModel })).toEqual({ ok: true, value: { model: OTHER, thinkingLevel: null } });
+		expect(resolve({ projectModels, threadWorkerModel: { ...UNKNOWN, thinkingLevel: "low" } })).toEqual({ ok: true, value: { model: FAUX, thinkingLevel: "high" } });
+		expect(resolve({ projectModels, threadWorkerModel, explicit: FAUX })).toEqual({ ok: true, value: { model: FAUX, thinkingLevel: "high" } });
 	});
 
 	it("keeps the legacy order: named level, composer level, list level", () => {

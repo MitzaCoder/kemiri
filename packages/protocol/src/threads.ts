@@ -7,6 +7,7 @@
  */
 import { type Static, Type } from "typebox";
 import { ModelRefSchema, ProjectIdSchema, RequestIdSchema, ThinkingLevelSchema } from "./common.ts";
+import { WorkerModelSchema } from "./projects.ts";
 
 /** The main thread's ID, in every place a thread ID goes. */
 export const MAIN_THREAD_ID = "main";
@@ -73,6 +74,7 @@ export const ThreadSummarySchema = Type.Object({
 	conversationId: Type.Integer({ minimum: 1 }),
 	model: Type.Union([ModelRefSchema, Type.Null()]),
 	thinkingLevel: Type.Union([ThinkingLevelSchema, Type.Null()]),
+	workerModel: Type.Optional(WorkerModelSchema),
 	onFinish: Type.Union([Type.Literal("review"), Type.Literal("record")], {
 		description: "What its summary does in main: wake it to review, or just record it.",
 	}),
@@ -148,6 +150,7 @@ export const ThreadsUpdateRequestSchema = Type.Object({
 	type: Type.Literal("threads.update"), id: RequestIdSchema, projectId: ProjectIdSchema,
 	threadId: Type.String({ minLength: 1 }), title: Type.Optional(title), area: Type.Optional(area),
 	promote: Type.Optional(Type.Boolean({ description: "Keep a job as a coordinator. Requires an area." })),
+	workerModel: Type.Optional(Type.Union([WorkerModelSchema, Type.Null()], { description: "Null restores the project worker defaults for this thread." })),
 	...coordinatorSettings, operationId: Type.Optional(RequestIdSchema), order: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type ThreadsUpdateRequest = Static<typeof ThreadsUpdateRequestSchema>;

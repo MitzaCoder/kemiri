@@ -2809,7 +2809,10 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   General alone can create coordinators through `coordinator_start`. Every coordinator can
   start jobs and manage its own schedules; General can manage every schedule. Each coordinator lands its own work under the shared landing-turn rules below.
 - **Lifecycle.** `threads.create` creates an idle thread unless open tasks move into it.
-  `threads.update` edits metadata and can change the coordinator model and thinking level.
+  `threads.update` edits coordinator metadata and saves model settings for an area or job.
+  Model and thinking changes update the same durable conversation, for the next turn.
+  An archived thread must be restored before changing its model. Worker-only models
+  are available for delegation but not for the coordinator or job itself.
   `threads.hold` stashes incoming work without interrupting the running turn or workers.
   Explicit resume or owner input drains the saved inputs in one submission. Held coordinators
   stop keep-warm; all other coordinators keep the normal project settings. Archive requires idle
@@ -2819,7 +2822,9 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
   across retries. The response `id` remains a correlation ID and is not a durable operation ID.
 - **Wire compatibility.** Feature `coordinators` advertises the mutations and optional
   roster metadata: kind, parent, area, paths, color, order, held, attention, reply marks and
-  open task count. The existing `main: true` list row is General; old clients see additional
+  open task count. `thread-model-settings` enables the web composer controls for areas and jobs.
+  It adds optional `workerModel` to `threads.update` and thread summaries. Older clients ignore
+  the field and keep using the same requests. The existing `main: true` list row is General; old clients see additional
   coordinators as jobs using the existing statuses. Coordinator push payloads carry
   `coordinatorId` and optionally `entryId` as the chat and reply target.
 - **General is not a relay.** Its check-ins and finish and failure cards cover only its
@@ -2960,7 +2965,11 @@ Backend (`packages/server/src/threads.ts`, `coordinators.ts`), as built on 2026-
   (`threadCoordinatorSection`); its identity and workspace are its instructions; main's section stays byte-identical
   and the threads paragraph is a separate static section.
 - **Workers per thread.** Each coordinator's worker list lives on its own conversation, and reports go back to it; the
-  board and the worker model defaults stay main's. `workers.list`/`workers.state` carry every thread's workers with
+  board stays shared. An area or job can save its own worker model and thinking level in `aiki.threads`.
+  Workers it starts use that pick unless the coordinator or worker schedule names another model.
+  Clearing the pick (or removing that model from the catalog) falls back to the project defaults.
+  This does not change General's composer or the project's ordered worker models.
+  `workers.list`/`workers.state` carry every thread's workers with
   `threadId`; worker IDs are unique per thread only.
 - **Workspaces.** `<data>/projects/<id>/threads/<thread>/checkout`: a jj workspace (`harness-thread-<id>`) when the
   project is jj, else a plain directory the prompt says to make git worktrees in. A thread's `shared` workers run

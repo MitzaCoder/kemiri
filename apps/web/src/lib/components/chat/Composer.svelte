@@ -34,7 +34,7 @@
 	 * The message box: a rounded glass form that grows with what is typed, with the
 	 * coordinator's model and thinking level on the left and send (or stop) on the
 	 * right. When the backend has workers, a worker model + thinking picker sits
-	 * beside them: it rides on each message and decides what new workers run on.
+	 * beside them and decides what new workers run on.
 	 * Enter sends, Shift+Enter starts a new line; on touch devices Enter starts a
 	 * new line and the button sends. With `tasks`, a message can be about one board task: `#` in the text or the task
 	 * button picks it, it shows as a chip that can be removed, and it goes with the message. Quotes taken from the
@@ -54,10 +54,12 @@
 		projectWorkerModels = [],
 		workerSettingsHref,
 		usesProjectWorkerDefault = false,
+		usesThreadWorkerDefault = false,
 		workerModel = null,
 		workerThinkingLevel = null,
 		showWorkerPicker = false,
 		showModelPicker = true,
+		modelPickersDisabled = false,
 		modelNote,
 		workerPickerDisabled = false,
 		tasks,
@@ -86,13 +88,15 @@
 		projectWorkerModels?: readonly WorkerModel[];
 		workerSettingsHref?: string;
 		usesProjectWorkerDefault?: boolean;
+		usesThreadWorkerDefault?: boolean;
 		/** The worker model the user last picked; `null` lets the coordinator or the project decide. */
 		workerModel?: ModelRef | null;
 		workerThinkingLevel?: ThinkingLevel | null;
 		/** Hidden when the backend's hello lacks the `workers` feature. */
 		showWorkerPicker?: boolean;
-		/** False where the model is not this screen's to change (a background job keeps the one it started with). */
+		/** False when this backend cannot edit the chat's model. */
 		showModelPicker?: boolean;
+		modelPickersDisabled?: boolean;
 		/** Shown instead of the pickers when they are hidden, e.g. the thread's model. */
 		modelNote?: string;
 		/** The worker list has not loaded yet, so a pick could clobber a choice made on another device. */
@@ -552,8 +556,8 @@
 	<div class="flex items-center gap-1 px-2 pb-2 sm:flex-wrap">
 		<div class="flex min-w-0 items-center gap-1 sm:flex-wrap">
 			{#if showModelPicker}
-				<ModelPicker {models} {providers} value={model} onchange={onModelChange} />
-				<EffortPicker levels={thinkingLevels} value={thinkingLevel} onchange={onThinkingChange} />
+				<ModelPicker {models} {providers} value={model} onchange={onModelChange} disabled={modelPickersDisabled} />
+				<EffortPicker levels={thinkingLevels} value={thinkingLevel} onchange={onThinkingChange} disabled={modelPickersDisabled} />
 			{:else if modelNote}
 				<span class="truncate px-2 text-xs text-(--chat-fg-subtle)">{modelNote}</span>
 			{/if}
@@ -564,6 +568,7 @@
 					{projectWorkerModels}
 					{workerSettingsHref}
 					{usesProjectWorkerDefault}
+					{usesThreadWorkerDefault}
 					model={workerModel}
 					thinkingLevel={workerThinkingLevel}
 					onModelChange={(entry) => onWorkerModelChange?.(entry)}
