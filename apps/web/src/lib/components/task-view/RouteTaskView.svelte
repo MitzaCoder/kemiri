@@ -25,6 +25,7 @@
 	import TaskRefs from '#lib/components/TaskRefs.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
 	import TaskReply from '#lib/components/TaskReply.svelte';
+	import { trackTaskComposer } from '#lib/alerts.svelte.js';
 	import TaskStatusMenu from '#lib/components/TaskStatusMenu.svelte';
 	import TaskText from '#lib/components/chat/TaskText.svelte';
 	import TaskUsage from '#lib/components/TaskUsage.svelte';
@@ -277,7 +278,7 @@
 			</div>
 		</div>
 		{#if !model.editing}
-			<div class="route-reply" class:route-reply-open={replyOpen}>
+			<div class="route-reply" class:route-reply-open={replyOpen} use:trackTaskComposer>
 				{#if replyOpen}
 					<div class="route-reply-heading"><strong>Reply</strong><Button variant="ghost" size="icon-sm" aria-label="Collapse reply" onclick={collapseReply}><XIcon /></Button></div>
 					{#key model.viewTaskKey}<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} />{/key}

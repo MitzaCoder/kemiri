@@ -92,6 +92,7 @@
 	import { visibleSidebarTabs, type SidebarTab } from '#lib/sidebar.js';
 	import { questionBadgeText, questionsWaitingLabel } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
+	import { alerts } from '#lib/alerts.svelte.js';
 	import { taskFromUrl, withTask } from '#lib/tasks.js';
 	import { notifications } from '#lib/notifications.svelte.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
@@ -166,6 +167,21 @@
 	let modelError = $state<string | undefined>(undefined);
 	let savingThreadModelSettings = $state(false);
 	let transcript = $state<TranscriptHandle | undefined>(undefined);
+	let composerHeight = $state(0);
+	let chatBannerHost = $state<HTMLElement>();
+	$effect(() => {
+		const host = chatBannerHost;
+		if (!shown || !host) return;
+		alerts.chatBannerHost = host;
+		return () => { if (alerts.chatBannerHost === host) alerts.chatBannerHost = undefined; };
+	});
+	const composerOwner = {};
+	$effect(() => {
+		if (!shown) return;
+		alerts.setComposerHeight(composerOwner, composerHeight);
+		return () => alerts.clearComposerHeight(composerOwner);
+	});
+
 	let composer = $state<{ focus(): void; addQuote(quote: string): void; restore(text: string, taskId?: string, images?: HeldImage[], files?: ChatFile[]): void } | undefined>(undefined);
 	setContext<() => DiscussionChat | undefined>(DISCUSSION_CHAT, () => isThread ? undefined : {
 		backend, projectId,
@@ -1021,6 +1037,7 @@
 						{@render headerButton(action)}
 					{/each}
 				</div>
+				<div class="empty:hidden sm:hidden" bind:this={chatBannerHost}></div>
 				{#if !isThread && !supportsCoordinators}
 					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
 						<span class="min-w-0 truncate">Main chat · {backend.name}</span>
@@ -1105,7 +1122,7 @@
 				/>
 				{/key}
 
-				<div class="{CHAT_COLUMN_CLASS} shrink-0 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] sm:px-4 sm:pb-4">
+				<div class="{CHAT_COLUMN_CLASS} shrink-0 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] sm:px-4 sm:pb-4" bind:clientHeight={composerHeight}>
 					<div class="mb-2 flex flex-col gap-2">
 						{#if backend.supports('server-status')}
 							<DeployBanner

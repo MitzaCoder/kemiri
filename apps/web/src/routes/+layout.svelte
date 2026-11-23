@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { clearPairFragment } from '#lib/pair-inbox.js';
 	import PairingApproval from '#lib/components/PairingApproval.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import { alerts } from '#lib/alerts.svelte.js';
+	import AlertStack from '#lib/components/alerts/AlertStack.svelte';
+	import { taskFromUrl } from '#lib/tasks.js';
 	import { installSettingsNavigation } from '#lib/settings-navigation.svelte.js';
 	import { page } from '$app/state';
 	import { artifactLibrary } from '#lib/artifact-library.svelte.js';
@@ -87,8 +90,23 @@
 		}
 	});
 
+	$effect(() => {
+		if (page.url.pathname === '/pair') return;
+		const backends = harness.backends;
+		untrack(() => alerts.observeBackends(backends));
+	});
+
 	onMount(() => {
 		if (page.url.pathname === '/pair') return;
+		const stopAlerts = alerts.start(() => {
+			const project = currentProject(page.url.pathname);
+			if (!project) return undefined;
+			const route = page.route.id;
+			const inChat = route === '/b/[backend]/projects/[id]' || route === '/b/[backend]/projects/[id]/threads/[threadId]';
+			return { ...project, coordinatorId: inChat ? page.params.threadId ?? 'main' : undefined,
+				taskId: inChat ? taskFromUrl(page.url) : null };
+		});
+		alerts.observeBackends(harness.backends);
 		harness.start();
 		void harness.discoverLocal();
 		// The worker is what makes the app installable and what shows a push; registering it early keeps it current.
@@ -115,6 +133,7 @@
 			window.removeEventListener('pageshow', checkConnections);
 			window.removeEventListener('focus', checkConnections);
 			stopInteraction();
+			stopAlerts();
 		};
 	});
 </script>
@@ -128,6 +147,7 @@
 		{@render children()}
 	</div>
 </div>
+<AlertStack />
 <UsageModal />
 <PairingApproval />
 {/if}

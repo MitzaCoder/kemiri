@@ -7372,7 +7372,35 @@ connection that interacted within 30 minutes gets `sound: true`. This selects a 
   `notifications/recent.json` retains at most 200 entries and seven days. Its epoch survives restart and changes
   when history is lost; on epoch change, fetch again from zero. Older releases ignore this file.
 - **Shown:** `notifications.shown { keys }` acknowledges only pop-ups actually displayed. It marks matching held
-  pushes in memory but does not release them by itself. No app presents these alerts in this stage.
+  pushes in memory but does not release them by itself.
+
+### Web pop-ups and the local alert list
+
+The web layout listens to every configured, authorized backend with `in-app-alerts`. It subscribes before reading
+history and combines live and recent entries in epoch and sequence order. The browser shares each backend's cursor
+between tabs. First connection and epoch resets fill the list without replaying history. On reconnect, up to three
+unseen, unresolved, eligible alerts under two minutes old can pop up individually. A larger or older eligible
+backlog gives one silent summary per backend instead. A hidden tab records new events but does not queue a pop-up.
+
+The web policy defaults to `needs-me` (urgent and important). `everything` adds info, `urgent` keeps only urgent,
+and `off` disables pop-ups. Inbox-level events, compaction failures and maintenance failures never pop up. An alert
+for the coordinator chat or task on screen is suppressed within that backend and project. An alert from another
+coordinator in the same project can pop up, but silently. The fourth eligible live alert from one project within
+five seconds merges that burst into a count. A matching tag replaces the old card, and a resolution closes it.
+
+Desktop shows up to three pop-ups above the composer, ordered urgent first and then newest. When a task dialog
+is open, the stack lives inside it, above its reply area. Phone widths show one banner under the safe area with a
+count to page through the rest. A sideways swipe dismisses it, and a tap
+opens the linked screen. Queued and hidden cards do not age, and hover or focus pauses visible time. Info lasts
+six seconds and important lasts ten. Urgent alerts and warnings fold into the overflow after ten visible minutes.
+Alt+N focuses the newest displayed alert. Esc dismisses the focused alert and restores focus.
+
+Opening uses the existing push routes. Short, non-warning and non-approval questions support two taps on one
+choice, with the revision sent on confirmation. A stale revision keeps Open and shows “This question changed”.
+Only displayed cards acknowledge `notifications.shown`. Tabs share shown, read and dismiss marks over
+`BroadcastChannel` or storage events. The browser retains alert rows and their read/done state for seven days,
+including events that never pop up. No inbox, badge, sound playback, mute controls or in-app settings UI is wired
+here. The store exposes sound eligibility and the pop-up and text privacy settings for those stages.
 
 ### Holding while the app is open
 

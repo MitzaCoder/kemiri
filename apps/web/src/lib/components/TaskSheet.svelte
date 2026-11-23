@@ -10,6 +10,7 @@
 	import SelectionQuote from './chat/SelectionQuote.svelte';
 	import { provideOpenTaskId } from '#lib/task-detail-context.js';
 	import { taskSheetViewport } from '#lib/task-sheet-viewport.js';
+	import { alerts } from '#lib/alerts.svelte.js';
 	import { createTaskViewModel, type TaskViewInputs } from '#lib/task-view/model.svelte.js';
 	import { taskViewDesignPreference } from '#lib/task-view/preference.svelte.js';
 	import '#lib/task-sheet.css';
@@ -25,8 +26,14 @@
 		: 0);
 
 	$effect(() => {
-		if (!sheet) return;
-		return taskSheetViewport(sheet).destroy;
+		if (!sheet || model.requestedId === null) return;
+		const host = sheet;
+		alerts.taskSheet = host;
+		const viewport = taskSheetViewport(host);
+		return () => {
+			if (alerts.taskSheet === host) alerts.taskSheet = undefined;
+			viewport.destroy();
+		};
 	});
 	provideOpenTaskId(() => model.taskId);
 
