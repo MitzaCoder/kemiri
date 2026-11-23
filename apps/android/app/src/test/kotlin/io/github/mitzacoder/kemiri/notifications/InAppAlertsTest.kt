@@ -4,6 +4,8 @@ import io.github.mitzacoder.kemiri.features.notifications.*
 import io.github.mitzacoder.kemiri.protocol.*
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -26,6 +28,48 @@ class InAppAlertsTest {
     private fun InAppAlert.popUp(settings: InAppAlertSettings = defaults, screen: AppPresence = foreground, muted: Boolean = false) =
         canPopUp(screen, settings, muted, now)
 
+    @Test fun sharedWebPolicyCases() {
+        val fixture = requireNotNull(javaClass.getResourceAsStream("/in-app-alert-policy-cases.json"))
+            .bufferedReader().use { it.readText() }
+        val cases = Json.decodeFromString<List<SharedPolicyCase>>(fixture)
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val (name, input, context, burst, expected) = case
+            val screen = context.screen
+            val presence = AppPresence(context.visible, screen?.backendId, screen?.projectId, screen?.coordinatorId, screen?.taskId)
+            val item = alert(input.level, kind = input.kind, backend = context.backendId).let {
+                it.copy(alert = it.alert.copy(projectId = input.projectId, coordinatorId = input.coordinatorId,
+                    taskId = input.taskId, threadId = input.threadId))
+            }
+            val decision = item.popUpDecision(presence, defaults.copy(popUps = context.setting), false, now, context.soundAllowed)
+            val merges = decision.pop && item.alert.projectId != null && burst != null &&
+                mergesAlertBurst(burst.previousProjectArrivals, burst.now)
+            assertEquals(name, expected, ExpectedPolicy(decision.pop, decision.silent, merges))
+        }
+    }
+
+    @Serializable
+    private data class SharedPolicyCase(val name: String, val alert: FixtureAlert, val context: FixtureContext,
+        val burst: FixtureBurst? = null, val expected: ExpectedPolicy)
+
+    @Serializable
+    private data class FixtureAlert(val kind: String, val level: String, val projectId: String?,
+        val coordinatorId: String? = null, val taskId: String? = null, val threadId: String? = null)
+
+    @Serializable
+    private data class FixtureContext(val backendId: String, val setting: AlertPopUps, val visible: Boolean,
+        val soundAllowed: Boolean, val screen: FixtureScreen? = null)
+
+    @Serializable
+    private data class FixtureScreen(val backendId: String, val projectId: String, val coordinatorId: String? = null,
+        val taskId: String? = null)
+
+    @Serializable
+    private data class FixtureBurst(val now: Long, val previousProjectArrivals: List<Long>)
+
+    @Serializable
+    private data class ExpectedPolicy(val pop: Boolean, val silent: Boolean, val merge: Boolean)
+
     @Test fun popUpMatrix() {
         val allowed = mapOf(AlertPopUps.Everything to listOf("urgent", "important", "info"),
             AlertPopUps.NeedsMe to listOf("urgent", "important"), AlertPopUps.Urgent to listOf("urgent"), AlertPopUps.Off to emptyList())
@@ -37,13 +81,15 @@ class InAppAlertsTest {
         }
         assertFalse(alert().popUp(screen = AppPresence()))
         assertFalse(alert().popUp(muted = true))
+        assertTrue(alert().popUpDecision(foreground, defaults, true, now, true).silent)
     }
 
     @Test fun sameProjectAndTheExactChatOrTaskAreOnScreen() {
         val screen = foreground.copy(backendKey = bakery, projectId = "bread", coordinatorId = "menu")
         assertFalse(alert().popUp(screen = screen))
         assertFalse(alert().popUp(screen = screen.copy(coordinatorId = null, taskId = "T1")))
-        assertTrue(alert().popUp(screen = screen.copy(coordinatorId = null, taskId = "T2")))
+        assertTrue(alert().popUp(screen = screen.copy(taskId = "T2")))
+        assertFalse(alert().popUpDecision(screen.copy(coordinatorId = null, taskId = "T2"), defaults, false, now, true).silent)
         assertTrue(alert().popUp(screen = screen.copy(coordinatorId = "ordering")))
         assertTrue(alert(backend = recipes).popUp(screen = screen))
         assertTrue(alert(project = "cakes").popUp(screen = screen))
@@ -54,13 +100,13 @@ class InAppAlertsTest {
         val queue = AlertBannerQueue()
         for (seq in 1L..3) queue.add(alert(seq = seq), seq * 1_000)
         queue.add(alert(seq = 6, backend = recipes), 3_500)
-        queue.add(alert(seq = 4), 4_000)
+        queue.add(alert(seq = 4), 6_000)
         val burst = queue.ordered.single { it.kind == AlertBannerKind.Burst }
         assertEquals(listOf(1L, 2L, 3L, 4L), burst.alerts.map { it.alert.seq })
         assertEquals(2, queue.ordered.size)
         queue.resolve(bakery, setOf("tag-4"))
         assertEquals(3, queue.ordered.single { it.id == burst.id }.alerts.size)
-        queue.add(alert(seq = 5), 9_000)
+        queue.add(alert(seq = 5), 9_001)
         assertEquals(3, queue.ordered.size)
         queue.resolve(bakery, setOf("tag-1", "tag-2", "tag-3"))
         assertFalse(queue.ordered.any { it.id == burst.id })
@@ -120,6 +166,7 @@ class InAppAlertsTest {
         assertEquals(questionChoices, question.inlineChoices())
         for (ineligible in listOf(question.alert.copy(warning = true), question.alert.copy(approval = true), question.alert.copy(questionRevision = null),
             question.alert.copy(kind = "login_prompt"), question.alert.copy(choices = questionChoices + questionChoices),
+            question.alert.copy(choices = listOf(questionChoices.first(), questionChoices.first())),
             question.alert.copy(choices = listOf(NotificationAlertChoicesItem("x".repeat(25), true))))) {
             assertTrue(question.copy(alert = ineligible).inlineChoices().isEmpty())
         }
@@ -138,6 +185,7 @@ class InAppAlertsTest {
         assertFalse(play(quiet = QuietHours("22:30", "06:00", "UTC", allowFailures = true), item = alert(kind = "deploy_problem")))
         assertFalse(play(settings = defaults.withPause(AlertPause.Indefinite, now)))
         assertFalse(play(settings = defaults.copy(sounds = AlertSoundsSetting.Off)))
+        assertFalse(play(settings = defaults.copy(popUps = AlertPopUps.Off)))
         assertTrue(play())
         assertEquals(listOf(AlertTone.Urgent), tones)
     }

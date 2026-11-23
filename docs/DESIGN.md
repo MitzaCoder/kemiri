@@ -7692,7 +7692,15 @@ Settings → Notifications → In the app is device-wide, independent of push en
 need me, sounds to Only urgent, and message text is shown. Do not disturb pauses both locally; tomorrow morning ends
 at 08:00 local time. Notification-volume chimes require the server's live sound grant and obey quiet hours, the
 system interruption filter, an eight-second device limit, and a two-minute soft-tone limit per project. When the
-ringer is not normal, only an urgent alert may request a short vibration. `InAppAlertsTest` covers the policy.
+ringer is not normal, only an urgent alert may request a short vibration. `InAppAlertsTest` runs the same popup,
+sound eligibility and burst cases as the web policy test.
+
+The banner's notification actions can mute its project or computer for one hour or turn off sounds. Notifications →
+In the app → Muted is the device's one list for project and computer mutes. Settings can set either target for one
+hour, eight hours or until manually unmuted. The list and project mute indicator update at expiry. Mutes apply to
+Android banners and chimes without push permission. On a registered device, the same preferences flow carries
+absolute end times to supporting backends over direct FCM or relay; the backend checks them at delivery. Indefinite
+project mutes still use `mutedProjects`, and Android omits new mute fields on backends without `notification-timed-mutes`.
 
 ## Stack
 

@@ -1,6 +1,12 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
 import io.github.mitzacoder.kemiri.protocol.NotificationPreferences
+import io.github.mitzacoder.kemiri.protocol.NotificationMute
+import io.github.mitzacoder.kemiri.protocol.NotificationProjectMute
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.transformLatest
 import io.github.mitzacoder.kemiri.protocol.NotificationPreferencesQuietHours
 import kotlinx.serialization.Serializable
 
@@ -25,6 +31,8 @@ data class NotificationSettings(
     val quietHours: QuietHours? = null,
     /** Backend key -> muted project IDs: a project ID only means something to the backend that made it. */
     val mutedProjects: Map<String, List<String>> = emptyMap(),
+    val timedProjectMutes: Map<String, Map<String, Long>> = emptyMap(),
+    val backendMutes: Map<String, NotificationMute> = emptyMap(),
     /** The FCM registration token this app instance has, once Firebase gave one. */
     val fcmToken: String? = null,
 ) {
@@ -35,24 +43,69 @@ data class NotificationSettings(
         return copy(kinds = if (defaultsVersion >= NOTIFICATION_DEFAULTS_VERSION) known else migrateDefaultKinds(known, defaultsVersion), defaultsVersion = NOTIFICATION_DEFAULTS_VERSION)
     }
 
-    /** What this device registers with one backend. */
-    fun preferencesFor(backendKey: String) = NotificationPreferences(
+    /** What this device registers with one backend. The server also checks the absolute expiry at delivery time. */
+    fun preferencesFor(backendKey: String, now: Long = System.currentTimeMillis()) = NotificationPreferences(
         kinds = kinds,
         mutedProjects = mutedProjects[backendKey].orEmpty(),
         quietHours = quietHours?.let { NotificationPreferencesQuietHours(start = it.start, end = it.end, timezone = it.timezone, allowFailures = it.allowFailures) },
+        projectMutes = timedProjectMutes[backendKey]?.filterValues { now < it }?.takeIf { it.isNotEmpty() }
+            ?.map { (projectId, until) -> NotificationProjectMute(projectId, until) },
+        backendMute = backendMutes[backendKey]?.takeIf { activeUntil(it.until, now) },
     )
 
-    fun isMuted(backendKey: String, projectId: String) = projectId in mutedProjects[backendKey].orEmpty()
+    fun isMuted(backendKey: String, projectId: String?, now: Long = System.currentTimeMillis()): Boolean =
+        backendMutes[backendKey]?.let { activeUntil(it.until, now) } == true ||
+            (projectId != null && isProjectMuted(backendKey, projectId, now))
 
-    fun withMuted(backendKey: String, projectId: String, muted: Boolean): NotificationSettings {
-        val current = mutedProjects[backendKey].orEmpty()
-        val next = if (muted) (current + projectId).distinct() else current - projectId
-        return copy(mutedProjects = if (next.isEmpty()) mutedProjects - backendKey else mutedProjects + (backendKey to next))
+    internal fun isProjectMuted(backendKey: String, projectId: String, now: Long): Boolean =
+        projectId in mutedProjects[backendKey].orEmpty() || timedProjectMutes[backendKey]?.get(projectId)?.let { now < it } == true
+
+    fun withMuted(backendKey: String, projectId: String, muted: Boolean): NotificationSettings =
+        withMute(backendKey, projectId, if (muted) NotificationMute() else null)
+
+    /** A null mute clears the target. A mute without an end uses the existing indefinite project preference. */
+    fun withMute(backendKey: String, projectId: String?, mute: NotificationMute?): NotificationSettings {
+        if (projectId == null) return copy(backendMutes = if (mute == null) backendMutes - backendKey else backendMutes + (backendKey to mute))
+        val indefinite = mutedProjects[backendKey].orEmpty().filterNot { it == projectId }
+            .let { if (mute != null && mute.until == null) it + projectId else it }
+        val timed = timedProjectMutes[backendKey].orEmpty() - projectId
+        val nextTimed = mute?.until?.let { timed + (projectId to it) } ?: timed
+        return copy(
+            mutedProjects = if (indefinite.isEmpty()) mutedProjects - backendKey else mutedProjects + (backendKey to indefinite),
+            timedProjectMutes = if (nextTimed.isEmpty()) timedProjectMutes - backendKey else timedProjectMutes + (backendKey to nextTimed),
+        )
     }
 
-    /** Muted projects as pairs, so a screen can list them without walking the map. */
-    fun mutedEntries(): List<Pair<String, String>> = mutedProjects.flatMap { (backend, projects) -> projects.map { backend to it } }
+    internal fun activeMutes(now: Long): List<ActiveNotificationMute> =
+        backendMutes.mapNotNull { (backend, mute) -> ActiveNotificationMute(backend, null, mute.until).takeIf { activeUntil(it.until, now) } } +
+            mutedProjects.flatMap { (backend, projects) -> projects.map { ActiveNotificationMute(backend, it, null) } } +
+            timedProjectMutes.flatMap { (backend, projects) ->
+                projects.filterValues { now < it }.map { (project, until) -> ActiveNotificationMute(backend, project, until) }
+            }
 }
+
+internal data class ActiveNotificationMute(val backendKey: String, val projectId: String?, val until: Long?)
+
+internal enum class NotificationMuteDuration(val label: String, private val hours: Long?) {
+    OneHour("1 hour", 1), EightHours("8 hours", 8), Indefinite("Until I turn it back on", null);
+
+    fun startingAt(now: Long) = NotificationMute(hours?.let { now + it * 3_600_000L })
+}
+
+private fun activeUntil(until: Long?, now: Long) = until == null || now < until
+
+/** One wake-up at each expiry, not polling or rewriting device settings. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal fun Flow<NotificationSettings>.activeMuteChanges(clock: () -> Long = System::currentTimeMillis): Flow<List<ActiveNotificationMute>> =
+    distinctUntilChanged().transformLatest { settings ->
+        while (true) {
+            val now = clock()
+            val active = settings.activeMutes(now)
+            emit(active)
+            val expiresAt = active.mapNotNull { it.until }.minOrNull() ?: break
+            delay((expiresAt - clock()).coerceAtLeast(1))
+        }
+    }.distinctUntilChanged()
 
 private val TIME_OF_DAY = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 

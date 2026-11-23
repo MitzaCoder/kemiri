@@ -122,6 +122,8 @@ android {
         }
     }
     sourceSets.getByName("main").assets.srcDir(rootProject.file("licenses"))
+    // The JVM tests read the same alert-policy cases as the web tests, without keeping a copy.
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../web/test/fixtures"))
     buildTypes {
         getByName("debug") {
             buildConfigField("String", "RELAY_AUTH_EMULATOR", buildString(privateBuildProperty(

@@ -26,17 +26,21 @@ class HarnessNotificationRegistrationRpc(private val client: HarnessClient) : No
     }
 }
 
-/** An older backend cannot validate the new kind when registering or syncing push preferences. */
+/** Send only the kinds and mute fields the backend can validate. */
 internal fun NotificationPreferences.forBackend(connection: ConnectionState): NotificationPreferences =
-    copy(kinds = kinds.filter { kind ->
-        when (kind) {
-            "coordinator_failed" -> connection.supports("in-app-alerts")
-            "task_steps" -> connection.supports("task-step-alerts")
-            "usage_limit_reached" -> connection.supports("usage-pause")
-            "usage_drain_warning", "usage_drain_paused" -> connection.supports("usage-drain")
-            else -> true
-        }
-    })
+    copy(
+        kinds = kinds.filter { kind ->
+            when (kind) {
+                "coordinator_failed" -> connection.supports("in-app-alerts")
+                "task_steps" -> connection.supports("task-step-alerts")
+                "usage_limit_reached" -> connection.supports("usage-pause")
+                "usage_drain_warning", "usage_drain_paused" -> connection.supports("usage-drain")
+                else -> true
+            }
+        },
+        projectMutes = projectMutes.takeIf { connection.supports("notification-timed-mutes") },
+        backendMute = backendMute.takeIf { connection.supports("notification-timed-mutes") },
+    )
 
 /** Off is exactly the existing FCM registration branch. Relay selection is exclusive and cannot fall back on failure. */
 suspend fun syncNotificationRegistration(settings: NotificationSettings, connection: ConnectionState,

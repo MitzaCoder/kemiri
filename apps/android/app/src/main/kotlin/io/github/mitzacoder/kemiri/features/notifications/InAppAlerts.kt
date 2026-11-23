@@ -63,27 +63,39 @@ internal data class InAppAlert(val backendKey: String, val alert: NotificationAl
     val sticky get() = urgent || alert.warning == true
     val inboxOnly get() = alert.level == "inbox" || alert.kind in setOf("compaction_failed", "maintenance_failed")
 
-    fun onScreen(screen: AppPresence): Boolean = sameProject(screen) && (
-        screen.taskId != null && screen.taskId == alert.taskId ||
-            screen.coordinatorId != null && screen.coordinatorId == (alert.coordinatorId ?: alert.threadId ?: MAIN_THREAD_ID)
-        )
+    private val coordinatorId get() = alert.coordinatorId ?: alert.threadId ?: MAIN_THREAD_ID
+
+    fun onScreen(screen: AppPresence): Boolean = sameProject(screen) && when (val task = screen.taskId) {
+        null -> screen.coordinatorId == coordinatorId
+        else -> task == alert.taskId
+    }
 
     fun sameProject(screen: AppPresence): Boolean = alert.projectId != null && project == (screen.backendKey to screen.projectId)
 
-    fun canPopUp(screen: AppPresence, settings: InAppAlertSettings, muted: Boolean, now: Long): Boolean =
-        screen.visible && !muted && !settings.disturbedAt(now) && !inboxOnly && !onScreen(screen) && when (settings.popUps) {
+    fun popUpDecision(
+        screen: AppPresence, settings: InAppAlertSettings, muted: Boolean, now: Long, soundAllowed: Boolean,
+    ): AlertPopUpDecision {
+        val pop = screen.visible && !muted && !settings.disturbedAt(now) && !inboxOnly && !onScreen(screen) && when (settings.popUps) {
             AlertPopUps.Everything -> urgent || important || alert.level == "info"
             AlertPopUps.NeedsMe -> urgent || important
             AlertPopUps.Urgent -> urgent
             AlertPopUps.Off -> false
         }
+        val otherCoordinator = sameProject(screen) && screen.coordinatorId != null && screen.coordinatorId != coordinatorId
+        return AlertPopUpDecision(pop, silent = !pop || !soundAllowed || alert.level == "info" || otherCoordinator)
+    }
+
+    fun canPopUp(screen: AppPresence, settings: InAppAlertSettings, muted: Boolean, now: Long): Boolean =
+        popUpDecision(screen, settings, muted, now, soundAllowed = false).pop
 
     fun inlineChoices() = alert.choices.orEmpty().takeIf { choices ->
         alert.kind == "board_question" && alert.projectId != null && alert.questionId != null && alert.questionRevision != null &&
             alert.warning != true && alert.approval != true && choices.size in 1..3 &&
-            choices.all { it.label.isNotBlank() && it.label.codePointCount(0, it.label.length) <= 24 }
+            choices.distinctBy { it.label }.size == choices.size && choices.all { it.label.isNotBlank() && it.label.codePointCount(0, it.label.length) <= 24 }
     }.orEmpty()
 }
+
+internal data class AlertPopUpDecision(val pop: Boolean, val silent: Boolean)
 
 internal enum class AlertTone { Urgent, Soft }
 
@@ -96,8 +108,7 @@ internal class AlertSoundPolicy {
         item: InAppAlert, permitted: Boolean, screen: AppPresence, settings: InAppAlertSettings,
         muted: Boolean, quietHours: QuietHours?, now: Long, elapsed: Long, playback: (AlertTone) -> Boolean,
     ): Boolean {
-        if (!permitted || !screen.visible || item.sameProject(screen) || muted || item.inboxOnly ||
-            settings.disturbedAt(now) || inAppQuietHours(quietHours, now)) return false
+        if (item.popUpDecision(screen, settings, muted, now, permitted).silent || inAppQuietHours(quietHours, now)) return false
         val tone = when {
             item.urgent && settings.sounds != AlertSoundsSetting.Off -> AlertTone.Urgent
             item.important && settings.sounds == AlertSoundsSetting.UrgentImportant -> AlertTone.Soft
@@ -143,16 +154,23 @@ internal fun alertCatchUp(
     })
 }
 
+private fun withinBurstWindow(arrival: Long, now: Long) = arrival <= now && now - arrival <= BURST_MS
+
+internal fun mergesAlertBurst(previousArrivals: List<Long>, now: Long): Boolean =
+    previousArrivals.count { withinBurstWindow(it, now) } >= 3
+
 internal enum class AlertBannerKind { Single, Burst, CatchUp }
+
+internal data class AlertBannerMember(val item: InAppAlert, val arrivedAt: Long)
 
 internal data class AlertBanner(
     val id: Long,
     val kind: AlertBannerKind,
-    val alerts: List<InAppAlert>,
-    val arrivedAt: Long,
+    val members: List<AlertBannerMember>,
     val visibleMs: Long = 0,
 ) {
-    val latest get() = alerts.last()
+    val alerts get() = members.map { it.item }
+    val latest get() = members.last().item
     val level get() = when {
         alerts.any { it.urgent } -> "Urgent"
         alerts.any { it.important } -> "Important"
@@ -173,27 +191,32 @@ internal class AlertBannerQueue {
     val ordered get() = banners.sortedWith(compareByDescending<AlertBanner> { it.alerts.any { alert -> alert.sticky } }.thenByDescending { it.id })
 
     fun add(alert: InAppAlert, elapsed: Long) {
-        val index = banners.indexOfFirst { it.alerts.any { old -> old.backendKey == alert.backendKey && old.alert.tag == alert.alert.tag } }
+        val member = AlertBannerMember(alert, elapsed)
+        fun sameTag(previous: AlertBannerMember) =
+            previous.item.backendKey == alert.backendKey && previous.item.alert.tag == alert.alert.tag
+        val index = banners.indexOfFirst { it.members.any(::sameTag) }
         if (index != -1) {
             val previous = banners[index]
-            banners[index] = previous.copy(alerts = previous.alerts.map {
-                if (it.backendKey == alert.backendKey && it.alert.tag == alert.alert.tag) alert else it
-            })
+            banners[index] = previous.copy(members = previous.members.map { if (sameTag(it)) member else it })
             return
         }
-        val sameProject = banners.filter { it.kind != AlertBannerKind.CatchUp && it.latest.project == alert.project && elapsed - it.arrivedAt < BURST_MS }
+        val sameProject = banners.filter { banner ->
+            banner.kind != AlertBannerKind.CatchUp && alert.alert.projectId != null &&
+                banner.members.any { it.item.project == alert.project && withinBurstWindow(it.arrivedAt, elapsed) }
+        }
+        val previous = sameProject.flatMap { it.members }
         val burst = sameProject.firstOrNull { it.kind == AlertBannerKind.Burst }
-        if (alert.alert.projectId != null && (burst != null || sameProject.sumOf { it.alerts.size } >= 3)) {
-            val siblings = sameProject.flatMap { it.alerts } + alert
+        if (burst != null || mergesAlertBurst(previous.map { it.arrivedAt }, elapsed)) {
+            val siblings = previous + member
             banners.removeAll(sameProject.toSet())
-            banners += (burst?.copy(alerts = siblings, arrivedAt = elapsed) ?: AlertBanner(++nextId, AlertBannerKind.Burst, siblings, elapsed))
-        } else banners += AlertBanner(++nextId, AlertBannerKind.Single, listOf(alert), elapsed)
+            banners += (burst?.copy(members = siblings) ?: AlertBanner(++nextId, AlertBannerKind.Burst, siblings))
+        } else banners += AlertBanner(++nextId, AlertBannerKind.Single, listOf(member))
     }
 
     fun addCatchUp(catchUp: AlertCatchUp, elapsed: Long) {
         if (catchUp.summarize) {
             catchUp.alerts.forEach { resolve(it.backendKey, setOf(it.alert.tag)) }
-            banners += AlertBanner(++nextId, AlertBannerKind.CatchUp, catchUp.alerts, elapsed)
+            banners += AlertBanner(++nextId, AlertBannerKind.CatchUp, catchUp.alerts.map { AlertBannerMember(it, elapsed) })
         } else catchUp.alerts.forEach { add(it, elapsed) }
     }
 
@@ -202,9 +225,9 @@ internal class AlertBannerQueue {
     fun retain(keep: (InAppAlert) -> Boolean) {
         for (index in banners.indices.reversed()) {
             val banner = banners[index]
-            val remaining = banner.alerts.filter(keep)
+            val remaining = banner.members.filter { keep(it.item) }
             if (remaining.isEmpty()) banners.removeAt(index)
-            else if (remaining != banner.alerts) banners[index] = banner.copy(alerts = remaining)
+            else if (remaining != banner.members) banners[index] = banner.copy(members = remaining)
         }
     }
 

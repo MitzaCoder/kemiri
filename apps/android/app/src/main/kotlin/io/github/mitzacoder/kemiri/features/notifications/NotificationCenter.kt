@@ -71,10 +71,12 @@ class NotificationCenter(
     private val shownTags = mutableMapOf<Pair<String, String>, NotificationAlert>()
     private val mutableBanners = MutableStateFlow<List<AlertBanner>>(emptyList())
     internal val banners = mutableBanners.asStateFlow()
+    internal val activeMutes = repository.settings.map { it.notifications }.activeMuteChanges()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), repository.settings.value.notifications.activeMutes(System.currentTimeMillis()))
 
     init {
         scope.launch {
-            repository.settings.map { it.inAppAlerts to it.notifications.mutedProjects }.distinctUntilChanged().collect {
+            combine(repository.settings.map { it.inAppAlerts }.distinctUntilChanged(), activeMutes) { _, _ -> Unit }.collect {
                 synchronized(alertLock) { filterBanners() }
             }
         }
@@ -108,15 +110,23 @@ class NotificationCenter(
 
     /** Whether this device mutes one project, as the header shows it. */
     fun mutedFlow(backendKey: String, projectId: String): Flow<Boolean> =
-        repository.settings.map { it.notifications.isMuted(backendKey, projectId) }.distinctUntilChanged()
+        activeMutes.map { mutes -> mutes.any { it.backendKey == backendKey && it.projectId == projectId } }.distinctUntilChanged()
 
     /** [mutedFlow] with its current value, for the header's bell ([CenterProjectMute]). */
     fun mutedState(backendKey: String, projectId: String): StateFlow<Boolean> = mutedFlow(backendKey, projectId)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), repository.settings.value.notifications.isMuted(backendKey, projectId))
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), repository.settings.value.notifications.isProjectMuted(backendKey, projectId, System.currentTimeMillis()))
 
     /** Mute or unmute one project; the header's bell calls this. */
     fun toggleMute(backendKey: String, projectId: String) {
-        scope.launch { repository.setNotifications { it.withMuted(backendKey, projectId, !it.isMuted(backendKey, projectId)) } }
+        scope.launch { repository.setNotifications { it.withMuted(backendKey, projectId, !it.isProjectMuted(backendKey, projectId, System.currentTimeMillis())) } }
+    }
+
+    internal fun muteFromBanner(backendKey: String, projectId: String?) {
+        scope.launch { repository.setNotifications { it.withMute(backendKey, projectId, NotificationMuteDuration.OneHour.startingAt(System.currentTimeMillis())) } }
+    }
+
+    internal fun turnOffAlertSounds() {
+        scope.launch { repository.setInAppAlerts { it.copy(sounds = AlertSoundsSetting.Off) } }
     }
 
     /** The user touched the app (a touch, a key, the wheel, typing). Cheap; safe from any thread. */
@@ -167,7 +177,7 @@ class NotificationCenter(
 
     private fun eligible(item: InAppAlert, now: Long, screen: AppPresence = presence.value): Boolean {
         val settings = repository.settings.value
-        val muted = item.alert.projectId?.let { settings.notifications.isMuted(item.backendKey, it) } == true
+        val muted = settings.notifications.isMuted(item.backendKey, item.alert.projectId, now)
         return item.canPopUp(screen, settings.inAppAlerts, muted, now)
     }
 
@@ -281,7 +291,7 @@ class NotificationCenter(
                     val elapsed = SystemClock.elapsedRealtime()
                     if (eligible(item, now)) alertQueue.add(item, elapsed)
                     else alertQueue.resolve(key, setOf(alert.tag))
-                    val muted = alert.projectId?.let { settings.notifications.isMuted(key, it) } == true
+                    val muted = settings.notifications.isMuted(key, alert.projectId, now)
                     soundPolicy.play(item, event.sound, presence.value, settings.inAppAlerts, muted,
                         settings.notifications.quietHours, now, elapsed) { alertSounds?.play(it) == true }
                     saveCursor(key, AlertCursor(alert.backendEpoch, alert.seq))

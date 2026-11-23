@@ -26,6 +26,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.mitzacoder.kemiri.data.BackendConfig
 import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.data.HarnessRepository
+import io.github.mitzacoder.kemiri.data.localizedTimeFormatter
+import io.github.mitzacoder.kemiri.protocol.NotificationMute
 import io.github.mitzacoder.kemiri.features.settings.*
 import androidx.compose.ui.text.font.FontWeight
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -33,6 +35,7 @@ import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.navigation.ProjectMute
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.theme.LocalJarvisColors
+import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import kotlinx.coroutines.flow.StateFlow
@@ -101,7 +104,12 @@ internal fun NotificationsSection(repository: HarnessRepository) {
     }
     val unavailable = center?.pushUnavailableReason
     SettingsSectionPage(GeneralSection.Notifications) {
-        InAppAlertSettingsGroup(deviceSettings.inAppAlerts) { transform -> scope.launch { repository.setInAppAlerts(transform) } }
+        InAppAlertSettingsGroup(deviceSettings.inAppAlerts, { transform -> scope.launch { repository.setInAppAlerts(transform) } }) {
+            val mutes = center?.activeMutes?.collectAsStateWithLifecycle()?.value ?: settings.activeMutes(System.currentTimeMillis())
+            MutedNotificationsRow(sessions, mutes) { backendKey, projectId, mute ->
+                update { it.withMute(backendKey, projectId, mute) }
+            }
+        }
         SettingsGroup(title = "This device", actions = { StatusChip(if (settings.enabled) "On" else "Off", if (settings.enabled) ChipTone.Ok else ChipTone.Muted) }) {
             SettingsRow(
                 "Notifications on this device", hint = unavailable ?: "With the app open, a notification waits 15 seconds and is dropped if you use the app.", control = RowControl.Inline,
@@ -154,23 +162,6 @@ internal fun NotificationsSection(repository: HarnessRepository) {
 
         QuietHoursGroup(settings, ::update)
 
-        SettingsGroup(title = "Muted projects", description = "A muted project sends this device nothing. Mute one with the bell in its chat header.") {
-            val entries = settings.mutedEntries()
-            if (entries.isEmpty()) GroupNote("No muted projects.")
-            entries.forEach { (backendKey, projectId) ->
-                val session = sessions.firstOrNull { it.config.key == backendKey }
-                val projectName = session?.projects?.collectAsStateWithLifecycle()?.value?.firstOrNull { it.id == projectId }?.name
-                GroupRow {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(projectName ?: projectId, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text(session?.config?.name ?: "A removed computer", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
-                        }
-                        TextButton(onClick = { update { it.withMuted(backendKey, projectId, false) } }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Unmute") }
-                    }
-                }
-            }
-        }
         SettingsFold("Delivery details") {
             io.github.mitzacoder.kemiri.features.notifications.relay.RelaySettingsSection(repository)
 
@@ -200,7 +191,10 @@ internal fun NotificationsSection(repository: HarnessRepository) {
 }
 
 @Composable
-private fun InAppAlertSettingsGroup(settings: InAppAlertSettings, update: ((InAppAlertSettings) -> InAppAlertSettings) -> Unit) {
+private fun InAppAlertSettingsGroup(
+    settings: InAppAlertSettings, update: ((InAppAlertSettings) -> InAppAlertSettings) -> Unit,
+    mutedRow: @Composable () -> Unit,
+) {
     val until = settings.doNotDisturbUntil
     var now by remember(until) { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(until) {
@@ -227,7 +221,65 @@ private fun InAppAlertSettingsGroup(settings: InAppAlertSettings, update: ((InAp
                 { pick -> update { it.withPause(AlertPause.valueOf(pick), System.currentTimeMillis()) } },
                 "Do not disturb")
         }
+        mutedRow()
     }
+}
+
+private data class MuteTarget(val backendKey: String, val projectId: String?, val label: String) {
+    val id get() = "$backendKey#${projectId.orEmpty()}"
+}
+
+@Composable
+private fun MutedNotificationsRow(
+    sessions: List<BackendSession>, mutes: List<ActiveNotificationMute>, save: (String, String?, NotificationMute?) -> Unit,
+) {
+    val targets = sessions.flatMap { session ->
+        key(session.config.key) {
+            val projects by session.projects.collectAsStateWithLifecycle()
+            val backend = MuteTarget(session.config.key, null, session.config.name)
+            listOf(backend) + projects.filter { it.state != "archived" }.map { project ->
+                MuteTarget(backend.backendKey, project.id, "${project.name} · ${backend.label}")
+            }
+        }
+    }
+    SettingsRow("Muted", hint = "Pause pop-ups, sounds and push on this device.", control = RowControl.Full) {
+        if (mutes.isEmpty()) Text("Nothing is muted.", color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
+        for (mute in mutes) {
+            val title = targets.firstOrNull { it.backendKey == mute.backendKey && it.projectId == mute.projectId }?.label
+                ?: listOfNotNull(mute.projectId, sessions.firstOrNull { it.config.key == mute.backendKey }?.config?.name
+                    ?: "A removed computer").joinToString(" · ")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(muteEndLabel(mute.until), color = Jarvis.colors.fgMuted, style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { save(mute.backendKey, mute.projectId, null) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Unmute")
+                }
+            }
+        }
+        if (targets.isNotEmpty()) SettingsFold("Add a mute") {
+            var selectedTarget by rememberSaveable { mutableStateOf("") }
+            val target = targets.firstOrNull { it.id == selectedTarget }
+            Combobox(targets.map { ComboOption(it.id, it.label) }, selectedTarget, { selectedTarget = it },
+                "Mute target", placeholder = "Choose a project or computer")
+            MuteDurationControl(enabled = target != null) { mute ->
+                target?.let { save(it.backendKey, it.projectId, mute) }
+            }
+        }
+    }
+}
+
+internal fun muteEndLabel(until: Long?): String = if (until == null) "Until I turn it back on"
+    else "Until ${localizedTimeFormatter().format(Instant.ofEpochMilli(until).atZone(ZoneId.systemDefault()))}"
+
+@Composable
+internal fun MuteDurationControl(enabled: Boolean = true, onMute: (NotificationMute) -> Unit) {
+    var duration by rememberSaveable { mutableStateOf(NotificationMuteDuration.OneHour) }
+    Combobox(NotificationMuteDuration.entries.map { ComboOption(it.name, it.label) }, duration.name,
+        { duration = NotificationMuteDuration.valueOf(it) }, "Mute duration", enabled = enabled)
+    OutlinedButton(enabled = enabled, onClick = { onMute(duration.startingAt(System.currentTimeMillis())) },
+        modifier = Modifier.heightIn(min = 48.dp)) { Text("Mute") }
 }
 
 private val NOTIFICATION_PRESET_OPTIONS = NotificationPreset.entries.filter { it.kinds != null }.map { ComboOption(it.name, it.label) }

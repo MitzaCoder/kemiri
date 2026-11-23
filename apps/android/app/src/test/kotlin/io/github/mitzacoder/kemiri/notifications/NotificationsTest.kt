@@ -66,7 +66,7 @@ class NotificationsTest {
         assertTrue(muted.isMuted(pc.key, "p1"))
         assertEquals(listOf("p1"), muted.preferencesFor(pc.key).mutedProjects)
         assertEquals(emptyList<String>(), muted.withMuted(pc.key, "p1", false).preferencesFor(pc.key).mutedProjects)
-        assertEquals(listOf(vm.key to "p1"), muted.withMuted(pc.key, "p1", false).mutedEntries())
+        assertEquals(listOf(ActiveNotificationMute(vm.key, "p1", null)), muted.withMuted(pc.key, "p1", false).activeMutes(0))
         val quiet = QuietHours("22:00", "07:00", "Europe/Bucharest", true)
         assertEquals(
             NotificationPreferences(kinds = DEFAULT_NOTIFICATION_KINDS, mutedProjects = emptyList(), quietHours = NotificationPreferencesQuietHours(start = "22:00", end = "07:00", timezone = "Europe/Bucharest", allowFailures = true)),

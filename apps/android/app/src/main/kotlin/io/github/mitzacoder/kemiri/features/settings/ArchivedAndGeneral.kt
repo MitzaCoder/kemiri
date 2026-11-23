@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
+import io.github.mitzacoder.kemiri.features.notifications.MuteDurationControl
+import io.github.mitzacoder.kemiri.features.notifications.muteEndLabel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -95,11 +98,16 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
         }
         SettingsGroup(title = "Notifications") {
             val backendKey = context.backend.config.key
-            val muted = deviceSettings.notifications.isMuted(backendKey, project.id)
-            SettingsRow("Mute on this device", badge = "This device only", control = RowControl.Inline) {
-                SettingsSwitch(muted, { next -> scope.launch {
-                    context.repository.setNotifications { it.withMuted(backendKey, project.id, next) }
-                } }, "Mute on this device")
+            val mutes = LocalNotificationCenter.current?.activeMutes?.collectAsStateWithLifecycle()?.value
+                ?: deviceSettings.notifications.activeMutes(System.currentTimeMillis())
+            val mute = mutes.firstOrNull { it.backendKey == backendKey && it.projectId == project.id }
+            SettingsRow("Mute on this device", hint = mute?.let { muteEndLabel(it.until) }) {
+                if (mute != null) TextButton(onClick = { scope.launch {
+                    context.repository.setNotifications { it.withMute(backendKey, project.id, null) }
+                } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Unmute") }
+                else MuteDurationControl { next -> scope.launch {
+                    context.repository.setNotifications { it.withMute(backendKey, project.id, next) }
+                } }
             }
         }
         if (connection.supports("project-archive")) {

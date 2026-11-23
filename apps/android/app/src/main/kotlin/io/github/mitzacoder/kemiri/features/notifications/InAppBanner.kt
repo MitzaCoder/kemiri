@@ -45,8 +45,10 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
     val presence by center.presence.collectAsStateWithLifecycle()
     val banners by center.banners.collectAsStateWithLifecycle()
     val settings by repository.settings.collectAsStateWithLifecycle()
-    if (!presence.visible || !LocalWindowInfo.current.isWindowFocused || settings.inAppAlerts.disturbedAt(System.currentTimeMillis())) return
     val banner = banners.firstOrNull() ?: return
+    var menuOpen by remember(banner.id, presence.visible) { mutableStateOf(false) }
+    if (!presence.visible || (!LocalWindowInfo.current.isWindowFocused && !menuOpen) ||
+        settings.inAppAlerts.disturbedAt(System.currentTimeMillis())) return
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val session = sessions.firstOrNull { it.config.key == banner.latest.backendKey }
     val projects = session?.projects?.collectAsStateWithLifecycle()?.value.orEmpty()
@@ -65,7 +67,8 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
             withFrameNanos { }
             center.bannerShown(banner)
         }
-        LaunchedEffect(banner.id, banner.durationMs) {
+        LaunchedEffect(banner.id, banner.durationMs, menuOpen) {
+            if (menuOpen) return@LaunchedEffect
             try {
                 withFrameNanos { }
                 center.startBannerClock(banner.id)?.let { delay(it); dismiss() }
@@ -74,6 +77,10 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
         key(banner.id) {
             AlertBannerCard(banner, banners.size, projectName, session?.config?.name, settings.inAppAlerts.showMessageText,
                 dismiss, open, onNeedsYou, { answer -> center.answerAlert(banner.latest, answer) },
+                menuOpen = menuOpen, onMenuOpen = { menuOpen = it },
+                onMute = { projectId -> center.muteFromBanner(banner.latest.backendKey, projectId) },
+                onTurnOffSounds = center::turnOffAlertSounds,
+                modifier =
                 Modifier.align(Alignment.TopCenter).padding(horizontal = 8.dp, vertical = 4.dp)
                     .widthIn(max = 480.dp).fillMaxWidth().heightIn(max = (availableHeight - 56.dp).coerceAtMost(320.dp)),
             )
@@ -86,7 +93,8 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
 private fun AlertBannerCard(
     banner: AlertBanner, count: Int, projectName: String, backendName: String?, showText: Boolean,
     dismiss: () -> Unit, open: () -> Unit, openNeedsYou: () -> Unit,
-    answer: suspend (String) -> String?, modifier: Modifier,
+    answer: suspend (String) -> String?, menuOpen: Boolean, onMenuOpen: (Boolean) -> Unit,
+    onMute: (String?) -> Unit, onTurnOffSounds: () -> Unit, modifier: Modifier,
 ) {
     val latest = banner.latest
     val urgent = banner.level == "Urgent"
@@ -136,6 +144,24 @@ private fun AlertBannerCard(
                     Text(provenance, color = colors.fgMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (count > 1) TextButton(onClick = openNeedsYou, modifier = Modifier.heightIn(min = 48.dp)) { Text("1 of $count") }
+                Box {
+                    IconButton(onClick = { onMenuOpen(true) }, modifier = Modifier.size(48.dp)) {
+                        LucideGlyph(Lucide.MoreHorizontal, size = 20.dp, contentDescription = "Notification actions")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpen(false) }) {
+                        val projectId = latest.alert.projectId
+                        if (projectId != null && projectCount == 1) {
+                            DropdownMenuItem(text = { Text("Mute $projectName for 1 hour") },
+                                onClick = { onMenuOpen(false); onMute(projectId) })
+                        }
+                        if (backendName != null && banner.alerts.all { it.backendKey == latest.backendKey }) {
+                            DropdownMenuItem(text = { Text("Mute $backendName for 1 hour") },
+                                onClick = { onMenuOpen(false); onMute(null) })
+                        }
+                        DropdownMenuItem(text = { Text("Turn off sounds") },
+                            onClick = { onMenuOpen(false); onTurnOffSounds() })
+                    }
+                }
                 IconButton(onClick = dismiss, modifier = Modifier.size(48.dp)) {
                     LucideGlyph(Lucide.X, size = 20.dp, contentDescription = "Dismiss notification")
                 }
