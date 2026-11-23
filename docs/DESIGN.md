@@ -7554,6 +7554,23 @@ Only displayed cards acknowledge `notifications.shown`. Tabs share shown, read a
 including events that never pop up. No inbox, badge, sound playback, mute controls or in-app settings UI is wired
 here. The store exposes sound eligibility and the pop-up and text privacy settings for those stages.
 
+### Timed mutes on one device
+
+Decision D4 covers pop-ups, sound and OS push on one device. The app stores mutes locally with its existing device
+notification settings, indexed by backend key, including when push is off or permission is denied. Clients check
+expiry before pop-ups or sound, and do not request a push subscription just to save a mute. The live alert stream and
+history are unchanged; a muted client ignores its `sound` selection and never acknowledges a pop-up it did not show.
+
+For a registered push device, send the same backend's mutes with its full `NotificationPreferences` in
+`notifications.register`, `notifications.registerFcm` or `notifications.syncRelay`. Existing `mutedProjects: string[]`
+remains the canonical indefinite project form. Optional `projectMutes: { projectId, until? }[]` adds project expiry;
+optional `backendMute: { until? }` covers every alert kind on that backend, including backend-wide events. `until` is
+an absolute Unix time in milliseconds; omitted inside an entry means until turned back on. Omit the entry from a
+full preference update to clear it. The backend normalizes both forms and ignores malformed or expired deadlines.
+Devices and relay state retain their version and required fields. Old backends ignore the new fields; use the
+`notification-timed-mutes` capability to tell whether OS push can honor them. Never send a timed project mute as a
+legacy indefinite mute. An explicit test push still bypasses preferences.
+
 ### Holding while the app is open
 
 With the app open, system notifications wait 15 s. Interaction cancels a push only if it repeats the visible project
@@ -7573,9 +7590,11 @@ or a pop-up the app already showed.
   marked shown. Other events, including backend-wide events, keep their original timer. Dropped events already
   claimed their dedupe key, so a restart or watch replay does not send them. An event that happens after the
   interaction is held anew.
-- **Hold ends, then filter.** Kinds, mutes, archived projects and quiet hours are read when the push is sent (a mute set
-  during the hold applies), and an event no push device would receive is not held at all. It can still appear in the
-  live stream. Archived projects are dropped before the hold, and test pushes (`notifications.test`) are never held.
+- **Hold ends, then filter.** Kinds, mutes and quiet hours are read when the push is sent. A mute set during the hold
+  applies. A mute that is due to expire by the end of a hold does not keep that event from being held. When the hold
+  ends, only mutes still active can block the push. Expired entries are pruned on ordinary reads, sends or relay
+  maintenance without separate timers. An event no push device would receive is not held at all, but it can still
+  appear in the live stream. Archived projects are dropped before the hold, and test pushes are never held.
 - **The page going hidden, or the socket closing, during the hold changes nothing**: the event is still pushed at 15 s
   unless an interaction already dropped it. (Someone who closes the tab and walks away still needs the push.)
 - **Where it lives: in the `Notifier`, per backend.** Every event source already calls one `Notifier`, so a hold in front

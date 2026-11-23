@@ -22,6 +22,9 @@ import {
 	NOTIFICATION_FAILURE_KINDS,
 	NOTIFICATION_HOLD_MS,
 	NOTIFICATION_KINDS,
+	normalizeNotificationMutes,
+	notificationMuteActive,
+	pruneExpiredNotificationMutes,
 	type AuthLogin,
 	type DeployStatus,
 	type NotificationAlert,
@@ -259,15 +262,12 @@ function parseSubscription(raw: unknown): PushSubscription | undefined {
 	};
 }
 
-function parsePreferences(raw: unknown): NotificationPreferences | undefined {
+function parsePreferences(raw: unknown, now: number): NotificationPreferences | undefined {
 	if (!isRecord(raw)) return undefined;
 	const kinds = Array.isArray(raw.kinds)
 		? raw.kinds.filter((kind): kind is NotificationKind => typeof kind === "string" && STORED_KINDS.has(kind))
 		: undefined;
-	const mutedProjects = Array.isArray(raw.mutedProjects)
-		? raw.mutedProjects.filter((id): id is string => typeof id === "string")
-		: undefined;
-	if (kinds === undefined || mutedProjects === undefined) return undefined;
+	if (kinds === undefined || !Array.isArray(raw.mutedProjects)) return undefined;
 	const quiet = raw.quietHours;
 	let quietHours: NotificationPreferences["quietHours"] = null;
 	if (isRecord(quiet)) {
@@ -284,17 +284,17 @@ function parsePreferences(raw: unknown): NotificationPreferences | undefined {
 	} else if (quiet !== null && quiet !== undefined) {
 		return undefined;
 	}
-	return { kinds, mutedProjects, quietHours };
+	return { kinds, quietHours, ...normalizeNotificationMutes(raw, now) };
 }
 
 /** A device read back from `devices.json`; anything that does not validate is dropped, like a stored schedule. */
-function parseDevice(raw: unknown): StoredDevice | undefined {
+function parseDevice(raw: unknown, now: number): StoredDevice | undefined {
 	if (!isRecord(raw)) return undefined;
 	if (typeof raw.deviceId !== "string" || raw.deviceId.length === 0) return undefined;
 	if (typeof raw.backendKey !== "string" || raw.backendKey.length === 0) return undefined;
 	const fcmToken = typeof raw.fcmToken === "string" && raw.fcmToken.length > 0 ? raw.fcmToken : undefined;
 	const subscription = fcmToken === undefined ? parseSubscription(raw.subscription) : undefined;
-	const preferences = parsePreferences(raw.preferences);
+	const preferences = parsePreferences(raw.preferences, now);
 	if ((subscription === undefined && fcmToken === undefined) || preferences === undefined) return undefined;
 	const address: DeviceAddress = fcmToken === undefined ? { subscription: subscription! } : { fcmToken };
 	const last = raw.lastDelivery;
@@ -348,7 +348,7 @@ export class NotificationStore {
 	}
 
 	/** Read the file once; a corrupt one starts empty rather than stopping the server (devices re-register). */
-	async read(): Promise<void> {
+	async read(now = Date.now()): Promise<void> {
 		if (this.#loaded) return;
 		this.#loaded = true;
 		const raw = await readJsonFile(this.#file).catch((error: unknown) => {
@@ -362,7 +362,7 @@ export class NotificationStore {
 			return;
 		}
 		for (const entry of devices) {
-			const device = parseDevice(entry);
+			const device = parseDevice(entry, now);
 			if (device === undefined) {
 				this.#log(`notifications: dropping a device that does not match the protocol from ${this.#file}`);
 				continue;
@@ -377,6 +377,18 @@ export class NotificationStore {
 
 	get(deviceId: string): StoredDevice | undefined {
 		return this.#devices.get(deviceId);
+	}
+
+	/** Expiry is lazy: remove entries during normal device access, without scheduling timers. */
+	pruneMutes(now: number): void {
+		let changed = false;
+		for (const [id, device] of this.#devices) {
+			const preferences = pruneExpiredNotificationMutes(device.preferences, now);
+			if (preferences === device.preferences) continue;
+			this.#devices.set(id, { ...device, preferences });
+			changed = true;
+		}
+		if (changed) void this.#persist().catch(() => undefined);
 	}
 
 	/** Register or update one device: its subscription or FCM token, what it calls this backend, and its preferences. */
@@ -414,6 +426,7 @@ export class NotificationStore {
 							keys: { p256dh: input.subscription.keys.p256dh, auth: input.subscription.keys.auth },
 						},
 					};
+		const now = (input.now ?? Date.now)();
 		const device: StoredDevice = {
 			deviceId: input.deviceId,
 			...((input.sessionId ?? existing?.sessionId) ? { sessionId: input.sessionId ?? existing!.sessionId } : {}),
@@ -422,7 +435,7 @@ export class NotificationStore {
 			...address,
 			preferences: {
 				kinds: [...input.preferences.kinds],
-				mutedProjects: [...input.preferences.mutedProjects],
+				...normalizeNotificationMutes(input.preferences, now),
 				quietHours:
 					input.preferences.quietHours === null
 						? null
@@ -433,7 +446,7 @@ export class NotificationStore {
 								allowFailures: input.preferences.quietHours.allowFailures,
 							},
 			},
-			createdAt: existing?.createdAt ?? new Date((input.now ?? Date.now)()).toISOString(),
+			createdAt: existing?.createdAt ?? new Date(now).toISOString(),
 			lastDelivery: existing?.lastDelivery ?? null,
 		};
 		this.#devices.set(device.deviceId, device);
@@ -733,25 +746,22 @@ export function notificationTag(
 }
 
 /**
- * Why this device does not get this event, or undefined when it does: the kind is off, the project is muted, or it is in
- * quiet hours (which `allowFailures` lets the failure kinds through).
+ * Why this device does not get this event, or undefined when it does. `muteAt` is only for hold admission: a mute
+ * can still be active now but expire before the held push is due.
  */
 export function notificationBlocked(
 	device: Pick<StoredDevice, "deviceId" | "preferences">,
 	event: Pick<NotificationEvent, "kind" | "projectId">,
-	options: { at: Date },
+	options: { at: Date; muteAt?: number },
 ): BlockedReason | undefined {
 	// A test push is the user asking for one right now: no preference can silence it.
 	if (event.kind === "test") return undefined;
 	const preferences = device.preferences;
+	const muteAt = options.muteAt ?? options.at.getTime();
+	if (notificationMuteActive(preferences.backendMute, muteAt)) return "muted";
 	if (!preferences.kinds.includes(event.kind)) return "kind";
-	if (
-		event.projectId !== null &&
-		event.projectId !== undefined &&
-		preferences.mutedProjects.includes(event.projectId)
-	) {
-		return "muted";
-	}
+	if (event.projectId != null && (preferences.mutedProjects.includes(event.projectId) ||
+		preferences.projectMutes?.some(mute => mute.projectId === event.projectId && notificationMuteActive(mute, muteAt)))) return "muted";
 	const quiet = preferences.quietHours;
 	if (quiet !== null && inQuietHours(quiet, options.at)) {
 		const failure = NOTIFICATION_FAILURE_KINDS.includes(event.kind);
@@ -1372,14 +1382,16 @@ export class Notifier {
 		this.presence = options.presence ?? new NotificationPresence();
 		this.relay = options.relay;
 		this.relay?.setPolicy(async (device, event) =>
-			notificationBlocked(device, event, { at: new Date(this.#now()) }) === undefined &&
-			(!event.projectId || await this.#isArchived?.(event.projectId) !== true));
+			(!event.projectId || await this.#isArchived?.(event.projectId) !== true) &&
+			notificationBlocked(device, event, { at: new Date(this.#now()) }) === undefined);
 	}
 
 	/** The device's registration on this backend, or null. */
 	device(deviceId: string): NotificationDevice | null {
-		const relayDevice = this.relay?.store.device(deviceId);
+		const now = this.#now();
+		const relayDevice = this.relay?.store.device(deviceId, now);
 		if (relayDevice) return relayDevice;
+		this.#store.pruneMutes(now);
 		const device = this.#store.get(deviceId);
 		return device === undefined ? null : publicDevice(device);
 	}
@@ -1545,15 +1557,18 @@ export class Notifier {
 		return { event, at: at.toISOString() };
 	}
 
-	/** Some device would be pushed this event now; with none, holding it would only keep a record nobody reads. */
+	/** Some device could get this push; a mute that ends within the hold must not prevent admission. */
 	#wanted(event: NotificationEvent, at: Date): boolean {
+		this.#store.pruneMutes(at.getTime());
+		const muteAt = at.getTime() + this.#holdMs;
 		return [...this.#store.list().filter((d) => !d.sessionId || !this.relay?.store.selected(d.sessionId)),
-			...(this.relay?.devices() ?? [])].some((device) => notificationBlocked(device, event, { at }) === undefined);
+			...(this.relay?.devices() ?? [])].some((device) => notificationBlocked(device, event, { at, muteAt }) === undefined);
 	}
 
 	/** Filter at the moment of sending (a mute or quiet hours changed during the hold count) and push to each device. */
 	async #deliverNow(event: NotificationEvent, atIso: string, eventId = newRelayId()): Promise<NotifyResult> {
 		const at = new Date(this.#now());
+		this.#store.pruneMutes(at.getTime());
 		const deliveries: DeliveryOutcome[] = [];
 		const relayDevices = this.relay?.devices() ?? [];
 		for (const device of this.#store.list()) {

@@ -91,9 +91,21 @@ export const NOTIFICATION_PRESETS = {
 
 const TimeOfDay = Type.String({ pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: '"HH:MM", 24-hour.' });
 
+// Stay within the range Date can display. The same absolute time works across client and server timezones.
+const MAX_MUTE_TIME_MS = 8_640_000_000_000_000;
+const MuteEndTime = Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_MUTE_TIME_MS,
+	description: "Expiry as Unix milliseconds; omitted means muted until turned back on.",
+}));
+
+export const NotificationMuteSchema = Type.Object({ until: MuteEndTime });
+export type NotificationMute = Static<typeof NotificationMuteSchema>;
+
+export const NotificationProjectMuteSchema = Type.Object({ projectId: ProjectIdSchema, until: MuteEndTime });
+export type NotificationProjectMute = Static<typeof NotificationProjectMuteSchema>;
+
 export const NotificationPreferencesSchema = Type.Object({
 	kinds: Type.Array(NotificationKindSchema, { description: "The kinds this device wants." }),
-	mutedProjects: Type.Array(ProjectIdSchema, { description: "Projects of this backend the device hears nothing from." }),
+	mutedProjects: Type.Array(ProjectIdSchema, { description: "Projects muted until turned back on (legacy entry format)." }),
 	quietHours: Type.Union(
 		[
 			Type.Object({
@@ -106,8 +118,66 @@ export const NotificationPreferencesSchema = Type.Object({
 		],
 		{ description: "From start to end (crossing midnight when end < start), nothing is pushed." },
 	),
+	projectMutes: Type.Optional(Type.Array(NotificationProjectMuteSchema)),
+	backendMute: Type.Optional(NotificationMuteSchema),
 });
 export type NotificationPreferences = Static<typeof NotificationPreferencesSchema>;
+
+export type NotificationMutes = Pick<NotificationPreferences, "mutedProjects" | "projectMutes" | "backendMute">;
+
+function muteRecord(raw: unknown): Record<string, unknown> | undefined {
+	return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+}
+
+function validMuteEnd(until: unknown): until is number {
+	return typeof until === "number" && Number.isSafeInteger(until) && until > 0 && until <= MAX_MUTE_TIME_MS;
+}
+
+/** Tolerate old and malformed stored fields. Never turn an invalid or expired deadline into a permanent mute. */
+export function normalizeNotificationMutes(raw: Partial<Record<keyof NotificationMutes, unknown>>, now: number): NotificationMutes {
+	const mutedProjects = new Set<string>();
+	const timed = new Map<string, number>();
+	if (Array.isArray(raw.mutedProjects)) {
+		for (const id of raw.mutedProjects) if (typeof id === "string" && id.length) mutedProjects.add(id);
+	}
+	if (Array.isArray(raw.projectMutes)) {
+		for (const entry of raw.projectMutes) {
+			const mute = muteRecord(entry);
+			if (typeof mute?.projectId !== "string" || !mute.projectId.length) continue;
+			if (mute.until === undefined) mutedProjects.add(mute.projectId);
+			else if (validMuteEnd(mute.until) && mute.until > now && mute.until > (timed.get(mute.projectId) ?? 0)) timed.set(mute.projectId, mute.until);
+		}
+	}
+	const projectMutes = [...timed].flatMap(([projectId, until]) => mutedProjects.has(projectId) ? [] : [{ projectId, until }]);
+	const backend = muteRecord(raw.backendMute);
+	const until = backend?.until;
+	const backendMute = !backend ? undefined : until === undefined ? {} : validMuteEnd(until) && until > now ? { until } : undefined;
+	return {
+		mutedProjects: [...mutedProjects],
+		...(projectMutes.length ? { projectMutes } : {}),
+		...(backendMute ? { backendMute } : {}),
+	};
+}
+
+/** Test expiry at send/display time. Normalization is only needed when reading or replacing preferences. */
+export function notificationMuteActive(mute: NotificationMute | undefined, now: number): boolean {
+	return mute !== undefined && (mute.until === undefined || (validMuteEnd(mute.until) && mute.until > now));
+}
+
+/** Remove expired optional entries from already normalized preferences, preserving identity if nothing expired. */
+export function pruneExpiredNotificationMutes(preferences: NotificationPreferences, now: number): NotificationPreferences {
+	const projectExpired = preferences.projectMutes?.some(mute => !notificationMuteActive(mute, now));
+	const backendExpired = preferences.backendMute !== undefined && !notificationMuteActive(preferences.backendMute, now);
+	if (!projectExpired && !backendExpired) return preferences;
+	const pruned = { ...preferences };
+	if (projectExpired) {
+		const active = preferences.projectMutes!.filter(mute => notificationMuteActive(mute, now));
+		if (active.length) pruned.projectMutes = active;
+		else delete pruned.projectMutes;
+	}
+	if (backendExpired) delete pruned.backendMute;
+	return pruned;
+}
 
 /** A browser `PushSubscription` as `toJSON()` gives it. */
 export const PushSubscriptionSchema = Type.Object({

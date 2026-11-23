@@ -5,6 +5,8 @@ import {
 	type NotificationsRegisterRelayResponse,
 	type RelayContext,
 	deriveRelayKeys,
+	normalizeNotificationMutes,
+	pruneExpiredNotificationMutes,
 	exportRelayPublicKey,
 	generateRelayKeyPair,
 	parseRelayBearer,
@@ -105,7 +107,7 @@ export class PushRelayStore {
 	}
 
 	/** Read fail-closed; a missing/mismatched witness requires new keys, never a counter reset. */
-	async read(): Promise<void> {
+	async read(now = Date.now()): Promise<void> {
 		const raw = await readJsonFile(this.file);
 		const counters = await readJsonFile(this.countersFile);
 		if (raw === undefined) {
@@ -135,6 +137,10 @@ export class PushRelayStore {
 				receipt.answer.serverTime + MAX_RELAY_ROUTE_LIFETIME_MS) : state.revoked[entry.sessionId]?.absoluteExpiresAt;
 			if (absolute === undefined || absolute === null) throw new Error("Relay deletion expiry is missing");
 			entry.absoluteExpiresAt = absolute;
+		}
+		for (const route of state.routes) {
+			const { kinds, quietHours } = route.device.preferences;
+			route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(route.device.preferences, now) };
 		}
 		this.#state = state;
 		if (counters !== undefined) {
@@ -207,9 +213,11 @@ export class PushRelayStore {
 		const due = Object.values(this.#state.receipts).some((r) => r.purgeAt <= now) ||
 			Object.values(this.#state.revoked).some((r) => r.purgeAt <= now) ||
 			Object.values(this.#state.cleanupExpired).some((until) => until <= now) ||
-			this.#state.deletes.some((d) => d.absoluteExpiresAt + PUSH_RELAY_CLEANUP_MS <= now);
+			this.#state.deletes.some((d) => d.absoluteExpiresAt + PUSH_RELAY_CLEANUP_MS <= now) ||
+			this.#state.routes.some(({ device }) => pruneExpiredNotificationMutes(device.preferences, now) !== device.preferences);
 		if (!due) return;
 		await this.transaction((draft) => {
+			for (const { device } of draft.routes) device.preferences = pruneExpiredNotificationMutes(device.preferences, now);
 			for (const [sessionId, until] of Object.entries(draft.cleanupExpired))
 				if (until <= now) delete draft.cleanupExpired[sessionId];
 			for (const [operationId, receipt] of Object.entries(draft.receipts))
@@ -226,10 +234,12 @@ export class PushRelayStore {
 	}
 
 	/** Public pending/active registration, excluding every secret-bearing storage field. */
-	device(deviceId: string): NotificationDevice | undefined {
+	device(deviceId: string, now = Date.now()): NotificationDevice | undefined {
 		const route = this.#state.routes.find((r) => r.device.deviceId === deviceId && r.state !== "pending") ??
 			this.#state.routes.find((r) => r.device.deviceId === deviceId);
-		return route ? { ...structuredClone(route.device), relay: this.status(route.context.sessionId) } : undefined;
+		if (!route) return undefined;
+		const device = structuredClone(route.device);
+		return { ...device, preferences: pruneExpiredNotificationMutes(device.preferences, now), relay: this.status(route.context.sessionId) };
 	}
 
 	/** Prepare a crash-idempotent agreement, bounded to one pending successor per authenticated session. */
@@ -241,10 +251,16 @@ export class PushRelayStore {
 		if (parseRelayBearer(input.sendBearer, "send").routeId !== input.routeId ||
 			parseRelayBearer(input.deleteBearer, "delete").routeId !== input.routeId) invalid();
 		// Hash a fixed field order, not caller JSON order; the receipt retains no duplicate bearer secrets.
-		const ordered = [sessionId, backendId, input.operationId, input.routeId, input.keyId, input.sendBearer,
+		const ordered: unknown[] = [sessionId, backendId, input.operationId, input.routeId, input.keyId, input.sendBearer,
 			input.deleteBearer, input.leaseExpiresAt, input.absoluteExpiresAt, input.phonePublicKey, input.salt,
 			input.label, input.backendKey, input.preferences.kinds, input.preferences.mutedProjects,
 			input.preferences.quietHours, input.predecessorRouteId ?? null];
+		const { projectMutes, backendMute } = input.preferences;
+		// Keep legacy fingerprints byte-for-byte for existing pending registrations.
+		if (projectMutes !== undefined || backendMute !== undefined) ordered.push([
+			projectMutes?.map(({ projectId, until }) => [projectId, until ?? null]) ?? null,
+			backendMute === undefined ? null : [backendMute.until ?? null],
+		]);
 		const fingerprint = relayBase64(new Uint8Array(await crypto.subtle.digest("SHA-256", relayUtf8(JSON.stringify(ordered)))));
 		return await this.transaction(async (draft) => {
 			const previous = draft.receipts[input.operationId];
@@ -273,7 +289,8 @@ export class PushRelayStore {
 					"backend-confirm": relayBase64(keys["backend-confirm"]) },
 				state: "pending", nextSequence: "0",
 				device: { deviceId: answer.deviceId, label: input.label, backendKey: input.backendKey,
-					preferences: structuredClone(input.preferences), createdAt: new Date(now).toISOString(),
+					preferences: { kinds: [...input.preferences.kinds], quietHours: structuredClone(input.preferences.quietHours),
+						...normalizeNotificationMutes(input.preferences, now) }, createdAt: new Date(now).toISOString(),
 					transport: "fcm-relay", lastDelivery: null },
 			};
 			// Witness first: a crash before the route write cannot cause a reused sequence/key.

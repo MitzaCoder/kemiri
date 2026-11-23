@@ -209,6 +209,28 @@ test("queued sends obey new mutes, quiet hours, disabled kinds and revoke, and n
 	}
 });
 
+test("relay preference sync honors timed project and backend mutes and prunes expired fields", async () => {
+	const f = await relaySetup();
+	const phone = await simulatedPhone();
+	const until = f.clock.now + 60_000;
+	phone.registration.preferences.projectMutes = [{ projectId: "synthetic-project", until }];
+	const device = await phone.activate(f.client);
+	const scoped = { ...event, projectId: "synthetic-project" };
+	await f.setup.server.notifications.deliver(scoped);
+	expect(f.relay.sends()).toHaveLength(0);
+	await f.setup.server.notifications.deliver(event);
+	expect(f.relay.sends()).toHaveLength(1);
+	await f.client.request({ type: "notifications.syncRelay", routeId: phone.registration.routeId,
+		preferences: { ...phone.registration.preferences, backendMute: { until } } });
+	await f.setup.server.notifications.deliver(event);
+	expect(f.relay.sends()).toHaveLength(1);
+	await f.tick(60_000);
+	expect(f.setup.server.notifications.device(device.deviceId)?.preferences).not.toHaveProperty("backendMute");
+	expect(f.setup.server.notifications.relay!.store.snapshot().routes[0]?.device.preferences).not.toHaveProperty("projectMutes");
+	await f.setup.server.notifications.deliver(scoped);
+	expect(f.relay.sends()).toHaveLength(2);
+});
+
 test("interaction uses its screen snapshot before relay encryption, even if presence lags", async () => {
 	const f = await relaySetup();
 	const phone = await simulatedPhone();

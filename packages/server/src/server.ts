@@ -500,8 +500,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const notificationsDir = join(dataDir, "notifications");
 	const vapidKeyFile = options.notifications?.vapidKeyFile ?? resolveVapidKeyFile(dataDir);
 	const vapid = await loadOrCreateVapidKeys(vapidKeyFile);
+	const notificationNow = options.notifications?.now ?? options.now ?? Date.now;
 	const notificationStore = new NotificationStore({ dir: notificationsDir, log });
-	await notificationStore.read();
+	await notificationStore.read(notificationNow());
 	const notificationState = new NotificationStateStore({ dir: notificationsDir, log });
 	await notificationState.read();
 	// FCM for the Android app: on when the user has put the Firebase project's service-account key in place.
@@ -520,7 +521,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	let relay: PushRelayTransport | undefined;
 	if (relayEndpoint) {
 		const relayStore = new PushRelayStore(notificationsDir);
-		await relayStore.read();
+		await relayStore.read(notificationNow());
 		relay = new PushRelayTransport({
 			store: relayStore, endpoint: relayEndpoint, backendId: auth.backendId,
 			sessionActive: (sessionId) => auth.active(sessionId),

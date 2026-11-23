@@ -19,11 +19,13 @@ import {
 	defaultDeviceSettings,
 	deviceLabelFromUserAgent,
 	deviceTimezone,
+	isBackendMuted,
 	isProjectMuted,
 	loadDeviceSettings,
 	migrateDefaultKinds,
 	threadAnchor,
 	threadFromAnchor,
+	mutedBackendEntries,
 	mutedProjectEntries,
 	notificationRenotify,
 	notificationUrl,
@@ -39,6 +41,8 @@ import {
 	timeOfDayIn,
 	withKind,
 	withMutedProject,
+	withProjectMute,
+	withBackendMute,
 	type DeviceNotificationSettings,
 	type HarnessWebSocket,
 } from "../src/index.ts";
@@ -545,6 +549,51 @@ describe("device settings", () => {
 			{ backendKey: "harness-pc", projectId: "project-1" },
 			{ backendKey: "harness-vm", projectId: "project-9" },
 		]);
+	});
+
+	it("keeps timed mutes locally without a push registration and sends only that backend's optional fields", () => {
+		const storage = fakeStorage();
+		const now = Date.now();
+		const until = now + 60 * 60_000;
+		let settings = defaultDeviceSettings("fixture-device", "UTC");
+		settings = withMutedProject(settings, "first", "same-id", true);
+		settings = withProjectMute(settings, "second", "same-id", { until }, now);
+		settings = withBackendMute(settings, "second", { until }, now);
+		saveDeviceSettings(settings, storage);
+		settings = loadDeviceSettings(storage, "UTC");
+		expect(isBackendMuted(settings, "first", now)).toBe(false);
+		expect(isBackendMuted(settings, "second", now)).toBe(true);
+		expect(isProjectMuted(settings, "second", "same-id", until)).toBe(false);
+		expect(isBackendMuted(settings, "second", until)).toBe(false);
+		expect(isProjectMuted(settings, "first", "same-id", until)).toBe(true);
+		expect(mutedProjectEntries(settings, now)).toEqual([
+			{ backendKey: "first", projectId: "same-id" }, { backendKey: "second", projectId: "same-id", until },
+		]);
+		expect(mutedBackendEntries(settings, now)).toEqual([{ backendKey: "second", until }]);
+		expect(preferencesForBackend(settings, "second", true, true, { now })).toMatchObject({
+			mutedProjects: [], projectMutes: [{ projectId: "same-id", until }], backendMute: { until },
+		});
+		const old = preferencesForBackend(settings, "second", true, true, { supportsTimedMutes: false, now });
+		expect(old.mutedProjects).toEqual([]); // A rollback must not turn the timed mute into a permanent one.
+		expect(old).not.toHaveProperty("projectMutes");
+		expect(old).not.toHaveProperty("backendMute");
+		const expired = parseDeviceSettings(storage.data.get(NOTIFICATION_SETTINGS_STORAGE_KEY)!, "fixture-device", "UTC", until);
+		expect(expired).not.toHaveProperty("projectMutes");
+		expect(expired).not.toHaveProperty("backendMutes");
+		settings = withProjectMute(settings, "second", "same-id", null, now);
+		settings = withBackendMute(settings, "second", null, now);
+		expect(preferencesForBackend(settings, "second", true, true, { now })).toEqual(old);
+	});
+
+	it("converts timed and untimed project settings without leaving both in place", () => {
+		const now = Date.now();
+		let settings = withMutedProject(defaultDeviceSettings("fixture-device"), "pc", "project", true);
+		settings = withProjectMute(settings, "pc", "project", { until: now + 60_000 }, now);
+		expect(settings.mutedProjects).toEqual({});
+		settings = withMutedProject(settings, "pc", "project", false);
+		expect(mutedProjectEntries(settings, now)).toEqual([]);
+		settings = withBackendMute(settings, "pc", {}, now);
+		expect(isBackendMuted(settings, "pc", now + 1_000_000)).toBe(true);
 	});
 
 	it("keeps kinds in the protocol's order and drops what it does not know", () => {

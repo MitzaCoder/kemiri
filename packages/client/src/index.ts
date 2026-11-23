@@ -75,8 +75,10 @@ export {
 	deviceTimezone,
 	isNotificationFailure,
 	isProjectMuted,
+	isBackendMuted,
 	loadDeviceSettings,
 	mutedProjectEntries,
+	mutedBackendEntries,
 	newDeviceId,
 	notificationRenotify,
 	notificationUrl,
@@ -95,6 +97,8 @@ export {
 	wantsKind,
 	withKind,
 	withMutedProject,
+	withProjectMute,
+	withBackendMute,
 } from "./notifications.ts";
 export type { DeviceNotificationSettings, NotificationTarget, QuietHours } from "./notifications.ts";
 export { contextIsFor, contextTarget } from "./context.ts";

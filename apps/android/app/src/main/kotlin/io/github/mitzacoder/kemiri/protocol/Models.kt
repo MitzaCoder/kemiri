@@ -4145,7 +4145,9 @@ data class BoardFeedbackSetResponse(
 data class NotificationPreferences(
     val `kinds`: List<String>,
     val `mutedProjects`: List<String>,
-    val `quietHours`: NotificationPreferencesQuietHours?
+    val `quietHours`: NotificationPreferencesQuietHours?,
+    val `projectMutes`: List<NotificationProjectMute>? = null,
+    val `backendMute`: NotificationMute? = null
 )
 
 @Serializable
@@ -4205,6 +4207,17 @@ data class NotificationPayload(
     val `taskId`: String? = null,
     val `tag`: String,
     val `at`: String
+)
+
+@Serializable
+data class NotificationMute(
+    val `until`: Long? = null
+)
+
+@Serializable
+data class NotificationProjectMute(
+    val `projectId`: String,
+    val `until`: Long? = null
 )
 
 @Serializable

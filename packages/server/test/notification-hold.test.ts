@@ -7,6 +7,8 @@ import { DEFAULT_NOTIFICATION_KINDS, NOTIFICATION_HOLD_MS, type NotificationPref
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { FcmSender } from "../src/fcm.ts";
 import {
 	NotificationPresence,
@@ -90,7 +92,7 @@ async function rig(options: { dir?: string; clock?: FakeClock; presence?: Notifi
 	const presence = options.presence ?? new NotificationPresence();
 	const sent: Rig["sent"] = [];
 	const store = new NotificationStore({ dir });
-	await store.read();
+	await store.read(clock.now);
 	const state = new NotificationStateStore({ dir });
 	await state.read();
 	const notifier = new Notifier({
@@ -295,6 +297,83 @@ describe("holding notifications while the app is open", () => {
 		await t.notifier.deliver({ kind: "worker_failed", title: "Worker failed", body: "x", projectId: "p1", workerId: "w1" });
 		await t.clock.advance(15_000, t.notifier);
 		expect(t.sent.slice(1).map((push) => push.deviceId).sort()).toEqual(["no-replies", "plain", "quiet"]);
+	});
+
+	it("mutes one project's pushes until the deadline, leaving other projects and devices alone", async () => {
+		const t = await rig();
+		const until = t.clock.now + 60_000;
+		await register(t.notifier, "phone", { projectMutes: [{ projectId: "p1", until }], mutedProjects: ["legacy"] });
+		await register(t.notifier, "other-device");
+		await t.notifier.deliver(reply());
+		expect(t.sent.map(push => push.deviceId)).toEqual(["other-device"]);
+		await t.notifier.deliver(reply(1, "p2"));
+		expect(t.sent.slice(1).map(push => push.deviceId)).toEqual(["phone", "other-device"]);
+		await t.clock.advance(60_000, t.notifier);
+		await t.notifier.deliver(reply(2));
+		expect(t.sent.slice(3).map(push => push.deviceId)).toEqual(["phone", "other-device"]);
+		await t.notifier.deliver(reply(1, "legacy"));
+		expect(t.sent.slice(5).map(push => push.deviceId)).toEqual(["other-device"]);
+		await t.notifier.flush();
+		const raw = await Bun.file(join(t.dir, "devices.json")).json();
+		expect(raw.devices[0].preferences).not.toHaveProperty("projectMutes");
+		expect(raw.devices[0].preferences.mutedProjects).toEqual(["legacy"]);
+	});
+
+	it("admits a held push when its only device's mute expires before the hold ends", async () => {
+		const t = await rig();
+		await register(t.notifier, "phone", { projectMutes: [{ projectId: "p1", until: t.clock.now + 5_000 }] });
+		t.presence.set({}, { deviceId: "browser", visible: true, projectId: null });
+		expect(await t.notifier.deliver(reply())).toMatchObject({ skipped: "held" });
+		await t.clock.advance(14_999, t.notifier);
+		expect(t.sent).toHaveLength(0);
+		await t.clock.advance(1, t.notifier);
+		expect(t.sent.map(push => push.deviceId)).toEqual(["phone"]);
+	});
+
+	it("a whole-backend mute hides all alert kinds, including backend-wide failures, until cleared or expired", async () => {
+		const t = await rig();
+		const failure = { kind: "disk_low" as const, title: "Fixture", body: "Low disk." };
+		await register(t.notifier, "phone", { backendMute: {} });
+		await t.notifier.deliver(reply());
+		await t.notifier.deliver(failure);
+		expect(t.sent).toHaveLength(0);
+		await register(t.notifier, "phone", { backendMute: { until: t.clock.now + 5_000 } });
+		await t.notifier.deliver(failure);
+		expect(t.sent).toHaveLength(0);
+		await t.clock.advance(5_000, t.notifier);
+		await t.notifier.deliver(failure);
+		expect(t.sent.map(push => push.deviceId)).toEqual(["phone"]);
+		await register(t.notifier, "phone", { backendMute: {} });
+		await register(t.notifier, "phone"); // An omitted optional field in a full preference update clears it.
+		await t.notifier.deliver(reply(2));
+		expect(t.sent).toHaveLength(2);
+	});
+
+	it("writes the rollback-readable v1 device shape, and only expiry fields are pruned or ignored on read", async () => {
+		const t = await rig();
+		const until = t.clock.now + 10_000;
+		await register(t.notifier, "phone", {
+			mutedProjects: ["legacy"], projectMutes: [{ projectId: "timed", until }], backendMute: { until },
+		});
+		const file = join(t.dir, "devices.json");
+		const raw = await Bun.file(file).json();
+		const legacyFile = Type.Object({ version: Type.Literal(1), devices: Type.Array(Type.Object({
+			deviceId: Type.String(), fcmToken: Type.String(), backendKey: Type.String(),
+			preferences: Type.Object({ kinds: Type.Array(Type.String()), mutedProjects: Type.Array(Type.String()), quietHours: Type.Null() }),
+		})) });
+		expect(Value.Check(legacyFile, raw)).toBe(true);
+		expect(raw.devices[0].preferences).toMatchObject({ mutedProjects: ["legacy"], projectMutes: [{ projectId: "timed", until }], backendMute: { until } });
+		const after = new NotificationStore({ dir: t.dir });
+		await after.read(until);
+		expect(after.get("phone")?.preferences).toStrictEqual(preferences({ mutedProjects: ["legacy"] }));
+		raw.devices[0].preferences.projectMutes.push({ projectId: "bad", until: "bad-date" }, { projectId: "untimed" });
+		raw.devices[0].preferences.backendMute = { until: null };
+		await Bun.write(file, JSON.stringify(raw));
+		const cleaned = new NotificationStore({ dir: t.dir });
+		await cleaned.read(t.clock.now);
+		expect(cleaned.get("phone")?.preferences).toStrictEqual(preferences({
+			mutedProjects: ["legacy", "untimed"], projectMutes: [{ projectId: "timed", until }],
+		}));
 	});
 
 	it("does not hold, or write anything down, for an event no device wants", async () => {

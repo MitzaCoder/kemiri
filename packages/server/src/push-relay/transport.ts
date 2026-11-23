@@ -1,4 +1,6 @@
 import {
+	normalizeNotificationMutes,
+	pruneExpiredNotificationMutes,
 	type NotificationDevice,
 	type NotificationPayload,
 	type NotificationRelayStatus,
@@ -118,7 +120,7 @@ export class PushRelayTransport {
 			this.#checkSession(sessionId);
 		}
 		this.#arm();
-		return this.store.device(relayDeviceId(sessionId))!;
+		return this.store.device(relayDeviceId(sessionId), this.#now())!;
 	}
 
 	/** Apply phone-authorized lease/preferences; unregister is immediate locally and never waits for HTTP. */
@@ -140,7 +142,10 @@ export class PushRelayTransport {
 					throw new ServerError("bad_request", "Invalid relay lease");
 				route.registration.leaseExpiresAt = input.leaseExpiresAt;
 			}
-			if (input.preferences) route.device.preferences = structuredClone(input.preferences);
+			if (input.preferences) {
+				const { kinds, quietHours } = structuredClone(input.preferences);
+				route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(input.preferences, this.#now()) };
+			}
 			if (input.resume) {
 				if (route.state === "needs_new_keys" || route.state === "pending")
 					throw new ServerError("bad_request", "Relay route requires key confirmation");
@@ -269,9 +274,11 @@ export class PushRelayTransport {
 			// Re-read after async policy: unregister/rotation/mute can have committed while archive state was read.
 			const latest = this.store.snapshot();
 			const active = latest.routes.find((r) => r.context.routeId === entry.routeId);
+			const now = this.#now();
 			if (!allowed || !active || this.#locallyRevoked.has(entry.routeId) || !latest.sends.some((s) => s.messageId === entry.messageId) ||
 				!this.#options.sessionActive(route.context.sessionId) ||
-				JSON.stringify(active.device.preferences) !== JSON.stringify(route.device.preferences) ||
+				JSON.stringify(pruneExpiredNotificationMutes(active.device.preferences, now)) !==
+					JSON.stringify(pruneExpiredNotificationMutes(route.device.preferences, now)) ||
 				entry.expiresAt <= this.#now() || active.registration.leaseExpiresAt <= this.#now()) {
 				await this.store.transaction((draft) => {
 					draft.sends = draft.sends.filter((s) => s.messageId !== entry.messageId);

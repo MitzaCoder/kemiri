@@ -8,6 +8,11 @@ import {
 	MAIN_THREAD_ID,
 	NOTIFICATION_FAILURE_KINDS,
 	NOTIFICATION_KINDS,
+	normalizeNotificationMutes,
+	notificationMuteActive,
+	type NotificationMute,
+	type NotificationMutes,
+	type NotificationProjectMute,
 	type NotificationKind,
 	type NotificationPayload,
 	type NotificationPreferences,
@@ -300,7 +305,39 @@ export type DeviceNotificationSettings = {
 	quietHours: QuietHours | null;
 	/** Muted project IDs, by backend key: a project ID only means something to the backend that made it. */
 	mutedProjects: Record<string, string[]>;
+	/** Timed project mutes, by the backend that owns the project. */
+	projectMutes?: Record<string, NotificationProjectMute[]>;
+	/** Mutes scoped to one backend on this browser, even if it has no push subscription. */
+	backendMutes?: Record<string, NotificationMute>;
 };
+
+type DeviceMutes = Pick<DeviceNotificationSettings, "mutedProjects" | "projectMutes" | "backendMutes">;
+
+function objectRecord(value: unknown): Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readOwn<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+	return record && Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+function normalizedDeviceMutes(raw: Partial<Record<keyof DeviceMutes, unknown>>, now: number): DeviceMutes {
+	const projects = objectRecord(raw.mutedProjects);
+	const timed = objectRecord(raw.projectMutes);
+	const backends = objectRecord(raw.backendMutes);
+	const entries = [...new Set([...Object.keys(projects), ...Object.keys(timed), ...Object.keys(backends)])]
+		.filter(Boolean).map(key => [key, normalizeNotificationMutes({
+			mutedProjects: readOwn(projects, key), projectMutes: readOwn(timed, key), backendMute: readOwn(backends, key),
+		}, now)] as const);
+	const mutedProjects = Object.fromEntries(entries.flatMap(([key, mutes]) => mutes.mutedProjects.length ? [[key, mutes.mutedProjects]] : []));
+	const projectMutes = Object.fromEntries(entries.flatMap(([key, mutes]) => mutes.projectMutes ? [[key, mutes.projectMutes]] : []));
+	const backendMutes = Object.fromEntries(entries.flatMap(([key, mutes]) => mutes.backendMute ? [[key, mutes.backendMute]] : []));
+	return {
+		mutedProjects,
+		...(Object.keys(projectMutes).length ? { projectMutes } : {}),
+		...(Object.keys(backendMutes).length ? { backendMutes } : {}),
+	};
+}
 
 /** A device ID nobody else uses. `crypto.randomUUID` is available in browsers and Bun; the fallback covers old ones. */
 export function newDeviceId(random: () => number = Math.random): string {
@@ -341,7 +378,7 @@ function stringArray(value: unknown): string[] | undefined {
 }
 
 /** Read stored settings, filling in what is missing. Never throws on a damaged store; only the valid parts survive. */
-export function parseDeviceSettings(raw: string | null, deviceId: string, timezone = deviceTimezone()): DeviceNotificationSettings {
+export function parseDeviceSettings(raw: string | null, deviceId: string, timezone = deviceTimezone(), now = Date.now()): DeviceNotificationSettings {
 	const fallback = defaultDeviceSettings(deviceId, timezone);
 	if (raw === null) return fallback;
 	let parsed: unknown;
@@ -368,14 +405,7 @@ export function parseDeviceSettings(raw: string | null, deviceId: string, timezo
 			};
 		}
 	}
-	const mutedProjects: Record<string, string[]> = {};
-	const muted = record.mutedProjects;
-	if (typeof muted === "object" && muted !== null && !Array.isArray(muted)) {
-		for (const [backendKey, projects] of Object.entries(muted as Record<string, unknown>)) {
-			const list = stringArray(projects);
-			if (backendKey.length > 0 && list !== undefined && list.length > 0) mutedProjects[backendKey] = list;
-		}
-	}
+
 	const storedDeviceId = typeof record.deviceId === "string" && record.deviceId.length > 0 ? record.deviceId : deviceId;
 	const storedVersion =
 		typeof record.defaultsVersion === "number" && Number.isInteger(record.defaultsVersion) && record.defaultsVersion >= 0
@@ -391,7 +421,7 @@ export function parseDeviceSettings(raw: string | null, deviceId: string, timezo
 					: migrateDefaultKinds(kinds, storedVersion),
 		defaultsVersion: NOTIFICATION_DEFAULTS_VERSION,
 		quietHours,
-		mutedProjects,
+		...normalizedDeviceMutes(record, now),
 	};
 }
 
@@ -433,7 +463,9 @@ export function saveDeviceSettings(
 	settings: DeviceNotificationSettings,
 	storage: DeviceStorage = browserStorage(),
 ): void {
-	writeStorage(storage, NOTIFICATION_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+	const { mutedProjects, projectMutes, backendMutes, ...rest } = settings;
+	const mutes = normalizedDeviceMutes({ mutedProjects, projectMutes, backendMutes }, Date.now());
+	writeStorage(storage, NOTIFICATION_SETTINGS_STORAGE_KEY, JSON.stringify({ ...rest, ...mutes }));
 	writeStorage(storage, NOTIFICATION_DEVICE_STORAGE_KEY, settings.deviceId);
 }
 
@@ -448,11 +480,17 @@ export function preferencesForBackend(
 	backendKey: string,
 	supportsInAppAlerts = true,
 	supportsTaskStepAlerts = true,
+	options: { supportsTimedMutes?: boolean; now?: number } = {},
 ): NotificationPreferences {
+	const { mutedProjects, projectMutes, backendMute } = mutesForBackend(settings, backendKey, options.now ?? Date.now());
 	return {
 		kinds: settings.kinds.filter(kind =>
 			(supportsInAppAlerts || kind !== "coordinator_failed") && (supportsTaskStepAlerts || kind !== "task_steps")),
-		mutedProjects: [...(settings.mutedProjects[backendKey] ?? [])],
+		mutedProjects,
+		...(options.supportsTimedMutes === false ? {} : {
+			...(projectMutes ? { projectMutes } : {}),
+			...(backendMute ? { backendMute } : {}),
+		}),
 		quietHours: settings.quietHours === null ? null : { ...settings.quietHours },
 	};
 }
@@ -470,34 +508,82 @@ export function wantsKind(kinds: readonly NotificationKind[], kind: Notification
 	return kinds.includes(kind);
 }
 
-/** Mute or unmute one project on the backend that owns it. */
-export function withMutedProject(
-	settings: DeviceNotificationSettings,
-	backendKey: string,
-	projectId: string,
-	muted: boolean,
+function mutesForBackend(settings: DeviceMutes, backendKey: string, now: number): NotificationMutes {
+	return normalizeNotificationMutes({
+		mutedProjects: readOwn(settings.mutedProjects, backendKey),
+		projectMutes: readOwn(settings.projectMutes, backendKey),
+		backendMute: readOwn(settings.backendMutes, backendKey),
+	}, now);
+}
+
+function replaceMuteEntry<T>(record: Record<string, T> | undefined, key: string, value: T | undefined): Record<string, T> {
+	if (value !== undefined) return { ...record, [key]: value };
+	const next = { ...record };
+	delete next[key];
+	return next;
+}
+
+function replaceMutesForBackend(settings: DeviceNotificationSettings, backendKey: string, mutes: NotificationMutes): DeviceNotificationSettings {
+	const { mutedProjects, projectMutes, backendMutes, ...rest } = settings;
+	const nextProjectMutes = replaceMuteEntry(projectMutes, backendKey, mutes.projectMutes);
+	const nextBackendMutes = replaceMuteEntry(backendMutes, backendKey, mutes.backendMute);
+	return {
+		...rest,
+		mutedProjects: replaceMuteEntry(mutedProjects, backendKey, mutes.mutedProjects.length ? mutes.mutedProjects : undefined),
+		...(Object.keys(nextProjectMutes).length ? { projectMutes: nextProjectMutes } : {}),
+		...(Object.keys(nextBackendMutes).length ? { backendMutes: nextBackendMutes } : {}),
+	};
+}
+
+/** Set one project's mute. A missing deadline is untimed and null clears either kind. */
+export function withProjectMute(
+	settings: DeviceNotificationSettings, backendKey: string, projectId: string, mute: NotificationMute | null, now = Date.now(),
 ): DeviceNotificationSettings {
-	const current = settings.mutedProjects[backendKey] ?? [];
-	const next = muted ? [...new Set([...current, projectId])] : current.filter((id) => id !== projectId);
-	const mutedProjects = { ...settings.mutedProjects };
-	if (next.length === 0) delete mutedProjects[backendKey];
-	else mutedProjects[backendKey] = next;
-	return { ...settings, mutedProjects };
+	const current = mutesForBackend(settings, backendKey, now);
+	const projectMutes = (current.projectMutes ?? []).filter(entry => entry.projectId !== projectId);
+	if (mute !== null) projectMutes.push({ projectId, ...mute });
+	return replaceMutesForBackend(settings, backendKey, normalizeNotificationMutes({
+		...current, mutedProjects: current.mutedProjects.filter(id => id !== projectId), projectMutes,
+	}, now));
 }
 
-export function isProjectMuted(
-	settings: DeviceNotificationSettings,
-	backendKey: string,
-	projectId: string,
-): boolean {
-	return (settings.mutedProjects[backendKey] ?? []).includes(projectId);
+/** Preserve the existing indefinite project toggle, including clearing a timed mute. */
+export function withMutedProject(
+	settings: DeviceNotificationSettings, backendKey: string, projectId: string, muted: boolean,
+): DeviceNotificationSettings {
+	return withProjectMute(settings, backendKey, projectId, muted ? {} : null);
 }
 
-/** Muted projects as pairs, so a page can list them without walking the record. */
-export function mutedProjectEntries(settings: DeviceNotificationSettings): { backendKey: string; projectId: string }[] {
-	return Object.entries(settings.mutedProjects).flatMap(([backendKey, projectIds]) =>
-		projectIds.map((projectId) => ({ backendKey, projectId })),
-	);
+/** Set or clear this device's mute for all alerts from one backend. */
+export function withBackendMute(
+	settings: DeviceNotificationSettings, backendKey: string, mute: NotificationMute | null, now = Date.now(),
+): DeviceNotificationSettings {
+	return replaceMutesForBackend(settings, backendKey, normalizeNotificationMutes({
+		...mutesForBackend(settings, backendKey, now), backendMute: mute,
+	}, now));
+}
+
+export function isProjectMuted(settings: DeviceMutes, backendKey: string, projectId: string, now = Date.now()): boolean {
+	return (readOwn(settings.mutedProjects, backendKey) ?? []).includes(projectId) ||
+		(readOwn(settings.projectMutes, backendKey) ?? []).some(mute => mute.projectId === projectId && notificationMuteActive(mute, now));
+}
+
+export function isBackendMuted(settings: DeviceMutes, backendKey: string, now = Date.now()): boolean {
+	return notificationMuteActive(readOwn(settings.backendMutes, backendKey), now);
+}
+
+/** Local active project mutes, including the deadline if timed. */
+export function mutedProjectEntries(settings: DeviceMutes, now = Date.now()): (NotificationProjectMute & { backendKey: string })[] {
+	return [...new Set([...Object.keys(settings.mutedProjects), ...Object.keys(settings.projectMutes ?? {})])].flatMap(backendKey => {
+		const { mutedProjects, projectMutes } = mutesForBackend(settings, backendKey, now);
+		return [...mutedProjects.map(projectId => ({ backendKey, projectId })), ...(projectMutes ?? []).map(mute => ({ backendKey, ...mute }))];
+	});
+}
+
+/** Local active backend mutes for the settings list. */
+export function mutedBackendEntries(settings: DeviceMutes, now = Date.now()): (NotificationMute & { backendKey: string })[] {
+	return Object.entries(settings.backendMutes ?? {}).flatMap(([backendKey, mute]) =>
+		notificationMuteActive(mute, now) ? [{ backendKey, ...mute }] : []);
 }
 
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();
