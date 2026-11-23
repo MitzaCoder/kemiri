@@ -2,7 +2,7 @@ import {
 	createAssistantMessageEventStream, type AssistantMessage, type AssistantMessageEvent, type AssistantMessageEventStream,
 	type Context, type Model, type Models, type ModelsSimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { defineExtension, GenerationTask, hook } from "@earendil-works/pi-durable";
+import { defineExtension, GenerationTask, hook, modelRequestAdmission, type ModelRequestAdmission } from "@earendil-works/pi-durable";
 import type { UsagePauseGate } from "./usage-pause.ts";
 
 export function usagePauseConversation(projectId: string, conversationId: number): string {
@@ -16,6 +16,7 @@ type UsagePauseModelsOptions = {
 	now?: () => number;
 };
 type StreamRequest = (model: Model<string>, context: Context, options?: ModelsSimpleStreamOptions) => AssistantMessageEventStream;
+type AdmissionOptions = ModelsSimpleStreamOptions & { [modelRequestAdmission]?: ModelRequestAdmission };
 
 /** Admission is outside the provider and request log: long waits are not network time or paid attempts. */
 export class UsagePauseModels {
@@ -49,20 +50,30 @@ export class UsagePauseModels {
 		} });
 	}
 
-	#request(stream: StreamRequest, model: Model<string>, context: Context, options?: ModelsSimpleStreamOptions): AssistantMessageEventStream {
+	#request(stream: StreamRequest, model: Model<string>, context: Context, options?: AdmissionOptions): AssistantMessageEventStream {
 		const { gate, isSubscriptionLogin, label } = this.#options;
 		const now = this.#options.now ?? Date.now;
 		const login = model.provider;
 		const last = "messages" in context ? context.messages.at(-1) : undefined;
 		const conversation = last ? this.#conversations.get(last) : undefined;
-		const signal = options?.signal;
+		const { [modelRequestAdmission]: admission, ...providerOptions } = options ?? {};
+		const signal = providerOptions.signal;
 		const output = createAssistantMessageEventStream();
 		const run = async () => {
-			for (let attempt = 0; attempt <= 1; attempt++) {
-				while (gate.isPaused(login) && !gate.canSend(login, conversation)) await gate.wait(login, signal, conversation);
+			let retryAfterLimit = admission?.waiting === "retry-after-limit";
+			for (;;) {
 				signal?.throwIfAborted();
+				if (!gate.canSend(login, conversation)) {
+					await admission?.set(retryAfterLimit ? "retry-after-limit" : "before-send");
+					await gate.wait(login, signal, conversation);
+					continue;
+				}
+				if (admission?.waiting !== undefined) {
+					await admission.set(undefined);
+					continue; // A pause could have started during the commit.
+				}
 				const denial: { confirmed?: { reset?: number }; httpThrottle?: boolean } = {};
-				const requestOptions = this.#inspectLimitDenials(model, options, denial);
+				const requestOptions = this.#inspectLimitDenials(model, providerOptions, denial);
 				const response = stream(model, context, requestOptions);
 				let start: AssistantMessageEvent | undefined;
 				let emittedContent = false;
@@ -80,7 +91,11 @@ export class UsagePauseModels {
 				if (limit !== undefined && await isSubscriptionLogin(login)) {
 					signal?.throwIfAborted();
 					gate.limitReached(login, `${label(login)} usage limit`, limit.reset);
-					if (attempt === 0 && !emittedContent) continue;
+					if (!retryAfterLimit && !emittedContent) {
+						retryAfterLimit = true;
+						await admission?.set("retry-after-limit");
+						continue;
+					}
 					// Do not let the runtime's generic 429 classifier retry the second denial or a partial response.
 					end({ ...message, errorMessage: `${label(login)} subscription allowance exhausted.` });
 					return;

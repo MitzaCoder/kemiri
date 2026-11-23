@@ -57,6 +57,7 @@ try {
 	for (const path of ["package.json", "bun.lock", "tsconfig.json", "LICENSE", "README.md", "install.sh", "scripts/aiki.ts", "scripts/kemiri.ts", "scripts/installed-supervisor.ts", "packages/protocol", "packages/client", "packages/server", "apps/web"]) {
 		await copyPublic(join(source, path), join(tree, path));
 	}
+	if (existsSync(join(source, "patches"))) await copyPublic(join(source, "patches"), join(tree, "patches"));
 	if (existsSync(join(source, "docs/INSTALL.md"))) await copyPublic(join(source, "docs/INSTALL.md"), join(tree, "docs/INSTALL.md"));
 	await writeFile(join(staging, "backends.json"), "[]\n");
 	const clean = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AIKI|KEMIRI)_/.test(name)));

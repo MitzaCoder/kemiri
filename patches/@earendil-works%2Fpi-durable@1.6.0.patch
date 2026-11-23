@@ -1,0 +1,158 @@
+diff --git a/dist/harness/compaction.d.ts b/dist/harness/compaction.d.ts
+index 02d9e3d97d9cdb1199f42605306c1a8066051184..cd3d06527512ad48367f88a06f289ae324d7fb0c 100644
+--- a/dist/harness/compaction.d.ts
++++ b/dist/harness/compaction.d.ts
+@@ -21,6 +21,7 @@ export type CompactionCheckpoint = {
+     phase: "select";
+ } | ({
+     phase: "summarize";
++    admission?: import("./provider.ts").ModelAdmissionWait;
+ } & SummaryRequest) | ({
+     phase: "retry";
+     until: number;
+diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
+index 54f3ef34ddf1bf85e3ad9c41bdbd216c081a476f..7a8270f99d02f3e9b05501784684983dba84e6ec 100644
+--- a/dist/harness/compaction.js
++++ b/dist/harness/compaction.js
+@@ -4,7 +4,7 @@ import { CompactionEntry } from "../entries.js";
+ import { defineTask } from "../tasks.js";
+ import { orderToolResults } from "./context.js";
+ import { addCompactionStatus, compactionStatus, cutOffCount, cutOffTooOften, failCompactionStatus, LiveDoc, removeCompactionStatus, } from "./live.js";
+-import { ensureProviderSessionId } from "./provider.js";
++import { ensureProviderSessionId, modelRequestAdmission, requestAdmission } from "./provider.js";
+ import { admitSubmission } from "./submissions.js";
+ import { recordUsage } from "./usage.js";
+ /** Longest tool result text a serialized summary source keeps. */
+@@ -101,9 +101,9 @@ export const CompactionTask = defineTask({
+             await runtime.commit(() => ({ status: "running", checkpoint: { phase: "summarize", ...request } }), context);
+         },
+         summarize: async (task, runtime, context) => {
+-            if (cutOffTooOften(task, runtime))
++            const { phase: _, admission, ...request } = task.state.checkpoint;
++            if (admission === undefined && cutOffTooOften(task, runtime))
+                 return failCutOff(runtime, task, context);
+-            const { phase: _, ...request } = task.state.checkpoint;
+             const { model: ref, thinkingLevel, streamOptions, maxTokens, tail, firstKept, attempt } = request;
+             const model = runtime.models.getModel(ref.provider, ref.modelId);
+             if (model === undefined)
+@@ -126,6 +126,7 @@ export const CompactionTask = defineTask({
+                 cacheRetention: "none",
+                 maxTokens,
+                 signal: runtime.signal,
++                [modelRequestAdmission]: requestAdmission(runtime, context, admission),
+                 telemetry: context.telemetry,
+                 sessionId: await ensureProviderSessionId(runtime, context),
+                 ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+diff --git a/dist/harness/generation.d.ts b/dist/harness/generation.d.ts
+index ed1f22bfb64bbecaafed01395467919530ca54af..4dc88e97014592d34b75d982e85b98b09e6e8e0c 100644
+--- a/dist/harness/generation.d.ts
++++ b/dist/harness/generation.d.ts
+@@ -16,6 +16,7 @@ export type GenerationCheckpoint = {
+     threshold?: true;
+ } | {
+     phase: "request";
++    admission?: import("./provider.ts").ModelAdmissionWait;
+     attempt: number;
+     compacted?: TaskId<CompactionResult>;
+     model: ModelRef;
+diff --git a/dist/harness/generation.js b/dist/harness/generation.js
+index 56f3055ab58e51d429f91c90c9286531f3086106..64dfbe10053b7702a216f2cf7ecd1934f57b0ea0 100644
+--- a/dist/harness/generation.js
++++ b/dist/harness/generation.js
+@@ -10,7 +10,7 @@ import { applyBoundary, hasQueuedReset, prepareBoundary, withdrawQueuedInputs }
+ import { cutOffCount, cutOffTooOften, endRun, LiveDoc, PROGRESS_COMMIT, salvageable, } from "./live.js";
+ import { PartialChanges } from "./partial-changes.js";
+ import { planSystemEntries, renderSections, replaySections } from "./prompt.js";
+-import { ensureProviderSessionId } from "./provider.js";
++import { ensureProviderSessionId, modelRequestAdmission, requestAdmission } from "./provider.js";
+ import { endedByCrashes } from "./scheduler.js";
+ import { appendToolResult, harnessError, ToolTask } from "./tool.js";
+ import { recordUsage } from "./usage.js";
+@@ -119,11 +119,12 @@ export const GenerationTask = defineTask({
+             }, context);
+         },
+         request: async (task, runtime, context) => {
++            const { admission } = task.state.checkpoint;
+             // Charging the attempt may itself be what keeps failing, such as converting a huge partial: the limit ends it.
+-            if (cutOffTooOften(task, runtime))
++            if (admission === undefined && cutOffTooOften(task, runtime))
+                 return endCutOff(runtime, task, context);
+             // The host stopped while this request was in flight: a failed attempt, not a resend (spec §8.3).
+-            if (task.restarts !== undefined)
++            if (admission === undefined && task.restarts !== undefined)
+                 return interrupted(runtime, task.state.checkpoint, context);
+             const { attempt, compacted, model: ref, thinkingLevel, streamOptions, cutoff } = task.state.checkpoint;
+             const conversationId = runtime.conversationId;
+@@ -148,6 +149,7 @@ export const GenerationTask = defineTask({
+             const options = {
+                 ...streamOptions,
+                 signal: runtime.signal,
++                [modelRequestAdmission]: requestAdmission(runtime, context, admission),
+                 telemetry: context.telemetry,
+                 sessionId: await ensureProviderSessionId(runtime, context),
+                 ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+diff --git a/dist/harness/provider.d.ts b/dist/harness/provider.d.ts
+index 7e8a4f349e35c8a7e3de5455b29757dca1b95c13..acbc2eb5e2a8420017080d1871bfa25d92c302c5 100644
+--- a/dist/harness/provider.d.ts
++++ b/dist/harness/provider.d.ts
+@@ -13,4 +13,10 @@ export declare const providerSessionsByRuntime: WeakMap<object, Set<string>>;
+  * `pi.provider` gets one migration commit whose `tx.doc()` runs `initial()` before the provider request starts.
+  */
+ export declare function ensureProviderSessionId<I, S, R, H extends object>(runtime: TaskRuntime<I, S, R, H>, context: Context): Promise<string>;
++export declare const modelRequestAdmission: unique symbol;
++export type ModelAdmissionWait = "before-send" | "retry-after-limit";
++export interface ModelRequestAdmission {
++    readonly waiting: ModelAdmissionWait | undefined;
++    set(waiting: ModelAdmissionWait | undefined): Promise<void>;
++}
+ //# sourceMappingURL=provider.d.ts.map
+\ No newline at end of file
+diff --git a/dist/harness/provider.js b/dist/harness/provider.js
+index e647cd57d3df33d574806e97587f3f2a774ffe01..683057b16ac9139a103519167bc4a9de0dc7ca1f 100644
+--- a/dist/harness/provider.js
++++ b/dist/harness/provider.js
+@@ -30,4 +30,21 @@ export async function ensureProviderSessionId(runtime, context) {
+     providerSessionsByRuntime.get(runtime).add(sessionId);
+     return sessionId;
+ }
++/** Optional handshake for a host's Models wrapper. Providers never need to see this option. */
++export const modelRequestAdmission = Symbol.for("pi-durable.model-request-admission");
++/** A restart while the host waits before sending is not an interrupted provider attempt. */
++export function requestAdmission(runtime, context, saved) {
++    return {
++        waiting: saved,
++        async set(waiting) {
++            if (waiting === this.waiting)
++                return;
++            await runtime.commit((_tx, task) => {
++                const { admission: _admission, ...checkpoint } = task.state.checkpoint;
++                return { status: "running", checkpoint: waiting ? { ...checkpoint, admission: waiting } : checkpoint };
++            }, context);
++            this.waiting = waiting;
++        },
++    };
++}
+ //# sourceMappingURL=provider.js.map
+\ No newline at end of file
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 01315042a755c9225fd17cf5d31442e51c8afe81..3ff0ce7c0d793e34976f27b1601d78aa958df60f 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -26,4 +26,5 @@ export { MemoryStorage } from "./storage/memory.ts";
+ export { defineTask } from "./tasks.ts";
+ export type { CheckpointInfo, CommitChange, CommitObservation, CommitObserver, CommitOptions, CommitPersistence, CommitPublication, CommitResult, CommonDocDefinition, ContextEdit, ConversationDocFamilyToken, ConversationDocToken, ConversationId, ConversationOwnership, ConversationQuery, ConversationRecord, Cursor, DocDefinition, DocFamilyDefinition, DocFamilyToken, DocToken, DocumentAddress, DocumentCommitChange, DocumentContent, DocumentCopySource, DocumentCreate, DocumentId, DocumentObserver, DocumentPoint, DocumentQuery, DocumentReader, DocumentRecord, DocumentSemantics, DocumentWatch, Entry, EntryDraft, EntryId, EntryQuery, EntryRecord, HookRunner, HostCallback, Id, JoinPolicy, JsonObject, LatestConversationSemantics, NextTaskState, Observation, Observer, Page, PhaseHandler, Report, ReportFrom, ReportInfo, ReportTask, RewindableConversationDocFamilyToken, RewindableConversationDocToken, RewindableConversationSemantics, RunningTask, ScanOrder, Seq, Session, SessionDocFamilyToken, SessionDocToken, SessionEnd, SetTimer, Storage, StorageWrite, StoredDocument, SubmissionCreate, SubmissionId, SubmissionNotify, SubmissionQuery, SubmissionRecord, SubmissionSettlement, TableCommitChange, Task, TaskDefinition, TaskDocFamilyToken, TaskDocToken, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError, TaskOwnership, TaskQuery, TaskRecord, TaskRuntime, TaskState, Tx, TypedEntry, TypedEntryDraft, WakeReason, } from "./types.ts";
+ export { ROOT_CONVERSATION_ID } from "./types.ts";
++export { modelRequestAdmission, type ModelRequestAdmission, type ModelAdmissionWait } from "./harness/provider.ts";
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/index.js b/dist/index.js
+index 44f61dbb91df94b18dfffd7180be7be6aa185971..abbed688f16de2be04d69c1a6621b929159f69d6 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -20,4 +20,5 @@ export { defineSignal, SubmissionSettled, } from "./signals.js";
+ export { MemoryStorage } from "./storage/memory.js";
+ export { defineTask } from "./tasks.js";
+ export { ROOT_CONVERSATION_ID } from "./types.js";
++export { modelRequestAdmission } from "./harness/provider.js";
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file

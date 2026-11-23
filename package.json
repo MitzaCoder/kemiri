@@ -12,5 +12,8 @@
 	"devDependencies": {
 		"@types/bun": "latest",
 		"typescript": "latest"
+	},
+	"patchedDependencies": {
+		"@earendil-works/pi-durable@1.6.0": "patches/@earendil-works%2Fpi-durable@1.6.0.patch"
 	}
 }

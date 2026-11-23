@@ -6419,10 +6419,13 @@ compaction or memory request does not start its HTTP deadline while held. Alread
 running tools finish. A keep-warm ping skips the paused provider and disarms that stretch; the next real request can
 arm a new one. The `beforeRequest` hook only labels generation requests for conversation exemptions. The spike used
 real pi-durable storage and a synthetic provider: the hook wait did not send or retry while held, Stop cancelled it,
-and reopening the Harness re-entered the wait and sent once after release. Generation is already in the `request`
-phase before that hook, so reopening consumes one of pi-durable's ordinary interrupted-attempt retries. The wrapper
-also inherits that retry budget when a project reopens. Repeated restarts of the same held run can exhaust it;
-compaction uses its own restart limit. This is not a new pi-durable checkpoint or a retry loop.
+and reopening the Harness re-entered the wait and sent once after release. On unpatched pi-durable, `request` is
+already committed before the hook. Reopening therefore charged its ordinary interrupted-attempt retry. A narrow
+pi-durable patch gives model wrappers an optional admission callback. Before waiting it records `before-send` or
+`retry-after-limit` on the existing request or compaction checkpoint without changing the task version. Reopening
+skips the interrupted-attempt and restart-limit checks for marked waits only. The wrapper clears the marker before
+sending. The integration test reopens six times before an initial send and six times before a limit retry. The
+first request sends once after Resume, and the retry remains a single retry even if the provider denies it again.
 
 A fresh header, stream or usage-endpoint reading of 100% or more holds the login until the latest reported reset plus
 15 seconds. Stale readings whose reset has passed do not re-arm it. A confirmed provider subscription denial also

@@ -29,10 +29,10 @@ function fakeClock() {
 	} };
 }
 
-async function waitFor(predicate: () => boolean) {
-	const deadline = Date.now() + 3_000;
-	while (!predicate() && Date.now() < deadline) await Bun.sleep(10);
-	expect(predicate()).toBe(true);
+async function waitFor(predicate: () => boolean | Promise<boolean>) {
+	const deadline = Date.now() + 4_000;
+	while (!await predicate() && Date.now() < deadline) await Bun.sleep(10);
+	expect(await predicate()).toBe(true);
 }
 
 it("persists a 100% hold, wakes at the latest reset plus margin, and notifies only once", async () => {
@@ -163,11 +163,26 @@ it("holds a coordinator across server restart, lets another project send, and ac
 		await submit(otherId, "other provider");
 		await waitFor(() => setup.faux.state.callCount === 1);
 		expect(subscription.state.callCount).toBe(0);
-		await setup.restart();
-		client.close();
-		client = await connect();
-		const next = new ViewClient(client);
-		await next.start(projectId);
+		const waitForCheckpoint = async (admission: string) => {
+			const { runtime } = await setup.server.manager.open(projectId);
+			await waitFor(async () => (await runtime.harness.inspect(BACKGROUND_CONTEXT)).tasks.some(({ record }) =>
+				record.kind === "pi.generation" && record.state.status === "running" &&
+				(record.state.checkpoint as { admission?: string }).admission === admission));
+		};
+		const reopenRepeatedly = async (admission: string, providerCalls: number) => {
+			await waitForCheckpoint(admission);
+			for (let restart = 0; restart < 6; restart++) {
+				await setup.restart();
+				await waitForCheckpoint(admission);
+				expect(subscription.state.callCount).toBe(providerCalls);
+			}
+			client.close();
+			client = await connect();
+			const next = new ViewClient(client);
+			await next.start(projectId);
+			return next;
+		};
+		const next = await reopenRepeatedly("before-send", 0);
 		const state = await client.request({ type: "usage-pause.get" });
 		expect(state.type === "usage-pause.get" && state.pauses[0]?.providerLogin).toBe(login);
 		await Bun.sleep(CLOCK_TICK_MS);
@@ -199,8 +214,20 @@ it("holds a coordinator across server restart, lets another project send, and ac
 		await submit(otherId, "stop worker");
 		await otherView.waitForView(value => value.entries.some(entry => entryText(entry).includes('Stopped worker "waiting-worker"')), 3_000);
 		expect(subscription.state.callCount).toBe(1);
+
+		// The same restarts must not forget that a provider denial has already used the first send.
+		usedPercent = 7;
+		await client.request({ type: "subscriptions.usage", refresh: true });
+		await client.request({ type: "usage-pause.resume", providerLogin: login });
+		const denied = fauxAssistantMessage([], { stopReason: "error", errorMessage: "GoUsageLimitError" });
+		subscription.setResponses([denied, denied, fauxAssistantMessage("should never send a third time")]);
+		await submit(projectId, "request denied by provider");
+		const afterDenial = await reopenRepeatedly("retry-after-limit", 2);
+		await client.request({ type: "usage-pause.resume", providerLogin: login });
+		await afterDenial.waitForView(value => JSON.stringify(value.docs["pi.live"]).includes("subscription allowance exhausted"), 5_000);
+		expect(subscription.state.callCount).toBe(3);
 	} finally { client.close(); }
-}, 15_000);
+}, 25_000);
 
 it("turns off the gate and its requests on a backend without the feature", async () => {
 	const setup = await createSetup({ features: ["projects"] });
