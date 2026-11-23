@@ -33,7 +33,7 @@ const LABEL_CHARACTER_WIDTH = 7.2;
 const INLINE_BADGE_WIDTH = 24;
 /** The connection badge; "Reconnecting (2)…" is its longest label. */
 const CONNECTION_BADGE_WIDTH = 88;
-/** The mute bell and the settings gear, which keep their icons at every width. */
+/** Extra room for utility icons when deciding whether expanded layouts fit. */
 const UTILITY_BUTTONS = 2;
 /** The menu's own "⋯" button, in the row when the secondary controls are folded away. */
 const MENU_BUTTON_WIDTH = ICON_BUTTON_WIDTH;

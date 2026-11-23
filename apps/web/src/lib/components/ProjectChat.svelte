@@ -5,8 +5,7 @@
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
-	import BellIcon from '@lucide/svelte/icons/bell';
-	import BellOffIcon from '@lucide/svelte/icons/bell-off';
+	import ProjectMuteMenu from '#lib/components/alerts/ProjectMuteMenu.svelte';
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import PaperclipIcon from '@lucide/svelte/icons/paperclip';
@@ -98,7 +97,6 @@
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { alerts } from '#lib/alerts.svelte.js';
 	import { taskFromUrl, withTask } from '#lib/tasks.js';
-	import { notifications } from '#lib/notifications.svelte.js';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
 	import { headerActionShowsLabel, headerLayout, visibleHeaderActions } from '#lib/chat/header.js';
 	import { memoryExtractionFor, type MemoryExtraction } from '#lib/memory.js';
@@ -233,9 +231,7 @@
 	const refStatus = $derived(projectReads.refStatus);
 	provideRefLinks(() => ({ links: project?.links, status: (ref) => refStatus?.status(ref) }));
 	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open') ?? false);
-	/** A mute toggle belongs in the header when this backend can push to this device at all. */
-	const supportsNotifications = $derived(backend.supports('notifications'));
-	const muted = $derived(notifications.isMuted(backend.id, projectId));
+	const showProjectMuteMenu = $derived(project !== undefined && (backend.supports('notifications') || backend.supports('in-app-alerts')));
 	/** A worker a schedule started says which schedule; the names come from the project's schedule list. */
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
 	const supportsThreads = $derived(backend.supports('threads'));
@@ -392,13 +388,7 @@
 		return error instanceof Error ? error.message : String(error);
 	}
 
-	/** Mute this project for this device, or unmute it; stored in this browser's preferences on this backend. */
-	async function toggleProjectMute(): Promise<void> {
-		if (project === undefined) return;
-		await notifications.toggleProject(harness.backends, backend.id, project.id);
-	}
-
-	/** One control in the chat header: a tab of the right sidebar, or the mute and settings buttons. */
+	/** One control in the chat header: a tab of the right sidebar or the project settings button. */
 	type HeaderAction = {
 		id: string;
 		/** A sidebar tab (it has a label where the row shows labels) or one of the icons after the connection badge. */
@@ -500,21 +490,9 @@
 		return actions;
 	});
 
-	/** The mute bell and the settings gear: icons at every width, and the first things the menu takes over. */
+	/** Project settings folds into More actions when the header gets narrow. */
 	const utilityActions = $derived.by((): HeaderAction[] => {
 		const actions: HeaderAction[] = [];
-		if (project && supportsNotifications) {
-			actions.push({
-				id: 'mute',
-				kind: 'utility',
-				name: muted ? 'Unmute notifications for this project' : 'Mute notifications for this project',
-				title: muted ? 'Notifications muted for this project' : 'Notifications are on for this project',
-				menuLabel: muted ? 'Unmute notifications' : 'Mute notifications',
-				icon: muted ? BellOffIcon : BellIcon,
-				pressed: muted,
-				onclick: () => void toggleProjectMute()
-			});
-		}
 		if (project && (backend.supports('models') || backend.supports('credentials') || backend.supports('logins'))) {
 			actions.push({
 				id: 'settings',
@@ -532,8 +510,8 @@
 	const headerActions = $derived([...tabActions, ...utilityActions]);
 	/** Labels where they fit beside the project's name, icons where they do not, and a menu when even those are too many. */
 	const wideProjectsSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
-	// The inbox bell and its gap share the Projects button's slot when the sidebar is a drawer.
-	const headerRowLayout = $derived(headerLayout(headerWidth - (wideProjectsSidebar.current ? 0 : 48), headerActions));
+	// Leave room for the 44px inbox and mute buttons (plus their gaps), separate from the foldable actions.
+	const headerRowLayout = $derived(headerLayout(headerWidth - (wideProjectsSidebar.current ? 0 : 48) - (showProjectMuteMenu ? 48 : 0), headerActions));
 	const shownHeaderActions = $derived(visibleHeaderActions(headerRowLayout, headerActions));
 	const shownTabActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'tab'));
 	const shownUtilityActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'utility'));
@@ -1018,7 +996,7 @@
 					{#if headerRowLayout !== 'menu'}
 						<ConnectionBadge {backend} />
 					{:else}
-						<!-- The rest of the row, one tap away: every tab but the board and the workers, the bell and the gear. -->
+						<!-- The rest of the row, one tap away: secondary tabs and the settings gear. -->
 						<Popover.Root bind:open={headerMenuOpen}>
 							<Popover.Trigger
 								class="relative inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground"
@@ -1043,6 +1021,9 @@
 								</div>
 							</Popover.Content>
 						</Popover.Root>
+					{/if}
+					{#if project && showProjectMuteMenu}
+						<ProjectMuteMenu backendId={backend.id} {projectId} projectName={project.name} />
 					{/if}
 					{#each shownUtilityActions as action (action.id)}
 						{@render headerButton(action)}

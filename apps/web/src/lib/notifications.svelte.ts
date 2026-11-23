@@ -630,11 +630,7 @@ export class NotificationCenter {
 	}
 
 	isMuted(backendId: string, projectId: string): boolean {
-		return isProjectMuted(this.settings, backendId, projectId);
-	}
-
-	async toggleProject(backends: readonly BackendConnection[], backendId: string, projectId: string): Promise<void> {
-		await this.setProjectMuted(backends, backendId, projectId, !this.isMuted(backendId, projectId));
+		return isProjectMuted(this.settings, backendId, projectId, this.muteClock);
 	}
 
 	async #save(patch: Partial<DeviceNotificationSettings>, backends: readonly BackendConnection[]): Promise<void> {

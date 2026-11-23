@@ -39,13 +39,23 @@ export function nextDeviceMuteDeadline(settings: DeviceMutes, now: number): numb
 	return deadlines.length ? Math.min(...deadlines) : undefined;
 }
 
-export function quietUntilLabel(mute: NotificationMute, now: number, indefinite = 'Until turned back on'): string {
+export function quietUntilLabel(mute: NotificationMute, now: number, indefinite = 'Until turned back on', timedPrefix = 'Until'): string {
 	if (mute.until === undefined) return indefinite;
 	const end = new Date(mute.until);
 	const today = end.toDateString() === new Date(now).toDateString();
-	return 'Until ' + end.toLocaleString(undefined, {
+	return timedPrefix + ' ' + end.toLocaleString(undefined, {
 		...(!today ? { month: 'short', day: 'numeric' } as const : {}), hour: 'numeric', minute: '2-digit',
 	});
+}
+
+export type ProjectMuteMenuState = { kind: 'none' } | { kind: 'indefinite'; status: 'Muted' } | { kind: 'timed'; status: string };
+
+/** The menu reads the same normalized project entries as Settings, including legacy indefinite mutes. */
+export function projectMuteMenuState(settings: DeviceMutes, backendId: string, projectId: string, now: number): ProjectMuteMenuState {
+	const mute = mutedProjectEntries(settings, now).find(entry => entry.backendKey === backendId && entry.projectId === projectId);
+	if (!mute) return { kind: 'none' };
+	if (mute.until === undefined) return { kind: 'indefinite', status: 'Muted' };
+	return { kind: 'timed', status: quietUntilLabel(mute, now, 'Muted', 'Muted until') };
 }
 
 export function quietTimerDelay(deadline: number, now: number): number {

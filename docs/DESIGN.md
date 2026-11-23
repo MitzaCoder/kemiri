@@ -7588,6 +7588,11 @@ post it silently without a replacement buzz, even for failures. With no visible 
 
 ### Timed mutes on one device
 
+The slashed bell in the chat header opens a project mute menu for one hour, eight hours or until manually
+unmuted. It stays in the phone app bar. An active mute accents the bell and shows its end time, if any, with
+Unmute. The card menu, Notifications settings and Project settings → General use the same device preferences.
+The General toggle reads both timed and legacy indefinite mutes and can clear either.
+
 Decision D4 covers pop-ups, sound and OS push on one device. The app stores mutes locally with its existing device
 notification settings, indexed by backend key, including when push is off or permission is denied. Clients check
 expiry before pop-ups or sound, and do not request a push subscription just to save a mute. The live alert stream and

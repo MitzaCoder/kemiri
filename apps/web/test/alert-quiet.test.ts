@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { defaultDeviceSettings, preferencesForBackend, withBackendMute, withProjectMute } from '@kemiri/client';
-import { activeDoNotDisturb, alertOriginMuted, DO_NOT_DISTURB_DURATIONS, MUTE_DURATIONS, nextDeviceMuteDeadline, quietPeriod } from '../src/lib/alert-quiet.js';
+import { defaultDeviceSettings, isProjectMuted, preferencesForBackend, withBackendMute, withProjectMute } from '@kemiri/client';
+import { activeDoNotDisturb, alertOriginMuted, DO_NOT_DISTURB_DURATIONS, MUTE_DURATIONS, nextDeviceMuteDeadline, projectMuteMenuState, quietPeriod } from '../src/lib/alert-quiet.js';
 import { alertPopupDecision, type AlertContext } from '../src/lib/alerts.js';
 
 const now = new Date(2026, 0, 12, 23, 30).getTime();
@@ -44,6 +44,32 @@ test('the same device settings send optional wire mutes only to supporting push 
 	const cleared = withBackendMute(withProjectMute(settings, 'lab', 'recipes', null, now), 'lab', null, now);
 	expect(preferencesForBackend(cleared, 'lab', true, true, options).projectMutes).toBeUndefined();
 	expect(preferencesForBackend(cleared, 'lab', true, true, options).backendMute).toBeUndefined();
+});
+
+test('project menu defaults to unmuted and reacts to timed mutes and expiry like General settings', () => {
+	const startingAt = new Date(2026, 0, 12, 14, 40).getTime();
+	const defaults = defaultDeviceSettings('fixture-device', 'UTC');
+	expect(projectMuteMenuState(defaults, 'lab', 'recipes', startingAt)).toEqual({ kind: 'none' });
+	const until = startingAt + hour;
+	const settings = withProjectMute(defaults, 'lab', 'recipes', { until }, startingAt);
+	const end = new Date(until).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' });
+	expect(projectMuteMenuState(settings, 'lab', 'recipes', startingAt)).toEqual({ kind: 'timed', status: `Muted until ${end}` });
+	expect(isProjectMuted(settings, 'lab', 'recipes', startingAt)).toBe(true);
+	expect(projectMuteMenuState(settings, 'studio', 'recipes', startingAt)).toEqual({ kind: 'none' });
+	expect(projectMuteMenuState(settings, 'lab', 'recipes', until)).toEqual({ kind: 'none' });
+	expect(isProjectMuted(settings, 'lab', 'recipes', until)).toBe(false);
+});
+
+test('project menu recognizes and clears legacy indefinite mutes and writes the same legacy form', () => {
+	const defaults = defaultDeviceSettings('fixture-device', 'UTC');
+	const old = { ...defaults, mutedProjects: { lab: ['recipes', 'garden'] } };
+	expect(projectMuteMenuState(old, 'lab', 'recipes', now)).toEqual({ kind: 'indefinite', status: 'Muted' });
+	const cleared = withProjectMute(old, 'lab', 'recipes', null, now);
+	expect(projectMuteMenuState(cleared, 'lab', 'recipes', now)).toEqual({ kind: 'none' });
+	expect(isProjectMuted(cleared, 'lab', 'garden', now)).toBe(true);
+	const fromMenu = withProjectMute(cleared, 'lab', 'recipes', quietPeriod('indefinite', now), now);
+	expect(preferencesForBackend(fromMenu, 'lab', true, true, { now, supportsTimedMutes: false }).mutedProjects).toContain('recipes');
+	expect(fromMenu.projectMutes).toBeUndefined();
 });
 
 test('Do not disturb and local mutes block even urgent pop-ups without upgrading any other policy', () => {
