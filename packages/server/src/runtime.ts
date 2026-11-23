@@ -99,6 +99,7 @@ import { MemoryService } from "./memory-tools.ts";
 import { isWorkerOnlyModel, type OfficialAgentSessions } from "./official-agents/provider.ts";
 import { describeModels, findModel, type ModelCatalog } from "./models.ts";
 import {
+	coordinatorFailedNotification,
 	type Notifier,
 	compactionFailureNotification,
 	replyNotification,
@@ -1877,6 +1878,12 @@ export class ProjectManager {
 					}),
 				)).catch(error => this.#log(`coordinator reply notification: ${errorMessage(error)}`));
 			},
+			onFailure: ({ entryId, error }) => this.#notifications?.notify(coordinatorFailedNotification({
+				projectId: project.id, projectName: entry.project.name, threadId: MAIN_THREAD_ID, title: "Main",
+				failure: error, entryId, key: `coordinator-failed:${project.id}:${MAIN_THREAD_ID}:${entryId}`,
+			})),
+			onFailureCleared: () => this.#notifications?.resolveAlerts(alert =>
+				alert.kind === "coordinator_failed" && alert.projectId === project.id && alert.threadId === MAIN_THREAD_ID),
 			onCompactionFailure: (failure) => {
 				this.#notifications?.notify(
 					compactionFailureNotification({

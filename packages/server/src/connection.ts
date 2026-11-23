@@ -1,5 +1,5 @@
 import type { AppSettings } from "@kemiri/protocol";
-import type { ThreadsMessageEvent } from "@kemiri/protocol";
+import type { NotificationsAlertEvent, NotificationsResolvedEvent, ThreadsMessageEvent } from "@kemiri/protocol";
 import { resolveCodeRoot } from "./code-root.ts";
 import type { ProjectFileWrites } from "./project-file-writes.ts";
 import type { ProjectFiles } from "./project-files.ts";
@@ -246,6 +246,19 @@ export class ClientConnection {
 	}
 
 	#clientSupportsApps = false;
+	#clientSupportsInAppAlerts = false;
+
+	get canReceiveNotificationAlerts(): boolean {
+		if (!this.#ready || this.#closed || !this.#clientSupportsInAppAlerts) return false;
+		const auth = this.#deviceAuth;
+		if (!auth || auth.store.mode === "off") return true;
+		if (!auth.identity) return false;
+		try { auth.store.check(auth.identity); return true; } catch { return false; }
+	}
+
+	notifyAlert(event: NotificationsAlertEvent | NotificationsResolvedEvent): void {
+		if (this.canReceiveNotificationAlerts) this.#respond(event);
+	}
 
 	notifyApps(projectId: string): void {
 		if (this.#clientSupportsApps) this.#respond({ type: "apps.changed", projectId });
@@ -706,6 +719,21 @@ export class ClientConnection {
 						id: request.id,
 						dropped: this.#notifications.interaction(this, request.onScreenProjectId),
 					});
+					return;
+				}
+				case "notifications.recent": {
+					if (!this.#clientSupportsInAppAlerts) return this.#unknownRequest(request);
+					if (!this.canReceiveNotificationAlerts) throw new DeviceAuthError("auth_required");
+					const recent = await this.#notifications.recent(request.after);
+					if (!recent) return this.#unknownRequest(request);
+					this.#respond({ type: request.type, id: request.id, ...recent });
+					return;
+				}
+				case "notifications.shown": {
+					if (!this.#clientSupportsInAppAlerts) return this.#unknownRequest(request);
+					if (!this.canReceiveNotificationAlerts) throw new DeviceAuthError("auth_required");
+					this.#notifications.shown(request.keys);
+					this.#respond({ type: request.type, id: request.id });
 					return;
 				}
 				case "subscriptions.reset": {
@@ -1607,6 +1635,7 @@ export class ClientConnection {
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
+		this.#clientSupportsInAppAlerts = this.#features.includes("in-app-alerts") && request.client?.features?.includes("in-app-alerts") === true;
 		this.#ready = true;
 		this.#respond({
 			type: "hello",

@@ -450,6 +450,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				const scheduledRecord = schedule?.onReport === "record";
 				const forget = schedule?.isolation === "shared";
 				let notify = false;
+				let notificationTaskId: string | null = null;
 				let lessonReport: { taskId: string | null; at: string } | undefined;
 				await runtime.commit(async (tx) => {
 					// A steer can settle several submissions with one final answer. Their sending call IDs differ;
@@ -475,6 +476,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 						: !reporter.state.checkpoint.notify);
 					const recorded = scheduledRecord || quiet || reporter.state.checkpoint.recorded;
 					notify = !quiet && reporter.state.checkpoint.notify;
+					if (notify) notificationTaskId = worker?.taskId ?? null;
 					if (decisionPending && !forgotten && worker !== undefined) {
 						// Reads come before the first write. A failure moves the worker's task to blocked; a report moves nothing,
 						// the coordinator moves the task to review once it checked the work. A failed scheduled run opens (or
@@ -554,7 +556,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 				}
 				if (notify) {
 					const threadId = service.coordinators.threadIdOf(runtime.conversationId);
-					service.notifyWorkerReport({ workerId, callId, text, status, failure, schedule,
+					service.notifyWorkerReport({ workerId, callId, text, status, failure, schedule, taskId: notificationTaskId,
 						...(threadId === undefined ? {} : { threadId }),
 					});
 				}
@@ -1537,6 +1539,8 @@ export class WorkerService {
 				await watch.stop().catch(() => undefined);
 			});
 			const take = (state: WorkersState | Readonly<WorkersState> | null): void => {
+				this.#options.notifications?.resolveAlerts(alert => alert.kind === "worker_failed" && alert.projectId === this.project.id &&
+					(alert.threadId ?? "main") === place.threadId && alert.workerId !== null && state?.workers[alert.workerId]?.status !== "failed");
 				lists.set(place.threadId, summariesOf(state ?? undefined, place.threadId));
 				if (main && !this.usesProjectWorkerDefault) legacyDefaults = defaultsOf(state ?? undefined);
 				publish();
@@ -1631,6 +1635,7 @@ export class WorkerService {
 		status: WorkerStatus;
 		failure: string | null;
 		schedule?: { id: string; title?: string };
+		taskId: string | null;
 		/** The thread that owns the worker; main's workers notify as before. */
 		threadId?: string;
 	}): void {
@@ -1676,6 +1681,7 @@ export class WorkerService {
 					workerId: input.workerId,
 					callId: input.callId,
 					kind: "worker_report",
+					taskId: input.taskId,
 					text: input.text,
 					failure: null,
 					...(input.threadId === undefined ? {} : { threadId: input.threadId }),
@@ -1691,6 +1697,7 @@ export class WorkerService {
 					workerId: input.workerId,
 					callId: input.callId,
 					kind: "worker_failed",
+					taskId: input.taskId,
 					text: null,
 					failure: input.failure,
 					...(input.threadId === undefined ? {} : { threadId: input.threadId }),

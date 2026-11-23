@@ -1054,6 +1054,8 @@ export class ThreadService {
 			await this.#reportFailure(record);
 			return;
 		}
+		this.#options.notifications?.resolveAlerts(alert => alert.projectId === this.project.id && alert.threadId === threadId &&
+			(alert.kind === "thread_failed" || alert.kind === "coordinator_failed"));
 		if (next === record.status) return;
 		await this.#update(threadId, (current) => {
 			if (current.status === "done" || current.status === "stopped") return;
@@ -1099,6 +1101,7 @@ export class ThreadService {
 				projectName: project.name,
 				threadId: record.id,
 				coordinator: record.kind === "coordinator",
+				taskId: record.taskId ?? null,
 				title: record.title,
 				failure: reason,
 				key,

@@ -164,6 +164,10 @@ function notificationAnswer(message: StubMessage): unknown {
 			return { type: "notifications.presence", id: message.id };
 		case "notifications.interaction":
 			return { type: "notifications.interaction", id: message.id, dropped: 2 };
+		case "notifications.recent":
+			return { type: "notifications.recent", id: message.id, backendEpoch: "fixture-epoch", latestSeq: 8, events: [] };
+		case "notifications.shown":
+			return { type: "notifications.shown", id: message.id };
 		default:
 			return undefined;
 	}
@@ -223,6 +227,42 @@ describe("notification requests", () => {
 		expect(presence).toHaveLength(2);
 		expect(presence[0]).toMatchObject({ deviceId: "device-1", visible: true, projectId: "project-1" });
 		expect(presence[1]).toMatchObject({ visible: false, projectId: null });
+	});
+
+	it("negotiates the alert stream and reads history and acknowledges shown pop-ups", async () => {
+		const { client, socket } = clientFor(notificationAnswer);
+		client.connect();
+		await client.whenReady();
+		expect(socket.sent[0]).toMatchObject({ type: "hello", client: { features: ["in-app-alerts"] } });
+		expect(await client.readRecentNotifications(8)).toEqual({ backendEpoch: "fixture-epoch", latestSeq: 8, events: [] });
+		await client.reportNotificationsShown(["fixture-key"]);
+		expect(socket.sent.slice(1)).toMatchObject([
+			{ type: "notifications.recent", after: 8 },
+			{ type: "notifications.shown", keys: ["fixture-key"] },
+		]);
+	});
+
+	it("delivers typed alert and resolution events until unsubscribed", async () => {
+		const { client, socket } = clientFor(notificationAnswer);
+		client.connect();
+		await client.whenReady();
+		const received: unknown[] = [];
+		const offAlerts = client.onNotificationAlert(event => received.push([event.alert.key, event.sound]));
+		const offResolved = client.onNotificationResolved(event => received.push([event.tags, event.seq]));
+		const alert = { type: "notifications.alert", sound: true, alert: {
+			kind: "reply", title: "Synthetic", body: "Example", backendKey: "fixture-backend", projectId: null,
+			workerId: null, scheduleId: null, at: "2026-11-05T12:00:00Z", tag: "fixture-tag", key: "fixture-key",
+			seq: 7, backendEpoch: "fixture-epoch", level: "important",
+		} };
+		const resolved = { type: "notifications.resolved", tags: ["fixture-tag"], seq: 8,
+			backendEpoch: "fixture-epoch", at: "2026-11-05T12:01:00Z" };
+		socket.push(alert);
+		socket.push(resolved);
+		offAlerts();
+		offResolved();
+		socket.push(alert);
+		socket.push(resolved);
+		expect(received).toEqual([["fixture-key", true], [["fixture-tag"], 8]]);
 	});
 
 	it("reports interaction with an optional screen snapshot and returns the drop count", async () => {
@@ -333,6 +373,7 @@ describe("notification payload to URL", () => {
 			"board_question",
 			"thread_finished",
 			"thread_failed",
+			"coordinator_failed",
 			"work_finished",
 			"disk_low",
 			"task_review",
@@ -568,7 +609,8 @@ describe("device settings", () => {
 			"disk_low",
 		] as const;
 		expect(migrateDefaultKinds(previous, 3)).toContain("task_review");
-		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(4);
+		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(5);
+		expect(migrateDefaultKinds([...previous, "task_review"], 4)).toContain("coordinator_failed");
 		const chosen = previous.filter((kind) => kind !== "reply");
 		expect(migrateDefaultKinds(chosen, 3)).toEqual([...chosen]);
 	});

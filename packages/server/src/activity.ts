@@ -164,7 +164,7 @@ export class ProjectActivityStore {
 	}
 }
 
-type AssistantView = { stopReason?: string; timestamp?: number; content?: unknown };
+type AssistantView = { stopReason?: string; errorMessage?: string; timestamp?: number; content?: unknown };
 
 /** The plain text of a message's content blocks. */
 function textOfContent(content: unknown): string {
@@ -224,18 +224,20 @@ function newestFinalAnswer(entries: readonly EntryRecord[]) {
 	return latest;
 }
 
-/** The coordinator's state from a view: a live run wins; otherwise the newest assistant entry decides. */
-export function coordinatorState(view: ConversationView): ProjectActivity["coordinator"] {
-	const live = view.docs["pi.live"] as { run?: unknown } | undefined;
-	if (live !== undefined && live !== null && live.run !== undefined) return "working";
+function latestAssistant(view: ConversationView): { entryId: number; message: AssistantView } | undefined {
 	for (let index = view.entries.length - 1; index >= 0; index--) {
 		const entry = view.entries[index]!;
 		if (entry.kind !== "pi.assistant") continue;
 		const message = assistantOf(entry);
-		if (message === undefined) continue;
-		return message.stopReason === "error" ? "failed" : "idle";
+		if (message !== undefined) return { entryId: entry.id, message };
 	}
-	return "idle";
+}
+
+/** The coordinator's state from a view: a live run wins; otherwise the newest assistant entry decides. */
+export function coordinatorState(view: ConversationView): ProjectActivity["coordinator"] {
+	const live = view.docs["pi.live"] as { run?: unknown } | undefined;
+	if (live !== undefined && live !== null && live.run !== undefined) return "working";
+	return latestAssistant(view)?.message.stopReason === "error" ? "failed" : "idle";
 }
 
 /**
@@ -287,6 +289,8 @@ export type ProjectActivityOptions = {
 	 * so a value the activity file already held is not a new reply.
 	 */
 	onReply?: (reply: ReplyNotice) => void;
+	onFailure?: (failure: { entryId: number; error: string }) => void;
+	onFailureCleared?: () => void;
 	/** Called for each compaction failure that appears in `pi.live.n`, once per failed task. */
 	onCompactionFailure?: (failure: CompactionFailureNotice) => void;
 	/** The Harness clock, for a running tool's `startedAt` and for tests with a fake one. Default: `Date.now`. */
@@ -309,6 +313,9 @@ export class ProjectActivityService {
 	#recovered: { at: string; id: number; entry: EntryRecord } | undefined;
 	#compactionTaskId: number | undefined;
 	#onReply: ((reply: ReplyNotice) => void) | undefined;
+	readonly #onFailure: ProjectActivityOptions["onFailure"];
+	readonly #onFailureCleared: ProjectActivityOptions["onFailureCleared"];
+	#failureEntryId: number | null | undefined;
 	#onCompactionFailure: ((failure: CompactionFailureNotice) => void) | undefined;
 	#now: () => number;
 	/** The current round's running tool call's start time, by call ID; `pi.live` carries no timestamp of its own. */
@@ -322,6 +329,8 @@ export class ProjectActivityService {
 		this.#onChange = options.onChange;
 		this.#log = options.log ?? (() => undefined);
 		this.#onReply = options.onReply;
+		this.#onFailure = options.onFailure;
+		this.#onFailureCleared = options.onFailureCleared;
 		this.#onCompactionFailure = options.onCompactionFailure;
 		this.#now = options.now ?? Date.now;
 		this.#current = options.initial;
@@ -454,6 +463,7 @@ export class ProjectActivityService {
 		if (this.#stopped) return;
 		const previous = this.#current;
 		const next = this.next();
+		this.#watchFailure(next.coordinator);
 		if (sameActivity(next, previous)) return;
 		this.#current = next;
 		try {
@@ -464,6 +474,20 @@ export class ProjectActivityService {
 		// An answer the value never held is new: a replay of what the activity file already recorded is not.
 		if (next.lastReplyEntryId !== null && next.lastReplyEntryId !== previous.lastReplyEntryId) {
 			this.#notifyReply(next.lastReplyEntryId, next.lastReplyAt);
+		}
+	}
+
+	#watchFailure(state: ProjectActivity["coordinator"]): void {
+		if (!this.#view || (!this.#onFailure && !this.#onFailureCleared)) return;
+		const failure = state === "failed" ? latestAssistant(this.#view) : undefined;
+		const entryId = failure?.entryId ?? null;
+		if (entryId === this.#failureEntryId) return;
+		this.#failureEntryId = entryId;
+		try {
+			if (failure) this.#onFailure?.({ entryId: failure.entryId, error: failure.message.errorMessage ?? "" });
+			else this.#onFailureCleared?.();
+		} catch (error) {
+			this.#log(`failure listener failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 

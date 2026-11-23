@@ -31,17 +31,17 @@ class NotificationsTest {
     private val backends = listOf(pc, vm, twin)
 
     @Test fun kindsAreTheProtocolsWithTheWebsWords() {
-        assertEquals(15, NOTIFICATION_KINDS.size)
+        assertEquals(16, NOTIFICATION_KINDS.size)
         assertEquals("reply", NOTIFICATION_KINDS.first())
         assertEquals("task_review", NOTIFICATION_KINDS.last())
         assertEquals("Tasks ready for review", kindInfo("task_review")?.label)
         assertEquals("Background work finished", kindInfo("thread_finished")?.label)
-        assertEquals(setOf("worker_failed", "schedule_problem", "deploy_problem", "compaction_failed", "maintenance_failed", "thread_failed", "disk_low"),
+        assertEquals(setOf("worker_failed", "schedule_problem", "deploy_problem", "compaction_failed", "maintenance_failed", "thread_failed", "coordinator_failed", "disk_low"),
             NOTIFICATION_KIND_INFO.filter { it.failure }.map { it.kind }.toSet())
         assertFalse("worker_report" in DEFAULT_NOTIFICATION_KINDS)
         assertTrue("task_review" in DEFAULT_NOTIFICATION_KINDS)
-        assertEquals(11, DEFAULT_NOTIFICATION_KINDS.size)
-        assertEquals("11 of 15 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
+        assertEquals(12, DEFAULT_NOTIFICATION_KINDS.size)
+        assertEquals("12 of 16 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
         assertEquals(listOf("reply", "worker_report"), withKind(listOf("worker_report"), "reply", true))
     }
 

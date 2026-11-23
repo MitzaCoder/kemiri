@@ -20,6 +20,7 @@ val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
     NotificationKindInfo("board_question", "Board questions", "Main or a background job asked you something on the board.", false),
     NotificationKindInfo("thread_finished", "Background work finished", "A background job finished; opens its card in Main chat.", false),
     NotificationKindInfo("thread_failed", "Background work failed", "A background job failed; opens its card in Main chat.", true),
+    NotificationKindInfo("coordinator_failed", "Coordinator failures", "A coordinator turn failed; opens its chat.", true),
     NotificationKindInfo("work_finished", "Work finished", "One notification when a project goes quiet.", false),
     NotificationKindInfo("disk_low", "Low disk space", "A computer's disk is running low.", true),
     NotificationKindInfo("task_review", "Tasks ready for review", "A task is ready for you to look at; opens the task.", false),
@@ -39,6 +40,7 @@ private val DEFAULT_KINDS_BY_VERSION: List<List<String>> = listOf(
     listOf("reply", "worker_report", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "work_finished", "disk_low"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "work_finished", "disk_low", "task_review"),
+    listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review"),
 )
 
 /** The defaults version this build writes. */
@@ -76,7 +78,7 @@ fun kindsSummary(kinds: List<String>): String = when (kinds.size) {
 internal val NOTIFICATION_ALERT_GROUPS = linkedMapOf(
     "Needs you" to listOf("login_prompt", "board_question", "task_review"),
     "Work finished" to listOf("reply", "worker_report", "work_finished", "thread_finished", "schedule_done"),
-    "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "disk_low", "compaction_failed", "maintenance_failed"),
+    "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "coordinator_failed", "disk_low", "compaction_failed", "maintenance_failed"),
 )
 
 internal enum class NotificationPreset(val label: String, val kinds: List<String>?) {

@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.notifications.relay
 
+import io.github.mitzacoder.kemiri.features.notifications.forBackend
 import io.github.mitzacoder.kemiri.data.ConnectionState
 import io.github.mitzacoder.kemiri.data.ConnectionStatus
 import io.github.mitzacoder.kemiri.data.HarnessClient
@@ -72,7 +73,7 @@ class RelayBackendAdapter(
         val rpc = client(route.backendKey, route.backendId, route.sessionId)
         val start = time.elapsed()
         val answer = rpc.sync(NotificationsSyncRelayRequest(routeId = route.routeId,
-            leaseExpiresAt = route.leaseExpiresAt, preferences = preferences(route.backendKey),
+            leaseExpiresAt = route.leaseExpiresAt, preferences = preferences(route.backendKey).forBackend(rpc.connection),
             resume = true.takeIf { resume }))
         val end = time.elapsed()
         val roundTrip = end - start

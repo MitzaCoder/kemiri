@@ -529,7 +529,7 @@ export class NotificationCenter {
 					expirationTime?: number | null;
 					keys: { p256dh: string; auth: string };
 				},
-				preferences: preferencesForBackend(this.settings, backend.id),
+				preferences: preferencesForBackend(this.settings, backend.id, backend.supports("in-app-alerts")),
 			});
 			this.#set(backend.id, { ...this.#entry(backend.id), device, error: undefined, supported: true });
 			const record = this.push[backend.id];

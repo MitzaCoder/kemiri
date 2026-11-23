@@ -74,6 +74,7 @@ import {
 	resolveVapidKeyFile,
 	resolveVapidSubject,
 } from "./notifications.ts";
+import { NotificationRecentStore } from "./notification-alerts.ts";
 import { isOriginAllowed, resolveAllowedOrigins } from "./origins.ts";
 import { ProjectStore } from "./projects.ts";
 import { backfillProjects } from "./request-backfill.ts";
@@ -428,14 +429,27 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 				? { requestTimeoutMs: options.notifications.relayRequestTimeoutMs } : {}),
 		});
 	}
+	const notificationPresence = new NotificationPresence();
+	const recentAlerts = features.includes("in-app-alerts") ? new NotificationRecentStore(notificationsDir, log) : undefined;
+	await recentAlerts?.read((options.notifications?.now ?? options.now ?? Date.now)());
 	const notifications = new NotificationSender({
+		...(recentAlerts ? { inAppAlerts: {
+			store: recentAlerts,
+			backendKey: auth.backendId,
+			alert: (alert, now) => {
+				const recipients = [...connections].filter(connection => connection.canReceiveNotificationAlerts);
+				const soundTarget = notificationPresence.soundTarget(recipients, now);
+				for (const connection of recipients) connection.notifyAlert({ type: "notifications.alert", alert, sound: connection === soundTarget });
+			},
+			resolved: (event) => { for (const connection of connections) connection.notifyAlert(event); },
+		} } : {}),
 		...(relay ? { relay } : {}),
 		sessionActive: (sessionId) => auth.active(sessionId),
 		store: notificationStore,
 		state: notificationState,
 		vapid,
 		subject: options.notifications?.subject ?? resolveVapidSubject(allowedOrigins),
-		presence: new NotificationPresence(),
+		presence: notificationPresence,
 		...(options.notifications?.holdMs === undefined ? {} : { holdMs: options.notifications.holdMs }),
 		...(options.notifications?.schedule === undefined ? {} : { schedule: options.notifications.schedule }),
 		...(options.notifications?.send === undefined ? {} : { send: options.notifications.send }),

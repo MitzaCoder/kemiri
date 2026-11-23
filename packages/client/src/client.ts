@@ -106,6 +106,10 @@ import type {
 	NotificationsDeviceResponse,
 	NotificationsInteractionResponse,
 	NotificationsPresenceResponse,
+	NotificationsAlertEvent,
+	NotificationsResolvedEvent,
+	NotificationsRecentResponse,
+	NotificationsShownResponse,
 	NotificationsRegisterRequest,
 	NotificationsRegisterResponse,
 	NotificationsTestResponse,
@@ -327,7 +331,7 @@ export class HarnessClient {
 	readonly #webSocketFactory: WebSocketFactory;
 	readonly #clientName: string;
 	readonly #clientVersion: string | undefined;
-	readonly #clientFeatures: readonly string[] | undefined;
+	readonly #clientFeatures: readonly string[];
 	readonly #protocolVersion: number;
 	readonly #requestTimeoutMs: number;
 	readonly #reconnect: boolean;
@@ -342,6 +346,8 @@ export class HarnessClient {
 	readonly #projectListeners = new Set<(project: ProjectSummary) => void>();
 	readonly #workerListeners = new Set<(state: WorkersSnapshot & { projectId: string }) => void>();
 	readonly #contextListeners = new Set<(context: ConversationContext) => void>();
+	readonly #notificationAlertListeners = new Set<(event: NotificationsAlertEvent) => void>();
+	readonly #notificationResolvedListeners = new Set<(event: NotificationsResolvedEvent) => void>();
 	readonly #serverStatusListeners = new Set<(status: ServerStatus) => void>();
 	readonly #memoryListeners = new Set<(event: MemoryChangedEvent) => void>();
 	readonly #scheduleListeners = new Set<(state: SchedulesSnapshot & { projectId: string }) => void>();
@@ -376,7 +382,7 @@ export class HarnessClient {
 		this.#webSocketFactory = options.webSocketFactory ?? defaultWebSocketFactory;
 		this.#clientName = options.clientName ?? "aiki-client";
 		this.#clientVersion = options.clientVersion;
-		this.#clientFeatures = options.clientFeatures;
+		this.#clientFeatures = [...new Set([...(options.clientFeatures ?? []), "in-app-alerts"])];
 		this.#protocolVersion = options.protocolVersion ?? PROTOCOL_VERSION;
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? 20_000;
 		this.#reconnect = options.reconnect !== false;
@@ -1049,6 +1055,27 @@ export class HarnessClient {
 			...(onScreenProjectId === undefined ? {} : { onScreenProjectId }),
 		});
 		return response.dropped;
+	}
+
+	onNotificationAlert(listener: (event: NotificationsAlertEvent) => void): () => void {
+		this.#notificationAlertListeners.add(listener);
+		return () => this.#notificationAlertListeners.delete(listener);
+	}
+
+	onNotificationResolved(listener: (event: NotificationsResolvedEvent) => void): () => void {
+		this.#notificationResolvedListeners.add(listener);
+		return () => this.#notificationResolvedListeners.delete(listener);
+	}
+
+	/** Read the retained stream after the cursor. If the epoch changed, ask again with after = 0. */
+	async readRecentNotifications(after = 0): Promise<Pick<NotificationsRecentResponse, "events" | "backendEpoch" | "latestSeq">> {
+		const { events, backendEpoch, latestSeq } = await this.#call<NotificationsRecentResponse>({ type: "notifications.recent", after });
+		return { events, backendEpoch, latestSeq };
+	}
+
+	/** Acknowledge only pop-ups that were actually displayed. */
+	async reportNotificationsShown(keys: readonly string[]): Promise<void> {
+		await this.#call<NotificationsShownResponse>({ type: "notifications.shown", keys: [...keys] });
 	}
 
 	/** A project's scheduled tasks and the backend's timezone. Follow changes with `onSchedulesState`. */
@@ -1834,7 +1861,7 @@ export class HarnessClient {
 					client: {
 						name: this.#clientName,
 						...(this.#clientVersion === undefined ? {} : { version: this.#clientVersion }),
-						...(this.#clientFeatures === undefined ? {} : { features: [...this.#clientFeatures] }),
+						features: [...this.#clientFeatures],
 					},
 				},
 				this.#requestTimeoutMs,
@@ -2074,6 +2101,14 @@ export class HarnessClient {
 					}
 				}
 				return;
+			}
+			case "notifications.alert": {
+				for (const listener of this.#notificationAlertListeners) { try { listener(message); } catch { /* Isolate listeners. */ } }
+				break;
+			}
+			case "notifications.resolved": {
+				for (const listener of this.#notificationResolvedListeners) { try { listener(message); } catch { /* Isolate listeners. */ } }
+				break;
 			}
 			case "server.status.changed": {
 				for (const listener of this.#serverStatusListeners) {

@@ -30,6 +30,7 @@ export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
 	"board_question",
 	"thread_finished",
 	"thread_failed",
+	"coordinator_failed",
 	"work_finished",
 	"disk_low",
 	"task_review",
@@ -65,6 +66,8 @@ const DEFAULT_KINDS_BY_VERSION: readonly (readonly NotificationKind[])[] = [
 		"work_finished",
 		"disk_low",
 	],
+	["reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question",
+		"thread_finished", "thread_failed", "work_finished", "disk_low", "task_review"],
 	[...DEFAULT_NOTIFICATION_KINDS],
 ];
 
@@ -458,9 +461,10 @@ export function deviceIdFromStorage(storage: ReadStorage = browserStorage()): st
 export function preferencesForBackend(
 	settings: DeviceNotificationSettings,
 	backendKey: string,
+	supportsInAppAlerts = true,
 ): NotificationPreferences {
 	return {
-		kinds: [...settings.kinds],
+		kinds: settings.kinds.filter(kind => supportsInAppAlerts || kind !== "coordinator_failed"),
 		mutedProjects: [...(settings.mutedProjects[backendKey] ?? [])],
 		quietHours: settings.quietHours === null ? null : { ...settings.quietHours },
 	};

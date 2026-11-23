@@ -3153,6 +3153,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				threadId: question.threadId ?? "main",
 				taskId: question.taskId,
 				warning: question.kind === "warning",
+				approval: question.mcpApproval === true,
+				questionRevision: question.revision,
+				choices: question.choices ?? question.options.map(label => ({ label })),
     ...(question.exchanges?.length ? { revision: question.revision, reply: !question.noReplyYet, noReplyYet: question.noReplyYet } : {}),
 			}),
 		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
@@ -3354,6 +3357,21 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     onChange(board, openQuestionCount(state));
    }
    if (liveOnly) return;
+   const projectId = this.#options.project().id;
+   this.#options.notifications?.resolveAlerts(alert => {
+    if (alert.projectId !== projectId) return false;
+    if (alert.kind === "board_question" && alert.questionId !== undefined) {
+     const question = state.questions.find(row => row.id === alert.questionId);
+     const revision = alert.questionRevision ?? 0;
+     return question === undefined || question.revision > revision ||
+      (question.revision === revision && (question.status !== "open" || question.waitingOn === "agent"));
+    }
+    if (alert.kind === "task_review") {
+     const task = state.tasks.find(row => row.id === alert.taskId);
+     return task === undefined || (task.revision >= (alert.taskRevision ?? 0) && task.status !== "review");
+    }
+    return false;
+   });
    if (this.#watcher && state.taskWatcherStatus) {
     const status = JSON.stringify(state.taskWatcherStatus);
     if (watcherStatus !== status) {

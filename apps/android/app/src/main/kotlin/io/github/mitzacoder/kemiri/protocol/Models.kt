@@ -4246,6 +4246,114 @@ data class NotificationsPresenceResponse(
 )
 
 @Serializable
+data class NotificationAlert(
+    val `kind`: String,
+    val `title`: String,
+    val `body`: String,
+    val `backendKey`: String,
+    val `projectId`: String?,
+    val `workerId`: String?,
+    val `scheduleId`: String?,
+    val `coordinatorId`: String? = null,
+    val `entryId`: Long? = null,
+    val `threadId`: String? = null,
+    val `artifactId`: String? = null,
+    val `taskId`: String? = null,
+    val `tag`: String,
+    val `at`: String,
+    val `seq`: Long,
+    val `key`: String,
+    val `level`: String,
+    val `backendEpoch`: String,
+    val `taskRevision`: Long? = null,
+    val `questionId`: String? = null,
+    val `questionRevision`: Long? = null,
+    val `choices`: List<NotificationAlertChoicesItem>? = null,
+    val `warning`: Boolean? = null,
+    val `approval`: Boolean? = null
+)
+
+@Serializable
+data class NotificationAlertChoicesItem(
+    val `label`: String,
+    val `recommended`: Boolean
+)
+
+@Serializable
+data class NotificationsAlertEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.alert",
+    val `alert`: NotificationAlert,
+    val `sound`: Boolean
+) : ProtocolEvent
+
+@Serializable
+data class NotificationsResolvedEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.resolved",
+    val `tags`: List<String>,
+    val `seq`: Long,
+    val `backendEpoch`: String,
+    val `at`: String
+) : ProtocolEvent
+
+@Serializable
+data class NotificationsRecentRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.recent",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `after`: Long
+)
+
+@Serializable
+data class NotificationsRecentResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.recent",
+    val `id`: String,
+    val `backendEpoch`: String,
+    val `latestSeq`: Long,
+    val `events`: List<NotificationRecentEntry>
+)
+
+@Serializable(with = NotificationRecentEntrySerializer::class)
+sealed interface NotificationRecentEntry { val `type`: String }
+
+/** A NotificationRecentEntry variant this build does not know, kept as it came. */
+data class UnknownNotificationRecentEntry(override val raw: JsonObject) : NotificationRecentEntry, UnknownVariant {
+    override val `type`: String get() = raw["type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object NotificationRecentEntrySerializer : UnionSerializer<NotificationRecentEntry>("NotificationRecentEntry", "type", mapOf(
+    "alert" to NotificationRecentEntryAlert.serializer(),
+    "resolved" to NotificationRecentEntryResolved.serializer(),
+), { it.`type` }, ::UnknownNotificationRecentEntry)
+
+@Serializable
+data class NotificationRecentEntryAlert(
+    @kotlinx.serialization.EncodeDefault override val `type`: String = "alert",
+    val `alert`: NotificationAlert,
+    val `resolved`: Boolean
+) : NotificationRecentEntry
+
+@Serializable
+data class NotificationRecentEntryResolved(
+    @kotlinx.serialization.EncodeDefault override val `type`: String = "resolved",
+    val `tags`: List<String>,
+    val `seq`: Long,
+    val `backendEpoch`: String,
+    val `at`: String
+) : NotificationRecentEntry
+
+@Serializable
+data class NotificationsShownRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.shown",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `keys`: List<String>
+)
+
+@Serializable
+data class NotificationsShownResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.shown",
+    val `id`: String
+)
+
+@Serializable
 data class ScheduleRun(
     val `at`: String,
     val `trigger`: String,
@@ -4992,6 +5100,8 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "threads.message" -> json.decodeFromJsonElement(ThreadsMessageEvent.serializer(), raw)
     "subscriptions.usage.changed" -> json.decodeFromJsonElement(SubscriptionsUsageEvent.serializer(), raw)
     "board.state" -> json.decodeFromJsonElement(BoardStateEvent.serializer(), raw)
+    "notifications.alert" -> json.decodeFromJsonElement(NotificationsAlertEvent.serializer(), raw)
+    "notifications.resolved" -> json.decodeFromJsonElement(NotificationsResolvedEvent.serializer(), raw)
     "schedules.state" -> json.decodeFromJsonElement(SchedulesStateEvent.serializer(), raw)
     "conversation.context.changed" -> json.decodeFromJsonElement(ConversationContextEvent.serializer(), raw)
     "server.status.changed" -> json.decodeFromJsonElement(ServerStatusEvent.serializer(), raw)

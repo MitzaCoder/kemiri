@@ -23,6 +23,8 @@ import {
 	NOTIFICATION_HOLD_MS,
 	type AuthLogin,
 	type DeployStatus,
+	type NotificationAlert,
+	type NotificationsResolvedEvent,
 	type NotificationDevice,
 	type NotificationKind,
 	type NotificationPayload,
@@ -40,6 +42,7 @@ import type { Environment } from "./data-dir.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import type { FcmSender } from "./fcm.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { notificationAlertLevel, type NotificationRecentStore } from "./notification-alerts.ts";
 import { serverSettings } from "./server-settings.ts";
 
 /** Where the keys, the devices and the dedupe state live, under the data directory. */
@@ -608,12 +611,31 @@ export type ConnectionPresence = {
 	projectId: string | null;
 };
 
-/**
- * Which connections to this backend are open: visible, on any device, showing any project. One entry per connection,
- * forgotten when the socket closes. A connection that never reported is not counted (it is not known to be open).
- */
+const SOUND_INTERACTION_WINDOW_MS = 30 * 60 * 1000;
+
+/** Which connections are visible and were recently used. Both records are forgotten when the socket closes. */
 export class NotificationPresence {
 	readonly #byConnection = new Map<object, ConnectionPresence>();
+	readonly #lastInteraction = new Map<object, { at: number; order: number }>();
+	#interactionOrder = 0;
+
+	interacted(connection: object, now: number): void {
+		this.#lastInteraction.set(connection, { at: now, order: ++this.#interactionOrder });
+	}
+
+	/** Latest qualifying report, including deterministic tie-breaking within one clock tick. */
+	soundTarget<T extends object>(connections: Iterable<T>, now: number): T | undefined {
+		let target: T | undefined;
+		let latest: { at: number; order: number } | undefined;
+		for (const connection of connections) {
+			const interaction = this.#lastInteraction.get(connection);
+			if (!this.get(connection)?.visible || interaction === undefined || now - interaction.at > SOUND_INTERACTION_WINDOW_MS) continue;
+			if (latest && (interaction.at < latest.at || (interaction.at === latest.at && interaction.order < latest.order))) continue;
+			latest = interaction;
+			target = connection;
+		}
+		return target;
+	}
 
 	set(connection: object, presence: ConnectionPresence): void {
 		this.#byConnection.set(connection, presence);
@@ -625,6 +647,7 @@ export class NotificationPresence {
 
 	remove(connection: object): void {
 		this.#byConnection.delete(connection);
+		this.#lastInteraction.delete(connection);
 	}
 
 	/** Whether any connection is visible: the app is open somewhere, so events are held before they are pushed. */
@@ -640,6 +663,7 @@ export class NotificationPresence {
 
 	clear(): void {
 		this.#byConnection.clear();
+		this.#lastInteraction.clear();
 	}
 }
 
@@ -703,6 +727,10 @@ export type NotificationEvent = {
 	entryId?: number;
 	/** The board task it is about; the app opens that task. */
 	taskId?: string | null;
+	/** Extra board fields for the in-app stream, not for push payloads. */
+	alertTaskId?: string | null;
+	taskRevision?: number;
+	question?: Pick<NotificationAlert, "questionId" | "questionRevision" | "choices" | "warning" | "approval">;
 	/** Notifications that share a tag replace each other on the device. Default: one per event kind and target. */
 	tag?: string;
 	/** Persisted dedupe key: an event with a key this backend already sent is not sent again, even after a restart. */
@@ -809,6 +837,7 @@ export function workerNotification(input: {
 	kind: "worker_report" | "worker_failed";
 	text: string | null;
 	failure: string | null;
+	taskId?: string | null;
 	/** The background thread that started the worker; absent for main's. */
 	threadId?: string;
 	coordinatorId?: string;
@@ -825,8 +854,10 @@ export function workerNotification(input: {
 			: notificationLine(input.text) || "A worker reported.",
 		projectId: input.projectId,
 		workerId: input.workerId,
+		alertTaskId: input.taskId ?? null,
 		...(thread === undefined ? {} : { threadId: thread }),
-		tag: thread === undefined ? `worker:${input.workerId}` : `worker:${thread}:${input.workerId}`,
+		tag: failed ? `worker-failed:${input.projectId}:${thread ?? "main"}:${input.workerId}`
+			: thread === undefined ? `worker:${input.workerId}` : `worker:${thread}:${input.workerId}`,
 		key:
 			thread === undefined
 				? `worker:${input.projectId}:${input.workerId}:${input.callId}`
@@ -870,18 +901,43 @@ export function threadFailedNotification(input: {
 	key: string;
 	scheduleId?: string | null;
 	coordinator?: boolean;
+	taskId?: string | null;
 }): NotificationEvent {
+	if (input.coordinator) return coordinatorFailedNotification({ ...input, key: `thread-failed:${input.projectId}:${input.key}` });
 	return {
 		kind: "thread_failed",
-		title: input.coordinator ? `${input.projectName} · ${input.title}` : `Thread failed · ${input.title}`,
-		...(input.coordinator ? { coordinatorId: input.threadId } : {}),
+		title: `Thread failed · ${input.title}`,
 		body: notificationLine(input.failure) || `${input.projectName}: a background thread failed.`,
 		projectId: input.projectId,
 		...(input.coordinatorId === undefined || input.coordinatorId === "main" ? {} : { coordinatorId: input.coordinatorId }),
 		threadId: input.threadId,
 		...(input.scheduleId === undefined || input.scheduleId === null ? {} : { scheduleId: input.scheduleId }),
-		tag: `thread:${input.projectId}:${input.threadId}`,
+		alertTaskId: input.taskId ?? null,
+		tag: `thread-failed:${input.projectId}:${input.threadId}`,
 		key: `thread-failed:${input.projectId}:${input.key}`,
+	};
+}
+
+/** A coordinator's transcript ended in an error, the same state shown in Needs you. */
+export function coordinatorFailedNotification(input: {
+	projectId: string;
+	projectName: string;
+	threadId: string;
+	title: string;
+	failure: string;
+	key: string;
+	entryId?: number;
+}): NotificationEvent {
+	return {
+		kind: "coordinator_failed",
+		title: `Coordinator failed · ${input.projectName} · ${input.title}`,
+		body: notificationLine(input.failure) || "The coordinator turn failed.",
+		projectId: input.projectId,
+		threadId: input.threadId,
+		coordinatorId: input.threadId,
+		...(input.entryId === undefined ? {} : { entryId: input.entryId }),
+		tag: `coordinator-failed:${input.projectId}:${input.threadId}`,
+		key: input.key,
 	};
 }
 
@@ -1030,6 +1086,9 @@ export function boardQuestionNotification(input: {
 	taskId?: string | null;
 	/** A warning, not a question: the user must acknowledge it. */
 	warning?: boolean;
+	approval?: boolean;
+	questionRevision?: number;
+	choices?: readonly { label: string; recommended?: boolean }[];
 }): NotificationEvent {
 	return {
 		kind: "board_question",
@@ -1039,6 +1098,13 @@ export function boardQuestionNotification(input: {
 		projectId: input.projectId,
 		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
 		...(input.taskId === undefined || input.taskId === null ? {} : { taskId: input.taskId }),
+		question: {
+			questionId: input.questionId,
+			questionRevision: input.questionRevision ?? input.revision ?? 1,
+			choices: (input.choices ?? []).map(({ label, recommended }) => ({ label, recommended: recommended === true })),
+			warning: input.warning === true,
+			approval: input.approval === true,
+		},
 		tag: `board-question:${input.projectId}:${input.questionId}`,
 		key: `board-question:${input.projectId}:${input.questionId}${input.revision === undefined ? "" : `@${input.revision}`}`,
 	};
@@ -1065,6 +1131,7 @@ export function taskReviewNotification(input: {
 		projectId: input.projectId,
 		...(input.threadId === undefined || input.threadId === "main" ? {} : { threadId: input.threadId }),
 		taskId: input.taskId,
+		taskRevision: input.revision,
 		tag: `task-review:${input.projectId}:${input.taskId}`,
 		key: `task-review:${input.projectId}:${input.taskId}@${input.revision}`,
 	};
@@ -1136,7 +1203,15 @@ export type NotifyResult = {
 	deliveries: DeliveryOutcome[];
 };
 
+type InAppAlerts = {
+	store: NotificationRecentStore;
+	backendKey: string;
+	alert(alert: NotificationAlert, now: number): void;
+	resolved(event: NotificationsResolvedEvent): void;
+};
+
 export type NotifierOptions = {
+	inAppAlerts?: InAppAlerts;
 	relay?: PushRelayTransport;
 	sessionActive?: (sessionId: string) => boolean;
 	store: NotificationStore;
@@ -1180,6 +1255,8 @@ export class Notifier {
 	readonly #store: NotificationStore;
 	readonly #sessionActive: ((sessionId: string) => boolean) | undefined;
 	readonly #state: NotificationStateStore;
+	readonly #inAppAlerts: InAppAlerts | undefined;
+	readonly #shownInApp = new WeakSet<HeldEvent>();
 	readonly #vapid: VapidKeys;
 	readonly #subject: string;
 	readonly #now: () => number;
@@ -1194,11 +1271,13 @@ export class Notifier {
 	/** The timer of every held event, by the held event's ID. */
 	readonly #holdTimers = new Map<string, () => void>();
 	#registrations: Promise<unknown> = Promise.resolve();
+	#alertBroadcasts = Promise.resolve();
 
 	constructor(options: NotifierOptions) {
 		this.#sessionActive = options.sessionActive;
 		this.#store = options.store;
 		this.#state = options.state;
+		this.#inAppAlerts = options.inAppAlerts;
 		this.#vapid = options.vapid;
 		this.#subject = options.subject;
 		this.#now = options.now ?? Date.now;
@@ -1347,6 +1426,21 @@ export class Notifier {
 			return { skipped: "filtered", deliveries: [] };
 		}
 		const at = new Date(this.#now());
+		const inApp = this.#inAppAlerts;
+		if (inApp && event.kind !== "test") {
+			const kind = event.kind;
+			const key = event.key ?? crypto.randomUUID();
+			event = { ...event, key };
+			const payload = notificationPayload(inApp, event, at.toISOString());
+			if (kind === "board_question" || kind === "task_review") this.resolveAlerts(alert => alert.tag === payload.tag);
+			const alert = inApp.store.append({
+				...payload, ...event.question, kind, key,
+				...(event.alertTaskId == null ? {} : { taskId: event.alertTaskId }),
+				...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
+				level: notificationAlertLevel(kind, event.question?.warning),
+			}, at.getTime());
+			await this.#publishAlertEvent(inApp, () => inApp.alert(alert, this.#now()));
+		}
 		if (this.presence.anyVisible() && this.#wanted(event, at)) {
 			this.#hold({ id: crypto.randomUUID(), ...(this.relay ? { eventId: newRelayId() } : {}),
 				event, at: at.toISOString(), dueAt: at.getTime() + this.#holdMs });
@@ -1402,12 +1496,42 @@ export class Notifier {
 
 	/** Drop held events on the interacting connection's screen, for every device. Their dedupe keys stay claimed. */
 	interaction(connection: object, onScreenProjectId?: string | null): number {
+		this.presence.interacted(connection, this.#now());
 		const presence = this.presence.get(connection);
 		const visibleProjectId =
 			onScreenProjectId === undefined ? (presence?.visible ? presence.projectId : null) : onScreenProjectId;
 		const ids: string[] = [];
-		for (const held of this.#state.held.values()) if (isOnScreen(held, visibleProjectId)) ids.push(held.id);
+		for (const held of this.#state.held.values()) if (isOnScreen(held, visibleProjectId) || this.#shownInApp.has(held)) ids.push(held.id);
 		return this.#dropHeld(ids);
+	}
+
+	shown(keys: readonly string[]): void {
+		const shown = new Set(keys);
+		for (const held of this.#state.held.values()) {
+			if (held.event.key !== undefined && shown.has(held.event.key)) this.#shownInApp.add(held);
+		}
+	}
+
+	async recent(after: number) {
+		const store = this.#inAppAlerts?.store;
+		if (!store) return undefined;
+		const page = store.recent(after, this.#now());
+		await store.flush();
+		return page;
+	}
+
+	resolveAlerts(matches: (alert: NotificationAlert) => boolean): void {
+		const inApp = this.#inAppAlerts;
+		const resolution = inApp?.store.resolve(matches, this.#now());
+		if (inApp && resolution) void this.#publishAlertEvent(inApp, () => inApp.resolved(resolution));
+	}
+
+	/** Send in sequence order after the recent file write; a restart must not reuse a published sequence. */
+	#publishAlertEvent(inApp: InAppAlerts, publish: () => void): Promise<void> {
+		const written = inApp.store.flush();
+		this.#alertBroadcasts = this.#alertBroadcasts.then(() => written).then(publish)
+			.catch((error: unknown) => this.#log(`notifications: could not broadcast alert: ${errorMessage(error)}`));
+		return this.#alertBroadcasts;
 	}
 
 	#dropHeld(ids: string[]): number {
@@ -1458,11 +1582,15 @@ export class Notifier {
 
 	/** Report the last deploy attempt when it failed or rolled back, once per attempt, across restarts too. */
 	async deployProblem(deploy: DeployStatus | null): Promise<void> {
+		if (deploy?.state === "ok") {
+			this.resolveAlerts(alert => alert.kind === "deploy_problem");
+			return;
+		}
 		const event = deployProblemNotification(deploy);
 		if (deploy === null || event === undefined) return;
 		if (!this.#state.claimDeployAttempt(deployAttemptKey(deploy))) return;
-		// The key claim above is the deploy marker; the generic key would only duplicate it.
-		await this.deliver({ ...event, key: undefined });
+		// Keep the original deploy marker for rollback; the alert and any held push share the event's key.
+		await this.deliver(event);
 		await this.#state.flush();
 	}
 
@@ -1472,6 +1600,8 @@ export class Notifier {
 		await this.relay?.flush();
 		await this.#store.flush();
 		await this.#state.flush();
+		await this.#inAppAlerts?.store.flush();
+		await this.#alertBroadcasts;
 	}
 
 	async #push(device: StoredDevice, event: NotificationEvent, at: string): Promise<DeliveryOutcome> {

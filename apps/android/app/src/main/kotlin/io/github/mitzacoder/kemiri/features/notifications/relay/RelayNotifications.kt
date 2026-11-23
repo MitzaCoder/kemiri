@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.notifications.relay
 
+import io.github.mitzacoder.kemiri.features.notifications.forBackend
 import io.github.mitzacoder.kemiri.features.notifications.NotificationSettings
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
 
@@ -92,14 +93,14 @@ class RelayNotifications(
         val beforeMaintenance = store.read().routes.values.firstOrNull { it.backendKey == backendKey &&
             it.phase == RelayRoute.Phase.Active }
         if (beforeMaintenance != null && beforeMaintenance.absoluteExpiresAt - clock.wall() < RelayRoutes.RENEW_MS) {
-            routes.create(backendId, sessionId, backendKey, beforeMaintenance.routeId, label, current.preferencesFor(backendKey))
+            routes.create(backendId, sessionId, backendKey, beforeMaintenance.routeId, label, current.preferencesFor(backendKey).forBackend(connection))
         }
         routes.maintain(backendKey)
         val existing = store.read().routes.values.filter { it.backendKey == backendKey &&
             it.backendId == backendId && it.sessionId == sessionId && it.phase != RelayRoute.Phase.Retiring }
         val active = existing.singleOrNull { it.phase == RelayRoute.Phase.Active }
         if (existing.isEmpty() || (active != null && active.absoluteExpiresAt - clock.wall() < RelayRoutes.RENEW_MS)) {
-            routes.create(backendId, sessionId, backendKey, active?.routeId, label, current.preferencesFor(backendKey))
+            routes.create(backendId, sessionId, backendKey, active?.routeId, label, current.preferencesFor(backendKey).forBackend(connection))
         }
         return true
     }

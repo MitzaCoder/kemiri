@@ -38,7 +38,7 @@ export function notificationPreset(kinds: readonly NotificationKind[]): keyof ty
 export const NOTIFICATION_ALERT_GROUPS = [
  { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review'] },
  { label: 'Work finished', kinds: ['reply', 'worker_report', 'work_finished', 'thread_finished', 'schedule_done'] },
- { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
+ { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'coordinator_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
 ] as const satisfies readonly { label: string; kinds: readonly NotificationKind[] }[];
 
 export type NotificationKindInfo = {
@@ -130,6 +130,13 @@ export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICAT
 				kind,
 				label: "Background job failed",
 				description: "A background job failed; opens its card in Main chat.",
+				failure: true,
+			};
+		case "coordinator_failed":
+			return {
+				kind,
+				label: "Coordinator failures",
+				description: "A coordinator turn failed; opens its chat.",
 				failure: true,
 			};
 		case "work_finished":

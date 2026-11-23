@@ -33,13 +33,14 @@ export const NotificationKindSchema = Type.Union(
 		Type.Literal("board_question"),
 		Type.Literal("thread_finished"),
 		Type.Literal("thread_failed"),
+		Type.Literal("coordinator_failed"),
 		Type.Literal("work_finished"),
 		Type.Literal("disk_low"),
 		Type.Literal("task_review"),
 	],
 	{
 		description:
-			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a deploy failed or rolled back. login_prompt: a provider login waits for an answer. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low.",
+			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a deploy failed or rolled back. login_prompt: a provider login waits for an answer. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low.",
 	},
 );
 export type NotificationKind = Static<typeof NotificationKindSchema>;
@@ -52,6 +53,7 @@ export const NOTIFICATION_FAILURE_KINDS: readonly NotificationKind[] = [
 	"compaction_failed",
 	"maintenance_failed",
 	"thread_failed",
+	"coordinator_failed",
 	"disk_low",
 ];
 
@@ -65,6 +67,7 @@ export const DEFAULT_NOTIFICATION_KINDS: readonly NotificationKind[] = [
 	"board_question",
 	"thread_finished",
 	"thread_failed",
+	"coordinator_failed",
 	"work_finished",
 	"disk_low",
 	"task_review",
@@ -254,8 +257,8 @@ export const INTERACTION_REPORT_INTERVAL_MS = 5_000;
 
 /**
  * The user touched the app on this device (a pointer press, a key, a touch, the wheel, typing; not a mere mouse move).
- * Needs the `notification-hold` feature. Only held notifications for the visible project on this connection are dropped,
- * for every device. The report can include a screen snapshot so it need not wait on a concurrent presence update.
+ * Needs `notification-hold`. Drops held pushes for the visible project or for alerts already acknowledged as shown
+ * (`notifications.shown`), for every device. The optional screen snapshot avoids acting on a stale presence update.
  * Clients send it at most once per `INTERACTION_REPORT_INTERVAL_MS` per backend (the first interaction at once, later
  * ones as one trailing message), and to every backend they are connected to: backends do not talk to each other.
  */
@@ -332,6 +335,89 @@ export type NotificationsPresenceResponse = Static<typeof NotificationsPresenceR
 export const NotificationsInteractionResponseSchema = Type.Object({
 	type: Type.Literal("notifications.interaction"),
 	id: RequestIdSchema,
-	dropped: Type.Integer({ minimum: 0, description: "How many held notifications matched the interacting connection's visible project and were dropped." }),
+	dropped: Type.Integer({ minimum: 0, description: "How many held notifications were dropped because the project is visible here or an app already showed them." }),
 });
 export type NotificationsInteractionResponse = Static<typeof NotificationsInteractionResponseSchema>;
+
+/** Server-assigned priority. The client decides whether a particular inbox item may also pop up or play sound. */
+export const NotificationAlertLevelSchema = Type.Union([
+	Type.Literal("urgent"), Type.Literal("important"), Type.Literal("info"), Type.Literal("inbox"),
+]);
+export type NotificationAlertLevel = Static<typeof NotificationAlertLevelSchema>;
+
+const AlertSequence = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
+const RecentCursor = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
+const AlertEpoch = Type.String({ minLength: 1 });
+const AlertTagList = Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 });
+
+export const NotificationAlertSchema = Type.Object({
+	...NotificationPayloadSchema.properties,
+	kind: NotificationKindSchema,
+	backendKey: Type.String({ description: "The server's backend identity. For app links use the receiving client's configured backend key." }),
+	seq: AlertSequence,
+	key: Type.String({ minLength: 1 }),
+	level: NotificationAlertLevelSchema,
+	backendEpoch: AlertEpoch,
+	taskRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+	questionId: Type.Optional(Type.String()),
+	questionRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+	choices: Type.Optional(Type.Array(Type.Object({ label: Type.String(), recommended: Type.Boolean() }))),
+	warning: Type.Optional(Type.Boolean()),
+	approval: Type.Optional(Type.Boolean()),
+});
+export type NotificationAlert = Static<typeof NotificationAlertSchema>;
+
+export const NotificationsAlertEventSchema = Type.Object({
+	type: Type.Literal("notifications.alert"),
+	alert: NotificationAlertSchema,
+	sound: Type.Boolean({ description: "Whether the server picked this connection. The client still applies its level and sound settings." }),
+});
+export type NotificationsAlertEvent = Static<typeof NotificationsAlertEventSchema>;
+
+const AlertResolution = {
+	tags: AlertTagList,
+	seq: AlertSequence,
+	backendEpoch: AlertEpoch,
+	at: Type.String(),
+};
+export const NotificationsResolvedEventSchema = Type.Object({
+	type: Type.Literal("notifications.resolved"),
+	...AlertResolution,
+});
+export type NotificationsResolvedEvent = Static<typeof NotificationsResolvedEventSchema>;
+
+export const NotificationRecentEntrySchema = Type.Union([
+	Type.Object({ type: Type.Literal("alert"), alert: NotificationAlertSchema, resolved: Type.Boolean() }),
+	Type.Object({ type: Type.Literal("resolved"), ...AlertResolution }),
+]);
+export type NotificationRecentEntry = Static<typeof NotificationRecentEntrySchema>;
+
+export const NotificationsRecentRequestSchema = Type.Object({
+	type: Type.Literal("notifications.recent"),
+	id: RequestIdSchema,
+	after: RecentCursor,
+});
+export type NotificationsRecentRequest = Static<typeof NotificationsRecentRequestSchema>;
+
+export const NotificationsRecentResponseSchema = Type.Object({
+	type: Type.Literal("notifications.recent"),
+	id: RequestIdSchema,
+	backendEpoch: AlertEpoch,
+	latestSeq: RecentCursor,
+	events: Type.Array(NotificationRecentEntrySchema),
+});
+export type NotificationsRecentResponse = Static<typeof NotificationsRecentResponseSchema>;
+
+/** Mark pop-ups that were actually displayed, not alerts read from the stream or inbox. This alone never drops a push. */
+export const NotificationsShownRequestSchema = Type.Object({
+	type: Type.Literal("notifications.shown"),
+	id: RequestIdSchema,
+	keys: AlertTagList,
+});
+export type NotificationsShownRequest = Static<typeof NotificationsShownRequestSchema>;
+
+export const NotificationsShownResponseSchema = Type.Object({
+	type: Type.Literal("notifications.shown"),
+	id: RequestIdSchema,
+});
+export type NotificationsShownResponse = Static<typeof NotificationsShownResponseSchema>;

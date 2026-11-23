@@ -26,6 +26,10 @@ class HarnessNotificationRegistrationRpc(private val client: HarnessClient) : No
     }
 }
 
+/** An older backend cannot validate the new kind when registering or syncing push preferences. */
+internal fun NotificationPreferences.forBackend(connection: ConnectionState): NotificationPreferences =
+    if (connection.supports("in-app-alerts")) this else copy(kinds = kinds.filterNot { it == "coordinator_failed" })
+
 /** Off is exactly the existing FCM registration branch. Relay selection is exclusive and cannot fall back on failure. */
 suspend fun syncNotificationRegistration(settings: NotificationSettings, connection: ConnectionState,
     deviceId: String, backendKey: String, label: String, rpc: NotificationRegistrationRpc,
@@ -39,7 +43,7 @@ suspend fun syncNotificationRegistration(settings: NotificationSettings, connect
     val token = settings.fcmToken
     if (settings.enabled && token != null && connection.supports("fcm-push")) {
         return rpc.register(NotificationsRegisterFcmRequest(deviceId = deviceId, label = label, backendKey = backendKey,
-            token = token, preferences = settings.preferencesFor(backendKey)))
+            token = token, preferences = settings.preferencesFor(backendKey).forBackend(connection)))
     }
     val existing = rpc.device(deviceId)
     return if (!settings.enabled && existing != null) {

@@ -472,6 +472,14 @@ suspend fun HarnessClient.request(value: NotificationsPresenceRequest, explicitN
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(NotificationsPresenceRequest.serializer(), value).jsonObject, explicitNulls), NotificationsPresenceResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: NotificationsRecentRequest, explicitNulls: Set<String> = emptySet()): NotificationsRecentResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(NotificationsRecentRequest.serializer(), value).jsonObject, explicitNulls), NotificationsRecentResponse.serializer()
+)
+
+suspend fun HarnessClient.request(value: NotificationsShownRequest, explicitNulls: Set<String> = emptySet()): NotificationsShownResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(NotificationsShownRequest.serializer(), value).jsonObject, explicitNulls), NotificationsShownResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: SchedulesListRequest, explicitNulls: Set<String> = emptySet()): SchedulesListResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(SchedulesListRequest.serializer(), value).jsonObject, explicitNulls), SchedulesListResponse.serializer()
 )

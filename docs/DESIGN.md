@@ -7337,10 +7337,38 @@ setting, restart and retry steps; the raw error remains a small secondary detail
 - **Never in the caller's path.** A push is fire and forget: a failure is recorded as the device's `lastDelivery` and
   logged, a 404/410 subscription is dropped, and nothing a push service does reaches the code that produced the event.
 
+### The in-app alert stream
+
+The `in-app-alerts` feature uses the same sources and dedupe keys as push. After claiming the key and excluding archived
+projects, the notifier records and publishes the alert before it checks push devices, kinds, mutes or quiet hours.
+Test pushes do not enter the stream. Every kind has a server-assigned level: urgent, important, info or inbox.
+Board warnings are important; questions and tool approvals are urgent. The compaction and maintenance failure levels
+are info, but clients keep them in the inbox. Coordinator failures use the same transcript error that drives Needs you
+and are enabled by default for push.
+
+The stream reaches all ready connections on the backend that advertise the feature. Like project state it is not
+limited to the projects a connection watches. With device auth on (including optional mode), alert text, history and
+shown acknowledgements require a signed-in session; a backend with auth off permits its normal connections.
+Each connection's last interaction is tracked at server receipt, even if no push was dropped. At most one visible
+connection that interacted within 30 minutes gets `sound: true`. This selects a device, not a policy decision to play.
+
+- **Live:** `notifications.alert { alert, sound }`. The alert extends the push payload with `seq`, `key`, `level` and
+  `backendEpoch`. Board questions include the question ID and revision, choices, and warning and approval flags.
+  Use the receiving client's configured backend key for links; the alert's backend key is the server identity.
+- **Resolved:** `notifications.resolved { tags, seq, backendEpoch, at }` closes alerts on question settlement or
+  replacement, leaving task review, worker retry or forget, a thread or coordinator recovering, and a successful
+  deploy after a deploy problem. A new alert under the same tag is still open.
+- **Catch-up:** `notifications.recent { after }` returns `{ backendEpoch, latestSeq, events }`, ordered by sequence and
+  without sound. Alert entries have a resolved flag and resolution entries carry their tags. The separate
+  `notifications/recent.json` retains at most 200 entries and seven days. Its epoch survives restart and changes
+  when history is lost; on epoch change, fetch again from zero. Older releases ignore this file.
+- **Shown:** `notifications.shown { keys }` acknowledges only pop-ups actually displayed. It marks matching held
+  pushes in memory but does not release them by itself. No app presents these alerts in this stage.
+
 ### Holding while the app is open
 
-With the app open, system notifications wait 15 s. Interaction in that time cancels a push only if it would repeat
-what is on the interacting connection's screen.
+With the app open, system notifications wait 15 s. Interaction cancels a push only if it repeats the visible project
+or a pop-up the app already showed.
 
 - **"Open"** is a visible connection: a web tab with `visibilityState === "visible"`, or the Android app in the foreground,
   on any device, showing any project. Each connection reports `notifications.presence { deviceId, visible, projectId }`
@@ -7352,13 +7380,13 @@ what is on the interacting connection's screen.
   `notifications.holdMs` and a fake timer `notifications.schedule`) and pushes it when the time is up. No visible
   connection means no hold: the push goes out at once, as before. Each event times from its own moment; the payload's `at`
   is the event's time, not the push's.
-- **Drop.** Interaction drops only held events for the project visible on that connection, for every push device. A
-  different project's events and backend-wide events (such as low disk space) stay held. Dropped events have already
-  claimed their dedupe key, so a restart or watch replay does not send them. An event that happens after the interaction
-  is held anew.
+- **Drop.** Interaction drops held events for the project visible on that connection or whose key any connection
+  marked shown. Other events, including backend-wide events, keep their original timer. Dropped events already
+  claimed their dedupe key, so a restart or watch replay does not send them. An event that happens after the
+  interaction is held anew.
 - **Hold ends, then filter.** Kinds, mutes, archived projects and quiet hours are read when the push is sent (a mute set
-  during the hold applies), and an event no device would receive is not held at all (nothing is written down for it).
-  Archived projects are dropped before the hold, as before. Test pushes (`notifications.test`) are never held.
+  during the hold applies), and an event no push device would receive is not held at all. It can still appear in the
+  live stream. Archived projects are dropped before the hold, and test pushes (`notifications.test`) are never held.
 - **The page going hidden, or the socket closing, during the hold changes nothing**: the event is still pushed at 15 s
   unless an interaction already dropped it. (Someone who closes the tab and walks away still needs the push.)
 - **Where it lives: in the `Notifier`, per backend.** Every event source already calls one `Notifier`, so a hold in front
@@ -7402,7 +7430,8 @@ what is on the interacting connection's screen.
   interaction pushes at 15 s; interaction drops the visible project's event for every device and keeps the key; events
   outside that project still push; hidden or closed during the hold still pushes; filters; restart cases),
   `notifications.test.ts` (socket scope over the wire), `push-relay-transport.test.ts` (snapshot overrides stale
-  presence), `apps/web/test/interaction.test.ts`, and Android `InteractionReporterTest` and `NotificationsTest`.
+  presence), `in-app-alerts.test.ts` (live fanout, sound target, shown holds, history and resolutions),
+  `apps/web/test/interaction.test.ts`, and Android `InteractionReporterTest` and `NotificationsTest`.
 
 ## Stack
 
