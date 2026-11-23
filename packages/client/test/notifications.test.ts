@@ -185,8 +185,10 @@ describe("notification requests", () => {
 		});
 	});
 
-	it("registers the device, its subscription and its preferences", async () => {
-		const { client, socket } = clientFor(notificationAnswer);
+	it.each([true, false])("registers preferences supported by the backend (usage pause: %s)", async supported => {
+		const { client, socket } = clientFor(message => message.type === "hello" && supported
+			? { ...handshakeAnswer(message) as object, features: ["notifications", "usage-pause"] }
+			: notificationAnswer(message));
 		client.connect();
 		await client.whenReady();
 
@@ -194,6 +196,8 @@ describe("notification requests", () => {
 		expect(socket.sent.find((message) => message.type === "notifications.register")).toMatchObject({
 			type: "notifications.register",
 			...REGISTRATION,
+			preferences: { ...REGISTRATION.preferences, kinds: supported ? REGISTRATION.preferences.kinds
+				: REGISTRATION.preferences.kinds.filter(kind => kind !== "usage_limit_reached") },
 		});
 	});
 

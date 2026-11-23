@@ -6436,6 +6436,11 @@ for new reset evidence or an explicit Resume. Explicit Resume suppresses re-armi
 provider denial. `usage_limit_reached` uses existing notifications once when a limit hold starts. There is no push
 on automatic resume: clients receive the updated state, and waiting work resumes on its own.
 
+Web and Android subscribe once per connected computer. On reconnect they read the whole snapshot and then follow
+pushes. A project chat banner names the subscription, explains why new requests wait, and offers Resume. Usage limit
+rows show Pause or Resume for each supporting computer. A shared account can merge usage readings across computers,
+but the controls and banner stay scoped to each individual backend. Controls are hidden without `usage-pause`.
+
 #### Subscription ledger and value
 
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the

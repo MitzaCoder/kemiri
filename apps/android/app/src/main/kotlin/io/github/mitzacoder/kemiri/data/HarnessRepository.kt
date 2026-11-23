@@ -48,6 +48,7 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
             io.github.mitzacoder.kemiri.features.terminal.TerminalDeck(context.applicationContext, config.key, client, it).also { deck -> terminalDeck = deck } }
     /** The release, last deploy and disks the backend reports (`server-status`), shared by the header, banners and Backends. */
     val serverStatus = ServerStatusStore(client, scope)
+    val usagePause = io.github.mitzacoder.kemiri.features.usage.UsagePauseStore(client, scope)
     val mcp = io.github.mitzacoder.kemiri.features.settings.McpSession(client, scope)
     private val skills = java.util.concurrent.ConcurrentHashMap<String, io.github.mitzacoder.kemiri.features.settings.ProjectSkillsChoices>()
     fun projectSkills(projectId: String) = skills.computeIfAbsent(projectId) {

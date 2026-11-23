@@ -162,11 +162,14 @@ fun DiskBanner(backend: BackendSession, openStorage: (() -> Unit)?, modifier: Mo
 fun ChatServerBanners(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val backend = context.backend
     val connection by backend.client.state.collectAsStateWithLifecycle()
-    if (!connection.supports(SERVER_STATUS_FEATURE)) return
-    LaunchedEffect(backend) { while (true) { delay(SERVER_STATUS_REFRESH_MS); backend.serverStatus.refresh() } }
+    val hasStatus = connection.supports(SERVER_STATUS_FEATURE)
+    if (hasStatus) LaunchedEffect(backend) { while (true) { delay(SERVER_STATUS_REFRESH_MS); backend.serverStatus.refresh() } }
     val openStorage = if (connection.supports(HarnessFeature.STORAGE)) { { context.navigate(Destination.ProjectSettings(context.route, io.github.mitzacoder.kemiri.features.settings.ProjectSection.Advanced, advancedGroup = io.github.mitzacoder.kemiri.features.settings.AdvancedGroup.Storage)) } } else null
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        DeployBanner(context.repository, backend)
-        DiskBanner(backend, openStorage)
+        io.github.mitzacoder.kemiri.features.usage.UsagePauseBanners(backend)
+        if (hasStatus) {
+            DeployBanner(context.repository, backend)
+            DiskBanner(backend, openStorage)
+        }
     }
 }

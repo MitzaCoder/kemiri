@@ -53,6 +53,7 @@
 	import { provideTaskFilter, tasksView } from '#lib/tasks-view.svelte.js';
 	import ConversationSidebar from '#lib/components/ConversationSidebar.svelte';
 	import DeployBanner from '#lib/components/DeployBanner.svelte';
+	import UsagePauseBanner from '#lib/components/usage/UsagePauseBanner.svelte';
 	import DiskBanner from '#lib/components/DiskBanner.svelte';
 	import MemoryPanel from '#lib/components/MemoryPanel.svelte';
 	import ProjectsMenuButton from '#lib/components/ProjectsMenuButton.svelte';
@@ -1124,6 +1125,7 @@
 
 				<div class="{CHAT_COLUMN_CLASS} shrink-0 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] sm:px-4 sm:pb-4" bind:clientHeight={composerHeight}>
 					<div class="mb-2 flex flex-col gap-2">
+						<UsagePauseBanner {backend} />
 						{#if backend.supports('server-status')}
 							<DeployBanner
 								status={backend.status}

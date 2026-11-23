@@ -20,6 +20,7 @@ object HarnessFeature {
     const val TASK_STEPS = "task-steps"
     const val TASK_USAGE = "task-usage"
     const val SUBSCRIPTION_VALUE = "subscription-value"
+    const val USAGE_PAUSE = "usage-pause"
     const val TASK_REPORTS = "task-reports"
     const val TASK_LINKS = "task-links"
     const val TASK_TIMELINE_GROUPS = "task-timeline-groups"

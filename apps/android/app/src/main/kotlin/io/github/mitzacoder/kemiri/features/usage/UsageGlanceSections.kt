@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.data.BackendConfig
+import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.protocol.CacheStats
 import io.github.mitzacoder.kemiri.protocol.RecordedUsage
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -81,7 +82,7 @@ internal fun ComputerPicker(computers: List<BackendConfig>, computer: BackendCon
 
 @Composable
 internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<GlanceSubscription>, now: Double,
-    modifier: Modifier, openSubscription: (SubscriptionIdentity) -> Unit) {
+    modifier: Modifier, openSubscription: (SubscriptionIdentity) -> Unit, pauseBackends: List<BackendSession> = emptyList()) {
     var bySubscription by rememberSaveable { mutableStateOf(false) }
     var showingQuiet by rememberSaveable { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<Pair<SubscriptionIdentity, String>?>(null) }
@@ -103,14 +104,14 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
                     val windows = limits.filter { it.subscription.identity == subscription.identity }
                     if (windows.isEmpty()) ValueNote("No windows reported.")
                     windows.forEach { limit -> key(limit.key) {
-                        GlanceLimitRow(limit, now, expanded == limit.key, false, { expanded = limit.key.takeUnless { expanded == it } })
+                        GlanceLimitRow(limit, now, expanded == limit.key, false, { expanded = limit.key.takeUnless { expanded == it } }, pauseBackends = pauseBackends)
                     } }
                 }
             }
         } else {
             limits.filter { showingQuiet || it.key !in quiet }.forEach { limit -> key(limit.key) {
                 GlanceLimitRow(limit, now, expanded == limit.key, true, { expanded = limit.key.takeUnless { expanded == it } },
-                    { openSubscription(limit.subscription.identity) })
+                    { openSubscription(limit.subscription.identity) }, pauseBackends)
             } }
             if (quiet.isNotEmpty()) TextButton(onClick = { showingQuiet = !showingQuiet }) {
                 Text(if (showingQuiet) "Hide quiet limits" else "${quiet.size} more ${if (quiet.size == 1) "limit" else "limits"}, all under 45%")
@@ -129,7 +130,7 @@ internal fun limitColor(status: LimitStatus) = when (status) {
 
 @Composable
 internal fun GlanceLimitRow(limit: GlanceLimit, now: Double, expanded: Boolean, showProvider: Boolean,
-    toggle: () -> Unit, openSubscription: (() -> Unit)? = null) {
+    toggle: () -> Unit, openSubscription: (() -> Unit)? = null, pauseBackends: List<BackendSession> = emptyList()) {
     val reading = limit.subscription.latest.reading
     val color = limitColor(limit.status)
     val name = if (showProvider) "${reading.label} · ${limit.window.label}" else limit.window.label
@@ -148,6 +149,12 @@ internal fun GlanceLimitRow(limit: GlanceLimit, now: Double, expanded: Boolean, 
                 val reset = resetCountdown(limit, now)
                 ValueNote(if (reset != null) "Resets in $reset" else if (limit.pace.resetsAt != null) "Reset due" else "Reset time unknown")
             }
+        }
+        val computerKeys = limit.subscription.computers.map { it.key }
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+            pauseBackends.filter { it.config.key in computerKeys }.forEach { backend -> key(backend.config.key) {
+                UsagePauseAction(backend, reading.providerId, reading.label, showComputer = computerKeys.size > 1)
+            } }
         }
         if (expanded) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             HorizontalDivider()

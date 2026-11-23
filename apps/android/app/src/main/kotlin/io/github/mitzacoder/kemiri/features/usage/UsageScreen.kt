@@ -152,7 +152,7 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
                     computers.filterNot { it.ready }.forEach { ValueNote("${it.backend.config.name} is not connected.") }
                     computers.forEach { read -> read.limits.error?.let { ValueNote("${read.backend.config.name}: limits could not refresh. $it") } }
                     LimitsSection(limits, subscriptions, nowMillis, Modifier.onGloballyPositioned { sectionOffsets["Limits"] = it.positionInParent().y.roundToInt() },
-                        openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) })
+                        openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) }, pauseBackends = selected)
                     SpendSection(period, { period = it }, recorded, subscriptionSpend, stats, totalCost, months,
                         loading = computers.any { it.stats.loading }, monthLoading = computers.any { it.monthly.loading },
                         spendIncomplete = spendIncomplete, monthComplete = !spendIncomplete && computers.all { it.monthly.report != null && it.monthly.error == null },

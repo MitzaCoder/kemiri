@@ -167,6 +167,7 @@ import type {
 	WorkersDefaultsSetResponse,
 	WorkersListResponse,
 } from "@kemiri/protocol";
+import type { UsagePause } from "@kemiri/protocol";
 import { LEGACY_HARNESS_FEATURES, PROTOCOL_VERSION, TERMINAL_FRAME, decodeTerminalFrame, encodeTerminalAck, encodeTerminalFrame } from "@kemiri/protocol";
 import { backoffDelay, canRetry, type BackoffOptions } from "./backoff.ts";
 import { ClientError, errorFromResponse, errorMessage } from "./errors.ts";
@@ -354,6 +355,7 @@ export class HarnessClient {
 	readonly #boardListeners = new Set<(state: { projectId: string; board: Board }) => void>();
 	readonly #threadMessageListeners = new Set<(event: ThreadsMessageEvent) => void>();
 	readonly #threadListeners = new Set<(state: ThreadsSnapshot & { projectId: string }) => void>();
+	readonly #usagePauseListeners = new Set<(pauses: UsagePause[]) => void>();
 	readonly #subscriptionUsageListeners = new Set<(subscriptions: SubscriptionUsage[]) => void>();
 	readonly #appsListeners = new Set<(projectId: string) => void>();
 	readonly #appSettingsListeners = new Set<(settings: AppSettings) => void>();
@@ -512,6 +514,11 @@ export class HarnessClient {
 	onThreadsState(listener: (state: ThreadsSnapshot & { projectId: string }) => void): () => void {
 		this.#threadListeners.add(listener);
 		return () => this.#threadListeners.delete(listener);
+	}
+
+	onUsagePauseChanged(listener: (pauses: UsagePause[]) => void): () => void {
+		this.#usagePauseListeners.add(listener);
+		return () => this.#usagePauseListeners.delete(listener);
 	}
 
 	/**
@@ -2092,6 +2099,12 @@ export class HarnessClient {
 					} catch {
 						// A consumer's listener must not break message handling.
 					}
+				}
+				return;
+			}
+			case "usage-pause.changed": {
+				for (const listener of this.#usagePauseListeners) {
+					try { listener(message.pauses); } catch { /* A consumer cannot break dispatch. */ }
 				}
 				return;
 			}

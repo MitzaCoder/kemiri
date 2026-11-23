@@ -2,6 +2,8 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import { clockTime, paceView, resetLabel } from '#lib/subscription-usage.js';
 	import { computerNames, LIMIT_LABELS, type GlanceLimit } from '#lib/usage-glance.js';
+	import { harness } from '#lib/harness.svelte.js';
+	import UsagePauseAction from './UsagePauseAction.svelte';
 	import ProviderMark from './ProviderMark.svelte';
 	import UsageChart from './UsageChart.svelte';
 
@@ -12,6 +14,10 @@
 	const chartId = $props.id();
 	const subscription = $derived(limit.subscription.reading);
 	const computers = $derived(computerNames(limit.subscription.members.map(member => member.computer)));
+	const pauseComputers = $derived(limit.subscription.members.flatMap(member => {
+		const backend = harness.backend(member.computer.id);
+		return backend?.usagePauseLoaded && backend.ready ? [backend] : [];
+	}));
 	const reset = $derived(resetLabel(limit.pace, now));
 	const exactReset = $derived(limit.pace.resetsAt !== null ? clockTime(limit.pace.resetsAt, now) : null);
 	const paceDetail = $derived(limit.stale ? 'The provider has not reported a new reading yet.'
@@ -22,6 +28,7 @@
 </script>
 
 <li class="limit" data-status={limit.status}>
+	<div class="limit-heading">
 	<button type="button" class="limit-toggle" onclick={toggle} aria-expanded={open} aria-controls={open ? chartId : undefined}>
 		<span class="provider flex min-w-0 items-center gap-2.5">
 			<ProviderMark providerId={subscription.providerId} label={subscription.label} size={29} />
@@ -41,6 +48,15 @@
 		<span class="status">{limit.stale ? 'Last reading' : LIMIT_LABELS[limit.status]}</span>
 		<span class="chevron"><ChevronDown class="size-3.5 text-muted-foreground {open ? 'rotate-180' : ''}" /></span>
 	</button>
+	{#if pauseComputers.length}
+		<div class="pause-actions">
+			{#each pauseComputers as backend (backend.id)}
+				<UsagePauseAction {backend} providerLogin={subscription.providerId} label={subscription.label}
+					showComputer={limit.subscription.members.length > 1} />
+			{/each}
+		</div>
+	{/if}
+	</div>
 	{#if open}
 		<div id={chartId} class="grid gap-3 border-t border-(--chat-border) px-3 py-3 sm:grid-cols-2 sm:px-4">
 			<div>
@@ -63,6 +79,9 @@
 	.limit[data-status='near'] { --limit-tone: var(--chat-danger); }
 	.limit[data-status='hot'] { --limit-tone: var(--chat-warning); }
 	.limit[data-status='unknown'] { --limit-tone: var(--chat-fg-subtle); }
+	.limit-heading { display: flex; align-items: center; }
+	.limit-heading > .limit-toggle { min-width: 0; flex: 1; }
+	.pause-actions { display: flex; gap: .4rem; flex-wrap: wrap; padding: .25rem .75rem .25rem 0; }
 	.limit-toggle {
 		display: grid; grid-template-columns: minmax(9rem, 1.2fr) minmax(4rem, 1fr) 3rem minmax(7rem, .8fr) 6.5rem auto;
 		align-items: center; gap: .7rem; width: 100%; padding: .45rem .85rem; text-align: left; font-size: .8125rem;
@@ -76,7 +95,10 @@
 	.reset, .status { font-size: .6875rem; white-space: nowrap; color: var(--chat-fg-muted); }
 	.status { justify-self: end; }
 	.limit[data-status='near'] .status, .limit[data-status='hot'] .status { color: var(--limit-tone); font-weight: 650; }
-	@container (max-width: 620px) {
+	@container (max-width: 710px) {
+		.limit-heading { flex-wrap: wrap; }
+		.limit-heading > .limit-toggle { flex-basis: 100%; }
+		.pause-actions { padding: 0 .7rem .4rem; margin-left: auto; }
 		.limit-toggle { grid-template-columns: minmax(4.75rem, 1fr) auto auto auto; gap: .35rem .55rem; padding: .48rem .7rem; }
 		.provider { grid-column: 1 / 4; grid-row: 1; }
 		.percentage { grid-column: 4; grid-row: 1; }

@@ -33,6 +33,13 @@ internal fun usageRange(period: UsagePeriod, now: Instant, zone: ZoneId): UsageR
     return UsageRange(period, month?.toString(), offset.totalSeconds / 60L)
 }
 
+internal fun subscriptionProviderLabel(providerLogin: String): String = when (providerLogin) {
+    "anthropic" -> "Claude"
+    "openai-codex" -> "ChatGPT"
+    "opencode-go" -> "OpenCode Go"
+    else -> providerLogin
+}
+
 internal data class ComputerSubscription(val computer: BackendConfig, val reading: SubscriptionUsage)
 internal data class SubscriptionIdentity(val provider: String, val account: String?, val plan: String?, val computerKey: String?)
 internal data class GlanceSubscription(val identity: SubscriptionIdentity, val members: List<ComputerSubscription>) {

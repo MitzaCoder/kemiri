@@ -24,6 +24,8 @@ import {
 	type ConversationContext,
 	type CoordinatorCompaction,
 	type UserSettings,
+	type UsagePause,
+	type ServerMessage,
 	type ConversationView,
 	type CredentialInfo,
 	type DeployStatus,
@@ -120,6 +122,9 @@ export class BackendConnection {
 	features = $state<readonly string[] | undefined>(undefined);
 	projects = $state<ProjectSummary[]>([]);
 	projectsLoaded = $state(false);
+	usagePauses = $state<UsagePause[]>([]);
+	usagePauseLoaded = $state(false);
+	#usagePauseRevision = 0;
 	models = $state<ModelInfo[]>([]);
 	providers = $state<ProviderInfo[]>([]);
 	modelsLoaded = $state(false);
@@ -184,7 +189,7 @@ export class BackendConnection {
 		this.client = new HarnessClient({
 			url: backendWebSocketUrl(config.url),
 			clientName: "aiki-web",
-			clientFeatures: ["task-steps", "task-live-watcher", "coordinator-messages", "apps"],
+			clientFeatures: ["task-steps", "task-live-watcher", "coordinator-messages", "apps", "usage-pause"],
 			prepareHello: async () => {
 				this.#migrationRegistered = false;
 				try { return await this.#deviceAuth.prepare(); }
@@ -204,6 +209,8 @@ export class BackendConnection {
 				clearTimeout(this.#renewTimer);
 				clearTimeout(this.#migrationTimer);
 				this.authSessionId = undefined;
+				this.usagePauseLoaded = false;
+				this.#usagePauseRevision += 1;
 			}
 			if (state.status === "ready") {
 				if (state.features?.includes("device-auth-v1") && state.backendId) {
@@ -216,6 +223,7 @@ export class BackendConnection {
 				else if (this.authMode === "optional") void this.pollMigration();
 				this.features = state.features ?? [...HARNESS_FEATURES];
 				if (!wasReady && this.#started) void this.refreshAll();
+				if (!wasReady && this.supports("usage-pause")) void this.#readUsagePauses().catch(() => { /* No controls until state is read. */ });
 				if (state.error === undefined) this.lastError = undefined;
 			}
 		});
@@ -229,6 +237,11 @@ export class BackendConnection {
 				clearTimeout(this.#renewTimer);
 			}
 		});
+		this.client.onUsagePauseChanged(pauses => {
+			this.#usagePauseRevision += 1;
+			this.usagePauses = pauses;
+			this.usagePauseLoaded = true;
+		});
 		this.client.onUserSettingsChanged(settings => this.#applyUserSettings(settings));
 		this.client.onProjectState((project) => this.upsertProject(project));
 		this.client.onServerStatusChanged((status) => {
@@ -239,6 +252,22 @@ export class BackendConnection {
 		this.client.onError((error) => {
 			this.lastError = error.message;
 		});
+	}
+
+	#readUsagePauses(): Promise<void> { return this.#updateUsagePause({ type: "usage-pause.get" }); }
+
+	setUsagePaused(providerLogin: string, paused: boolean): Promise<void> {
+		return this.#updateUsagePause({ type: paused ? "usage-pause.pause" : "usage-pause.resume", providerLogin });
+	}
+
+	async #updateUsagePause(request: { type: "usage-pause.get" } | { type: "usage-pause.pause" | "usage-pause.resume"; providerLogin: string }): Promise<void> {
+		const revision = this.#usagePauseRevision;
+		const response = await this.client.request<Extract<ServerMessage, { type: typeof request.type }>>(request);
+		if (response.type === "error") throw new Error(response.error.message);
+		if (revision === this.#usagePauseRevision) {
+			this.usagePauses = response.pauses;
+			this.usagePauseLoaded = true;
+		}
 	}
 
 	start(): void {

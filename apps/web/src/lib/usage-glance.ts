@@ -1,5 +1,5 @@
 import { windowPace } from '@kemiri/client';
-import type { CacheStats, RecordedUsageGroup, SubscriptionPrice, SubscriptionUsage, SubscriptionValue, UsageValueResponse, UsageDetailRequest, UsageSelection, UsageWindow } from '@kemiri/protocol';
+import type { CacheStats, RecordedUsageGroup, SubscriptionPrice, SubscriptionUsage, SubscriptionValue, UsageValueResponse, UsageDetailRequest, UsageSelection, UsagePause, UsageWindow } from '@kemiri/protocol';
 import { isStale } from './subscription-usage.ts';
 
 export const USAGE_BACKEND_KEY = 'aiki.usage.backend.v1';
@@ -42,6 +42,17 @@ export function mergeSubscriptions(entries: readonly SubscriptionOnComputer[]): 
 		}
 		return { key, members, reading, windows: [...windows.values()] };
 	});
+}
+
+export function subscriptionProviderLabel(providerLogin: string, catalogName?: string): string {
+	return ({ anthropic: 'Claude', 'openai-codex': 'ChatGPT', 'opencode-go': 'OpenCode Go' } as Record<string, string>)[providerLogin] ?? catalogName ?? providerLogin;
+}
+
+export function pauseWaitLabel(pause: UsagePause): string {
+	if (!pause.until) return 'New requests wait until resumed.';
+	const until = new Date(pause.until);
+	const local = until.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+	return `New requests continue automatically at ${local}.`;
 }
 
 export const LIMIT_LABELS = { near: 'Nearly out', hot: 'Running hot', room: 'Room to spare', unknown: 'Not measured' } as const;

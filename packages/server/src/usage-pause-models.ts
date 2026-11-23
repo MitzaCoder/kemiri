@@ -141,7 +141,7 @@ export class UsagePauseModels {
 				if (!claude) return response;
 				// The Anthropic SDK normally retries 429s before reporting them. This is not a transient throttle.
 				const headers = new Headers(response.headers);
-				headers.set("anthropic-should-retry", "false");
+				headers.set("x-should-retry", "false");
 				return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 			}, { preconnect: fetchRequest.preconnect }),
 			onResponse: async (response, requestedModel) => {

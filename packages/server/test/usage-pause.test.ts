@@ -1,6 +1,7 @@
 import { expect, it } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai";
+import { createModels, InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { createHarnessModels } from "../src/models.ts";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -113,6 +114,37 @@ it.each([false, true])("waits before one retry on a provider denial (second deni
 		expect(answer.stopReason).toBe(failAgain ? "error" : "stop");
 		if (failAgain) expect(answer.errorMessage).toBe("ChatGPT subscription allowance exhausted.");
 		expect(faux.state.callCount).toBe(2);
+	} finally { gate.close(); await rm(dataDir, { recursive: true, force: true }); }
+});
+
+it("takes a confirmed Claude 429 out of SDK retries until its reset, without waiting on a network deadline", async () => {
+	const dataDir = await mkdtemp(join(tmpdir(), "usage-pause-"));
+	const clock = fakeClock();
+	const gate = await UsagePauseGate.open({ dataDir, ...clock });
+	try {
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("anthropic", async () => ({ type: "oauth", access: "example-access", refresh: "example-refresh", expires: Date.now() + 3_600_000 }));
+		const models = createHarnessModels({ credentials });
+		const model = models.getModels("anthropic")[0]!;
+		const wrapped = new UsagePauseModels({ gate, label: () => "Claude", isSubscriptionLogin: async () => true, now: clock.now }).wrap(models);
+		let sent = 0;
+		const transport = Object.assign(async () => {
+			sent++;
+			return Response.json({ type: "error", error: { type: "rate_limit_error", message: "Allowance exhausted" } }, { status: 429, headers: {
+				"anthropic-ratelimit-unified-status": "rejected",
+				"anthropic-ratelimit-unified-reset": String((sent === 1 ? RESET : RESET + 3_600_000) / 1_000),
+			} });
+		}, { preconnect: fetch.preconnect });
+		const response = wrapped.completeSimple(model, { messages: [{ role: "user", content: "Write a short greeting", timestamp: START }] }, {
+			fetch: transport, maxRetries: 2, timeoutMs: 25,
+		});
+		await waitFor(() => gate.isPaused("anthropic"));
+		await Bun.sleep(55);
+		expect(sent).toBe(1);
+		expect(gate.state()[0]?.until).toBe(iso(RESET + USAGE_RESET_MARGIN_MS));
+		clock.advanceTo(RESET + USAGE_RESET_MARGIN_MS);
+		expect((await response).errorMessage).toBe("Claude subscription allowance exhausted.");
+		expect(sent).toBe(2);
 	} finally { gate.close(); await rm(dataDir, { recursive: true, force: true }); }
 });
 
