@@ -28,7 +28,10 @@ class HarnessNotificationRegistrationRpc(private val client: HarnessClient) : No
 
 /** An older backend cannot validate the new kind when registering or syncing push preferences. */
 internal fun NotificationPreferences.forBackend(connection: ConnectionState): NotificationPreferences =
-    if (connection.supports("in-app-alerts")) this else copy(kinds = kinds.filterNot { it == "coordinator_failed" })
+    copy(kinds = kinds.filter { kind ->
+        (kind != "coordinator_failed" || connection.supports("in-app-alerts")) &&
+            (kind != "task_steps" || connection.supports("task-step-alerts"))
+    })
 
 /** Off is exactly the existing FCM registration branch. Relay selection is exclusive and cannot fall back on failure. */
 suspend fun syncNotificationRegistration(settings: NotificationSettings, connection: ConnectionState,

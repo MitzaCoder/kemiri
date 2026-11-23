@@ -21,6 +21,7 @@ import {
 	DEFAULT_NOTIFICATION_KINDS,
 	NOTIFICATION_FAILURE_KINDS,
 	NOTIFICATION_HOLD_MS,
+	NOTIFICATION_KINDS,
 	type AuthLogin,
 	type DeployStatus,
 	type NotificationAlert,
@@ -243,23 +244,7 @@ function transportOf(device: Pick<StoredDevice, "fcmToken">): NotificationTransp
 }
 
 /** The kinds a stored preference may name; anything else in the file is dropped. */
-const STORED_KINDS: ReadonlySet<string> = new Set([
-	"reply",
-	"worker_report",
-	"worker_failed",
-	"schedule_done",
-	"schedule_problem",
-	"deploy_problem",
-	"login_prompt",
-	"compaction_failed",
-	"maintenance_failed",
-	"board_question",
-	"task_review",
-	"thread_finished",
-	"thread_failed",
-	"work_finished",
-	"disk_low",
-]);
+const STORED_KINDS: ReadonlySet<string> = new Set(NOTIFICATION_KINDS);
 
 function parseSubscription(raw: unknown): PushSubscription | undefined {
 	if (!isRecord(raw) || typeof raw.endpoint !== "string" || raw.endpoint.length === 0) return undefined;
@@ -1036,6 +1021,28 @@ export function deployProblemNotification(deploy: DeployStatus | null): Notifica
 	};
 }
 
+/** A project's observer reported a failed attempt, independent of this backend's own deploy. */
+export function projectDeployProblemNotification(input: {
+	projectId: string;
+	projectName: string;
+	attemptKey: string;
+	taskId?: string;
+	threadId?: string;
+	rolledBack: boolean;
+	summary: string;
+}): NotificationEvent {
+	return {
+		kind: "deploy_problem",
+		title: `${input.rolledBack ? "Deploy rolled back" : "Deploy failed"} · ${input.projectName}`,
+		body: notificationLine(input.summary),
+		projectId: input.projectId,
+		...(input.taskId === undefined ? {} : { taskId: input.taskId }),
+		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+		tag: `project-deploy:${input.projectId}`,
+		key: `project-deploy:${input.projectId}:${input.attemptKey}`,
+	};
+}
+
 /** A provider login waits for an answer that only the user can give. */
 export function loginPromptNotification(login: AuthLogin): NotificationEvent | undefined {
 	const prompt = login.prompt;
@@ -1134,6 +1141,29 @@ export function taskReviewNotification(input: {
 		taskRevision: input.revision,
 		tag: `task-review:${input.projectId}:${input.taskId}`,
 		key: `task-review:${input.projectId}:${input.taskId}@${input.revision}`,
+	};
+}
+
+/** A task has new steps for the owner. Keep commands and step text on the task itself. */
+export function taskStepsNotification(input: {
+	projectId: string;
+	projectName: string;
+	taskId: string;
+	title: string;
+	revision: number;
+	stepsVersion: number;
+	threadId: string;
+}): NotificationEvent {
+	return {
+		kind: "task_steps",
+		title: `Your steps · ${input.projectName}`,
+		body: notificationLine(`${input.taskId} ${input.title}`),
+		projectId: input.projectId,
+		taskId: input.taskId,
+		threadId: input.threadId,
+		taskRevision: input.revision,
+		tag: `task-steps:${input.projectId}:${input.taskId}`,
+		key: `task-steps:${input.projectId}:${input.taskId}@${input.stepsVersion}`,
 	};
 }
 
@@ -1403,8 +1433,18 @@ export class Notifier {
 
 	/** Fire and forget: the caller's work must never wait for, or fail with, a push. */
 	notify(event: NotificationEvent): void {
-		const run = this.deliver(event).catch((error: unknown) => {
-			this.#log(`notifications: ${event.kind} could not be sent: ${errorMessage(error)}`);
+		this.#trackDelivery(this.deliver(event), event.kind);
+	}
+
+	/** Await admission into the stream or hold, but never wait for an OS push service. */
+	async queue(event: NotificationEvent): Promise<void> {
+		const admitted = await this.#admit(event);
+		if ("event" in admitted) this.#trackDelivery(this.#deliverNow(admitted.event, admitted.at), event.kind);
+	}
+
+	#trackDelivery(delivery: Promise<unknown>, kind: NotificationEvent["kind"]): void {
+		const run = delivery.catch((error: unknown) => {
+			this.#log(`notifications: ${kind} could not be sent: ${errorMessage(error)}`);
 		});
 		this.#pending.add(run);
 		void run.finally(() => this.#pending.delete(run));
@@ -1416,6 +1456,11 @@ export class Notifier {
 	 * it. The key is claimed first either way, so a dropped event never comes back.
 	 */
 	async deliver(event: NotificationEvent): Promise<NotifyResult> {
+		const admitted = await this.#admit(event);
+		return "event" in admitted ? this.#deliverNow(admitted.event, admitted.at) : admitted;
+	}
+
+	async #admit(event: NotificationEvent): Promise<NotifyResult | { event: NotificationEvent; at: string }> {
 		if (event.key !== undefined && !this.#state.claim(event.key)) return { skipped: "duplicate", deliveries: [] };
 		// An archived project is silent. The key was claimed above, so nothing replays when it comes back.
 		if (
@@ -1432,7 +1477,7 @@ export class Notifier {
 			const key = event.key ?? crypto.randomUUID();
 			event = { ...event, key };
 			const payload = notificationPayload(inApp, event, at.toISOString());
-			if (kind === "board_question" || kind === "task_review") this.resolveAlerts(alert => alert.tag === payload.tag);
+			if (kind === "board_question" || kind === "task_review" || kind === "task_steps") this.resolveAlerts(alert => alert.tag === payload.tag);
 			const alert = inApp.store.append({
 				...payload, ...event.question, kind, key,
 				...(event.alertTaskId == null ? {} : { taskId: event.alertTaskId }),
@@ -1446,7 +1491,7 @@ export class Notifier {
 				event, at: at.toISOString(), dueAt: at.getTime() + this.#holdMs });
 			return { skipped: "held", deliveries: [] };
 		}
-		return await this.#deliverNow(event, at.toISOString());
+		return { event, at: at.toISOString() };
 	}
 
 	/** Some device would be pushed this event now; with none, holding it would only keep a record nobody reads. */
@@ -1520,10 +1565,10 @@ export class Notifier {
 		return page;
 	}
 
-	resolveAlerts(matches: (alert: NotificationAlert) => boolean): void {
+	resolveAlerts(matches: (alert: NotificationAlert) => boolean): Promise<void> | undefined {
 		const inApp = this.#inAppAlerts;
 		const resolution = inApp?.store.resolve(matches, this.#now());
-		if (inApp && resolution) void this.#publishAlertEvent(inApp, () => inApp.resolved(resolution));
+		if (inApp && resolution) return this.#publishAlertEvent(inApp, () => inApp.resolved(resolution));
 	}
 
 	/** Send in sequence order after the recent file write; a restart must not reuse a published sequence. */
@@ -1583,7 +1628,7 @@ export class Notifier {
 	/** Report the last deploy attempt when it failed or rolled back, once per attempt, across restarts too. */
 	async deployProblem(deploy: DeployStatus | null): Promise<void> {
 		if (deploy?.state === "ok") {
-			this.resolveAlerts(alert => alert.kind === "deploy_problem");
+			await this.resolveAlerts(alert => alert.kind === "deploy_problem" && alert.projectId === null);
 			return;
 		}
 		const event = deployProblemNotification(deploy);

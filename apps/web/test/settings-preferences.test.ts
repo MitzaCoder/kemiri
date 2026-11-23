@@ -6,7 +6,7 @@ import { COLOR_SCHEME_STORAGE_KEY, isDarkScheme, parseColorScheme } from '../src
 
 test('notification presets use exact sets and individual alerts cover every kind once', () => {
 	expect(NOTIFICATION_PRESETS.important).toEqual(DEFAULT_NOTIFICATION_KINDS);
-	expect(NOTIFICATION_PRESETS.needed).toEqual(['login_prompt', 'board_question', 'task_review', ...NOTIFICATION_FAILURE_KINDS]);
+	expect(NOTIFICATION_PRESETS.needed).toEqual(['login_prompt', 'board_question', 'task_review', 'task_steps', ...NOTIFICATION_FAILURE_KINDS]);
 	expect([...NOTIFICATION_PRESETS.everything].sort()).toEqual([...NOTIFICATION_KINDS].sort());
 	expect(NOTIFICATION_ALERT_GROUPS.flatMap(({ kinds }) => [...kinds]).sort()).toEqual([...NOTIFICATION_KINDS].sort());
 	for (const preset of ['important', 'needed', 'everything'] as const) {

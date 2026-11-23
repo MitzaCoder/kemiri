@@ -24,6 +24,7 @@ val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
     NotificationKindInfo("work_finished", "Work finished", "One notification when a project goes quiet.", false),
     NotificationKindInfo("disk_low", "Low disk space", "A computer's disk is running low.", true),
     NotificationKindInfo("task_review", "Tasks ready for review", "A task is ready for you to look at; opens the task.", false),
+    NotificationKindInfo("task_steps", "Tasks with steps for me", "A task has manual steps for you to do; opens the task.", false),
 )
 
 val NOTIFICATION_KINDS: List<String> = NOTIFICATION_KIND_INFO.map { it.kind }
@@ -41,6 +42,7 @@ private val DEFAULT_KINDS_BY_VERSION: List<List<String>> = listOf(
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "work_finished", "disk_low"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "work_finished", "disk_low", "task_review"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review"),
+    listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
 )
 
 /** The defaults version this build writes. */
@@ -76,7 +78,7 @@ fun kindsSummary(kinds: List<String>): String = when (kinds.size) {
 }
 
 internal val NOTIFICATION_ALERT_GROUPS = linkedMapOf(
-    "Needs you" to listOf("login_prompt", "board_question", "task_review"),
+    "Needs you" to listOf("login_prompt", "board_question", "task_review", "task_steps"),
     "Work finished" to listOf("reply", "worker_report", "work_finished", "thread_finished", "schedule_done"),
     "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "coordinator_failed", "disk_low", "compaction_failed", "maintenance_failed"),
 )

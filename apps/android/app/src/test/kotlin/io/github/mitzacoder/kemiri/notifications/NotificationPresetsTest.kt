@@ -15,7 +15,7 @@ class NotificationPresetsTest {
         val all = names(protocol.substringAfter("export const NotificationKindSchema = Type.Union(").substringBefore("],"))
         val failures = protocolList("NOTIFICATION_FAILURE_KINDS")
         assertEquals(protocolList("DEFAULT_NOTIFICATION_KINDS"), NotificationPreset.Important.kinds?.toSet())
-        assertEquals(failures + setOf("login_prompt", "board_question", "task_review"), NotificationPreset.Needed.kinds?.toSet())
+        assertEquals(failures + setOf("login_prompt", "board_question", "task_review", "task_steps"), NotificationPreset.Needed.kinds?.toSet())
         assertEquals(all, NotificationPreset.Everything.kinds?.toSet())
         assertEquals(failures, NOTIFICATION_ALERT_GROUPS.getValue("Problems").toSet())
         val individual = NOTIFICATION_ALERT_GROUPS.values.flatten()

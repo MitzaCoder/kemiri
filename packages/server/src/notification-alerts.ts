@@ -23,6 +23,7 @@ const LEVEL_BY_KIND = {
 	work_finished: "info",
 	disk_low: "urgent",
 	task_review: "important",
+	task_steps: "important",
 } satisfies Record<NotificationKind, NotificationAlertLevel>;
 
 export function notificationAlertLevel(kind: NotificationKind, warning?: boolean): NotificationAlertLevel {

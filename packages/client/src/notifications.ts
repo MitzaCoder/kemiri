@@ -7,34 +7,13 @@ import {
 	DEFAULT_NOTIFICATION_KINDS,
 	MAIN_THREAD_ID,
 	NOTIFICATION_FAILURE_KINDS,
+	NOTIFICATION_KINDS,
 	type NotificationKind,
 	type NotificationPayload,
 	type NotificationPreferences,
 } from "@kemiri/protocol";
 
-/**
- * Every kind the protocol declares, in its order. The protocol exports the type and the two lists but not the schema, so
- * this is the one copy the app keeps; it is typed against `NotificationKind`, and a kind added to the protocol needs a
- * row here (and a label in the app) to be selectable at all.
- */
-export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
-	"reply",
-	"worker_report",
-	"worker_failed",
-	"schedule_done",
-	"schedule_problem",
-	"deploy_problem",
-	"login_prompt",
-	"compaction_failed",
-	"maintenance_failed",
-	"board_question",
-	"thread_finished",
-	"thread_failed",
-	"coordinator_failed",
-	"work_finished",
-	"disk_low",
-	"task_review",
-];
+export { NOTIFICATION_KINDS };
 
 /**
  * What a new device started with, by defaults version (the index). A device that still has exactly one version's kinds
@@ -68,6 +47,8 @@ const DEFAULT_KINDS_BY_VERSION: readonly (readonly NotificationKind[])[] = [
 	],
 	["reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question",
 		"thread_finished", "thread_failed", "work_finished", "disk_low", "task_review"],
+	["reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question",
+		"thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review"],
 	[...DEFAULT_NOTIFICATION_KINDS],
 ];
 
@@ -462,9 +443,11 @@ export function preferencesForBackend(
 	settings: DeviceNotificationSettings,
 	backendKey: string,
 	supportsInAppAlerts = true,
+	supportsTaskStepAlerts = true,
 ): NotificationPreferences {
 	return {
-		kinds: settings.kinds.filter(kind => supportsInAppAlerts || kind !== "coordinator_failed"),
+		kinds: settings.kinds.filter(kind =>
+			(supportsInAppAlerts || kind !== "coordinator_failed") && (supportsTaskStepAlerts || kind !== "task_steps")),
 		mutedProjects: [...(settings.mutedProjects[backendKey] ?? [])],
 		quietHours: settings.quietHours === null ? null : { ...settings.quietHours },
 	};

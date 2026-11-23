@@ -36,7 +36,7 @@ export function notificationPreset(kinds: readonly NotificationKind[]): keyof ty
 }
 
 export const NOTIFICATION_ALERT_GROUPS = [
- { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review'] },
+ { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review', 'task_steps'] },
  { label: 'Work finished', kinds: ['reply', 'worker_report', 'work_finished', 'thread_finished', 'schedule_done'] },
  { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'coordinator_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
 ] as const satisfies readonly { label: string; kinds: readonly NotificationKind[] }[];
@@ -152,6 +152,13 @@ export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICAT
 				label: "Low disk space",
 				description: "A backend's disk is running low.",
 				failure: true,
+			};
+		case "task_steps":
+			return {
+				kind,
+				label: "Tasks with steps for me",
+				description: "A task has manual steps for you to do; opens the task.",
+				failure: false,
 			};
 		case "task_review":
 			return {

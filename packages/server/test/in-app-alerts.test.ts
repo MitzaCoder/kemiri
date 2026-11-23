@@ -1,11 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import { createECDH, randomBytes } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { NOTIFICATION_HOLD_MS, type NotificationsAlertEvent } from "@kemiri/protocol";
 import { NOTIFICATION_RECENT_FILE_NAME } from "../src/notification-alerts.ts";
-import { httpEnroll } from "./device-auth-test-support.ts";
+import { coordinatorWriter, type BoardService } from "../src/board.ts";
+import type { DeployTarget, TaskDeployFact } from "../src/task-deploys.ts";
+import { httpEnroll, until } from "./device-auth-test-support.ts";
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
 
 const DEVICE = "fixture-device";
@@ -307,4 +310,107 @@ test("resolves failed workers when their coordinator sends new work or forgets t
 	const { alert: forget } = await alertFor(client, ({ alert }) => alert.kind === "worker_failed" && alert.workerId === "forget-worker");
 	await submit(client, projectId, "Forget the failed worker.", "worker-forget");
 	await resolved(client, forget.tag, forget.seq);
+});
+
+
+const fixtureTask = {
+	title: "Check the recipe", description: "", acceptance: null, status: "todo" as const,
+	blockedBy: [], blockedReason: null, writeScopes: [],
+};
+
+test("steps notify once per changed report version and resolve when cleared or closed", async () => {
+	const now = Date.now();
+	const setup = await createSetup({ terminals: false, now: () => now });
+	const client = await alertClient(setup);
+	const projectId = await projectOf(client, setup);
+	const { runtime } = await setup.server.manager.open(projectId);
+	const task = await runtime.board.saveTask({ task: fixtureTask }, "harness");
+	const commit: Parameters<BoardService["writeReport"]>[0] = change => runtime.harness.commit(change, BACKGROUND_CONTEXT);
+	const write = (key: string, steps: string) => runtime.board.writeReport(commit, {
+		taskId: task.id, sections: { steps, results: key }, by: coordinatorWriter("main"),
+	}, key);
+	const written = await write("first", "1. Approve the fixture release.");
+	expect(written.report.steps).toBe("1. Approve the fixture release.");
+	const { alert: first } = await alertFor(client, ({ alert }) => alert.kind === "task_steps");
+	expect(first).toMatchObject({ level: "important", taskId: task.id, projectId, title: "Your steps · project", body: `${task.id} ${task.title}` });
+	await write("unchanged-steps", "1. Approve the fixture release.");
+	expect((await recent(client, first.seq)).events).toEqual([]);
+	await write("clear", "");
+	await resolved(client, first.tag, first.seq);
+	await write("new-version", "1. Approve the fixture release.");
+	const { alert: again } = await alertFor(client, ({ alert }) => alert.tag === first.tag && alert.seq > first.seq);
+	expect(again.key).not.toBe(first.key); // The clock did not move; a cleared and rewritten list is a fresh version.
+	expect(await client.request({ type: "board.task.save", projectId, taskId: task.id, expectedRevision: task.revision,
+		task: { ...fixtureTask, status: "dropped" } })).toMatchObject({ type: "board.task.save" });
+	await resolved(client, again.tag, again.seq);
+	for (const alert of [first, again]) expect((await recent(client)).events).toContainEqual({ type: "alert", alert, resolved: true });
+});
+
+test("review covers steps written in the same coordinator turn, not later steps on a task in review", async () => {
+	const setup = await createSetup({ terminals: false });
+	const client = await alertClient(setup);
+	const projectId = await projectOf(client, setup, true);
+	setup.faux.setResponses([
+		board({ action: "add_task", title: "First recipe" }),
+		board({ action: "add_task", title: "Second recipe" }),
+		board({ action: "write_report", id: "T1", steps: "1. Check the recipe." }),
+		board({ action: "update_task", id: "T1", expectedRevision: 1, status: "review" }),
+		board({ action: "update_task", id: "T2", expectedRevision: 1, status: "review" }),
+		board({ action: "write_report", id: "T2", steps: "1. Check the instructions." }),
+		fauxAssistantMessage("Both recipes are ready."),
+		board({ action: "write_report", id: "T1", steps: "1. Approve the new wording." }),
+		fauxAssistantMessage("The first recipe has a new step."),
+	]);
+	await submit(client, projectId, "Prepare both recipes.", "recipes");
+	await alertFor(client, ({ alert }) => alert.kind === "task_review" && alert.taskId === "T1");
+	await alertFor(client, ({ alert }) => alert.kind === "task_review" && alert.taskId === "T2");
+	await alertFor(client, ({ alert }) => alert.kind === "reply" && alert.body === "Both recipes are ready.");
+	const { runtime } = await setup.server.manager.open(projectId);
+	await until(async () => Object.keys((await runtime.board.state()).taskStepsNotices ?? {}).length === 0);
+	expect((await recent(client)).events.filter(entry => entry.type === "alert" && entry.alert.kind === "task_steps")).toEqual([]);
+	await submit(client, projectId, "Add a new manual step.", "steps");
+	expect(await alertFor(client, ({ alert }) => alert.kind === "task_steps")).toMatchObject({ alert: { taskId: "T1", level: "important" } });
+});
+
+test("a project deploy reports once per attempt and only a current success of that project resolves it", async () => {
+	const setup = await createSetup({ terminals: false });
+	const client = await alertClient(setup);
+	const projectId = await projectOf(client, setup);
+	const { runtime } = await setup.server.manager.open(projectId);
+	const secondDir = join(setup.root, "second-project");
+	await mkdir(secondDir);
+	const second = await setup.server.manager.store.add(secondDir);
+	const { runtime: other } = await setup.server.manager.open(second.id);
+	const task = await runtime.board.saveTask({ task: fixtureTask }, "harness");
+	const now = new Date().toISOString();
+	const outcome = (sequence: number, order: number, attemptId: string, one: DeployTarget["state"], two: DeployTarget["state"]): TaskDeployFact => ({
+		scope: "fixture-feed", taskIds: [task.id], order, attemptId, sequence,
+		intendedCommit: "a".repeat(40), expectedTargets: ["one", "two"], observedAt: now,
+		targets: { one: { state: one }, two: { state: two } },
+	});
+	await runtime.board.recordDeployAttempt(outcome(1, 1, "first", "running", "pending"));
+	await runtime.board.recordDeployAttempt(outcome(2, 2, "second", "failed", "pending"));
+	const { alert } = await alertFor(client, ({ alert }) => alert.kind === "deploy_problem" && alert.projectId === projectId);
+	expect(alert).toMatchObject({ projectId, taskId: task.id, level: "urgent", body: "Deploy failed on 1 of 2 targets" });
+	await runtime.board.recordDeployAttempt(outcome(2, 2, "second", "failed", "pending"));
+	await runtime.board.recordDeployAttempt(outcome(3, 2, "second", "rolled_back", "ok"));
+	await runtime.board.recordDeployAttempt(outcome(4, 1, "first", "ok", "ok")); // Late completion of an older attempt.
+	await runtime.board.recordDeployAttempt(outcome(5, 3, "third", "ok", "pending"));
+	await other.board.recordDeployAttempt(outcome(1, 1, "other", "ok", "ok"));
+	const backend = { commit: "abcdef", description: "Backend fixture", at: now };
+	await setup.server.notifications.deployProblem({ ...backend, state: "failed", message: "Example failure" });
+	const { alert: backendAlert } = await alertFor(client, ({ alert }) => alert.kind === "deploy_problem" && alert.projectId === null);
+	await runtime.board.recordDeployAttempt(outcome(6, 3, "third", "ok", "ok"));
+	const recovery = await resolved(client, alert.tag, alert.seq);
+	expect(recovery.tags).toEqual([alert.tag]);
+	expect((await recent(client)).events).toContainEqual({ type: "alert", alert: backendAlert, resolved: false });
+	expect((await recent(client, alert.seq)).events.filter(entry => entry.type === "alert" && entry.alert.projectId === projectId)).toEqual([]);
+	await runtime.board.recordDeployAttempt(outcome(7, 2, "second", "failed", "pending")); // No stale re-alert after recovery.
+	await runtime.board.recordDeployAttempt(outcome(8, 8, "fourth", "rolled_back", "ok"));
+	const { alert: next } = await alertFor(client, ({ alert: newer }) => newer.tag === alert.tag && newer.seq > recovery.seq);
+	expect(next.title).toBe("Deploy rolled back · project");
+	expect(next.key).not.toBe(alert.key);
+	await setup.server.notifications.deployProblem({ ...backend, state: "ok", message: null });
+	await resolved(client, backendAlert.tag, backendAlert.seq);
+	expect((await recent(client)).events).toContainEqual({ type: "alert", alert: next, resolved: false });
 });

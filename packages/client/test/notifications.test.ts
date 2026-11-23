@@ -377,6 +377,7 @@ describe("notification payload to URL", () => {
 			"work_finished",
 			"disk_low",
 			"task_review",
+			"task_steps",
 		];
 		expect([...NOTIFICATION_KINDS].sort()).toEqual(declared.sort());
 		for (const kind of DEFAULT_NOTIFICATION_KINDS) expect(NOTIFICATION_KINDS).toContain(kind);
@@ -609,8 +610,14 @@ describe("device settings", () => {
 			"disk_low",
 		] as const;
 		expect(migrateDefaultKinds(previous, 3)).toContain("task_review");
-		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(5);
+		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(6);
 		expect(migrateDefaultKinds([...previous, "task_review"], 4)).toContain("coordinator_failed");
+		const versionFive = [...previous, "task_review", "coordinator_failed"] as const;
+		expect(migrateDefaultKinds(versionFive, 5)).toContain("task_steps");
+		expect(migrateDefaultKinds(["reply", "task_review"], 5)).toEqual(["reply", "task_review"]);
+		const defaults = { kinds: [...DEFAULT_NOTIFICATION_KINDS], mutedProjects: {}, quietHours: null } as DeviceNotificationSettings;
+		expect(preferencesForBackend(defaults, "fixture", true, false).kinds).not.toContain("task_steps");
+		expect(preferencesForBackend(defaults, "fixture", true, false).kinds).toContain("coordinator_failed");
 		const chosen = previous.filter((kind) => kind !== "reply");
 		expect(migrateDefaultKinds(chosen, 3)).toEqual([...chosen]);
 	});

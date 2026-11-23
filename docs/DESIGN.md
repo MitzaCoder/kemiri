@@ -3299,7 +3299,12 @@ is where they talk.
   clears it once the steps are done. Results and Next rewrites leave it alone. `show_task` puts it above Results and
   Next; snapshots save the text. The live report carries `stepsWrittenAt` for the current text. Steps have no staleness
   tracking and writing them alone does not invalidate Results or Next. Clients gate the section on server
-  `hello.features` containing `task-steps`.
+  `hello.features` containing `task-steps`. A new version of non-empty steps on an open task emits an important
+  `task_steps` alert and defaults on for push. The report write queues the version in the board transaction.
+  Writes from a coordinator turn wait for that turn to end, so a review notice in either order covers the
+  same steps. An unchanged rewrite is silent. Clearing the steps or closing the task resolves the alert;
+  Needs you already counts steps separately from reviews. The `task-step-alerts` capability keeps this push
+  preference out of requests to servers that do not understand it.
 - **Who writes.** Workers use `task_progress` on the task they were spawned for. They can set a Now phase, add
   Results and record checks. `task_progress.addResultBlocks` appends one to eight Results blocks instead of
   `addResult`; native, code-mode and the scoped official-agent MCP bridge share one schema and writer.
@@ -3688,7 +3693,10 @@ history: bootstrap the journal once before relying on task fan-out. Attempts can
 sets or intended commit. Verified unchanged means the intended revision is covered, while the older
 serving commit remains visible. Rollback restores the serving baseline, not the attempted revision.
 Offline/pending never means ok. A late older attempt may update its own history but not newer Now
-or target success cursors.
+or target success cursors. The newest attempt's failure or rollback also emits one urgent `deploy_problem`
+alert per attempt. It links to an attributed task when there is one, or the project otherwise. Snapshots
+of the same attempt use one dedupe key. Only an all-target success at or after that attempt resolves the
+project's deploy alerts. Project and backend-wide deploy alerts do not resolve each other.
 
 One board transaction fans each snapshot to every attributed task, including done/dropped/archived,
 without reopening. A persistent per-feed sequence guard deduplicates outbox replay independently of
@@ -7356,8 +7364,9 @@ connection that interacted within 30 minutes gets `sound: true`. This selects a 
   `backendEpoch`. Board questions include the question ID and revision, choices, and warning and approval flags.
   Use the receiving client's configured backend key for links; the alert's backend key is the server identity.
 - **Resolved:** `notifications.resolved { tags, seq, backendEpoch, at }` closes alerts on question settlement or
-  replacement, leaving task review, worker retry or forget, a thread or coordinator recovering, and a successful
-  deploy after a deploy problem. A new alert under the same tag is still open.
+  replacement, leaving task review, clearing manual steps or closing their task, worker retry or forget,
+  a thread or coordinator recovering, and a successful deploy after a deploy problem in the same scope.
+  A new alert under the same tag is still open.
 - **Catch-up:** `notifications.recent { after }` returns `{ backendEpoch, latestSeq, events }`, ordered by sequence and
   without sound. Alert entries have a resolved flag and resolution entries carry their tags. The separate
   `notifications/recent.json` retains at most 200 entries and seven days. Its epoch survives restart and changes

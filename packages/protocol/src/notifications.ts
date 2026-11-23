@@ -37,13 +37,15 @@ export const NotificationKindSchema = Type.Union(
 		Type.Literal("work_finished"),
 		Type.Literal("disk_low"),
 		Type.Literal("task_review"),
+		Type.Literal("task_steps"),
 	],
 	{
 		description:
-			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a deploy failed or rolled back. login_prompt: a provider login waits for an answer. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low.",
+			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a backend or project deploy failed or rolled back. login_prompt: a provider login waits for an answer. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low. task_review: a task is ready for review. task_steps: a task has new manual steps for the owner.",
 	},
 );
 export type NotificationKind = Static<typeof NotificationKindSchema>;
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = NotificationKindSchema.anyOf.map(kind => kind.const);
 
 /** The kinds that count as failures, which quiet hours may still let through. */
 export const NOTIFICATION_FAILURE_KINDS: readonly NotificationKind[] = [
@@ -71,13 +73,14 @@ export const DEFAULT_NOTIFICATION_KINDS: readonly NotificationKind[] = [
 	"work_finished",
 	"disk_low",
 	"task_review",
+	"task_steps",
 ];
 
 /** Device presets are exact sets, shared across clients. */
 export const NOTIFICATION_PRESETS = {
 	important: DEFAULT_NOTIFICATION_KINDS,
-	needed: ["login_prompt", "board_question", "task_review", ...NOTIFICATION_FAILURE_KINDS],
-	everything: NotificationKindSchema.anyOf.map((kind) => kind.const),
+	needed: ["login_prompt", "board_question", "task_review", "task_steps", ...NOTIFICATION_FAILURE_KINDS],
+	everything: NOTIFICATION_KINDS,
 } satisfies Record<string, readonly NotificationKind[]>;
 
 const TimeOfDay = Type.String({ pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: '"HH:MM", 24-hour.' });

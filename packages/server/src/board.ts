@@ -75,7 +75,7 @@ import { createHash } from "node:crypto";
 import { type Static, Type } from "typebox";
 import type { Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
-import { type Notifier, boardQuestionNotification, taskReviewNotification } from "./notifications.ts";
+import { type Notifier, boardQuestionNotification, projectDeployProblemNotification, taskReviewNotification, taskStepsNotification } from "./notifications.ts";
 import type { Project } from "./projects.ts";
 
 /** How long a done or dropped task stays in the coordinator's view. */
@@ -97,6 +97,21 @@ const SUMMARY_NOW_CHARS = 200;
 
 type ChatDetailWrite = { chars: number; feedbackIds?: string[]; questionIds?: string[] };
 type ChatDetailRun = { conversationId: ConversationId; first: number; last: number; ownerInputs: string[] | undefined; reply: string };
+
+type TaskNoticeTurn = { conversationId: number; first: number };
+type TaskStepsNotice = { version: number; turn?: TaskNoticeTurn };
+
+function taskNoticeTurn(conversationId: number, live: Readonly<LiveState> | null | undefined): TaskNoticeTurn | undefined {
+	return live?.run?.first !== undefined && !live.run.afterRun ? { conversationId, first: live.run.first } : undefined;
+}
+
+function sameTaskNoticeTurn(left: TaskNoticeTurn | undefined, right: TaskNoticeTurn | undefined): boolean {
+	return left !== undefined && right !== undefined && left.conversationId === right.conversationId && left.first === right.first;
+}
+
+function hasOpenTaskSteps(task: BoardTask): boolean {
+	return task.status !== "done" && task.status !== "dropped" && !task.archived && !!task.report.steps?.trim();
+}
 
 export type BoardState = {
 	taskFreshnessEnabled?: boolean;
@@ -122,6 +137,10 @@ export type BoardState = {
 	lastReportSweep?: number;
 	deployFeedConfigured?: boolean;
 	deploySequences?: Record<string, number>;
+	latestProjectDeployAttempt?: { scope: string; order: number };
+	/** Await the writing turn's end so its review notification can cover the same steps. */
+	taskStepsNotices?: Record<string, TaskStepsNotice>;
+	taskReviewNoticeTurns?: Record<string, TaskNoticeTurn>;
 	latestTaskDeploy?: Record<string, { scope: string; order: number; attemptId: string; outcome?: "live" | "pending" | "failed" }>;
 	reportAudit?: ReportAuditRecord;
 	tasks: BoardTask[];
@@ -2590,18 +2609,41 @@ export class BoardService {
 
 	/** One transaction/publication for the entire attempt, including closed and archived tasks. */
 	async recordDeployAttempt(fact: TaskDeployFact): Promise<void> {
-		await this.#options.harness.commit(async tx => {
+		const latest = await this.#options.harness.commit(async tx => {
 			const state = await openBoard(tx, this.coordinator.id);
-			if ((state.deploySequences?.[fact.scope] ?? 0) >= fact.sequence) return;
-			for (const taskId of fact.taskIds) {
-				const task = state.tasks.find(task => task.id === taskId);
-				if (!task) continue;
-				const history = await openTaskHistory(tx, this.coordinator.id, taskId);
-				applyTaskDeploy(state, history, task, fact);
+			const lastSequence = state.deploySequences?.[fact.scope] ?? 0;
+			if (lastSequence > fact.sequence) return undefined;
+			const attributed = new Set(fact.taskIds);
+			const tasks = state.tasks.filter(task => attributed.has(task.id));
+			if (lastSequence < fact.sequence) {
+				for (const task of tasks) {
+					const history = await openTaskHistory(tx, this.coordinator.id, task.id);
+					applyTaskDeploy(state, history, task, fact);
+				}
+				state.deploySequences ??= {};
+				state.deploySequences[fact.scope] = fact.sequence;
 			}
-			state.deploySequences ??= {};
-			state.deploySequences[fact.scope] = fact.sequence;
+			const previous = state.latestProjectDeployAttempt;
+			if (previous?.scope === fact.scope && previous.order > fact.order) return undefined;
+			state.latestProjectDeployAttempt = { scope: fact.scope, order: fact.order };
+			// A replay of the feed outbox may already be projected on the board. Retry the notification too; its key dedupes it.
+			const task = tasks.find(task => task.status !== "done" && task.status !== "dropped") ?? tasks[0];
+			return task ? { taskId: task.id, ownerThreadId: task.ownerThreadId } : {};
 		}, BACKGROUND_CONTEXT);
+		const notifications = this.#options.notifications;
+		if (!latest || !notifications) return;
+		const project = this.#options.project();
+		const states = fact.expectedTargets.map(name => fact.targets[name]?.state);
+		if (states.every(state => state === "ok")) {
+			await notifications.resolveAlerts(alert => alert.kind === "deploy_problem" && alert.projectId === project.id);
+		} else if (states.some(state => state === "failed" || state === "rolled_back")) {
+			const attemptKey = createHash("sha256").update(JSON.stringify([fact.scope, fact.attemptId])).digest("hex");
+			await notifications.queue(projectDeployProblemNotification({
+				projectId: project.id, projectName: project.name, attemptKey,
+				...(latest.taskId === undefined ? {} : { taskId: latest.taskId, threadId: this.coordinatorId(latest.ownerThreadId) }),
+				rolledBack: states.includes("rolled_back"), summary: deploySummary(fact).text,
+			})).catch(error => this.#options.log(`project deploy notification: ${errorMessage(error)}`));
+		}
 	}
 
 	async configureDeployFeed(configured: boolean): Promise<void> {
@@ -2834,6 +2876,18 @@ export class BoardService {
 		const now = this.#iso();
 		const result = await change(state, now);
   repairTaskParts(state, now);
+		if (this.#options.notifications && by.author === "coordinator") {
+			const reviewed = state.tasks.filter(task => task.status === "review" && before.get(task.id) !== "review");
+			if (reviewed.length) {
+				const place = by.threadId && this.#options.coordinators?.placeOfThread(by.threadId);
+				const conversationId = (place ? place.conversationId : this.#mainId) as ConversationId;
+				const turn = taskNoticeTurn(conversationId, await tx.doc(LiveDoc, conversationId));
+				if (turn) {
+					state.taskReviewNoticeTurns ??= {};
+					for (const task of reviewed) state.taskReviewNoticeTurns[task.id] = turn;
+				}
+			}
+		}
   for (const task of state.tasks) if (before.get(task.id) !== task.status) {
    const tracking = activityTracking(state, task.id);
    if (tracking.status !== task.status) tracking.statusChanges = (tracking.statusChanges ?? 0) + 1;
@@ -2899,12 +2953,69 @@ export class BoardService {
 	): Promise<BoardTask> {
   const conversation = input.by.author === "coordinator" ? await this.#conversationOf(input.by.threadId) : undefined;
   const threadTitle = await this.#options.threadTitle?.(input.by.threadId ?? "main");
-  return commit(async tx => {
-   const at = this.#iso();
-   return writeReportIn(tx, this.#mainId, input, key, at, this.reportArtifactScope, conversation
-    ? () => inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, at, threadTitle)
-    : undefined);
-  });
+		const writesSteps = this.#options.notifications && (input.sections.steps !== undefined || input.blocks?.steps !== undefined);
+		const { task, sendWithoutTurn } = await commit(async tx => {
+			const at = this.#iso();
+			const state = writesSteps ? await openBoard(tx, this.#mainId) : undefined;
+			const before = state?.tasks.find(task => task.id === input.taskId)?.report.steps?.trim();
+			const task = await writeReportIn(tx, this.#mainId, input, key, at, this.reportArtifactScope, conversation
+				? () => inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, at, threadTitle)
+				: undefined);
+			if (!state || before === task.report.steps?.trim()) return { task, sendWithoutTurn: false };
+			if (!hasOpenTaskSteps(task)) {
+				if (state.taskStepsNotices) delete state.taskStepsNotices[task.id];
+				return { task, sendWithoutTurn: false };
+			}
+			const turn = conversation && taskNoticeTurn(conversation.id, await tx.doc(LiveDoc, conversation.id));
+			state.taskStepsNotices ??= {};
+			state.taskStepsNotices[task.id] = { version: task.report.revision, ...(turn ? { turn } : {}) };
+			return { task, sendWithoutTurn: turn === undefined };
+		});
+		if (sendWithoutTurn) await this.#deliverTaskStepsNotices();
+		return task;
+	}
+
+	/** Drain committed notices when their writing turn is no longer active, including on a resumed board. */
+	async #deliverTaskStepsNotices(conversationId?: number): Promise<void> {
+		const notifications = this.#options.notifications;
+		if (!notifications) return;
+		const state = await this.state();
+		if (!Object.values(state.taskStepsNotices ?? {}).some(notice => notice.turn?.conversationId === conversationId) &&
+			!Object.values(state.taskReviewNoticeTurns ?? {}).some(turn => turn.conversationId === conversationId)) return;
+		// Read run control and the queue in the same transaction: a new turn can start before its watch callback runs.
+		const { notices, reviews } = await this.#options.harness.commit(async tx => {
+			const current = await openBoard(tx, this.#mainId);
+			const activeTurn = conversationId === undefined ? undefined :
+				taskNoticeTurn(conversationId, await tx.doc(LiveDoc, conversationId as ConversationId));
+			const ready = (turn?: TaskNoticeTurn) => turn?.conversationId === conversationId && !sameTaskNoticeTurn(turn, activeTurn);
+			const notices = Object.entries(current.taskStepsNotices ?? {}).filter(([, notice]) => ready(notice.turn)).map(([taskId, notice]) => {
+				const task = current.tasks.find(row => row.id === taskId);
+				const eligible = task && hasOpenTaskSteps(task) && !sameTaskNoticeTurn(notice.turn, current.taskReviewNoticeTurns?.[taskId]);
+				return { taskId, version: notice.version, ...(eligible ? {
+					task: { title: task.title, revision: task.revision, ownerThreadId: task.ownerThreadId },
+				} : {}) };
+			});
+			const reviews = Object.entries(current.taskReviewNoticeTurns ?? {}).filter(([, turn]) => ready(turn));
+			return { notices, reviews: plain(reviews) };
+		}, BACKGROUND_CONTEXT);
+		if (!notices.length && !reviews.length) return;
+		const project = this.#options.project();
+		for (const { taskId, version, task } of notices) {
+			if (!task) continue;
+			await notifications.queue(taskStepsNotification({
+				projectId: project.id, projectName: project.name, taskId, title: task.title,
+				revision: task.revision, stepsVersion: version, threadId: this.coordinatorId(task.ownerThreadId),
+			})).catch(error => this.#options.log(`task steps notification: ${errorMessage(error)}`));
+		}
+		await this.#options.harness.commit(async tx => {
+			const current = await openBoard(tx, this.#mainId);
+			for (const { taskId, version } of notices) {
+				if (current.taskStepsNotices?.[taskId]?.version === version) delete current.taskStepsNotices[taskId];
+			}
+			for (const [taskId, turn] of reviews) {
+				if (current.taskReviewNoticeTurns && sameTaskNoticeTurn(current.taskReviewNoticeTurns[taskId], turn)) delete current.taskReviewNoticeTurns[taskId];
+			}
+		}, BACKGROUND_CONTEXT);
 	}
 
 	get reportArtifactScope(): ReportArtifactScope | undefined {
@@ -3272,6 +3383,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    signature = next;
    const latest = await this.#options.harness.snapshot(LiveDoc, conversationId as ConversationId, BACKGROUND_CONTEXT);
    await this.#updateTaskFocus(conversationId, threadId, latest);
+   await this.#deliverTaskStepsNotices(conversationId);
    if (latest?.runFailure) await this.endClarifications(threadId, new Map(), `clarification-failed:${conversationId}:${JSON.stringify(latest.runFailure)}`, true);
   };
   await update(watch.value);
@@ -3333,6 +3445,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		const watch = await this.#options.harness.watchDoc(BoardDoc, this.coordinator.id, BACKGROUND_CONTEXT);
 		if (watch === undefined) return async () => undefined;
 		const stops: (() => Promise<void>)[] = [];
+		await this.#deliverTaskStepsNotices();
   const attach = async (conversationId: number, threadId: string): Promise<void> => {
    await this.#reconcileWorkerRecords(conversationId, threadId);
    const stop = await this.#watchTaskFocus(conversationId, threadId);
@@ -3366,9 +3479,10 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
      return question === undefined || question.revision > revision ||
       (question.revision === revision && (question.status !== "open" || question.waitingOn === "agent"));
     }
-    if (alert.kind === "task_review") {
+    if (alert.kind === "task_review" || alert.kind === "task_steps") {
      const task = state.tasks.find(row => row.id === alert.taskId);
-     return task === undefined || (task.revision >= (alert.taskRevision ?? 0) && task.status !== "review");
+     return task === undefined || (task.revision >= (alert.taskRevision ?? 0) &&
+      (alert.kind === "task_review" ? task.status !== "review" : !hasOpenTaskSteps(task)));
     }
     return false;
    });
