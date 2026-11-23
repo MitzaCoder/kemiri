@@ -29,6 +29,7 @@
 		threads = [],
 		threadId,
 		coordinatorId,
+		questionId,
 		tasksView = false,
 		taskHref,
 		onopenboard
@@ -39,6 +40,7 @@
 		/** Pin only this background job's questions; undefined on main, which pins every thread's. */
 		threadId?: string;
 		coordinatorId?: string;
+		questionId?: string;
 		/** The Board tab is the Tasks view: the footer says so, and a question's task label opens that task. */
 		tasksView?: boolean;
 		taskHref?: (taskId: string) => string;
@@ -51,6 +53,8 @@
 	const collapsed = $derived(!wide.current && !expanded);
 
 	let chosen = $state<string | undefined>(undefined);
+	export function openQuestion(id: string) { chosen = id; expanded = true; }
+	$effect(() => { if (questionId) openQuestion(questionId); });
 	const waiting = $derived(
 		board.board === undefined
 			? []

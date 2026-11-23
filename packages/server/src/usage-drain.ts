@@ -93,6 +93,7 @@ export class UsageDrainMonitor {
 	constructor(private readonly options: {
 		mode: () => UsageDrainMode;
 		hasLocalRequests: (providerLogin: string, from: number, through: number, scope?: string) => boolean;
+		ignorePause?: (providerLogin: string, forecast: UsageDrainForecast) => boolean;
 		isPaused: (providerLogin: string) => boolean;
 		alert: (providerLogin: string, forecast: UsageDrainAlert) => void;
 		now?: () => number;
@@ -130,7 +131,7 @@ export class UsageDrainMonitor {
 				this.options.hasLocalRequests(providerLogin, from, through, scope));
 			if (forecast.level !== "none") forecasts.push({ ...forecast, level: forecast.level });
 		}
-		const pause = this.#mode !== "tell-only" && forecasts.find(forecast => forecast.level === "pause");
+		const pause = this.#mode !== "tell-only" && forecasts.find(forecast => forecast.level === "pause" && !this.options.ignorePause?.(providerLogin, forecast));
 		if (pause) {
 			this.options.alert(providerLogin, pause);
 			return;

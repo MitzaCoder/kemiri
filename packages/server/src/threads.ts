@@ -1521,6 +1521,25 @@ export class ThreadService {
 		return this.#options.harness.submission(id, context);
 	}
 
+	/** A drain investigation wakes its chosen conversation without lifting an owner hold. */
+	async deliverUsageMessage(threadId: string, content: string, requestId: string, whileHeld: "queue" | "refuse"): Promise<boolean> {
+		const record = threadId === MAIN_THREAD_ID ? undefined : await this.record(threadId);
+		if (threadId !== MAIN_THREAD_ID && (!record || record.archived || (record.held && whileHeld === "refuse"))) return false;
+		if (!record?.held) await this.revive(threadId);
+		const conversation = await this.conversation(threadId);
+		const delivered = await this.#options.harness.commit(async tx => {
+			const current = (await tx.doc(ThreadsDoc, this.#mainId)).threads[threadId];
+			if (threadId !== MAIN_THREAD_ID && (!current || current.archived)) return false;
+			if (current?.held && whileHeld === "refuse") return false;
+			if (await tx.submissionByRequest(conversation.id, requestId)) return true;
+			if (current?.held) queueHeldInput(current, content, requestId);
+			else await conversation.submit(tx, { type: "input", content, whenBusy: "steer", requestId });
+			return true;
+		}, BACKGROUND_CONTEXT);
+		if (delivered) this.#options.harness.resume();
+		return delivered;
+	}
+
 	async submitOwner(conversation: Conversation, draft: InputSubmissionDraft) {
 		const place = this.coordinators.placeOf(conversation.id);
 		if (!place || place.kind !== "coordinator" || place.threadId === MAIN_THREAD_ID) return conversation.submit(draft, BACKGROUND_CONTEXT);

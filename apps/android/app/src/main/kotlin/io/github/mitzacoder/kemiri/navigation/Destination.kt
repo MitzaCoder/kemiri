@@ -60,6 +60,7 @@ sealed interface Destination {
 @Serializable
 sealed interface ChatHighlight {
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.ChatHighlight.Entry") data class Entry(val entryId: Long) : ChatHighlight
+    @Serializable data class Question(val questionId: String, val openedAt: Long) : ChatHighlight
     @Serializable data class PeerMessage(val messageId: String) : ChatHighlight
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.ChatHighlight.Thread") data class Thread(val threadId: String) : ChatHighlight
 }

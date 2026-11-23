@@ -9,6 +9,11 @@ export const UsagePauseSchema = Type.Object({
 	reason: Type.String({ minLength: 1, maxLength: 512 }),
 	since: Type.String({ format: "date-time" }),
 	until: Type.Optional(Type.String({ format: "date-time" })),
+	drain: Type.Optional(Type.Object({
+		status: Type.Union([Type.Literal("investigating"), Type.Literal("needs-choice"), Type.Literal("kept-paused")]),
+		projectId: Type.Optional(Type.String()),
+		questionId: Type.Optional(Type.String()),
+	})),
 });
 export type UsagePause = Static<typeof UsagePauseSchema>;
 

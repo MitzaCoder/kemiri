@@ -12,6 +12,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.data.ConnectionStatus
+import io.github.mitzacoder.kemiri.navigation.ChatHighlight
+import io.github.mitzacoder.kemiri.navigation.Destination
+import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.features.status.BannerTone
 import io.github.mitzacoder.kemiri.features.status.ToneBanner
 import io.github.mitzacoder.kemiri.features.status.exactTime
@@ -46,7 +49,8 @@ internal fun UsagePauseAction(backend: BackendSession, providerLogin: String, la
 }
 
 @Composable
-fun UsagePauseBanners(backend: BackendSession) {
+fun UsagePauseBanners(context: ProjectScreenContext) {
+    val backend = context.backend
     val pauses by backend.usagePause.pauses.collectAsStateWithLifecycle()
     pauses.orEmpty().forEach { pause -> key(pause.providerLogin) {
         val label = subscriptionProviderLabel(pause.providerLogin)
@@ -56,8 +60,24 @@ fun UsagePauseBanners(backend: BackendSession) {
                     Text("$label work is paused on this computer.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     val wait = pause.until?.let { "New requests continue automatically at ${exactTime(it)}." } ?: "New requests wait until resumed."
                     Text("${pause.reason} $wait", style = MaterialTheme.typography.bodySmall)
+                    val drainStatus = when (pause.drain?.status) {
+                        "investigating" -> "Kemiri is looking into the fast drain."
+                        "needs-choice" -> "Kemiri needs a choice before resuming."
+                        "kept-paused" -> "Work will stay paused until resumed."
+                        else -> null
+                    }
+                    drainStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
-                UsagePauseAction(backend, pause.providerLogin, label)
+                val drain = pause.drain
+                val projectId = drain?.projectId
+                val questionId = drain?.questionId
+                if (drain?.status == "needs-choice" && projectId != null && questionId != null) {
+                    OutlinedButton(onClick = {
+                        context.navigate(Destination.Chat(context.route.backendKey, projectId, highlight = ChatHighlight.Question(questionId, System.nanoTime())))
+                    }) { Text("Open question") }
+                } else if (drain == null || drain.status == "kept-paused") {
+                    UsagePauseAction(backend, pause.providerLogin, label)
+                }
             }
         }
     } }

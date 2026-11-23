@@ -6420,7 +6420,8 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 One `UsagePauseGate` per backend holds new requests across all projects, by the active subscription credential slot
 (`providerLogin`, the provider ID, not a model). An explicit credential replacement clears that slot's hold. The gate
 exposes `pause`, `holdUntil`, `resume` and `state`. A temporary exemption names a project and durable conversation;
-it bypasses a drain-monitor hold, not a manual or exhausted-limit hold. Exemptions do not persist. `usage-pause.get`,
+it bypasses a drain-monitor hold, not a manual or exhausted-limit hold. Exemptions are in memory; a pending drain
+investigation restores only its own exemption on startup. `usage-pause.get`,
 `usage-pause.pause` and `usage-pause.resume` return the state, and negotiated `usage-pause.changed` updates other
 connected clients. The atomically replaced private `usage-pause.json` has version 1 with optional pause and override
 lists. An expired timestamp is already open, even on startup before the timer runs.
@@ -6472,9 +6473,10 @@ can rank subscription requests and API value by project, conversation role and i
 Small dips keep the highest reading. A drop of more than two points from that high, a changed reset, a missing
 percentage, reset or window length, or a gap over six minutes starts the measure over. Old replies never replace
 newer monitor evidence. The live measure starts fresh after restart, credential replacement or explicit Resume.
-The warning is sent once per limit and reset time, including the notifier's persisted dedupe. A drain pause sends
-its own notice, holds new requests to that login and leaves requests in flight alone. An exhausted-limit hold takes
-precedence and is independent of the drain monitor.
+The warning is sent once per limit and reset time, including the notifier's persisted dedupe. A drain pause
+immediately holds new requests to that login and leaves requests in flight alone. It shows in the app immediately,
+but the notification waits for the outcome. An exhausted-limit hold takes precedence and is independent of the
+monitor.
 
 Claude headers and Codex headers and stream events can arrive in seconds. Claude's model-scoped windows are only
 in its usage endpoint. OpenCode Go has only an endpoint; Antigravity reads the official CLI's quota output. These
@@ -6487,6 +6489,33 @@ polls. Pay-as-you-go API keys have no subscription windows to monitor.
 (which also warns on a rise that would have paused), and **Off**. Saving the setting affects this backend only and
 restarts measurement without reopening an existing pause. The optional field lives in the private user settings
 file. Web and Android hide the row when the backend does not advertise `usage-drain`.
+
+#### Drain investigation and owner choice
+
+A drain pause snapshots ten minutes of scoped requests. The log supplies API value and request counts by durable
+conversation and model. In-flight requests count as requests before their value is known. The backend ranks the
+coordinators that own the spending runs by value, then request count. It wakes the leading coordinator on its
+current model, with a single conversation exemption. If that coordinator was itself the biggest spender, is
+paused by the owner, or cannot be reached, the backend asks the owner instead. The facts include the limit,
+pace, reset, the project's top runs with their model and available thinking and model-choice details, and its
+usual worker models. Runs in other projects are reduced to one total before delivery.
+
+The coordinator can stop or restart work as described in the facts. The `usage_pause` tool accepts `resume` with
+a one-line change note, or `ask` to transfer the choice without resuming. The incident ID and project and
+conversation identities guard both actions. The attempt expires five minutes after the pause, not five minutes
+after the coordinator sees it. The backend persists the deadline and incident receipts in its private version 1
+`usage-drain-investigation.json` and re-arms the timer after restart. A resume starts taking fresh readings.
+A second pause of that login within 30 minutes of the investigator's resume skips investigation.
+
+The owner gets one `usage_drain_paused` notification with the fix note, or the board question's ordinary
+notification, not both. The question lives in the highest-spending available project's board and only the
+owner can pick an answer. **Stop them and use the usual model** stops the active contributing agent-named
+outside-model runs and asks their coordinators to restart them on a project worker model with the same brief,
+then opens the gate. **Continue as it was** opens the gate and suppresses another drain pause for only that
+login, limit and reset period. This does not suppress an exhausted-limit hold. **Keep paused** leaves the hold
+in place for manual Resume. A manual or exhausted-limit hold can supersede an investigation. Web and Android
+show that a drain pause is being looked into, and link to the exact question when the owner needs to choose.
+**Tell me only** keeps the ordinary warning and starts no investigations.
 
 #### Subscription ledger and value
 

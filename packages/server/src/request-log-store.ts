@@ -30,6 +30,14 @@ export type SubscriptionSpender = Pick<ConversationIdentity, "taskId" | "workerI
 	apiValue: number;
 };
 
+export type DrainRunSpend = Pick<ConversationIdentity, "kind" | "workerId" | "threadId"> & {
+	projectId: string;
+	conversationId: number;
+	model: string;
+	requests: number;
+	apiValue: number;
+};
+
 export type RequestCatalogPricing = { provider: string; modelRates: (model: string, at: number) => TokenRates | undefined };
 
 /**
@@ -715,6 +723,18 @@ export class RequestLogStore {
 			ORDER BY apiValue DESC, requests DESC, projectId, threadId, workerId, model
 		`).all(provider, Math.floor(since / 60_000), since);
 		return scope === undefined ? spenders : spenders.filter(spender => matchesModelScope(scope, spender.model));
+	}
+
+	/** Exact recent run totals: keep durable conversation IDs so a reused worker name cannot match an old run. */
+	drainRunSpend(provider: string, from: number, through: number, scope?: string): DrainRunSpend[] {
+		const rows = this.#db.query<DrainRunSpend, [string, number, number]>(`
+			SELECT project_id AS projectId, conversation_id AS conversationId, conversation_kind AS kind,
+				worker_id AS workerId, thread_id AS threadId, model, count(*) AS requests, sum(cost) AS apiValue
+			FROM requests WHERE provider = ? AND at BETWEEN ? AND ? AND billing IN ('subscription', 'plan_key')
+			GROUP BY project_id, conversation_id, conversation_kind, worker_id, thread_id, model
+			ORDER BY apiValue DESC, requests DESC, projectId, conversationId, model
+		`).all(provider, from, through);
+		return scope === undefined ? rows : rows.filter(row => matchesModelScope(scope, row.model));
 	}
 
 	taskUsage(projectId: string, taskIds: readonly string[]): TaskUsageGroup[] {

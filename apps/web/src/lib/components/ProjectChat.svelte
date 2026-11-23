@@ -206,6 +206,9 @@
 	let sidebarOpen = $state(false);
 	let sidebarTab = $state<SidebarTab>('info');
 	let sidebarExpanded = $state(false);
+	let questionPin: ReturnType<typeof BoardQuestionPin> | undefined = $state();
+	const linkedQuestion = $derived(shown ? page.url.searchParams.get('question') ?? undefined : undefined);
+	$effect(() => { if (linkedQuestion) sidebarOpen = false; });
 	rememberConversationView(() => ({ open: sidebarOpen, tab: sidebarTab, expanded: sidebarExpanded, tasksMode: tasksView.mode, taskFocus: taskFilter.focus }), saved => {
 		sidebarOpen = saved.open; sidebarTab = saved.tab; sidebarExpanded = saved.expanded;
 		if (saved.tasksMode) tasksView.set(saved.tasksMode);
@@ -1125,7 +1128,7 @@
 
 				<div class="{CHAT_COLUMN_CLASS} shrink-0 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] sm:px-4 sm:pb-4" bind:clientHeight={composerHeight}>
 					<div class="mb-2 flex flex-col gap-2">
-						<UsagePauseBanner {backend} />
+						<UsagePauseBanner {backend} onreopenquestion={(id) => { sidebarOpen = false; questionPin?.openQuestion(id); }} />
 						{#if backend.supports('server-status')}
 							<DeployBanner
 								status={backend.status}
@@ -1187,7 +1190,9 @@
 						{/if}
 						{#if (!isThread || coordinatorChat) && board !== undefined && hasOpenQuestions && !(sidebarOpen && sidebarTab === 'board')}
 							<BoardQuestionPin
+								bind:this={questionPin}
 								{board}
+								questionId={linkedQuestion}
 								threads={threadList}
 								{threadId}
 								coordinatorId={coordinatorChat ? coordinatorId : undefined}

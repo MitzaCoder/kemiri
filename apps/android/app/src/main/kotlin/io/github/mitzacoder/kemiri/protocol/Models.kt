@@ -2793,7 +2793,15 @@ data class UsagePause(
     val `pausedBy`: String,
     val `reason`: String,
     val `since`: String,
-    val `until`: String? = null
+    val `until`: String? = null,
+    val `drain`: UsagePauseDrain? = null
+)
+
+@Serializable
+data class UsagePauseDrain(
+    val `status`: String,
+    val `projectId`: String? = null,
+    val `questionId`: String? = null
 )
 
 @Serializable
@@ -3389,6 +3397,7 @@ data class BoardQuestion(
     val `exchanges`: List<BoardQuestionExchange>? = null,
     val `noReplyYet`: Boolean? = null,
     val `reopened`: Boolean? = null,
+    val `usageDrainIncident`: String? = null,
     val `outsideModelApproval`: Boolean? = null,
     val `mcpApproval`: Boolean? = null,
     val `blocksWork`: Boolean? = null,

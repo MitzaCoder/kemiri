@@ -1,3 +1,4 @@
+import { DRAIN_CHOICES } from "./usage-drain-investigation.ts";
 import { MAX_BOARD_DELTAS } from "./board-checkpoint-policy.ts";
 import { REPORT_BLOCK_SECTIONS, REPORT_SECTION_VIEW_SECTIONS, ReportBlocksInputSchema, type ReportBlocksInput, type ReportSectionViews, type ResultBlock } from "@kemiri/protocol";
 import { describeReportSectionViews, diffReportSectionViews, ReportSectionViewsInputSchema, sameSectionView, validateSectionViewArtifacts, validateSectionViewsInput, type ReportSectionViewsInput } from "./report-section-views.ts";
@@ -1606,7 +1607,7 @@ export function reorderTasks(state: BoardState, taskIds: readonly string[], now:
 
 export function askQuestion(
 	state: BoardState,
-	input: { text: string; options: readonly string[]; choices?: readonly BoardQuestionChoice[] | undefined; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined; outsideModelApproval?: true },
+	input: { text: string; options: readonly string[]; choices?: readonly BoardQuestionChoice[] | undefined; taskId: string | null; now: string; threadId?: string; kind?: "question" | "warning"; blocksWork?: boolean | undefined; activitySourceId?: string | undefined; outsideModelApproval?: true; usageDrainIncident?: string },
 ): BoardQuestion {
 	if (input.taskId !== null && !state.tasks.some((task) => task.id === input.taskId)) throw unknownTask(input.taskId);
 	const warning = input.kind === "warning";
@@ -1619,6 +1620,7 @@ export function askQuestion(
 		id: `Q${state.counters.question}`,
 		revision: 1,
 		...(warning ? { kind: "warning" as const } : {}),
+		...(input.usageDrainIncident ? { usageDrainIncident: input.usageDrainIncident } : {}),
 		...(input.outsideModelApproval ? { outsideModelApproval: true as const } : {}),
   ...(input.blocksWork === undefined ? {} : { blocksWork: input.blocksWork }),
   ...(input.activitySourceId === undefined ? {} : { activitySourceId: input.activitySourceId }),
@@ -1655,6 +1657,12 @@ export function settleQuestion(
 			revision: question.revision,
 		});
 	}
+	if (question.usageDrainIncident) {
+		if (!input.ownerApproval) throw new ServerError("bad_request", "Only the owner can act on this drain question.");
+		if (input.answer !== null && !DRAIN_CHOICES.some(choice => choice.label === input.answer)) {
+			throw new ServerError("bad_request", "Pick one of the listed drain choices.");
+		}
+	}
 	if (question.outsideModelApproval) {
 		const approval = state.outsideModelApprovals?.[question.id];
 		if (input.answer !== null) {
@@ -1689,6 +1697,7 @@ function requireClarifiableQuestion(state: BoardState, id: string, revision: num
  const question = state.questions.find(q => q.id === id);
  if (!question) throw new ServerError("unknown_task", `No question "${id}" on the board`);
  if (question.revision !== revision) throw conflict("Question", id, question.revision, revision);
+ if (question.usageDrainIncident) throw new ServerError("bad_request", "Drain questions cannot be clarified or reopened.");
  if (question.outsideModelApproval) throw new ServerError("bad_request", "Run approvals cannot be clarified or reopened.");
  if (question.mcpApproval) throw new ServerError("bad_request", "MCP approvals cannot be clarified or reopened.");
  return question;
@@ -2432,6 +2441,7 @@ export type BoardServiceOptions = {
 type PendingEdit = { before: BoardTask | null; after: BoardTask; notes: string[] };
 
 export class BoardService {
+ onUsageDrainAnswer: ((incidentId: string) => void) | undefined;
  onOutsideModelApprovalSettled: (() => void) | undefined;
  onMcpAnswer: ((questionId: string, answer: string) => Promise<void>) | undefined;
 	readonly #options: BoardServiceOptions;
@@ -3253,9 +3263,33 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   }
  }
 
+	async askUsageDrain(incidentId: string, text: string): Promise<BoardQuestion> {
+		const question = await this.#commit(HARNESS_WRITER, state => {
+			const now = this.#iso();
+			const existing = state.questions.find(row => row.usageDrainIncident === incidentId);
+			return existing ? plain(existing) : askQuestion(state, {
+				text, options: [], choices: DRAIN_CHOICES, usageDrainIncident: incidentId, blocksWork: false, taskId: null, now,
+			});
+		});
+		if (question.status === "open") this.noticeQuestion(question);
+		return question;
+	}
+
+	async withdrawUsageDrain(incidentId: string): Promise<void> {
+		await this.#commit(HARNESS_WRITER, state => {
+			const now = this.#iso();
+			const question = state.questions.find(row => row.usageDrainIncident === incidentId && row.status === "open");
+			if (question) settleQuestion(state, { questionId: question.id, now, answer: null, ownerApproval: true });
+		});
+	}
+
  async answer(input: { questionId: string; expectedRevision: number; answer: string }): Promise<BoardQuestion> {
 		const now = this.#iso();
 		const question = await this.#commit(USER_WRITER, (state) => settleQuestion(state, { ...input, now, actor: "user", ownerApproval: true }));
+		if (question.usageDrainIncident) {
+			this.onUsageDrainAnswer?.(question.usageDrainIncident);
+			return question;
+		}
 		if (question.outsideModelApproval) {
 			this.onOutsideModelApprovalSettled?.();
 			return question;

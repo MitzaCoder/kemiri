@@ -789,7 +789,7 @@ describe("subscriptions.usage over the protocol", () => {
 		await headers(6, 22);
 		const pauses = test.server.usagePause!.state();
 		if (usageDrainMode === "pause-and-tell") {
-			expect(pauses).toMatchObject([{ providerLogin: "anthropic", pausedBy: "drain-monitor", reason: expect.stringContaining("up 20.0 points in 6.0 minutes") }]);
+			expect(pauses).toMatchObject([{ providerLogin: "anthropic", pausedBy: "drain-monitor", reason: expect.stringContaining("up 20 points in 6 minutes") }]);
 			await client.request({ type: "usage-pause.resume", providerLogin: "anthropic" });
 			await headers(7, 23);
 			expect(test.server.usagePause!.state()).toEqual([]);

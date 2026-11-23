@@ -9,7 +9,7 @@ import { readJsonFile } from "./fs-json.ts";
 export const USAGE_RESET_MARGIN_MS = 15_000;
 const MAX_TIMER_MS = 2_147_483_647;
 
-type PauseMeta = { pausedBy: UsagePause["pausedBy"]; until?: number };
+type PauseMeta = { pausedBy: UsagePause["pausedBy"]; until?: number; since?: string };
 type LimitWindow = Pick<UsageWindow, "label" | "usedPercent" | "resetsAt">;
 type ResumeOverride = { providerLogin: string; until?: string };
 type PauseDocument = { version: 1; pauses?: UsagePause[]; resumedLimits?: ResumeOverride[] };
@@ -19,6 +19,7 @@ type UsagePauseOptions = {
 	setTimer?: SetTimer;
 	onChange?: (pauses: UsagePause[]) => void;
 	onLimitReached?: (pause: UsagePause) => void;
+	describeDrain?: (pause: UsagePause) => UsagePause["drain"];
 	onResume?: (providerLogin: string) => void;
 	log?: (message: string) => void;
 };
@@ -65,8 +66,13 @@ export class UsagePauseGate {
 
 	state(): UsagePause[] {
 		const now = this.#now();
-		return [...this.#pauses.values()].filter(pause => active(pause.until, now)).map(pause => ({ ...pause }));
+		return [...this.#pauses.values()].filter(pause => active(pause.until, now)).map(pause => {
+			const drain = this.#options.describeDrain?.(pause);
+			return { ...pause, ...(drain ? { drain } : {}) };
+		});
 	}
+
+	refresh(): void { this.#options.onChange?.(this.state()); }
 
 	isPaused(providerLogin: string): boolean {
 		const pause = this.#pauses.get(providerLogin);
@@ -86,7 +92,7 @@ export class UsagePauseGate {
 		if (sameSource && meta.pausedBy === "limit-reached" && (previous.until ? !until || until <= previous.until : !until)) return;
 		const pause: UsagePause = {
 			providerLogin, reason, pausedBy: meta.pausedBy,
-			since: sameSource ? previous.since : new Date(now).toISOString(),
+			since: sameSource ? previous.since : meta.since ?? new Date(now).toISOString(),
 			...(until === undefined ? {} : { until }),
 		};
 		if (!Value.Check(UsagePauseSchema, pause)) throw new Error("Invalid usage pause");

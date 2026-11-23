@@ -1080,19 +1080,11 @@ function usageDuration(minutes: number): string {
 	return `${rounded} ${rounded === 1 ? "minute" : "minutes"}`;
 }
 
-export function usageDrainNotification(input: {
-	providerLogin: string; label: string; limit: string; minutesLeft: number; minutesToReset: number;
-} & ({ level: "warning"; limitId: string; resetsAt: string } | { level: "pause"; since: string })): NotificationEvent {
+export function usageDrainWarningNotification(input: {
+	providerLogin: string; label: string; limit: string; minutesLeft: number; minutesToReset: number; limitId: string; resetsAt: string;
+}): NotificationEvent {
 	const timeLeft = usageDuration(input.minutesLeft);
 	const timeToReset = usageDuration(input.minutesToReset);
-	if (input.level === "pause") return {
-		kind: "usage_drain_paused",
-		title: `Paused: ${input.label} usage is draining fast`,
-		body: `At this pace the ${input.limit} limit runs out in about ${timeLeft}. ${input.label} work on this computer waits. Open Usage to resume.`,
-		projectId: null,
-		tag: `usage-drain-paused:${input.providerLogin}`,
-		key: `usage-drain-paused:${input.providerLogin}:${input.since}`,
-	};
 	const windowKey = JSON.stringify([input.providerLogin, input.limitId]);
 	return {
 		kind: "usage_drain_warning",
@@ -1101,6 +1093,19 @@ export function usageDrainNotification(input: {
 		projectId: null,
 		tag: `usage-drain-warning:${windowKey}`,
 		key: `usage-drain-warning:${windowKey}:${input.resetsAt}`,
+	};
+}
+
+export function usageDrainFixedNotification(input: {
+	providerLogin: string; label: string; projectId: string | null; incidentId: string; note: string;
+}): NotificationEvent {
+	return {
+		kind: "usage_drain_paused",
+		title: `Paused and fixed: ${input.label} was draining fast`,
+		body: notificationLine(input.note),
+		projectId: input.projectId,
+		tag: `usage-drain:${input.providerLogin}`,
+		key: `usage-drain:${input.incidentId}`,
 	};
 }
 

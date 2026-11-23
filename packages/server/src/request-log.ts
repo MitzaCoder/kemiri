@@ -40,7 +40,7 @@ import {
 	startsOver,
 } from "./prompt-fingerprint.ts";
 import { hasCatalogPrice } from "./request-billing.ts";
-import { type ConversationIdentity, REQUEST_LOG_KEEP_DAYS, type RequestBilling, type RequestLogStore, type RequestRow, type InternalUsagePurpose } from "./request-log-store.ts";
+import { type ConversationIdentity, REQUEST_LOG_KEEP_DAYS, type DrainRunSpend, type RequestBilling, type RequestLogStore, type RequestRow, type InternalUsagePurpose } from "./request-log-store.ts";
 
 export const REQUEST_LOG_EXTENSION_NAME = stateKind("request-log");
 
@@ -198,6 +198,7 @@ export class ConversationRequests {
 type RequestTag = { projectId: string; conversationId: number; identity: ConversationIdentity; prefixRevision?: string };
 
 type PendingRequest = {
+	recorded?: () => void;
 	warm: Omit<WarmRequest, "row" | "payload">;
 	tag: RequestTag;
 	messages: readonly unknown[];
@@ -261,6 +262,7 @@ export class RequestLog {
 	readonly #log: (message: string) => void;
 	readonly #now: () => number;
 	// A rate-limit header may arrive before the request (and its log write) finishes.
+	readonly #pendingSpenders = new Set<{ provider: string; at: number; run: DrainRunSpend }>();
 	readonly #recentStarts = new Map<string, { model: string; at: number }[]>();
 	readonly #billingFor: NonNullable<RequestLogOptions["billingFor"]>;
 	readonly #cacheReadPerToken: RequestLogOptions["cacheReadPerToken"];
@@ -296,7 +298,24 @@ export class RequestLog {
 		this.#recentStarts.set(provider, starts);
 	}
 
-	forgetRequestStarts(provider: string): void { this.#recentStarts.delete(provider); }
+	forgetRequestStarts(provider: string): void {
+		this.#recentStarts.delete(provider);
+		for (const start of this.#pendingSpenders) if (start.provider === provider) this.#pendingSpenders.delete(start);
+	}
+
+	drainRunSpend(provider: string, from: number, through: number, scope?: string): DrainRunSpend[] {
+		const runs = new Map<string, DrainRunSpend>();
+		const add = (row: DrainRunSpend) => {
+			const key = JSON.stringify([row.projectId, row.conversationId, row.kind, row.model]);
+			const run = runs.get(key);
+			if (run) { run.requests += row.requests; run.apiValue += row.apiValue; }
+			else runs.set(key, { ...row });
+		};
+		for (const row of this.store.drainRunSpend(provider, from, through, scope)) add(row);
+		for (const start of this.#pendingSpenders) if (start.provider === provider && start.at >= from && start.at <= through &&
+			(scope === undefined || matchesModelScope(scope, start.run.model))) add(start.run);
+		return [...runs.values()].sort((a, b) => b.apiValue - a.apiValue || b.requests - a.requests);
+	}
 
 	hasLocalSubscriptionRequests(provider: string, from: number, through: number, scope?: string): boolean {
 		return this.#recentStarts.get(provider)?.some(start => start.at >= from && start.at <= through &&
@@ -383,16 +402,25 @@ export class RequestLog {
 						return replaced;
 					},
 				};
-				const stream = value.call(models, model, context, observed) as { result?: () => Promise<unknown> };
+				const sentModel = model as WarmRequest["model"];
+				const start = { provider: sentModel.provider, at: this.#now(), run: {
+					...tag.identity, projectId: tag.projectId, conversationId: tag.conversationId, model: sentModel.id, requests: 1, apiValue: 0,
+				} };
+				this.#pendingSpenders.add(start);
+				const recorded = () => { this.#pendingSpenders.delete(start); };
+				let stream: { result?: () => Promise<unknown> };
+				try { stream = value.call(models, model, context, observed) as typeof stream; }
+				catch (error) { recorded(); throw error; }
 				const retention = typeof options?.cacheRetention === "string" ? options.cacheRetention : "short";
 				const by = tag;
 				try {
+					if (!stream.result) recorded();
 					void stream
 						.result?.()
-						.then((message) => this.#enqueue({ tag: by, messages: sent, payload, message: message as AssistantLike, retention, warm: { models, ...(by.prefixRevision === undefined ? {} : { prefixRevision: by.prefixRevision }), model: model as WarmRequest["model"], context: contextSnapshot, ...(authFingerprint === undefined ? {} : { authFingerprint }), ...(cacheHeaders === undefined ? {} : { cacheHeaders }), options: { ...options } as WarmRequest["options"] } }))
-						.catch(() => undefined);
+						.then((message) => this.#enqueue({ recorded, tag: by, messages: sent, payload, message: message as AssistantLike, retention, warm: { models, ...(by.prefixRevision === undefined ? {} : { prefixRevision: by.prefixRevision }), model: model as WarmRequest["model"], context: contextSnapshot, ...(authFingerprint === undefined ? {} : { authFingerprint }), ...(cacheHeaders === undefined ? {} : { cacheHeaders }), options: { ...options } as WarmRequest["options"] } }))
+						.catch(recorded);
 				} catch {
-					// A stream without a result is not logged.
+					recorded();
 				}
 				return stream;
 			};
@@ -472,7 +500,7 @@ export class RequestLog {
 				if (this.#failures <= 5 || this.#failures % 100 === 0) {
 					this.#log(`request log: could not record a request (${this.#failures} so far): ${errorMessage(error)}`);
 				}
-			}
+			} finally { request.recorded?.(); }
 		});
 	}
 
@@ -550,14 +578,15 @@ export class RequestLog {
 			changes: previous === undefined ? null : diffFingerprints(previous, fingerprint, tail.updates),
 			source: "live",
 		});
-		await this.#writeLiveRow({ ...row, priced: hasCatalogPrice(request.warm.model) });
+		await this.#writeLiveRow({ ...row, priced: hasCatalogPrice(request.warm.model) }, request.recorded);
 		live.fingerprint = fingerprint;
 		this.store.savePromptState(projectId, conversationId, fingerprint, row.at);
 		await this.warming.real({ ...request.warm, row, payload: request.payload });
 	}
-	async #writeLiveRow(row: RequestRow): Promise<void> {
+	async #writeLiveRow(row: RequestRow, recorded?: () => void): Promise<void> {
 		const billing = await this.#billingFor(row.provider);
 		this.store.insert({ ...row, billing });
+		recorded?.();
 	}
 }
 

@@ -99,6 +99,10 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     val wide = window.width >= 768.dp
     var expanded by rememberSaveable(context.route) { mutableStateOf(false) }
     var chosen by rememberSaveable(context.route) { mutableStateOf<String?>(null) }
+    val linkedQuestion = context.highlight as? ChatHighlight.Question
+    LaunchedEffect(linkedQuestion) {
+        linkedQuestion?.let { chosen = it.questionId; expanded = true }
+    }
     val collapsed = !wide && !expanded
     val pin = questionPin(waiting, chosen)
     val current = pin.current ?: return

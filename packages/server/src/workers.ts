@@ -2291,6 +2291,29 @@ export class WorkerService {
 		return path;
 	}
 
+	/** Stop only the durable worker conversation recorded in the drain snapshot, never a reused name. */
+	async stopForUsageDrain(threadId: string, workerId: string, conversationId: number): Promise<void> {
+		const place = this.coordinators.placeOfThread(threadId);
+		if (!place) return;
+		const owner = place.conversationId as ConversationId;
+		const record = (await this.state(BACKGROUND_CONTEXT, owner)).workers[workerId];
+		if (record?.conversationId !== conversationId || record.status !== "running") return;
+		const worker = await this.harness.conversation(conversationId as ConversationId, BACKGROUND_CONTEXT);
+		await worker?.abort(BACKGROUND_CONTEXT);
+		void this.cleanupBrowser(conversationId);
+		await this.closeOfficialAgent(conversationId);
+		await this.harness.commit(async tx => {
+			const current = (await tx.doc(WorkersDoc, owner)).workers[workerId];
+			if (current?.conversationId !== conversationId || current.status !== "running") return;
+			current.status = "stopped";
+			current.updatedAt = new Date().toISOString();
+			if (current.taskId) noteTaskFact(await openBoard(tx, this.mainId as ConversationId), current.taskId, {
+				actor: "harness", kind: "worker_stop", reason: "stopped after a fast drain choice", at: current.updatedAt,
+			});
+			await syncWorkerActivity(tx, this, current, owner);
+		}, BACKGROUND_CONTEXT);
+	}
+
 	async recordWorkspaceChanges(path: string, record: WorkerRecord, threadId: string): Promise<void> {
 		if (record.isolation !== "workspace") return;
 		await this.#options.taskChanges?.recordWorkspace(path, record.taskId && !record.workspaceReused ? [record.taskId] : [], {

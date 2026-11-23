@@ -205,11 +205,12 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     var follow by chat.follow
     LaunchedEffect(list) { snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling,canScroll) -> if(scrolling) follow = !canScroll } }
     // A link to a spot (`#entry-N`, a thread's newest card) scrolls there once and flashes the row.
-    var highlightDone by remember(watch, context.highlight) { mutableStateOf(false) }
+    val transcriptHighlight = context.highlight.takeUnless { it is ChatHighlight.Question }
+    var highlightDone by remember(watch, transcriptHighlight) { mutableStateOf(false) }
     var flashKey by remember(watch) { mutableStateOf<String?>(null) }
     val earlierRow = state.canLoadEarlier || state.loadingEarlier || state.earlierError != null
-    LaunchedEffect(watch,context.highlight,rows,state.canLoadEarlier,state.loadingEarlier,state.earlierError) {
-        val target = context.highlight ?: return@LaunchedEffect
+    LaunchedEffect(watch,transcriptHighlight,rows,state.canLoadEarlier,state.loadingEarlier,state.earlierError) {
+        val target = transcriptHighlight ?: return@LaunchedEffect
         if(highlightDone || rows.isEmpty()) return@LaunchedEffect
         val index = highlightIndex(rows,target)
         if(index < 0) {
@@ -228,13 +229,13 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         flashKey = null
     }
     LaunchedEffect(watch,realRows,working) {
-        if(context.highlight != null && !highlightDone) return@LaunchedEffect
+        if(transcriptHighlight != null && !highlightDone) return@LaunchedEffect
         if(follow && rows.isNotEmpty() && !state.loadingEarlier) {
             // Keys preserve the visual anchor when prepending history; only tail-follow scrolls.
             list.scrollToEnd((rows.size - 1 + (if(earlierRow) 1 else 0) + (if(working) 1 else 0)).coerceAtLeast(0))
         }
     }
-    val highlighting by rememberUpdatedState(context.highlight != null && !highlightDone)
+    val highlighting by rememberUpdatedState(transcriptHighlight != null && !highlightDone)
     // Stable transcript keys let LazyColumn retain the visible row and offset during prepend, including flings.
     // Collect (not collectLatest): a request must survive changes to loading/index while it is in flight.
     LaunchedEffect(watch,list) {
@@ -248,7 +249,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     // A row that grows at the end (a reply arriving, a compaction's saved memories) keeps the end in view while following.
     LaunchedEffect(list) {
         snapshotFlow { list.canScrollForward }.collect { more ->
-            if(more && !cacheWarmAtTail && follow && !list.isScrollInProgress && (context.highlight == null || highlightDone)) list.scrollToEnd(list.layoutInfo.totalItemsCount - 1)
+            if(more && !cacheWarmAtTail && follow && !list.isScrollInProgress && (transcriptHighlight == null || highlightDone)) list.scrollToEnd(list.layoutInfo.totalItemsCount - 1)
         }
     }
     ChatBackdrop(modifier) {
@@ -494,6 +495,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
 
 /** The row a one-shot highlight points at: a transcript entry, or a thread's newest card (its notice or the call on it); -1 when not loaded. */
 internal fun highlightIndex(rows: List<ChatRow>, target: ChatHighlight): Int = when(target) {
+    is ChatHighlight.Question -> -1
     is ChatHighlight.PeerMessage -> rows.indexOfFirst { row -> row.parts.any { it.peerMessageId == target.messageId } }
     is ChatHighlight.Entry -> rows.indexOfFirst { row -> row.parts.any { it.key == "entry-${target.entryId}" || it.key.startsWith("entry-${target.entryId}-") || it.sourceEntryId == target.entryId } }
     is ChatHighlight.Thread -> rows.indexOfLast { row -> row.parts.any { part ->

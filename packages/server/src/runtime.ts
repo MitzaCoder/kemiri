@@ -1,3 +1,4 @@
+import { usagePauseTool, type UsageDrainInvestigation } from "./usage-drain-investigation.ts";
 import { createAppExtension, type ActiveApps } from "./app-tools.ts";
 import type { AgentApps } from "./agent-apps.ts";
 import type { ArtifactsLibraryRequest } from "@kemiri/protocol";
@@ -214,6 +215,7 @@ export type ProjectManagerOptions = {
 	/** Logs every turn's model request; each project installs its extension, which tells it the conversation. */
 	requestLog?: RequestLog;
 	usagePauseModels?: UsagePauseModels;
+	drainInvestigation?: UsageDrainInvestigation;
 	/** Sets each turn's cache retention from the project's `longPromptCache`; `models` must be wrapped by it. */
 	cacheRetention?: PromptCacheRetention;
 	/** Every project's schedules, on disk and shared by all of them. */
@@ -395,6 +397,7 @@ export class ProjectManager {
 	readonly #workFinished: { minWorkMs: number; quietMs: number };
 	readonly #diskWarnings: (() => string[]) | undefined;
 	readonly #requestLog: RequestLog | undefined;
+	readonly #drainInvestigation: UsageDrainInvestigation | undefined;
 	readonly #usagePauseModels: UsagePauseModels | undefined;
 	readonly #cacheRetention: PromptCacheRetention | undefined;
 	/** One sandbox for every project this manager opens; fresh per process, like a restart in tests. */
@@ -454,6 +457,7 @@ export class ProjectManager {
 		this.#diskWarnings = options.diskWarnings;
 		this.#requestLog = options.requestLog;
 		this.#usagePauseModels = options.usagePauseModels;
+		this.#drainInvestigation = options.drainInvestigation;
 		this.#cacheRetention = options.cacheRetention;
 		this.#workFinished = {
 			minWorkMs: options.workFinished?.minWorkMs ?? resolveWorkFinishedMs(),
@@ -1533,6 +1537,7 @@ export class ProjectManager {
 				.catch((error: unknown) => log(`could not start extracting memories: ${errorMessage(error)}`));
 		};
 
+		const drainTool = this.#drainInvestigation && usagePauseTool(this.#drainInvestigation, project.id, id => coordinators.isCoordinator(id));
 		const workers = new WorkerService({
 			...(this.apps === undefined ? {} : { apps: { registry: this.apps, active: requirePublisher => activeApps(requirePublisher) } }),
 			taskLive: this.#taskLive,
@@ -1574,6 +1579,7 @@ export class ProjectManager {
 			// Workers get none of the coordinator's own tools. The schedule and thread tools are built below, on top of
 			// the workers they start, so this list is read at each spawn instead of captured here.
 			removedExtensions: () => [
+				...(drainTool ? [drainTool] : []),
 				memory.extension,
 				compaction.extension,
 				history.extension,
@@ -1613,6 +1619,7 @@ export class ProjectManager {
 		});
 		const outsideModelApprovals = new OutsideModelApprovals(board, workers, threads, this.#outsideModelLimit);
 		workers.outsideModelApprovals = outsideModelApprovals;
+		board.onUsageDrainAnswer = incidentId => this.#drainInvestigation?.ownerAnswered(incidentId);
 		board.onOutsideModelApprovalSettled = () => { void outsideModelApprovals.deliver(); };
 		const activeApps: ActiveApps = async requirePublisher => {
 			const [boardState, threadList, workerList] = await Promise.all([board.state(), threads.list(false), workers.list()]);
@@ -1789,6 +1796,7 @@ export class ProjectManager {
 		}
 		// Keep the memory index after the shared working sections, before per-conversation instructions.
 		registry.install(memory.extension);
+		if (drainTool) registry.install(drainTool);
 		if (this.#usagePauseModels) registry.install(this.#usagePauseModels.extension(project.id));
 		// Install drain last so its wraps see every tool and it holds only calls no other hook blocked.
 		registry.install(this.drain.extension(registry.snapshot().tools().map(({ tool }) => tool.name)));

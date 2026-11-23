@@ -1,3 +1,5 @@
+import { UsageDrainInvestigation } from "./usage-drain-investigation.ts";
+import { UsageDrainProjects } from "./usage-drain-projects.ts";
 import { loopbackTarget, TailscaleServe } from "./tailscale.ts";
 import { listeningTcpPorts, type AppListenerSource } from "./app-listeners.ts";
 import { BackendTailscale } from "./backend-tailscale.ts";
@@ -75,7 +77,7 @@ import {
 	loadOrCreateVapidKeys,
 	loginPromptNotification,
 	usageLimitReachedNotification,
-	usageDrainNotification,
+	usageDrainWarningNotification,
 	type NotificationEvent,
 	maintenanceFailureNotification,
 	resolveVapidKeyFile,
@@ -288,6 +290,7 @@ export type HarnessServer = {
 	/** Every logged-in subscription's rate-limit windows. */
 	readonly subscriptionUsage: SubscriptionUsageService;
 	readonly usagePause: UsagePauseGate | undefined;
+	readonly usageDrain: UsageDrainMonitor | undefined;
 	/** Every project's artifacts, served at `/artifacts/<projectId>/<artifactId>` with a signed token. */
 	readonly artifacts: ArtifactStore;
 	/** The attached terminals; undefined when terminals are off. */
@@ -349,12 +352,17 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	let notifyUsageLimit: ((pause: UsagePause) => void) | undefined;
 	let notifyUsageDrain: ((event: NotificationEvent) => void) | undefined;
 	let usageDrain: UsageDrainMonitor | undefined;
+	let drainInvestigation: UsageDrainInvestigation | undefined;
 	let readUsageDrainMode: () => UsageDrainMode = () => DEFAULT_USAGE_DRAIN_MODE;
 	const usagePause = (options.features ?? HARNESS_FEATURES).includes("usage-pause") ? await UsagePauseGate.open({
 		dataDir, log,
 		...(options.now === undefined ? {} : { now: options.now }),
 		...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
-		onChange: pauses => { for (const connection of connections) connection.notifyUsagePause(pauses); },
+		describeDrain: pause => drainInvestigation?.drainState(pause),
+		onChange: pauses => {
+			for (const connection of connections) connection.notifyUsagePause(pauses);
+			drainInvestigation?.gateChanged();
+		},
 		onLimitReached: pause => notifyUsageLimit?.(pause),
 		onResume: login => usageDrain?.startMeasuringAgain(login),
 	}) : undefined;
@@ -365,6 +373,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		},
 		onCredentialsChanged: providerId => {
 			requestLog?.forgetRequestStarts(providerId);
+			drainInvestigation?.credentialsChanged(providerId);
 			usageDrain?.startMeasuringAgain(providerId);
 		},
 		...(requestLog && usagePause && (options.features ?? HARNESS_FEATURES).includes("usage-drain") &&
@@ -393,21 +402,35 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	if (requestLog && usagePause && (options.features ?? HARNESS_FEATURES).includes("usage-drain") &&
 		(options.features ?? HARNESS_FEATURES).includes("user-settings")) {
+		const projects = new UsageDrainProjects(store, () => manager);
+		drainInvestigation = await UsageDrainInvestigation.open({
+			dataDir, gate: usagePause, log, notify: event => notifyUsageDrain?.(event),
+			...(options.now === undefined ? {} : { now: options.now }),
+			...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
+			chooseInvestigator: incident => projects.chooseInvestigator(incident),
+			investigatorAvailable: investigator => projects.investigatorAvailable(investigator),
+			deliverFacts: (incident, investigator) => projects.deliverFacts(incident, investigator),
+			askOwner: incident => projects.askOwner(incident),
+			readAnswer: question => projects.readAnswer(question),
+			withdrawQuestion: incident => projects.withdrawQuestion(incident),
+			chooseStopTargets: incident => projects.chooseStopTargets(incident),
+			stopRuns: (incident, targets, stillHeld) => projects.stopRuns(incident, targets, stillHeld),
+		});
 		usageDrain = new UsageDrainMonitor({
 			mode: () => readUsageDrainMode(),
 			hasLocalRequests: (provider, from, through, scope) => requestLog.hasLocalSubscriptionRequests(provider, from, through, scope),
 			isPaused: login => usagePause.isPaused(login),
+			ignorePause: (login, forecast) => drainInvestigation!.ignorePause(login, forecast),
 			alert: (providerLogin, forecast) => {
-				const { limit, usedPercent, rise, minutesMeasured, minutesLeft, minutesToReset } = forecast;
+				const { limit, minutesLeft, minutesToReset } = forecast;
 				if (minutesLeft === null || minutesToReset === null || !limit.resetsAt) return;
 				const facts = { providerLogin, label: subscriptionUsage.label(providerLogin), limit: limit.label, minutesLeft, minutesToReset };
 				if (forecast.level === "warning") {
-					notifyUsageDrain?.(usageDrainNotification({ ...facts, level: "warning", limitId: limit.id, resetsAt: limit.resetsAt }));
+					notifyUsageDrain?.(usageDrainWarningNotification({ ...facts, limitId: limit.id, resetsAt: limit.resetsAt }));
 					return;
 				}
-				usagePause.pause(providerLogin, `${limit.label}: ${usedPercent}% used, up ${rise?.toFixed(1)} points in ${minutesMeasured?.toFixed(1)} minutes. About ${Math.round(minutesLeft)} minutes left at this pace; resets in ${Math.round(minutesToReset)} minutes.`, { pausedBy: "drain-monitor" });
-				const pause = usagePause.state().find(entry => entry.providerLogin === providerLogin && entry.pausedBy === "drain-monitor");
-				if (pause) notifyUsageDrain?.(usageDrainNotification({ ...facts, level: "pause", since: pause.since }));
+				const now = (options.now ?? Date.now)();
+				drainInvestigation!.pause(providerLogin, facts.label, forecast, requestLog.drainRunSpend(providerLogin, now - 10 * 60_000, now, limit.scope));
 			},
 			...(options.now === undefined ? {} : { now: options.now }),
 		});
@@ -742,6 +765,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(requestLog === undefined ? {} : { requestLog }),
 		cacheRetention,
 		...(usagePauseModels ? { usagePauseModels } : {}),
+		...(drainInvestigation ? { drainInvestigation } : {}),
 		memory,
 		maintenance: memoryMaintenance,
 		schedules,
@@ -898,6 +922,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 
 	// One-time compact summary upgrade before any socket can open the same project storage.
 	await manager.prepareAttention();
+	drainInvestigation?.start();
 	const connectionOptions = {
 		userSettings,
 		fileWrites: new ProjectFileWrites(),
@@ -1338,6 +1363,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		notifications,
 		subscriptionUsage,
 		usagePause,
+		usageDrain,
 		artifacts,
 		terminals,
 		requestLog,
@@ -1359,6 +1385,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			selfUpdate.stop();
 			manager.drain.stop();
 			diskMonitor?.stop();
+			await drainInvestigation?.close();
 			notifications.stop();
 			await notifications.flush().catch(() => undefined);
 			logins.cancelAll();
