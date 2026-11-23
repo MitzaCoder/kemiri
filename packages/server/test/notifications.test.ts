@@ -1018,7 +1018,7 @@ describe("events", () => {
 		await view.start(projectId);
 		const presence = await watcher.request({
 			type: "notifications.presence",
-			deviceId: "watching-device",
+			deviceId: device.deviceId,
 			visible: true,
 			projectId,
 		});
@@ -1029,11 +1029,12 @@ describe("events", () => {
 		await until(() => push.ofKind("reply").length === 1);
 		expect(test.server.notifications.heldCount).toBe(0);
 
-		// Interaction from another connection (here the sender's) during the hold drops the next one.
+		// The sender cannot borrow the watcher's presence even though both connections use the same device ID.
 		await submit(sender, projectId, "two", "req-2");
 		await until(() => test.server.notifications.heldCount === 1);
-		const interaction = await sender.request({ type: "notifications.interaction", deviceId: device.deviceId });
-		expect(interaction).toMatchObject({ type: "notifications.interaction", dropped: 1 });
+		const interaction = { type: "notifications.interaction", deviceId: device.deviceId } as const;
+		expect(await sender.request(interaction)).toMatchObject({ type: interaction.type, dropped: 0 });
+		expect(await watcher.request(interaction)).toMatchObject({ type: interaction.type, dropped: 1 });
 		await sleep(2_000);
 		expect(push.ofKind("reply").length).toBe(1);
 

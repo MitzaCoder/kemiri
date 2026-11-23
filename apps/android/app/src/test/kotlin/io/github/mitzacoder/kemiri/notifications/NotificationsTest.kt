@@ -7,6 +7,7 @@ import io.github.mitzacoder.kemiri.navigation.settingsLinkStack
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.data.BackendConfig
 import io.github.mitzacoder.kemiri.data.DeviceSettings
+import io.github.mitzacoder.kemiri.data.withExplicitNulls
 import io.github.mitzacoder.kemiri.data.wireJson
 import io.github.mitzacoder.kemiri.features.notifications.*
 import io.github.mitzacoder.kemiri.navigation.ChatHighlight
@@ -16,6 +17,10 @@ import io.github.mitzacoder.kemiri.protocol.NotificationDeviceLastDelivery
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
 import io.github.mitzacoder.kemiri.protocol.NotificationPreferences
 import io.github.mitzacoder.kemiri.protocol.NotificationPreferencesQuietHours
+import io.github.mitzacoder.kemiri.protocol.NotificationsInteractionRequest
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -180,6 +185,18 @@ class NotificationsTest {
         val presence = AppPresence(visible = true, backendKey = pc.key, projectId = "p1")
         assertEquals("p1", presence.projectOn(pc.key))
         assertNull(presence.projectOn(vm.key))
+        assertNull(presence.copy(visible = false).projectOn(pc.key))
+        assertEquals("p2", presence.copy(backendKey = vm.key, projectId = "p2").projectOn(vm.key))
+    }
+
+    @Test fun interactionDistinguishesNoProjectFromOmittingTheScreen() {
+        fun encode(request: NotificationsInteractionRequest) =
+            wireJson.encodeToJsonElement(NotificationsInteractionRequest.serializer(), request).jsonObject
+        val withoutProject = encode(NotificationsInteractionRequest(deviceId = "fixture-device"))
+        assertFalse(withoutProject.containsKey("onScreenProjectId"))
+        assertEquals(JsonNull, withExplicitNulls(withoutProject, setOf("onScreenProjectId"))["onScreenProjectId"])
+        val withProject = encode(NotificationsInteractionRequest(deviceId = "fixture-device", onScreenProjectId = "p1"))
+        assertEquals(JsonPrimitive("p1"), withProject["onScreenProjectId"])
     }
 
     @Test fun backendCardsSayWhyNothingArrives() {

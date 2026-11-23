@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.*
 
 /**
  * Whether this app is open: the web's page visibility (the activity is started), plus the route's project, for
- * `notifications.presence`. A visible app makes each backend hold its pushes for 15 s unless the user interacts.
+ * `notifications.presence`. A visible app makes each backend hold its pushes for 15 s.
  */
 data class AppPresence(val visible: Boolean = false, val backendKey: String? = null, val projectId: String? = null) {
     /** The project this computer's connection reports: only the backend on screen sees one. */
-    fun projectOn(backendKey: String): String? = projectId.takeIf { this.backendKey == backendKey }
+    fun projectOn(backendKey: String): String? = projectId.takeIf { visible && this.backendKey == backendKey }
 }
 
 /** What one backend says about this device's notifications. */
@@ -33,7 +33,7 @@ data class BackendPushState(
  * This device's notifications on every backend: registers the FCM token with each backend that has `fcm-push` (again on
  * every reconnect, token rotation and preference change), unregisters when the user turns push off, and reports presence
  * on every connection that has `notifications`. With the app open a backend holds a push for 15 s; [interacted] (called
- * for touches, keys, scrolls and typing) tells every connected backend to drop what it holds (feature `notification-hold`).
+ * for touches, keys, scrolls and typing) tells every connected backend which held events are on screen.
  */
 class NotificationCenter(
     private val repository: HarnessRepository,
@@ -95,11 +95,19 @@ class NotificationCenter(
     /** Backends do not talk to each other, so each connected one that offers the hold hears it from this device. */
     private fun sendInteraction() {
         val deviceId = repository.settings.value.deviceId
+        val screen = presence.value
         repository.sessions.value.forEach { session ->
             val connection = session.client.state.value
             if (connection.status != ConnectionStatus.Ready || !connection.supports(NOTIFICATION_HOLD_FEATURE)) return@forEach
+            val projectId = screen.projectOn(session.config.key)
             scope.launch {
-                try { session.client.request(NotificationsInteractionRequest(deviceId = deviceId)) }
+                try {
+                    session.client.request(
+                        NotificationsInteractionRequest(deviceId = deviceId, onScreenProjectId = projectId),
+                        // Omitted means use the last presence report, which may still be for the previous screen.
+                        explicitNulls = if (projectId == null) setOf("onScreenProjectId") else emptySet(),
+                    )
+                }
                 catch (error: CancellationException) { throw error }
                 catch (_: Exception) { /* The next interaction reports again. */ }
             }

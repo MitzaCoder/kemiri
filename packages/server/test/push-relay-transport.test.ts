@@ -209,14 +209,18 @@ test("queued sends obey new mutes, quiet hours, disabled kinds and revoke, and n
 	}
 });
 
-test("held events retain existing dedupe/interaction policy before any encryption", async () => {
+test("interaction uses its screen snapshot before relay encryption, even if presence lags", async () => {
 	const f = await relaySetup();
 	const phone = await simulatedPhone();
 	const answer = await phone.activate(f.client);
-	await f.client.request({ type: "notifications.presence", deviceId: answer.deviceId, visible: true, projectId: null });
-	expect(await f.setup.server.notifications.deliver({ ...event, key: "synthetic-once" })).toMatchObject({ skipped: "held" });
-	expect(await f.setup.server.notifications.deliver({ ...event, key: "synthetic-once" })).toMatchObject({ skipped: "duplicate" });
-	await f.client.request({ type: "notifications.interaction", deviceId: answer.deviceId });
+	const held = { ...event, projectId: "synthetic-project", key: "synthetic-once" };
+	await f.client.request({ type: "notifications.presence", deviceId: answer.deviceId, visible: true, projectId: held.projectId });
+	expect(await f.setup.server.notifications.deliver(held)).toMatchObject({ skipped: "held" });
+	expect(await f.setup.server.notifications.deliver(held)).toMatchObject({ skipped: "duplicate" });
+	const interaction = { type: "notifications.interaction", deviceId: answer.deviceId } as const;
+	expect(await f.client.request({ ...interaction, onScreenProjectId: null })).toMatchObject({ dropped: 0 });
+	await f.client.request({ type: "notifications.presence", deviceId: answer.deviceId, visible: true, projectId: "previous-project" });
+	expect(await f.client.request({ ...interaction, onScreenProjectId: held.projectId })).toMatchObject({ dropped: 1 });
 	await f.tick(15_000);
 	expect(f.relay.sends()).toHaveLength(0);
 	expect(f.setup.server.notifications.relay!.store.snapshot().routes[0]!.nextSequence).toBe("0");

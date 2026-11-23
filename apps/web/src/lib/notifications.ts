@@ -321,14 +321,10 @@ export function testNotificationText(result: { ok: boolean; status: number | nul
 	return `The push service refused it${status}.`;
 }
 
-/** The project a route shows, for presence: a worker's transcript and the settings page are that project too. */
-export function presenceProjectId(pathname: string): string | null {
-	return currentProject(pathname)?.projectId ?? null;
-}
-
-/** Presence for a route and a page visibility. */
-export function presenceFor(pathname: string, visible: boolean): { projectId: string | null; visible: boolean } {
-	return { visible, projectId: presenceProjectId(pathname) };
+/** Presence for one backend: only the route's backend gets a project, including on project subpages. */
+export function presenceFor(pathname: string, visible: boolean, backendId: string): { projectId: string | null; visible: boolean } {
+	const project = currentProject(pathname);
+	return { visible, projectId: project?.backendId === backendId ? project.projectId : null };
 }
 
 /** A quiet-hours draft from a device's settings: the stored window, or the default a toggle starts from. */

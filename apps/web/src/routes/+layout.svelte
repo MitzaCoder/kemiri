@@ -106,9 +106,9 @@
 		document.addEventListener('visibilitychange', onVisibility);
 		window.addEventListener('pageshow', checkConnections);
 		window.addEventListener('focus', checkConnections);
-		// Using the app drops the notifications the backends are holding for it (throttled, see lib/interaction.ts).
+		// Using the app drops held notifications for the visible project (throttled, see lib/interaction.ts).
 		const stopInteraction = startInteractionReporting(window, () =>
-			reportInteraction(harness.backends, notifications.deviceId)
+			reportInteraction(harness.backends, notifications.deviceId, page.url.pathname, document.visibilityState === 'visible')
 		);
 		return () => {
 			document.removeEventListener('visibilitychange', onVisibility);

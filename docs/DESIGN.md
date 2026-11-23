@@ -7330,7 +7330,7 @@ setting, restart and retry steps; the raw error remains a small secondary detail
   `schedule:<project>:<schedule>:<due time>:<outcome>`, `compaction:<project>:<task>`, …) and the keys are persisted,
   so a restart that replays a watch, re-reads a deploy status or resumes a reporter notifies nothing twice. The
   activity file is the other half: the last reply it recorded is not a new reply.
-- **Held while the app is open; dropped when it is used.** (Decision D20; replaces the old "a visible connection on a
+- **Held while the app is open; dropped on interaction with the project on screen.** (Decision D20; replaces the old "a visible connection on a
   project silences that project" rule, which let an idle open tab silence pushes for good.) See "Holding while the app
   is open" below. Quiet hours, mutes, kinds and dedupe are unchanged and still apply.
 - **Archived projects are silent.** An event of an archived project is dropped (see "Archiving projects").
@@ -7339,27 +7339,28 @@ setting, restart and retry steps; the raw error remains a small secondary detail
 
 ### Holding while the app is open
 
-The user's rule: with the app open, a system notification is only worth sending if 15 s pass after the event with no
-interaction; an interaction in that time means they are using the app and a notification would repeat what is on screen.
+With the app open, system notifications wait 15 s. Interaction in that time cancels a push only if it would repeat
+what is on the interacting connection's screen.
 
 - **"Open"** is a visible connection: a web tab with `visibilityState === "visible"`, or the Android app in the foreground,
-  on any device, showing any project. Each connection reports it with `notifications.presence { visible }` (the project
-  field is still sent and no longer used). The server keeps one entry per socket and forgets it when the socket closes. A
-  connection that never reported (an older app) is not known to be open.
+  on any device, showing any project. Each connection reports `notifications.presence { deviceId, visible, projectId }`
+  on connect and when visibility or route changes. Only the backend that owns the project gets its ID; other backends
+  get null, as does every backend outside a project. The server keeps one entry per socket and forgets it when the socket
+  closes. A connection that never reported is not known to be open.
 - **Hold.** When an event happens and at least one connection is visible, the `Notifier` does not push: it keeps the event
   for `NOTIFICATION_HOLD_MS` (15 s, `packages/protocol/src/notifications.ts`; tests override it with the server option
   `notifications.holdMs` and a fake timer `notifications.schedule`) and pushes it when the time is up. No visible
   connection means no hold: the push goes out at once, as before. Each event times from its own moment; the payload's `at`
   is the event's time, not the push's.
-- **Drop.** An interaction on **any** device drops **every** event the backend is holding, for every device. Dropped events
-  have claimed their dedupe key (the claim is the first thing `deliver` does), so they never fire later, not even after a
-  restart or when the watch replays them. Only events held at that moment are dropped; an event that happens afterwards
+- **Drop.** Interaction drops only held events for the project visible on that connection, for every push device. A
+  different project's events and backend-wide events (such as low disk space) stay held. Dropped events have already
+  claimed their dedupe key, so a restart or watch replay does not send them. An event that happens after the interaction
   is held anew.
 - **Hold ends, then filter.** Kinds, mutes, archived projects and quiet hours are read when the push is sent (a mute set
   during the hold applies), and an event no device would receive is not held at all (nothing is written down for it).
   Archived projects are dropped before the hold, as before. Test pushes (`notifications.test`) are never held.
 - **The page going hidden, or the socket closing, during the hold changes nothing**: the event is still pushed at 15 s
-  unless someone interacted. (Someone who closes the tab and walks away is exactly who needs the push.)
+  unless an interaction already dropped it. (Someone who closes the tab and walks away still needs the push.)
 - **Where it lives: in the `Notifier`, per backend.** Every event source already calls one `Notifier`, so a hold in front
   of it would have to be in every caller; inside it the key claim, the filters and the held list sit next to each other.
   Backends do not talk to each other (each pushes its own events and keeps its own devices), so **interaction has to
@@ -7367,8 +7368,11 @@ interaction; an interaction in that time means they are using the app and a noti
   app connects to every backend it knows, and so does the Android app (`HarnessRepository` opens a client per backend,
   `NotificationCenter.watch` runs on each). A backend that is unreachable at that moment cannot hear it; it holds and
   pushes at 15 s, which is the safe side.
-- **Protocol** (feature `notification-hold`): `notifications.interaction { deviceId }` -> `{ dropped }`. Clients send it
-  only to a backend whose hello lists the feature, and only after interaction. Throttled by the client
+- **Protocol** (feature `notification-hold`): `notifications.interaction { deviceId, onScreenProjectId? }` -> `{ dropped }`.
+  Clients include a per-backend screen snapshot with each report: the visible project's ID, or null for no visible
+  project here. This avoids acting on an old route if interaction reaches the server before a presence update. An
+  omitted snapshot uses the same socket's last presence, if visible. A snapshot does not update stored presence.
+  Clients send only to a backend whose hello lists the feature, and only after interaction. Throttled by the client
   (`INTERACTION_REPORT_INTERVAL_MS`, 5 s): the first interaction goes out at once, interaction inside the next 5 s becomes
   one trailing message at its end, so continuous use costs one small message per backend every 5 s and idleness costs
   nothing. The reporting delay (at most 5 s) is well inside the 15 s hold. The server counts the time it receives the
@@ -7385,7 +7389,8 @@ interaction; an interaction in that time means they are using the app and a noti
   messages and applies its own old rule (a visible connection on a project silences it); the apps no longer drop a push
   on the device because the project is on screen, so a hold that ran out is always drawn. The web now reports presence
   from a browser that has no push subscription too: a tab you are using counts as open even though it is not a
-  notification device.
+  notification device. Web tabs still running older code can report the route's project to every backend until they
+  reload. Those tabs cannot provide the per-backend screen snapshot either.
 - **Restarts: held events are persisted and carried on.** Each held event is written to `state.json` (`held`: the event,
   its time and when the hold ends) and removed when pushed or dropped. At start `Notifier.restore()` re-arms them: an
   event whose time ran out while the server was down is pushed at once; the others wait the rest of their time. This
@@ -7394,10 +7399,10 @@ interaction; an interaction in that time means they are using the app and a noti
   is lost (the clients cannot reach the backend), so an event can still be pushed that the user saw; that is the cost of
   not losing events. A graceful stop cancels the timers and leaves the entries in the file.
 - **Tests:** `packages/server/test/notification-hold.test.ts` (fake clock: no connection pushes at once; visible, no
-  interaction pushes at 15 s; interaction at 5 s drops it and keeps the key; interaction from another device drops every
-  device's; hidden or closed during the hold still pushes; quiet hours, mutes and kinds; restart cases),
-  `notifications.test.ts` (over the wire with a short hold), `apps/web/test/interaction.test.ts`, the Android
-  `InteractionReporterTest`.
+  interaction pushes at 15 s; interaction drops the visible project's event for every device and keeps the key; events
+  outside that project still push; hidden or closed during the hold still pushes; filters; restart cases),
+  `notifications.test.ts` (socket scope over the wire), `push-relay-transport.test.ts` (snapshot overrides stale
+  presence), `apps/web/test/interaction.test.ts`, and Android `InteractionReporterTest` and `NotificationsTest`.
 
 ## Stack
 

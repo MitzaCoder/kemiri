@@ -1,5 +1,5 @@
 /**
- * Telling the backends that the user is using the app, so they drop the notifications they are holding (feature
+ * Telling the backends that the user is using the app, so they drop held notifications for the visible project (feature
  * `notification-hold`; design in `docs/DESIGN.md` "Notifications"). Listening is cheap: a handful of passive listeners
  * that compare two numbers. Sending is throttled: the first interaction goes out at once, later ones as one trailing
  * message when `INTERACTION_REPORT_INTERVAL_MS` has passed, so a user who keeps scrolling costs one tiny message every 5 s
@@ -10,6 +10,7 @@
  * scrolls itself while a reply streams, and that is not the user. Synthetic events (`isTrusted` false) are ignored.
  */
 import { INTERACTION_REPORT_INTERVAL_MS } from '@kemiri/protocol';
+import { presenceFor } from './notifications.ts';
 
 export const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'touchmove', 'wheel', 'input'] as const;
 export const NOTIFICATION_HOLD_FEATURE = 'notification-hold';
@@ -77,16 +78,23 @@ export class ThrottledReporter {
 
 /** What `reportInteraction` needs of a backend. */
 export type InteractionBackend = {
+	id: string;
 	ready: boolean;
 	connection: { status: string; features?: readonly string[] | undefined };
-	client: { reportNotificationInteraction(deviceId: string): Promise<number> };
+	client: { reportNotificationInteraction(deviceId: string, onScreenProjectId: string | null): Promise<number> };
 };
 
 /** Tell every connected backend that offers the hold. Backends do not talk to each other, so each hears it itself. */
-export function reportInteraction(backends: readonly InteractionBackend[], deviceId: string): void {
+export function reportInteraction(
+	backends: readonly InteractionBackend[],
+	deviceId: string,
+	pathname: string,
+	visible: boolean
+): void {
 	for (const backend of backends) {
 		if (!backend.ready || backend.connection.features?.includes(NOTIFICATION_HOLD_FEATURE) !== true) continue;
-		backend.client.reportNotificationInteraction(deviceId).catch(() => undefined);
+		const projectId = visible ? presenceFor(pathname, visible, backend.id).projectId : null;
+		backend.client.reportNotificationInteraction(deviceId, projectId).catch(() => undefined);
 	}
 }
 

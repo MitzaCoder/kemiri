@@ -4167,7 +4167,8 @@ data class NotificationsTestRequest(
 data class NotificationsInteractionRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.interaction",
     val `id`: String = java.util.UUID.randomUUID().toString(),
-    val `deviceId`: String
+    val `deviceId`: String,
+    val `onScreenProjectId`: String? = null
 )
 
 @Serializable

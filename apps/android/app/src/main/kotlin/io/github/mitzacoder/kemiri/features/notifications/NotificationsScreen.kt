@@ -56,7 +56,7 @@ class CenterProjectMute(private val center: NotificationCenter) : ProjectMute {
 @Composable
 fun ReportScreenPresence(backendKey: String?, projectId: String?) {
     val center = LocalNotificationCenter.current ?: return
-    LaunchedEffect(center, backendKey, projectId) { center.setScreen(backendKey, projectId) }
+    SideEffect { center.setScreen(backendKey, projectId) }
 }
 
 /** Open a project link or a notification's target once the backends have loaded; [onUnknownBackend] gets the ID of a backend not here. */

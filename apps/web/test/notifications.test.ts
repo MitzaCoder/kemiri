@@ -13,7 +13,6 @@ import {
 	kindsSummary,
 	lastDeliveryText,
 	presenceFor,
-	presenceProjectId,
 	pushSubscriptionError,
 	quietHoursDraft,
 	quietHoursProblem,
@@ -181,21 +180,24 @@ describe("the push service's answer", () => {
 
 describe("presence", () => {
 	test("names the project of the route, including a worker and the settings", () => {
-		expect(presenceProjectId("/b/harness-pc/projects/project-1")).toBe("project-1");
-		expect(presenceProjectId("/b/harness-pc/projects/project-1/workers/nightly-1")).toBe("project-1");
-		expect(presenceProjectId("/b/harness-pc/projects/project-1/settings")).toBe("project-1");
-		expect(presenceProjectId("/b/harness-pc/projects/a%20b")).toBe("a b");
+		for (const subpage of ["", "/workers/nightly-1", "/settings"]) {
+			const path = `/b/example%20pc/projects/a%20b${subpage}`;
+			expect(presenceFor(path, true, "example pc")).toEqual({ visible: true, projectId: "a b" });
+			expect(presenceFor(path, true, "example vm")).toEqual({ visible: true, projectId: null });
+		}
 	});
 
 	test("has no project on the other routes", () => {
 		for (const pathname of ["/", "/notifications", "/connect", "/b/harness-pc"]) {
-			expect(presenceProjectId(pathname)).toBeNull();
+			expect(presenceFor(pathname, true, "harness-pc").projectId).toBeNull();
 		}
 	});
 
-	test("carries the page's visibility", () => {
-		expect(presenceFor("/b/p/projects/one", true)).toEqual({ visible: true, projectId: "one" });
-		expect(presenceFor("/notifications", false)).toEqual({ visible: false, projectId: null });
+	test("clears the previous backend on navigation and carries the page's visibility", () => {
+		const nextPath = "/b/second/projects/one";
+		expect(presenceFor(nextPath, true, "first")).toEqual({ visible: true, projectId: null });
+		expect(presenceFor(nextPath, true, "second")).toEqual({ visible: true, projectId: "one" });
+		expect(presenceFor("/notifications", false, "second")).toEqual({ visible: false, projectId: null });
 	});
 });
 

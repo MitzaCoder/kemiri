@@ -11,8 +11,8 @@ import type { PushRelayTransport } from "./push-relay/transport.ts";
  * (`lastDelivery`), a device the push service no longer knows (404/410) is dropped, and everything else is logged.
  *
  * Holding: while some connection is visible (`NotificationPresence.anyVisible`), an event is held for `NOTIFICATION_HOLD_MS`
- * and pushed when the hold ends, unless a connection reports interaction first (`Notifier.interaction`), which drops every
- * held event. Held events are persisted in the state file and carried on after a restart (`Notifier.restore`).
+ * and pushed when the hold ends, unless a connection reports interaction while showing the event's project. Held
+ * events are persisted in the state file and carried on after a restart (`Notifier.restore`).
  *
  * No duplicates: events carry a dedupe key (`reply:<project>:<entry>`, `deploy:<commit>:<attempt>`, …) and the keys are
  * persisted, so a restart that replays a watch or re-reads a deploy status notifies nothing twice.
@@ -604,7 +604,7 @@ export type ConnectionPresence = {
 	deviceId: string;
 	/** Whether the page is visible (or the app in the foreground); a hidden tab is not open. */
 	visible: boolean;
-	/** What the connection shows. Kept for the record; the hold does not depend on it. */
+	/** The project this connection shows on this backend, if any. */
 	projectId: string | null;
 };
 
@@ -617,6 +617,10 @@ export class NotificationPresence {
 
 	set(connection: object, presence: ConnectionPresence): void {
 		this.#byConnection.set(connection, presence);
+	}
+
+	get(connection: object): ConnectionPresence | undefined {
+		return this.#byConnection.get(connection);
 	}
 
 	remove(connection: object): void {
@@ -637,6 +641,11 @@ export class NotificationPresence {
 	clear(): void {
 		this.#byConnection.clear();
 	}
+}
+
+/** Backend-wide events have no project view in which interaction can acknowledge them. */
+function isOnScreen(held: HeldEvent, onScreenProjectId: string | null): boolean {
+	return onScreenProjectId !== null && held.event.projectId === onScreenProjectId;
 }
 
 // --- filtering ----------------------------------------------------------------------------------------------------
@@ -1277,7 +1286,7 @@ export class Notifier {
 		await this.relay?.revoke(sessionId);
 		for (const device of this.#store.list())
 			if (device.sessionId === sessionId) await this.#store.unregister(device.deviceId);
-		if (!this.#store.list().length) this.interaction();
+		if (!this.#store.list().length && !this.relay?.devices().length) this.#dropHeld([...this.#state.held.keys()]);
 		await this.#store.flush();
 		await this.#state.flush();
 	}
@@ -1324,8 +1333,8 @@ export class Notifier {
 
 	/**
 	 * Send one event and say what each device's push service answered. While some connection is visible the event is
-	 * held instead (`skipped: "held"`): `interaction` drops it, the end of the hold pushes it. The key is claimed first
-	 * either way, so a dropped event never comes back.
+	 * held instead (`skipped: "held"`): interaction can drop it if it is on screen, otherwise the end of the hold pushes
+	 * it. The key is claimed first either way, so a dropped event never comes back.
 	 */
 	async deliver(event: NotificationEvent): Promise<NotifyResult> {
 		if (event.key !== undefined && !this.#state.claim(event.key)) return { skipped: "duplicate", deliveries: [] };
@@ -1391,12 +1400,17 @@ export class Notifier {
 		this.#holdTimers.set(held.id, cancel);
 	}
 
-	/**
-	 * Someone is using the app, on any device: every held event is dropped, for every device (their keys stay claimed).
-	 * Returns how many were dropped.
-	 */
-	interaction(): number {
-		const ids = [...this.#state.held.keys()];
+	/** Drop held events on the interacting connection's screen, for every device. Their dedupe keys stay claimed. */
+	interaction(connection: object, onScreenProjectId?: string | null): number {
+		const presence = this.presence.get(connection);
+		const visibleProjectId =
+			onScreenProjectId === undefined ? (presence?.visible ? presence.projectId : null) : onScreenProjectId;
+		const ids: string[] = [];
+		for (const held of this.#state.held.values()) if (isOnScreen(held, visibleProjectId)) ids.push(held.id);
+		return this.#dropHeld(ids);
+	}
+
+	#dropHeld(ids: string[]): number {
 		for (const id of ids) {
 			this.#holdTimers.get(id)?.();
 			this.#holdTimers.delete(id);

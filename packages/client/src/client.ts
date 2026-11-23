@@ -1038,11 +1038,16 @@ export class HarnessClient {
 	}
 
 	/**
-	 * The user touched the app (feature `notification-hold`): the backend drops every notification it is holding, for every
-	 * device. Callers throttle (`INTERACTION_REPORT_INTERVAL_MS`); this sends each call. Answers how many were dropped.
+	 * The user touched the app (feature `notification-hold`). The backend drops held events for the visible project
+	 * on this connection, for every device. Null means no visible project; omitted uses the last presence report.
+	 * Callers throttle (`INTERACTION_REPORT_INTERVAL_MS`); this sends each call and answers how many were dropped.
 	 */
-	async reportNotificationInteraction(deviceId: string): Promise<number> {
-		const response = await this.#call<NotificationsInteractionResponse>({ type: "notifications.interaction", deviceId });
+	async reportNotificationInteraction(deviceId: string, onScreenProjectId?: string | null): Promise<number> {
+		const response = await this.#call<NotificationsInteractionResponse>({
+			type: "notifications.interaction",
+			deviceId,
+			...(onScreenProjectId === undefined ? {} : { onScreenProjectId }),
+		});
 		return response.dropped;
 	}
 

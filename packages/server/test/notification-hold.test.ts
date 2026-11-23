@@ -166,13 +166,14 @@ describe("holding notifications while the app is open", () => {
 		expect(t.notifier.heldCount).toBe(0);
 	});
 
-	it("drops the held push when the user interacts, and the dedupe key stays claimed", async () => {
+	it("drops an on-screen held push on interaction and keeps its dedupe key claimed", async () => {
 		const t = await rig();
 		await register(t.notifier, "phone");
-		t.presence.set({}, { deviceId: "laptop", visible: true, projectId: null });
+		const laptop = {};
+		t.presence.set(laptop, { deviceId: "laptop", visible: true, projectId: "p1" });
 		await t.notifier.deliver(reply(7));
 		await t.clock.advance(5_000, t.notifier);
-		expect(t.notifier.interaction()).toBe(1);
+		expect(t.notifier.interaction(laptop)).toBe(1);
 		await t.clock.advance(60_000, t.notifier);
 		expect(t.sent).toHaveLength(0);
 		expect(t.clock.timers).toBe(0);
@@ -185,25 +186,53 @@ describe("holding notifications while the app is open", () => {
 		expect(state.held).toBeUndefined();
 	});
 
-	it("drops events on every device when any device interacts, and only the ones held at that moment", async () => {
+	it("drops the interacting connection's project for every device and pushes the other project after its hold", async () => {
 		const t = await rig();
 		await register(t.notifier, "phone");
 		await register(t.notifier, "tablet");
 		const phoneConnection = {};
 		const tabletConnection = {};
 		t.presence.set(phoneConnection, { deviceId: "phone", visible: true, projectId: "p1" });
-		t.presence.set(tabletConnection, { deviceId: "tablet", visible: true, projectId: "p2" });
+		t.presence.set(tabletConnection, { deviceId: "tablet", visible: true, projectId: "p1" });
 		await t.notifier.deliver(reply(1, "p1"));
 		await t.clock.advance(3_000, t.notifier);
 		await t.notifier.deliver(reply(2, "p2"));
-		// The interaction was on the tablet; the phone's held push goes too, and so does the tablet's.
-		expect(t.notifier.interaction()).toBe(2);
-		await t.clock.advance(20_000, t.notifier);
+		t.presence.set(tabletConnection, { deviceId: "tablet", visible: true, projectId: "p2" });
+		expect(t.notifier.interaction(tabletConnection)).toBe(1);
+		// Later events on the same project are not affected by the old interaction.
+		await t.notifier.deliver(reply(3, "p2"));
+		await t.clock.advance(11_999, t.notifier);
 		expect(t.sent).toHaveLength(0);
-		// A later event is held again from its own moment, and is not touched by the old interaction.
-		await t.notifier.deliver(reply(3, "p1"));
-		await t.clock.advance(15_000, t.notifier);
+		await t.clock.advance(1, t.notifier);
 		expect(t.sent.map((push) => push.deviceId).sort()).toEqual(["phone", "tablet"]);
+		expect(t.sent.map((push) => push.payload["projectId"])).toEqual(["p1", "p1"]);
+		await t.clock.advance(3_000, t.notifier);
+		expect(t.sent.map((push) => push.payload["projectId"])).toEqual(["p1", "p1", "p2", "p2"]);
+	});
+
+	it("pushes backend-wide events after the hold despite interaction", async () => {
+		const t = await rig();
+		await register(t.notifier, "phone");
+		const laptop = {};
+		t.presence.set(laptop, { deviceId: "laptop", visible: true, projectId: "p1" });
+		await t.notifier.deliver({ kind: "disk_low", title: "Disk low", body: "Free some disk space." });
+		await t.notifier.deliver(reply());
+		expect(t.notifier.interaction(laptop)).toBe(1);
+		await t.clock.advance(14_999, t.notifier);
+		expect(t.sent).toHaveLength(0);
+		await t.clock.advance(1, t.notifier);
+		expect(t.sent.map((push) => push.payload)).toMatchObject([{ kind: "disk_low", projectId: null }]);
+	});
+
+	it("drops nothing when the visible project is on another backend", async () => {
+		const t = await rig();
+		await register(t.notifier, "phone");
+		const laptop = {};
+		t.presence.set(laptop, { deviceId: "laptop", visible: true, projectId: null });
+		await t.notifier.deliver(reply());
+		expect(t.notifier.interaction(laptop)).toBe(0);
+		await t.clock.advance(15_000, t.notifier);
+		expect(t.sent.map((push) => push.payload)).toMatchObject([{ kind: "reply", projectId: "p1" }]);
 	});
 
 	it("times each event from its own moment", async () => {
@@ -227,6 +256,7 @@ describe("holding notifications while the app is open", () => {
 		await t.notifier.deliver(reply());
 		await t.clock.advance(4_000, t.notifier);
 		t.presence.set(connection, { deviceId: "laptop", visible: false, projectId: "p1" });
+		expect(t.notifier.interaction(connection)).toBe(0);
 		await t.clock.advance(10_999, t.notifier);
 		expect(t.sent).toHaveLength(0);
 		await t.clock.advance(1, t.notifier);
@@ -327,7 +357,9 @@ describe("a restart during a hold", () => {
 	it("can be dropped by an interaction after the restart", async () => {
 		const { after } = await restartAfter(1_000);
 		after.notifier.restore();
-		expect(after.notifier.interaction()).toBe(1);
+		const reconnected = {};
+		after.presence.set(reconnected, { deviceId: "laptop", visible: true, projectId: "p1" });
+		expect(after.notifier.interaction(reconnected)).toBe(1);
 		await after.clock.advance(60_000, after.notifier);
 		expect(after.sent).toHaveLength(0);
 		expect(await after.notifier.deliver(reply(1))).toEqual({ skipped: "duplicate", deliveries: [] });

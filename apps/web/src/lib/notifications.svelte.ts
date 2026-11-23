@@ -639,19 +639,19 @@ export class NotificationCenter {
 		options: { visible?: boolean } = {},
 	): Promise<void> {
 		const visible = options.visible ?? (typeof document === "undefined" || document.visibilityState === "visible");
-		const presence = presenceFor(pathname, visible);
-		for (const backend of backends) {
-			if (!backend.ready || !backend.supports("notifications")) continue;
+		await Promise.all(backends.map(async (backend) => {
+			if (!backend.ready || !backend.supports("notifications")) return;
+			const presence = presenceFor(pathname, visible, backend.id);
 			const signature = `${presence.visible}|${presence.projectId ?? ""}`;
-			if (this.#presence.get(backend.id) === signature) continue;
+			if (this.#presence.get(backend.id) === signature) return;
 			this.#presence.set(backend.id, signature);
 			try {
 				await backend.client.setNotificationsPresence({ deviceId: this.deviceId, ...presence });
 			} catch {
 				// A backend older than the request, or a dropped socket: the next report tries again.
-				this.#presence.delete(backend.id);
+				if (this.#presence.get(backend.id) === signature) this.#presence.delete(backend.id);
 			}
-		}
+		}));
 	}
 
 	/** Forget what was sent, so a reconnect reports presence again (the server forgot it when the socket closed). */

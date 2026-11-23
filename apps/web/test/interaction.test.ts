@@ -155,15 +155,18 @@ describe('startInteractionReporting', () => {
 });
 
 describe('reportInteraction', () => {
-	function backend(options: { ready?: boolean; features?: string[] }): InteractionBackend & { sent: string[] } {
-		const sent: string[] = [];
+	type ScreenReport = { deviceId: string; onScreenProjectId: string | null };
+
+	function backend(options: { id?: string; ready?: boolean; features?: string[] }): InteractionBackend & { sent: ScreenReport[] } {
+		const sent: ScreenReport[] = [];
 		return {
+			id: options.id ?? 'first',
 			sent,
 			ready: options.ready ?? true,
 			connection: { status: 'ready', features: options.features },
 			client: {
-				reportNotificationInteraction: async (deviceId) => {
-					sent.push(deviceId);
+				reportNotificationInteraction: async (deviceId, onScreenProjectId) => {
+					sent.push({ deviceId, onScreenProjectId });
 					return 0;
 				}
 			}
@@ -172,24 +175,31 @@ describe('reportInteraction', () => {
 
 	test('goes to every ready backend that has the feature, and only those', () => {
 		const modern = backend({ features: ['notifications', 'notification-hold'] });
-		const second = backend({ features: ['notification-hold'] });
+		const second = backend({ id: 'second', features: ['notification-hold'] });
 		const old = backend({ features: ['notifications'] });
 		const unknown = backend({});
 		const away = backend({ ready: false, features: ['notification-hold'] });
-		reportInteraction([modern, second, old, unknown, away], 'device-1');
-		expect(modern.sent).toEqual(['device-1']);
-		expect(second.sent).toEqual(['device-1']);
+		reportInteraction([modern, second, old, unknown, away], 'device-1', '/b/first/projects/one', true);
+		expect(modern.sent).toEqual([{ deviceId: 'device-1', onScreenProjectId: 'one' }]);
+		expect(second.sent).toEqual([{ deviceId: 'device-1', onScreenProjectId: null }]);
 		expect(old.sent).toEqual([]);
 		expect(unknown.sent).toEqual([]);
 		expect(away.sent).toEqual([]);
+	});
+
+	test('a hidden tab or non-project route explicitly reports no on-screen project', () => {
+		const connected = backend({ features: ['notification-hold'] });
+		reportInteraction([connected], 'device-1', '/b/first/projects/one', false);
+		reportInteraction([connected], 'device-1', '/settings/notifications', true);
+		expect(connected.sent.map((report) => report.onScreenProjectId)).toEqual([null, null]);
 	});
 
 	test('a backend that fails does not stop the others', async () => {
 		const failing = backend({ features: ['notification-hold'] });
 		failing.client.reportNotificationInteraction = () => Promise.reject(new Error('closed'));
 		const healthy = backend({ features: ['notification-hold'] });
-		reportInteraction([failing, healthy], 'device-1');
+		reportInteraction([failing, healthy], 'device-1', '/', true);
 		await Promise.resolve();
-		expect(healthy.sent).toEqual(['device-1']);
+		expect(healthy.sent).toEqual([{ deviceId: 'device-1', onScreenProjectId: null }]);
 	});
 });

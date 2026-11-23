@@ -704,7 +704,7 @@ export class ClientConnection {
 					this.#respond({
 						type: "notifications.interaction",
 						id: request.id,
-						dropped: this.#notifications.interaction(),
+						dropped: this.#notifications.interaction(this, request.onScreenProjectId),
 					});
 					return;
 				}

@@ -12,8 +12,8 @@
  *
  * An open app holds its notifications: each connection reports whether its page is visible (`notifications.presence`),
  * and while any connection on a backend is visible, that backend holds an event for 15 s before pushing it. Interaction
- * on any device (`notifications.interaction`, feature `notification-hold`) drops every held event of that backend: the
- * user is looking at the app, so a system notification would only repeat what is on screen. No visible connection, no
+ * (`notifications.interaction`, feature `notification-hold`) drops held events for the project visible on that
+ * connection. Events for other projects or without a project still go out after the hold. No visible connection, no
  * hold: the push goes out at once.
  */
 import { type Static, Type } from "typebox";
@@ -233,9 +233,10 @@ export const NotificationsTestRequestSchema = Type.Object({
 export type NotificationsTestRequest = Static<typeof NotificationsTestRequestSchema>;
 
 /**
- * Whether this connection's page is visible (and which project it shows, which the server no longer acts on). Sent on
- * connect and whenever the page's visibility or route changes; the server forgets it when the connection closes. A
- * visible connection makes the backend hold notifications for 15 s (see `notifications.interaction`).
+ * Whether this connection's page is visible, and which project it shows on this backend (null on other backends or
+ * outside a project). Sent on connect and on visibility or route changes; forgotten when the connection closes. Any
+ * visible connection makes the backend hold notifications for 15 s. Its project scopes its own interactions when an
+ * interaction report does not include a screen snapshot.
  */
 export const NotificationsPresenceRequestSchema = Type.Object({
 	type: Type.Literal("notifications.presence"),
@@ -246,22 +247,25 @@ export const NotificationsPresenceRequestSchema = Type.Object({
 });
 export type NotificationsPresenceRequest = Static<typeof NotificationsPresenceRequestSchema>;
 
-/** How long a backend holds a notification while some connection is visible, unless someone interacts. */
+/** How long a backend holds a notification while some connection is visible, unless interaction drops it. */
 export const NOTIFICATION_HOLD_MS = 15_000;
 /** The most often a client reports interaction to one backend while the user keeps interacting. */
 export const INTERACTION_REPORT_INTERVAL_MS = 5_000;
 
 /**
  * The user touched the app on this device (a pointer press, a key, a touch, the wheel, typing; not a mere mouse move).
- * Needs the `notification-hold` feature. The backend drops every notification it is holding, for every device, because
- * someone is using the app. Clients send it at most once per `INTERACTION_REPORT_INTERVAL_MS` per backend (the first
- * interaction at once, later ones as one trailing message), and to every backend they are connected to: backends do not
- * talk to each other. A client that never sends it is an open app nobody touches, whose pushes arrive after the hold.
+ * Needs the `notification-hold` feature. Only held notifications for the visible project on this connection are dropped,
+ * for every device. The report can include a screen snapshot so it need not wait on a concurrent presence update.
+ * Clients send it at most once per `INTERACTION_REPORT_INTERVAL_MS` per backend (the first interaction at once, later
+ * ones as one trailing message), and to every backend they are connected to: backends do not talk to each other.
  */
 export const NotificationsInteractionRequestSchema = Type.Object({
 	type: Type.Literal("notifications.interaction"),
 	id: RequestIdSchema,
 	deviceId: Type.String({ minLength: 1 }),
+	onScreenProjectId: Type.Optional(Type.Union([ProjectIdSchema, Type.Null()], {
+		description: "Project visible on this backend when the report was sent. Null means none; omitted uses this connection's last presence.",
+	})),
 });
 export type NotificationsInteractionRequest = Static<typeof NotificationsInteractionRequestSchema>;
 
@@ -328,6 +332,6 @@ export type NotificationsPresenceResponse = Static<typeof NotificationsPresenceR
 export const NotificationsInteractionResponseSchema = Type.Object({
 	type: Type.Literal("notifications.interaction"),
 	id: RequestIdSchema,
-	dropped: Type.Integer({ minimum: 0, description: "How many held notifications this interaction dropped." }),
+	dropped: Type.Integer({ minimum: 0, description: "How many held notifications matched the interacting connection's visible project and were dropped." }),
 });
 export type NotificationsInteractionResponse = Static<typeof NotificationsInteractionResponseSchema>;

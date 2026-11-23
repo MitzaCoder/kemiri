@@ -225,15 +225,20 @@ describe("notification requests", () => {
 		expect(presence[1]).toMatchObject({ visible: false, projectId: null });
 	});
 
-	it("reports interaction and says how many held notifications it dropped", async () => {
+	it("reports interaction with an optional screen snapshot and returns the drop count", async () => {
 		const { client, socket } = clientFor(notificationAnswer);
 		client.connect();
 		await client.whenReady();
 
 		expect(await client.reportNotificationInteraction("device-1")).toBe(2);
-		expect(socket.sent.find((message) => message.type === "notifications.interaction")).toMatchObject({
-			deviceId: "device-1",
-		});
+		await client.reportNotificationInteraction("device-1", null);
+		await client.reportNotificationInteraction("device-1", "project-1");
+		const interaction = socket.sent.filter((message) => message.type === "notifications.interaction");
+		expect(interaction).toHaveLength(3);
+		expect(interaction[0]).toMatchObject({ deviceId: "device-1" });
+		expect(interaction[0]).not.toHaveProperty("onScreenProjectId");
+		expect(interaction[1]).toMatchObject({ onScreenProjectId: null });
+		expect(interaction[2]).toMatchObject({ onScreenProjectId: "project-1" });
 	});
 });
 
