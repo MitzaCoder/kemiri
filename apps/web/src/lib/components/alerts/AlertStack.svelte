@@ -37,12 +37,13 @@
 	});
 	$effect(() => { if (!phone.current) pageIndex = 0; else if (pageIndex > lastPage) pageIndex = lastPage; });
 
-	function popupSource(popup: AlertPopup): { projectName: string; sourceLabel: string } {
+	function popupSource(popup: AlertPopup): { projectName: string; sourceLabel: string; backendName: string } {
 		const { row } = popup.members[0]!;
 		const backend = harness.backend(row.backendId);
 		const projectName = backend?.projects.find(project => project.id === row.alert.projectId)?.name;
 		return {
 			projectName: projectName || backend?.name || 'Kemiri',
+			backendName: backend?.name ?? row.backendId,
 			sourceLabel: alertSourceLabel(projectName, backend?.name, connectedBackends),
 		};
 	}

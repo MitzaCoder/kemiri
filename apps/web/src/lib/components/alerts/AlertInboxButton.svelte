@@ -1,21 +1,29 @@
 <script lang="ts">
 	import BellIcon from '@lucide/svelte/icons/bell';
+	import MoonIcon from '@lucide/svelte/icons/moon';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { alerts } from '#lib/alerts.svelte.js';
 	import { inboxUnreadCount, latestInboxRows } from '#lib/alert-inbox.js';
 
 	let { class: className = '' }: { class?: string } = $props();
 	const unread = $derived(inboxUnreadCount(latestInboxRows(alerts.rows)));
+	const label = $derived(['Inbox', unread ? `${unread} unread` : '', alerts.doNotDisturb ? 'Do not disturb on' : ''].filter(Boolean).join(', '));
 </script>
 
 <Button variant="ghost" size="icon-sm" class="relative shrink-0 {className}" aria-haspopup="dialog" aria-expanded={alerts.inboxOpen}
-	aria-label={unread ? `Inbox, ${unread} unread` : 'Inbox'} title="Notification inbox"
+	aria-label={label} title={alerts.doNotDisturb ? 'Notification inbox · Do not disturb on' : 'Notification inbox'}
 	onclick={(event) => alerts.showInbox(event.currentTarget)}>
 	<BellIcon aria-hidden="true" />
+	{#if alerts.doNotDisturb}<span class="inbox-disturb" aria-hidden="true"><MoonIcon size={9} /></span>{/if}
 	{#if unread}<span class="inbox-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>{/if}
 </Button>
 
 <style>
+	.inbox-disturb {
+		position: absolute; inset-block-end: 0; inset-inline-start: 0; display: grid; place-items: center;
+		width: 0.9rem; height: 0.9rem; border-radius: 50%; pointer-events: none;
+		background: var(--chat-surface-2); color: var(--chat-fg); box-shadow: 0 0 0 1px var(--chat-border-strong);
+	}
 	.inbox-unread {
 		position: absolute; inset-block-start: 0; inset-inline-end: 0;
 		display: grid; place-items: center; min-width: 1rem; height: 1rem; padding-inline: 0.16rem;

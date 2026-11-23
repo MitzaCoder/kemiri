@@ -98,8 +98,14 @@
 		untrack(() => alerts.observeBackends(backends));
 	});
 
+	$effect(() => {
+		void notifications.settings;
+		untrack(() => alerts.pruneMutedPopups());
+	});
+
 	onMount(() => {
 		if (page.url.pathname === '/pair') return;
+		const stopDeviceSettings = notifications.observeDeviceSettings(window);
 		const stopAlerts = alerts.start(() => {
 			const project = currentProject(page.url.pathname);
 			if (!project) return undefined;
@@ -128,7 +134,8 @@
 		window.addEventListener('focus', checkConnections);
 		// Using the app drops held notifications for the visible project (throttled, see lib/interaction.ts).
 		const stopInteraction = startInteractionReporting(window, () =>
-			reportInteraction(harness.backends, notifications.deviceId, page.url.pathname, document.visibilityState === 'visible')
+			reportInteraction(harness.backends, notifications.deviceId, page.url.pathname, document.visibilityState === 'visible'),
+			{ onTrustedActivation: () => { void alerts.unlockSounds(); } },
 		);
 		return () => {
 			document.removeEventListener('visibilitychange', onVisibility);
@@ -136,6 +143,7 @@
 			window.removeEventListener('focus', checkConnections);
 			stopInteraction();
 			stopAlerts();
+			stopDeviceSettings();
 		};
 	});
 </script>

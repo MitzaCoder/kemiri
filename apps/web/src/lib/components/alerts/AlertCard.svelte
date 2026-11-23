@@ -1,15 +1,22 @@
 <script lang="ts">
-	import { X, ArrowUpRight, TriangleAlert, Diamond, Circle, Check } from '@lucide/svelte';
+	import { X, ArrowUpRight, TriangleAlert, Diamond, Circle, Check, Ellipsis } from '@lucide/svelte';
 	import { isNotificationFailure } from '@kemiri/client';
 	import { alertRowId, canAnswerAlert } from '#lib/alerts.js';
 	import { alerts, type AlertPopup } from '#lib/alerts.svelte.js';
+	import { DropdownMenu } from 'bits-ui';
+	import { harness } from '#lib/harness.svelte.js';
+	import { notifications } from '#lib/notifications.svelte.js';
+	import { quietPeriod } from '#lib/alert-quiet.js';
 
-	let { popup, projectName, sourceLabel, href, onopen, pager }: {
-		popup: AlertPopup; projectName: string; sourceLabel: string; href?: string; onopen: (event: MouseEvent) => void;
+	let { popup, projectName, backendName, sourceLabel, href, onopen, pager }: {
+		popup: AlertPopup; projectName: string; backendName: string; sourceLabel: string; href?: string; onopen: (event: MouseEvent) => void;
 		pager?: { position: number; total: number; onnext: () => void };
 	} = $props();
 
-	const alert = $derived(popup.members[0]!.row.alert);
+	const row = $derived(popup.members[0]!.row);
+	const alert = $derived(row.alert);
+	const projectId = $derived(popup.members.every(member => member.row.alert.projectId === alert.projectId) ? alert.projectId : null);
+	const menuItemClass = 'flex min-h-11 cursor-pointer items-center rounded-lg px-2.5 text-sm outline-none data-highlighted:bg-(--chat-surface-2)';
 	const rowId = $derived(alertRowId(popup.members[0]!.row));
 	const levelLabel = $derived({ urgent: 'Urgent', important: 'Important', info: 'Info' }[popup.level]);
 	const LevelIcon = $derived({ urgent: TriangleAlert, important: Diamond, info: Circle }[popup.level]);
@@ -82,6 +89,21 @@
 			<button type="button" class="alert-page" aria-label={`Show next notification (${pager.position} of ${pager.total})`}
 				onclick={() => { if (!swiped) pager?.onnext(); }}><span>{pager.position} of {pager.total}</span></button>
 		{/if}
+		<DropdownMenu.Root onOpenChange={(open) => alerts.pause(popup.id, 'menu', open)}>
+			<DropdownMenu.Trigger class="alert-options" aria-label="Notification options" title="Notification options">
+				<Ellipsis size={17} aria-hidden="true" />
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Portal to={alerts.taskSheet ?? undefined}>
+				<DropdownMenu.Content sideOffset={6} align="end"
+					class="z-[75] w-64 max-w-[calc(100vw-1rem)] rounded-xl border border-(--chat-border) bg-(--chat-surface) p-1 text-(--chat-fg) shadow-xl">
+					{#if projectId !== null}
+						<DropdownMenu.Item class={menuItemClass} onSelect={() => { if (projectId !== null) void notifications.setProjectMute(harness.backends, row.backendId, projectId, quietPeriod('hour', Date.now())); }}>Mute {projectName} for 1 hour</DropdownMenu.Item>
+					{/if}
+					<DropdownMenu.Item class={menuItemClass} onSelect={() => void notifications.setBackendMute(harness.backends, row.backendId, quietPeriod('hour', Date.now()))}>Mute {backendName} for 1 hour</DropdownMenu.Item>
+					<DropdownMenu.Item class={menuItemClass} disabled={alerts.soundSetting === 'off'} onSelect={() => alerts.setSettings({ soundSetting: 'off' })}>Turn off sounds</DropdownMenu.Item>
+				</DropdownMenu.Content>
+			</DropdownMenu.Portal>
+		</DropdownMenu.Root>
 		<button type="button" class="alert-dismiss" aria-label="Dismiss notification" title="Dismiss notification" onclick={() => alerts.dismiss(popup)}><X size={17} aria-hidden="true" /></button>
 	</div>
 	<div role={popup.level === 'urgent' ? 'alert' : 'status'}>
@@ -148,6 +170,11 @@
 	.alert-choice:disabled { cursor: wait; }
 	.alert-open { margin-inline-start: auto; white-space: nowrap; }
 	.alert-dismiss { flex: none; border-color: transparent; color: var(--chat-fg-muted); }
+	.alert-header :global(.alert-options) {
+		display: grid; place-items: center; flex: none; width: 1.8rem; height: 1.8rem;
+		color: var(--chat-fg-muted); border-radius: 0.45rem; cursor: pointer;
+	}
+	.alert-header :global(.alert-options:hover) { background: var(--chat-surface-2); }
 	.alert-page { flex: none; min-width: 44px; min-height: 44px; font-size: 0.73rem; font-weight: 650; cursor: pointer; }
 	.alert-page span { display: block; padding: 0.15rem 0.45rem; border: 1px solid var(--chat-border-strong); border-radius: 1rem; }
 	.alert-page:hover span { background: var(--chat-surface-2); }
@@ -156,10 +183,10 @@
 	@keyframes alert-fade { from { opacity: 0; } to { opacity: 1; } }
 	@media (prefers-reduced-motion: reduce) { .alert-card { animation-name: alert-fade; } }
 	@media (width < 640px), (pointer: coarse) {
-		.alert-choice, .alert-dismiss, .alert-open { min-height: 44px; min-width: 44px; }
+		.alert-choice, .alert-dismiss, .alert-open, .alert-header :global(.alert-options) { min-height: 44px; min-width: 44px; }
 	}
 	@media (width < 640px) {
 		.alert-open::after { content: ''; position: absolute; inset: 0; }
-		.alert-choice, .alert-dismiss, .alert-page { position: relative; z-index: 1; }
+		.alert-choice, .alert-dismiss, .alert-page, .alert-header :global(.alert-options) { position: relative; z-index: 1; }
 	}
 </style>

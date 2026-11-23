@@ -2,6 +2,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import InboxIcon from '@lucide/svelte/icons/inbox';
+	import DoNotDisturbMenu from './DoNotDisturbMenu.svelte';
 	import { notificationUrl } from '@kemiri/client';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -14,6 +15,7 @@
 	let filter = $state<InboxFilter>('all');
 	let now = $state(Date.now());
 	let navigating = false;
+	let inboxPanel = $state<HTMLElement | null>(null);
 	const latest = $derived(latestInboxRows(alerts.rows));
 	const unread = $derived(inboxUnreadCount(latest));
 	const groups = $derived(inboxDayGroups(latest, filter, now));
@@ -50,7 +52,7 @@
 </script>
 
 <Dialog.Root open={alerts.inboxOpen} onOpenChange={(open) => { alerts.inboxOpen = open; }}>
-	<Dialog.Content showCloseButton={false} onCloseAutoFocus={restoreTrigger} overlayClass="z-[60]"
+	<Dialog.Content bind:ref={inboxPanel} showCloseButton={false} onCloseAutoFocus={restoreTrigger} overlayClass="z-[60]"
 		class="inset-y-0 right-0 left-auto z-[61] flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 sm:max-w-[28rem]">
 		<div class="inbox-header">
 			<div class="inbox-heading">
@@ -58,6 +60,7 @@
 				<Dialog.Description class="sr-only">Recent notifications from every connected backend.</Dialog.Description>
 				<Button variant="ghost" size="sm" class="ml-auto min-h-11 text-(--chat-fg-muted)" disabled={!unread}
 					onclick={() => alerts.markAllRead()}>Mark all read</Button>
+				<DoNotDisturbMenu inInbox portal={inboxPanel} />
 				<Dialog.Close class="inbox-close" aria-label="Close inbox"><XIcon size={18} aria-hidden="true" /></Dialog.Close>
 			</div>
 			<div class="inbox-filters" role="group" aria-label="Filter notifications">

@@ -145,6 +145,20 @@ describe('startInteractionReporting', () => {
 		expect(target.listeners.size).toBe(0);
 	});
 
+	test('the audio hook receives only trusted activation, not synthetic clicks or scrolling', () => {
+		const target = fakeTarget();
+		let activations = 0;
+		const stop = startInteractionReporting(target, () => {}, { clock: fakeClock(), onTrustedActivation: () => activations++ });
+		target.fire('click', false);
+		target.fire('wheel');
+		expect(activations).toBe(0);
+		target.fire('click');
+		expect(activations).toBe(1);
+		stop();
+		target.fire('click');
+		expect(activations).toBe(1);
+	});
+
 	test('a synthetic event does not count', () => {
 		const target = fakeTarget();
 		let sent = 0;

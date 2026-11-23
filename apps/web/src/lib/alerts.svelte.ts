@@ -1,5 +1,11 @@
 import { boardConflict, type HarnessClient } from '@kemiri/client';
-import type { NotificationAlert, NotificationRecentEntry } from '@kemiri/protocol';
+import type { NotificationAlert, NotificationMute, NotificationRecentEntry } from '@kemiri/protocol';
+import { notifications } from './notifications.svelte.js';
+import { activeDoNotDisturb, alertOriginMuted, quietTimerDelay } from './alert-quiet.js';
+import {
+	AlertSoundPlayer, DEFAULT_ALERT_VOLUME, alertSoundDecision, alertSoundProjectKey, alertSoundSetting, alertVolume,
+	noteAlertSound, type AlertSoundHistory, type AlertSoundSetting,
+} from './alert-sounds.js';
 import {
 	ALERT_BURST_WINDOW_MS, ALERT_RETENTION_MS, DEFAULT_ALERT_POPUPS, alertDuration, alertPopupDecision, alertPopupSetting,
 	alertRowId, alertTimeRemaining, applyAlertEntry, canAnswerAlert, catchUpPresentation, mergesAlertBurst, reconcileAlertEntries, recentAlertSequence,
@@ -7,12 +13,16 @@ import {
 } from './alerts.js';
 
 const SETTINGS_KEY = 'aiki.in-app-alert-settings.v1';
+const SOUND_HISTORY_KEY = 'aiki.alert-sound-history.v1';
 const CURSOR_PREFIX = 'aiki.alert-cursor.v1:';
 const ROWS_PREFIX = 'aiki.alert-rows.v1:';
 const TAB_SYNC_KEY = 'aiki.alert-marks.v1';
 const RETENTION_SWEEP_MS = 60_000;
 
-export type InAppAlertSettings = { popupSetting: AlertPopupSetting; hideText: boolean; tabTitleAndIconCount: boolean };
+export type InAppAlertSettings = {
+	popupSetting: AlertPopupSetting; hideText: boolean; tabTitleAndIconCount: boolean;
+	soundSetting: AlertSoundSetting; volume: number; doNotDisturb: NotificationMute | null;
+};
 type AlertBackend = { id: string; client: HarnessClient };
 type AlertMark = { backendId: string; id: string; kind: 'shown' | 'dismissed' | 'read' };
 type LiveEntry = { entry: NotificationRecentEntry; context: AlertContext; arrivedAt: number };
@@ -36,8 +46,8 @@ export type AlertPopup = {
 	sortAt: number;
 	remainingMs: number;
 	folded: boolean;
-	/** Eligibility at arrival, not a request to play. Stage 3 applies device settings and rate limits. */
-	sound: boolean;
+	/** The eligible live member. An aggregate's loudest member does not inherit another member's permission. */
+	soundAlertId?: string;
 };
 
 function readStored<T>(key: string): T | undefined {
@@ -85,6 +95,13 @@ class Alerts {
 	popupSetting = $state<AlertPopupSetting>(DEFAULT_ALERT_POPUPS);
 	hideText = $state(false);
 	tabTitleAndIconCount = $state(true);
+	soundSetting = $state<AlertSoundSetting>('urgent');
+	volume = $state(DEFAULT_ALERT_VOLUME);
+	doNotDisturb = $state<NotificationMute | null>(null);
+	audioUnlocked = $state(false);
+	#soundPlayer = new AlertSoundPlayer();
+	#soundHistory: AlertSoundHistory = { softAt: {} };
+	#disturbExpiry?: ReturnType<typeof setTimeout>;
 	inboxOpen = $state(false);
 	inboxTrigger?: HTMLElement;
 	#screen: () => AlertScreen | undefined = () => undefined;
@@ -93,6 +110,7 @@ class Alerts {
 	#displayedIds = new Set<string>();
 	#hoveredIds = new Set<string>();
 	#focusedIds = new Set<string>();
+	#menuIds = new Set<string>();
 	#lastTick = 0;
 	#popupId = 0;
 	#composerOwner?: object;
@@ -128,6 +146,7 @@ class Alerts {
 			if (!this.visible) {
 				this.#hoveredIds.clear();
 				this.#focusedIds.clear();
+				this.#menuIds.clear();
 			}
 		};
 		const onStorage = (event: StorageEvent) => {
@@ -150,6 +169,9 @@ class Alerts {
 		return () => {
 			clearInterval(timer);
 			clearInterval(sweep);
+			clearTimeout(this.#disturbExpiry);
+			this.#soundPlayer.close();
+			this.audioUnlocked = false;
 			document.removeEventListener('visibilitychange', onVisibility);
 			window.removeEventListener('storage', onStorage);
 			this.#channel?.close();
@@ -159,7 +181,10 @@ class Alerts {
 	}
 
 	setSettings(settings: Partial<InAppAlertSettings>): void {
-		const next = { popupSetting: this.popupSetting, hideText: this.hideText, tabTitleAndIconCount: this.tabTitleAndIconCount, ...settings };
+		const next = {
+			popupSetting: this.popupSetting, hideText: this.hideText, tabTitleAndIconCount: this.tabTitleAndIconCount,
+			soundSetting: this.soundSetting, volume: this.volume, doNotDisturb: this.doNotDisturb, ...settings,
+		};
 		writeStored(SETTINGS_KEY, next);
 		this.#applySettings(next);
 	}
@@ -172,7 +197,35 @@ class Alerts {
 		this.popupSetting = alertPopupSetting(settings?.popupSetting);
 		this.hideText = settings?.hideText === true;
 		this.tabTitleAndIconCount = settings?.tabTitleAndIconCount !== false;
-		if (this.popupSetting === 'off') this.popups = [];
+		this.soundSetting = alertSoundSetting(settings?.soundSetting);
+		this.volume = alertVolume(settings?.volume);
+		this.doNotDisturb = activeDoNotDisturb(settings?.doNotDisturb, Date.now());
+		this.#scheduleDisturbExpiry();
+		if (this.popupSetting === 'off' || this.doNotDisturb) this.popups = [];
+	}
+
+	#scheduleDisturbExpiry(): void {
+		clearTimeout(this.#disturbExpiry);
+		const deadline = this.doNotDisturb?.until;
+		if (deadline === undefined) return;
+		this.#disturbExpiry = setTimeout(() => {
+			if (Date.now() >= deadline) this.setSettings({ doNotDisturb: null });
+			else this.#scheduleDisturbExpiry();
+		}, quietTimerDelay(deadline, Date.now()));
+	}
+
+	async unlockSounds(): Promise<boolean> {
+		const unlocked = await this.#soundPlayer.unlock();
+		if (unlocked) this.audioUnlocked = true;
+		return unlocked;
+	}
+
+	async testSound(): Promise<void> {
+		if (await this.unlockSounds()) this.#soundPlayer.play('urgent', this.volume);
+	}
+
+	pruneMutedPopups(): void {
+		if (this.popups.length) this.#setRows(this.rows);
 	}
 
 	observeBackends(backends: readonly AlertBackend[]): void {
@@ -219,14 +272,28 @@ class Alerts {
 		}
 	}
 
-	#context(backendId: string, soundAllowed: boolean): AlertContext {
-		return { backendId, screen: this.#screen(), setting: this.popupSetting, visible: document.visibilityState === 'visible', soundAllowed };
+	#presentationMuted(backendId: string, projectId: string | null, now = Date.now()): boolean {
+		return activeDoNotDisturb(this.doNotDisturb, now) !== null || alertOriginMuted(notifications.settings, backendId, projectId, now);
+	}
+
+	#context(backendId: string, soundAllowed: boolean, projectId: string | null = null): AlertContext {
+		return { backendId, screen: this.#screen(), setting: this.popupSetting, visible: document.visibilityState === 'visible',
+			soundAllowed, muted: alertOriginMuted(notifications.settings, backendId, projectId, Date.now()),
+			doNotDisturb: activeDoNotDisturb(this.doNotDisturb, Date.now()) !== null };
+	}
+
+	#popupDecision(alert: NotificationAlert, context: AlertContext) {
+		const now = Date.now();
+		return alertPopupDecision(alert, { ...context,
+			muted: context.muted || alertOriginMuted(notifications.settings, context.backendId, alert.projectId, now),
+			doNotDisturb: context.doNotDisturb || activeDoNotDisturb(this.doNotDisturb, now) !== null,
+		});
 	}
 
 	#receiveLive(connection: AlertConnection, entry: NotificationRecentEntry, sound: boolean): void {
 		if (!connection.ready) return;
 		const { backend } = connection;
-		const live = { entry, context: this.#context(backend.id, sound), arrivedAt: Date.now() };
+		const live = { entry, context: this.#context(backend.id, sound, entry.type === 'alert' ? entry.alert.projectId : null), arrivedAt: Date.now() };
 		if (connection.buffering) { connection.pending.push(live); return; }
 		const epoch = entry.type === 'alert' ? entry.alert.backendEpoch : entry.backendEpoch;
 		if (connection.cursor?.backendEpoch !== epoch) {
@@ -277,17 +344,17 @@ class Alerts {
 				if (!row || row.done || row.dismissed) continue;
 				const live = bufferedSeqs.get(seq);
 				if (live) {
-					const { pop, silent } = alertPopupDecision(row.alert, live.context);
+					const { pop, silent } = this.#popupDecision(row.alert, live.context);
 					if (pop) this.#queue(row, live.arrivedAt, !silent);
-				} else if (!row.shown && cursor?.backendEpoch === epoch && seq > cursor.seq && alertPopupDecision(row.alert, context).pop) {
+				} else if (!row.shown && cursor?.backendEpoch === epoch && seq > cursor.seq && this.#popupDecision(row.alert, context).pop) {
 					catchUp.push(row);
 				}
 			}
 			const presentation = catchUpPresentation(cursor, epoch, catchUp, now);
-			if (presentation === 'summary') this.#addPopup('catch-up', catchUp.map(row => ({ row, arrivedAt: now })), now, false);
+			if (presentation === 'summary') this.#addPopup('catch-up', catchUp.map(row => ({ row, arrivedAt: now })), now);
 			if (presentation === 'individual') {
 				// Show the missed events individually; they did not arrive in one live burst.
-				for (const row of catchUp) this.#addPopup('alert', [{ row, arrivedAt: Date.parse(row.alert.at) }], Date.parse(row.alert.at), false);
+				for (const row of catchUp) this.#addPopup('alert', [{ row, arrivedAt: Date.parse(row.alert.at) }], Date.parse(row.alert.at));
 			}
 			const lastEntry = ordered.at(-1);
 			this.#commit(connection, { backendEpoch: epoch, seq: Math.max(latestSeq, lastEntry ? recentAlertSequence(lastEntry) : 0) });
@@ -335,7 +402,7 @@ class Alerts {
 		this.#setRows(retained(rows));
 		if (entry.type !== 'alert') return;
 		const row = this.#findRow(backendId, entry.alert);
-		const { pop, silent } = alertPopupDecision(entry.alert, context);
+		const { pop, silent } = this.#popupDecision(entry.alert, context);
 		if (row && !row.done && !row.dismissed && pop) this.#queue(row, arrivedAt, !silent, previous);
 	}
 
@@ -345,7 +412,7 @@ class Alerts {
 		this.popups = this.popups.flatMap(popup => {
 			const members = popup.members.flatMap(member => {
 				const row = byId.get(alertRowId(member.row));
-				return row && !row.done && !row.dismissed ? [{ ...member, row }] : [];
+				return row && !row.done && !row.dismissed && !this.#presentationMuted(row.backendId, row.alert.projectId) ? [{ ...member, row }] : [];
 			});
 			return members.length ? [{ ...popup, members, level: strongestLevel(members) }] : [];
 		});
@@ -353,6 +420,7 @@ class Alerts {
 
 	#queue(row: AlertRow, arrivedAt: number, sound: boolean, replacement?: AlertPopup): void {
 		const { backendId, alert } = row;
+		const soundAlertId = sound ? alertRowId(row) : undefined;
 		const sameProject = ({ row: member }: PopupMember) => alert.projectId !== null && member.backendId === backendId && member.alert.projectId === alert.projectId;
 		const projectPopups = this.popups.filter(popup => popup.kind !== 'catch-up' && popup.members.some(member =>
 			sameProject(member) && arrivedAt - member.arrivedAt <= ALERT_BURST_WINDOW_MS && arrivedAt >= member.arrivedAt));
@@ -360,16 +428,16 @@ class Alerts {
 		const burst = projectPopups.find(popup => popup.kind === 'burst');
 		if (burst || mergesAlertBurst(previous.map(member => member.arrivedAt), arrivedAt)) {
 			this.popups = this.popups.filter(popup => !projectPopups.includes(popup));
-			this.#addPopup('burst', [...previous, { row, arrivedAt }], arrivedAt, sound, burst?.id);
+			this.#addPopup('burst', [...previous, { row, arrivedAt }], arrivedAt, soundAlertId, burst?.id);
 		} else {
-			this.#addPopup('alert', [{ row, arrivedAt }], replacement?.sortAt ?? arrivedAt, sound, replacement?.id);
+			this.#addPopup('alert', [{ row, arrivedAt }], replacement?.sortAt ?? arrivedAt, soundAlertId, replacement?.id);
 		}
 	}
 
-	#addPopup(kind: AlertPopup['kind'], members: PopupMember[], sortAt: number, sound: boolean, id = String(++this.#popupId)): void {
+	#addPopup(kind: AlertPopup['kind'], members: PopupMember[], sortAt: number, soundAlertId?: string, id = String(++this.#popupId)): void {
 		this.#advanceTime();
 		const level = strongestLevel(members);
-		this.popups = [...this.popups, { id, kind, members, level, sortAt, sound, folded: false,
+		this.popups = [...this.popups, { id, kind, members, level, sortAt, soundAlertId, folded: false,
 			remainingMs: alertDuration(level, members.some(({ row }) => row.alert.warning)) }];
 	}
 
@@ -380,7 +448,7 @@ class Alerts {
 		if (!this.visible || !this.#displayedIds.size || !this.popups.length) return;
 		this.popups = this.popups.flatMap(popup => {
 			const remaining = alertTimeRemaining(popup.remainingMs, elapsed,
-				!popup.folded && this.#displayedIds.has(popup.id), this.#hoveredIds.has(popup.id) || this.#focusedIds.has(popup.id));
+				!popup.folded && this.#displayedIds.has(popup.id), this.#hoveredIds.has(popup.id) || this.#focusedIds.has(popup.id) || this.#menuIds.has(popup.id));
 			if (remaining === popup.remainingMs) return [popup];
 			if (remaining > 0) return [{ ...popup, remainingMs: remaining }];
 			return popup.level === 'urgent' || popup.members.some(({ row }) => row.alert.warning)
@@ -391,14 +459,14 @@ class Alerts {
 	setDisplayed(ids: readonly string[]): void {
 		this.#advanceTime();
 		this.#displayedIds = new Set(ids);
-		for (const paused of [this.#hoveredIds, this.#focusedIds]) {
+		for (const paused of [this.#hoveredIds, this.#focusedIds, this.#menuIds]) {
 			for (const id of paused) if (!this.#displayedIds.has(id)) paused.delete(id);
 		}
 	}
 
-	pause(id: string, source: 'hover' | 'focus', paused: boolean): void {
+	pause(id: string, source: 'hover' | 'focus' | 'menu', paused: boolean): void {
 		this.#advanceTime();
-		const pauses = source === 'hover' ? this.#hoveredIds : this.#focusedIds;
+		const pauses = source === 'hover' ? this.#hoveredIds : source === 'focus' ? this.#focusedIds : this.#menuIds;
 		if (paused) pauses.add(id);
 		else pauses.delete(id);
 	}
@@ -411,7 +479,9 @@ class Alerts {
 			if (!ids.includes(popup.id)) continue;
 			for (const { row } of popup.members) {
 				if (row.shown) continue;
-				marks.push({ backendId: row.backendId, id: alertRowId(row), kind: 'shown' });
+				const id = alertRowId(row);
+				if (popup.soundAlertId === id) this.#playPopupSound(row, popup.kind === 'catch-up');
+				marks.push({ backendId: row.backendId, id, kind: 'shown' });
 				const keys = keysByBackend.get(row.backendId) ?? [];
 				keys.push(row.alert.key);
 				keysByBackend.set(row.backendId, keys);
@@ -422,6 +492,21 @@ class Alerts {
 			for (let start = 0; start < keys.length; start += 200) void client?.reportNotificationsShown(keys.slice(start, start + 200)).catch(() => {});
 		}
 		this.#mark(marks);
+	}
+
+	#playPopupSound(row: AlertRow, catchUp: boolean): void {
+		if (!this.audioUnlocked || !this.volume) return;
+		const { backendId, alert } = row;
+		const decision = this.#popupDecision(alert, this.#context(backendId, true, alert.projectId));
+		const now = Date.now();
+		const stored = readStored<AlertSoundHistory>(SOUND_HISTORY_KEY);
+		const history = stored?.softAt && (stored.lastAt ?? 0) >= (this.#soundHistory.lastAt ?? 0) ? stored : this.#soundHistory;
+		const projectKey = alertSoundProjectKey(backendId, alert.projectId);
+		const tone = alertSoundDecision({ level: alert.level, setting: this.soundSetting, popupVisible: decision.pop,
+			permitted: !decision.silent, quietHours: notifications.settings.quietHours, projectKey, catchUp, unresolved: !row.done }, history, now);
+		if (!tone || !this.#soundPlayer.play(tone, this.volume)) return;
+		this.#soundHistory = noteAlertSound(history, tone, projectKey, now);
+		writeStored(SOUND_HISTORY_KEY, this.#soundHistory);
 	}
 
 	showInbox(trigger?: HTMLElement): void {

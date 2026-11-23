@@ -13,6 +13,8 @@ export type AlertContext = {
 	setting: AlertPopupSetting;
 	visible: boolean;
 	soundAllowed: boolean;
+	muted?: boolean;
+	doNotDisturb?: boolean;
 };
 export type AlertCursor = { backendEpoch: string; seq: number };
 export type AlertRow = {
@@ -45,7 +47,7 @@ export function alertPopupDecision(alert: AlertPolicyInput, context: AlertContex
 		: screen.coordinatorId === coordinator);
 	const allowed = alert.level !== 'inbox' && alert.kind !== 'compaction_failed' && alert.kind !== 'maintenance_failed' &&
 		(setting === 'everything' || (setting === 'needs-me' && alert.level !== 'info') || (setting === 'urgent' && alert.level === 'urgent'));
-	const pop = visible && allowed && !onScreen;
+	const pop = visible && allowed && !onScreen && !context.muted && !context.doNotDisturb;
 	return { pop, silent: !pop || !soundAllowed || alert.level === 'info' || (sameProject && screen.coordinatorId !== undefined && screen.coordinatorId !== coordinator) };
 }
 

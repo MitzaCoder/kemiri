@@ -7550,7 +7550,25 @@ Opening uses the existing push routes. Short, non-warning and non-approval quest
 choice, with the revision sent on confirmation. A stale revision keeps Open and shows “This question changed”.
 Only displayed cards acknowledge `notifications.shown`. Tabs share shown, read and dismiss marks over
 `BroadcastChannel` or storage events. The browser retains alert rows and their read/done state for seven days,
-including events that never pop up. The store exposes sound eligibility and the pop-up and text privacy settings.
+including events that never pop up. Notification cards can mute their project or backend for one hour or turn off sounds.
+
+### Web sounds and quiet controls
+
+Settings → Notifications starts with In the app. Pop-ups, sounds, volume, text privacy, Do not disturb, attention
+indicators and device mutes share settings across browser tabs. The browser opens its audio context only after a
+trusted activation. It synthesizes a rising two-note urgent chime or one softer low note, with volume at 40% by
+default. Only urgent sounds are enabled by default. Test plays the urgent chime at the selected volume on request.
+
+Only a displayed, unresolved alert with live sound permission can play, and not if its screen or device policy
+suppresses it. A grouped card uses the permitted live member's own level. History does not carry sound permission,
+so reconnect summaries are silent. The browser shares the eight-second sound interval and each project's two-minute
+soft-note interval across its tabs. Quiet hours leave eligible pop-ups visible but silence all in-app sounds. The
+shared push setting still controls whether failures can push during that window.
+
+Do not disturb is available from the inbox and Settings. It suppresses pop-ups and sounds without changing the
+inbox, Needs you or badges. The bell shows a moon while paused. The first option is one hour, followed by tomorrow
+at 08:00 local time or until turned off. Device mutes can last one hour, eight hours or until turned back on. They
+are applied locally before push registration and active deadlines disappear without a reload.
 
 ### Web inbox and attention indicators
 

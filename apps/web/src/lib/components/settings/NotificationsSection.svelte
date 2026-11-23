@@ -2,6 +2,7 @@
 	import { formatDateTime } from '#lib/time-format.ts';
 
 	import SettingsFold from './SettingsFold.svelte';
+	import InAppNotifications from './InAppNotifications.svelte';
 	import SaveStatus from '#lib/components/settings/SaveStatus.svelte';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import { onMount } from 'svelte';
@@ -41,7 +42,7 @@
 	/** What quiet hours would read as, whether they are on or not. */
 	const quietDraft = $derived(quietHoursDraft(settings, notifications.timezone));
 	const quietProblem = $derived(quiet === null ? undefined : quietHoursProblem(quiet));
-	const muted = $derived(mutedProjectEntries(settings));
+	const muted = $derived(mutedProjectEntries(settings, notifications.muteClock).filter(entry => entry.until === undefined));
 
 	onMount(() => {
 		harness.start();
@@ -121,6 +122,7 @@
 </script>
 
 <SettingsSection title="Notifications" description="What reaches this device, and when" icon="bell">
+	<InAppNotifications />
 	{#if notifications.error}
 		<Banner tone="error">
 			{notifications.error}
@@ -199,7 +201,7 @@
 	<SettingsGroup title="Quiet hours">
 		<SettingsRow
 			label="Be quiet at night"
-			hint="Nothing is pushed in this window."
+			hint="Push is quiet in this window. Pop-ups still show without sound."
 			for="quiet-enabled"
 			control="auto"
 			status={quietSave}

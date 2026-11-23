@@ -102,16 +102,20 @@ export function reportInteraction(
 export function startInteractionReporting(
 	target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>,
 	send: () => void,
-	options: { clock?: InteractionClock; intervalMs?: number } = {}
+	options: { clock?: InteractionClock; intervalMs?: number; onTrustedActivation?: () => void } = {}
 ): () => void {
 	const reporter = new ThrottledReporter(send, options);
 	const listener = (event: Event): void => {
 		if (event.isTrusted) reporter.touch();
 	};
+	const activate = (event: Event) => { if (event.isTrusted) options.onTrustedActivation?.(); };
+	const activationEvents = ['click', 'keydown', 'pointerup', 'touchend'];
 	const listenerOptions = { capture: true, passive: true } as const;
 	for (const type of INTERACTION_EVENTS) target.addEventListener(type, listener, listenerOptions);
+	if (options.onTrustedActivation) for (const type of activationEvents) target.addEventListener(type, activate, listenerOptions);
 	return () => {
 		for (const type of INTERACTION_EVENTS) target.removeEventListener(type, listener, listenerOptions);
+		if (options.onTrustedActivation) for (const type of activationEvents) target.removeEventListener(type, activate, listenerOptions);
 		reporter.stop();
 	};
 }

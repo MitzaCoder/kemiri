@@ -15,18 +15,22 @@ import {
 	deviceTimezone,
 	isProjectMuted,
 	NOTIFICATION_DEFAULTS_VERSION,
+	NOTIFICATION_SETTINGS_STORAGE_KEY,
 	loadDeviceSettings,
+	parseDeviceSettings,
 	newDeviceId,
 	preferencesForBackend,
 	samePublicKey,
 	saveDeviceSettings,
 	subscriptionServerKey,
 	withKind,
-	withMutedProject,
+	withProjectMute,
+	withBackendMute,
 	type DeviceNotificationSettings,
 	type QuietHours,
 } from "@kemiri/client";
-import type { NotificationDevice, NotificationKind } from "@kemiri/protocol";
+import type { NotificationDevice, NotificationKind, NotificationMute } from "@kemiri/protocol";
+import { nextDeviceMuteDeadline, quietTimerDelay } from './alert-quiet.js';
 import type { BackendConnection } from "./harness.svelte.ts";
 import {
 	backendNotificationView,
@@ -94,6 +98,8 @@ export class NotificationCenter {
 		quietHours: null,
 		mutedProjects: {},
 	});
+	muteClock = $state(Date.now());
+	#muteExpiry?: ReturnType<typeof setTimeout>;
 	permission = $state<PushPermission>("unsupported");
 	registration = $state<ServiceWorkerRegistration | undefined>(undefined);
 	subscription = $state<PushSubscription | null>(null);
@@ -143,6 +149,30 @@ export class NotificationCenter {
 					"Saved push settings are unreadable. Existing subscriptions were left untouched; restore browser storage before retrying.";
 			}
 		}
+	}
+
+	/** Mutes and quiet hours belong to this browser, including tabs with no push subscription. */
+	observeDeviceSettings(target: Window): () => void {
+		this.load();
+		this.#scheduleMuteExpiry();
+		const onStorage = (event: StorageEvent) => {
+			if (event.key !== NOTIFICATION_SETTINGS_STORAGE_KEY) return;
+			this.settings = parseDeviceSettings(event.newValue, this.deviceId, this.timezone);
+			this.#scheduleMuteExpiry();
+		};
+		target.addEventListener('storage', onStorage);
+		return () => {
+			target.removeEventListener('storage', onStorage);
+			clearTimeout(this.#muteExpiry);
+		};
+	}
+
+	#scheduleMuteExpiry(): void {
+		clearTimeout(this.#muteExpiry);
+		const now = Date.now();
+		this.muteClock = now;
+		const deadline = nextDeviceMuteDeadline(this.settings, now);
+		if (deadline !== undefined) this.#muteExpiry = setTimeout(() => this.#scheduleMuteExpiry(), quietTimerDelay(deadline, now));
 	}
 
 	/** Keep app-shell registration and legacy root subscription untouched. */
@@ -577,19 +607,26 @@ export class NotificationCenter {
 		await this.#save({ quietHours }, backends);
 	}
 
-	/** Mute or unmute one project, on the backend that owns it only. */
-	async setProjectMuted(
-		backends: readonly BackendConnection[],
-		backendId: string,
-		projectId: string,
-		muted: boolean,
-	): Promise<void> {
-		this.settings = withMutedProject(this.settings, backendId, projectId, muted);
-		saveDeviceSettings(this.settings);
-		const backend = backends.find((entry) => entry.id === backendId);
-		if (backend !== undefined && backend.ready && this.#subscriptionFor(backend.id) !== null) {
-			await this.#register(backend);
-		}
+	/** The existing project toggle uses the indefinite form, which older push backends can also honor. */
+	setProjectMuted(backends: readonly BackendConnection[], backendId: string, projectId: string, muted: boolean): Promise<void> {
+		return this.setProjectMute(backends, backendId, projectId, muted ? {} : null);
+	}
+
+	setProjectMute(backends: readonly BackendConnection[], backendId: string, projectId: string, mute: NotificationMute | null): Promise<void> {
+		return this.#saveMute(backends, backendId, withProjectMute(this.settings, backendId, projectId, mute), mute?.until !== undefined);
+	}
+
+	setBackendMute(backends: readonly BackendConnection[], backendId: string, mute: NotificationMute | null): Promise<void> {
+		return this.#saveMute(backends, backendId, withBackendMute(this.settings, backendId, mute), true);
+	}
+
+	async #saveMute(backends: readonly BackendConnection[], backendId: string, settings: DeviceNotificationSettings, needsTimedMutes: boolean): Promise<void> {
+		this.settings = settings;
+		saveDeviceSettings(settings);
+		this.#scheduleMuteExpiry();
+		const backend = backends.find(entry => entry.id === backendId);
+		if (backend?.ready && this.#subscriptionFor(backendId) !== null &&
+			(!needsTimedMutes || backend.connection.features?.includes('notification-timed-mutes'))) await this.#register(backend);
 	}
 
 	isMuted(backendId: string, projectId: string): boolean {
