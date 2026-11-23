@@ -289,6 +289,8 @@ export const BoardTaskStateSchema = Type.Object({
  since: Type.String(),
  refs: Type.Array(Type.String()),
  sentence: Type.Optional(BoardTaskActivitySchema),
+ fromPartId: Type.Optional(Type.String({ description: "request-attention: the part that raised this request's state." })),
+ fromPartTitle: Type.Optional(Type.String({ description: "request-attention: title of the part that raised this state." })),
 });
 export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 
@@ -351,6 +353,7 @@ export function liveCounterLabels(counters: BoardLiveCounters | undefined): stri
 export type BoardTaskLive = Static<typeof BoardTaskLiveSchema>;
 
 export const BoardTaskSchema = Type.Object({
+ requestId: Type.Optional(Type.String({ description: "request-attention: the root request of a part." })),
  live: Type.Optional(BoardTaskLiveSchema),
  state: Type.Optional(BoardTaskStateSchema),
  activity: Type.Optional(BoardTaskActivitySchema),
@@ -434,6 +437,7 @@ export const BoardQuestionExchangeSchema = Type.Object({
 export type BoardQuestionExchange = Static<typeof BoardQuestionExchangeSchema>;
 
 export const BoardQuestionSchema = Type.Object({
+ requestId: Type.Optional(Type.String({ description: "request-attention: the root request of the part this question or warning is on." })),
  waitingOn: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("agent")], { description: "Open questions only; absent means user. Agent-waiting questions are not Needs you." })),
  exchanges: Type.Optional(Type.Array(BoardQuestionExchangeSchema, { description: "Oldest first; revisions retain earlier wording on the reply." })),
  noReplyYet: Type.Optional(Type.Boolean({ description: "Returned to the owner after an unanswered reminder or failed run." })),

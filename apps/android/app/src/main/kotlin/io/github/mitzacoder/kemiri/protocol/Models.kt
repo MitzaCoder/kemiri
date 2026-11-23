@@ -3325,6 +3325,7 @@ data class RefDetailsJiraParent(
 
 @Serializable
 data class BoardTask(
+    val `requestId`: String? = null,
     val `live`: BoardTaskLive? = null,
     val `state`: BoardTaskState? = null,
     val `activity`: BoardTaskActivity? = null,
@@ -3416,6 +3417,7 @@ data class BoardQuestionClarifyResponse(
 
 @Serializable
 data class BoardQuestion(
+    val `requestId`: String? = null,
     val `waitingOn`: String? = null,
     val `exchanges`: List<BoardQuestionExchange>? = null,
     val `noReplyYet`: Boolean? = null,
@@ -3608,7 +3610,9 @@ data class BoardTaskState(
     val `kind`: String,
     val `since`: String,
     val `refs`: List<String>,
-    val `sentence`: BoardTaskActivity? = null
+    val `sentence`: BoardTaskActivity? = null,
+    val `fromPartId`: String? = null,
+    val `fromPartTitle`: String? = null
 )
 
 @Serializable

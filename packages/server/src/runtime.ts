@@ -249,7 +249,7 @@ export type ProjectManagerOptions = {
 	/** Called whenever a project's worker list changes, so connections can push `workers.state`. */
 	onWorkersState?: (projectId: string, workers: WorkerSummary[], defaults: WorkerDefaults) => void;
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
-	onBoardState?: (projectId: string, board: Board) => void;
+	onBoardState?: (projectId: string, board: Board, legacyBoard: Board) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
 	onThreadsMessage?: (event: ThreadsMessageEvent) => void;
 	onThreadsState?: (projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void;
@@ -259,6 +259,7 @@ export type ProjectManagerOptions = {
  taskActivity?: boolean;
  taskState?: boolean;
  taskPartStates?: boolean;
+ requestAttention?: boolean;
  taskLive?: boolean;
 	reportAudit?: boolean;
  taskWatcher?: boolean;
@@ -354,7 +355,7 @@ export class ProjectManager {
 	readonly #repositoryByPath = new Map<string, Promise<boolean>>();
 	readonly #onProjectState: ((summary: ProjectSummary) => void) | undefined;
 	readonly #onArchivedChange: ((projectId: string, archived: boolean) => void) | undefined;
-	readonly #onBoardState: ((projectId: string, board: Board) => void) | undefined;
+	readonly #onBoardState: ProjectManagerOptions["onBoardState"];
 	readonly #onThreadsMessage: ProjectManagerOptions["onThreadsMessage"];
 	readonly #onThreadsState: ((projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void) | undefined;
 	readonly #boardEditDebounceMs: number | undefined;
@@ -362,6 +363,7 @@ export class ProjectManager {
  readonly #taskActivity: boolean;
  readonly #taskState: boolean;
  readonly #taskPartStates: boolean;
+ readonly #requestAttention: boolean;
  readonly #taskLive: boolean;
 	readonly #reportAudit: boolean;
  readonly #taskWatcher: boolean;
@@ -436,6 +438,7 @@ export class ProjectManager {
   this.#taskActivity = options.taskActivity !== false;
   this.#taskState = options.taskState !== false;
   this.#taskPartStates = options.taskPartStates !== false;
+  this.#requestAttention = options.requestAttention !== false;
   this.#taskLive = options.taskLive !== false;
 		this.#reportAudit = options.reportAudit !== false;
   this.#taskWatcher = this.#taskLive && options.taskWatcher !== false;
@@ -842,14 +845,14 @@ export class ProjectManager {
 	}
 
 	/** The project's board; archived tasks only when asked for. */
-	async board(projectId: string, includeArchived: boolean): Promise<Board> {
+	async board(projectId: string, includeArchived: boolean, withRequestAttention = true): Promise<Board> {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.get(includeArchived);
+		return runtime.board.get(includeArchived, withRequestAttention);
 	}
 
-	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }) {
+	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }, withRequestAttention = true) {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.markReportStale(input.taskId, input.sections, input.reason);
+		return runtime.board.markReportStale(input.taskId, input.sections, input.reason, withRequestAttention);
 	}
 
 	/** A board task's snapshots, oldest first; `unknown_task` when the board has no such task. */
@@ -901,9 +904,10 @@ export class ProjectManager {
 	async saveBoardTask(
 		projectId: string,
 		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
+		withRequestAttention = true,
 	): Promise<BoardTask> {
 		const { runtime } = await this.conversation(projectId);
-		return runtime.board.saveTask(input, "user");
+		return runtime.board.saveTask(input, "user", withRequestAttention);
 	}
 
 	async reorderBoardTasks(projectId: string, taskIds: readonly string[]): Promise<void> {
@@ -1458,6 +1462,7 @@ export class ProjectManager {
    taskActivity: this.#taskActivity,
    taskState: this.#taskState,
    taskPartStates: this.#taskPartStates,
+   requestAttention: this.#requestAttention,
    taskLive: this.#taskLive,
    ...(this.#taskWatcher ? {
     watcherModels: this.#requestLog?.observeInternalModels(this.models, project.id, "task_watcher") ?? this.models,
@@ -1997,9 +2002,9 @@ export class ProjectManager {
 				return async () => undefined;
 			});
 		entry.stopBoardWatch = await board
-			.watch((view, openQuestions) => {
+			.watch((view, openQuestions, legacyBoard) => {
 				void reconcileApps();
-				this.#emitBoard(project.id, view);
+				this.#emitBoard(project.id, view, legacyBoard);
 				activity.setOpenQuestions(openQuestions);
 				updateAttention(boardAttention(view));
 				threads.boardChanged(view);
@@ -2177,10 +2182,10 @@ export class ProjectManager {
 		}
 	}
 
-	#emitBoard(projectId: string, board: Board): void {
+	#emitBoard(projectId: string, board: Board, legacyBoard: Board): void {
 		if (this.#onBoardState === undefined) return;
 		try {
-			this.#onBoardState(projectId, board);
+			this.#onBoardState(projectId, board, legacyBoard);
 		} catch (error) {
 			this.#log(`project ${projectId}: board state listener failed: ${errorMessage(error)}`);
 		}

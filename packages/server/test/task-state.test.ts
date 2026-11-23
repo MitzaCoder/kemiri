@@ -4,8 +4,10 @@ import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/pr
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
 import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
-import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
+import { BoardDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, recordScheduledReport, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
 import { activityTracking, endActivitySource, taskState, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
+import { boardAttention } from "../src/sidebar-attention.ts";
+import { topRequest } from "../src/request-attention.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
 const START = Date.parse("2026-11-12T12:00:00.000Z");
@@ -207,15 +209,15 @@ it("migration detaches legacy contradictions, moves todo ancestors, resolves sta
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
-async function integration() {
+async function integration(features?: readonly string[], clientFeatures?: string[]) {
  let now = START;
- const setup = await createSetup({ now: () => now, boardEditDebounceMs: 60_000 }); cleanups.push(setup.cleanup);
+ const setup = await createSetup({ now: () => now, boardEditDebounceMs: 60_000, ...(features === undefined ? {} : { features }) }); cleanups.push(setup.cleanup);
  setup.faux.setResponses(Array.from({ length: 30 }, () => () => fauxAssistantMessage("Noted.")));
- const client = await TestClient.open(setup.server); cleanups.push(async () => client.close()); await client.hello();
+ const client = await TestClient.open(setup.server); cleanups.push(async () => client.close()); const hello = clientFeatures ? await client.request({ type: "hello", protocolVersion: 1, client: { name: "test", version: "0", features: clientFeatures } }) : await client.hello();
  const added = await client.request({ type: "projects.add", path: setup.projectDir }); if (added.type !== "projects.add") throw errorOf(added);
  const configured = await client.request({ type: "projects.configure", projectId: added.project.id, coordinatorModel: { provider: "faux", modelId: "faux-1" } }); if (configured.type !== "projects.configure") throw errorOf(configured);
  const { runtime } = await setup.server.manager.open(added.project.id);
- return { setup, client, runtime, projectId: added.project.id, clock: (ms: number) => { now = START + ms; } };
+ return { setup, client, runtime, hello, projectId: added.project.id, clock: (ms: number) => { now = START + ms; } };
 }
 
 async function runBoardTool({ setup, runtime }: Awaited<ReturnType<typeof integration>>, ...calls: JsonObject[]) {
@@ -562,3 +564,102 @@ it("live parts suppress parent pause notices until work ends, with an injected c
  expect((await runtime.board.get()).tasks[0]!.state!.kind).toBe("paused");
  expect((await runtime.board.state()).taskActivity!.T1!.pauseNudgedEpisode).toBeDefined();
 }, 20_000);
+
+it("lifts nested attention by urgency without changing the part state or stored question", () => {
+ const state = { ...emptyBoardState(), taskStateEnabled: true, taskPartStatesEnabled: true };
+ add(state, { title: "Ship the boxes", status: "in_progress" });
+ add(state, { title: "Pack boxes", parent: "T1" });
+ add(state, { title: "Choose a label", parent: "T2" });
+ add(state, { title: "Print the inserts", parent: "T1" });
+ const board = () => boardView(state, START + 100, false, undefined, true);
+ const steps = (taskId: string) => writeReport(state, { taskId, by: HARNESS_WRITER, now: at(), sections: { steps: "1. Approve the proof." } });
+ steps("T3"); steps("T4");
+ const withSteps = board();
+ expect(withSteps.tasks[0]?.state).toMatchObject({ kind: "steps_needed", fromPartId: "T3", fromPartTitle: "Choose a label" });
+ expect(withSteps.tasks[1]?.state).toMatchObject({ kind: "todo" });
+ expect(withSteps.tasks[2]).toMatchObject({ requestId: "T1", state: { kind: "steps_needed" } });
+ expect(withSteps.tasks[2]?.state?.fromPartId).toBeUndefined();
+ expect(boardAttention(withSteps)).toMatchObject({ stepsTasks: 1, stepsTaskId: "T3", reviewTasks: 0 });
+ expect(boardAttention(boardView(state, START + 100, false))).toMatchObject({ stepsTasks: 1, stepsTaskId: "T3" });
+
+ askQuestion(state, { taskId: "T3", text: "Which label?", options: [], now: at() });
+ expect(board().tasks[0]?.state).toMatchObject({ kind: "answer_needed", refs: ["Q1"], fromPartId: "T3" });
+ expect(board().questions[0]).toMatchObject({ taskId: "T3", requestId: "T1" });
+ expect(boardAttention(board())).toMatchObject({ questions: 1, questionTaskId: "T3", stepsTasks: 0 });
+ expect(state.questions[0]?.requestId).toBeUndefined();
+ expect(state.tasks[2]?.requestId).toBeUndefined();
+
+ const failed = source(state, "failed");
+ delete state.taskActivity!.T1;
+ activityTracking(state, "T4").sources[failed.actor.id] = failed;
+ expect(board().tasks[0]?.state).toMatchObject({ kind: "failed", fromPartId: "T4", refs: [failed.actor.id] });
+ delete state.taskActivity!.T4;
+ update(state, "T4", { status: "blocked", blockedReason: "The printer broke." }, "user");
+ expect(board().tasks[0]?.state).toMatchObject({ kind: "failed", fromPartId: "T4" });
+});
+
+it("lifts owner-waiting warnings but not clarifications or review on a part", () => {
+ const state = { ...emptyBoardState(), taskStateEnabled: true };
+ add(state, { status: "review" }); add(state, { parent: "T1", status: "review" });
+ const view = () => boardView(state, START, false, undefined, true);
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "review" });
+ expect(boardAttention(view())).toMatchObject({ reviewTasks: 1, reviewTaskId: "T1" });
+ askQuestion(state, { taskId: "T2", text: "The proof is old.", kind: "warning", options: [], now: at() });
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "answer_needed", fromPartId: "T2", refs: ["Q1"] });
+ expect(view().tasks[1]?.state).toMatchObject({ kind: "review" });
+ expect(boardAttention(view())).toMatchObject({ reviewTasks: 0, warnings: 1, warningTaskId: "T2" });
+ state.questions[0]!.waitingOn = "agent";
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "review" });
+ expect(boardAttention(view())).toMatchObject({ reviewTasks: 1, warnings: 0 });
+});
+
+it("a missing parent or a cycle cannot provide a top request", () => {
+ const tasks = new Map([["T1", { id: "T1", parent: "T2" }], ["T2", { id: "T2", parent: "T1" }]]);
+ expect(topRequest(tasks.get("T1")!, tasks)).toBeUndefined();
+ tasks.delete("T2");
+ expect(topRequest(tasks.get("T1")!, tasks)).toBeUndefined();
+});
+
+it.each([[true, true], [true, false], [false, true]])("gates request attention (server %s, client %s) without changing the durable board", async (serverEnabled, clientEnabled) => {
+ const project = await integration(HARNESS_FEATURES.filter(feature => serverEnabled || feature !== "request-attention"), clientEnabled ? ["request-attention"] : undefined);
+ const enabled = serverEnabled && clientEnabled;
+ const { client, projectId, runtime, hello } = project;
+ if (hello.type !== "hello") throw errorOf(hello);
+ expect(hello.features?.includes("request-attention")).toBe(serverEnabled);
+ expect(LEGACY_HARNESS_FEATURES).not.toContain("request-attention");
+ const previousBoard = defineDoc<Omit<BoardState, "tasks" | "questions"> & {
+  tasks: Omit<BoardState["tasks"][number], "requestId">[];
+  questions: Omit<BoardState["questions"][number], "requestId">[];
+ }>({ ...BoardDoc.definition, scope: "conversation", history: "latest", fork: "initial" });
+ await runtime.harness.commit(async tx => {
+  const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
+  add(state, { title: "Ship the boxes" }); add(state, { title: "Pack boxes", parent: "T1" });
+  add(state, { title: "Pick labels", parent: "T2" });
+  askQuestion(state, { taskId: "T3", text: "Which label?", options: [], now: at() });
+ }, BACKGROUND_CONTEXT);
+ const result = await client.request({ type: "board.get", projectId });
+ if (result.type !== "board.get") throw errorOf(result);
+ expect(result.board.tasks[0]?.state?.kind).toBe(enabled ? "answer_needed" : "todo");
+ expect(result.board.tasks[0]?.state?.fromPartId).toBe(enabled ? "T3" : undefined);
+ expect(result.board.tasks[2]?.requestId).toBe(enabled ? "T1" : undefined);
+ expect(result.board.questions[0]?.requestId).toBe(enabled ? "T1" : undefined);
+ const watched = await client.waitFor(message => message.type === "board.state" && message.projectId === projectId && message.board.questions.some(question => question.id === "Q1"));
+ if (watched.type !== "board.state") throw errorOf(watched);
+ expect(watched.board.tasks[0]?.state?.fromPartId).toBe(enabled ? "T3" : undefined);
+ expect(watched.board.questions[0]?.requestId).toBe(enabled ? "T1" : undefined);
+ const old = await runtime.harness.snapshot(previousBoard, runtime.conversation.id, BACKGROUND_CONTEXT);
+ expect(old?.questions[0]).toMatchObject({ taskId: "T3", text: "Which label?" });
+ expect(old?.tasks[2]).toMatchObject({ parent: "T2", status: "todo" });
+ expect(JSON.stringify(old)).not.toMatch(/"(?:requestId|fromPartId|fromPartTitle)":/);
+ const [shown] = await runBoardTool(project, { action: "show_task", id: "T3" });
+ expect(shown?.text).toContain('\nRequest: T1 "Ship the boxes"\n');
+});
+
+it("records a schedule run's Results on a part without putting it up for review", () => {
+ const state = emptyBoardState();
+ add(state, { status: "in_progress" }); add(state, { parent: "T1", status: "in_progress" });
+ state.tasks[1]!.scheduleId = "packing";
+ const change = recordScheduledReport(state, { key: "record-packing", scheduleId: "packing", taskId: "T2", workerId: "packer", text: "Boxes packed.", now: at() });
+ expect(change?.after.status).toBe("in_progress");
+ expect(change?.after.report.results).toContain("Boxes packed.");
+});

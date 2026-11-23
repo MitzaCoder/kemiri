@@ -7,6 +7,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { BoardDoc, BoardService, addDecision, moveTaskForWorker, changeOwner, askQuestion, coordinatorWriter, emptyBoardState, normalizeBoard, saveTask, settleQuestion, writeReport, workerWriter, type BoardState } from "../src/board.ts";
 import { acknowledgeReportNudge, markReportStale, noteTaskFact, prepareReportNudges, reportDueAt, substantiveTaskMentions, reportChatUserTasks, sweepReportAge, type TaskFact } from "../src/task-freshness.ts";
 import { createSetup, errorOf, TestClient } from "./support.ts";
+import { auditEligible } from "../src/report-audit.ts";
 import { activityTracking } from "../src/task-activity.ts";
 
 import { OWNER_CHAT_ENTRY } from "../src/wire.ts";
@@ -862,3 +863,34 @@ it("restart retries a submitted but unacknowledged only-in-chat outbox entry wit
  expect((await reopened.board.state()).reportOutbox).toEqual([]);
  expect((await reopened.board.state()).chatDetailCounts?.[utcDay]).toEqual({ flagged: 1, clean: 0 });
 }, 20_000);
+
+
+it("does not nudge or audit parts, including replay of an old mixed freshness batch", () => {
+ const state = task(task());
+ write(state, { results: "Printed", next: "Check the proof" }, undefined, "T2");
+ fact(state, "worker_start", 0, "T2");
+ expect(auditEligible(state, state.tasks[1]!)).toBe(true);
+ fact(state, "worker_report", 0, "T2"); fact(state, "worker_report");
+ prepareReportNudges(state, START + 60_000, owner);
+ expect(state.reportOutbox?.flatMap(batch => batch.admissions.map(admission => admission.taskId))).toEqual(["T1", "T2"]);
+ state.tasks[1]!.parent = "T1";
+ prepareReportNudges(state, START + 60_000, owner);
+ expect(state.reportOutbox?.flatMap(batch => batch.admissions.map(admission => admission.taskId))).toEqual(["T1"]);
+ expect(state.reportOutbox?.[0]?.content).not.toContain("T2");
+ expect(state.reportTracking?.T2?.pending).toBeUndefined();
+ markReportStale(state, "T2", ["next"], undefined, at(), "user");
+ expect(state.reportTracking?.T2?.pending).toBeUndefined();
+ write(state, { results: "Verified", next: "Continue" }, state.tasks[1]!.eventSeq, "T2");
+ fact(state, "worker_start", 0, "T2");
+ expect(auditEligible(state, state.tasks[1]!)).toBe(false);
+});
+
+it("does not wake a coordinator with a chat-detail nudge scoped to a part", async () => {
+ const test = await integration();
+ const { setup, runtime } = test;
+ const request = (await runtime.board.state()).tasks[0]!;
+ const part = await runtime.board.saveTask({ task: { ...request, title: "Set up the profile", parent: request.id } }, "coordinator");
+ setup.faux.setResponses([fauxAssistantMessage(fiveSteps)]);
+ await submitOwnerChat(test, "How do I configure the profile?", "part-detail", part.id);
+ expect(await detailNudges(runtime)).toEqual([]);
+});

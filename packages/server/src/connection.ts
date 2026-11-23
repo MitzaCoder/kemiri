@@ -217,6 +217,7 @@ export class ClientConnection {
 	#ready = false;
 	#clientSupportsThreadMessages = false;
 	#clientSupportsTaskSteps = false;
+	#clientSupportsRequestAttention = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
 	#closed = false;
@@ -292,8 +293,8 @@ export class ClientConnection {
 	}
 
 	/** Push a project's board (without archived tasks) when it changes. */
-	notifyBoard(projectId: string, board: Board): void {
-		this.#respond({ type: "board.state", projectId, board });
+	notifyBoard(projectId: string, board: Board, legacyBoard: Board): void {
+		this.#respond({ type: "board.state", projectId, board: this.#clientSupportsRequestAttention ? board : legacyBoard });
 	}
 
 	/** Push a project's threads (without archived ones) when any changes. */
@@ -1074,13 +1075,13 @@ export class ClientConnection {
 					return;
 				}
 				case "board.get": {
-					const board = await this.#manager.board(request.projectId, request.includeArchived === true);
+					const board = await this.#manager.board(request.projectId, request.includeArchived === true, this.#clientSupportsRequestAttention);
 					this.#respond({ type: "board.get", id: request.id, board });
 					return;
 				}
 				case "board.report.stale": {
 					if (!this.#features.includes("task-freshness")) return this.#unknownRequest(request);
-					const task = await this.#manager.markBoardReportStale(request.projectId, { taskId: request.taskId, sections: request.sections, reason: request.reason });
+					const task = await this.#manager.markBoardReportStale(request.projectId, { taskId: request.taskId, sections: request.sections, reason: request.reason }, this.#clientSupportsRequestAttention);
 					this.#respond({ type: "board.report.stale", id: request.id, task });
 					return;
 				}
@@ -1175,7 +1176,7 @@ export class ClientConnection {
 						task: request.task,
       openParts: request.openParts,
 						note: request.note,
-					});
+					}, this.#clientSupportsRequestAttention);
 					this.#respond({ type: "board.task.save", id: request.id, task });
 					return;
 				}
@@ -1661,6 +1662,7 @@ export class ClientConnection {
 		}
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
+		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
 		this.#clientSupportsInAppAlerts = this.#features.includes("in-app-alerts") && request.client?.features?.includes("in-app-alerts") === true;
@@ -1919,6 +1921,10 @@ export class ClientConnection {
      case "projects.add": case "projects.configure": case "project.state": message = { ...message, project: legacy(message.project) }; break;
     }
    }
+			if (!this.#clientSupportsRequestAttention && (message.type === "board.question.answer" || message.type === "board.question.clarify")) {
+				const { requestId: _, ...question } = message.question;
+				message = { ...message, question };
+			}
 			this.#io.send(this.#clientSupportsTaskSteps ? message : withLegacyTaskState(message));
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);

@@ -28,7 +28,7 @@ export async function readStoredAttention(file: string, now = Date.now()): Promi
 		}
 		return {
 			...EMPTY_ATTENTION,
-			...(board === undefined ? {} : boardAttention(boardView(board, now, false))),
+			...(board === undefined ? {} : boardAttention(boardView(board, now, false, undefined, true))),
 			...workerAttention(workers),
 			...threadAttention(threads.map((thread) => ({ ...thread, main: false }))),
 			runningWorkers: 0, // Never trust an in-flight status left by a dead process.

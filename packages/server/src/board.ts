@@ -77,6 +77,7 @@ import { createHash } from "node:crypto";
 import { type Static, Type } from "typebox";
 import type { Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
+import { requestAttention, topRequest } from "./request-attention.ts";
 import { type Notifier, boardQuestionNotification, projectDeployProblemNotification, taskReviewNotification, taskStepsNotification } from "./notifications.ts";
 import type { OutsideModelApproval } from "./outside-model-approvals.ts";
 import type { Project } from "./projects.ts";
@@ -1197,7 +1198,14 @@ export function sweepArchive(state: BoardState, now: number): boolean {
 }
 
 /** The board as the protocol shows it: by order, archived tasks only when asked for, questions open first. */
-export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId: (owner: string | null | undefined) => string = () => "main"): Board {
+export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId = mainCoordinator, withRequestAttention = false): Board {
+	return boardViews(state, now, includeArchived, coordinatorId, withRequestAttention).board;
+}
+
+const mainCoordinator = (_owner: string | null | undefined): string => "main";
+
+/** Share task-state and link work between clients with and without request attention. */
+function boardViews(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId: typeof mainCoordinator, withRequestAttention: boolean): { board: Board; legacyBoard: Board } {
 	const byOrder = (left: { order: number; id: string }, right: { order: number; id: string }): number =>
 		left.order - right.order || compareIds(left.id, right.id);
 	// Links are derived over every task, archived ones too: a link to a closed task stays.
@@ -1287,13 +1295,42 @@ export function boardView(state: Readonly<BoardState>, now: number, includeArchi
 		.filter((question) => question.status !== "open")
 		.sort((left, right) => (right.answeredAt ?? right.askedAt).localeCompare(left.answeredAt ?? left.askedAt))
 		.slice(0, KEPT_SETTLED_QUESTIONS);
-	return {
+	const legacyBoard: Board = {
 		tasks,
 		...(archivedLinks.length === 0 ? {} : { archivedLinks }),
 		questions: [...open.sort((left, right) => compareIds(left.id, right.id)), ...settled],
 		decisions: [...state.decisions].reverse(),
 		updatedAt: state.updatedAt,
 	};
+	if (!withRequestAttention) return { board: legacyBoard, legacyBoard };
+	const attention = requestAttention(all, state.questions);
+	const board: Board = {
+		...legacyBoard,
+		tasks: tasks.map(task => {
+			const request = attention.requestsByPart.get(task.id);
+			if (request) return { ...task, requestId: request.id };
+			const need = attention.needsByRequest.get(task.id);
+			if (!need || !task.state || need.state === task.state) return task;
+			return { ...task, state: { ...need.state, ...(need.task.id === task.id ? {} : { fromPartId: need.task.id, fromPartTitle: need.task.title }) } };
+		}),
+		questions: legacyBoard.questions.map(question => {
+			const request = question.taskId == null ? undefined : attention.requestsByPart.get(question.taskId);
+			return request ? { ...question, requestId: request.id } : question;
+		}),
+	};
+	return { board, legacyBoard };
+}
+
+/** Compute question context on reads or notices, never store it with the question. */
+function requestForPart(taskId: string | null, tasks: readonly BoardTask[]): BoardTask | undefined {
+	if (taskId == null) return undefined;
+	const byId = new Map(tasks.map(task => [task.id, task]));
+	const task = byId.get(taskId);
+	return task?.parent == null ? undefined : topRequest(task, byId);
+}
+
+function partRequestTitle(task: BoardTask, tasks: readonly BoardTask[]): string | undefined {
+	return task.parent == null ? undefined : requestForPart(task.id, tasks)?.title;
 }
 
 export function openQuestionCount(state: Readonly<BoardState> | undefined): number {
@@ -2297,6 +2334,10 @@ export type TaskExtras = { feedback: readonly BoardFeedback[]; timeline: readonl
 /** One task in full: its fields, links, report, feedback, the questions, warnings and decisions about it, its workers, snapshots and latest timeline. */
 export function describeTaskInFull(task: BoardTask, board: Board, snapshots: readonly BoardTaskSnapshot[], extras?: TaskExtras, sectionViews: readonly string[] = []): string {
 	const lines = [describeTask(task).split("\n")[0] as string];
+	if (task.parent != null) {
+		const request = topRequest(task, new Map(board.tasks.map(row => [row.id, row])));
+		if (request) lines.push(`Request: ${request.id} ${JSON.stringify(request.title)}`);
+	}
 	const links = describeLinks(task, board);
 	if (links.length > 0) lines.push(`Links:\n${links.join("\n")}`);
 	if (task.goal?.trim()) lines.push(`goal: ${task.goal}`);
@@ -2492,6 +2533,7 @@ export type BoardServiceOptions = {
  taskActivity?: boolean;
  taskState?: boolean;
  taskPartStates?: boolean;
+ requestAttention?: boolean;
  taskLive?: boolean;
  watcherModels?: Models;
  watcherStatusChanged?: (status: TaskWatcherStatus) => Promise<void>;
@@ -2951,7 +2993,7 @@ export class BoardService {
 	}
 
 	/** The board; a task whose 7 days passed is archived in storage on the way. */
-	async get(includeArchived = false): Promise<Board> {
+	async get(includeArchived = false, withRequestAttention = true): Promise<Board> {
 		const state = await this.state();
 		const now = this.#options.now();
 		if (state.tasks.some((task) => !task.archived && isArchivedAt(task, now))) {
@@ -2959,7 +3001,7 @@ export class BoardService {
 				sweepArchive(doc, now);
 			});
 		}
-		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner));
+		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false);
   return this.#liveWatch?.project(board, state) ?? board;
 	}
 
@@ -2983,7 +3025,7 @@ export class BoardService {
 		const result = await change(state, now);
   if (!options?.skipPartRepair) repairTaskParts(state, now);
 		if (this.#options.notifications && by.author === "coordinator") {
-			const reviewed = state.tasks.filter(task => task.status === "review" && before.get(task.id) !== "review");
+			const reviewed = state.tasks.filter(task => task.parent == null && task.status === "review" && before.get(task.id) !== "review");
 			if (reviewed.length) {
 				const place = by.threadId && this.#options.coordinators?.placeOfThread(by.threadId);
 				const conversationId = (place ? place.conversationId : this.#mainId) as ConversationId;
@@ -3096,9 +3138,9 @@ export class BoardService {
 			const ready = (turn?: TaskNoticeTurn) => turn?.conversationId === conversationId && !sameTaskNoticeTurn(turn, activeTurn);
 			const notices = Object.entries(current.taskStepsNotices ?? {}).filter(([, notice]) => ready(notice.turn)).map(([taskId, notice]) => {
 				const task = current.tasks.find(row => row.id === taskId);
-				const eligible = task && hasOpenTaskSteps(task) && !sameTaskNoticeTurn(notice.turn, current.taskReviewNoticeTurns?.[taskId]);
+				const eligible = task && hasOpenTaskSteps(task) && (task.parent != null || !sameTaskNoticeTurn(notice.turn, current.taskReviewNoticeTurns?.[taskId]));
 				return { taskId, version: notice.version, ...(eligible ? {
-					task: { title: task.title, revision: task.revision, ownerThreadId: task.ownerThreadId },
+					task: { title: task.title, revision: task.revision, ownerThreadId: task.ownerThreadId, requestTitle: partRequestTitle(task, current.tasks) },
 				} : {}) };
 			});
 			const reviews = Object.entries(current.taskReviewNoticeTurns ?? {}).filter(([, turn]) => ready(turn));
@@ -3110,7 +3152,7 @@ export class BoardService {
 			if (!task) continue;
 			await notifications.queue(taskStepsNotification({
 				projectId: project.id, projectName: project.name, taskId, title: task.title,
-				revision: task.revision, stepsVersion: version, threadId: this.coordinatorId(task.ownerThreadId),
+				requestTitle: task.requestTitle, revision: task.revision, stepsVersion: version, threadId: this.coordinatorId(task.ownerThreadId),
 			})).catch(error => this.#options.log(`task steps notification: ${errorMessage(error)}`));
 		}
 		await this.#options.harness.commit(async tx => {
@@ -3148,6 +3190,7 @@ export class BoardService {
 	async saveTask(
 		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 		author: BoardAuthor,
+		withRequestAttention = true,
 	): Promise<BoardTask> {
 		const now = this.#iso();
 		const writer = author === "user" ? USER_WRITER : author === "harness" ? HARNESS_WRITER : coordinatorWriter("main");
@@ -3176,7 +3219,7 @@ export class BoardService {
 		await this.noticeUnblocked(change.after, unblocked);
   const state = await this.state();
   for (const edit of other) await this.noticeUnblocked(edit.after, unblockedBy(state, edit));
-		return (await this.get(true)).tasks.find(task => task.id === change.after.id)!;
+		return (await this.get(true, withRequestAttention)).tasks.find(task => task.id === change.after.id)!;
 	}
 
 	/**
@@ -3309,7 +3352,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  }
 
 	async clarify(input: { questionId: string; expectedRevision: number; text: string }): Promise<BoardQuestion> {
-  const question = await this.#commit(USER_WRITER, state => clarifyQuestion(state, { ...input, now: this.#iso() }));
+  const question = await this.#commit(USER_WRITER, state => this.#withQuestionRequest(clarifyQuestion(state, { ...input, now: this.#iso() }), state));
   const asker = await this.#conversationOf(await this.#deliveryThread(question.threadId));
   await this.#submitInput(asker, { type: "input", content: `${BOARD_PREFIX} The user asked back on ${question.id} (r${question.revision}): ${input.text}\nReply with board reply_question (id, expectedRevision, text; optional revisedText/revisedOptions). Do not ask a new question for the same decision.`, whenBusy: "steer", requestId: `board-clarify:${question.id}@${question.revision}` });
   await this.#woke(question.threadId);
@@ -3361,7 +3404,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
  async answer(input: { questionId: string; expectedRevision: number; answer: string }): Promise<BoardQuestion> {
 		const now = this.#iso();
-		const question = await this.#commit(USER_WRITER, (state) => settleQuestion(state, { ...input, now, actor: "user", ownerApproval: true }));
+		const question = await this.#commit(USER_WRITER, (state) => this.#withQuestionRequest(settleQuestion(state, { ...input, now, actor: "user", ownerApproval: true }), state));
 		if (question.usageDrainIncident) {
 			this.onUsageDrainAnswer?.(question.usageDrainIncident);
 			return question;
@@ -3391,13 +3434,20 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		await this.#woke(target);
 	}
 
+	#withQuestionRequest(question: BoardQuestion, state: BoardState): BoardQuestion {
+		const request = this.#options.requestAttention === false ? undefined : requestForPart(question.taskId, state.tasks);
+		return request ? { ...question, requestId: request.id } : question;
+	}
+
 	/** Tell the user's devices once about a question or warning a coordinator asked. */
 	noticeQuestion(question: BoardQuestion): void {
 		const project = this.#options.project();
 		if (!this.#options.notifications) return;
 		const coordinatorId = this.coordinatorId(question.threadId);
-		void Promise.resolve(this.#options.threadTitle?.(coordinatorId)).then(title => this.#options.notifications?.notify(
-			boardQuestionNotification({
+		void Promise.all([this.#options.threadTitle?.(coordinatorId), question.taskId == null ? undefined : this.state()]).then(([title, state]) => {
+			const part = state?.tasks.find(task => task.id === question.taskId);
+			const requestTitle = part && state ? partRequestTitle(part, state.tasks) : undefined;
+			this.#options.notifications?.notify(boardQuestionNotification({
 				projectId: project.id,
 				projectName: project.name,
 				...(title ? { coordinatorId, coordinatorTitle: title } : {}),
@@ -3405,18 +3455,19 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				text: question.exchanges?.at(-1)?.author.author === "coordinator" ? question.exchanges.at(-1)!.text : question.text,
 				threadId: question.threadId ?? "main",
 				taskId: question.taskId,
+				...(part && requestTitle !== undefined ? { requestTitle, partTitle: part.title } : {}),
 				warning: question.kind === "warning",
 				approval: question.mcpApproval === true,
 				questionRevision: question.revision,
 				choices: question.choices ?? question.options.map(label => ({ label })),
     ...(question.exchanges?.length ? { revision: question.revision, reply: !question.noReplyYet, noReplyYet: question.noReplyYet } : {}),
-			}),
-		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
+			}));
+		}).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
 	}
 
 	/** Tell the user's devices once that someone but the user moved a task to review. */
 	noticeReview(change: TaskChange): void {
-		if (change.after.status !== "review" || change.before?.status === "review") return;
+		if (change.after.parent != null || change.after.status !== "review" || change.before?.status === "review") return;
 		const project = this.#options.project();
 		if (!this.#options.notifications) return;
 		const coordinatorId = this.coordinatorId(change.after.ownerThreadId);
@@ -3583,7 +3634,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  }
 
 	/** Push the board without archived tasks whenever the document changes. Resolves to a stop function. */
-	async watch(onChange: (board: Board, openQuestions: number) => void): Promise<() => Promise<void>> {
+	async watch(onChange: (board: Board, openQuestions: number, legacyBoard: Board) => void): Promise<() => Promise<void>> {
 		const watch = await this.#options.harness.watchDoc(BoardDoc, this.coordinator.id, BACKGROUND_CONTEXT);
 		if (watch === undefined) return async () => undefined;
 		const stops: (() => Promise<void>)[] = [];
@@ -3597,19 +3648,22 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const unlisten = this.#options.coordinators?.onAdded(place => { void attach(place.conversationId, place.threadId).catch(error => this.#options.log(`board activity: ${errorMessage(error)}`)); });
   let current = "";
   let expiry: ReturnType<typeof setTimeout> | undefined;
+  let legacyCurrent = "";
   let watcherStatus = "";
 		let boardState = watch.value;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
-			const board = boardView(state, this.#options.now(), false, owner => this.coordinatorId(owner));
+			const { board, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false);
    if (state.taskLiveEnabled && this.#liveWatch) {
     if (!liveOnly) this.#liveWatch.sync(state);
     this.#liveWatch.project(board, state);
    }
 			const encoded = JSON.stringify(board);
-			if (encoded !== current) {
+			const legacyEncoded = legacyBoard === board ? encoded : JSON.stringify(legacyBoard);
+			if (encoded !== current || legacyEncoded !== legacyCurrent) {
     current = encoded;
-    onChange(board, openQuestionCount(state));
+    legacyCurrent = legacyEncoded;
+    onChange(board, openQuestionCount(state), legacyBoard);
    }
    if (liveOnly) return;
    const projectId = this.#options.project().id;
@@ -3624,7 +3678,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     if (alert.kind === "task_review" || alert.kind === "task_steps") {
      const task = state.tasks.find(row => row.id === alert.taskId);
      return task === undefined || (task.revision >= (alert.taskRevision ?? 0) &&
-      (alert.kind === "task_review" ? task.status !== "review" : !hasOpenTaskSteps(task)));
+      (alert.kind === "task_review" ? task.parent != null || task.status !== "review" : !hasOpenTaskSteps(task)));
     }
     return false;
    });
@@ -3825,7 +3879,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		for (const returned of (await this.state()).waitingReturns ?? []) {
 			const { task, note } = returned;
 			const project = this.#options.project();
-			if (task.status === "review") await this.#options.notifications?.deliver({
+			if (task.parent == null && task.status === "review") await this.#options.notifications?.deliver({
 				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
 				body: `${task.id} is back for review: waiting for ${note}`,
 			});
@@ -3849,11 +3903,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   await this.#commit(HARNESS_WRITER, (state) => noteTaskFact(state, taskId, fact));
  }
 
- async markReportStale(taskId: string, sections?: readonly ReportSection[], reason?: string): Promise<BoardTask> {
+ async markReportStale(taskId: string, sections?: readonly ReportSection[], reason?: string, withRequestAttention = true): Promise<BoardTask> {
   await this.requireTask(taskId);
   return this.#commit(USER_WRITER, (state) => {
    markReportStale(state, taskId, sections, reason, this.#iso(), "user");
-   return plain(boardView(state, this.#options.now(), true).tasks.find(task => task.id === taskId)!);
+   return plain(boardView(state, this.#options.now(), true, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false).tasks.find(task => task.id === taskId)!);
   });
  }
 
@@ -3917,7 +3971,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    flagged = missing !== undefined;
    if (missing && this.#options.project().chatDetailNudges !== false && !this.#options.project().archived) {
     const label = missingChatDetailLabel(missing);
-    const active = tasks.filter(task => task.status !== "done" && task.status !== "dropped");
+    const active = tasks.filter(task => task.parent == null && !isSettled(task));
     for (const task of active) noteTaskFact(state, task.id, {
      actor: "harness", kind: "chat", nudge: false, reason: `only in chat: ${label}`,
      sections: missing.prose && !missing.steps && !missing.code && !missing.command ? ["results"] : ["next"], at: this.#iso(),
@@ -3959,7 +4013,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    for (const source of sources) for (const id of substantiveTaskMentions(source.text, valid)) {
     const userAt = userTasks.get(id);
     const task = state.tasks.find(task => task.id === id)!;
-    if (userAt === undefined || written.has(id) || mentioned.has(id) || task.status === "done" || task.status === "dropped") continue;
+    if (userAt === undefined || task.parent != null || written.has(id) || mentioned.has(id) || isSettled(task)) continue;
     // A queued user message can have been answered by a report write in the preceding turn.
     const sections = REPORT_SECTIONS.filter(name => {
      const writtenAt = task.report.freshness?.[name].writtenAt;
@@ -3983,7 +4037,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const due = Object.entries(state.reportTracking ?? {}).flatMap(([id, tracking]) => {
    const task = state.tasks.find((candidate) => candidate.id === id);
    const owner = this.#reportOwners.get(id) ?? task?.ownerThreadId ?? "main";
-   return tracking.pending === undefined || state.reportInFlight?.[owner] !== undefined ? [] : [reportDueAt(tracking.pending, timings?.trailingMs, timings?.maxBurstMs)];
+   return task?.parent != null || tracking.pending === undefined || state.reportInFlight?.[owner] !== undefined ? [] : [reportDueAt(tracking.pending, timings?.trailingMs, timings?.maxBurstMs)];
   });
   due.push((state.lastReportSweep ?? this.#options.now()) + (timings?.sweepMs ?? REPORT_SWEEP_MS));
   const delay = state.reportOutbox?.some(batch => state.reportInFlight?.[batch.owner] === undefined) ? 10 : Math.max(10, Math.min(...due) - this.#options.now());

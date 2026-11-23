@@ -3,6 +3,7 @@ import { ProjectAttentionSchema, type ProjectAttention, type Board, type WorkerS
 import { Value } from "typebox/value";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { requestAttention } from "./request-attention.ts";
 
 export const EMPTY_ATTENTION: ProjectAttention = {
 	questions: 0, warnings: 0, reviewTasks: 0, waitingTasks: 0, nextReturnAt: null,
@@ -14,18 +15,26 @@ export const EMPTY_ATTENTION: ProjectAttention = {
 export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<ProjectAttention, "questions" | "warnings" | "reviewTasks" | "waitingTasks" | "nextReturnAt" | "questionTaskId" | "warningTaskId" | "reviewTaskId" | "stepsTasks" | "stepsTaskId"> {
 	const questions = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind !== "warning");
 	const warnings = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind === "warning");
-	// Consume the board's derived kind: failed and blocking questions outrank Your steps,
-	// and Your steps outranks review even when the stored status is still review.
-	const steps = board.tasks.filter((task) => !task.archived && task.state?.kind === "steps_needed");
-	const reviews = board.tasks.filter((task) => !task.archived && (task.state ? task.state.kind === "review" : task.status === "review"));
+	// Count each request once, but link to the part with the steps. Use the same priority even
+	// when the optional request state is not on the board view.
+	const { needsByRequest } = requestAttention(board.tasks, board.questions);
+	const steps: string[] = [];
+	const reviews: string[] = [];
+	for (const task of board.tasks) {
+		if (task.archived || task.parent != null) continue;
+		const need = needsByRequest.get(task.id);
+		const state = task.state?.fromPartId ? task.state : need?.state;
+		if (state?.kind === "steps_needed") steps.push(state.fromPartId ?? need?.task.id ?? task.id);
+		if (state?.kind === "review") reviews.push(task.id);
+	}
 	const waiting = board.tasks.filter((task) => task.status === "waiting");
 	const dates = waiting.flatMap((task) => task.waiting?.until && Number.isFinite(Date.parse(task.waiting.until)) ? [task.waiting.until] : []);
 	dates.sort((left, right) => Date.parse(left) - Date.parse(right));
 	return {
 		questions: questions.length, warnings: warnings.length, reviewTasks: reviews.length, waitingTasks: waiting.length,
 		nextReturnAt: dates[0] ?? null, questionTaskId: questions[0]?.taskId ?? null,
-		warningTaskId: warnings[0]?.taskId ?? null, reviewTaskId: reviews[0]?.id ?? null,
-		stepsTasks: steps.length, stepsTaskId: steps[0]?.id ?? null,
+		warningTaskId: warnings[0]?.taskId ?? null, reviewTaskId: reviews[0] ?? null,
+		stepsTasks: steps.length, stepsTaskId: steps[0] ?? null,
 	};
 }
 
@@ -49,7 +58,10 @@ export class ProjectAttentionStore {
 		let attention: ProjectAttention | undefined;
 		try {
 			const stored = await readJsonFile(join(this.projectDir(id), "attention.json"));
-			if (Value.Check(ProjectAttentionSchema, stored)) attention = { ...stored, runningWorkers: 0 };
+			if (Value.Check(ProjectAttentionSchema, stored) && "requestAttentionCounts" in stored && stored.requestAttentionCounts === true) {
+				const { requestAttentionCounts: _, ...summary } = stored;
+				attention = { ...summary, runningWorkers: 0 };
+			}
 		} catch { /* Missing/corrupt summaries fall back to activity, not a broken project list. */ }
 		// A watch may have published while the file was being read.
 		if (!this.#cache.has(id)) this.#cache.set(id, attention);
@@ -61,7 +73,7 @@ export class ProjectAttentionStore {
 		if (JSON.stringify(previous) === JSON.stringify(next)) return false;
 		this.#cache.set(id, next);
 		const write = (this.#writes.get(id) ?? Promise.resolve()).catch(() => undefined)
-			.then(() => writeJsonFile(join(this.projectDir(id), "attention.json"), next, 0o600))
+			.then(() => writeJsonFile(join(this.projectDir(id), "attention.json"), { ...next, requestAttentionCounts: true }, 0o600))
 			.catch(this.onError);
 		this.#writes.set(id, write);
 		return true;

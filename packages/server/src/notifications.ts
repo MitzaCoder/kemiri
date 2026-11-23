@@ -1137,6 +1137,13 @@ export function compactionFailureNotification(input: {
 	};
 }
 
+/** Leave space for the part context even when the question is long. */
+function partNoticeBody(partTitle: string, text?: string): string {
+	const context = `asked while building ${notificationLine(partTitle, 80)}`;
+	const message = notificationLine(text, NOTIFICATION_BODY_LIMIT - context.length - 3);
+	return message ? `${message} · ${context}` : context;
+}
+
 /** The coordinator asked the user a question on the board; one notification per question. */
 export function boardQuestionNotification(input: {
 	projectId: string;
@@ -1152,6 +1159,8 @@ export function boardQuestionNotification(input: {
 	coordinatorTitle?: string;
 	/** The task it is about, if it names one. */
 	taskId?: string | null;
+	requestTitle?: string;
+	partTitle?: string;
 	/** A warning, not a question: the user must acknowledge it. */
 	warning?: boolean;
 	approval?: boolean;
@@ -1160,9 +1169,9 @@ export function boardQuestionNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "board_question",
-		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
+		title: input.requestTitle !== undefined ? `${input.requestTitle} · ${input.projectName}` : input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
-		body: notificationLine(markdownText(input.text)),
+		body: input.partTitle === undefined ? notificationLine(markdownText(input.text)) : partNoticeBody(input.partTitle, markdownText(input.text)),
 		projectId: input.projectId,
 		...(input.threadId === undefined ? {} : { threadId: input.threadId }),
 		...(input.taskId === undefined || input.taskId === null ? {} : { taskId: input.taskId }),
@@ -1213,12 +1222,13 @@ export function taskStepsNotification(input: {
 	title: string;
 	revision: number;
 	stepsVersion: number;
+	requestTitle?: string | undefined;
 	threadId: string;
 }): NotificationEvent {
 	return {
 		kind: "task_steps",
-		title: `Your steps · ${input.projectName}`,
-		body: notificationLine(`${input.taskId} ${input.title}`),
+		title: `Your steps · ${input.requestTitle ?? input.projectName}`,
+		body: input.requestTitle === undefined ? notificationLine(`${input.taskId} ${input.title}`) : partNoticeBody(input.title),
 		projectId: input.projectId,
 		taskId: input.taskId,
 		threadId: input.threadId,

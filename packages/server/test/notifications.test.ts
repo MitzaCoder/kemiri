@@ -910,6 +910,92 @@ describe("events", () => {
   expect(reply?.payload?.tag).toBe(initial?.payload?.tag);
  }, 30_000);
 
+	it("names the root request for a nested part's question, warning and steps in both transports", async () => {
+		const { test, push } = await setupWithPush();
+		const client = await connect(test.server); await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await configureCoordinator(client, projectId);
+		await registerDevice(client, push, { preferences: preferences({ kinds: [...new Set([...ALL_KINDS, "task_steps" as const])] }) });
+		const board = (args: JsonObject) => fauxAssistantMessage([fauxToolCall("board", args)], { stopReason: "toolUse" });
+		test.faux.setResponses([
+			board({ action: "add_task", title: "Ship the order" }),
+			board({ action: "add_task", title: "Pack the boxes", parent: "T1" }),
+			board({ action: "add_task", title: "Print labels", parent: "T2" }),
+			board({ action: "ask", text: "Which size?", taskId: "T3" }),
+			board({ action: "ask", kind: "warning", text: "The proof is old.", taskId: "T3" }),
+			board({ action: "write_report", id: "T3", steps: "1. Approve the labels." }),
+			fauxAssistantMessage("Asked."),
+		]);
+		await submit(client, projectId, "Pack a synthetic order.", "part-notices");
+		await until(() => push.ofKind("board_question").length === 2 && push.ofKind("task_steps").length === 1);
+		const recent = (await test.server.notifications.recent(0))?.events.flatMap(entry => entry.type === "alert" ? [entry.alert] : []);
+		for (const [kind, title, body, questionId] of [
+			["board_question", "Ship the order · project", "Which size? · asked while building Print labels", "Q1"],
+			["board_question", "Ship the order · project", "The proof is old. · asked while building Print labels", "Q2"],
+			["task_steps", "Your steps · Ship the order", "asked while building Print labels", null],
+		] as const) {
+			const expected = { title, body, taskId: "T3", projectId };
+			expect(push.ofKind(kind).find(event => event.payload?.body === body)?.payload).toMatchObject(expected);
+			expect(recent?.find(alert => alert.kind === kind && alert.body === body)).toMatchObject({ ...expected, ...(questionId ? { questionId } : {}) });
+		}
+	}, 20_000);
+
+	it("a part checked by its coordinator sends no review alert or board wake, while owner closes and reopens still wake", async () => {
+		const { test, push } = await setupWithPush({ boardEditDebounceMs: 60_000 });
+		const client = await connect(test.server); await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await configureCoordinator(client, projectId); await registerDevice(client, push);
+		const { runtime } = await test.server.manager.open(projectId);
+		const board = (args: JsonObject) => fauxAssistantMessage([fauxToolCall("board", args)], { stopReason: "toolUse" });
+		test.faux.setResponses([
+			board({ action: "add_task", title: "Ship the order" }),
+			board({ action: "add_task", title: "Print labels", parent: "T1" }),
+			board({ action: "write_report", id: "T2", results: "The labels fit the boxes." }),
+			board({ action: "update_task", id: "T2", expectedRevision: 1, status: "review" }),
+			board({ action: "update_task", id: "T1", expectedRevision: 1, status: "review" }),
+			fauxAssistantMessage("Checked."),
+		]);
+		const result = await runtime.conversation.submit({ type: "input", content: "Check a synthetic order.", requestId: "part-close" }, BACKGROUND_CONTEXT);
+		await result.wait(BACKGROUND_CONTEXT);
+		await runtime.board.flushEdits();
+		await until(() => push.ofKind("task_review").length === 1);
+		expect(push.ofKind("task_review")[0]?.payload?.taskId).toBe("T1");
+		const entries = async () => (await runtime.conversation.entries({}, 200, undefined, BACKGROUND_CONTEXT)).items
+			.flatMap(entry => entry.model ?? []).flatMap(message => message.role === "user" && typeof message.content === "string" ? [message.content] : []).join("\n");
+		expect(await entries()).not.toContain("[board] T2");
+		for (const status of ["todo", "done"] as const) {
+			const part = (await runtime.board.state()).tasks.find(task => task.id === "T2")!;
+			test.faux.setResponses(Array.from({ length: 5 }, () => fauxAssistantMessage("Noted.")));
+			await runtime.board.saveTask({ taskId: part.id, expectedRevision: part.revision, task: { ...part, status } }, "user");
+			await runtime.board.flushEdits();
+			await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+			expect(await entries()).toContain(`T2 "Print labels" (r${part.revision + 1})`);
+		}
+		const recent = (await test.server.notifications.recent(0))?.events.flatMap(entry => entry.type === "alert" && entry.alert.kind === "task_review" ? [entry.alert.taskId] : []);
+		expect(recent).toEqual(["T1"]);
+	}, 20_000);
+
+	it.each(["user", "coordinator"] as const)("a %s's dated wait on a part does not send review push or alert", async author => {
+		let now = Date.parse("2026-11-10T12:00:00Z");
+		const { test, push } = await setupWithPush({ now: () => now, boardEditDebounceMs: 60_000 });
+		const client = await connect(test.server); await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await configureCoordinator(client, projectId); await registerDevice(client, push);
+		test.faux.setResponses(Array.from({ length: 10 }, () => fauxAssistantMessage("Noted.")));
+		const { runtime } = await test.server.manager.open(projectId);
+		const task = { title: "Ship the order", description: "", acceptance: null, status: "in_progress" as const, blockedBy: [], blockedReason: null, writeScopes: [] };
+		const root = await runtime.board.saveTask({ task }, "user");
+		const part = await runtime.board.saveTask({ task: { ...task, title: "Print labels", parent: root.id, status: "waiting", waitingFor: "Printer approval", waitUntil: new Date(now + 1000).toISOString() } }, author);
+		const request = await runtime.board.saveTask({ task: { ...task, title: "Ship a sample", status: "waiting", waitingFor: "Sample approval", waitUntil: new Date(now + 1000).toISOString() } }, "user");
+		now += 1000;
+		await runtime.board.checkWaiting();
+		await until(() => push.ofKind("task_review").length === 1);
+		expect(push.ofKind("task_review")[0]?.payload?.taskId).toBe(request.id);
+		expect((await runtime.board.state()).tasks.find(task => task.id === part.id)?.status).not.toBe("waiting");
+		const recent = (await test.server.notifications.recent(0))?.events.flatMap(entry => entry.type === "alert" && entry.alert.kind === "task_review" ? [entry.alert.taskId] : []);
+		expect(recent).toEqual([request.id]);
+	}, 20_000);
+
 	it("tells the devices about a warning and a move to review, each naming its task", async () => {
 		const { test, push } = await setupWithPush();
 		const client = await connect(test.server);

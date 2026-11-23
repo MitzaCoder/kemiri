@@ -185,6 +185,32 @@ test("backfills steps in a saved pre-steps project summary without opening the p
 	expect(list.projects[0]).toMatchObject({ state: "closed", attention: { stepsTasks: 1, stepsTaskId: saved.task.id, reviewTasks: 0, reviewTaskId: null } });
 });
 
+test("refreshes old per-part counts for an unopened project", async () => {
+ const { test, client, id } = await setup();
+ const { runtime } = await test.server.manager.open(id);
+ await runtime.harness.commit(async tx => {
+  const board = await tx.doc(BoardDoc, runtime.conversation.id);
+  const now = new Date().toISOString();
+  const add = (title: string, parent?: string) => saveTask(board, { author: "user", now,
+   task: { title, description: "", acceptance: null, status: "todo", blockedBy: [], blockedReason: null, writeScopes: [], ...(parent ? { parent } : {}) } }).after;
+  const request = add("Pack the order");
+  for (const title of ["Print labels", "Print inserts"]) {
+   const part = add(title, request.id);
+   writeReport(board, { taskId: part.id, now, by: { author: "coordinator", threadId: "main", workerId: null }, sections: { steps: "1. Approve the proof." } });
+  }
+ }, BACKGROUND_CONTEXT);
+ await waitAttention(client, id, summary => summary.stepsTasks === 1);
+ await test.server.stop();
+ await Bun.write(join(test.dataDir, "projects", id, "attention.json"), JSON.stringify({ ...EMPTY_ATTENTION, stepsTasks: 2, stepsTaskId: "T2" }));
+ await test.restart();
+ const reopened = await TestClient.open(test.server);
+ cleanups.push(async () => reopened.close());
+ await reopened.hello();
+ const list = await reopened.request({ type: "projects.list" });
+ if (list.type !== "projects.list") throw Error(JSON.stringify(list));
+ expect(list.projects[0]).toMatchObject({ state: "closed", attention: { stepsTasks: 1, stepsTaskId: "T2" } });
+});
+
 test("waiting date passes while server is off: compact deadline wakes just that project into review", async () => {
     let now = Date.parse("2026-11-15T08:00:00Z");
     const test = await createSetup({ now: () => now, boardEditDebounceMs: 60_000 });

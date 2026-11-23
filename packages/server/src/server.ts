@@ -767,6 +767,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
   taskActivity: features.includes("task-activity"),
   taskState: features.includes("task-state"),
   taskPartStates: features.includes("task-part-states"),
+  requestAttention: features.includes("request-attention"),
   taskLive: features.includes("task-live"),
   taskWatcher: features.includes("task-live-watcher"),
 		reportAudit: features.includes("report-audit"),
@@ -801,8 +802,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		onProjectState: (summary) => {
 			for (const connection of connections) connection.notifyProject(summary);
 		},
-		onBoardState: (projectId, board) => {
-			for (const connection of connections) connection.notifyBoard(projectId, board);
+		onBoardState: (projectId, board, legacyBoard) => {
+			for (const connection of connections) connection.notifyBoard(projectId, board, legacyBoard);
 		},
 		onThreadsMessage: event => {
 			for (const connection of connections) connection.notifyThreadMessage(event);

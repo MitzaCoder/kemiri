@@ -127,7 +127,7 @@ function invalidateReportSections(state: BoardState, task: BoardTask, fact: Task
 		section.stale = true;
 		const reasons = [...new Set([...section.reasons, reason])];
 		section.reasons = reasons.length <= 3 ? reasons : [...reasons.slice(0, 2), reason];
-		if (fact.nudge === false || tracking.suppressed[name] === section.version) continue;
+		if (task.parent != null || fact.nudge === false || tracking.suppressed[name] === section.version) continue;
 		tracking.pending ??= { burst: task.eventSeq ?? 0, first: Date.parse(fact.at), last: Date.parse(fact.at), sections: {} };
 		tracking.pending.last = Date.parse(fact.at);
 		tracking.pending.sections[name] = section.version;
@@ -177,7 +177,7 @@ export function sweepReportAge(state: BoardState, now: number, ageMs = REPORT_AG
 	if (now - state.lastReportSweep < sweepMs) return;
 	state.lastReportSweep = now;
 	for (const task of state.tasks) {
-		if (!["in_progress", "review", "waiting"].includes(task.status)) continue;
+		if (task.parent != null || !["in_progress", "review", "waiting"].includes(task.status)) continue;
 		initializeTaskFreshness(state, task);
 		const activity = state.reportTracking![task.id]!.activityAt;
 		if (activity === null) continue;
@@ -221,12 +221,25 @@ export function prepareReportNudges(state: BoardState, now: number, ownerOf: (ta
  state.reportOutbox ??= [];
  // Recheck persisted pending/outbox entries immediately before delivery, including legacy state.
  for (const task of state.tasks) if (task.status === "done" || task.status === "dropped") initializeTaskFreshness(state, task);
+ const partIds = new Set(state.tasks.filter(task => task.parent != null).map(task => task.id));
+ // Cancel old admissions for parts. Request entries in mixed batches stay pending and can be readmitted.
+ const kept = state.reportOutbox.filter(batch => {
+  if (batch.admissions.some(item => partIds.has(item.taskId))) return false;
+  // Older chat-detail batches had no admissions. The subject list is frozen in their heading.
+  const subjects = batch.chatDetail ? /^\[reports\] (T\d+(?:, T\d+)*)(?: \([^)]*\))?: only in chat:/.exec(batch.content)?.[1] : undefined;
+  return subjects === undefined || subjects.split(", ").some(id => !partIds.has(id));
+ });
+ if (kept.length !== state.reportOutbox.length) state.reportOutbox = kept;
  const admitted = new Set(state.reportOutbox.flatMap((batch) => batch.admissions.map((item) => `${item.taskId}:${item.burst}`)));
  const grouped = new Map<string, { lines: string[]; admissions: ReportAdmission[] }>();
  const suffix = ". Read tasks; rewrite stale sections with evidence. Put any detail given in the chat on the task.";
  for (const task of state.tasks) {
   const tracking = state.reportTracking?.[task.id];
   const pending = tracking?.pending;
+  if (task.parent != null) {
+   if (pending !== undefined) delete tracking!.pending;
+   continue;
+  }
   if (pending === undefined || state.reportInFlight?.[ownerOf(task)] !== undefined || admitted.has(`${task.id}:${pending.burst}`) || reportDueAt(pending, options.trailingMs, options.maxBurstMs) > now) continue;
   const sections = REPORT_SECTIONS.filter((name) => pending.sections[name] === task.report.freshness?.[name].version && task.report.freshness![name].stale);
   if (sections.length === 0) { delete tracking!.pending; continue; }

@@ -1629,12 +1629,14 @@ clients treat the absent field as a repository so older backends keep showing co
 
 Feature `sidebar-attention` adds optional `ProjectSummary.attention`: separate open question/warning counts,
 Your steps, review and waiting counts with the next return instant, failed workers/threads and all running workers.
-The steps count and first task ID are optional for compatibility. The board's derived kind decides between steps
-and review: review with outstanding steps counts once, under Your steps. The existing activity supplies coordinator
+The steps count and first task ID are optional for compatibility. Review and Your steps each count requests, not
+parts. A request counts once in its most urgent state. Question and warning counts still count each open item
+waiting on the owner, and the first question, warning and steps links open the actual item, even on a part.
+The existing activity supplies coordinator
 state and unread replies. Summaries are computed by the existing server board/worker/thread watches, persisted
 beside activity and pushed through `project.state`; clients never watch every project's board. Missing summaries
-retain the older activity-only behaviour. On upgrade, missing or pre-steps summaries are built once from durable
-documents before accepting connections, without opening Harnesses or starting agents.
+retain the older activity-only behaviour. On upgrade, missing summaries and caches from before request-level
+counts are rebuilt once from durable documents, without opening Harnesses or starting agents.
 A closed project's next waiting deadline has a small server timer: only when due does it open that project and let
 the board's existing return-to-review transaction run. Archived projects never arm this timer.
 
@@ -3904,6 +3906,16 @@ First match wins, using the same blocking-question, run and deployment facts as 
    max(last run ended, stored status began); paused `since` is that time plus 15 minutes.
 9. Stored todo → todo/todo.
 
+**Request attention (T457 / D135).** The server finds a part's request by following `parent` to the root,
+including through archived ancestors. Missing parents and cycles have no root. An open request takes the highest
+need from itself or its descendants: failure, blocking question or warning, Your steps, nonblocking question or
+warning, then request review. A review on a part does not rise. Equal needs prefer the request, then the oldest
+need; parts retain their own states. Closed requests keep their closed state. With `request-attention` in both
+hello feature lists, a part and its questions carry optional `requestId`, and a request state raised by a part
+has `fromPartId` and `fromPartTitle`. Only the projection changes; questions stay on the original task and no
+board document changes shape. `show_task` on a part names its request. Older clients keep their previous task
+rows and states while receiving request-level sidebar summaries and the quieter notice rules.
+
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator
 board tool keeps stored status visible, e.g. `[in_progress · paused]`, `[todo · blocked by T7]`.
@@ -4041,8 +4053,8 @@ If an older release loses the marker, a previously upgraded part is already done
   Leaving waiting clears this record; status snapshots and the timeline retain it.
 - Dated waits return to review on the server, including overdue waits after restart. A coordinator's dated wait
   on a part returns it to in progress instead. The server persists pending returns and sends the owning coordinator
-  a deduplicated `[board]` follow-up. A return to review also sends `task_review` through Notifier (with its
-  15-second hold). Undated waits do not wake up.
+  a deduplicated `[board]` follow-up. Only a request returning to review sends `task_review` through Notifier
+  (with its 15-second hold). Undated waits do not wake up.
 - Lists place a collapsed `Waiting · N` group immediately after Review; rows show the note, elapsed waiting time
   and optional return date. The kanban has a Waiting column after Review, including the legacy board panel.
 - The task header metadata includes “Waiting for … · since … · back on …” (T62; previously the Dashboard summary). Its header replaces Done/Drop/Reopen
@@ -4318,6 +4330,10 @@ and dropped tasks without reopening them; only written sections and empty Result
 It returns the task and broadcasts normal board state. It never changes status. The request and automatic detection are gated
 by the feature; disabling it does not delete existing prose or metadata. The bounded small-model audit
 below uses the same `markReportStale` path as this action.
+
+Parts do not queue or receive `[reports]` freshness, audit or chat-detail nudges. Their report metadata remains
+available to agents. The coordinator checks a part's Results when closing it. Pending part freshness notices
+are skipped on replay; request entries from a mixed freshness batch can be admitted again.
 
 `show_task` prints `eventSeq`; `board.write_report` and worker `task_progress` accept optional
 `coveredEventSeq`. Workers can call `task_progress` without report fields to read their task and sequence
@@ -7494,6 +7510,10 @@ setting, restart and retry steps; the raw error remains a small secondary detail
   next run. Unmarked history does not qualify. Board actions and answers, worker reports, check-ins, report
   nudges, peer messages and other harness inputs alone do not raise an event, so there is no push or in-app
   alert. Reply text and tags, the unread mark, and other notices such as `work_finished` are unchanged.
+- **Only requests send review notices.** Part questions, warnings and Your steps use the top request's title
+  and say “asked while building <part title>”. The push and in-app alert use the same event and link to the
+  original part or question. Checking off a part does not wake its coordinator with a board edit notice. An
+  owner close or reopen still does, and notices about newly unblocked work are unchanged.
 - **No duplicate notifications.** Events carry a dedupe key (`reply:<project>:<entry>`, `deploy:<commit>:<attempt>`,
   `schedule:<project>:<schedule>:<due time>:<outcome>`, `compaction:<project>:<task>`, …) and the keys are persisted,
   so a restart that replays a watch, re-reads a deploy status or resumes a reporter notifies nothing twice. The
