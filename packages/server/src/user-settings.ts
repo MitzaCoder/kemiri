@@ -1,6 +1,7 @@
-import { DEFAULT_APP_SETTINGS, type AppSettings, DEFAULT_COORDINATOR_COMPACTION, normalizeUserName, type CoordinatorCompaction, type UserSettings } from "@kemiri/protocol";
+import { DEFAULT_USAGE_DRAIN_MODE, type UsageDrainMode, DEFAULT_APP_SETTINGS, type AppSettings, DEFAULT_COORDINATOR_COMPACTION, normalizeUserName, type CoordinatorCompaction, type UserSettings } from "@kemiri/protocol";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { readUsageDrainMode } from "./server-settings.ts";
 import { readAppSettings, validateAppSettings } from "./app-addresses.ts";
 
 function validateCompaction(thresholds: CoordinatorCompaction): CoordinatorCompaction {
@@ -29,6 +30,8 @@ export class UserSettingsStore {
 		if (stored !== undefined) {
 			if (typeof stored.userName !== "string") throw new Error("Invalid user settings");
 			this.#settings = { userName: normalizeUserName(stored.userName) };
+			const usageDrainMode = readUsageDrainMode(stored.usageDrainMode);
+			if (usageDrainMode !== undefined && usageDrainMode !== DEFAULT_USAGE_DRAIN_MODE) this.#settings.usageDrainMode = usageDrainMode;
 			this.#apps = readAppSettings(stored.apps, stored.appAddressesVersion === 2);
 			if (stored.coordinatorCompaction !== undefined) {
 				this.#settings.coordinatorCompaction = validateCompaction(stored.coordinatorCompaction);
@@ -52,8 +55,9 @@ export class UserSettingsStore {
 	get coordinatorCompaction(): Readonly<CoordinatorCompaction> {
 		return this.#settings.coordinatorCompaction ?? DEFAULT_COORDINATOR_COMPACTION;
 	}
+	get usageDrainMode(): UsageDrainMode { return this.#settings.usageDrainMode ?? DEFAULT_USAGE_DRAIN_MODE; }
 	get(): UserSettings {
-		return { userName: this.#settings.userName, coordinatorCompaction: { ...this.coordinatorCompaction } };
+		return { userName: this.#settings.userName, coordinatorCompaction: { ...this.coordinatorCompaction }, usageDrainMode: this.usageDrainMode };
 	}
 	onCompactionChanged(listener: () => void): () => void {
 		this.#compactionListeners.add(listener);
@@ -66,8 +70,10 @@ export class UserSettingsStore {
 			const { backgroundPercent, blockingPercent } = thresholds;
 			const compactionChanged = backgroundPercent !== this.coordinatorCompaction.backgroundPercent ||
 				blockingPercent !== this.coordinatorCompaction.blockingPercent;
-			if (userName === this.#settings.userName && !compactionChanged) return this.get();
+			const usageDrainMode = patch.usageDrainMode ?? this.usageDrainMode;
+			if (userName === this.#settings.userName && !compactionChanged && usageDrainMode === this.usageDrainMode) return this.get();
 			const settings: UserSettings = { userName };
+			if (usageDrainMode !== DEFAULT_USAGE_DRAIN_MODE) settings.usageDrainMode = usageDrainMode;
 			if (backgroundPercent !== DEFAULT_COORDINATOR_COMPACTION.backgroundPercent || blockingPercent !== DEFAULT_COORDINATOR_COMPACTION.blockingPercent) {
 				settings.coordinatorCompaction = { backgroundPercent, blockingPercent };
 			}

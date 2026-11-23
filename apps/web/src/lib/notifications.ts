@@ -36,7 +36,7 @@ export function notificationPreset(kinds: readonly NotificationKind[]): keyof ty
 }
 
 export const NOTIFICATION_ALERT_GROUPS = [
- { label: 'Subscription', kinds: ['usage_limit_reached'] },
+ { label: 'Subscription', kinds: ['usage_limit_reached', 'usage_drain_warning', 'usage_drain_paused'] },
  { label: 'Needs you', kinds: ['login_prompt', 'board_question', 'task_review', 'task_steps'] },
  { label: 'Work finished', kinds: ['reply', 'worker_report', 'work_finished', 'thread_finished', 'schedule_done'] },
  { label: 'Problems', kinds: ['worker_failed', 'schedule_problem', 'deploy_problem', 'thread_failed', 'coordinator_failed', 'disk_low', 'compaction_failed', 'maintenance_failed'] },
@@ -100,6 +100,10 @@ export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICAT
 			};
 		case "usage_limit_reached":
 			return { kind, label: "Subscription limits", description: "A subscription reached its limit and work is waiting.", failure: false };
+		case "usage_drain_warning":
+			return { kind, label: "Fast usage warnings", description: "A subscription could run out before it resets.", failure: false };
+		case "usage_drain_paused":
+			return { kind, label: "Fast usage pauses", description: "Fast drain paused work on a subscription.", failure: false };
 		case "compaction_failed":
 			return {
 				kind,

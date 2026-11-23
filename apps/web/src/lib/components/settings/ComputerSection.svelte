@@ -1,4 +1,5 @@
 <script lang="ts">
+	import UsageDrainRow from "./UsageDrainRow.svelte";
 	import AppSettingsGroup from './AppSettingsGroup.svelte';
 	import YourNameGroup from "./YourNameGroup.svelte";
 	import CoordinatorCompactionGroup from "./CoordinatorCompactionGroup.svelte";
@@ -72,6 +73,9 @@
 		{#key backend.id}<CoordinatorCompactionGroup {backend} />{/key}
 	{/if}
 	<SettingsGroup title="This computer">
+		{#if backend.supports('usage-drain')}
+			{#key backend.id}<UsageDrainRow {backend} />{/key}
+		{/if}
 		<SettingsRow label="Name on this device" hint="Only for you, in this browser." chip="This device only" for="backend-name">
 			<AutoInput id="backend-name" value={backend.name} commit={(next) => harness.renameBackend(backend.id, next)} />
 		</SettingsRow>

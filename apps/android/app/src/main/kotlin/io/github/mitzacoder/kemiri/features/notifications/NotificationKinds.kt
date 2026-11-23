@@ -16,6 +16,8 @@ val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
     NotificationKindInfo("deploy_problem", "Deploy problems", "A deploy failed or rolled back.", true),
     NotificationKindInfo("login_prompt", "Login prompts", "A provider login waits for a code or a decision.", false),
     NotificationKindInfo("usage_limit_reached", "Subscription limits", "A subscription reached its limit and work is waiting.", false),
+    NotificationKindInfo("usage_drain_warning", "Fast usage warnings", "A subscription could run out before it resets.", false),
+    NotificationKindInfo("usage_drain_paused", "Fast usage pauses", "Fast drain paused work on a subscription.", false),
     NotificationKindInfo("compaction_failed", "Compaction failures", "Summarizing a long conversation failed.", true),
     NotificationKindInfo("maintenance_failed", "Maintenance failures", "A nightly memory maintenance run failed.", true),
     NotificationKindInfo("board_question", "Board questions", "Main or a background job asked you something on the board.", false),
@@ -45,6 +47,7 @@ private val DEFAULT_KINDS_BY_VERSION: List<List<String>> = listOf(
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "usage_limit_reached", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
+    listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "usage_limit_reached", "usage_drain_warning", "usage_drain_paused", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
 )
 
 /** The defaults version this build writes. */
@@ -80,7 +83,7 @@ fun kindsSummary(kinds: List<String>): String = when (kinds.size) {
 }
 
 internal val NOTIFICATION_ALERT_GROUPS = linkedMapOf(
-    "Subscription" to listOf("usage_limit_reached"),
+    "Subscription" to listOf("usage_limit_reached", "usage_drain_warning", "usage_drain_paused"),
     "Needs you" to listOf("login_prompt", "board_question", "task_review", "task_steps"),
     "Work finished" to listOf("reply", "worker_report", "work_finished", "thread_finished", "schedule_done"),
     "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "coordinator_failed", "disk_low", "compaction_failed", "maintenance_failed"),

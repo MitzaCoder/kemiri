@@ -1071,6 +1071,39 @@ export function usageLimitReachedNotification(input: { providerLogin: string; la
 	};
 }
 
+function usageDuration(minutes: number): string {
+	if (minutes >= 90) {
+		const hours = Math.round(minutes / 60);
+		return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+	}
+	const rounded = Math.max(1, Math.round(minutes));
+	return `${rounded} ${rounded === 1 ? "minute" : "minutes"}`;
+}
+
+export function usageDrainNotification(input: {
+	providerLogin: string; label: string; limit: string; minutesLeft: number; minutesToReset: number;
+} & ({ level: "warning"; limitId: string; resetsAt: string } | { level: "pause"; since: string })): NotificationEvent {
+	const timeLeft = usageDuration(input.minutesLeft);
+	const timeToReset = usageDuration(input.minutesToReset);
+	if (input.level === "pause") return {
+		kind: "usage_drain_paused",
+		title: `Paused: ${input.label} usage is draining fast`,
+		body: `At this pace the ${input.limit} limit runs out in about ${timeLeft}. ${input.label} work on this computer waits. Open Usage to resume.`,
+		projectId: null,
+		tag: `usage-drain-paused:${input.providerLogin}`,
+		key: `usage-drain-paused:${input.providerLogin}:${input.since}`,
+	};
+	const windowKey = JSON.stringify([input.providerLogin, input.limitId]);
+	return {
+		kind: "usage_drain_warning",
+		title: `${input.label} ${input.limit} limit`,
+		body: `About ${timeLeft} left at this pace. The limit resets in about ${timeToReset}.`,
+		projectId: null,
+		tag: `usage-drain-warning:${windowKey}`,
+		key: `usage-drain-warning:${windowKey}:${input.resetsAt}`,
+	};
+}
+
 /** A compaction of the coordinator failed; `pi.live.n` reports it once per failed task. */
 export function compactionFailureNotification(input: {
 	projectId: string;

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { DEFAULT_COORDINATOR_COMPACTION, LEGACY_HARNESS_FEATURES, normalizeUserName } from "@kemiri/protocol";
+import { DEFAULT_COORDINATOR_COMPACTION, HARNESS_FEATURES, LEGACY_HARNESS_FEATURES, normalizeUserName } from "@kemiri/protocol";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { UserSettingsStore, userNameInstructions } from "../src/user-settings.ts";
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
@@ -36,7 +36,7 @@ test("backend compaction points default, validate as a pair, persist and reset w
 	const store = new UserSettingsStore(setup.dataDir);
 	await writeFile(store.file, JSON.stringify({ userName: "Ana" }), { mode: 0o600 });
 	await store.open();
-	expect(store.get()).toEqual({ userName: "Ana", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION });
+	expect(store.get()).toEqual({ userName: "Ana", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION, usageDrainMode: "pause-and-tell" });
 	expect(await client.request({ type: "user.settings.get" })).toMatchObject({ settings: { coordinatorCompaction: { backgroundPercent: 50, blockingPercent: 75 } } });
 	const set = (backgroundPercent: number, blockingPercent: number) => client!.request({
 		type: "user.settings.set", coordinatorCompaction: { backgroundPercent, blockingPercent },
@@ -50,9 +50,29 @@ test("backend compaction points default, validate as a pair, persist and reset w
 	expect(await set(42, 68)).toMatchObject({ settings: { userName: "Ana", coordinatorCompaction: override } });
 	expect(await client.request({ type: "user.settings.set", userName: "Bea" })).toMatchObject({ settings: { userName: "Bea", coordinatorCompaction: override } });
 	await store.open();
-	expect(store.get()).toEqual({ userName: "Bea", coordinatorCompaction: override });
+	expect(store.get()).toEqual({ userName: "Bea", coordinatorCompaction: override, usageDrainMode: "pause-and-tell" });
 	expect(await set(50, 75)).toMatchObject({ settings: { userName: "Bea", coordinatorCompaction: DEFAULT_COORDINATOR_COMPACTION } });
 	expect(JSON.parse(await readFile(store.file, "utf8"))).toEqual({ userName: "Bea" });
+});
+
+test("fast drain mode is optional, durable and refused without the feature", async () => {
+	expect(LEGACY_HARNESS_FEATURES).not.toContain("usage-drain");
+	setup = await createSetup({ features: HARNESS_FEATURES.filter(feature => feature !== "usage-drain") });
+	client = await TestClient.open(setup.server);
+	const hello = await client.hello();
+	expect(hello.type === "hello" && hello.features).not.toContain("usage-drain");
+	expect(await client.request({ type: "user.settings.set", usageDrainMode: "off" })).toMatchObject({ type: "error" });
+	const store = new UserSettingsStore(setup.dataDir);
+	await writeFile(store.file, JSON.stringify({ userName: "", usageDrainMode: "unrecognized-mode" }), { mode: 0o600 });
+	await store.open();
+	expect(store.usageDrainMode).toBe("pause-and-tell");
+	await store.set({ usageDrainMode: "tell-only" });
+	await store.set({ userName: "Example" });
+	const reopened = new UserSettingsStore(setup.dataDir);
+	await reopened.open();
+	expect(reopened.get()).toMatchObject({ usageDrainMode: "tell-only", userName: "Example" });
+	await reopened.set({ usageDrainMode: "pause-and-tell" });
+	expect(JSON.parse(await readFile(store.file, "utf8"))).toEqual({ userName: "Example" });
 });
 
 test("built coordinator, worker and background prompts share stable identity and pick up edits", async () => {

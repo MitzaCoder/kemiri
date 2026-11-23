@@ -210,6 +210,8 @@ class RelayBackendAdapterTest {
         assertFalse("coordinator_failed" in direct.single().preferences.kinds)
         assertFalse("task_steps" in direct.single().preferences.kinds)
         assertFalse("usage_limit_reached" in direct.single().preferences.kinds)
+        assertFalse("usage_drain_warning" in direct.single().preferences.kinds)
+        assertFalse("usage_drain_paused" in direct.single().preferences.kinds)
         assertEquals(0, api.creates)
         assertTrue(rpc.registrations.isEmpty())
         settings = settings.copy(relayEnabled = true)

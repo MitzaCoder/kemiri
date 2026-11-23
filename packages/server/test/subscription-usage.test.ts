@@ -573,6 +573,22 @@ describe("SubscriptionUsageService", () => {
 		expect(test.fake.state.requests.length).toBe(reads);
 	});
 
+	it("polls only the busy provider without any app connected, then stops reading when quiet", async () => {
+		let busy = true;
+		const readings: string[] = [];
+		const test = await setupService({ pollIntervalMs: 40, minReadGapMs: 0,
+			hasRecentRequests: (provider, from, through) => busy && provider === "anthropic" && through - from === 40,
+			onReading: provider => readings.push(provider),
+		});
+		await until(() => readings.length >= 2);
+		expect(test.fake.requestsTo("/backend-api/wham/usage")).toHaveLength(0);
+		busy = false;
+		await Bun.sleep(60);
+		const reads = test.fake.requestsTo("/api/oauth/usage").length;
+		await Bun.sleep(120);
+		expect(test.fake.requestsTo("/api/oauth/usage")).toHaveLength(reads);
+	});
+
 	it("reports a failed read in error, keeps the numbers, and holds off after a 429", async () => {
 		const test = await setupService({ pollIntervalMs: 40, minReadGapMs: 0 });
 		await test.service.usage({ refresh: true });
@@ -745,6 +761,45 @@ describe("subscriptions.usage over the protocol", () => {
 	afterEach(async () => {
 		await setup?.cleanup();
 		setup = undefined;
+	});
+
+	it.each(["pause-and-tell", "tell-only", "off"] as const)("uses fresh Claude headers and the saved %s mode", async usageDrainMode => {
+		let clock = T0;
+		const fake = fakeProviders();
+		cleanups.push(() => fake.stop());
+		const test = await createSetup({ now: () => clock, subscriptionUsage: { ...fake.urls, afterTurnQuietMs: 60_000 } });
+		const client = await TestClient.open(test.server);
+		cleanups.push(() => client.close());
+		expect(await client.hello()).toMatchObject({ features: expect.arrayContaining(["usage-drain"]) });
+		expect(await client.request({ type: "user.settings.get" })).toMatchObject({ settings: { usageDrainMode: "pause-and-tell" } });
+		expect(await client.request({ type: "user.settings.set", usageDrainMode })).toMatchObject({ settings: { usageDrainMode } });
+		await test.credentials.modify("anthropic", async () => ({ type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: Date.now() + HOUR }));
+		const headers = async (minute: number, used: number) => {
+			clock = T0 + minute * 60_000;
+			test.server.requestLog!.noteRequestStart("anthropic", "fixture-model", clock);
+			test.server.subscriptionUsage.noteResponseHeaders("anthropic", {
+				"anthropic-ratelimit-unified-5h-utilization": String(used / 100),
+				"anthropic-ratelimit-unified-5h-reset": String((T0 + 3 * HOUR) / 1000),
+			});
+			const event = await client.waitFor(message => message.type === "subscriptions.usage.changed" &&
+				message.subscriptions.some(subscription => subscription.windows.some(window => window.usedPercent === used)));
+			expect(event.type).toBe("subscriptions.usage.changed");
+		};
+		await headers(0, 2);
+		await headers(6, 22);
+		const pauses = test.server.usagePause!.state();
+		if (usageDrainMode === "pause-and-tell") {
+			expect(pauses).toMatchObject([{ providerLogin: "anthropic", pausedBy: "drain-monitor", reason: expect.stringContaining("up 20.0 points in 6.0 minutes") }]);
+			await client.request({ type: "usage-pause.resume", providerLogin: "anthropic" });
+			await headers(7, 23);
+			expect(test.server.usagePause!.state()).toEqual([]);
+		} else expect(pauses).toEqual([]);
+		await test.server.notifications.flush();
+		const warning = await test.server.notifications.deliver({
+			kind: "usage_drain_warning", title: "Fixture", body: "Fixture",
+			key: `usage-drain-warning:["anthropic","five_hour"]:${new Date(T0 + 3 * HOUR).toISOString()}`,
+		});
+		expect(warning.skipped === "duplicate").toBe(usageDrainMode === "tell-only");
 	});
 
 	it("answers the request and pushes the change after a refresh", async () => {

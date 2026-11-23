@@ -80,7 +80,8 @@ data class CoordinatorCompaction(
 @Serializable
 data class UserSettings(
     val `userName`: String,
-    val `coordinatorCompaction`: CoordinatorCompaction? = null
+    val `coordinatorCompaction`: CoordinatorCompaction? = null,
+    val `usageDrainMode`: String? = null
 )
 
 @Serializable
@@ -94,7 +95,8 @@ data class UserSettingsSetRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "user.settings.set",
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `userName`: String? = null,
-    val `coordinatorCompaction`: CoordinatorCompaction? = null
+    val `coordinatorCompaction`: CoordinatorCompaction? = null,
+    val `usageDrainMode`: String? = null
 )
 
 @Serializable

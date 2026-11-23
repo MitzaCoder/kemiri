@@ -17,10 +17,18 @@ import {
 	type UsageSelection,
 } from "@kemiri/protocol";
 import type { PromptFingerprint } from "./prompt-fingerprint.ts";
-import { createLimitLedgerTables, createRequestEndIndex, LimitLedger } from "./limit-ledger.ts";
+import { createLimitLedgerTables, createRequestEndIndex, LimitLedger, matchesModelScope } from "./limit-ledger.ts";
 import { SubscriptionTerms } from "./subscription-terms.ts";
 import { usageRole } from "./usage-analysis.ts";
 import { tokenCatalogCost, type TokenRates } from "./request-pricing.ts";
+
+export type SubscriptionSpender = Pick<ConversationIdentity, "taskId" | "workerId" | "threadId"> & {
+	projectId: string;
+	role: string;
+	model: string;
+	requests: number;
+	apiValue: number;
+};
 
 export type RequestCatalogPricing = { provider: string; modelRates: (model: string, at: number) => TokenRates | undefined };
 
@@ -686,6 +694,29 @@ export class RequestLogStore {
 	}
 
 	/** Lifetime totals, including usage that has aged out of the request log. */
+	/** Exact timestamps for recent requests, optionally on the limit's model scope. */
+	hasSubscriptionRequests(provider: string, from: number, through: number, scope?: string): boolean {
+		const requests = this.#db.query<{ model: string }, [string, number, number]>(`
+			SELECT DISTINCT model FROM requests WHERE provider = ? AND at BETWEEN ? AND ?
+			AND billing IN ('subscription', 'plan_key')
+		`).all(provider, from, through);
+		return scope === undefined ? requests.length > 0 : requests.some(request => matchesModelScope(scope, request.model));
+	}
+
+	/** Complete minute buckets from the existing rollups, including the minute containing `since`. */
+	subscriptionSpendersSince(provider: string, since: number, scope?: string): SubscriptionSpender[] {
+		const spenders = this.#db.query<SubscriptionSpender, [string, number, number]>(`
+			SELECT project_id AS projectId, task_id AS taskId, worker_id AS workerId, thread_id AS threadId,
+				role, model, SUM(requests) AS requests, SUM(cost) AS apiValue
+			FROM usage_rollup WHERE provider = ? AND minute >= ? AND day >= date(? / 1000.0, 'unixepoch')
+			AND billing IN ('subscription', 'plan_key')
+			GROUP BY project_id, task_id, worker_id, thread_id, role, model
+			HAVING SUM(requests) > 0
+			ORDER BY apiValue DESC, requests DESC, projectId, threadId, workerId, model
+		`).all(provider, Math.floor(since / 60_000), since);
+		return scope === undefined ? spenders : spenders.filter(spender => matchesModelScope(scope, spender.model));
+	}
+
 	taskUsage(projectId: string, taskIds: readonly string[]): TaskUsageGroup[] {
 		return this.#db.query<TaskUsageGroup, [string, string]>(`
 			SELECT task_id, worker_id, thread_id, provider, model, billing, period_id,

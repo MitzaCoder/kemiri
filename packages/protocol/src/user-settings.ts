@@ -20,9 +20,14 @@ export const DEFAULT_COORDINATOR_COMPACTION: Readonly<CoordinatorCompaction> = O
 	backgroundPercent: 50,
 	blockingPercent: 75,
 });
+export const UsageDrainModeSchema = Type.Union([Type.Literal("pause-and-tell"), Type.Literal("tell-only"), Type.Literal("off")]);
+export type UsageDrainMode = Static<typeof UsageDrainModeSchema>;
+export const DEFAULT_USAGE_DRAIN_MODE: UsageDrainMode = "pause-and-tell";
+
 export const UserSettingsSchema = Type.Object({
 	userName: Type.String({ maxLength: USER_NAME_MAX_LENGTH }),
 	coordinatorCompaction: Type.Optional(CoordinatorCompactionSchema),
+	usageDrainMode: Type.Optional(UsageDrainModeSchema),
 });
 export type UserSettings = Static<typeof UserSettingsSchema>;
 export const UserSettingsGetRequestSchema = Type.Object({ type: Type.Literal("user.settings.get"), id: RequestIdSchema });
@@ -31,6 +36,7 @@ export const UserSettingsSetRequestSchema = Type.Object({
 	id: RequestIdSchema,
 	userName: Type.Optional(Type.String()),
 	coordinatorCompaction: Type.Optional(CoordinatorCompactionSchema),
+	usageDrainMode: Type.Optional(UsageDrainModeSchema),
 });
 export const UserSettingsGetResponseSchema = Type.Object({ type: Type.Literal("user.settings.get"), id: RequestIdSchema, settings: UserSettingsSchema });
 export const UserSettingsSetResponseSchema = Type.Object({ type: Type.Literal("user.settings.set"), id: RequestIdSchema, settings: UserSettingsSchema });

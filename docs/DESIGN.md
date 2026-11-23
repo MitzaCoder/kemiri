@@ -6452,6 +6452,42 @@ pushes. A project chat banner names the subscription, explains why new requests 
 rows show Pause or Resume for each supporting computer. A shared account can merge usage readings across computers,
 but the controls and banner stay scoped to each individual backend. Controls are hidden without `usage-pause`.
 
+#### Fast subscription drain (`usage-drain`)
+
+Each backend passes fresh subscription usage headers, stream events and endpoint readings to `usage-drain.ts` before
+live samples are collapsed. The exported per-window forecast reports the rise in percentage points, the minutes it
+spans, and the estimated minutes to exhaustion and reset. The monitor checks the forecast against fixed rules:
+
+| Action | Lookback | Rise (up to one day / longer) | Time left (up to one day / longer) |
+| --- | --- | --- | --- |
+| Pause | 5 and 10 minutes | 20 / 8 points | 30 minutes / 3 hours |
+| Warn | 30 minutes | 10 / 5 points | 2 hours / 12 hours |
+
+Both require exhaustion before reset, two readings at least two minutes apart, and a local request in the measured
+interval, matching the model scope when the limit names one. The request log includes starts whose responses have
+not yet been written. A rise without local work can still be forecast but does not alert or pause. A shared login is
+measured independently on each computer, which holds only its own work. For later investigation the request log
+can rank subscription requests and API value by project, conversation role and identity, and model, from minute rollups.
+
+Small dips keep the highest reading. A drop of more than two points from that high, a changed reset, a missing
+percentage, reset or window length, or a gap over six minutes starts the measure over. Old replies never replace
+newer monitor evidence. The live measure starts fresh after restart, credential replacement or explicit Resume.
+The warning is sent once per limit and reset time, including the notifier's persisted dedupe. A drain pause sends
+its own notice, holds new requests to that login and leaves requests in flight alone. An exhausted-limit hold takes
+precedence and is independent of the drain monitor.
+
+Claude headers and Codex headers and stream events can arrive in seconds. Claude's model-scoped windows are only
+in its usage endpoint. OpenCode Go has only an endpoint; Antigravity reads the official CLI's quota output. These
+sources can take five minutes or more, and failed or throttled reads do not supply fresh evidence. One five-minute
+poll checks connected clients' subscriptions or providers with requests in the preceding five minutes, even when no
+app is connected. It shares in-flight reads, the minimum read gap and provider backoff with the existing usage
+polls. Pay-as-you-go API keys have no subscription windows to monitor.
+
+**Settings → This computer → Advanced → Fast usage drain** offers **Pause and tell me** (default), **Tell me only**
+(which also warns on a rise that would have paused), and **Off**. Saving the setting affects this backend only and
+restarts measurement without reopening an existing pause. The optional field lives in the private user settings
+file. Web and Android hide the row when the backend does not advertise `usage-drain`.
+
 #### Subscription ledger and value
 
 - The server also sends each applied endpoint, header or stream reading to `limit-ledger.ts` before collapsing the
@@ -7420,9 +7456,8 @@ setting, restart and retry steps; the raw error remains a small secondary detail
 The `in-app-alerts` feature uses the same sources and dedupe keys as push. After claiming the key and excluding archived
 projects, the notifier records and publishes the alert before it checks push devices, kinds, mutes or quiet hours.
 Test pushes do not enter the stream. Every kind has a server-assigned level: urgent, important, info or inbox.
-Board warnings and subscription limit alerts (`usage_limit_reached`) are important; questions and tool approvals
-are urgent. The compaction and maintenance failure levels
-are info, but clients keep them in the inbox. Coordinator failures use the same transcript error that drives Needs you
+Board warnings, subscription limit alerts, and both fast usage drain alerts are important. Questions and tool
+approvals are urgent. The compaction and maintenance failure levels are info, but clients keep them in the inbox. Coordinator failures use the same transcript error that drives Needs you
 and are enabled by default for push.
 
 The stream reaches all ready connections on the backend that advertise the feature. Like project state it is not

@@ -72,6 +72,9 @@ internal fun ComputerAdvanced(repository: HarnessRepository, backend: BackendSes
             CoordinatorCompactionGroup(backend, connection.status == ConnectionStatus.Ready)
         }
         SettingsGroup(title = "This computer") {
+            if (connection.supports("usage-drain")) key(backend.config.key) {
+                UsageDrainRow(backend, connection.status == ConnectionStatus.Ready)
+            }
             SettingsRow("Name on this device", hint = "Only for you, on this phone.", status = nameSave, badge = "This device only") {
                 AutoInput(backend.config.name, nameSave, label = "Name on this device") { next ->
                     require(next.length in 1..48) { "Use a name of 1–48 characters." }
@@ -101,3 +104,20 @@ internal fun ComputerAdvanced(repository: HarnessRepository, backend: BackendSes
 
 @Composable
 internal fun GroupLessNote(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+
+private val usageDrainOptions = listOf(
+    ComboOption("pause-and-tell", "Pause and tell me"),
+    ComboOption("tell-only", "Tell me only"),
+    ComboOption("off", "Off"),
+)
+
+@Composable
+private fun UsageDrainRow(backend: BackendSession, ready: Boolean) {
+    val mode by backend.usageDrainMode.collectAsStateWithLifecycle()
+    val saveState = rememberSaveState(backend.config.key)
+    SettingsRow("Fast usage drain", hint = "When subscription use rises fast on this computer.", status = saveState) {
+        Combobox(usageDrainOptions, mode.orEmpty(), { next ->
+            if (next != mode) saveState.launch { backend.setUsageDrainMode(next) }
+        }, label = "Fast usage drain", placeholder = "Loading…", enabled = ready && mode != null && saveState.status != SaveStatus.Saving)
+    }
+}

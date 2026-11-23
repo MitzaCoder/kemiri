@@ -1,6 +1,6 @@
 import type { AppSettings, ProjectApp } from "@kemiri/protocol";
 import type { TaskWatcherSettings } from "@kemiri/protocol";
-import type { CoordinatorCompaction, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
+import type { CoordinatorCompaction, UsageDrainMode, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
  * The framework-free harness client: one WebSocket, a `hello` handshake, correlated requests, reconnects with backoff,
  * project/model/credential calls, conversation submissions, and live views that survive a dropped socket.
@@ -419,6 +419,10 @@ export class HarnessClient {
 	}
 	async setUserName(userName: string): Promise<UserSettings> {
 		return (await this.#call<UserSettingsSetResponse>({ type: "user.settings.set", userName })).settings;
+	}
+
+	async setUsageDrainMode(usageDrainMode: UsageDrainMode): Promise<UserSettings> {
+		return (await this.#call<UserSettingsSetResponse>({ type: "user.settings.set", usageDrainMode })).settings;
 	}
 
 	async setCoordinatorCompaction(coordinatorCompaction: CoordinatorCompaction): Promise<UserSettings> {
@@ -1015,8 +1019,13 @@ export class HarnessClient {
 		const response = await this.#call<NotificationsRegisterResponse>({
 			type: "notifications.register",
 			...registration,
-			preferences: this.#state.features?.includes("usage-pause") ? registration.preferences : {
-				...registration.preferences, kinds: registration.preferences.kinds.filter(kind => kind !== "usage_limit_reached"),
+			preferences: {
+				...registration.preferences,
+				kinds: registration.preferences.kinds.filter(kind => {
+					if (kind === "usage_limit_reached") return this.#state.features?.includes("usage-pause");
+					if (kind === "usage_drain_warning" || kind === "usage_drain_paused") return this.#state.features?.includes("usage-drain");
+					return true;
+				}),
 			},
 		});
 		return response.device;

@@ -1,3 +1,4 @@
+import type { UsageDrainMode } from "@kemiri/protocol";
 import { environmentSetting, normalizeEnvironment, privateSetting } from "./environment-aliases.ts";
 /** Private server configuration. The entry point captures it before importing identity-bearing modules. */
 export let serverSettings: Readonly<Record<string, string | undefined>> = new Proxy(process.env, { get: (env, name) => typeof name === "string" ? environmentSetting(env, name) : Reflect.get(env, name) });
@@ -13,4 +14,9 @@ export function configureServerSettings(settings: Readonly<Record<string, string
 	// A nested server must not rediscover this installation's private file via the inherited HOME/XDG dirs.
 	process.env.AIKI_CHILD_PROCESS = "1";
 	process.env.KEMIRI_CHILD_PROCESS = "1";
+}
+
+/** Ignore unrecognized persisted modes so the settings store can apply its default. */
+export function readUsageDrainMode(mode: unknown): UsageDrainMode | undefined {
+	return mode === "pause-and-tell" || mode === "tell-only" || mode === "off" ? mode : undefined;
 }

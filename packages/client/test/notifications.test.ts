@@ -185,9 +185,9 @@ describe("notification requests", () => {
 		});
 	});
 
-	it.each([true, false])("registers preferences supported by the backend (usage pause: %s)", async supported => {
-		const { client, socket } = clientFor(message => message.type === "hello" && supported
-			? { ...handshakeAnswer(message) as object, features: ["notifications", "usage-pause"] }
+	it.each([[], ["usage-pause"], ["usage-pause", "usage-drain"]])("registers preferences supported by the backend (%j)", async (...features) => {
+		const { client, socket } = clientFor(message => message.type === "hello"
+			? { ...handshakeAnswer(message) as object, features: ["notifications", ...features] }
 			: notificationAnswer(message));
 		client.connect();
 		await client.whenReady();
@@ -196,8 +196,9 @@ describe("notification requests", () => {
 		expect(socket.sent.find((message) => message.type === "notifications.register")).toMatchObject({
 			type: "notifications.register",
 			...REGISTRATION,
-			preferences: { ...REGISTRATION.preferences, kinds: supported ? REGISTRATION.preferences.kinds
-				: REGISTRATION.preferences.kinds.filter(kind => kind !== "usage_limit_reached") },
+			preferences: { ...REGISTRATION.preferences, kinds: REGISTRATION.preferences.kinds.filter(kind =>
+				(kind !== "usage_limit_reached" || features.includes("usage-pause")) &&
+				((kind !== "usage_drain_warning" && kind !== "usage_drain_paused") || features.includes("usage-drain"))) },
 		});
 	});
 
@@ -373,6 +374,8 @@ describe("notification payload to URL", () => {
 			"deploy_problem",
 			"login_prompt",
 			"usage_limit_reached",
+			"usage_drain_warning",
+			"usage_drain_paused",
 			"compaction_failed",
 			"maintenance_failed",
 			"board_question",
@@ -615,7 +618,7 @@ describe("device settings", () => {
 			"disk_low",
 		] as const;
 		expect(migrateDefaultKinds(previous, 3)).toContain("task_review");
-		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(7);
+		expect(NOTIFICATION_DEFAULTS_VERSION).toBe(8);
 		expect(migrateDefaultKinds([...previous, "task_review"], 4)).toContain("coordinator_failed");
 		const versionFive = [...previous, "task_review", "coordinator_failed"] as const;
 		expect(migrateDefaultKinds(versionFive, 5)).toContain("task_steps");
@@ -625,6 +628,9 @@ describe("device settings", () => {
 		const defaults = { kinds: [...DEFAULT_NOTIFICATION_KINDS], mutedProjects: {}, quietHours: null } as DeviceNotificationSettings;
 		expect(preferencesForBackend(defaults, "fixture", true, false).kinds).not.toContain("task_steps");
 		expect(preferencesForBackend(defaults, "fixture", true, false).kinds).toContain("coordinator_failed");
+		const versionSeven = [...versionFive, "task_steps", "usage_limit_reached"] as const;
+		expect(migrateDefaultKinds(versionSeven, 7)).toContain("usage_drain_warning");
+		expect(migrateDefaultKinds(versionSeven, 7)).toContain("usage_drain_paused");
 		const chosen = previous.filter((kind) => kind !== "reply");
 		expect(migrateDefaultKinds(chosen, 3)).toEqual([...chosen]);
 	});

@@ -1,3 +1,4 @@
+import { matchesModelScope } from "./limit-ledger.ts";
 import { stateKind } from "./state-identity.ts";
 import { cacheWarmAuthFingerprint, cacheWarmHeaders, supportsCacheWarm } from "./cache-warm-transport.ts";
 import { CoordinatorCacheWarm, type WarmRequest } from "./cache-keep-warm.ts";
@@ -259,6 +260,8 @@ export class RequestLog {
 	readonly warming: CoordinatorCacheWarm;
 	readonly #log: (message: string) => void;
 	readonly #now: () => number;
+	// A rate-limit header may arrive before the request (and its log write) finishes.
+	readonly #recentStarts = new Map<string, { model: string; at: number }[]>();
 	readonly #billingFor: NonNullable<RequestLogOptions["billingFor"]>;
 	readonly #cacheReadPerToken: RequestLogOptions["cacheReadPerToken"];
 	/** The last message object of each request the hook saw, to the conversation that sends it. */
@@ -283,6 +286,22 @@ export class RequestLog {
 		this.warming = new CoordinatorCacheWarm(options.store, undefined, this.#billingFor);
 		this.#now = options.now ?? Date.now;
 		this.#cacheReadPerToken = options.cacheReadPerToken;
+	}
+
+	noteRequestStart(provider: string, model: string, at: number): void {
+		const starts = this.#recentStarts.get(provider) ?? [];
+		const oldest = at - 30 * 60_000;
+		while (starts[0] && starts[0].at < oldest) starts.shift();
+		starts.push({ model, at });
+		this.#recentStarts.set(provider, starts);
+	}
+
+	forgetRequestStarts(provider: string): void { this.#recentStarts.delete(provider); }
+
+	hasLocalSubscriptionRequests(provider: string, from: number, through: number, scope?: string): boolean {
+		return this.#recentStarts.get(provider)?.some(start => start.at >= from && start.at <= through &&
+			(scope === undefined || matchesModelScope(scope, start.model))) === true ||
+			this.store.hasSubscriptionRequests(provider, from, through, scope);
 	}
 
 	/** The extension that tags each turn's request with its conversation; one per project, installed in its registry. */

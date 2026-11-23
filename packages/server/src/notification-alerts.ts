@@ -15,6 +15,8 @@ const LEVEL_BY_KIND = {
 	deploy_problem: "urgent",
 	login_prompt: "urgent",
 	usage_limit_reached: "important",
+	usage_drain_warning: "important",
+	usage_drain_paused: "important",
 	compaction_failed: "info",
 	maintenance_failed: "info",
 	board_question: "urgent",

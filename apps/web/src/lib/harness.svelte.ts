@@ -23,6 +23,7 @@ import {
 	type AuthLogin,
 	type ConversationContext,
 	type CoordinatorCompaction,
+	type UsageDrainMode,
 	type UserSettings,
 	type UsagePause,
 	type ServerMessage,
@@ -98,9 +99,11 @@ export class BackendConnection {
 	userName = $state("");
 	userSettingsLoaded = $state(false);
 	coordinatorCompaction = $state<CoordinatorCompaction>();
+	usageDrainMode = $state<UsageDrainMode>();
 	#applyUserSettings(settings: UserSettings): void {
 		this.userName = settings.userName;
 		this.coordinatorCompaction = settings.coordinatorCompaction;
+		this.usageDrainMode = settings.usageDrainMode;
 		this.userSettingsLoaded = true;
 	}
 	async refreshUserSettings(): Promise<void> {
@@ -109,6 +112,10 @@ export class BackendConnection {
 	async setUserName(name: string): Promise<void> {
 		this.#applyUserSettings(await this.client.setUserName(name));
 	}
+	async setUsageDrainMode(mode: UsageDrainMode): Promise<void> {
+		this.#applyUserSettings(await this.client.setUsageDrainMode(mode));
+	}
+
 	async setCoordinatorCompaction(thresholds: CoordinatorCompaction): Promise<void> {
 		this.#applyUserSettings(await this.client.setCoordinatorCompaction(thresholds));
 	}

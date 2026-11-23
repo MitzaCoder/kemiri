@@ -23,7 +23,7 @@ import { assertDataDirNotOwned } from "./data-dir-owner.ts";
 import type { CredentialStore, Models, Provider } from "@earendil-works/pi-ai";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
-import { HARNESS_FEATURES, SERVER_NAME } from "@kemiri/protocol";
+import { DEFAULT_USAGE_DRAIN_MODE, type UsageDrainMode, HARNESS_FEATURES, SERVER_NAME } from "@kemiri/protocol";
 import { basename, join } from "node:path";
 import {
 	ArtifactStore,
@@ -40,6 +40,7 @@ import { ClientConnection, type ClientConnectionOptions } from "./connection.ts"
 import { type LoadedSkill, loadAgentContext } from "./context.ts";
 import { FileCredentialStore } from "./credentials.ts";
 import { SubscriptionUsageService, type SubscriptionUsageOptions } from "./subscription-usage.ts";
+import { UsageDrainMonitor } from "./usage-drain.ts";
 import { UsagePauseGate } from "./usage-pause.ts";
 import { UsagePauseModels } from "./usage-pause-models.ts";
 import type { UsagePause } from "@kemiri/protocol";
@@ -74,6 +75,8 @@ import {
 	loadOrCreateVapidKeys,
 	loginPromptNotification,
 	usageLimitReachedNotification,
+	usageDrainNotification,
+	type NotificationEvent,
 	maintenanceFailureNotification,
 	resolveVapidKeyFile,
 	resolveVapidSubject,
@@ -344,15 +347,32 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
 	let notifyUsageLimit: ((pause: UsagePause) => void) | undefined;
+	let notifyUsageDrain: ((event: NotificationEvent) => void) | undefined;
+	let usageDrain: UsageDrainMonitor | undefined;
+	let readUsageDrainMode: () => UsageDrainMode = () => DEFAULT_USAGE_DRAIN_MODE;
 	const usagePause = (options.features ?? HARNESS_FEATURES).includes("usage-pause") ? await UsagePauseGate.open({
 		dataDir, log,
 		...(options.now === undefined ? {} : { now: options.now }),
 		...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
 		onChange: pauses => { for (const connection of connections) connection.notifyUsagePause(pauses); },
 		onLimitReached: pause => notifyUsageLimit?.(pause),
+		onResume: login => usageDrain?.startMeasuringAgain(login),
 	}) : undefined;
 	const subscriptionUsage = new SubscriptionUsageService({
-		onReading: (providerId, windows) => usagePause?.observeReading(providerId, windows),
+		onReading: (providerId, windows, at) => {
+			usagePause?.observeReading(providerId, windows);
+			usageDrain?.observe(providerId, windows, at);
+		},
+		onCredentialsChanged: providerId => {
+			requestLog?.forgetRequestStarts(providerId);
+			usageDrain?.startMeasuringAgain(providerId);
+		},
+		...(requestLog && usagePause && (options.features ?? HARNESS_FEATURES).includes("usage-drain") &&
+			(options.features ?? HARNESS_FEATURES).includes("user-settings") ? {
+			onRequestStart: (provider: string, model: string, at: number) => requestLog.noteRequestStart(provider, model, at),
+			hasRecentRequests: (provider: string, from: number, through: number) => readUsageDrainMode() !== "off" &&
+				requestLog.hasLocalSubscriptionRequests(provider, from, through),
+		} : {}),
 		...(requestLog === undefined ? {} : { ledger: requestLog.store.ledger, terms: requestLog.store.subscriptionTerms }),
 		models: unobservedModels,
 		credentials,
@@ -371,6 +391,27 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of connections) connection.notifySubscriptionsUsage(subscriptions);
 		},
 	});
+	if (requestLog && usagePause && (options.features ?? HARNESS_FEATURES).includes("usage-drain") &&
+		(options.features ?? HARNESS_FEATURES).includes("user-settings")) {
+		usageDrain = new UsageDrainMonitor({
+			mode: () => readUsageDrainMode(),
+			hasLocalRequests: (provider, from, through, scope) => requestLog.hasLocalSubscriptionRequests(provider, from, through, scope),
+			isPaused: login => usagePause.isPaused(login),
+			alert: (providerLogin, forecast) => {
+				const { limit, usedPercent, rise, minutesMeasured, minutesLeft, minutesToReset } = forecast;
+				if (minutesLeft === null || minutesToReset === null || !limit.resetsAt) return;
+				const facts = { providerLogin, label: subscriptionUsage.label(providerLogin), limit: limit.label, minutesLeft, minutesToReset };
+				if (forecast.level === "warning") {
+					notifyUsageDrain?.(usageDrainNotification({ ...facts, level: "warning", limitId: limit.id, resetsAt: limit.resetsAt }));
+					return;
+				}
+				usagePause.pause(providerLogin, `${limit.label}: ${usedPercent}% used, up ${rise?.toFixed(1)} points in ${minutesMeasured?.toFixed(1)} minutes. About ${Math.round(minutesLeft)} minutes left at this pace; resets in ${Math.round(minutesToReset)} minutes.`, { pausedBy: "drain-monitor" });
+				const pause = usagePause.state().find(entry => entry.providerLogin === providerLogin && entry.pausedBy === "drain-monitor");
+				if (pause) notifyUsageDrain?.(usageDrainNotification({ ...facts, level: "pause", since: pause.since }));
+			},
+			...(options.now === undefined ? {} : { now: options.now }),
+		});
+	}
 	// Every model request passes the usage service, which reads rate-limit headers and notices when a turn ends, and the
 	// request log, which writes a row for each turn's request once it ends. Outside both, the cache retention each
 	// conversation asks for is added to its request's options, so the log records it.
@@ -409,6 +450,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		(feature) =>
 			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "recorded-usage" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
+			(feature !== "usage-drain" || usageDrain !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "project-files" || projectFiles !== undefined) &&
 			(feature !== "project-files-write" || (projectFiles !== undefined && (options.features ?? HARNESS_FEATURES).includes("project-files"))) &&
@@ -487,6 +529,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	// Events that were in their hold when the last process ended carry on with the rest of their time.
 	notifications.restore();
+	notifyUsageDrain = event => notifications.notify(event);
 	notifyUsageLimit = pause => notifications.notify(usageLimitReachedNotification({ ...pause, label: subscriptionUsage.label(pause.providerLogin) }));
 	log(
 		`kemiri: notifications ${notificationStore.file} (VAPID key ${vapidKeyFile}, sub ${notifications.subject})`,
@@ -642,11 +685,14 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	});
 	await skills.open();
 	const userSettings = new UserSettingsStore(dataDir, settings => {
+		usageDrain?.settingsChanged();
 		for (const connection of connections) connection.notifyUserSettings(settings);
 	}, settings => {
 		for (const connection of connections) connection.notifyAppSettings(settings);
 	}, () => boundPort);
 	await userSettings.open();
+	readUsageDrainMode = () => userSettings.usageDrainMode;
+	usageDrain?.settingsChanged();
 	const tailscale = options.appTailscale ?? new TailscaleServe();
 	const trustedProxies = options.auth?.trustedProxies ?? serverSettings.KEMIRI_TRUSTED_PROXIES?.split(",") ?? [];
 	const backendTailscale = new BackendTailscale({

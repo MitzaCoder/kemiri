@@ -450,6 +450,25 @@ describe("cache stats", () => {
 		...overrides,
 	});
 
+	it("finds exact subscription activity and ranks spenders from minute rollups", () => {
+		const store = RequestLogStore.open(":memory:");
+		try {
+			const worker = { kind: "worker" as const, conversationId: 2, workerId: "writer", cost: .25, billing: "subscription" as const };
+			store.insert(row({ ...worker, at: 61_000 }));
+			store.insert(row({ ...worker, at: 62_000 }));
+			store.insert(row({ kind: "thread", conversationId: 3, threadId: "nightly", scheduleId: "schedule", billing: "subscription", at: 63_000, cost: .75 }));
+			store.insert(row({ at: 64_000, billing: "api_key", cost: 8 }));
+			store.insert(row({ at: 33_000, billing: "subscription", cost: 5 }));
+			expect(store.hasSubscriptionRequests("anthropic", 61_000, 63_000, "opus")).toBe(true);
+			expect(store.hasSubscriptionRequests("anthropic", 61_000, 63_000, "sonnet")).toBe(false);
+			expect(store.hasSubscriptionRequests("anthropic", 63_001, 65_000)).toBe(false);
+			expect(store.subscriptionSpendersSince("anthropic", 61_500)).toEqual([
+				{ projectId: "p", taskId: null, workerId: null, threadId: "nightly", role: "scheduled", model: "claude-opus-4-5", requests: 1, apiValue: .75 },
+				{ projectId: "p", taskId: null, workerId: "writer", threadId: "main", role: "worker", model: "claude-opus-4-5", requests: 2, apiValue: .5 },
+			]);
+		} finally { store.close(); }
+	});
+
 	it("totals retained requests by worker conversation, not by a reused worker name or task", () => {
 		const store = RequestLogStore.open(":memory:");
 		try {

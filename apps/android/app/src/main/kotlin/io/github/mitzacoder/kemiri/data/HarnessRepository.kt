@@ -18,11 +18,17 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
     val userName = mutableUserName.asStateFlow()
     private val mutableCoordinatorCompaction = MutableStateFlow<CoordinatorCompaction?>(null)
     val coordinatorCompaction = mutableCoordinatorCompaction.asStateFlow()
+    private val mutableUsageDrainMode = MutableStateFlow<String?>(null)
+    val usageDrainMode = mutableUsageDrainMode.asStateFlow()
     private fun applyUserSettings(settings: UserSettings) {
         mutableUserName.value = settings.userName
         mutableCoordinatorCompaction.value = settings.coordinatorCompaction
+        mutableUsageDrainMode.value = settings.usageDrainMode
     }
     suspend fun setUserName(name: String) { applyUserSettings(client.request(UserSettingsSetRequest(userName = name)).settings) }
+    suspend fun setUsageDrainMode(mode: String) {
+        applyUserSettings(client.request(UserSettingsSetRequest(usageDrainMode = mode)).settings)
+    }
     suspend fun setCoordinatorCompaction(thresholds: CoordinatorCompaction) {
         applyUserSettings(client.request(UserSettingsSetRequest(coordinatorCompaction = thresholds)).settings)
     }

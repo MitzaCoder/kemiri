@@ -31,7 +31,7 @@ class NotificationsTest {
     private val backends = listOf(pc, vm, twin)
 
     @Test fun kindsAreTheProtocolsWithTheWebsWords() {
-        assertEquals(18, NOTIFICATION_KINDS.size)
+        assertEquals(20, NOTIFICATION_KINDS.size)
         assertEquals("reply", NOTIFICATION_KINDS.first())
         assertEquals("task_steps", NOTIFICATION_KINDS.last())
         assertEquals("Tasks ready for review", kindInfo("task_review")?.label)
@@ -42,8 +42,10 @@ class NotificationsTest {
         assertTrue("task_review" in DEFAULT_NOTIFICATION_KINDS)
         assertTrue("task_steps" in DEFAULT_NOTIFICATION_KINDS)
         assertTrue("usage_limit_reached" in DEFAULT_NOTIFICATION_KINDS)
-        assertEquals(14, DEFAULT_NOTIFICATION_KINDS.size)
-        assertEquals("14 of 18 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
+        assertTrue("usage_drain_warning" in DEFAULT_NOTIFICATION_KINDS)
+        assertTrue("usage_drain_paused" in DEFAULT_NOTIFICATION_KINDS)
+        assertEquals(16, DEFAULT_NOTIFICATION_KINDS.size)
+        assertEquals("16 of 20 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
         assertEquals(listOf("reply", "worker_report"), withKind(listOf("worker_report"), "reply", true))
     }
 

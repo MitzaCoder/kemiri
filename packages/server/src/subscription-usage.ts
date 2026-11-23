@@ -6,7 +6,7 @@
  * - the provider's usage endpoint, the one its own CLI shows: Claude Code's `/usage` (`GET /api/oauth/usage` on
  *   api.anthropic.com), Codex CLI's `/status` (`GET /wham/usage` on chatgpt.com/backend-api) and, for OpenCode Go
  *   (an API-key plan, the only API-key provider here), `GET /v1/usage` on opencode.ai/inference/go with the key. Read every few minutes
- *   while a client is connected, shortly after a provider's requests go quiet, and on `refresh`.
+ *   while a client is connected or the subscription is busy, shortly after a provider's requests go quiet, and on `refresh`.
  * - the rate-limit headers of the harness's own model requests (`anthropic-ratelimit-unified-*`, `x-codex-*`) and
  *   Codex's `codex.rate_limits` stream event, seen through `observeModels`. They keep the numbers current between reads
  *   and are the only source for a provider without a usage endpoint.
@@ -75,7 +75,10 @@ export type SubscriptionUsageOptions = {
 	ledger?: Pick<LimitLedger, "reading" | "manualReset">;
 	terms?: SubscriptionTerms;
 	onChange?: (subscriptions: SubscriptionUsage[]) => void;
-	onReading?: (providerId: string, windows: readonly WindowReading[]) => void;
+	onReading?: (providerId: string, windows: readonly WindowReading[], observedAt: number) => void;
+	onRequestStart?: (providerId: string, model: string, at: number) => void;
+	onCredentialsChanged?: (providerId: string) => void;
+	hasRecentRequests?: (providerId: string, from: number, through: number) => boolean;
 	fetch?: typeof fetch;
 	readAntigravityQuota?: (signal: AbortSignal) => Promise<UsageReading>;
 	now?: () => number;
@@ -124,6 +127,9 @@ export class SubscriptionUsageService {
 	readonly #credentials: CredentialStore;
 	readonly #onChange: (subscriptions: SubscriptionUsage[]) => void;
 	readonly #onReading: SubscriptionUsageOptions["onReading"];
+	readonly #onRequestStart: SubscriptionUsageOptions["onRequestStart"];
+	readonly #onCredentialsChanged: SubscriptionUsageOptions["onCredentialsChanged"];
+	readonly #hasRecentRequests: SubscriptionUsageOptions["hasRecentRequests"];
 	readonly #fetch: typeof fetch;
 	readonly #now: () => number;
 	readonly #anthropicBaseUrl: string;
@@ -157,6 +163,9 @@ export class SubscriptionUsageService {
 		this.#credentials = options.credentials;
 		this.#onChange = options.onChange ?? (() => {});
 		this.#onReading = options.onReading;
+		this.#onRequestStart = options.onRequestStart;
+		this.#onCredentialsChanged = options.onCredentialsChanged;
+		this.#hasRecentRequests = options.hasRecentRequests;
 		this.#fetch = options.fetch ?? fetch;
 		this.#now = options.now ?? Date.now;
 		this.#anthropicBaseUrl = options.anthropicBaseUrl ?? ANTHROPIC_API_BASE_URL;
@@ -174,6 +183,7 @@ export class SubscriptionUsageService {
 			"openai-codex": (auth) => this.#readChatGpt(auth.apiKey),
 			"opencode-go": (auth) => this.#readOpenCodeGo(auth.apiKey),
 		};
+		if (this.#hasRecentRequests) this.#armPollTimer();
 	}
 
 	/** Every subscription's usage as last read. `refresh` reads every provider with a usage endpoint first. */
@@ -243,14 +253,19 @@ export class SubscriptionUsageService {
 	clientConnected(): void {
 		this.#clients += 1;
 		if (this.#clients !== 1 || this.#stopped) return;
-		this.#pollTimer = setInterval(() => void this.#poll(), this.#pollIntervalMs);
-		this.#pollTimer.unref?.();
+		this.#armPollTimer();
 		void this.#poll();
+	}
+
+	#armPollTimer(): void {
+		if (this.#pollTimer !== undefined) return;
+		this.#pollTimer = setInterval(() => void this.#poll({ busyOnly: this.#clients === 0 }), this.#pollIntervalMs);
+		this.#pollTimer.unref?.();
 	}
 
 	clientDisconnected(): void {
 		this.#clients = Math.max(0, this.#clients - 1);
-		if (this.#clients > 0 || this.#pollTimer === undefined) return;
+		if (this.#clients > 0 || this.#hasRecentRequests || this.#pollTimer === undefined) return;
 		clearInterval(this.#pollTimer);
 		this.#pollTimer = undefined;
 	}
@@ -259,6 +274,7 @@ export class SubscriptionUsageService {
 	credentialsChanged(providerId?: string): void {
 		if (providerId !== undefined) {
 			this.#replacedCredentials.add(providerId);
+			this.#onCredentialsChanged?.(providerId);
 			const state = this.#states.get(providerId);
 			if (state?.afterTurnTimer !== undefined) clearTimeout(state.afterTurnTimer);
 			this.#states.delete(providerId);
@@ -295,13 +311,17 @@ export class SubscriptionUsageService {
 			} as T;
 		};
 		const wrapped = new Set(["stream", "streamSimple", "complete", "completeSimple"]);
+		const noteRequest = (model: { provider: string; id: string }) =>
+			this.#onRequestStart?.(model.provider, model.id, this.#now());
 		return new Proxy(models, {
 			get(target, property, receiver) {
 				const value = Reflect.get(target, property, receiver) as unknown;
 				if (typeof value !== "function") return value;
 				if (typeof property === "string" && wrapped.has(property)) {
-					return (model: unknown, context: unknown, options?: object) =>
-						(value as (...args: unknown[]) => unknown).call(target, model, context, observe(options));
+					return (model: { provider: string; id: string }, context: unknown, options?: object) => {
+						noteRequest(model);
+						return (value as (...args: unknown[]) => unknown).call(target, model, context, observe(options));
+					};
 				}
 				return (value as (...args: unknown[]) => unknown).bind(target);
 			},
@@ -316,14 +336,14 @@ export class SubscriptionUsageService {
 				: providerId === "openai-codex"
 					? parseCodexRateLimitHeaders(headers)
 					: [];
-		if (windows.length > 0) void this.#applyFromHeaders(providerId, { source: "response_headers", windows });
+		if (windows.length > 0) void this.#applyFromHeaders(providerId, { source: "response_headers", windows }, this.#now());
 	}
 
 	noteStreamEvent(providerId: string, data: unknown): void {
 		this.#noteActivity(providerId);
 		if (providerId !== "openai-codex") return;
 		const reading = parseCodexRateLimitEvent(data);
-		if (reading !== undefined) void this.#applyFromHeaders(providerId, reading, "stream_event");
+		if (reading !== undefined) void this.#applyFromHeaders(providerId, reading, this.#now(), "stream_event");
 	}
 
 	async stop(): Promise<void> {
@@ -341,11 +361,14 @@ export class SubscriptionUsageService {
 
 	// --- reading -------------------------------------------------------------------------------------------------
 
-	async #poll(): Promise<void> {
+	async #poll({ busyOnly = false } = {}): Promise<void> {
+		if (this.#stopped) return;
 		try {
 			await this.#load();
 			const providers = await this.#sync();
-			await Promise.all(providers.map((providerId) => this.#read(providerId, { force: false })));
+			const now = this.#now();
+			await Promise.all(providers.filter(providerId => !busyOnly || this.#hasRecentRequests?.(providerId, now - this.#pollIntervalMs, now))
+				.map(providerId => this.#read(providerId, { force: false })));
 			this.#publishIfChanged();
 		} catch (error) {
 			this.#log(`subscription usage: poll failed: ${errorMessage(error)}`);
@@ -361,14 +384,16 @@ export class SubscriptionUsageService {
 		if (state.inFlight !== undefined) return state.inFlight;
 		if (this.#now() < state.blockedUntil) return Promise.resolve();
 		const now = performance.now();
-		const gap = options.force ? 0 : Math.min(this.#minReadGapMs, this.#pollIntervalMs - 1_000);
+		const gap = options.force ? 0 : this.#minReadGapMs;
 		if (state.lastAttemptAt > 0 && now - state.lastAttemptAt < gap) return Promise.resolve();
 		state.lastAttemptAt = now;
+		// A delayed endpoint response must not replace monitor evidence observed while it was in flight.
+		const observedAt = this.#now();
 		state.inFlight = (async () => {
 			try {
 				if (readNative) {
 					const reading = await readNative(this.#nativeReadAbort.signal);
-					if (this.#states.get(providerId) === state && !this.#stopped) this.#apply(providerId, reading);
+					if (this.#states.get(providerId) === state && !this.#stopped) this.#apply(providerId, reading, observedAt);
 					return;
 				}
 				const auth = await this.#models.getAuth(providerId);
@@ -381,7 +406,7 @@ export class SubscriptionUsageService {
 					reading.manualResets = (transport ? await discoverResets(transport) : null) ?? reading.manualResets ?? null;
 					state.resetsReadAt = this.#now();
 				}
-				if (this.#states.get(providerId) === state) this.#apply(providerId, reading);
+				if (this.#states.get(providerId) === state) this.#apply(providerId, reading, observedAt);
 			} catch (error) {
 				const message = this.#describeFailure(state, error);
 				if (this.#states.get(providerId) === state && !this.#stopped) state.usage = { ...state.usage, error: message };
@@ -516,6 +541,7 @@ export class SubscriptionUsageService {
 			const replaced = this.#replacedCredentials.delete(providerId);
 			const loginChanged = replaced || (previousType !== undefined && previousType !== type);
 			if (loginChanged) {
+				if (!replaced) this.#onCredentialsChanged?.(providerId);
 				const state = this.#states.get(providerId);
 				if (state?.afterTurnTimer !== undefined) clearTimeout(state.afterTurnTimer);
 				this.#states.delete(providerId);
@@ -545,7 +571,7 @@ export class SubscriptionUsageService {
 		return [...oauth];
 	}
 
-	async #applyFromHeaders(providerId: string, reading: UsageReading, source: LimitReading["source"] = "response_headers"): Promise<void> {
+	async #applyFromHeaders(providerId: string, reading: UsageReading, observedAt: number, source: LimitReading["source"] = "response_headers"): Promise<void> {
 		try {
 			await this.#load();
 			if (!this.#states.has(providerId)) {
@@ -555,7 +581,7 @@ export class SubscriptionUsageService {
 				this.#storedCredentialTypes.set(providerId, credential.type);
 				this.#states.set(providerId, this.#newState(this.#emptyUsage(providerId)));
 			}
-			this.#apply(providerId, reading, source);
+			this.#apply(providerId, reading, observedAt, source);
 			this.#persist();
 			this.#publishIfChanged();
 		} catch (error) {
@@ -563,7 +589,7 @@ export class SubscriptionUsageService {
 		}
 	}
 
-	#apply(providerId: string, reading: UsageReading, source: LimitReading["source"] = reading.source): void {
+	#apply(providerId: string, reading: UsageReading, observedAt: number, source: LimitReading["source"] = reading.source): void {
 		const state = this.#states.get(providerId);
 		if (state === undefined) return;
 		const at = this.#now();
@@ -576,8 +602,8 @@ export class SubscriptionUsageService {
 		state.usage = applyReading(state.usage, reading, new Date(at).toISOString());
 		const credential = this.#storedCredentialTypes.get(providerId);
 		if (credential === "oauth" || (credential === "api_key" && API_KEY_PLAN_PROVIDERS.has(providerId))) {
-			try { this.#onReading?.(providerId, reading.windows); }
-			catch (error) { this.#log(`subscription usage: could not hold exhausted login: ${errorMessage(error)}`); }
+			try { this.#onReading?.(providerId, reading.windows, observedAt); }
+			catch (error) { this.#log(`subscription usage: could not process a reading: ${errorMessage(error)}`); }
 		}
 	}
 

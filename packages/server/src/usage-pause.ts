@@ -19,6 +19,7 @@ type UsagePauseOptions = {
 	setTimer?: SetTimer;
 	onChange?: (pauses: UsagePause[]) => void;
 	onLimitReached?: (pause: UsagePause) => void;
+	onResume?: (providerLogin: string) => void;
 	log?: (message: string) => void;
 };
 
@@ -109,6 +110,7 @@ export class UsagePauseGate {
 			overrides.set(providerLogin, { providerLogin, ...(pause.until === undefined ? {} : { until: pause.until }) });
 		}
 		this.#save(pauses, overrides);
+		this.#options.onResume?.(providerLogin);
 		this.#options.log?.(`usage pause: resumed ${providerLogin}: ${note}`);
 		this.#changed();
 	}
