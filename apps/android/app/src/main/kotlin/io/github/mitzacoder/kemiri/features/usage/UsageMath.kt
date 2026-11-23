@@ -53,9 +53,9 @@ fun paceTitle(p: WindowPace) = when(p.kind) { PaceKind.Unknown -> "Pace unknown"
 fun paceDetail(p: WindowPace): String = when(p.kind) {
     PaceKind.Unknown -> if(p.usedPercent == null) "No reading for this window yet." else if(p.resetsAt == null) "The provider gives no reset time." else "No elapsed window to compare with."
     PaceKind.Exhausted -> if (p.resetsAt == null) "Used up; the provider gives no reset time." else "Used up until the window resets."
-    PaceKind.Behind -> "Room to spare — projected ${percentLabel(p.projectedAtReset)} at reset."
+    PaceKind.Behind -> "At the window’s average pace, usage ends near ${percentLabel(p.projectedAtReset)}."
     PaceKind.OnPace -> "Used about as fast as the window passes."
-    PaceKind.Ahead -> if(p.exhaustsAt != null && p.resetsAt != null) "${if(p.early) "Early estimate: " else "At this rate: "}limit at ${clockTime(p.exhaustsAt)}, ${formatDuration(p.resetsAt - p.exhaustsAt)} before reset." else "Used faster than the window passes."
+    PaceKind.Ahead -> if(p.exhaustsAt != null && p.resetsAt != null) "${if(p.early) "Early estimate: " else "At the window’s average pace: "}limit at ${clockTime(p.exhaustsAt)}, ${formatDuration(p.resetsAt - p.exhaustsAt)} before reset." else "Used faster than the window passes."
 }
 data class ChartPoint(val x: Double, val y: Double)
 data class ChartSegment(val from: ChartPoint, val to: ChartPoint)

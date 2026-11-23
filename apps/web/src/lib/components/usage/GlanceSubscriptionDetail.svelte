@@ -6,7 +6,7 @@
 	import { usageModal } from '#lib/usage-modal.svelte.js';
 	import { computerNames, rankedLimits, type GlanceSubscription, type SubscriptionMonth } from '#lib/usage-glance.js';
 	import { usageMoney } from '#lib/usage-money.js';
-	import GlanceLimitRow from './GlanceLimitRow.svelte';
+	import GlanceLimitCard from './GlanceLimitCard.svelte';
 	import SubscriptionResets from './SubscriptionResets.svelte';
 
 	let { subscription, monthly, loading, monthLabel, now }: {
@@ -43,8 +43,8 @@
 <section class="mt-4 space-y-2">
 	<h3 class="font-semibold">Limits</h3>
 	{#if limits.length}
-		<div class="subscription-limits"><ul class="divide-y divide-(--chat-border) overflow-hidden rounded-xl border border-(--chat-border)">
-			{#each limits as limit (limit.key)}<GlanceLimitRow {limit} {now} grouped open={openedLimit === limit.key} toggle={() => openedLimit = openedLimit === limit.key ? undefined : limit.key} />{/each}
+		<div class="subscription-limits"><ul class="grid gap-2">
+			{#each limits as limit (limit.key)}<GlanceLimitCard {limit} {now} grouped open={openedLimit === limit.key} toggle={() => openedLimit = openedLimit === limit.key ? undefined : limit.key} />{/each}
 		</ul></div>
 	{:else}<p class="text-muted-foreground">No limits reported.</p>{/if}
 	{#if resetMember}<SubscriptionResets subscription={resetMember.subscription} {...(resetBackend ? { backend: resetBackend } : {})} />{/if}

@@ -21,7 +21,7 @@
 		SPEND_DIMENSIONS, USAGE_BACKEND_KEY, USAGE_PERIODS, usagePeriodRequest, type SpendDimension, type SpendRow, type UsagePeriod } from '#lib/usage-glance.js';
 	import { usageMoney } from '#lib/usage-money.js';
 	import CacheSection from './CacheSection.svelte';
-	import GlanceLimitRow from './GlanceLimitRow.svelte';
+	import GlanceLimitCard from './GlanceLimitCard.svelte';
 	import GlanceSpendDetail from './GlanceSpendDetail.svelte';
 	import GlanceSubscriptionDetail from './GlanceSubscriptionDetail.svelte';
 	import ProviderMark from './ProviderMark.svelte';
@@ -207,19 +207,19 @@
 						<button type="button" aria-pressed={grouped} onclick={() => grouped = true}>By subscription</button>
 					</div>
 				</div>
-				<div class="usage-card limits-card">
+				<div class="limits-collection">
 					{#if grouped}
 						{#each subscriptions as subscription (subscription.key)}
 							<button type="button" class="subscription-group" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>
 								<ProviderMark providerId={subscription.reading.providerId} label={subscription.reading.label} size={24} />
 								<strong>{subscription.reading.label}</strong><small>{[subscription.reading.plan, computerNames(subscription.members.map(member => member.computer))].filter(Boolean).join(' · ')}</small><ChevronRight class="ml-auto size-4" />
 							</button>
-							<ul class="divide-y divide-(--chat-border)">
-								{#each limits.filter(limit => limit.subscription.key === subscription.key) as limit (limit.key)}{@render limitRow(limit, true)}{/each}
+							<ul class="limit-grid">
+								{#each limits.filter(limit => limit.subscription.key === subscription.key) as limit (limit.key)}{@render limitCard(limit, true)}{/each}
 							</ul>
 						{/each}
 					{:else}
-						<ul class="divide-y divide-(--chat-border)">{#each visibleLimits as limit (limit.key)}{@render limitRow(limit, false)}{/each}</ul>
+						<ul class="limit-grid">{#each visibleLimits as limit (limit.key)}{@render limitCard(limit, false)}{/each}</ul>
 						{#if quiet.length}<button type="button" class="quiet-toggle" aria-expanded={showQuiet} onclick={() => showQuiet = !showQuiet}>
 							{showQuiet ? 'Hide quiet limits' : `${quiet.length} more limit${quiet.length === 1 ? '' : 's'}, all under ${Math.floor(Math.max(...quiet.map(limit => limit.window.usedPercent ?? 0))) + 1}% · show`}
 						</button>{/if}
@@ -289,7 +289,7 @@
 			<details class="usage-disclosure info-disclosure">
 				<summary><InfoIcon class="mr-1 inline size-3.5" /> About these numbers</summary>
 				<div class="space-y-2 px-3 pb-3 text-xs text-muted-foreground">
-					<p>Limits come from the provider and can include use outside Kemiri. The marker shows how much of the window has passed; the chart’s projection assumes the same average pace.</p>
+					<p>Limits come from the provider and can include use outside Kemiri. The inner arc shows how much of the window has passed. The chart projects the window’s average pace; the forecast uses recent usage.</p>
 					<p>Work at API prices is a catalog estimate, not a bill. The monthly comparison counts only subscription-covered work and does not prorate prices. A shared login counts once when its account and plan can be matched; recorded work from both computers is still counted.</p>
 					<p>Prices and billed usage may differ from catalog estimates. Requests without a catalog price add tokens but no cost.{#if recorded.some(({ stats }) => stats.recorded?.approximate)} Some older daily totals cross the selected period’s boundary and are assigned by UTC noon.{/if}{#if monthlyReads.some(({ report }) => report?.assumed)} Some older requests use the current credential to infer their billing.{/if}</p>
 					{#each recorded as { computer, stats } (computer.id)}<p>{computer.name}: prompt-cache details are kept for {stats.keptDays} days.{#if stats.liveSince} Recorded live since {new Date(stats.liveSince).toLocaleDateString()}; earlier requests did not record prompt changes.{/if}</p>{/each}
@@ -299,8 +299,8 @@
 	</div>
 </div>
 
-{#snippet limitRow(limit: (typeof limits)[number], inGroup: boolean)}
-	<GlanceLimitRow {limit} {now} grouped={inGroup} open={expandedLimit === limit.key} toggle={() => expandedLimit = expandedLimit === limit.key ? undefined : limit.key}
+{#snippet limitCard(limit: (typeof limits)[number], inGroup: boolean)}
+	<GlanceLimitCard {limit} {now} grouped={inGroup} open={expandedLimit === limit.key} toggle={() => expandedLimit = expandedLimit === limit.key ? undefined : limit.key}
 		viewSubscription={() => openSheet({ kind: 'subscription', key: limit.subscription.key })} />
 {/snippet}
 
@@ -357,7 +357,10 @@
 	.segments button:hover { background: var(--chat-surface-2); }
 	.segments button[aria-pressed='true'] { color: var(--chat-fg); background: var(--chat-surface-2); font-weight: 650; }
 	.usage-card { min-width: 0; border: 1px solid var(--chat-border); border-radius: .8rem; background: var(--chat-surface); overflow: hidden; }
-	.limits-card { container-type: inline-size; }
+	.limits-collection { container-type: inline-size; display: grid; gap: .5rem; }
+	.limit-grid { display: grid; gap: .6rem; align-items: start; }
+	@container (min-width: 42rem) { .limit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	.limits-collection .quiet-toggle, .subscription-group { border: 1px solid var(--chat-border); border-radius: .65rem; }
 	.quiet-toggle { min-height: 2rem; display: block; width: 100%; padding: .25rem .8rem; text-align: left; font-size: .75rem; font-weight: 600; color: var(--chat-fg-muted); border-top: 1px solid var(--chat-border); }
 	.quiet-toggle:hover, .subscription-group:hover, .spend-row:hover { background: var(--chat-surface-2); }
 	.subscription-group { width: 100%; display: flex; gap: .5rem; align-items: center; text-align: left; padding: .5rem .8rem; background: var(--chat-surface-2); font-size: .8125rem; }

@@ -2245,8 +2245,12 @@ separate logins stay separate rather than merging by provider alone.
 
 The attention sentence uses live readings. Limits rank by percent used, then earliest reset. The four closest and
 any other non-quiet limits stay visible; remaining room-to-spare limits below 45% fold. By subscription shows all
-limits under their subscriptions. A bar's marker is elapsed time, not usage. Expanding a row shows its pace chart
-and a link to the subscription sheet. Unmeasured and stale readings are distinct from limits with room to spare.
+limits under their subscriptions. Each limit is a card, in two columns when the overview has room and one on phones.
+The round gauge shows percent used; its inner arc and notch show time elapsed. The card keeps the pace badge, pace
+sentence, reset countdown and time, and a chart showing used, even pace, projected average pace and a now marker.
+The chart stays visible when the details are collapsed. Recent drain forecasts and pause controls remain separate
+from the window-average pace. Expand the card heading for account details and a link to the subscription sheet.
+The sheet uses the same cards. Unmeasured and stale readings are distinct from limits with room to spare.
 
 Spend has one period control. Today starts at local midnight, 7 and 30 days roll, and This month uses the UTC offset
 at the start of the browser's local month. The catalog total is “work at API prices.” Only the month view compares
@@ -2280,6 +2284,8 @@ attention statuses, live window rankings, periods and spend dimensions as web. T
 settings and defaults to All. Live limits use `subscription-usage`; spend and breakdown requests require
 `recorded-usage`, and older or disconnected computers are marked as missing from spend. The overview and each drill-down
 use the same period fields. The prompt-cache diagnosis is folded under Worth a look and uses the selected period.
+Android limit cards use the same gauge, pace badge, reset time, and always-visible chart in one column on phones
+and two on wider layouts. Expanding a heading reveals account details and the subscription link.
 Subscription and spend details open in bottom sheets. The subscription sheet retains confirmed free resets and uses the
 current calendar month for plan comparison. Plan prices can be edited in AI accounts. Project breakdowns include work
 without a task; task rows can open the original task on its computer.

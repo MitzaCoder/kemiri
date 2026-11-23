@@ -3,14 +3,11 @@ package io.github.mitzacoder.kemiri.features.usage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -93,7 +90,7 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
             GlanceHeading("Limits")
             FilterChip(selected = bySubscription, onClick = { bySubscription = !bySubscription }, label = { Text("By subscription") })
         }
-        ValueNote(if (bySubscription) "Live windows grouped by plan" else "Closest first · marker shows time passed")
+        ValueNote(if (bySubscription) "Live windows grouped by plan" else "Closest first")
         if (limits.isEmpty()) ValueNote("No live subscription windows to show.")
         if (bySubscription) {
             subscriptions.forEach { subscription ->
@@ -104,16 +101,16 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
                     }
                     val windows = limits.filter { it.subscription.identity == subscription.identity }
                     if (windows.isEmpty()) ValueNote("No windows reported.")
-                    windows.forEach { limit -> key(limit.key) {
-                        GlanceLimitRow(limit, now, expanded == limit.key, false, { expanded = limit.key.takeUnless { expanded == it } }, pauseBackends = pauseBackends)
-                    } }
+                    LimitCardGrid(windows) { limit ->
+                        GlanceLimitCard(limit, now, expanded == limit.key, false, { expanded = limit.key.takeUnless { expanded == it } }, pauseBackends = pauseBackends)
+                    }
                 }
             }
         } else {
-            limits.filter { showingQuiet || it.key !in quiet }.forEach { limit -> key(limit.key) {
-                GlanceLimitRow(limit, now, expanded == limit.key, true, { expanded = limit.key.takeUnless { expanded == it } },
+            LimitCardGrid(limits.filter { showingQuiet || it.key !in quiet }) { limit ->
+                GlanceLimitCard(limit, now, expanded == limit.key, true, { expanded = limit.key.takeUnless { expanded == it } },
                     { openSubscription(limit.subscription.identity) }, pauseBackends)
-            } }
+            }
             if (quiet.isNotEmpty()) TextButton(onClick = { showingQuiet = !showingQuiet }) {
                 Text(if (showingQuiet) "Hide quiet limits" else "${quiet.size} more ${if (quiet.size == 1) "limit" else "limits"}, all under 45%")
             }
@@ -130,26 +127,55 @@ internal fun limitColor(status: LimitStatus) = when (status) {
 }
 
 @Composable
-internal fun GlanceLimitRow(limit: GlanceLimit, now: Double, expanded: Boolean, showProvider: Boolean,
+private fun LimitCardGrid(limits: List<GlanceLimit>, card: @Composable (GlanceLimit) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth >= 600.dp) 2 else 1
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            limits.chunked(columns).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { limit -> key(limit.key) { Box(Modifier.weight(1f)) { card(limit) } } }
+                    if (row.size < columns) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun GlanceLimitCard(limit: GlanceLimit, now: Double, expanded: Boolean, showProvider: Boolean,
     toggle: () -> Unit, openSubscription: (() -> Unit)? = null, pauseBackends: List<BackendSession> = emptyList()) {
     val reading = limit.subscription.latest.reading
     val color = limitColor(limit.status)
     val name = if (showProvider) "${reading.label} · ${limit.window.label}" else limit.window.label
     OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = if (expanded) "Hide pace chart" else "Show pace chart", onClick = toggle)
-            .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                Text(percentLabel(limit.window.usedPercent), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge, color = color)
-                LucideGlyph(if (expanded) Lucide.ChevronDown else Lucide.ChevronRight, size = 14.dp)
+        Row(Modifier.fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = if (expanded) "Hide limit details" else "Show limit details", onClick = toggle)
+            .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            LucideGlyph(if (expanded) Lucide.ChevronDown else Lucide.ChevronRight, size = 14.dp)
+        }
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                UsageGauge(limit.window.usedPercent, limit.pace.elapsedShare.takeUnless { limit.stale }, color)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(color = color.copy(alpha = .12f), shape = MaterialTheme.shapes.large) {
+                        Text(if (limit.stale) "Last reading" else limit.status.label,
+                            Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold, color = color)
+                    }
+                    ValueNote(if (limit.stale) "This reading is stale. Refresh to check the current pace." else paceDetail(limit.pace))
+                    val resetsAt = limit.pace.resetsAt
+                    ValueNote(when {
+                        resetsAt == null -> "Reset time unknown"
+                        resetsAt <= now -> "Reset due"
+                        else -> "Resets in ${formatDuration(resetsAt - now)} · ${clockTime(resetsAt)}"
+                    })
+                }
             }
-            LimitBar(limit, color)
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(limit.status.label + if (limit.stale) " · stale" else "", style = MaterialTheme.typography.labelMedium, color = color)
-                val reset = resetCountdown(limit, now)
-                ValueNote(if (reset != null) "Resets in $reset" else if (limit.pace.resetsAt != null) "Reset due" else "Reset time unknown")
-            }
+            HistoryChart(limit.window, limit.pace, now, color)
         }
         val computerKeys = limit.subscription.computers.map { it.key }
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
@@ -177,31 +203,9 @@ internal fun GlanceLimitRow(limit: GlanceLimit, now: Double, expanded: Boolean, 
         }
         if (expanded) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             HorizontalDivider()
-            HistoryChart(limit.window, limit.pace, now, color)
-            ValueNote(if (limit.stale) "This reading is stale. Refresh to check the current pace." else paceDetail(limit.pace))
+            ValueNote("Chart: solid is used, dashed is even pace, and dotted is the window’s average pace continued. The dot marks now.")
             ValueNote(listOfNotNull(reading.account, computerNames(limit.subscription.computers)).joinToString(" · "))
             openSubscription?.let { TextButton(onClick = it) { Text("Open subscription") } }
-        }
-    }
-}
-
-@Composable
-private fun LimitBar(limit: GlanceLimit, color: Color) {
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val marker = MaterialTheme.colorScheme.onSurface
-    val elapsed = limit.pace.elapsedShare
-    Canvas(Modifier.fillMaxWidth().height(10.dp).semantics {
-        if (elapsed != null) contentDescription = "Pace marker: ${percentLabel(elapsed * 100)} of window elapsed"
-    }) {
-        val stroke = 6.dp.toPx()
-        val corner = CornerRadius(stroke / 2)
-        val origin = Offset(0f, (size.height - stroke) / 2)
-        drawRoundRect(track, origin, Size(size.width, stroke), corner)
-        val fill = ((limit.window.usedPercent ?: 0.0) / 100).coerceIn(0.0, 1.0).toFloat()
-        if (fill > 0) drawRoundRect(color, origin, Size(size.width * fill, stroke), corner)
-        if (elapsed != null) {
-            val x = (size.width * elapsed.toFloat()).coerceIn(1.dp.toPx(), size.width - 1.dp.toPx())
-            drawLine(marker, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
         }
     }
 }

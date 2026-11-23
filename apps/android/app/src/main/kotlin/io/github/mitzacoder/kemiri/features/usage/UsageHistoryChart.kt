@@ -19,8 +19,8 @@ internal fun HistoryChart(w: UsageWindow, p: WindowPace, now: Double, color: Col
     val grid = MaterialTheme.colorScheme.outlineVariant
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val geometry = usageChart(w, now, 300.0, 72.0)
-    Box(Modifier.fillMaxWidth().height(72.dp).semantics { contentDescription = "Usage history: ${w.samples.size} samples. ${paceDetail(p)}" }, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize().padding(vertical = 6.dp)) {
+    Box(Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "Usage history: ${w.samples.size} samples. Solid: used. Dashed: even pace. Dotted: average pace continued." }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 6.dp)) {
             fun pt(p: ChartPoint) = Offset((p.x / 300 * size.width).toFloat(), (p.y / 72 * size.height).toFloat())
             fun segment(s: ChartSegment, c: Color, dash: FloatArray) = drawLine(c, pt(s.from), pt(s.to), 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(dash))
             val limitY = (geometry.limitY / 72 * size.height).toFloat()
@@ -32,10 +32,13 @@ internal fun HistoryChart(w: UsageWindow, p: WindowPace, now: Double, color: Col
                 val area = Path().apply { addPath(line); lineTo(pt(geometry.points.last()).x, size.height); lineTo(pt(geometry.points.first()).x, size.height); close() }
                 drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = .28f), color.copy(alpha = .02f))))
                 drawPath(line, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                drawCircle(color, 3.dp.toPx(), pt(geometry.points.last()))
             }
             geometry.projection?.let { segment(it, color, floatArrayOf(4f, 8f)) }
-            geometry.nowX?.let { val x = (it / 300 * size.width).toFloat(); drawLine(muted.copy(alpha = .5f), Offset(x, 0f), Offset(x, size.height), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 6f))) }
+            geometry.nowX?.let {
+                val x = (it / 300 * size.width).toFloat()
+                drawLine(muted.copy(alpha = .5f), Offset(x, 0f), Offset(x, size.height), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 6f)))
+                geometry.points.lastOrNull()?.let { last -> drawCircle(color, 3.dp.toPx(), pt(last)) }
+            }
         }
         if(geometry.points.isEmpty()) Text("No history yet", style = MaterialTheme.typography.labelSmall)
     }
@@ -43,5 +46,4 @@ internal fun HistoryChart(w: UsageWindow, p: WindowPace, now: Double, color: Col
         Text(p.startsAt?.let(::clockTime) ?: "First sample", style = MaterialTheme.typography.labelSmall)
         Text(p.resetsAt?.let(::clockTime) ?: "Now", style = MaterialTheme.typography.labelSmall)
     }
-    Text("━ Used   ┄ Even pace   ··· At this rate", style = MaterialTheme.typography.labelSmall, color = muted)
 }
