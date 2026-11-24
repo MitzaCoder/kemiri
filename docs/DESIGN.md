@@ -2999,6 +2999,9 @@ mode. The board remains project-wide. Hidden chats keep receiving updates on bot
 clients. A first visit or return after eviction still opens a normal watch, which
 handles reconnects using the existing protocol. Use `coordinators-demo.ts` for
 isolated web and emulator comparisons.
+`chat-header-demo.ts` seeds a smaller fixture for chat-header proof: three coordinators
+with areas, four waiting questions, one published app, a terminal with
+`DEMO_TERMINALS=1` and a turn that stays working with `DEMO_WORKING=1`.
 
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins
