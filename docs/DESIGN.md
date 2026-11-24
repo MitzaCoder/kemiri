@@ -6346,6 +6346,15 @@ exchanges) link back via **Saved in Answers**, matched by coordinator and entry 
 the original reply, loading older pages if needed. The in-app pop-up and inbox open the answer for `reply`
 notices with `answerId`; other notices keep their existing destinations.
 
+Android advertises `answers` in hello and shows Chat, Tasks and Answers as project tabs on supporting backends.
+One catalogue per visited project resubscribes after reconnect and refreshes on `answers.changed`. The full
+catalogue drives the unread dot and the **Saved in Answers** links in coordinator transcripts. Search issues
+separate, debounced server queries and does not replace the full catalogue. The answer page renders the Markdown
+snapshot, earlier replies, and task chips from the live board. Opening marks the answer read. Ask again, follow-up,
+Turn into a task, Pin, and confirmed Delete use the existing Answers requests. **Show in chat** opens the answering
+coordinator at the reply entry. Push and in-app reply notices carrying `answerId` open the page with the chat behind
+it. Backends without `answers` keep the existing project controls and chat routing.
+
 ### Board
 
 The board keeps only its current value. Task histories are separate documents. Closed-task normalization changes

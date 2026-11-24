@@ -29,6 +29,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.chat.*
+import io.github.mitzacoder.kemiri.features.answers.*
 import io.github.mitzacoder.kemiri.features.panels.PanelsScreen
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.features.notifications.HandleAppLink
@@ -201,6 +202,45 @@ private fun HarnessNavigation(
         panelBehindTask(stack.dropLast(1), task)
     }
     val panel = current as? Destination.Panel ?: panelUnderTask
+    val answersRoute = current as? Destination.Answers
+    val answerId = answersRoute?.answerId
+    val connection = backend?.client?.state?.collectAsStateWithLifecycle()?.value
+    val projectTabs = connection?.let { answersProjectTabs(it, chat?.workerId) }.orEmpty()
+    // Recent notices can outlive a server rollback. Keep their original chat target in the stack.
+    LaunchedEffect(answersRoute, connection?.hello, projectTabs) {
+        if (answersRoute != null && connection?.hello != null && projectTabs.isEmpty()) pop()
+    }
+    val catalogue = if (projectTabs.isNotEmpty() && chat != null) backend!!.answers(chat.projectId) else null
+    val answerCatalogue = catalogue?.catalogue?.collectAsStateWithLifecycle()?.value
+    val unreadAnswers = hasUnreadAnswers(answerCatalogue?.answers.orEmpty())
+    val selectProjectTab: (AnswersProjectTab) -> Unit = select@{ tab ->
+        val origin = chat ?: return@select
+        val target = when (tab) {
+            AnswersProjectTab.Chat -> origin
+            AnswersProjectTab.Tasks -> Destination.Panel(origin, PanelTab.Board)
+            AnswersProjectTab.Answers -> Destination.Answers(origin)
+        }
+        updateBackStack { previous ->
+            val active = previous.current
+            if (active == target || active is Destination.Chat && target is Destination.Chat) previous
+            else if (target is Destination.Chat && previous.entries.getOrNull(previous.entries.lastIndex - 1)?.let {
+                it is Destination.Chat && it.chatRoute() == target
+            } == true) previous.back()
+            else if (active is Destination.Panel || active is Destination.Answers) previous.replaceSibling(target)
+            else previous.push(target)
+        }
+    }
+    val openAnswerList: () -> Unit = open@{
+        val origin = chat ?: return@open
+        val list = Destination.Answers(origin)
+        updateBackStack { previous ->
+            if (previous.entries.getOrNull(previous.entries.lastIndex - 1) == list) previous.back()
+            else previous.replaceSibling(list)
+        }
+    }
+    val latestPanelTabs by rememberUpdatedState(projectTabs)
+    val latestUnreadAnswers by rememberUpdatedState(unreadAnswers)
+    val latestSelectProjectTab by rememberUpdatedState(selectProjectTab)
     val latestPanelContext by rememberUpdatedState(context)
     val latestPanelTab by rememberUpdatedState(panel?.tab ?: PanelTab.Info)
     // Expansion belongs to the originating conversation and survives unrelated detours.
@@ -223,6 +263,8 @@ private fun HarnessNavigation(
                     PanelSurface(
                         currentContext, latestPanelTab, { latestClosePanel() }, panelModifier,
                         expanded = latestPanelExpanded, toggleExpanded = if (panelExpandable) ({ latestToggleExpanded() }) else null,
+                        projectTabs = if (latestPanelTab == PanelTab.Board && AnswersProjectTab.Tasks in latestPanelTabs) latestPanelTabs else emptyList(),
+                        unreadAnswers = latestUnreadAnswers, selectProjectTab = { latestSelectProjectTab(it) },
                     )
                 }
             }
@@ -245,7 +287,8 @@ private fun HarnessNavigation(
             val sideBySide = panel != null && maxWidth >= 840.dp && context != null
             val visibleContext = context?.copy(activePanel = if (sideBySide) resolvedPanelTab(panel.tab, tabs) else null)
             // The Tasks board takes the full width over the chat, not the side panel's.
-            val boardWide = sideBySide && showsTasksBoard(visibleContext!!, visibleContext.activePanel)
+            val boardWide = sideBySide && (showsTasksBoard(visibleContext!!, visibleContext.activePanel) ||
+                (panel.tab == PanelTab.Board && projectTabs.isNotEmpty()))
             val panelWide = boardWide || (sideBySide && panelExpanded)
             SideEffect { panelExpandable = sideBySide && !boardWide }
             // The header's row follows the chat column, which narrows while a panel sits beside it.
@@ -258,7 +301,8 @@ private fun HarnessNavigation(
                         if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) TopAppBar(
                             expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
                             title = {
-                                if (current.isSettings()) Text("Settings")
+                                if (answerId != null) Text("Answers")
+                                else if (current.isSettings()) Text("Settings")
                                 else if (context != null) ProjectHeaderTitle(context, chatWidth)
                                 else Text(when (current) {
                                     Destination.Usage -> "Usage"
@@ -267,15 +311,21 @@ private fun HarnessNavigation(
                                 })
                             },
                             navigationIcon = {
-                                if (!wide) JarvisIconButton(Lucide.Menu, "Open projects", onClick = { scope.launch { drawer.open() } })
+                                if (answerId != null) JarvisIconButton(Lucide.ArrowLeft, "Back to Answers", onClick = openAnswerList)
+                                else if (!wide) JarvisIconButton(Lucide.Menu, "Open projects", onClick = { scope.launch { drawer.open() } })
                             },
                             actions = {
-                                val chatRoute = current is Destination.Chat || current is Destination.Panel || current is Destination.Task
-                                if (resolvedBack() != null && !chatRoute) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
+                                val chatRoute = current is Destination.Chat || current is Destination.Panel || current is Destination.Task ||
+                                    (answersRoute != null && answerId == null)
+                                if (resolvedBack() != null && !chatRoute && answerId == null) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
                                 if (current.isSettings()) JarvisIconButton(Lucide.X, "Close settings", onClick = settingsNavigator.close)
-                                if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop)
+                                if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel)
                             },
                         )
+                        if (projectTabs.isNotEmpty() && (current is Destination.Chat || (answersRoute != null && answerId == null))) {
+                            AnswersProjectTabRow(projectTabs, if (answersRoute != null) AnswersProjectTab.Answers else AnswersProjectTab.Chat,
+                                unreadAnswers, selectProjectTab)
+                        }
                         if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task)) {
                             val board by context.board.view.collectAsStateWithLifecycle()
                             io.github.mitzacoder.kemiri.features.apps.RunningAppsChip(board.tasks, Modifier.padding(horizontal = 16.dp))
@@ -298,6 +348,10 @@ private fun HarnessNavigation(
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, requireNotNull(settingsScopes), navigate, connectPayload, onConnectHandled, modifier)
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
+                            is Destination.Answers -> if (context == null) MissingBackend(modifier)
+                                else if (projectTabs.isEmpty()) Box(modifier) { CircularProgressIndicator() }
+                                else if (current.answerId == null) AnswersTab(context, { navigate(current.copy(answerId = it)) }, modifier)
+                                else AnswerPage(context, current.answerId, openAnswerList, modifier.consumeWindowInsets(padding))
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
                             is Destination.Changes -> if (context != null) io.github.mitzacoder.kemiri.features.changes.ChangesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
                             is Destination.Files -> if (context != null) io.github.mitzacoder.kemiri.features.files.FilesScreen(context, current, modifier.consumeWindowInsets(padding), ::pop) else MissingBackend(modifier)
@@ -363,9 +417,12 @@ private fun PanelSurface(
     modifier: Modifier,
     expanded: Boolean = false,
     toggleExpanded: (() -> Unit)? = null,
+    projectTabs: List<AnswersProjectTab> = emptyList(),
+    unreadAnswers: Boolean = false,
+    selectProjectTab: (AnswersProjectTab) -> Unit = {},
 ) {
     val title = io.github.mitzacoder.kemiri.features.panels.panelTabLabel(initialTab, rememberTasksView(context.backend.client))
-    Scaffold(modifier.semantics { contentDescription = title }, topBar = {
+    Scaffold(modifier.semantics { contentDescription = title }, topBar = { Column {
         TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = {
             JarvisIconButton(Lucide.X, "Close panels", onClick = close)
         }, actions = {
@@ -378,7 +435,8 @@ private fun PanelSurface(
                 )
             }
         })
-    }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding)) }
+        if (projectTabs.isNotEmpty()) AnswersProjectTabRow(projectTabs, AnswersProjectTab.Tasks, unreadAnswers, selectProjectTab)
+    } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding)) }
 }
 
 @Composable private fun MissingBackend(modifier: Modifier) { Text("This backend was removed. Choose a project from the drawer.", modifier) }

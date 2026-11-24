@@ -161,6 +161,7 @@ fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>
         main.copy(threadId = id.takeUnless { it == MAIN_THREAD_ID }, highlight = payload.entryId?.let { ChatHighlight.Entry(it) })
     }
     return AppLink.Open(when {
+        payload.kind == "reply" && !payload.answerId.isNullOrBlank() -> listOf(coordinator ?: main, Destination.Answers(coordinator ?: main, payload.answerId))
         coordinator != null && payload.taskId != null && payload.entryId == null -> listOf(coordinator, Destination.Task(coordinator, payload.taskId))
         coordinator != null -> listOf(coordinator)
         payload.taskId != null -> listOf(main, Destination.Task(main, payload.taskId))

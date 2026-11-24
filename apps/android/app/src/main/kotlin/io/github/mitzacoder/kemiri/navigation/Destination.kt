@@ -29,6 +29,7 @@ sealed interface Destination {
         val workerId: String? = null,
         val highlight: ChatHighlight? = null,
     ) : Destination
+    @Serializable data class Answers(val chat: Chat, val answerId: String? = null) : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Panel") data class Panel(val chat: Chat, val tab: PanelTab = PanelTab.Info) : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Artifact") data class Artifact(val chat: Chat, val artifactId: String) : Destination
     /** A task's sheet over the chat it was opened from (the web's `?task=` on main's or a thread's page); back closes it. */
@@ -69,6 +70,7 @@ sealed interface ChatHighlight {
 fun Destination.chatRoute(): Destination.Chat? = when (this) {
     is Destination.Chat -> copy(highlight = null)
     is Destination.Panel -> chat.copy(highlight = null)
+    is Destination.Answers -> chat.copy(highlight = null)
     is Destination.Artifact -> chat.copy(highlight = null)
     is Destination.ArtifactStudio -> chat.copy(highlight = null)
     is Destination.ProjectSettings -> chat.copy(highlight = null)

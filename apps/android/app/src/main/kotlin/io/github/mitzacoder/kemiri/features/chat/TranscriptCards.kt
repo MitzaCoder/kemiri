@@ -48,6 +48,7 @@ data class TranscriptScope(
     val scheduleTitles: Map<String,String> = emptyMap(),
     val peerMessages: Map<String, io.github.mitzacoder.kemiri.protocol.ThreadsMessagesResponseMessagesItem> = emptyMap(),
     val projectWorkerModels: List<WorkerModel>? = null,
+    val savedReplies: Map<Long, String> = emptyMap(),
 )
 
 @Composable private fun ToolDestination(part: ChatPart, context: ProjectScreenContext) {
@@ -179,6 +180,12 @@ private const val ORB_MIN_WIDTH_DP = 640
             }
             first.kind == "user" -> UserMessage(first, scope.context, scope.artifacts)
             else -> TaskMentions(streaming,source = first.text) { RichMarkdown(first.text,Modifier.fillMaxWidth()) }
+        }
+        if (first.kind == "text") first.sourceEntryId?.let { scope.savedReplies[it] }?.let { answerId ->
+            scope.context?.let { context ->
+                AssistChip(onClick = { context.navigate(Destination.Answers(context.route, answerId)) },
+                    label = { Text("Saved in Answers") }, leadingIcon = { LucideGlyph(Lucide.Check, size = 14.dp) })
+            }
         }
         row.turn?.let { TurnFooter(row.key,it) }
     }

@@ -1,0 +1,159 @@
+package io.github.mitzacoder.kemiri.features.answers
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.ConnectionStatus
+import io.github.mitzacoder.kemiri.features.chat.markdownText
+import io.github.mitzacoder.kemiri.features.tasks.LocalTaskLinks
+import io.github.mitzacoder.kemiri.features.tasks.taskStateLabel
+import io.github.mitzacoder.kemiri.features.tasks.taskStateTone
+import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
+import io.github.mitzacoder.kemiri.protocol.Answer
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
+import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
+import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+
+@Composable
+internal fun AnswersProjectTabRow(
+    tabs: List<AnswersProjectTab>, selected: AnswersProjectTab, unread: Boolean, select: (AnswersProjectTab) -> Unit,
+) {
+    SecondaryTabRow(selectedTabIndex = tabs.indexOf(selected)) {
+        tabs.forEach { tab ->
+            val dot = tab == AnswersProjectTab.Answers && unread
+            Tab(selected == tab, { select(tab) }, modifier = Modifier.semantics { if (dot) stateDescription = "Unread answers" }, text = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(tab.name)
+                    if (dot) Box(Modifier.size(7.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                }
+            })
+        }
+    }
+}
+
+@Composable
+internal fun AnswersTab(context: ProjectScreenContext, openAnswer: (String) -> Unit, modifier: Modifier = Modifier) {
+    val catalogue = context.backend.answers(context.route.projectId)
+    val full by catalogue.catalogue.collectAsStateWithLifecycle()
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    var query by rememberSaveable { mutableStateOf("") }
+    val term = query.trim()
+    var matches by remember(term) { mutableStateOf<List<Answer>?>(null) }
+    var searchError by remember(term) { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    val ready = connection.status == ConnectionStatus.Ready
+    LaunchedEffect(catalogue, term, full.answers, ready, connection.generation, retry) {
+        if (term.isEmpty() || !ready) return@LaunchedEffect
+        searchError = null
+        delay(250)
+        try { matches = catalogue.search(term) }
+        catch (error: CancellationException) { throw error }
+        catch (error: Exception) { searchError = answerError(error) }
+    }
+    val answers = if (term.isEmpty()) full.answers else matches
+    val error = if (term.isEmpty()) full.error else searchError
+    val (today, zone) = rememberAnswerDay()
+    val groups = remember(answers, today, zone) { groupAnswers(answers.orEmpty(), today, zone) }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        OutlinedTextField(
+            value = query, onValueChange = { query = it }, label = { Text("Search answers") }, singleLine = true,
+            leadingIcon = { LucideGlyph(Lucide.Search, size = 18.dp) },
+            trailingIcon = if (query.isEmpty()) null else {{
+                IconButton(onClick = { query = "" }) { LucideGlyph(Lucide.X, size = 18.dp, contentDescription = "Clear search") }
+            }},
+            modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+        if (!ready) AnswerHint("Offline · showing last loaded data")
+        if (error != null) {
+            AnswerHint(error, isError = true)
+            TextButton(onClick = { if (term.isEmpty()) catalogue.refresh() else retry++ }, enabled = ready) { Text("Retry") }
+        }
+        if (answers == null && ready && error == null) LinearProgressIndicator(Modifier.widthIn(max = 680.dp).fillMaxWidth())
+        if (answers?.isEmpty() == true) AnswerHint(if (term.isEmpty()) "No answers yet." else "No matching answers.")
+        LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+            groups.forEach { group ->
+                item(key = group.label) {
+                    Text(group.label, Modifier.padding(start = 16.dp, top = 18.dp, bottom = 5.dp).semantics { heading() },
+                        style = MaterialTheme.typography.labelLarge, color = Jarvis.colors.fgMuted)
+                }
+                items(group.answers, key = { it.id }) { answer ->
+                    AnswerRow(answer, today, zone, { openAnswer(answer.id) }, context::openTask)
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnswerRow(answer: Answer, today: LocalDate, zone: ZoneId, open: () -> Unit, openTask: (String) -> Unit) {
+    val preview = remember(answer.answer) { markdownText(answer.answer).replace(Regex("\\s+"), " ").trim() }
+    val weight = if (answer.read) FontWeight.Normal else FontWeight.Bold
+    Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = open)
+        .semantics { if (!answer.read) stateDescription = "Unread" }.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+        LucideGlyph(Lucide.Check, Modifier.padding(top = 2.dp), size = 16.dp, tint = Jarvis.colors.accent2)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(answer.title, style = MaterialTheme.typography.bodyMedium, fontWeight = weight)
+            Text(preview, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted,
+                fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            (answer.taskId ?: answer.related.firstOrNull())?.let { id -> AnswerTaskChip(id, false) { openTask(id) } }
+        }
+        Text(if (answer.pinned) answerWhen(answer.at, today, zone) else answerTime(answer.at, zone),
+            style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+@Composable
+internal fun AnswerTaskChip(taskId: String, withTitle: Boolean, open: () -> Unit) {
+    val task = LocalTaskLinks.current?.task(taskId)
+    val title = if (task != null && withTitle) "$taskId ${task.title}" else taskId
+    val label = task?.let { "$title · ${taskStateLabel(it)}" } ?: title
+    Surface(onClick = open, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (task != null) TaskStatusDot(taskStateTone(task))
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+internal fun rememberAnswerDay(): Pair<LocalDate, ZoneId> {
+    fun currentDay() = ZoneId.systemDefault().let { LocalDate.now(it) to it }
+    var clock by remember { mutableStateOf(currentDay()) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); clock = currentDay() } }
+    return clock
+}
+
+@Composable
+internal fun AnswerHint(message: String, isError: Boolean = false) {
+    Text(message, Modifier.padding(vertical = 4.dp, horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
+        color = if (isError) MaterialTheme.colorScheme.error else Jarvis.colors.fgMuted)
+}
+
+internal fun answerError(error: Exception) = error.message ?: "The backend could not complete the answer request."

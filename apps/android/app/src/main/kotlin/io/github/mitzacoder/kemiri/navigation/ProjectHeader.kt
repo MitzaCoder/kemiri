@@ -228,7 +228,7 @@ fun connectionAwayWord(status: ConnectionStatus): String? = when (status) {
  * chat column's width, which decides between the inline row and the phone's menu.
  */
 @Composable
-fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destination.Panel?, width: Dp, close: () -> Unit) {
+fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destination.Panel?, width: Dp, close: () -> Unit, tasksInTabs: Boolean = false) {
     val backend = context.backend
     val route = context.route
     val client = backend.client
@@ -254,7 +254,7 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null
     val actions = buildList {
-        if (PanelTab.Board in tabs && !worker) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
+        if (PanelTab.Board in tabs && !worker && !tasksInTabs) add(HeaderAction("board", tasksName + if (questions > 0) " (${if (derivedCounts) "$questions need you" else questionsWaitingLabel(questions)})" else "", tasksName,
             StatusGlyphs.ClipboardList, questionBadgeText(questions), primary = true, pressed = panel?.tab == PanelTab.Board) { toggle(PanelTab.Board) })
         if (PanelTab.Info in tabs) add(HeaderAction("info", if (worker) "This worker's context" else "Conversation info", "Info", Lucide.Info, pressed = panel?.tab == PanelTab.Info) { toggle(PanelTab.Info) })
         if (PanelTab.Artifacts in tabs) add(HeaderAction("artifacts", "Artifacts", "Artifacts", Lucide.Paperclip, pressed = panel?.tab == PanelTab.Artifacts) { toggle(PanelTab.Artifacts) })

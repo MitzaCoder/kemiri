@@ -9,6 +9,7 @@ import io.github.mitzacoder.kemiri.protocol.*
  */
 object HarnessFeature {
     const val APPS = "apps"
+    const val ANSWERS = "answers"
     const val PROJECT_REPOSITORY = "project-repository"
     const val MEMORY_MAINTENANCE_ENABLED = "memory-maintenance-enabled"
     const val OUTSIDE_MODEL_LIMIT = "outside-model-limit"

@@ -35,7 +35,7 @@ internal const val QUESTION_CHANGED = "This question changed"
 
 internal fun InAppAlert.pushPayload() = with(alert) {
     NotificationPayload(kind, title, body, this@pushPayload.backendKey, projectId, workerId, scheduleId,
-        coordinatorId, entryId, threadId, artifactId, taskId, tag, at)
+        coordinatorId, entryId, threadId, artifactId, taskId, tag, at, answerId = answerId)
 }
 
 /** Sits in the focused window, above screen content but outside the status bar and the composer. */

@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.ui.components.AgentMotion
 import io.github.mitzacoder.kemiri.navigation.ChatHighlight
+import io.github.mitzacoder.kemiri.features.answers.answersByReply
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import io.github.mitzacoder.kemiri.ui.components.*
@@ -291,7 +292,12 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             if (outsideWorkerCount > 0) Text("$outsideWorkerCount on other models", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        val transcriptScope = TranscriptScope(context, workers, artifacts, threads, titlesBefore, scheduleTitles, messages, project?.workerModels)
+        val savedAnswers = if (context.route.workerId == null && connection.supports(HarnessFeature.ANSWERS))
+            context.backend.answers(context.route.projectId).catalogue.collectAsStateWithLifecycle().value.answers.orEmpty()
+            else emptyList()
+        val coordinatorId = context.route.threadId ?: io.github.mitzacoder.kemiri.protocol.MAIN_THREAD_ID
+        val savedReplies = remember(savedAnswers, coordinatorId) { answersByReply(savedAnswers, coordinatorId) }
+        val transcriptScope = TranscriptScope(context, workers, artifacts, threads, titlesBefore, scheduleTitles, messages, project?.workerModels, savedReplies)
         val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
         Box(Modifier.weight(1f).fillMaxWidth()) {

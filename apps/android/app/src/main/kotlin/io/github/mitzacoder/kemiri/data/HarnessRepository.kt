@@ -46,6 +46,8 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
     /** One live board per project for the session's lifetime, shared by every screen that shows tasks or questions. */
     fun existingBoard(projectId: String): ProjectBoard? = boards[projectId]
     fun board(projectId: String): ProjectBoard = boards.computeIfAbsent(projectId) { ProjectBoard(client, it, scope) }
+    private val answerCatalogues = java.util.concurrent.ConcurrentHashMap<String, ProjectAnswers>()
+    fun answers(projectId: String): ProjectAnswers = answerCatalogues.computeIfAbsent(projectId) { ProjectAnswers(client, it, scope) }
     private var terminalDeck: io.github.mitzacoder.kemiri.features.terminal.TerminalDeck? = null
     private var terminalScope: CoroutineScope? = null
     /** This backend's terminals: tabs and their live sessions, shared by every visit to the terminal screen. */

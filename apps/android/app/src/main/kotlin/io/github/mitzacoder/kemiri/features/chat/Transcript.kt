@@ -149,10 +149,16 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
                     parts += ChatPart("entry-${e.id}", "coordinatorNote", "$label · $plain")
                 }
             }
-            "pi.assistant" -> messages.forEachIndexed { i,m ->
-                absorb(m)
-                cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
-                assistant(m,"entry-${e.id}-$i")
+            "pi.assistant" -> {
+                val start = parts.size
+                messages.forEachIndexed { i,m ->
+                    absorb(m)
+                    cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
+                    assistant(m,"entry-${e.id}-$i")
+                }
+                // Link once, after the entry's last visible prose block rather than after every Markdown block.
+                val lastText = (parts.lastIndex downTo start).firstOrNull { parts[it].kind == "text" && parts[it].text.isNotBlank() }
+                if (lastText != null) parts[lastText] = parts[lastText].copy(sourceEntryId = e.id)
             }
             "pi.user" -> messages.forEachIndexed { i,m ->
                 val ids = transcriptMessageIds(e.data)
