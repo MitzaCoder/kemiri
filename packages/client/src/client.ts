@@ -349,6 +349,7 @@ export class HarnessClient {
 	readonly #projectListeners = new Set<(project: ProjectSummary) => void>();
 	readonly #workerListeners = new Set<(state: WorkersSnapshot & { projectId: string }) => void>();
 	readonly #contextListeners = new Set<(context: ConversationContext) => void>();
+	readonly #answersChangedListeners = new Set<(event: import("@kemiri/protocol").AnswersChangedEvent) => void>();
 	readonly #notificationAlertListeners = new Set<(event: NotificationsAlertEvent) => void>();
 	readonly #notificationResolvedListeners = new Set<(event: NotificationsResolvedEvent) => void>();
 	readonly #serverStatusListeners = new Set<(status: ServerStatus) => void>();
@@ -1077,6 +1078,11 @@ export class HarnessClient {
 			...(onScreenProjectId === undefined ? {} : { onScreenProjectId }),
 		});
 		return response.dropped;
+	}
+
+	onAnswersChanged(listener: (event: import("@kemiri/protocol").AnswersChangedEvent) => void): () => void {
+		this.#answersChangedListeners.add(listener);
+		return () => this.#answersChangedListeners.delete(listener);
 	}
 
 	onNotificationAlert(listener: (event: NotificationsAlertEvent) => void): () => void {
@@ -2128,6 +2134,10 @@ export class HarnessClient {
 						// A consumer's listener must not break message handling.
 					}
 				}
+				return;
+			}
+			case "answers.changed": {
+				for (const listener of this.#answersChangedListeners) { try { listener(message); } catch { /* Isolate listeners. */ } }
 				return;
 			}
 			case "notifications.alert": {

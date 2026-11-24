@@ -1,4 +1,5 @@
 <script lang="ts">
+	import BookmarkCheck from '@lucide/svelte/icons/bookmark-check';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
 	import CoinsIcon from '@lucide/svelte/icons/coins';
@@ -21,7 +22,7 @@
 	 * thinking, its answer, tool calls, and how it ended.
 	 */
 	let {
-		parts,
+		parts, answerHref,
 		streaming = false,
 		motion,
 		cwd,
@@ -39,6 +40,7 @@
 		cacheMisses = []
 	}: {
 		parts: readonly TurnPart[];
+		answerHref?: (id: string) => string;
 		streaming?: boolean;
 		motion?: AgentMotion;
 		/** The project directory, to shorten paths in tool cards. */
@@ -113,6 +115,11 @@
 					/>
 				{:else if row.part.type === 'text'}
 					<Markdown source={row.part.text} streaming={streaming && row.part.key === lastKey} class="my-2" />
+					{#if row.part.answerId && answerHref}
+						<a href={answerHref(row.part.answerId)} class="mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-(--chat-border) bg-(--chat-surface-2)/50 px-2.5 py-1 text-xs font-medium text-(--chat-fg-muted) hover:border-(--accent-2) hover:text-(--chat-fg)">
+							<BookmarkCheck size={13} aria-hidden="true" /> Saved in Answers
+						</a>
+					{/if}
 				{:else if row.part.type === 'tool'}
 					<CallCard
 						part={row.part}

@@ -38,6 +38,9 @@
 		tabs,
 		labels = {},
 		label,
+		preferredTab,
+		projectTabs,
+		answersPanel,
 		infoPanel,
 		artifactsPanel,
 		boardPanel,
@@ -53,6 +56,10 @@
 		labels?: Partial<Record<SidebarTab, string>>;
 		/** What the sidebar belongs to, for the aside's label; the panel heading names the sheet. */
 		label: string;
+		/** A URL-linked panel takes priority over the restored tab. */
+		preferredTab?: SidebarTab;
+		projectTabs?: Snippet;
+		answersPanel?: Snippet;
 		/** The board's body; told whether the sidebar is full width (expanded, or the sheet), where the board fits. */
 		boardPanel?: Snippet<[boolean]>;
 		backgroundPanel?: Snippet;
@@ -74,14 +81,14 @@
 	/** What is drawn: the chosen width, kept inside this window's bounds. */
 	const drawnWidth = $derived(clampSidebarWidth(width, viewportWidth > 0 ? viewportWidth : maxWidth));
 	const body = $derived(
-		tab === 'background' ? backgroundPanel : tab === 'info' ? infoPanel : tab === 'artifacts' ? artifactsPanel : memoryPanel
+		tab === 'answers' ? answersPanel : tab === 'background' ? backgroundPanel : tab === 'info' ? infoPanel : tab === 'artifacts' ? artifactsPanel : memoryPanel
 	);
 
 	onMount(() => {
 		viewportWidth = window.innerWidth;
 		const stored = loadSidebarState();
 		width = clampSidebarWidth(stored.width, window.innerWidth);
-		const resolved = resolveSidebarTab(stored.tab, tabs);
+		const resolved = resolveSidebarTab(preferredTab ?? stored.tab, tabs);
 		if (resolved !== undefined) tab = resolved;
 		desktopOpen = stored.open;
 		// Below 72rem the same state is a sheet, which never opens itself: the user taps for it.
@@ -174,6 +181,7 @@
 
 {#snippet panel(closable: boolean)}
 	<div class="flex min-h-0 flex-1 flex-col">
+		{@render projectTabs?.()}
 		<div class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1.5">
 			<div class="mx-auto flex w-full max-w-3xl items-center gap-1">
 				{#if closable}

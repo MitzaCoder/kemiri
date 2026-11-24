@@ -18,7 +18,7 @@
 		open: (backend, id) => { project = { backend, id }; },
 		isOpen: () => project !== undefined,
 	});
-	afterNavigate(({ from, to }) => { if (from?.url.pathname !== to?.url.pathname) close(); });
+	afterNavigate(({ from, to }) => { if (from?.url?.pathname !== to?.url?.pathname) close(); });
 
 	$effect(() => {
 		if (!project) return;

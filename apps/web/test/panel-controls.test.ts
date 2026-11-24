@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const component = (name: string) => readFileSync(new URL(`../src/lib/components/${name}.svelte`, import.meta.url), "utf8");
 
-describe("header-only conversation panels", () => {
+describe("conversation panels", () => {
 	test("the shared desktop and phone shell labels a region without panel tabs", () => {
 		const sidebar = component("ConversationSidebar");
 		expect(sidebar).not.toContain('role="tablist"');
@@ -16,7 +16,7 @@ describe("header-only conversation panels", () => {
 		expect(sidebar).toContain('aria-label="Close the sidebar"');
 	});
 
-	test("main and thread chats keep panel toggles, with background jobs reached through the title", () => {
+	test("main and thread chats keep the old panel toggles and gate the new project tabs", () => {
 		const chat = component("ProjectChat");
 		for (const panel of ["board", "info", "memory"]) {
 			expect(chat).toContain(`onclick: () => toggleSidebar('${panel}')`);
@@ -29,7 +29,8 @@ describe("header-only conversation panels", () => {
 		expect(chat).toContain("count: questionBadgeText(questionsWaiting)");
 		expect(chat).toContain("counts={jobCounts}");
 		expect(chat).toContain("sidebarTab = 'background'; sidebarOpen = true;");
-		expect(chat).toContain("{ background: true }");
+		expect(chat).toContain("{ background: true, answers: supportsAnswers }");
+		expect(chat).toContain("projectTabs={supportsAnswers ? sidebarProjectTabs : undefined}");
 	});
 
 	test("worker transcripts retain their own context and memory toggles", () => {

@@ -13,7 +13,7 @@ import type { HarnessFeature } from "@kemiri/protocol";
  * The tabs the sidebar can show: the project's board, main's background jobs, the conversation's context, and its
  * memory.
  */
-export const SIDEBAR_TABS = ["board", "background", "info", "artifacts", "memory"] as const;
+export const SIDEBAR_TABS = ["board", "answers", "background", "info", "artifacts", "memory"] as const;
 export type SidebarTab = (typeof SIDEBAR_TABS)[number];
 
 export const DEFAULT_SIDEBAR_TAB: SidebarTab = "info";
@@ -50,10 +50,11 @@ export function isSidebarTab(value: unknown): value is SidebarTab {
  */
 export function visibleSidebarTabs(
 	supports: (feature: HarnessFeature | string) => boolean,
-	options: { background?: boolean } = {},
+	options: { background?: boolean; answers?: boolean } = {},
 ): SidebarTab[] {
 	const tabs: SidebarTab[] = [];
 	if (supports("board")) tabs.push("board");
+	if (options.answers === true && supports("answers")) tabs.push("answers");
 	if (options.background === true && supports("threads")) tabs.push("background");
 	if (supports("context")) tabs.push("info");
 	if (supports("project-artifacts")) tabs.push("artifacts");
@@ -68,6 +69,7 @@ export function resolveSidebarTab(preferred: SidebarTab, tabs: readonly SidebarT
 
 const SIDEBAR_TAB_LABELS: Record<SidebarTab, string> = {
 	board: "Board",
+	answers: "Answers",
 	background: "Background jobs",
 	info: "Info",
 	artifacts: "Artifacts",

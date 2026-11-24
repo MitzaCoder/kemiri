@@ -129,7 +129,7 @@ export type ToolPart = {
 /** A piece of a turn, in the order the model produced it. */
 export type TurnPart =
 	| { type: "thinking"; key: string; text: string; streaming?: boolean }
-	| { type: "text"; key: string; text: string; entryAnchor?: number }
+	| { type: "text"; key: string; text: string; entryAnchor?: number; answerId?: string }
 	| ToolPart
 	| { type: "error"; key: string; message: string }
 	| { type: "stopped"; key: string };
@@ -624,6 +624,8 @@ export function isTypedInput(text: string): boolean {
 export type BuildOptions = {
  /** A work-log link targets this recorded call or result. */
  entryAnchor?: number;
+ /** Filed replies in this transcript, indexed by their final assistant entry. */
+ answerReplies?: ReadonlyMap<number, string>;
 	keepWarm?: readonly CacheWarmStretch[];
 	showCoordinatorNotes?: boolean;
 	threadMessages?: ReadonlyMap<string, ThreadMessage>;
@@ -728,7 +730,7 @@ export function buildTranscript(
 					items.push({ kind: "threadMessage", key: peer.id, message: peer });
 					break;
 				}
-				const held = entry.data as { threadMessageIds?: string[]; peerDisplayContent?: unknown } | undefined;
+				const held = entry.data as { threadMessageIds?: string[]; peerDisplayContent?: unknown; answerId?: string; ownerQuestion?: unknown } | undefined;
 				const heldPeers = options.threadMessages && Array.isArray(held?.threadMessageIds)
 					? held.threadMessageIds.map(id => options.threadMessages?.get(id)) : undefined;
 				const hasHeldPeers = heldPeers?.length && heldPeers.every(message => message !== undefined);
@@ -740,6 +742,12 @@ export function buildTranscript(
 				const text = messages.map((message) => textOf(message.content)).filter((value) => value.length > 0).join("\n");
 				const images = messages.flatMap((message) => imagesOf(message.content));
 				const timestamp = messages.find((message) => typeof message.timestamp === "number")?.timestamp;
+				// Keep the routing instruction in model context, not in the owner's question bubble.
+				if (held?.answerId && typeof held.ownerQuestion === "string") {
+					items.push({ kind: "user", key: `entry-${entry.id}`, text: held.ownerQuestion, images,
+						...(timestamp === undefined ? {} : { timestamp }) });
+					break;
+				}
 				const notice = images.length === 0 ? parseWorkerNotice(text) : undefined;
 				const checkIn =
 					notice === undefined && images.length === 0 ? parseCheckIn(text) : undefined;
@@ -811,6 +819,7 @@ export function buildTranscript(
 				break;
 			}
 			case "pi.assistant": {
+				let answerId = options.answerReplies?.get(entry.id);
 				const messages = messagesOf(entry).filter((message) => message.role === "assistant");
 				for (const message of messages) {
 					const builder = ensureTurn(`turn-${entry.id}`);
@@ -828,7 +837,8 @@ export function buildTranscript(
 							if (text.trim().length > 0) {
 								const entryAnchor = entry.id === options.entryAnchor && !anchored ? entry.id : undefined;
 								if (entryAnchor !== undefined) anchored = true;
-								ensureTurn().parts.push({ type: "text", key: part(), text, ...(entryAnchor === undefined ? {} : { entryAnchor }) });
+								ensureTurn().parts.push({ type: "text", key: part(), text, ...(entryAnchor === undefined ? {} : { entryAnchor }), ...(answerId === undefined ? {} : { answerId }) });
+								answerId = undefined;
 							}
 						} else if (block.type === "toolCall") {
 							pushTool(block as ToolCallBlock, { entryId: entry.id });

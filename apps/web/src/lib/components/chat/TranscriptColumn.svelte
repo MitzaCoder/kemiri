@@ -58,9 +58,10 @@
 		onquote,
 		onwaiting,
 		waitingTarget = 'coordinator',
-		messageLinks, viewingThread = 'main', messageAnchor
+		answerHref, messageLinks, viewingThread = 'main', messageAnchor
 	}: {
 		items: readonly TranscriptItem[];
+		answerHref?: (id: string) => string;
 		/** The directory tool cards shorten paths against. */
 		cwd?: string;
 		/** The project's workers, so a `worker_*` call can show the worker it acted on. */
@@ -283,6 +284,7 @@
 						{:else if item.kind === 'turn'}
 							<AssistantTurn
 								parts={item.parts}
+							{answerHref}
 								streaming={item.streaming === true}
 								motion={agentTurnWorking(item, running) ? (waitingForUser ? 'waiting' : 'working') : completed && item.key === lastTurn?.key ? 'done' : 'idle'}
 								{cwd}

@@ -41,6 +41,11 @@
 	import ConnectionBadge from '#lib/components/ConnectionBadge.svelte';
 	import ContextPanel from '#lib/components/ContextPanel.svelte';
 	import BoardPanel from '#lib/components/BoardPanel.svelte';
+	import BookmarkIcon from '@lucide/svelte/icons/bookmark';
+	import AnswersPanel from '#lib/components/answers/AnswersPanel.svelte';
+	import { answerFromUrl, answersByReply, answersSupported } from '#lib/answers.js';
+	import type { ProjectAnswers } from '#lib/answers.svelte.js';
+	import type { Answer } from '@kemiri/protocol';
 	import BackgroundPanel from '#lib/components/BackgroundPanel.svelte';
 	import ArtifactStrip from '#lib/components/artifacts/ArtifactStrip.svelte';
 	import ConversationSwitcher from './ConversationSwitcher.svelte';
@@ -126,8 +131,8 @@
 	let {
 		backend,
 		projectId,
-		threadId: threadParam, shown, projectReads, prefetchCoordinator
-	}: { backend: BackendConnection; projectId: string; threadId?: string; shown: boolean; projectReads: { board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }; prefetchCoordinator: (id: string) => void } = $props();
+		threadId: threadParam, shown, projectReads, prefetchCoordinator, answers
+	}: { backend: BackendConnection; projectId: string; threadId?: string; shown: boolean; projectReads: { board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }; prefetchCoordinator: (id: string) => void; answers?: ProjectAnswers } = $props();
 
 	/** The background job this chat is; undefined for main ("main" in the route reads as main too). */
 	const threadId = $derived(isMainThread(threadParam) ? undefined : threadParam);
@@ -210,6 +215,18 @@
 	let sidebarTab = $state<SidebarTab>('info');
 	let sidebarExpanded = $state(false);
 	let questionPin: ReturnType<typeof BoardQuestionPin> | undefined = $state();
+	const supportsAnswers = $derived(answersSupported(backend.features));
+	const phone = new MediaQuery('(width < 640px)');
+	const projectViewClass = 'inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md px-2 text-(--chat-fg-muted) hover:bg-(--chat-surface-2) aria-pressed:bg-(--chat-surface-2) aria-pressed:text-(--chat-fg) max-sm:flex-1';
+	const answerId = $derived(shown && supportsAnswers ? answerFromUrl(page.url) : undefined);
+	const answerReplies = $derived(answers && supportsAnswers ? answersByReply(answers.answers, threadId ?? 'main') : undefined);
+	$effect(() => {
+		if (answerId) {
+			sidebarTab = 'answers';
+			sidebarOpen = true;
+			sidebarExpanded = false;
+		}
+	});
 	const linkedQuestion = $derived(shown ? page.url.searchParams.get('question') ?? undefined : undefined);
 	$effect(() => { if (linkedQuestion) sidebarOpen = false; });
 	rememberConversationView(() => ({ open: sidebarOpen, tab: sidebarTab, expanded: sidebarExpanded, tasksMode: tasksView.mode, taskFocus: taskFilter.focus }), saved => {
@@ -236,7 +253,7 @@
 	/** A worker a schedule started says which schedule; the names come from the project's schedule list. */
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
 	const supportsThreads = $derived(backend.supports('threads'));
-	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true }));
+	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true, answers: supportsAnswers }));
 	/** This thread as the list has it; undefined on main's chat and while the list loads. */
 	let archivedThread = $state<ThreadSummary>();
 	const thread = $derived(threadId === undefined ? undefined : threads?.thread(threadId) ?? (archivedThread?.id === threadId ? archivedThread : undefined));
@@ -364,7 +381,7 @@
 	const replyAnchor = $derived(shown ? /^#entry-(\d+)$/.exec(page.url.hash)?.[1] : undefined);
 	const items = $derived(
 		withWaiting(
-			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), threadMessages: peerMessages, entryAnchor: replyAnchor ? Number(replyAnchor) : undefined }),
+			buildTranscript(session?.entries ?? [], live, { inputKeys: waiting?.inputKeys, keepWarm: session?.view?.keepWarm, showCoordinatorNotes: backend.supports('memory-notes'), threadMessages: peerMessages, entryAnchor: replyAnchor ? Number(replyAnchor) : undefined, answerReplies }),
 			waitingList,
 			waiting?.pending
 		)
@@ -407,6 +424,7 @@
 		icon: Component;
 		/** The count on the button: beside its label on a wide row, over its icon's corner without one. */
 		count?: string;
+		unread?: boolean;
 		tone?: 'primary' | 'accent';
 		/** Tasks and Workers stay in the row when the rest fold into the menu. */
 		primary?: boolean;
@@ -433,7 +451,7 @@
 	/** The right sidebar's tabs as header buttons; the board and the workers are the two a phone keeps in the row. */
 	const tabActions = $derived.by((): HeaderAction[] => {
 		const actions: HeaderAction[] = [];
-		if (supportsBoard) {
+		if (supportsBoard && !(supportsAnswers && phone.current)) {
 			actions.push({
 				id: 'board',
 				kind: 'tab',
@@ -447,6 +465,11 @@
 				onclick: () => toggleSidebar('board')
 			});
 		}
+		if (supportsAnswers && !phone.current) actions.push({
+			id: 'answers', kind: 'tab', name: answers?.unread ? 'Answers (unread)' : 'Answers', label: 'Answers',
+			icon: BookmarkIcon, unread: answers?.unread, primary: true,
+			pressed: sidebarOpen && sidebarTab === 'answers', onclick: () => toggleSidebar('answers')
+		});
 		if (backend.supports('context')) {
 			actions.push({
 				id: 'info',
@@ -645,13 +668,27 @@
 		return memory?.undoError?.commit === commit ? memory.undoError.message : undefined;
 	}
 
-	// A reply push and a compaction history link both name a transcript entry.
+	// A reply, including Show in chat from an old answer, can predate the loaded transcript.
 	$effect(() => {
 		const current = session;
 		const id = replyAnchor;
-		if (!id || !current || !items.length) return;
-		const frame = requestAnimationFrame(() => chatRoot?.querySelector(`#entry-${id}`)?.scrollIntoView({ block: 'center' }));
-		return () => cancelAnimationFrame(frame);
+		if (!id || !current || current.status !== 'live') return;
+		let cancelled = false;
+		void (async () => {
+			while (!cancelled) {
+				await new Promise(requestAnimationFrame);
+				if (cancelled) return;
+				const entry = chatRoot?.querySelector(`#entry-${id}`);
+				if (entry) { entry.scrollIntoView({ block: 'center' }); return; }
+				if (!current.canLoadEarlier || !current.entries.length || Number(id) >= current.entries[0]!.id) return;
+				if (!current.loadingEarlier) {
+					const count = current.entries.length;
+					try { await loadEarlier(); } catch { return; }
+					if (current.entries.length <= count) return;
+				}
+			}
+		})();
+		return () => { cancelled = true; };
 	});
 
 	$effect(() => {
@@ -722,15 +759,54 @@
 
 	function toggleSidebar(target: SidebarTab): void {
 		if (sidebarOpen && sidebarTab === target) {
-			sidebarOpen = false;
+			setSidebarOpen(false);
 			sidebarExpanded = false;
 			return;
 		}
+		selectSidebar(target);
+	}
+
+	function selectSidebar(target: SidebarTab): void {
+		if (target !== 'answers' && answerId) returnToAnswersList();
 		sidebarTab = target;
 		sidebarOpen = true;
 		// Tasks open the way this device last looked at them: the list beside the chat, or the board full width.
 		sidebarExpanded = target === 'board' && supportsTasks && tasksView.mode !== 'list';
 	}
+
+	function returnToAnswersList(): void {
+		void goto(page.url.pathname, { reset: false, replace: true });
+	}
+
+	function setSidebarOpen(open: boolean): void {
+		sidebarOpen = open;
+		if (!open && answerId) returnToAnswersList();
+	}
+
+	function answerHref(id: string): string {
+		return `${page.url.pathname}?answer=${id}`;
+	}
+
+	function answerChatHref(answer: Answer): string | undefined {
+		if (answer.entryId === undefined) return undefined;
+		return `${coordinatorHref(backend.id, projectId, answer.coordinatorId)}#entry-${answer.entryId}`;
+	}
+
+	function answerTaskHref(id: string): string {
+		return withTask({ pathname: page.url.pathname, search: '' }, id);
+	}
+
+	function navigateAnswerLink(event: MouseEvent, leaveSidebar = false): void {
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+			!(event.currentTarget instanceof HTMLAnchorElement)) return;
+		event.preventDefault();
+		if (leaveSidebar) {
+			sidebarOpen = false;
+			sidebarExpanded = false;
+		}
+		void goto(event.currentTarget.href, { reset: leaveSidebar });
+	}
+
 
 	/** The task sheet's "Show with linked": the task list, filtered to that task and everything linked to it. */
 	function showLinkedTasks(taskId: string): void {
@@ -926,7 +1002,8 @@
 		aria-pressed={action.pressed}
 	>
 		<action.icon class="size-4" />
-		{#if action.id === 'background'}
+		{#if action.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>
+		{:else if action.id === 'background'}
 			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
 				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
 				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
@@ -954,7 +1031,8 @@
 	>
 		<action.icon class="size-4 shrink-0" />
 		<span class="min-w-0 flex-1 truncate text-left">{action.menuLabel ?? action.label ?? action.name}</span>
-		{#if action.id === 'background'}
+		{#if action.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>
+		{:else if action.id === 'background'}
 			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
 				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
 				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
@@ -968,6 +1046,22 @@
 		{/if}
 	</Button>
 {/snippet}
+
+{#snippet projectTabs(inSidebar: boolean)}
+	<nav aria-label="Project views" class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1 text-xs font-semibold max-sm:text-sm">
+		{#if phone.current}<button type="button" class={projectViewClass} aria-pressed={!inSidebar} onclick={() => setSidebarOpen(false)}>Chat</button>{/if}
+		{#if supportsBoard}<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'board'} onclick={() => selectSidebar('board')}>{boardTabName}</button>{/if}
+		<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'answers'} aria-label={answers?.unread ? 'Answers (unread)' : 'Answers'} onclick={() => selectSidebar('answers')}>
+			Answers {#if answers?.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>{/if}
+		</button>
+		{#if !phone.current}
+			{#if supportsThreads}<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'background'} onclick={() => selectSidebar('background')}>Background</button>{/if}
+			{#if filesNavigation.available()}<button type="button" class={projectViewClass} onclick={() => { if (answerId) setSidebarOpen(false); void filesNavigation.open(); }}>Files</button>{/if}
+		{/if}
+	</nav>
+{/snippet}
+
+{#snippet sidebarProjectTabs()}{@render projectTabs(true)}{/snippet}
 
 <div class="flex h-full w-full overflow-hidden" bind:this={chatRoot}>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -1083,6 +1177,7 @@
 					<RunningApps tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />
 				{/if}
 			</header>
+			{#if supportsAnswers && phone.current}{@render projectTabs(false)}{/if}
 			{#if isThread && thread && threads && !coordinatorChat}
 				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={supportsCoordinators ? coordinatorHref(backend.id, projectId, coordinatorId) : projectHref(backend.id, projectId)}
 					onpromote={backend.supports('coordinator-schedules') ? () => manager = thread : undefined}
@@ -1093,6 +1188,7 @@
 				<TranscriptColumn
 					bind:this={transcript}
 					{items}
+					answerHref={supportsAnswers ? answerHref : undefined}
 					messageLinks={peerLinks} viewingThread={threadId ?? 'main'} messageAnchor={peerAnchor}
 					cwd={project?.path}
 					workers={workerList}
@@ -1257,7 +1353,9 @@
 
 			{#if supportsSidebar}
 				<ConversationSidebar
-					bind:open={sidebarOpen}
+					bind:open={() => sidebarOpen, setSidebarOpen}
+					preferredTab={answerId ? 'answers' : undefined}
+					projectTabs={supportsAnswers ? sidebarProjectTabs : undefined}
 					bind:tab={sidebarTab}
 					bind:expanded={sidebarExpanded}
 					tabs={sidebarTabs}
@@ -1321,6 +1419,14 @@
 							<p class="shrink-0 border-t border-(--chat-border) px-3 py-2 text-xs text-(--chat-fg-muted)">{otherAttention} need attention in other coordinators · <button class="font-semibold text-(--accent-2) hover:underline" onclick={showAllTasks}>Show all</button></p>
 						{/if}
 						</div>
+					{/snippet}
+					{#snippet answersPanel()}
+						{#if answers && shown}
+							<AnswersPanel catalogue={answers} {board} {answerId} {now} pathname={page.url.pathname}
+								taskHref={answerTaskHref} chatHref={answerChatHref} onnavigate={navigateAnswerLink}
+								onleave={event => navigateAnswerLink(event, true)} onlist={returnToAnswersList}
+								onopenTask={id => { sidebarOpen = false; void goto(answerTaskHref(id), { reset: false }); }} />
+						{/if}
 					{/snippet}
 					{#snippet backgroundPanel()}
 						<BackgroundPanel

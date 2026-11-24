@@ -6294,8 +6294,21 @@ schedule. `answers.turnIntoTask` makes a request as the owner and uses the usual
 Deleting the answer does not remove the request or its copied text.
 
 The board keeps its previous document version and only adds an optional `fromAnswer` field. Older clients never
-subscribe to answer events and still see the replies in chat. The server stages the wire behavior ahead of the
-clients' Answers tabs. Old question tasks stay as tasks.
+subscribe to answer events and still see the replies in chat. Old question tasks stay as tasks.
+
+Web advertises `answers` in hello and only shows its Answers tab when the server advertises it too. A project
+shares one live catalogue across its retained coordinator chats. The tab's unread dot and the reply-to-answer
+index use the full catalogue. The list groups pinned answers first and the rest by local day. The shared task
+search field uses `answers.list(query)` for answers and the existing task index for task matches; neither filters
+the unread dot. The catalogue resubscribes on reconnect and refreshes on `answers.changed`.
+
+`?answer=A…` opens a dated Markdown snapshot in the sidebar or the phone's project tabs and marks it read.
+Related task chips use the live board state. Earlier exchanges stay below the latest reply. Ask again and the
+inline follow-up send owner input to the answering coordinator; Turn into a task opens the resulting request.
+Pin and Delete change the catalogue without editing the original chat. Filed reply entries (including older
+exchanges) link back via **Saved in Answers**, matched by coordinator and entry ID. **Show in chat** jumps back to
+the original reply, loading older pages if needed. The in-app pop-up and inbox open the answer for `reply`
+notices with `answerId`; other notices keep their existing destinations.
 
 ### Board
 

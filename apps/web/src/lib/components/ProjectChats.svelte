@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import type { BackendConnection, ProjectMemory, ProjectSchedules } from '#lib/harness.svelte.js';
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
@@ -9,12 +9,23 @@
 	import { taskRefs } from '#lib/tasks.js';
 	import { retainCoordinator } from '#lib/coordinator-recents.js';
 	import ProjectChat from './ProjectChat.svelte';
+	import { answersSupported } from '#lib/answers.js';
+	import { ProjectAnswers } from '#lib/answers.svelte.js';
 
 	let { backend, projectId, threadId }: { backend: BackendConnection; projectId: string; threadId?: string } = $props();
 	const shownId = $derived(threadId || 'main');
 	const limit = 4;
 	let recents = $state.raw<readonly string[]>([]);
 	const projectReads = $state<{ board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }>({});
+	let answers = $state<ProjectAnswers>();
+	$effect(() => {
+		if (!answersSupported(backend.features)) { answers = undefined; return; }
+		const client = backend.client;
+		const id = projectId;
+		const catalogue = untrack(() => new ProjectAnswers(client, id));
+		answers = catalogue;
+		return () => catalogue.stop();
+	});
 	const supportsCoordinators = $derived(backend.supports('coordinators'));
 	function canRetain(id: string) {
 		if (!supportsCoordinators) return false;
@@ -62,7 +73,7 @@
 	{#each rendered as id (id)}
 		{@const shown = id === shownId}
 		<div class="absolute inset-0" class:invisible={!shown} inert={!shown} aria-hidden={!shown || undefined}>
-			<ProjectChat {backend} {projectId} threadId={id} {shown} {projectReads} {prefetchCoordinator} />
+			<ProjectChat {backend} {projectId} threadId={id} {shown} {projectReads} {prefetchCoordinator} {answers} />
 		</div>
 	{/each}
 </div>
