@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PartsChecklist from './PartsChecklist.svelte';
 	import TaskApps from '#lib/components/apps/TaskApps.svelte';
 	import TaskActivity from '#lib/components/TaskActivity.svelte';
 	import TaskLive from '#lib/components/TaskLive.svelte';
@@ -36,8 +37,9 @@
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 
 	import { splitRefMentions } from '#lib/refs.js';
+	import { formatTime } from '#lib/time-format.js';
 	import { exactTime } from '#lib/relative-time.js';
-	import { taskRefs } from '#lib/tasks.js';
+	import { isSettled, taskRefs } from '#lib/tasks.js';
 
 	import TaskViewDesignMenu from './TaskViewDesignMenu.svelte';
 	import type { TaskViewDesignProps } from '#lib/task-view/designs.js';
@@ -47,12 +49,18 @@
 		task, backend, projectId, board, tasks, previousTask, requestedId, editing, waitingForm, confirmDrop, closing, problem,
 		needsYou, taskFieldsEnabled, fields, blockers, liveNow, news, staleReport, failedChecks, artifacts,
 		supportsLinks, feedbackEntries, feedbackLoading, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
-		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks,
+		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks, partPage, taskDigest, derivedNotDone,
 	} = $derived(model);
+	const partLabel = $derived(taskDigest ? model.artifactPartLabel : undefined);
 	const nextPlacement = $derived(task && taskNextPlacement(task.report, task.status === 'review'));
-	const proof = $derived(task ? automaticReportProof(task.report, artifacts) : []);
+	const proof = $derived(task ? automaticReportProof(task.report, artifacts.filter(artifact => !artifact.partIds?.length || artifact.taskId === task.id || artifact.laterTaskIds?.includes(task.id))) : []);
 	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts'), reportSectionViews: backend.supports('task-report-section-views') }));
 	const registerQuoteScope = $derived(model.registerQuoteScope);
+	let reopenNote = $state('');
+	function openReopenForm(): void {
+		reopenNote = '';
+		model.showReopen();
+	}
 	let reply = $state<{ focus(): void }>();
 	$effect(() => reply && model.registerReply(reply));
 </script>
@@ -61,14 +69,16 @@
 	<header
 		class="task-header flex max-h-[35%] shrink-0 flex-col overflow-y-auto overscroll-contain gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3"
 	>
-		{#if previousTask}
+		{#if partPage}
+			<a class="self-start rounded-md py-1 text-sm font-medium text-(--accent-2) hover:underline" href={model.taskHref(partPage.requestId)}>‹ {partPage.requestTitle ?? partPage.requestId}</a>
+		{:else if previousTask}
 			<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id}`} onclick={model.goBack}>
 				<span class="truncate">← {previousTask.id} · <TaskDetailText text={previousTask.title} focusable={false} /></span>
 			</Button>
 		{/if}
 		<div class="flex items-center gap-2">
-			<span class="font-mono text-xs text-(--chat-fg-subtle)">{task.id}</span>
-			<TaskStatusMenu status={task.status} {task} label={taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
+			<span class="shrink-0 whitespace-nowrap text-xs text-(--chat-fg-subtle)" class:font-mono={!partPage}>{partPage?.position ?? task.id}</span>
+			<TaskStatusMenu status={task.status} {task} label={partPage?.closure ? `${partPage.closure}${partPage.closure === 'Checked by the coordinator' && partPage.closedAt && Number.isFinite(Date.parse(partPage.closedAt)) ? ` · ${formatTime(partPage.closedAt, { hour: 'numeric', minute: '2-digit' })}` : ''}` : taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing || !model.canClose} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
 			<div class="ml-auto flex shrink-0 items-center sm:gap-2">
 				{#if !editing}
 					<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.showEditor} aria-label="Edit {task.id}" title="Edit the task"><PencilIcon /></Button>
@@ -110,21 +120,27 @@
 					<div class="task-details-layout">
 						<div class="task-reading">
 							{#snippet questionCard(question: NonNullable<typeof needsYou>['ownerQuestions'][number])}
-								<BoardQuestionCard {question} {taskFieldsEnabled} plain askedBy={model.questionAskedBy(question)}
+								<div id={`task-question-${encodeURIComponent(question.id)}`}><BoardQuestionCard {question} {taskFieldsEnabled} plain askedBy={model.questionAskedBy(question)}
 									onclarify={model.supportsClarify ? model.clarifyQuestion : undefined}
-									onanswer={model.answerQuestion} />
+									onanswer={model.answerQuestion} /></div>
 							{/snippet}
-							{#if needsYou?.show}
-								<section class="task-needs-you" aria-label="Needs you" data-needs-you>
+							{#if model.raisedAttention}
+								<section class="task-needs-you" aria-label="Needs you">
+									<h2 class="task-detail-heading">Needs you</h2>
+									<a class="text-sm underline underline-offset-2" href={model.raisedAttention.href}>{model.raisedAttention.text} · asked while building “{model.raisedAttention.partTitle ?? model.raisedAttention.taskId}”</a>
+								</section>
+							{/if}
+							{#if needsYou && (needsYou.show || (board?.requestAttention && task.state?.kind === 'failed'))}
+								<section class="task-needs-you" aria-label="Needs you" id="task-needs-you" data-needs-you>
 									<h2 class="task-detail-heading">Needs you</h2>
 									{#each needsYou.ownerQuestions as question (question.id)}{@render questionCard(question)}{/each}
 									{#if needsYou.hasSteps}
-									<div class="flex flex-col gap-3" data-task-steps>
+									<div class="flex flex-col gap-3" id="task-steps" data-task-steps>
 										<h3 class="font-semibold">Your steps</h3>
 										<ReportSection {task} section="steps" />
 									</div>
 								{/if}
-								{#if needsYou.review}
+								{#if needsYou.review && model.canClose}
 										<div class="flex flex-col gap-3">
 											<h3 class="font-semibold">Check the work</h3>
 											{#if nextPlacement === 'review'}<ReportSection {task} section="next" />{/if}
@@ -134,7 +150,8 @@
 											</div>
 										</div>
 									{/if}
-									{#if needsYou.blocked}
+									{#if needsYou.blocked || task.state?.kind === 'failed'}
+										{#if task.state?.kind === 'failed' && !task.blockedReason && task.state.sentence}<p>{task.state.sentence.text}</p>{/if}
 										<div class="flex flex-col gap-1">
 											{#if task.blockedReason}<Markdown source={task.blockedReason} class="task-detail-markdown" />{/if}
 											{#if blockers.length > 0}
@@ -167,19 +184,26 @@
 								{#if requestedId !== null && model.supportsUsage}<TaskUsage client={backend.client} {projectId} taskId={task.id} />{/if}
 							</section>
 
+							{#if taskDigest?.parts.length}
+								<PartsChecklist digest={taskDigest} partProof={model.partProof} taskHref={model.taskHref} />
+							{/if}
+
 							<TaskApps {backend} {projectId} taskId={task.id} />
 
 							{#if artifacts.length > 0}
 								<section class="task-reading-section" aria-label="Files">
 									<h2 class="task-detail-heading">Files ({artifacts.length})</h2>
-									<TaskFiles {artifacts} client={backend.client} {projectId} onupdatetags={model.supportsArtifactTags ? model.updateArtifactTags : undefined} />
+									<TaskFiles {artifacts} {partLabel} client={backend.client} {projectId} onupdatetags={model.supportsArtifactTags ? model.updateArtifactTags : undefined} />
 								</section>
 							{/if}
 
-							{#if fields?.hasNotDone}
+							{#if fields?.hasNotDone || derivedNotDone.length}
 								<section class="task-reading-section" aria-label="Not done">
 									<h2 class="task-detail-heading">Not done</h2>
-									<ReportSection {task} section="notDone" />
+									{#if fields?.hasNotDone}<ReportSection {task} section="notDone" />{/if}
+									{#each derivedNotDone as line (line.partId)}
+										<p class="border-l-2 border-(--chat-border-strong) pl-3 text-sm text-(--chat-fg-muted)"><span class="text-xs font-semibold">From part · </span><a class="underline underline-offset-2" href={model.taskHref(line.partId)}>{line.text}</a></p>
+									{/each}
 								</section>
 							{/if}
 
@@ -272,13 +296,14 @@
 
 						<aside class="task-about" aria-label="About this task">
 							<h2 class="task-detail-heading">About this task</h2>
-							{#if delivery}{#key task.id}<TaskDelivery {delivery} {projectId} taskId={task.id} changesClient={model.changesClient} />{/key}{/if}
+							{#if delivery}{#key task.id}<TaskDelivery {delivery} partTitle={model.partTitle} taskHref={model.taskHref} {projectId} taskId={task.id} changesClient={model.changesClient} />{/key}{/if}
 							<dl class="task-facts">
 								{#if owner}<div><dt>Owner thread</dt><dd>{#if owner.threadId}<a class="task-fact-link underline" href={model.threadHref(owner.threadId)}>{owner.label}</a>{:else}{owner.label}{/if}</dd></div>{/if}
 								{#if task.status === 'waiting' && task.waiting}<div><dt>Waiting details</dt><dd><TaskDetailText text={waitingSummary(task)} /></dd></div>{/if}
 								{#if task.archived}<div><dt>Status</dt><dd>Archived</dd></div>{/if}
 							</dl>
 							<TaskRelations {task} {tasks} {archivedLinks} hrefOf={model.taskHref}
+								partsInChecklist={!!taskDigest?.parts.length} requestInHeader={!!partPage}
 								blockersInNeedsYou={needsYou?.blocked ? blockers.map(blocker => blocker.id) : []}
 								onshowlinked={model.showLinked} />
 							<dl class="task-facts">
@@ -297,6 +322,17 @@
 		<footer class="max-h-[45%] shrink-0 overflow-y-auto border-t border-(--chat-border)" data-task-reply use:trackTaskComposer>
 			<div class="mx-auto w-full max-w-3xl">
 				{#key model.viewTaskKey}
+					{#if partPage}
+						{#if model.reopenForm}
+							<form class="flex flex-col gap-2 p-2" onsubmit={event => { event.preventDefault(); if (reopenNote.trim()) void model.setStatus('in_progress', undefined, undefined, reopenNote.trim()); }}>
+								<label class="text-xs font-semibold" for="part-reopen-note">Why should this part reopen?</label>
+								<textarea id="part-reopen-note" bind:value={reopenNote} class="rounded-md border border-(--chat-border-strong) bg-(--chat-surface) p-2 text-sm" required></textarea>
+								<div class="flex gap-2"><Button type="submit" disabled={closing || !reopenNote.trim()}>Reopen part</Button><Button variant="ghost" type="button" onclick={model.cancelReopen}>Cancel</Button></div>
+							</form>
+						{:else}
+							<div class="flex gap-2 px-2">{#if isSettled(task.status)}<Button variant="outline" onclick={openReopenForm}>Reopen with a note…</Button>{/if}<Button variant="ghost" onclick={model.focusReply}>Comment</Button></div>
+						{/if}
+					{/if}
 					<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} />
 				{/key}
 			</div>

@@ -1,3 +1,4 @@
+import { requestRows } from './request-parts.js';
 import { compareTaskStates, taskWithStateSupport } from "./task-state.js";
 /**
  * The Tasks board: the project's tasks in one column per status (To do, Working, Blocked, Ready for review, Done), and
@@ -126,11 +127,11 @@ function compareIn(column: KanbanColumnId): (left: BoardTask, right: BoardTask) 
  */
 export function kanbanColumns(
 	board: Pick<Board, "tasks" | "questions">,
-	options: { includeArchived?: boolean; doneShown?: number; onlyNeedsYou?: boolean; stateEnabled?: boolean } = {},
+	options: { includeArchived?: boolean; doneShown?: number; onlyNeedsYou?: boolean; stateEnabled?: boolean; requestAttention?: boolean } = {},
 ): KanbanColumn[] {
 	const derived = options.stateEnabled === true && (board.tasks.length === 0 || board.tasks.some(task => task.state));
-	const cards = board.tasks
-		.map(task => taskWithStateSupport(task, options.stateEnabled === true))
+	const cards = requestRows(board.tasks, options.requestAttention === true)
+		.map(task => taskWithStateSupport(task, options.stateEnabled === true, options.requestAttention === true))
 		.filter((task) => options.includeArchived === true || !task.archived)
 		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id), column: columnOfTask(task, derived) }))
 		.filter((card) => options.onlyNeedsYou !== true || (card.task.state ? card.task.state.group === "needs_you" : card.waiting.some(questionNeedsAnswer)));
@@ -152,8 +153,8 @@ export function kanbanColumns(
  * The board header's "Needs you" count: open tasks with a question or warning waiting, plus the questions and warnings
  * that name no task.
  */
-export function needsYouCount(board: Pick<Board, "tasks" | "questions">): number {
-	const tasks = board.tasks.filter(
+export function needsYouCount(board: Pick<Board, "tasks" | "questions">, requestAttention = false): number {
+	const tasks = requestRows(board.tasks, requestAttention).filter(
 		(task) => !task.archived && !isSettled(task.status) && (task.state ? task.state.group === "needs_you" : waitingOn(board.questions, task.id).some(questionNeedsAnswer)),
 	).length;
 	return tasks + looseWaiting(board).filter(questionNeedsAnswer).length;

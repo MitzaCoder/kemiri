@@ -17,6 +17,8 @@
 		archivedLinks = [],
 		hrefOf,
 		blockersInNeedsYou,
+		partsInChecklist = false,
+		requestInHeader = false,
 		onshowlinked
 	}: {
 		task: BoardTask;
@@ -26,17 +28,19 @@
 		archivedLinks?: readonly BoardTaskBrief[];
 		hrefOf: (taskId: string) => string;
 		blockersInNeedsYou: readonly string[];
+		partsInChecklist?: boolean;
+		requestInHeader?: boolean;
 		onshowlinked?: () => void;
 	} = $props();
 
 	const groups = $derived(linkGroups(task, tasks, archivedLinks)
 		.map(group => group.kind === 'blockedBy' ? { ...group, items: group.items.filter(item => !blockersInNeedsYou.includes(item.id)) } : group)
-		.filter(group => group.items.length > 0));
-	const progressText = $derived(subtaskProgressText(task));
+		.filter(group => group.items.length > 0 && !(partsInChecklist && group.kind === 'subtasks') && !(requestInHeader && group.kind === 'parent')));
+	const progressText = $derived(partsInChecklist ? undefined : subtaskProgressText(task));
 	const fraction = $derived(subtaskFraction(task));
 </script>
 
-{#if groups.length > 0 || progressText || blockersInNeedsYou.length > 0}
+{#if groups.length > 0 || progressText || blockersInNeedsYou.length > 0 || ((partsInChecklist || requestInHeader) && onshowlinked)}
 	<div class="flex flex-col gap-3" data-related>
 		{#if progressText && !groups.some(group => group.kind === 'subtasks')}
 			<p class="task-detail-heading">Subtasks <span class="font-normal tabular-nums">· {progressText}</span></p>

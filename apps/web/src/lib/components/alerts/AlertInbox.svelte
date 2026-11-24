@@ -9,7 +9,7 @@
 	import { alerts } from '#lib/alerts.svelte.js';
 	import type { AlertRow } from '#lib/alerts.js';
 	import { harness } from '#lib/harness.svelte.js';
-	import { INBOX_FILTERS, inboxCoordinatorLabel, inboxDayGroups, inboxHeadline, inboxItemId, inboxUnreadCount, latestInboxRows, type InboxFilter } from '#lib/alert-inbox.js';
+	import { INBOX_FILTERS, inboxCoordinatorLabel, inboxDayGroups, inboxHeadline, inboxItemId, groupInboxWorkerReports, inboxProjectKey, inboxRequestsByTask, inboxUnreadCount, latestInboxRows, type InboxFilter } from '#lib/alert-inbox.js';
 	import { relativeTime } from '#lib/relative-time.js';
 
 	let filter = $state<InboxFilter>('all');
@@ -19,6 +19,29 @@
 	const latest = $derived(latestInboxRows(alerts.rows));
 	const unread = $derived(inboxUnreadCount(latest));
 	const groups = $derived(inboxDayGroups(latest, filter, now));
+	let requestBoards = $state<Record<string, ReturnType<typeof inboxRequestsByTask>>>({});
+	const workerReportProjects = $derived(JSON.stringify([...new Set(latest.flatMap(({ backendId, alert }) =>
+		alert.kind === 'worker_report' && alert.taskId && alert.projectId && harness.backend(backendId)?.ready && harness.backend(backendId)?.supports('request-attention')
+			? [inboxProjectKey(backendId, alert.projectId)] : []))].sort()));
+
+	$effect(() => {
+		if (!alerts.inboxOpen) return;
+		const keys: string[] = JSON.parse(workerReportProjects);
+		let cancelled = false;
+		for (const key of keys) {
+			const [backendId, projectId] = JSON.parse(key) as [string, string];
+			const backend = harness.backend(backendId);
+			void backend?.client.readBoard(projectId, { includeArchived: true }).then(board => {
+				if (!cancelled) requestBoards[key] = inboxRequestsByTask(board.tasks);
+			}).catch(() => { /* Keep the original inbox rows when the board is unavailable. */ });
+		}
+		return () => { cancelled = true; requestBoards = {}; };
+	});
+
+	function requestFor(row: AlertRow) {
+		const { projectId, taskId } = row.alert;
+		return projectId && taskId ? requestBoards[inboxProjectKey(row.backendId, projectId)]?.get(taskId) : undefined;
+	}
 
 	$effect(() => {
 		if (!alerts.inboxOpen) return;
@@ -74,19 +97,18 @@
 				<section aria-label={group.day}>
 					<h3>{group.day}</h3>
 					<ul>
-						{#each group.rows as row (inboxItemId(row))}
+						{#each groupInboxWorkerReports(group.rows, requestFor) as entry (entry.kind === 'alert' ? inboxItemId(entry.row) : entry.key)}
 							<li>
-								<a class="inbox-row" class:unread={!row.read} href={notificationUrl({ ...row.alert, backendKey: row.backendId })}
-									onclick={(event) => openRow(event, row)}>
-									<span class="inbox-read-dot" aria-hidden="true"></span>
-									<span class="inbox-row-text">
-										{#if !row.read}<span class="sr-only">Unread: </span>{/if}
-										<strong>{inboxHeadline(row.alert)}</strong>
-										<small>{source(row)}</small>
-									</span>
-									{#if row.done}<span class="inbox-row-done">Done <CheckIcon size={13} aria-hidden="true" /></span>
-									{:else}<span class="inbox-row-open" aria-hidden="true">Open</span>{/if}
-								</a>
+								{#if entry.kind === 'alert'}{@render alertRow(entry.row)}
+								{:else}
+									<details class="worker-report-group">
+										<summary class="inbox-row">
+											<span class="inbox-row-text"><strong>{entry.request.title}</strong><small>{entry.rows.length} worker {entry.rows.length === 1 ? 'report' : 'reports'} · {source(entry.rows[0]!)}</small></span>
+											{#if entry.rows.some(row => !row.read)}<span class="inbox-row-open">{entry.rows.filter(row => !row.read).length} unread</span>{/if}
+										</summary>
+										<ul class="pl-3">{#each entry.rows as row (inboxItemId(row))}<li>{@render alertRow(row, true)}</li>{/each}</ul>
+									</details>
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -102,7 +124,25 @@
 	</Dialog.Content>
 </Dialog.Root>
 
+{#snippet alertRow(row: AlertRow, grouped = false)}
+	<a class="inbox-row" class:unread={!row.read} href={notificationUrl({ ...row.alert, backendKey: row.backendId })}
+		onclick={(event) => openRow(event, row)}>
+		<span class="inbox-read-dot" aria-hidden="true"></span>
+		<span class="inbox-row-text">
+			{#if !row.read}<span class="sr-only">Unread: </span>{/if}
+			<strong>{grouped && row.alert.body ? row.alert.body : inboxHeadline(row.alert)}</strong>
+			<small>{source(row)}</small>
+		</span>
+		{#if row.done}<span class="inbox-row-done">Done <CheckIcon size={13} aria-hidden="true" /></span>
+		{:else}<span class="inbox-row-open" aria-hidden="true">Open</span>{/if}
+	</a>
+{/snippet}
+
 <style>
+	.worker-report-group { border: 1px solid var(--chat-border); border-radius: 0.65rem; }
+	.worker-report-group > summary { cursor: pointer; }
+	.worker-report-group > summary::after { content: '▸'; color: var(--chat-fg-muted); }
+	.worker-report-group[open] > summary::after { content: '▾'; }
 	.inbox-header { flex: none; padding: max(0.5rem, env(safe-area-inset-top)) 0.85rem 0; border-bottom: 1px solid var(--chat-border); }
 	.inbox-heading { display: flex; align-items: center; gap: 0.25rem; }
 	.inbox-heading :global(h2) { padding-inline-start: 0.4rem; font-weight: 700; font-size: 1.15rem; }

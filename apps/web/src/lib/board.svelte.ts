@@ -56,6 +56,8 @@ export class ProjectBoard {
 	clarifyEnabled = $state(false);
 	taskFieldsEnabled = $state(false);
 	partsEnabled = $state(false);
+	requestAttention = $state(false);
+	requestDigest = $state(false);
 	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
 
 	async #askClose(text: string): Promise<OpenPartsChoice | undefined> {
@@ -95,6 +97,8 @@ export class ProjectBoard {
 			this.clarifyEnabled = questionClarifySupported(state.features);
 			this.taskFieldsEnabled = state.features?.includes("task-fields") ?? false;
 			this.partsEnabled = state.features?.includes("task-part-states") ?? false;
+			this.requestAttention = state.features?.includes("request-attention") ?? false;
+			this.requestDigest = state.features?.includes("request-digest") ?? false;
 			void this.load();
 		};
 		// Subscribe for the next hello, but also read the current one: subscribe does not replay it.

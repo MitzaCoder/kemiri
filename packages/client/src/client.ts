@@ -1420,11 +1420,11 @@ export class HarnessClient {
 	 * A project's artifacts, newest first, narrowed by thread, worker and board task when given. Follow changes with
 	 * `onArtifactsChanged`; after a reconnect ask again.
 	 */
-	async listArtifacts(
+	async readArtifactList(
 		projectId: string,
 		filter: { artifactId?: string; threadId?: string; workerId?: string; taskId?: string; limit?: number; catalogue?: boolean } = {},
-	): Promise<Artifact[]> {
-		const response = await this.#call<ArtifactsListResponse>({
+	): Promise<ArtifactsListResponse> {
+		return this.#call<ArtifactsListResponse>({
 			type: "artifacts.list",
 			projectId,
 			...(filter.catalogue === true ? { catalogue: true } : {}),
@@ -1434,7 +1434,10 @@ export class HarnessClient {
 			...(filter.taskId === undefined ? {} : { taskId: filter.taskId }),
 			...(filter.limit === undefined ? {} : { limit: filter.limit }),
 		});
-		return response.artifacts;
+	}
+
+	async listArtifacts(projectId: string, filter?: Parameters<HarnessClient['readArtifactList']>[1]): Promise<Artifact[]> {
+		return (await this.readArtifactList(projectId, filter)).artifacts;
 	}
 
 	/** One page of artifacts across this backend, including archived projects. */

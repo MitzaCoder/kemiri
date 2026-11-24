@@ -17,7 +17,8 @@
 	import type { TaskRow } from '#lib/tasks.js';
 
 	type BoardTask = TaskRow['task'];
-	let { task, tasks, archivedLinks = [], nested, taskHref, onopen, summary = '', activity, canToggle = false, expanded = false, foldedCount = 0, ontoggle }: {
+	let { requestView = false, task, tasks, archivedLinks = [], nested, taskHref, onopen, summary = '', activity, canToggle = false, expanded = false, foldedCount = 0, ontoggle }: {
+		requestView?: boolean;
 		task: BoardTask;
 		tasks: readonly BoardTask[];
 		archivedLinks?: readonly Pick<BoardTask, 'id' | 'title' | 'status' | 'archived'>[];
@@ -40,7 +41,7 @@
 	const parent = $derived(task.parent == null ? undefined : linkTarget(task.parent, tasks, archivedLinks));
 	const progress = $derived(task.subtaskCount);
 	const parts = $derived(taskPartProgress(task));
-	const partsSentence = $derived(taskUsesPartsSentence(task));
+	const partsSentence = $derived(taskUsesPartsSentence(task) || (requestView && parts !== undefined && task.state?.group === 'waiting'));
 	const feedback = $derived(openFeedbackCount(task));
 	const hints = $derived(linkGroups(task, tasks, archivedLinks).filter(group => ['foundWhile', 'blockedBy', 'related'].includes(group.kind)));
 	let openGroup = $state<string | null>(null);
@@ -60,8 +61,8 @@
 		{#if activity && !partsSentence}<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />{:else if summary && !partsSentence}<span class="max-w-full text-(--chat-fg-muted)" class:truncate={task.status !== 'waiting'} class:text-task-sm={task.status !== 'waiting'} class:text-xs={task.status === 'waiting'}>{summary}</span>{/if}
 		{#if parent && !nested}
 			{@const coordinator = relationCoordinator(parent.id)}
-			{@const label = relationLabel(coordinator ? 'Part of' : 'Subtask of', parent)}
-			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>{#if coordinator}Part of {:else}↳ {/if}<TaskIdChip taskId={parent.id} /></a>
+			{@const label = relationLabel(requestView || coordinator ? 'Part of' : 'Subtask of', parent)}
+			<a href={taskHref(parent.id)} onclick={() => onopen?.(parent.id)} title={label} aria-label={label} class="family-link" class:opacity-60={parent.closed} data-parent-chip={parent.id}>{#if requestView || coordinator}Part of {:else}↳ {/if}<TaskIdChip taskId={parent.id} /></a>
 		{/if}
 		{#each hints as group (group.kind)}
 			{@const label = group.items.map(target => relationLabel(group.label, target)).join('; ')}
@@ -90,7 +91,7 @@
 		{#if (progress && progress.total > 0) || canToggle}
 			{@const label = parts?.text ?? (progress && progress.total > 0 ? `${progress.done} of ${progress.total} subtasks done` : `Subtasks of ${task.id}`)}
 			{#if canToggle}
-				<button type="button" class="family-link family-progress" aria-label="{expanded ? 'Collapse' : 'Expand'} subtasks of {task.id}, {label}" aria-expanded={expanded} title="{label} · {expanded ? 'Collapse subtasks' : `Expand subtasks (${foldedCount} folded)`}" onclick={ontoggle} data-subtask-chip>
+				<button type="button" class="family-link family-progress" class:request-progress={requestView} aria-label="{expanded ? 'Collapse' : 'Expand'} {requestView ? 'parts' : 'subtasks'} of {task.id}, {label}" aria-expanded={expanded} title="{label} · {requestView ? (expanded ? 'Collapse parts' : 'Expand parts') : expanded ? 'Collapse subtasks' : `Expand subtasks (${foldedCount} folded)`}" onclick={ontoggle} data-subtask-chip>
 					<TaskPartsProgress {task} /><ChevronRightIcon class="size-3 {expanded ? 'rotate-90' : ''}" aria-hidden="true" />
 				</button>
 			{:else}
@@ -111,4 +112,6 @@
 	@media (pointer: coarse) {
 		.family-meta :global(.family-link)::before { content: ''; position: absolute; inset: -12px -4px; }
 	}
+	button.request-progress { min-height: 24px; }
+	button.request-progress::before { inset: 0 -4px; }
 </style>

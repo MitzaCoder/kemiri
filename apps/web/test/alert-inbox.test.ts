@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import type { NotificationAlert } from '@kemiri/protocol';
 import type { AlertRow } from '../src/lib/alerts.js';
-import { inboxCoordinatorLabel, inboxDayGroups, inboxHeadline, inboxUnreadCount, latestInboxRows } from '../src/lib/alert-inbox.js';
+import { groupInboxWorkerReports, inboxRequestsByTask, inboxCoordinatorLabel, inboxDayGroups, inboxHeadline, inboxUnreadCount, latestInboxRows } from '../src/lib/alert-inbox.js';
 
 const now = new Date(2026, 0, 9, 12);
 const localDate = (day: number, hour = 0) => new Date(2026, 0, day, hour).toISOString();
@@ -54,4 +54,22 @@ test('headline and source metadata put the actual question first', () => {
 	expect(inboxHeadline(alert)).toBe('Which units should the import use?');
 	expect(inboxCoordinatorLabel(alert, 'Recipe API')).toBe('Planner');
 	expect(inboxCoordinatorLabel({ ...alert, title: 'Question · Recipe API' }, 'Recipe API')).toBeUndefined();
+});
+
+
+test('worker reports fold by request within a day without mixing projects or backends', () => {
+	const request = { id: 'T1', title: 'Publish the menu' };
+	const byTask = inboxRequestsByTask([request, { id: 'T2', title: 'Edit the menu', requestId: 'T1', parent: 'T1' },
+		{ id: 'T3', title: 'Check the prices', requestId: 'T1', parent: 'T2' }]);
+	const direct = row({ tag: 'request-report', kind: 'worker_report', taskId: 'T1' });
+	const nested = row({ tag: 'nested-report', kind: 'worker_report', taskId: 'T3' }, { read: true });
+	const elsewhere = row({ tag: 'other-project', kind: 'worker_report', taskId: 'T2', projectId: 'other' });
+	const otherBackend = row({ tag: 'other-backend', kind: 'worker_report', taskId: 'T2' }, { backendId: 'other' });
+	const old = row({ tag: 'old-backend', kind: 'worker_report', taskId: 'T2' }, { backendId: 'old' });
+	const failure = row({ kind: 'worker_failed', taskId: 'T2' });
+	const rows = [direct, failure, nested, elsewhere, otherBackend, old];
+	const grouped = groupInboxWorkerReports(rows, ({ backendId, alert }) => backendId === 'old' ? undefined : byTask.get(alert.taskId ?? ''));
+	expect(grouped.map(entry => entry.kind === 'worker-reports' ? entry.rows : [entry.row])).toEqual([[direct, nested], [failure], [elsewhere], [otherBackend], [old]]);
+	expect(grouped[0]).toMatchObject({ request });
+	expect(groupInboxWorkerReports(rows, () => undefined).map(entry => entry.kind)).toEqual(rows.map(() => 'alert'));
 });

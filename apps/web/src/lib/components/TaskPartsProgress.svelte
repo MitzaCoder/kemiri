@@ -3,7 +3,7 @@
 	import { taskPartProgress } from '#lib/task-parts.js';
 
 	/** Inline contents only: the list keeps its disclosure button and spacing. */
-	let { task }: { task: Pick<BoardTask, 'subtaskStates' | 'subtaskCount'> } = $props();
+	let { task }: { task: Pick<BoardTask, 'id' | 'subtaskStates' | 'subtaskCount' | 'partsDigest'> } = $props();
 	const parts = $derived(taskPartProgress(task));
 	const progress = $derived(task.subtaskCount);
 </script>

@@ -27,7 +27,7 @@
 </script>
 
 <svelte:window onkeydowncapture={keydown} />
-<dialog bind:this={dialog} aria-labelledby="close-parts-title" aria-describedby="close-parts-question" oncancel={() => board?.closeQuestion?.answer(undefined)} class="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl border border-(--chat-border) bg-(--chat-surface) p-5 text-(--chat-fg) shadow-xl backdrop:bg-black/50" data-close-parts-dialog>
+<dialog bind:this={dialog} aria-labelledby="close-parts-title" aria-describedby="close-parts-question" oncancel={() => board?.closeQuestion?.answer(undefined)} class="pointer-events-auto m-auto w-[calc(100%-2rem)] max-w-md rounded-xl border border-(--chat-border) bg-(--chat-surface) p-5 text-(--chat-fg) shadow-xl backdrop:bg-black/50" data-close-parts-dialog>
 	<h2 id="close-parts-title" class="mb-2 text-base font-semibold">Close task</h2>
 	<p id="close-parts-question" class="text-sm text-(--chat-fg-muted)">{board?.closeQuestion?.text ?? ''}</p>
 	<div class="mt-5 flex flex-wrap justify-end gap-2">

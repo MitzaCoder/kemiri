@@ -9,8 +9,9 @@
 	import type { BoardTaskTimelineResponse, ChangeSource } from '@kemiri/protocol';
 	import { changeCounts, withChanges, type ChangeList } from '#lib/code/project-changes.js';
 
-	let { delivery, changesClient, projectId, taskId }: {
+	let { delivery, changesClient, projectId, taskId, partTitle, taskHref }: {
 		delivery: NonNullable<BoardTaskTimelineResponse['delivery']>; changesClient?: HarnessClient; projectId: string; taskId: string;
+		partTitle?: (id: string) => string; taskHref?: (id: string) => string;
 	} = $props();
 	let expanded = $state(false);
 	let details = $state<Record<string, ChangeList | null>>({});
@@ -43,6 +44,9 @@
 			reset: false, persistState: true, state: { ...page.state, changesFrom: withChanges(page.url) },
 		});
 	}
+	const partCommits = $derived(delivery.partCommits ?? []);
+	const partHashes = $derived(new Set(partCommits.flatMap(part => part.commits)));
+	const requestCommits = $derived(delivery.commits.filter(hash => !partHashes.has(hash)));
 	const count = $derived(delivery.commits.length);
 	const landed = $derived(delivery.integration?.landed);
 	const deployLabel = { live: 'Deploy succeeded', pending: 'Not fully live', failed: 'Deploy failed', unknown: 'Status unknown' };
@@ -67,8 +71,23 @@
 			{@const source = { kind: 'task', taskId } as const}
 			<a class="review-changes" href={withChanges(page.url, source)} onclick={event => openChanges(event, source)}>Review changes</a>
 		{/if}
+		{#if requestCommits.length}
+			{#if partCommits.length}<h4 class="pl-6 text-xs font-semibold">Request</h4>{/if}
+			{@render commits(requestCommits)}
+		{/if}
+		{#each partCommits as part (part.partId)}
+			<h4 class="mt-2 pl-6 text-xs font-semibold">
+				{#if taskHref}<a class="underline underline-offset-2" href={taskHref(part.partId)}>{partTitle?.(part.partId) ?? part.partId}</a>
+				{:else}{partTitle?.(part.partId) ?? part.partId}{/if}
+			</h4>
+			{@render commits(part.commits)}
+		{/each}
+	</details>
+</section>
+
+{#snippet commits(hashes: readonly string[])}
 		<ul role="list" class="flex flex-col gap-1 pl-6 text-xs text-(--chat-fg-muted)">
-			{#each delivery.commits as commit (commit)}
+			{#each hashes as commit (commit)}
 				{@const listing = details[commit]}
 				{@const subject = listing?.commits[0]?.subject}
 				{@const counts = listing ? changeCounts(listing.files) : undefined}
@@ -89,8 +108,7 @@
 				</li>
 			{/each}
 		</ul>
-	</details>
-</section>
+{/snippet}
 
 <style>
 	.delivery-step { display: flex; align-items: baseline; gap: 0.5rem; }

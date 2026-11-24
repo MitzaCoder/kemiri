@@ -4657,7 +4657,8 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 
 ### Collapsible task families (T74 / D44)
 
-The web task list uses collapsible families, with no prototype switch or query flag. Kanban remains unchanged.
+The web task list uses collapsible families, with no prototype switch or query flag. The following legacy family
+rules still apply on web without `request-attention`, and on Android until it adopts request rows.
 On web and Android, parts nest beneath their parent across derived groups (T246 / D94 stage 3; same stored status on old backends) with a 14px guide/indent capped visually at three levels.
 A task having subtasks never adds a leading column: status, title, status line and trailing ID keep exactly the
 same positions as plain rows at every width. The direct-parts bar and summary (T244 / D94) are
@@ -4695,6 +4696,14 @@ link. The linked-task focus filter still applies. Relocation is list-only: searc
 relevance results and family context, and board grouping is unchanged. Without derived state, keep
 the previous same-status, same-section nesting and attention visibility (review, blocked, waiting,
 questions and warnings cannot fold away), including the old counts.
+
+**Request rows on web (T459).** With `request-attention`, Needs you has one row per request. A row uses the
+server's highest-priority owner need, names the part that raised it and links to its question, steps or failure
+on that part. There are no extra part rows or pointers in Needs you. In progress, To do and Waiting show the
+existing parts bar. Unfolding a request lists running and attention parts first, then other unfinished or dropped
+parts, and combines done parts into one count. Done parts remain individually readable in the request's checklist.
+List counts, Recently closed and Kanban cards count requests only. Kanban cards show the direct-parts bar; list
+search still finds parts individually and labels their parent. Follow-ups have no parent and remain requests.
 
 **Choices and access.** Families default collapsed. Explicit true/false choices persist per parent in the
 project/backend-scoped local key `aiki.task-families.v1:<backend>:<project>`; nested choices survive closing their
@@ -6816,6 +6825,16 @@ in that conversation. This is a display rule, not the outside-model approval cou
   without dropping lines and gives Copy at least a 48 dp touch target. When steps take priority, the header says “Your steps
   to do” and the task appears in Needs you with a checklist icon, including in the graph and part progress. Web opts
   in through `hello.client.features`; Android keeps the server's review fallback until it opts in separately.
+- **Requests and parts (T459, web).** The web hello opts into `request-attention` and `request-digest`. With
+  the digest, a request shows a Parts checklist below the report summary and Results. It uses the server's order
+  and direct-part progress totals, and can expand beyond the first five entries. Each line shows the part's state,
+  one-line summary, check count and proof counts from `artifacts.list.partProof`. Links open the part's report.
+  The request's Not done shows derived drop reasons separately from written Results or Not done. Files includes
+  part proof, with its contributing parts in the gallery caption, and Delivery groups changes by part. A part
+  links back to the request and shows its position in the checklist and who closed it, when known. It has no close
+  action. Comment focuses its reply, and Reopen with a note sends the reason to the coordinator. The request's
+  close choice still names only unfinished parts, not parts already checked or dropped. Older web and Android
+  clients omit the new hello features, and web keeps the previous rendering against older backends.
 - **Question choices (T296).** When `hello.features` includes `task-fields`, shared question cards in the task
   sheet, Needs you lists and chat show choices as buttons with the label, optional effect and recommendation.
   Clicking sends only the label. One-line previews stay label-only, and questions without choices keep their chips.
@@ -7685,7 +7704,10 @@ from the live Needs you list. It keeps the newest wording per backend and tag, m
 and groups rows by local calendar day. Needs me filters to open urgent and important rows, Failures uses the
 shared failure kinds, and Finished shows completed work, threads and schedules. Opening an item marks it read
 and uses its push route. Mark all read and individual read marks sync across tabs of one browser. A settled item
-shows Done without changing its read mark. Desktop overflow, burst and catch-up summaries open the inbox.
+shows Done without changing its read mark. With `request-attention`, worker reports within each day fold under
+their request, scoped by project and backend. The inbox reads that project's board on open, including archived
+parts, and preserves each report's read mark and original link. Unmatched reports and older backends keep their
+individual rows. Desktop overflow, burst and catch-up summaries open the inbox.
 
 The tab title prefix and installed-app badge use exactly the sidebar's Needs you total, not inbox unread count.
 The favicon dot means at least one retained urgent item is unresolved, even if read or dismissed. The default-on

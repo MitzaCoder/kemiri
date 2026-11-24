@@ -9,8 +9,8 @@ export function partTone(kind: BoardTaskState['kind']): PartTone {
 }
 
 /** Stable colour order, with proportional shares rather than tiny segments above twelve parts. */
-export function taskPartProgress(task: Pick<BoardTask, 'subtaskStates'>) {
-	const states = task.subtaskStates?.filter(kind => kind !== 'dropped');
+export function taskPartProgress(task: Pick<BoardTask, 'id' | 'subtaskStates' | 'partsDigest'>) {
+	const states = (task.partsDigest?.parts.filter(part => part.parentId === task.id).map(part => part.state) ?? task.subtaskStates)?.filter(kind => kind !== 'dropped');
 	if (!states?.length) return undefined;
 	const tones: PartTone[] = ['done', 'working', 'needs-you', 'other'];
 	const counts = tones.map(tone => ({ tone, count: states.filter(kind => partTone(kind) === tone).length }));
@@ -20,6 +20,6 @@ export function taskPartProgress(task: Pick<BoardTask, 'subtaskStates'>) {
 	return { text, segments, proportional: states.length > 12 };
 }
 
-export function taskUsesPartsSentence(task: Pick<BoardTask, 'state' | 'subtaskStates'>): boolean {
+export function taskUsesPartsSentence(task: Pick<BoardTask, 'id' | 'state' | 'subtaskStates' | 'partsDigest'>): boolean {
 	return !!taskPartProgress(task) && (task.state?.group === 'in_progress' || task.state?.group === 'todo');
 }

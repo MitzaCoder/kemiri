@@ -1,3 +1,4 @@
+import { requestPartRows } from './request-parts.js';
 import { isSettled, type TaskRow, type TaskSection } from './tasks.js';
 
 export type FamilyExpansion = Readonly<Record<string, boolean>>;
@@ -8,10 +9,12 @@ export type TaskFamily = {
 	canToggle: boolean;
 	expanded: boolean;
 	foldedCount: number;
+	doneParts?: number;
 };
 
 /** List-only grouping: search and board keep the ordinary state sections. */
-export function taskFamilySections(sections: TaskSection[]): TaskSection[] {
+export function taskFamilySections(sections: TaskSection[], requestAttention = false): TaskSection[] {
+	if (requestAttention) return sections.map(section => ({ ...section, rows: section.rows.filter(row => row.task.parent == null) })).filter(section => section.rows.length > 0);
 	const rows = sections.flatMap(section => section.rows);
 	const byId = new Map(rows.map(row => [row.task.id, row]));
 	function familySection(row: TaskRow): TaskRow['section'] {
@@ -48,8 +51,8 @@ function needsYou(row: TaskRow): boolean {
 }
 
 /** Count attention tasks in Needs you and top-level tasks in other derived sections, regardless of folds. */
-export function taskFamilyCount(section: TaskSection): number {
-	if (!section.rows.some(row => row.task.state)) return section.rows.length;
+export function taskFamilyCount(section: TaskSection, requestAttention = false): number {
+	if (requestAttention || !section.rows.some(row => row.task.state)) return section.rows.length;
 	if (section.id === 'needs_you') return section.rows.filter(needsYou).length;
 	return taskFamilies(section, {}).length;
 }
@@ -63,7 +66,16 @@ export function needsFamilyAttention(row: TaskRow): boolean {
  * Derived families nest across states; legacy families still require the same status and section.
  * Needs you groups take the priority of their most urgent member; quiet parts stay foldable.
  */
-export function taskFamilies(section: TaskSection, expansion: FamilyExpansion): TaskFamily[] {
+export function taskFamilies(section: TaskSection, expansion: FamilyExpansion, partsByRequest?: ReadonlyMap<string, readonly TaskRow[]>): TaskFamily[] {
+	if (partsByRequest) return section.rows.map(row => {
+		const parts = section.id === 'needs_you' || section.id === 'closed' ? [] : partsByRequest.get(row.task.id) ?? [];
+		const doneParts = section.id === 'needs_you' || section.id === 'closed' ? 0 :
+			(row.task.partsDigest?.parts.filter(part => part.state === 'done').length ?? parts.filter(part => part.task.status === 'done').length);
+		const canToggle = parts.length > 0 || doneParts > 0;
+		const expanded = canToggle && expansion[row.task.id] === true;
+		const children = expanded ? requestPartRows(parts).map(part => ({ row: part, role: 'task' as const, children: [], canToggle: false, expanded: false, foldedCount: 0 })) : [];
+		return { row, role: 'task', children, canToggle, expanded, foldedCount: parts.length, doneParts: expanded ? doneParts : 0 };
+	});
 	const inNeedsYou = section.id === 'needs_you';
 	const byId = new Map(section.rows.map((row) => [row.task.id, row]));
 	const needsYouPriority = new Map(section.rows.flatMap((row, index) => needsYou(row) ? [[row.task.id, index] as const] : []));

@@ -14,11 +14,13 @@
 		artifacts,
 		client,
 		projectId,
+		partLabel,
 		onupdatetags
 	}: {
 		artifacts: readonly Artifact[];
 		client: HarnessClient;
 		projectId: string;
+		partLabel?: (artifact: Artifact) => string | undefined;
 		onupdatetags?: (artifact: Artifact, tags: string[]) => Promise<void>;
 	} = $props();
 
@@ -35,6 +37,7 @@
 	{#if split.media.length > 0}
 		<MediaGallery
 			media={split.media}
+			{partLabel}
 			{client}
 			{projectId}
 			canEditTags={onupdatetags !== undefined}

@@ -35,12 +35,14 @@
 	 */
 	let {
 		task,
+		lockStatus = false,
 		tasks,
 		onsave,
 		onback
 	}: {
 		/** The task to edit, or undefined to add one. */
 		task: BoardTask | undefined;
+		lockStatus?: boolean;
 		tasks: readonly BoardTask[];
 		onsave: (input: BoardTaskInput, options: TaskSaveOptions) => Promise<SaveOutcome>;
 		onback: () => void;
@@ -183,7 +185,7 @@
 
 	<label class="flex flex-col gap-1">
 		<span class={label}>Status</span>
-		<NativeSelect bind:value={draft.status} class="w-full" size="sm">
+		<NativeSelect bind:value={draft.status} disabled={lockStatus} class="w-full" size="sm">
 			{#if draft.status === 'waiting'}<NativeSelectOption value="waiting">Waiting (edit from the status menu)</NativeSelectOption>{/if}
 			{#each TASK_STATUSES as status (status)}
 				<NativeSelectOption value={status satisfies BoardTaskStatus}>{taskStatusLabel(status)}</NativeSelectOption>

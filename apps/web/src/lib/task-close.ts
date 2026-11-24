@@ -1,10 +1,10 @@
 import type { BoardTask, BoardTaskInput } from '@kemiri/protocol';
-import { taskStatusWords } from './tasks.js';
+import { isSettled, taskStatusWords } from './tasks.js';
 
 export type OpenPartsChoice = 'close' | 'follow_up';
 export type TaskSaveOptions = { taskId?: string; expectedRevision?: number; note?: string; ownerThreadId?: string | null; openParts?: OpenPartsChoice };
 export function openDirectParts(tasks: readonly BoardTask[], taskId: string): BoardTask[] {
-	return tasks.filter(task => task.parent === taskId && task.status !== 'done' && task.status !== 'dropped');
+	return tasks.filter(task => task.parent === taskId && !isSettled(task.status));
 }
 export function closePartsQuestion(taskId: string, parts: readonly Pick<BoardTask, 'id' | 'status'>[]): string {
 	return `${taskId} has ${parts.length} open ${parts.length === 1 ? 'part' : 'parts'}: ${parts.map(part => `${part.id} (${part.status === 'todo' ? 'to do' : part.status === 'review' ? 'in review' : part.status === 'in_progress' ? 'in progress' : taskStatusWords(part.status).toLowerCase()})`).join(', ')}. What should happen to them?`;

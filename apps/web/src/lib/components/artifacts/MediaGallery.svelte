@@ -37,6 +37,7 @@
 	 * `media` is oldest first (`splitMedia`).
 	 */
 	let {
+		partLabel,
 		media,
 		client,
 		projectId,
@@ -45,6 +46,7 @@
 		ondetails
 	}: {
 		media: readonly Artifact[];
+		partLabel?: (artifact: Artifact) => string | undefined;
 		client: HarnessClient;
 		projectId: string;
 		canEditTags?: boolean;
@@ -190,6 +192,7 @@
 				{@const near = loadsFull(at - index)}
 				<div class="flex h-full min-h-0 flex-col gap-2">
 				<div class="flex items-center justify-between gap-2"><h4 class="line-clamp-2 text-sm leading-snug font-semibold break-words" title={artifactTitle(item)}>{artifactTitle(item)}</h4>{#if active}<DiscussButton artifact={item} {client} compact />{/if}</div>
+				{#if partLabel?.(item)}<p class="text-xs text-(--chat-fg-muted)">Part: {partLabel(item)}</p>{/if}
 				<div class="stage" role="group" aria-label="Artifact preview" data-slide-stage draggable="true" ondragstart={event => startArtifactDrag(event, client, item)} ondragend={endArtifactDrag}>
 					{#if item.kind === 'video'}
 						<MediaVideoSlide bind:this={videoSlides[at]} artifact={item} {client} {active} {near} />

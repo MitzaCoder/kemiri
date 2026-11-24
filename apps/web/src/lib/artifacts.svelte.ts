@@ -14,7 +14,7 @@ import {
 	type ArtifactFilter,
 	type HarnessClient,
 } from "@kemiri/client";
-import type { Artifact } from "@kemiri/protocol";
+import type { Artifact, PartProofCount } from "@kemiri/protocol";
 import { getContext, setContext } from "svelte";
 import { artifactBrowserUrl } from "./artifacts.js";
 
@@ -35,6 +35,7 @@ export class ArtifactFeed {
 	readonly filter: ArtifactFilter;
 	readonly limit: number | undefined;
 	artifacts = $state<readonly Artifact[]>([]);
+	partProof = $state<readonly PartProofCount[]>([]);
 	loaded = $state(false);
 	error = $state<string | undefined>(undefined);
 
@@ -52,8 +53,12 @@ export class ArtifactFeed {
 		this.limit = limit;
 		this.#unsubscribeChanges = client.onArtifactsChanged((event) => {
 			if (this.#stopped) return;
-			const next = applyArtifactChange(this.artifacts, event, projectId, filter, limit);
-			if (next === this.artifacts) return;
+			const partEvidence = event.projectId === projectId && filter.taskId !== undefined && (
+				this.artifacts.some(artifact => artifact.id === event.artifact.id && artifact.partIds?.length) ||
+				this.partProof.some(part => part.partId === event.artifact.taskId || event.artifact.laterTaskIds?.includes(part.partId))
+			);
+			const next = partEvidence ? this.artifacts : applyArtifactChange(this.artifacts, event, projectId, filter, limit);
+			if (!partEvidence && next === this.artifacts) return;
 			// A read already on its way may not hold this change; the one after the quiet time will.
 			this.#sequence += 1;
 			this.artifacts = next;
@@ -72,9 +77,10 @@ export class ArtifactFeed {
 		this.#sequence += 1;
 		const sequence = this.#sequence;
 		try {
-			const artifacts = await this.#client.listArtifacts(this.projectId, { ...this.filter, limit: this.limit });
+			const { artifacts, partProof } = await this.#client.readArtifactList(this.projectId, { ...this.filter, limit: this.limit });
 			if (this.#stopped || sequence !== this.#sequence) return;
 			this.artifacts = artifacts;
+			this.partProof = partProof ?? [];
 			this.error = undefined;
 		} catch (error) {
 			if (this.#stopped || sequence !== this.#sequence) return;
@@ -87,6 +93,11 @@ export class ArtifactFeed {
 	/** Take in a row the server answered (a tag change), as the push of it would. */
 	upsert(artifact: Artifact): void {
 		if (this.#stopped) return;
+		const previous = this.artifacts.find(row => row.id === artifact.id);
+		if (previous?.partIds?.length) {
+			this.artifacts = this.artifacts.map(row => row.id === artifact.id ? { ...artifact, partIds: previous.partIds } : row);
+			return;
+		}
 		this.artifacts = applyArtifactChange(
 			this.artifacts,
 			{ type: "artifacts.changed", projectId: this.projectId, artifact, deleted: false },

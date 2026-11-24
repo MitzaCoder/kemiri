@@ -10,6 +10,7 @@ import { reportFreshnessEnabled } from '#lib/report-freshness.js';
 import { failedCheckLine, taskDetailFields, taskNeedsYou } from '#lib/task-details.js';
 import { threadHref } from '#lib/backends.js';
 import { useRefLinks } from '#lib/ref-links.svelte.js';
+import { requestAttentionLink, requestPartPage, taskCanClose } from '#lib/request-parts.js';
 import { useArtifactFeed } from '#lib/artifacts.svelte.js';
 import { blockersOf, draftFromTask, draftToInput } from '#lib/board.js';
 import type { ProjectBoard } from '#lib/board.svelte.js';
@@ -71,6 +72,20 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 	let archivedTask = $state<BoardTask | undefined>(undefined);
 	let archivedChecked = $state<string | undefined>(undefined);
 	const task = $derived(liveTask ?? (archivedTask?.id === taskId ? archivedTask : undefined));
+	const raisedAttention = $derived(board?.requestAttention && task?.state?.fromPartId ? requestAttentionLink(task, board.board?.questions ?? [], id => withTask(page.url, id)) : undefined);
+	const isPart = $derived(board?.requestDigest === true && task?.parent != null);
+	const requestId = $derived(isPart ? task?.requestId ?? task?.parent : undefined);
+	const liveRequest = $derived(requestId ? board?.task(requestId) : undefined);
+	let archivedRequest = $state<BoardTask>();
+	const request = $derived(liveRequest ?? (archivedRequest?.id === requestId ? archivedRequest : undefined));
+	$effect(() => {
+		if (!requestId || liveRequest || !board?.loaded) return;
+		let cancelled = false;
+		void board.findArchived(requestId).then(found => { if (!cancelled) archivedRequest = found; }).catch(() => undefined);
+		return () => { cancelled = true; };
+	});
+	const partPage = $derived(requestPartPage(task, request, isPart));
+	const taskDigest = $derived(board?.requestDigest === true ? task?.partsDigest : undefined);
 	const lookedUp = $derived(taskId !== undefined && archivedChecked === taskId);
 
 	// A task the live board does not list may be archived; read once to see.
@@ -89,6 +104,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 	let editing = $state(false);
 	let confirmDrop = $state(false);
 	let waitingForm = $state(false);
+	let reopenForm = $state(false);
 	let problem = $state<string | undefined>(undefined);
 	let closing = $state(false);
 	let reply: { focus(): void } | undefined;
@@ -121,6 +137,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		editing = false;
 		confirmDrop = false;
 		waitingForm = false;
+		reopenForm = false;
 		problem = undefined;
 		timelineEntries = undefined;
 		timelineGroups = undefined;
@@ -221,6 +238,29 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 			: undefined
 	);
 	const artifacts = $derived(artifactFeed.current?.artifacts ?? []);
+	const partProof = $derived(artifactFeed.current?.partProof ?? []);
+	const partTitles = $derived(new Map(taskDigest?.parts.map(part => [part.id, part.title])));
+	const partMembership = $derived(taskDigest?.parts.map(part => part.id).sort().join(','));
+	let lastPartMembership: { taskId: string | undefined; parts: string | undefined } | undefined;
+	$effect(() => {
+		const parts = partMembership;
+		if (lastPartMembership?.taskId === taskId && lastPartMembership?.parts !== parts) {
+			// An existing part's proof can join or leave this request without an artifact push.
+			void untrack(() => artifactFeed.current)?.load();
+		}
+		lastPartMembership = { taskId, parts };
+	});
+
+	$effect(() => {
+		const hash = page.url.hash.slice(1);
+		const host = getSheet();
+		if (!task || requestedId !== task.id || !host || editing || !/^task-(?:steps|needs-you|question-[\w%-]+)$/.test(hash)) return;
+		let cancelled = false;
+		void tick().then(() => {
+			if (!cancelled) host.querySelector<HTMLElement>(`#${CSS.escape(hash)}`)?.scrollIntoView({ block: 'nearest' });
+		});
+		return () => { cancelled = true; };
+	});
 
 	async function updateArtifactTags(artifact: Artifact, tags: string[]): Promise<void> {
 		const row = await backend.client.updateArtifactTags(projectId, artifact.id, tags);
@@ -247,18 +287,19 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		}
 	}
 
-	async function setStatus(target: BoardTaskStatus, waitingFor?: string, waitUntil?: string): Promise<void> {
-		if (board === undefined || task === undefined || closing) return;
+	async function setStatus(target: BoardTaskStatus, waitingFor?: string, waitUntil?: string, note?: string): Promise<void> {
+		if (board === undefined || task === undefined || closing || (!taskCanClose(partPage) && (target === 'done' || target === 'dropped'))) return;
 		closing = true;
 		problem = undefined;
 		confirmDrop = false;
 		const outcome = await board.saveTask(
 			{ ...draftToInput(draftFromTask(task)), status: target, ...(waitingFor === undefined ? {} : { waitingFor }), ...(waitUntil === undefined ? {} : { waitUntil }) },
-			{ taskId: task.id, expectedRevision: task.revision }
+			{ taskId: task.id, expectedRevision: task.revision, ...(note ? { note } : {}) }
 		);
 		closing = false;
 		if (outcome.kind === 'saved') {
 			waitingForm = false;
+			reopenForm = false;
 			if (archivedTask?.id === task.id) archivedTask = outcome.task;
 		} else if (outcome.kind === 'conflict') problem = `${task.id} changed while you were looking. Check it and try again.`;
 		else if (outcome.kind === 'failed') problem = outcome.message;
@@ -286,6 +327,17 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		get previousTask() { return previousTask; },
 		get taskId() { return taskId; },
 		get task() { return task; },
+		get partPage() { return partPage; },
+		get raisedAttention() { return raisedAttention; },
+		get canClose() { return taskCanClose(partPage); },
+		get taskDigest() { return taskDigest; },
+		get derivedNotDone() { return board?.requestDigest === true ? task?.derivedNotDone ?? [] : []; },
+		get partProof() { return partProof; },
+		partTitle: (id: string) => partTitles.get(id) ?? id,
+		artifactPartLabel: (artifact: Artifact) => artifact.partIds?.map(id => partTitles.get(id) ?? id).join(', '),
+		get reopenForm() { return reopenForm; },
+		showReopen: () => { reopenForm = true; },
+		cancelReopen: () => { reopenForm = false; },
 		get loading() { return loading; },
 		get tasks() { return tasks; },
 		get archivedLinks() { return board?.archivedLinks; },

@@ -102,7 +102,7 @@
 
 {#snippet editor()}
 	{#if task}
-		<div class="task-reading mx-auto"><BoardTaskEditor {task} tasks={model.tasks}
+		<div class="task-reading mx-auto"><BoardTaskEditor {task} tasks={model.tasks} lockStatus={!model.canClose}
 			onsave={(input, options) => model.board!.saveTask(input, options)} onback={model.hideEditor} /></div>
 	{/if}
 {/snippet}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { requestAttentionLink, requestRows } from '#lib/request-parts.js';
 	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
 	import TaskCoordinatorPicker from './TaskCoordinatorPicker.svelte';
 	import { overlayScroll } from '#lib/scrollbars.js';
@@ -118,19 +119,23 @@
 	const search = useTaskSearch(() => tasks, () => board);
 	const searchHits = $derived(search.search(new Set(filtered.map(task => task.id))));
 	const searchHitById = $derived(new Map(searchHits.map(hit => [hit.id, hit])));
-	const shownTasks = $derived(search.query.trim() ? filtered.filter(task => searchHitById.has(task.id)) : filtered);
+	const shownTasks = $derived.by(() => {
+		if (!search.query.trim()) return filtered;
+		const matchingRequests = new Set(board?.requestAttention ? filtered.flatMap(task => searchHitById.has(task.id) && task.requestId ? [task.requestId] : []) : []);
+		return filtered.filter(task => searchHitById.has(task.id) || matchingRequests.has(task.id));
+	});
 	const columns = $derived(
 		kanbanColumns(
 			{ tasks: shownTasks, questions },
-			{ includeArchived: board?.showArchived === true, doneShown: doneExpanded ? Number.POSITIVE_INFINITY : DONE_SHOWN, onlyNeedsYou, stateEnabled: board?.stateEnabled && tasks.some(task => task.state) }
+			{ includeArchived: board?.showArchived === true, doneShown: doneExpanded ? Number.POSITIVE_INFINITY : DONE_SHOWN, onlyNeedsYou, requestAttention: board?.requestAttention, stateEnabled: board?.stateEnabled && tasks.some(task => task.state) }
 		)
 	);
-	const needsYou = $derived(needsYouCount({ tasks: shownTasks, questions }));
+	const needsYou = $derived(needsYouCount({ tasks: shownTasks, questions }, board?.requestAttention));
 	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks, questions }));
-	const archivedShown = $derived(board?.showArchived === true ? tasks.filter((task) => task.archived).length : 0);
+	const archivedShown = $derived(board?.showArchived === true ? requestRows(tasks, board.requestAttention).filter((task) => task.archived).length : 0);
 	/** To do in priority order, whatever the filter shows: what a reorder sends. */
 	const todoIds = $derived(
-		tasks
+		requestRows(tasks, board?.requestAttention === true)
 			.filter((task) => columnOfTask(task) === 'todo' && !task.archived)
 			.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, undefined, { numeric: true }))
 			.map((task) => task.id)
@@ -736,6 +741,7 @@
 						data-navigation-scroll={`tasks-column-${column.id}`}
 					>
 						{#each column.cards as card, index (card.task.id)}
+							{@const attention = board?.requestAttention ? requestAttentionLink(card.task, board.board?.questions ?? [], taskHref) : undefined}
 							<li
 								class="kanban-card-slot"
 								data-card={card.task.id}
@@ -754,8 +760,10 @@
 									{workers}
 									{threads}
 									{now}
-									href={taskHref(card.task.id)}
-									onopen={() => onopentask?.(card.task.id)}
+									requestView={board?.requestAttention === true}
+									href={attention?.href ?? taskHref(card.task.id)}
+									{attention}
+									onopen={() => onopentask?.(attention?.taskId ?? card.task.id)}
 									lifted={drag?.active === true && drag.card.task.id === card.task.id}
 								>
 									{#snippet menu()}{@render cardMenu(card, index, column.cards.length)}{/snippet}

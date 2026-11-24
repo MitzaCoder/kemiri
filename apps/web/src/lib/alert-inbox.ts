@@ -1,5 +1,5 @@
 import { isNotificationFailure } from '@kemiri/client';
-import type { NotificationAlert } from '@kemiri/protocol';
+import type { BoardTask, NotificationAlert } from '@kemiri/protocol';
 import type { AlertRow } from './alerts.js';
 
 export const INBOX_FILTERS = [
@@ -77,4 +77,38 @@ export function inboxHeadline(alert: NotificationAlert): string {
 		case 'worker_failed': return 'A worker stopped before it could report';
 		default: return alert.title;
 	}
+}
+
+
+type InboxRequest = Pick<BoardTask, 'id' | 'title'>;
+export type InboxEntry = { kind: 'alert'; row: AlertRow } | { kind: 'worker-reports'; key: string; request: InboxRequest; rows: AlertRow[] };
+
+export function inboxProjectKey(backendId: string, projectId: string): string {
+	return JSON.stringify([backendId, projectId]);
+}
+
+export function groupInboxWorkerReports(rows: readonly AlertRow[], requestFor: (row: AlertRow) => InboxRequest | undefined): InboxEntry[] {
+	const entries: InboxEntry[] = [];
+	const byRequest = new Map<string, Extract<InboxEntry, { kind: 'worker-reports' }>>();
+	for (const row of rows) {
+		const request = row.alert.kind === 'worker_report' && row.alert.projectId != null ? requestFor(row) : undefined;
+		if (!request) { entries.push({ kind: 'alert', row }); continue; }
+		const key = JSON.stringify([row.backendId, row.alert.projectId, request.id]);
+		const existing = byRequest.get(key);
+		if (existing) existing.rows.push(row);
+		else {
+			const entry: Extract<InboxEntry, { kind: 'worker-reports' }> = { kind: 'worker-reports', key, request, rows: [row] };
+			byRequest.set(key, entry);
+			entries.push(entry);
+		}
+	}
+	return entries;
+}
+
+export function inboxRequestsByTask(tasks: readonly Pick<BoardTask, 'id' | 'parent' | 'requestId' | 'title'>[]): Map<string, InboxRequest> {
+	const requests = new Map(tasks.filter(task => task.parent == null).map(task => [task.id, task]));
+	return new Map(tasks.flatMap(task => {
+		const request = requests.get(task.requestId ?? (task.parent == null ? task.id : ''));
+		return request ? [[task.id, request] as const] : [];
+	}));
 }

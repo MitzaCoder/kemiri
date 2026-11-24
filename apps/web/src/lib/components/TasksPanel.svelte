@@ -11,6 +11,7 @@
 	import { page } from '$app/state';
 	import TaskFamilyMeta from './TaskFamilyMeta.svelte';
 	import { familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies, taskFamilySections, taskFamilyCount, type TaskFamily } from '#lib/task-families.js';
+	import { requestAttentionLink, requestRows } from '#lib/request-parts.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import ArchiveIcon from '@lucide/svelte/icons/archive';
@@ -160,13 +161,28 @@
 			? []
 			: taskSections({ tasks: shownTasks, questions }, { includeArchived: board.showArchived })
 	);
-	const familySections = $derived(taskFamilySections(sections).map((section) => ({ section, families: taskFamilies(section, expansion) })));
+	const requestAttention = $derived(board?.requestAttention === true);
+	const partsByRequest = $derived.by(() => {
+		if (!requestAttention) return undefined;
+		const parts = new Map<string, TaskRow[]>();
+		for (const { rows } of taskSections({ tasks, questions: board?.board?.questions ?? [] }, { includeArchived: board?.showArchived })) {
+			for (const row of rows) {
+				const id = row.task.requestId ?? row.task.parent;
+				if (id == null) continue;
+				const siblings = parts.get(id) ?? [];
+				siblings.push(row);
+				parts.set(id, siblings);
+			}
+		}
+		return parts;
+	});
+	const familySections = $derived(taskFamilySections(sections, requestAttention).map((section) => ({ section, families: taskFamilies(section, expansion, partsByRequest) })));
 	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks: scoped, questions }));
 	const answered = $derived(board?.board === undefined ? [] : answeredQuestions({ ...board.board, questions }));
 	const decisions = $derived(board?.board?.decisions ?? []);
 	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0);
-	const archivedShown = $derived(board?.showArchived === true ? scoped.filter((task) => task.archived).length : 0);
-	const openCount = $derived(shownTasks.filter((task) => !task.archived && task.status !== 'done' && task.status !== 'dropped').length);
+	const archivedShown = $derived(board?.showArchived === true ? requestRows(scoped, requestAttention).filter((task) => task.archived).length : 0);
+	const openCount = $derived(requestRows(shownTasks, requestAttention).filter((task) => !task.archived && task.status !== 'done' && task.status !== 'dropped').length);
 
 	function isOpen(section: TaskSection): boolean {
 		return sectionOpen[section.id] ?? (section.rows.some(needsFamilyAttention) || !section.collapsedByDefault);
@@ -219,7 +235,7 @@
 			animate:flip={{ duration: searching || reducedMotion.current ? 0 : 180 }}
 			out:slide={{ duration: searching || reducedMotion.current ? 0 : 180 }}>
 			{@render taskRow(family, depth)}
-			{#if coordinatorView?.coordinatorId && family.role === 'task'}
+			{#if !requestAttention && coordinatorView?.coordinatorId && family.role === 'task'}
 				{#each externalParts(family.row.task, tasks, shownIds) as part (part.id)}
 					{@const owner = coordinatorView.roster.find(thread => thread.id === taskCoordinator(part))}
 					<a href={taskHref(part.id)} onclick={() => onopentask?.(part.id)} class="my-1 mr-1 ml-6 flex items-center gap-1.5 rounded-lg border border-dashed border-(--chat-border) px-2 py-1 text-xs hover:bg-(--chat-surface-2)" aria-label={`Part ${part.id}: ${part.title}${owner ? ` · ${owner.title}` : ''}`}>
@@ -227,10 +243,11 @@
 					</a>
 				{/each}
 			{/if}
-			{#if family.children.length > 0}
+			{#if family.children.length > 0 || family.doneParts}
 				<ul class="family-children" class:family-depth-limit={depth >= 3} aria-label="Parts of {family.row.task.id}"
 					transition:slide={{ duration: reducedMotion.current ? 0 : 160 }}>
 					{@render taskRows(family.children, depth + 1)}
+					{#if family.doneParts}<li class="flex items-center gap-2 px-3 py-2 text-xs text-(--chat-fg-muted)"><CheckIcon class="size-3.5 text-(--chat-success)" aria-hidden="true" />{family.doneParts} done {family.doneParts === 1 ? 'part' : 'parts'}</li>{/if}
 				</ul>
 			{/if}
 		</li>
@@ -245,6 +262,7 @@
 	{@const refs = taskRefs(row.task)}
 	{@const owner = coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(thread => thread.id === taskCoordinator(row.task)) : undefined}
 	{@const needsYou = row.section === 'needs_you'}
+	{@const attention = requestAttention && !searching && depth === 0 && !row.task.parent ? requestAttentionLink(row.task, board?.board?.questions ?? [], taskHref) : undefined}
 	{#if family.role === 'parentHeader'}
 		<a class="task-row family-compact family-header flex items-center gap-2.5 px-3 text-xs text-(--chat-fg-subtle)"
 			data-parent-header={row.task.id} href={taskHref(row.task.id)} onclick={() => onopentask?.(row.task.id)}
@@ -285,8 +303,8 @@
 			{#if owner}<CoordinatorMark thread={owner} />{:else}{@render taskRowIcon(row, needsYou, warned)}{/if}
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
 				<a
-					href={taskHref(row.task.id)}
-					onclick={() => onopentask?.(row.task.id)}
+					href={attention?.href ?? taskHref(row.task.id)}
+					onclick={() => onopentask?.(attention?.taskId ?? row.task.id)}
 					onkeydown={event => foldWithArrow(event, family)}
 					class="task-row-link line-clamp-2 text-[0.875rem] leading-5 font-semibold break-words outline-none {row.section === 'closed'
 						? 'text-(--chat-fg-muted)'
@@ -294,10 +312,16 @@
 					aria-label="Open {row.task.id}: {row.task.title}">{#each row.task.title.split('') as letter, at}{#if searching && searchHitById.get(row.task.id)?.ranges.some(([start, end]) => at >= start && at < end)}<mark>{letter}</mark>{:else}{letter}{/if}{/each}</a
 				>
 				{#if searching && searchHitById.get(row.task.id)?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHitById.get(row.task.id)?.snippet}</p>{/if}
-				<TaskFamilyMeta task={row.task} {tasks} archivedLinks={board?.archivedLinks} nested={depth > 0} {taskHref} onopen={onopentask}
-					activity={row.task.state || !searching || !searchHitById.get(row.task.id)?.snippet ? activity : undefined}
-					summary={searching && searchHitById.get(row.task.id)?.snippet ? '' : row.task.status === 'waiting' ? waitingSummary(row.task) : gist}
-					canToggle={family.canToggle} expanded={family.expanded} foldedCount={family.foldedCount} ontoggle={() => toggleFamily(row.task.id)} />
+				{#if attention}
+					<p class="text-xs leading-4 text-(--chat-fg-muted)" data-request-attention>
+						{attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}
+					</p>
+				{:else}
+					<TaskFamilyMeta requestView={requestAttention} task={row.task} {tasks} archivedLinks={board?.archivedLinks} nested={depth > 0} {taskHref} onopen={onopentask}
+						activity={row.task.state || !searching || !searchHitById.get(row.task.id)?.snippet ? activity : undefined}
+						summary={searching && searchHitById.get(row.task.id)?.snippet ? '' : row.task.status === 'waiting' ? waitingSummary(row.task) : gist}
+						canToggle={family.canToggle} expanded={family.expanded} foldedCount={family.foldedCount} ontoggle={() => toggleFamily(row.task.id)} />
+				{/if}
 				{#if (!row.task.state && needsYou) || row.waiting.length > 1 || refs.length > 0}
 					<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
 						{#if !row.task.state && needsYou}
@@ -415,7 +439,7 @@
 					</p>
 				{/if}
 
-				{#if board.loaded && !empty && sections.length === 0 && loose.length === 0}
+				{#if board.loaded && !empty && (searching ? sections : familySections).length === 0 && loose.length === 0}
 					<p class="px-1 text-sm text-(--chat-fg-subtle)" data-filter-empty>No task matches the filter.</p>
 				{/if}
 
@@ -447,11 +471,11 @@
 								onclick={() => toggle(section)}
 							>
 								{section.label}
-								{@render countPill(taskFamilyCount(section))}
+								{@render countPill(taskFamilyCount(section, requestAttention))}
 								<ChevronRightIcon class="size-3.5 text-(--chat-fg-subtle) transition-transform {isOpen(section) ? 'rotate-90' : ''}" />
 							</button>
 						{:else}
-							{@render sectionTitle(section.label, taskFamilyCount(section), section.id === 'needs_you')}
+							{@render sectionTitle(section.label, taskFamilyCount(section, requestAttention), section.id === 'needs_you')}
 						{/if}
 						{#if isOpen(section)}
 							<ul class="task-group">

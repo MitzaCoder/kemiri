@@ -3,6 +3,7 @@
 	import { coordinatorColor, taskCoordinator } from '#lib/coordinators.js';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
+	import TaskPartsProgress from './TaskPartsProgress.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { taskRowActivity } from '#lib/task-activity.js';
@@ -20,6 +21,7 @@
 	import { cardGist, cardTime, type KanbanCard } from '#lib/kanban.js';
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { isWarning, refLabel, taskRefs, taskDisplayToneClass } from '#lib/tasks.js';
+	import type { requestAttentionLink } from '#lib/request-parts.js';
 	import { taskOwner } from '#lib/threads.js';
 	import type { BoardTask, BoardTaskBrief, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 
@@ -44,10 +46,14 @@
 		ghost = false,
 		lifted = false,
 		searchHit,
-		activityEnabled = false
+		activityEnabled = false,
+		requestView = false,
+		attention
 	}: {
 		card: KanbanCard;
 		activityEnabled?: boolean;
+		requestView?: boolean;
+		attention?: ReturnType<typeof requestAttentionLink>;
 		/** Every task on the board, to name what this one waits for. */
 		tasks: readonly BoardTask[];
 		workers?: readonly WorkerSummary[];
@@ -132,13 +138,18 @@
 		>
 		{#if task.waiting && !activity}<p class="text-xs text-(--chat-fg-subtle)">{waitingSummary(task)}</p>{/if}
 {#if searchHit?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHit.snippet}</p>{/if}
-{#if activity && (task.state || !searchHit?.snippet)}
+{#if attention}
+			<p class="text-xs text-(--chat-fg-muted)">{attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}</p>
+		{:else if activity && (task.state || !searchHit?.snippet)}
 			<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />
 {:else if !searchHit?.snippet && gist.length > 0 && task.status !== 'waiting'}
 			<p class="line-clamp-2 text-task-sm break-words text-(--chat-fg-muted)">{gist}</p>
 		{/if}
 		{#if needsYou && card.waiting.length > 1}
 			<p class="text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">+{card.waiting.length - 1} more waiting</p>
+		{/if}
+		{#if requestView && (task.partsDigest?.total || task.subtaskStates?.length)}
+			<p class="flex items-center gap-2 text-xs text-(--chat-fg-muted)"><TaskPartsProgress {task} /></p>
 		{/if}
 		{#if !ghost}
 			<TaskRelationChips {task} {tasks} {archivedLinks} hrefOf={taskHref} onopen={onopentask} />
