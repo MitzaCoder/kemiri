@@ -906,6 +906,8 @@ import {
 
 import {
 	AnswerExchangeSchema,
+	AnswerWorkSchema,
+	TaskAnswerQuestionSchema,
 	AnswerSchema,
 	AnswersListRequestSchema,
 	AnswersGetRequestSchema,
@@ -913,12 +915,14 @@ import {
 	AnswersDeleteRequestSchema,
 	AnswersAskRequestSchema,
 	AnswersTurnIntoTaskRequestSchema,
+	AnswersCopyFromTaskRequestSchema,
 	AnswersListResponseSchema,
 	AnswersGetResponseSchema,
 	AnswersUpdateResponseSchema,
 	AnswersDeleteResponseSchema,
 	AnswersAskResponseSchema,
 	AnswersTurnIntoTaskResponseSchema,
+	AnswersCopyFromTaskResponseSchema,
 	AnswersChangedEventSchema,
 } from "./answers.ts";
 export * from "./answers.ts";
@@ -931,6 +935,7 @@ export const ClientMessageSchema = Type.Union([
 	AnswersDeleteRequestSchema,
 	AnswersAskRequestSchema,
 	AnswersTurnIntoTaskRequestSchema,
+	AnswersCopyFromTaskRequestSchema,
  UserSettingsGetRequestSchema, UserSettingsSetRequestSchema,
  McpOAuthStartRequestSchema, McpOAuthCompleteRequestSchema, McpOAuthCancelRequestSchema,
 	McpListRequestSchema,
@@ -1090,6 +1095,7 @@ export const ResponseSchema = Type.Union([
 	AnswersDeleteResponseSchema,
 	AnswersAskResponseSchema,
 	AnswersTurnIntoTaskResponseSchema,
+	AnswersCopyFromTaskResponseSchema,
  UserSettingsGetResponseSchema, UserSettingsSetResponseSchema,
  McpOAuthStartResponseSchema, McpOAuthCompleteResponseSchema, McpOAuthCancelResponseSchema,
 	McpListResponseSchema,
@@ -1277,6 +1283,10 @@ export type ServerMessage = Static<typeof ServerMessageSchema>;
 export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	AnswerExchange: AnswerExchangeSchema,
 	Answer: AnswerSchema,
+	AnswerWork: AnswerWorkSchema,
+	TaskAnswerQuestion: TaskAnswerQuestionSchema,
+	AnswersCopyFromTaskRequest: AnswersCopyFromTaskRequestSchema,
+	AnswersCopyFromTaskResponse: AnswersCopyFromTaskResponseSchema,
 	AnswersListRequest: AnswersListRequestSchema,
 	AnswersGetRequest: AnswersGetRequestSchema,
 	AnswersUpdateRequest: AnswersUpdateRequestSchema,

@@ -85,9 +85,41 @@ data class Answer(
     val `title`: String,
     val `related`: List<String>,
     val `taskId`: String? = null,
+    val `working`: AnswerWork? = null,
     val `pinned`: Boolean,
     val `read`: Boolean,
     val `exchanges`: List<AnswerExchange>
+)
+
+@Serializable
+data class AnswerWork(
+    val `workerId`: String? = null,
+    val `status`: String? = null,
+    val `elapsedMinutes`: Long? = null
+)
+
+@Serializable
+data class TaskAnswerQuestion(
+    val `taskId`: String,
+    val `feedbackId`: String,
+    val `question`: String,
+    val `note`: String? = null,
+    val `at`: String
+)
+
+@Serializable
+data class AnswersCopyFromTaskRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.copyFromTask",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `taskId`: String
+)
+
+@Serializable
+data class AnswersCopyFromTaskResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "answers.copyFromTask",
+    val `id`: String,
+    val `answerId`: String
 )
 
 @Serializable
@@ -149,7 +181,8 @@ data class AnswersTurnIntoTaskRequest(
 data class AnswersListResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "answers.list",
     val `id`: String,
-    val `answers`: List<Answer>
+    val `answers`: List<Answer>,
+    val `taskQuestions`: List<TaskAnswerQuestion>? = null
 )
 
 @Serializable

@@ -251,6 +251,7 @@ export type ProjectManagerOptions = {
 	onWorkersState?: (projectId: string, workers: WorkerSummary[], defaults: WorkerDefaults) => void;
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
 	onBoardState?: (projectId: string, board: Board, legacyBoard: Board) => void;
+	answersWorkAndTasks?: boolean;
 	onAnswersChanged?: (projectId: string, answerId: string, deleted?: true) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
 	onThreadsMessage?: (event: ThreadsMessageEvent) => void;
@@ -367,6 +368,7 @@ export class ProjectManager {
  readonly #taskState: boolean;
  readonly #taskPartStates: boolean;
  readonly #requestAttention: boolean;
+ readonly #answersWorkAndTasks: boolean;
  readonly #onAnswersChanged: ProjectManagerOptions["onAnswersChanged"];
  readonly #requestDigest: boolean;
  readonly #taskLive: boolean;
@@ -444,6 +446,7 @@ export class ProjectManager {
   this.#taskState = options.taskState !== false;
   this.#taskPartStates = options.taskPartStates !== false;
   this.#requestAttention = options.requestAttention !== false;
+  this.#answersWorkAndTasks = options.answersWorkAndTasks === true;
   this.#onAnswersChanged = options.onAnswersChanged;
   this.#requestDigest = options.requestDigest !== false;
   this.#taskLive = options.taskLive !== false;
@@ -1477,6 +1480,7 @@ export class ProjectManager {
 		const history = new HistoryService({ conversation, coordinators });
 		const board: BoardService = new BoardService({
 			...(this.#onAnswersChanged ? { answers: {
+				workAndTasks: this.#answersWorkAndTasks,
 				changed: (answerId: string, deleted?: true) => this.#onAnswersChanged?.(project.id, answerId, deleted),
 				reply: input => {
 					if (!this.#notifications) return;
@@ -1579,6 +1583,7 @@ export class ProjectManager {
 			...(this.apps === undefined ? {} : { apps: { registry: this.apps, active: requirePublisher => activeApps(requirePublisher) } }),
 			taskLive: this.#taskLive,
 			answers: board.answers !== undefined,
+			answersWorkAndTasks: board.workAndTaskAnswersEnabled,
 			artifacts: this.artifacts,
 			...(this.#officialAgents === undefined ? {} : { officialAgents: this.#officialAgents }),
 			browsers: this.browsers,

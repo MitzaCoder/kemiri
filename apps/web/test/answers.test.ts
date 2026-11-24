@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
+import { createServer } from 'vite';
 import { notificationUrl } from '@kemiri/client';
 import { LEGACY_HARNESS_FEATURES, type Answer, type EntryRecord } from '@kemiri/protocol';
-import { answerFromUrl, answerPreview, answerRequests, answersByReply, answersSupported, groupAnswers, hasUnreadAnswers } from '../src/lib/answers.ts';
+import { answerFromUrl, answerPreview, answerRequests, answersByReply, answersSupported, groupAnswers, hasUnreadAnswers, taskQuestionRow } from '../src/lib/answers.ts';
 import { visibleSidebarTabs } from '../src/lib/sidebar.ts';
 import { buildTranscript } from '../src/lib/transcript.ts';
 
@@ -41,7 +42,7 @@ test('answer search sends its query without changing the full-list subscription'
 		return { type: 'answers.list', answers: [answer('A3')] };
 	}) as Parameters<typeof answerRequests>[0]['request'] }, 'bakery');
 	await api.list(undefined, true);
-	expect((await api.list('  recipe archive  ')).map(row => row.id)).toEqual(['A3']);
+	expect((await api.list('  recipe archive  ')).answers.map(row => row.id)).toEqual(['A3']);
 	await api.list(undefined, false);
 	expect(requests).toEqual([
 		{ type: 'answers.list', projectId: 'bakery', subscribe: true },
@@ -103,4 +104,43 @@ test('pop-up and inbox reply links target the answer instead of the chat, but le
 	expect(notificationUrl(reply)).toBe(legacyHref);
 	expect(notificationUrl({ ...reply, kind: 'worker_report', answerId: 'A3' })).toBe(legacyHref);
 	expect(notificationUrl({ ...reply, answerId: '../x' })).toBe(legacyHref);
+});
+
+
+test('renders task questions, working and failed errands, and the closed request copy action', async () => {
+	const vite = await createServer({ root: import.meta.dir + '/..', server: { middlewareMode: true }, logLevel: 'error' });
+	try {
+		const { default: AnswerListRow } = await vite.ssrLoadModule('/src/lib/components/answers/AnswerListRow.svelte');
+		const { default: CopyToAnswers } = await vite.ssrLoadModule('/src/lib/components/answers/CopyToAnswers.svelte');
+		const { render } = await vite.ssrLoadModule('svelte/server');
+		const at = '2026-11-11T10:00:00Z';
+		const rows = [
+			{ ...answer('A1', { at }), title: 'Refresh the menu preview', working: { workerId: 'menu-preview', status: 'running', elapsedMinutes: 2 } },
+			{ ...answer('A2', { at }), title: 'Sync the print queue', working: { workerId: 'print-queue', status: 'failed', elapsedMinutes: 1 } },
+			taskQuestionRow({ taskId: 'T1', feedbackId: 'F5', at, question: 'Can I print the old recipe cards?', note: 'Choose Print from the recipe.' }),
+		];
+		const html = rows.map(row => render(AnswerListRow, { props: {
+			row, tasks: [], pathname: '/project', taskHref: (id: string) => `/project?task=${id}`,
+			now: Date.parse(at) + 120_000, onnavigate() {}, onleave() {},
+		} }).body).join('');
+		expect(html).toContain('Can I print the old recipe cards?');
+		expect(html).toContain('Choose Print from the recipe.');
+		expect(html.match(/href="\/project\?task=T1"/g)).toHaveLength(2);
+		expect(html).toContain('Working · menu-preview · 2 min');
+		expect(html).toContain('motion-safe:animate-pulse');
+		expect(html).toContain('Worker failed · print-queue');
+		const copy = (status: string, parent: string | null = null, supported = true) => render(CopyToAnswers, {
+			props: { task: { id: 'T1', status, parent }, supported, copy: async () => 'A3' },
+		}).body;
+		for (const status of ['done', 'dropped']) expect(copy(status)).toContain('Copy to Answers');
+		for (const html of [copy('review'), copy('done', 'T2'), copy('done', null, false)]) expect(html).not.toContain('Copy to Answers');
+	} finally { await vite.close(); }
+}, 20_000);
+
+test('copies a closed task through the Answers API', async () => {
+	const api = answerRequests({ request: (async request => {
+		expect(request).toEqual({ type: 'answers.copyFromTask', projectId: 'bakery', taskId: 'T1' });
+		return { type: 'answers.copyFromTask', answerId: 'A9' };
+	}) as Parameters<typeof answerRequests>[0]['request'] }, 'bakery');
+	expect(await api.copyFromTask('T1')).toBe('A9');
 });

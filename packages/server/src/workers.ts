@@ -745,6 +745,7 @@ const REQUEST_PARTS_RULE = `Work needed to finish the request gets a required pa
 
 const TASK_EVERY_SUBJECT = "Every subject the user raises is a task on the project's board, kept with the `board` tool. Before you reply, find its task or add one with add_task.";
 const FILE_QUICK_ANSWERS = "Not every message needs a task. When the owner asks a question, wants a status, or asks for a small errand whose result is one answer, reply and file it with the board action answer: a short title, the full answer and any related tasks. Add a task when something is to be built, changed or looked into with a result to review, or when it needs a worker for more than a few minutes. If an answer turns into work, add the task with fromAnswer. A question about a task still goes on that task.";
+const WORKING_ANSWER_RULE = "For a short errand that uses a worker, file answer with state working and workerId, then file the reply with the same answerId.";
 const BOARD_TASK_RULES = `Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.`;
 
 const GO_LIVE_RULE = `When the project's rules ask the owner before going live, ask once per request, on the request, when its outcome is ready to show. Land its parts on the request's line of work without asking for each one. Offer the choice "Deploy, and do not ask again for this request"; when the owner picks it, record it with \`decide\` on the request and land its later parts once their checks pass.`;
@@ -754,7 +755,7 @@ const VERIFICATION_AND_QUESTION_RULES = `Verification has diminishing returns: v
 const BOARD_INPUT_RULES = `Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped on a request mean the owner closed it. The order of the todo tasks is the user's priority, highest first: start them in that order.`;
 
 /** General and area coordinators talk to the owner directly and follow the same working rules. */
-function directCoordinatorSection(project: Project, answers: boolean): string {
+function directCoordinatorSection(project: Project, answers: boolean, answersWorkAndTasks: boolean): string {
 	return `You do the thinking: plan, delegate, review, merge. Write code only for small, local fixes; hand real work to workers. Claim a task before starting if it does not already belong to you; do not work on a task another coordinator holds.
 
 Stay responsive: the owner is waiting on the other end of every turn, so answer quickly and never block a turn on a wait or a poll — not a sleep, not a loop of status checks, nothing that keeps you "working" while nothing changes. Delegate anything long (a CI watch, a long build or test run, any kind of wait) to a worker with worker_spawn, or to a schedule with schedule_save when it should recur, then end your turn. Use thread_start for a background job with one task and a complete brief. Review your jobs' summaries and failures like worker reports. You get the report when it arrives, including from the owner's next message if you are already answering them.
@@ -770,7 +771,7 @@ Work like this:
 ${DELEGATED_MODEL_RULE}
 ${WORKER_MESSAGE_RULES}
 
-${answers ? FILE_QUICK_ANSWERS : TASK_EVERY_SUBJECT} ${BOARD_TASK_RULES}
+${answers ? FILE_QUICK_ANSWERS : TASK_EVERY_SUBJECT}${answersWorkAndTasks ? ` ${WORKING_ANSWER_RULE}` : ""} ${BOARD_TASK_RULES}
 
 ${ARTIFACT_REVIEW_RULES}
 
@@ -787,8 +788,8 @@ Every worker ends with a report: outcome, files changed, workspace and change ID
 }
 
 /** General keeps the project checkout and can schedule recurring work. */
-export function coordinatorSection(project: Project, answers = false): string {
-	return directCoordinatorSection(project, answers);
+export function coordinatorSection(project: Project, answers = false, answersWorkAndTasks = false): string {
+	return directCoordinatorSection(project, answers, answersWorkAndTasks);
 }
 
 const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer it; if it came as task feedback, put the answer in the feedback note. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with artifactId to publish the next version. Keep: leave that part unchanged in a rewrite. If it came as task feedback, mark it handling when you act and addressed when done, naming the new version if you made one.
@@ -799,7 +800,7 @@ If an (artifact <id>~<n>, <file>) message is about a done task, answer plain que
  * workspace, without a user waiting on its turns, sharing the board with main and the other threads, and ending with
  * a summary. Its identity, workspace and brief come with its own instructions (`threads.ts`).
  */
-export function threadCoordinatorSection(project: Project, answers = false): string {
+export function threadCoordinatorSection(project: Project, answers = false, answersWorkAndTasks = false): string {
 	const checkIns = checkInsParagraph(project);
 	return `You are a background thread of the project "${project.name}": a coordinator like main (the thread the user talks to), working on one big piece of work on your own. Your parent coordinator or a schedule gave you a brief. Nobody waits on your turns, so keep going until the work is done, then end with thread_finish.
 
@@ -817,7 +818,7 @@ Work like this:
 ${DELEGATED_MODEL_RULE}
 ${WORKER_MESSAGE_RULES}
 
-${answers ? `${FILE_QUICK_ANSWERS} ` : ""}Report on the task you were started for as you go. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy; blocked is for failure or being stuck and requires blockedReason.
+${answers ? `${FILE_QUICK_ANSWERS} ` : ""}${answersWorkAndTasks ? `${WORKING_ANSWER_RULE} ` : ""}Report on the task you were started for as you go. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy; blocked is for failure or being stuck and requires blockedReason.
 
 ${ARTIFACT_REVIEW_RULES}
 
@@ -1162,6 +1163,7 @@ function createCheckInTask(service: WorkerService): Task<null, CheckInState, nul
 
 export type WorkerServiceOptions = {
 	answers?: boolean;
+	answersWorkAndTasks?: boolean;
 	taskLive?: boolean;
 	officialAgents?: OfficialAgentSessions;
 	artifacts?: ArtifactStore;
@@ -1525,6 +1527,10 @@ export class WorkerService {
 
 	get answersEnabled(): boolean {
 		return this.#options.answers === true;
+	}
+
+	get answersWorkAndTasksEnabled(): boolean {
+		return this.#options.answersWorkAndTasks === true;
 	}
 
 	get project(): Project {
@@ -2815,10 +2821,10 @@ function createWorkerExtension(service: WorkerService): Extension {
 		// Main's section is unchanged; a background thread gets its own variant, and a worker that kept this extension none.
 		sections: [
 			section("coordinator", (input) => {
-				if (service.coordinators.isMain(input.conversationId)) return coordinatorSection(service.project, service.answersEnabled);
+				if (service.coordinators.isMain(input.conversationId)) return coordinatorSection(service.project, service.answersEnabled, service.answersWorkAndTasksEnabled);
 				if (service.coordinators.isBackground(input.conversationId)) {
-					if (service.coordinators.placeOf(input.conversationId)?.kind === "coordinator") return coordinatorSection(service.project, service.answersEnabled);
-					return threadCoordinatorSection(service.project, service.answersEnabled);
+					if (service.coordinators.placeOf(input.conversationId)?.kind === "coordinator") return coordinatorSection(service.project, service.answersEnabled, service.answersWorkAndTasksEnabled);
+					return threadCoordinatorSection(service.project, service.answersEnabled, service.answersWorkAndTasksEnabled);
 				}
 				return undefined;
 			}),

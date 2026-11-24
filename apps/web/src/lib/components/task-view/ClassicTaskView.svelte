@@ -1,5 +1,7 @@
 <script lang="ts">
 	import PartsChecklist from './PartsChecklist.svelte';
+	import CopyToAnswers from '#lib/components/answers/CopyToAnswers.svelte';
+	import { answerRequests, answersWorkAndTasksSupported } from '#lib/answers.js';
 	import TaskApps from '#lib/components/apps/TaskApps.svelte';
 	import TaskActivity from '#lib/components/TaskActivity.svelte';
 	import TaskLive from '#lib/components/TaskLive.svelte';
@@ -98,6 +100,9 @@
 		{#if fields?.goal}<p class="max-w-[60ch] text-base [overflow-wrap:anywhere] text-(--chat-fg-muted)">{fields.goal}</p>{/if}
 		{#key task.id}
 			{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} />{/if}
+			{#if !editing}
+				<CopyToAnswers {task} supported={answersWorkAndTasksSupported(backend.features)} copy={id => answerRequests(backend.client, projectId).copyFromTask(id)} />
+			{/if}
 		{/key}
 
 		{#if waitingForm}

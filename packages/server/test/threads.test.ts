@@ -1334,7 +1334,7 @@ threadTest("keeps coordinator lifecycle, routing and prompt bytes across restart
 	expect(initial.systemPrompt).not.toContain("Count stored items.");
 	expect(initial.tools.map(tool => tool.name)).not.toContain("thread_finish");
 	expect(JSON.stringify(initial.tools)).toBe(JSON.stringify(general.tools));
-	for (const shared of [coordinatorSection(runtime.threads.project, true), PEER_THREADS_SECTION]) {
+	for (const shared of [coordinatorSection(runtime.threads.project, true, true), PEER_THREADS_SECTION]) {
 		expect(general.systemPrompt).toContain(shared);
 		expect(initial.systemPrompt).toContain(shared);
 	}

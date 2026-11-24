@@ -1,3 +1,4 @@
+import { isOwnerQuestion, withWorkerProgress } from "./answers.ts";
 import type { AppSettings } from "@kemiri/protocol";
 import type { NotificationsAlertEvent, NotificationsResolvedEvent, ThreadsMessageEvent } from "@kemiri/protocol";
 import { resolveCodeRoot } from "./code-root.ts";
@@ -77,7 +78,7 @@ import type { RequestLog } from "./request-log.ts";
 import type { Notifier } from "./notifications.ts";
 import { PushRelayError } from "@kemiri/protocol";
 import type { ProjectManager } from "./runtime.ts";
-import { QueuedInputs, describeContent, queueClock } from "./queued-inputs.ts";
+import { QueuedInputs, describeContent, queueClock, splitTaskReference } from "./queued-inputs.ts";
 import { WatchWindow, resolveWindowBounds } from "./window.ts";
 import { OWNER_CHAT_ENTRY, wireEntry } from "./wire.ts";
 import type { TerminalAttachment, TerminalHost } from "./terminals.ts";
@@ -227,6 +228,7 @@ export class ClientConnection {
 	#clientSupportsTaskSteps = false;
 	#clientSupportsRequestAttention = false;
 	#clientSupportsRequestDigest = false;
+	#clientSupportsAnswersWorkAndTasks = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
 	#closed = false;
@@ -935,8 +937,9 @@ export class ClientConnection {
 				case "answers.update":
 				case "answers.delete":
 				case "answers.ask":
-				case "answers.turnIntoTask": {
-					if (!this.#features.includes("answers")) return this.#unknownRequest(request);
+				case "answers.turnIntoTask":
+				case "answers.copyFromTask": {
+					if (!this.#features.includes("answers") || (request.type === "answers.copyFromTask" && !this.#clientSupportsAnswersWorkAndTasks)) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					if (!this.#authorized(0, request.id)) return;
 					const answers = runtime.board.answers!;
@@ -944,12 +947,21 @@ export class ClientConnection {
 						case "answers.list": {
 							if (request.subscribe === true) this.#answerSubscriptions.add(request.projectId);
 							if (request.subscribe === false) this.#answerSubscriptions.delete(request.projectId);
-							this.#respond({ type: request.type, id: request.id, answers: await answers.list(request.query) });
+							const extended = this.#clientSupportsAnswersWorkAndTasks;
+							const rows = await answers.list(request.query, extended);
+							const workers = rows.some(row => row.working?.workerId) ? (await runtime.workers.list()).workers : [];
+							const now = runtime.board.answerClock;
+							this.#respond({ type: request.type, id: request.id, answers: extended ? rows.map(row => withWorkerProgress(row, now, workers)) : rows,
+								...(extended ? { taskQuestions: await runtime.board.taskAnswerQuestions(request.query) } : {}) });
 							break;
 						}
-						case "answers.get":
-							this.#respond({ type: request.type, id: request.id, answer: await answers.get(request.answerId) });
+						case "answers.get": {
+							const answer = await answers.get(request.answerId);
+							if (answer.working && !this.#clientSupportsAnswersWorkAndTasks) throw new ServerError("not_found", `Unknown answer ${answer.id}.`);
+							const workers = answer.working?.workerId ? (await runtime.workers.list(answer.coordinatorId)).workers : [];
+							this.#respond({ type: request.type, id: request.id, answer: withWorkerProgress(answer, runtime.board.answerClock, workers) });
 							break;
+						}
 						case "answers.update":
 							this.#respond({ type: request.type, id: request.id, answer: await answers.update(request.answerId, {
 								...(request.pinned === undefined ? {} : { pinned: request.pinned }), ...(request.read === undefined ? {} : { read: request.read }),
@@ -961,6 +973,7 @@ export class ClientConnection {
 							break;
 						case "answers.ask": {
 							const answer = await answers.get(request.answerId);
+							if (answer.working) throw new ServerError("bad_request", "Wait for the working answer to finish first.");
 							const question = request.question ?? answer.exchanges.at(-1)?.question ?? answer.question;
 							if (!question.trim()) throw new ServerError("bad_request", "Write a question first.");
 							const conversation = await runtime.threads.conversation(answer.coordinatorId);
@@ -976,6 +989,9 @@ export class ClientConnection {
 							this.#respond({ type: request.type, id: request.id, coordinatorId: answer.coordinatorId });
 							break;
 						}
+						case "answers.copyFromTask":
+							this.#respond({ type: request.type, id: request.id, answerId: await runtime.board.copyTaskToAnswers(request.taskId) });
+							break;
 						case "answers.turnIntoTask":
 							this.#respond({ type: request.type, id: request.id, taskId: await runtime.board.turnAnswerIntoTask(request.answerId, request.title, request.description) });
 							break;
@@ -1390,27 +1406,40 @@ export class ClientConnection {
 					// A message about a task names it in front of its text, so every coordinator reads which task it is about.
 					const { runtime } = await this.#manager.open(request.projectId);
 					let threadId = request.threadId;
-					if (request.taskId !== undefined) {
-						await runtime.board.requireTask(request.taskId);
-						const task = (await runtime.board.state()).tasks.find(task => task.id === request.taskId);
+					let taskId = request.taskId;
+					let ownerContent = request.content;
+					// Bring a typed task-question prefix through the same feedback path as the task composer.
+					if (runtime.board.workAndTaskAnswersEnabled && this.#features.includes("task-links")) {
+						const first = typeof ownerContent === "string" ? ownerContent : ownerContent[0]?.type === "text" ? ownerContent[0].text : "";
+						const reference = splitTaskReference(first);
+						if (reference.taskId && /^T[1-9]\d*$/.test(reference.taskId) && (taskId === undefined || taskId === reference.taskId) &&
+							isOwnerQuestion(splitTaskReference(describeContent(ownerContent).text).text) &&
+							(taskId !== undefined || (await runtime.board.state()).tasks.some(task => task.id === reference.taskId))) {
+							taskId = reference.taskId;
+							ownerContent = typeof ownerContent === "string" ? reference.text : [{ type: "text", text: reference.text }, ...ownerContent.slice(1)];
+						}
+					}
+					if (taskId !== undefined) {
+						await runtime.board.requireTask(taskId);
+						const task = (await runtime.board.state()).tasks.find(task => task.id === taskId);
 						threadId = await runtime.board.routeCoordinator(task?.ownerThreadId);
 					}
 					const conversation = await runtime.threads.conversation(threadId ?? "main");
 					if (!this.#authorized(0, request.id)) return;
-					const content = await this.#manager.files.message(request.projectId, conversation.id, request.content, request.fileIds);
+					const content = await this.#manager.files.message(request.projectId, conversation.id, ownerContent, request.fileIds);
 					if (!this.#authorized(0, request.id)) return;
 					// The message becomes a feedback entry on the task, and its ID goes into the reference the coordinator reads.
 					// A re-sent request ID finds its entry. Record user text/attachment names, never extracted contents or harness inputs.
-					const description = describeContent(request.content);
-					if (request.taskId !== undefined && request.fileIds?.length && !description.text.trim()) {
+					const description = describeContent(ownerContent);
+					if (taskId !== undefined && request.fileIds?.length && !description.text.trim()) {
 						const names = splitFileMessage(describeContent(content).text).files.filter(file => request.fileIds!.includes(file.id)).map(file => file.name);
 						description.text = `Attached files: ${names.join(', ')}`;
 					}
 					const feedback =
-						request.taskId === undefined || !this.#features.includes("task-links")
+						taskId === undefined || !this.#features.includes("task-links")
 							? undefined
 							: await this.#manager.recordBoardFeedback(request.projectId, {
-									taskId: request.taskId,
+									taskId,
 									...description,
 									threadId: threadId ?? "main",
 									requestId: request.requestId,
@@ -1422,11 +1451,11 @@ export class ClientConnection {
 					const submission = await runtime.threads.submitOwner(conversation,
 						{
 							type: "input",
-							entry: { kind: OWNER_CHAT_ENTRY, ...(runtime.board.answers ? { data: { ownerQuestion: describeContent(request.content).text, ...(request.taskId === undefined ? {} : { taskId: request.taskId }) } } : {}) },
+							entry: { kind: OWNER_CHAT_ENTRY, ...(runtime.board.answers ? { data: { ownerQuestion: describeContent(ownerContent).text, ...(taskId === undefined ? {} : { taskId }), ...(feedback ? { feedbackId: feedback.id } : {}) } } : {}) },
 							content:
-								request.taskId === undefined
+								taskId === undefined
 									? content
-									: withTaskReference(content, request.taskId, feedback?.id),
+									: withTaskReference(content, taskId, feedback?.id),
 							requestId: request.requestId,
 							...(request.whenBusy === undefined ? {} : { whenBusy: request.whenBusy }),
 						},
@@ -1733,6 +1762,7 @@ export class ClientConnection {
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
 		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
+		this.#clientSupportsAnswersWorkAndTasks = this.#features.includes("answers-work-and-tasks") && request.client?.features?.includes("answers-work-and-tasks") === true;
 		this.#clientSupportsRequestDigest = this.#features.includes("request-digest") && request.client?.features?.includes("request-digest") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;

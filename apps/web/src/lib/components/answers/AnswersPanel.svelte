@@ -1,11 +1,10 @@
 <script lang="ts">
-	import Check from '@lucide/svelte/icons/check';
-	import Star from '@lucide/svelte/icons/star';
-	import { answerDay, answerPreview, answerTime, groupAnswers } from '#lib/answers.js';
+	import AnswerListRow from './AnswerListRow.svelte';
+	import { groupAnswers, taskQuestionRow } from '#lib/answers.js';
 	import type { ProjectAnswers } from '#lib/answers.svelte.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { useTaskSearch } from '#lib/task-search.svelte.js';
-	import type { Answer, BoardTask } from '@kemiri/protocol';
+	import type { Answer, BoardTask, TaskAnswerQuestion } from '@kemiri/protocol';
 	import AnswerPage from './AnswerPage.svelte';
 	import AnswerTaskChip from './AnswerTaskChip.svelte';
 	import TaskSearchBox from '../TaskSearchBox.svelte';
@@ -19,23 +18,27 @@
 	const search = useTaskSearch(() => tasks, () => board);
 	const query = $derived(search.query.trim());
 	const answer = $derived(catalogue.answers.find(answer => answer.id === answerId));
-	let found = $state.raw<{ query: string; answers: Answer[] }>();
+	let found = $state.raw<{ query: string; answers: Answer[]; taskQuestions: TaskAnswerQuestion[] }>();
 	let searchError = $state<string>();
-	const shown = $derived(query ? found?.query === query ? found.answers : [] : catalogue.answers);
+	const shown = $derived(query && found?.query !== query ? [] : [
+		...(query ? found!.answers : catalogue.answers),
+		...(query ? found!.taskQuestions : catalogue.taskQuestions).map(taskQuestionRow),
+	]);
 	const groups = $derived(groupAnswers(shown, now));
 	const matchingTasks = $derived(query && !answerId ? search.search(new Set(tasks.map(task => task.id))) : []);
 
 	$effect(() => {
 		// Refetch the current search when its full catalogue changes, without narrowing the unread or reply index.
 		void catalogue.answers;
+		void catalogue.taskQuestions;
 		const term = query;
 		searchError = undefined;
 		if (!term || answerId || !catalogue.ready) return;
 		let cancelled = false;
 		const timer = setTimeout(async () => {
 			try {
-				const answers = await catalogue.requests.list(term);
-				if (!cancelled) found = { query: term, answers };
+				const matches = await catalogue.requests.list(term);
+				if (!cancelled) found = { query: term, ...matches };
 			} catch (error) {
 				if (!cancelled) searchError = error instanceof Error ? error.message : String(error);
 			}
@@ -77,18 +80,7 @@
 						<h3 class="px-1 pt-4 pb-1 text-xs font-semibold text-(--chat-fg-muted)">{group.day}</h3>
 						<ul class="divide-y divide-(--chat-border) rounded-lg border border-(--chat-border) bg-(--chat-bg)">
 							{#each group.answers as row (row.id)}
-								{@const taskId = row.taskId ?? row.related[0]}
-								<li class="relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 px-2.5 py-2.5 hover:bg-(--chat-surface-2)/50">
-									<span class="mt-0.5 text-(--accent-2)" title={row.pinned ? 'Pinned answer' : 'Answered'}>
-										{#if row.pinned}<Star size={15} aria-hidden="true" />{:else}<Check size={15} aria-hidden="true" />{/if}
-									</span>
-									<div class="min-w-0 space-y-1">
-										<a href={`${pathname}?answer=${row.id}`} onclick={onnavigate} class="block rounded-sm text-sm leading-snug {row.read ? 'font-medium' : 'font-bold'} after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline" aria-label={row.read ? undefined : `${row.title}, unread`}>{row.title}</a>
-										<p class="truncate text-xs leading-relaxed text-(--chat-fg-muted)">{answerPreview(row.answer)}</p>
-										{#if taskId}<div class="relative w-fit max-w-full"><AnswerTaskChip id={taskId} task={tasks.find(task => task.id === taskId)} href={taskHref(taskId)} onclick={onleave} /></div>{/if}
-									</div>
-									<time datetime={row.at} class="pt-0.5 text-[0.6875rem] whitespace-nowrap tabular-nums text-(--chat-fg-subtle)">{row.pinned && answerDay(row.at, now) !== 'Today' ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(row.at)) : answerTime(row.at)}</time>
-								</li>
+								<AnswerListRow {row} {now} {pathname} {tasks} {taskHref} {onnavigate} {onleave} />
 							{/each}
 						</ul>
 					</section>

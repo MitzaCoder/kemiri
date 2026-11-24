@@ -487,6 +487,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		(feature) =>
 			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "recorded-usage" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
+			(feature !== "answers-work-and-tasks" || (options.features ?? HARNESS_FEATURES).includes("answers")) &&
 			(feature !== "usage-drain" || usageDrain !== undefined) &&
 			(feature !== "terminal" || terminals !== undefined) &&
 			(feature !== "project-files" || projectFiles !== undefined) &&
@@ -813,6 +814,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of connections) connection.notifyThreads(projectId, threads, landingTurn);
 		},
 		...(options.boardEditDebounceMs === undefined ? {} : { boardEditDebounceMs: options.boardEditDebounceMs }),
+  answersWorkAndTasks: features.includes("answers-work-and-tasks"),
   ...(features.includes("answers") ? { onAnswersChanged: (projectId: string, answerId: string, deleted?: true) => {
    for (const connection of connections) connection.notifyAnswer(projectId, answerId, deleted);
   } } : {}),

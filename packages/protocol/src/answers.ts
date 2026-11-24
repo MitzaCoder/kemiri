@@ -15,12 +15,29 @@ export const AnswerExchangeSchema = Type.Object({
 });
 export type AnswerExchange = Static<typeof AnswerExchangeSchema>;
 
+export const AnswerWorkSchema = Type.Object({
+	workerId: Type.Optional(Type.String()),
+	status: Type.Optional(Type.Union([Type.Literal("running"), Type.Literal("failed"), Type.Literal("stopped"), Type.Literal("awaiting_reply"), Type.Literal("unavailable")])),
+	elapsedMinutes: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+export type AnswerWork = Static<typeof AnswerWorkSchema>;
+
+export const TaskAnswerQuestionSchema = Type.Object({
+	taskId: Type.String(),
+	feedbackId: Type.String(),
+	question: Type.String(),
+	note: Type.Optional(Type.String()),
+	at: Type.String(),
+});
+export type TaskAnswerQuestion = Static<typeof TaskAnswerQuestionSchema>;
+
 export const AnswerSchema = Type.Object({
 	...AnswerExchangeSchema.properties,
 	id: AnswerIdSchema,
 	title: Type.String(),
 	related: Type.Array(Type.String()),
-	taskId: Type.Optional(Type.String({ description: "The request made from this answer." })),
+	taskId: Type.Optional(Type.String({ description: "The request made from or copied to this answer." })),
+	working: Type.Optional(AnswerWorkSchema),
 	pinned: Type.Boolean(),
 	read: Type.Boolean(),
 	exchanges: Type.Array(AnswerExchangeSchema, { description: "Earlier exchanges, newest first. The latest is on the answer itself." }),
@@ -51,7 +68,16 @@ export const AnswersTurnIntoTaskRequestSchema = Type.Object({
 	description: Type.Optional(Type.String()),
 });
 
-export const AnswersListResponseSchema = Type.Object({ type: Type.Literal("answers.list"), id: RequestIdSchema, answers: Type.Array(AnswerSchema) });
+export const AnswersCopyFromTaskRequestSchema = Type.Object({
+	type: Type.Literal("answers.copyFromTask"), ...request, taskId: Type.String(),
+});
+export const AnswersCopyFromTaskResponseSchema = Type.Object({
+	type: Type.Literal("answers.copyFromTask"), id: RequestIdSchema, answerId: AnswerIdSchema,
+});
+export type AnswersCopyFromTaskRequest = Static<typeof AnswersCopyFromTaskRequestSchema>;
+export type AnswersCopyFromTaskResponse = Static<typeof AnswersCopyFromTaskResponseSchema>;
+
+export const AnswersListResponseSchema = Type.Object({ type: Type.Literal("answers.list"), id: RequestIdSchema, answers: Type.Array(AnswerSchema), taskQuestions: Type.Optional(Type.Array(TaskAnswerQuestionSchema)) });
 export const AnswersGetResponseSchema = Type.Object({ type: Type.Literal("answers.get"), id: RequestIdSchema, answer: AnswerSchema });
 export const AnswersUpdateResponseSchema = Type.Object({ type: Type.Literal("answers.update"), id: RequestIdSchema, answer: AnswerSchema });
 export const AnswersDeleteResponseSchema = Type.Object({ type: Type.Literal("answers.delete"), id: RequestIdSchema });

@@ -6332,14 +6332,31 @@ schedule. `answers.turnIntoTask` makes a request as the owner and uses the usual
 `board add_task` with `fromAnswer` copy the question and answer into the request and record both links atomically.
 Deleting the answer does not remove the request or its copied text.
 
-The board keeps its previous document version and only adds an optional `fromAnswer` field. Older clients never
-subscribe to answer events and still see the replies in chat. Old question tasks stay as tasks.
+The board keeps its previous document version and adds an optional `fromAnswer` field. Old question tasks stay
+as tasks. With `answers-work-and-tasks` on both sides of hello, `answers.list` also projects question-shaped owner
+feedback into `taskQuestions`, including the latest coordinator note when present. Search matches the question,
+note and task title or ID. The rows open the task and do not affect unread counts. A typed `[task T…]` question
+uses the same feedback path as a task-scoped composer. The fallback and explicit answer action do not make a
+second snapshot of these feedback questions. Already-filed answers are left as they were.
+
+For a taskless errand, `board answer` can set `state: "working"` and name a `workerId`. The start time and optional
+worker reference stay on the version 1 answer. List and detail reads derive elapsed minutes and the producing
+coordinator's worker status. A later `board answer` can finish the same `answerId` from a worker-report turn,
+keeping the original question and removing the working marker without creating an earlier exchange. Older clients
+do not see pending rows. A rollback can still read their version 1 text as “Work is in progress.”
+
+`answers.copyFromTask` files a closed request's title, report summary and results as a read snapshot linked to the
+request. Copying an unchanged snapshot returns the existing copy. The request and its history do not change.
+Neither the feedback projection, the working status nor the owner copy introduces a notification type or route.
 
 Web advertises `answers` in hello and only shows its Answers tab when the server advertises it too. A project
 shares one live catalogue across its retained coordinator chats. The tab's unread dot and the reply-to-answer
 index use the full catalogue. The list groups pinned answers first and the rest by local day. The shared task
 search field uses `answers.list(query)` for answers and the existing task index for task matches; neither filters
-the unread dot. The catalogue resubscribes on reconnect and refreshes on `answers.changed`.
+the unread dot. The catalogue resubscribes on reconnect and refreshes on `answers.changed`. New clients also
+refresh on task feedback changes and worker updates for pending answers. Working rows show a motion-sensitive
+pulse, the worker and elapsed time, or a plain status if the worker is no longer running. Closed request pages
+offer **Copy to Answers** when the capability is available.
 
 `?answer=A…` opens a dated Markdown snapshot in the sidebar or the phone's project tabs and marks it read.
 Related task chips use the live board state. Earlier exchanges stay below the latest reply. Ask again and the

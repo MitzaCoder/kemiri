@@ -1,16 +1,18 @@
-/** Synthetic Answers proof. For before proof, run the same script on a server without the answers feature. */
+/** Synthetic Answers proof. DEMO_WITHOUT_ANSWERS_WORK_AND_TASKS=1 shows the earlier catalogue. */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux';
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
 import { HARNESS_FEATURES } from '@kemiri/protocol';
+import { WorkersDoc } from '../src/workers.ts';
 import { createSetup, errorOf, TestClient } from '../test/support.ts';
 
 const origins = (process.env.DEMO_ORIGINS ?? 'http://localhost:5210').split(',');
 const output = process.env.DEMO_OUTPUT ?? '/tmp/answers-demo.json';
 const today = new Date();
 const dateAt = (daysAgo: number, hour: number, minute: number) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo, hour, minute).getTime();
+const workAndTasks = process.env.DEMO_WITHOUT_ANSWERS_WORK_AND_TASKS !== '1';
 let clock = dateAt(5, 10, 15);
 const setup = await createSetup({ allowedOrigins: origins, terminals: false, now: () => clock, boardEditDebounceMs: 3_600_000,
-	features: HARNESS_FEATURES.filter(feature => feature !== 'answers' || process.env.DEMO_WITHOUT_ANSWERS !== '1') });
+	features: HARNESS_FEATURES.filter(feature => (feature !== 'answers' || process.env.DEMO_WITHOUT_ANSWERS !== '1') && (workAndTasks || feature !== 'answers-work-and-tasks')) });
 const client = await TestClient.open(setup.server);
 await client.hello();
 const added = await client.request({ type: 'projects.add', path: setup.projectDir });
@@ -31,13 +33,23 @@ async function reply(question: string, answer: string, taskId?: string) {
 }
 
 const task = await runtime.board.saveTask({ task: { title: 'Keep the recipe archive below its storage limit', description: 'Review what uses space and keep enough room for the next release.', acceptance: null, status: 'done', blockedBy: [], blockedReason: null, writeScopes: [], parent: null } }, 'user');
+const commit = <R>(change: (tx: import('@earendil-works/pi-durable').Tx) => Promise<R>) => runtime.harness.commit(change, BACKGROUND_CONTEXT);
+const coordinator = { author: 'coordinator', threadId: 'main', workerId: null } as const;
+await runtime.board.writeReport(commit, { taskId: task.id, by: coordinator, sections: {
+	summary: 'The recipe archive has room for the next release.',
+	results: 'Removed 12 GB of generated print previews. All recipe photos and source files stayed in the archive.',
+} }, 'bakery-archive-report');
+clock = dateAt(0, 0, 50);
+const feedback = await runtime.board.recordFeedback({ taskId: task.id, text: 'Can I still print last season’s recipe cards?', images: 0, threadId: 'main', requestId: 'bakery-print-question' });
+await runtime.board.setFeedbackFor(commit, { taskId: task.id, feedbackId: feedback.id, state: 'addressed', note: 'Yes. Open a recipe and choose Print to generate a fresh card.' }, coordinator);
+clock = dateAt(5, 10, 15);
 await reply('How does a friend install the app?', 'Share the release link. They can open it in their browser and choose **Install app** from the menu.');
 if (answers) await answers.update('A1', { pinned: true, read: true });
 clock = dateAt(1, 11, 2);
 await reply('Is the menu preview live?', 'Yes. The preview has been live since 11:20, with the new spring items.');
 if (answers) await answers.update('A2', { read: true });
 clock = dateAt(0, 7, 31);
-await reply('How much room is left in the recipe archive?', 'There were 12 GB free when I checked. The largest folders were last season’s photos and the print previews.', task.id);
+await reply('How much room is left in the recipe archive?', 'There were 12 GB free when I checked. The largest folders were last season’s photos and the print previews.', workAndTasks ? undefined : task.id);
 if (answers) {
 	clock = dateAt(0, 9, 12);
 	setup.faux.setResponses([fauxAssistantMessage('The archive has **24 GB free** after the preview cleanup.\n\nThe recipe photos and print exports are still there. No recipe files were changed.')]);
@@ -58,8 +70,26 @@ if (answers) {
 	await runtime.harness.commit(async tx => {
 		const doc = await tx.doc(AnswersDoc, runtime.conversation.id);
 		for (const [id, at] of dates) doc.answers![id]!.at = new Date(at).toISOString();
+		doc.answers!.A3!.related = [task.id];
 		doc.answers!.A3!.exchanges![0]!.at = new Date(dateAt(0, 0, 31)).toISOString();
 	}, BACKGROUND_CONTEXT);
+}
+if (answers && workAndTasks) {
+	clock = Date.now() - 3 * 60_000;
+	const at = new Date(clock).toISOString();
+	await commit(async tx => {
+		const workers = await tx.doc(WorkersDoc, runtime.conversation.id);
+		workers.workers['menu-preview'] = { id: 'menu-preview', title: 'Refresh the menu preview', conversationId: 42,
+			anchorTaskId: 1, isolation: 'shared', workspacePath: null, model: { provider: 'faux', modelId: 'faux-1' },
+			thinkingLevel: null, status: 'running', spawnedByCallId: null, createdAt: at, updatedAt: at, lastReport: null, failure: null };
+	});
+	setup.faux.setResponses([
+		fauxAssistantMessage([fauxToolCall('board', { action: 'answer', title: 'Refresh the menu preview', state: 'working', workerId: 'menu-preview' })], { stopReason: 'toolUse' }),
+		fauxAssistantMessage('The preview refresh has started.'),
+	]);
+	const started = await request('conversation.submit', { content: 'Please refresh the menu preview.', requestId: 'bakery-refresh-preview' });
+	if (started.type !== 'conversation.submit') throw errorOf(started);
+	await idle();
 }
 clock = Date.now();
 await Bun.write(output, JSON.stringify({ url: setup.server.url, projectId, pid: process.pid }));

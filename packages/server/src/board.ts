@@ -1,4 +1,4 @@
-import { AnswerStore, ownerQuestion, shouldFileAnswer, taskDescriptionFromAnswer, type OwnerQuestion } from "./answers.ts";
+import { AnswerStore, answerMatchesQuery, isOwnerQuestion, ownerQuestion, shouldFileAnswer, taskDescriptionFromAnswer, type OwnerQuestion } from "./answers.ts";
 import { finalAnswerText } from "./activity.ts";
 import { DRAIN_CHOICES } from "./usage-drain-investigation.ts";
 import { MAX_BOARD_DELTAS } from "./board-checkpoint-policy.ts";
@@ -66,6 +66,7 @@ import {
 	type BoardQuestionChoice,
 	type BoardReportCheck,
 	type BoardTask,
+	type TaskAnswerQuestion,
 	type BoardTaskBrief,
 	type BoardTaskInput,
 	type BoardTaskReport,
@@ -2575,6 +2576,7 @@ export type BoardServiceOptions = {
 	/** Called after an input reached a background thread, so a finished or stopped one counts as working again. */
 	wakeThread?: (threadId: string) => Promise<void>;
 	answers?: {
+		workAndTasks?: boolean;
 		changed(id: string, deleted?: true): void;
 		reply(input: { coordinatorId: string; entryId: number; text: string; at: string; answerId?: string }): void;
 	};
@@ -3218,14 +3220,58 @@ export class BoardService {
 		return this.#commit(HARNESS_WRITER, (state) => taskForEvent(state, { ...input, now: this.#iso() }).after);
 	}
 
+	get workAndTaskAnswersEnabled(): boolean {
+		return this.#options.answers?.workAndTasks === true;
+	}
+
+	get answerClock(): number { return this.#options.now(); }
+
+	/** Project owner questions from task history; don't copy the question or its note into Answers. */
+	async taskAnswerQuestions(query?: string): Promise<TaskAnswerQuestion[]> {
+		const state = await this.state();
+		const taskQuestions = await Promise.all(state.tasks.filter(task => task.feedback).map(async task => {
+			const history = await this.#options.harness.snapshot(TaskHistoryDoc, this.#mainId, task.id, BACKGROUND_CONTEXT);
+			return (history?.feedback ?? []).flatMap(entry => {
+				if (!isOwnerQuestion(entry.text)) return [];
+				const note = entry.changes.findLast(change => change.by.author === "coordinator" && change.note)?.note;
+				return answerMatchesQuery(query, task.id, task.title, entry.text, note ?? "") ? [{
+					taskId: task.id, feedbackId: entry.id, question: entry.text, at: entry.at, ...(note ? { note } : {}),
+				}] : [];
+			});
+		}));
+		return taskQuestions.flat().sort((a, b) => b.at.localeCompare(a.at) || Number(b.feedbackId.slice(1)) - Number(a.feedbackId.slice(1)));
+	}
+
+	/** Save the closed request as a snapshot without updating the task or sending a notice. */
+	async copyTaskToAnswers(taskId: string): Promise<string> {
+		const answers = need(this.answers, "copy to Answers", "answers feature");
+		const answer = await this.#options.harness.commit(async tx => {
+			const task = (await openBoard(tx, this.#mainId)).tasks.find(task => task.id === taskId);
+			if (!task) throw unknownTask(taskId);
+			if (task.parent || (task.status !== "done" && task.status !== "dropped")) {
+				throw new ServerError("bad_request", "Only a closed request can be copied to Answers.");
+			}
+			const { report } = task;
+			const results = report.blocks?.results ? reportMarkdown("results", report.blocks.results, false) : report.results;
+			const reply = [report.summary, results].map(text => text?.trim()).filter(Boolean).join("\n\n") || "This closed request has no summary or results.";
+			const coordinatorId = task.ownerThreadId ?? "main";
+			return answers.copyTask(tx, taskId, task.title, { question: task.title, answer: reply, at: this.#iso(),
+				coordinatorId, coordinatorTitle: await this.answerCoordinatorTitle(coordinatorId), filedBy: "harness" });
+		}, BACKGROUND_CONTEXT);
+		answers.changed(answer.id);
+		return answer.id;
+	}
+
 	/** Convert once, atomically linking the request and its source answer. */
 	async turnAnswerIntoTask(answerId: string, title?: string, description?: string): Promise<string> {
 		const answers = need(this.answers, "turn into a task", "answers feature");
 		const source = await answers.get(answerId);
+		if (source.working) throw new ServerError("bad_request", "Wait for the working answer to finish first.");
 		if (source.taskId) return source.taskId;
 		const owner = await this.routeCoordinator(source.coordinatorId);
 		const result = await this.#options.harness.commit(tx => this.#change(tx, USER_WRITER, undefined, async (state, now) => {
 			const answer = await answers.inTransaction(tx, answerId);
+			if (answer.working) throw new ServerError("bad_request", "Wait for the working answer to finish first.");
 			if (answer.taskId) return { taskId: answer.taskId };
 			const change = saveTask(state, { author: "user", now, ownerThreadId: owner === "main" ? null : owner,
 				task: { title: title?.trim() || answer.title, description: taskDescriptionFromAnswer(answer, description),
@@ -3263,7 +3309,7 @@ export class BoardService {
 		if (!this.answers || (!input.ownerJoined && !input.startedBy)) return false;
 		const coordinatorId = this.threadIdOf(input.conversationId);
 		const question = input.startedBy;
-		const fallback = question !== undefined && input.reply.trim() && shouldFileAnswer(question.question, input.reply) ? {
+		const fallback = question !== undefined && !this.isTaskAnswerQuestion(question) && input.reply.trim() && shouldFileAnswer(question.question, input.reply) ? {
 			title: question.question.trim().split(/\r?\n/, 1)[0]!.trim().slice(0, 120),
 			...(question.answerId === undefined ? {} : { answerId: question.answerId }),
 			related: question.taskId === undefined ? [] : [question.taskId],
@@ -3277,11 +3323,16 @@ export class BoardService {
 			return undefined;
 		});
 		// Feature-enabled replies are emitted here, after filing, never by the activity watch.
-		if (input.reply.trim() || (answer && input.startedBy)) this.#options.answers?.reply({
-			coordinatorId, entryId: input.entryId, at: input.at, text: answer && input.startedBy ? answer.answer : input.reply,
-			...(answer && input.startedBy ? { answerId: answer.id } : {}),
+		const filedReply = answer && !answer.working && input.startedBy ? answer : undefined;
+		if (input.reply.trim() || filedReply) this.#options.answers?.reply({
+			coordinatorId, entryId: input.entryId, at: input.at, text: filedReply?.answer ?? input.reply,
+			...(filedReply ? { answerId: filedReply.id } : {}),
 		});
 		return answer !== undefined;
+	}
+
+	isTaskAnswerQuestion(question: OwnerQuestion): boolean {
+		return this.workAndTaskAnswersEnabled && question.taskId !== undefined && question.feedbackId !== undefined && isOwnerQuestion(question.question);
 	}
 
 	async answerCoordinatorTitle(id: string): Promise<string> {
@@ -4251,7 +4302,9 @@ const boardActions = [
 	Type.Literal("release"), Type.Literal("handoff"), Type.Literal("link"), Type.Literal("unlink"), Type.Literal("feedback"),
 ];
 const answerAction = Type.Literal("answer");
-const boardToolParameters = (answers: boolean) => Type.Object({
+const feedbackStates = [Type.Literal("open"), Type.Literal("handling"), Type.Literal("addressed")] as const;
+const workingAnswerState = Type.Literal("working");
+const boardToolParameters = (answers: boolean, workingAnswers: boolean) => Type.Object({
 	action: Type.Union<Array<(typeof boardActions)[number] | typeof answerAction>>(
 		answers ? [...boardActions, answerAction] : boardActions,
 		{
@@ -4321,6 +4374,7 @@ const boardToolParameters = (answers: boolean) => Type.Object({
 	answer: Type.Optional(Type.String({ minLength: 1, description: answers ? "answer, resolve_question: the full Markdown reply." : "resolve_question: the answer." })),
 	...(answers ? {
 		answerId: Type.Optional(Type.String({ pattern: "^A[1-9][0-9]*$", description: "answer: append a new exchange to this answer." })),
+		...(workingAnswers ? { workerId: Type.Optional(Type.String({ minLength: 1, description: "answer: the worker ID for a working errand." })) } : {}),
 		fromAnswer: Type.Optional(Type.String({ pattern: "^A[1-9][0-9]*$", description: "add_task: source answer to turn into a request." })),
 	} : {}),
 	toThread: Type.Optional(Type.String({ minLength: 1, description: 'handoff: the thread that takes the task over ("main" for main).' })),
@@ -4351,9 +4405,9 @@ const boardToolParameters = (answers: boolean) => Type.Object({
 	to: Type.Optional(Type.String({ minLength: 1, description: "link, unlink: the other task." })),
 	feedbackId: Type.Optional(Type.String({ minLength: 1, description: 'feedback: the entry, e.g. "F3" (the message said "[task T12, feedback F3]").' })),
 	state: Type.Optional(
-		Type.Union([Type.Literal("open"), Type.Literal("handling"), Type.Literal("addressed")], {
-			description: "feedback: handling when you act on it; addressed when done, with a note that says what addressed it. open puts it back. Only the user dismisses an entry.",
-		}),
+		Type.Unsafe<"open" | "handling" | "addressed" | "working">(Type.Union([ ...feedbackStates, ...(workingAnswers ? [workingAnswerState] : []) ], {
+			description: "feedback: handling when you act on it; addressed when done, with a note that says what addressed it. open puts it back. Only the user dismisses an entry." + (workingAnswers ? " answer: set working while a worker handles a short errand." : ""),
+		})),
 	),
 	note: Type.Optional(Type.String({ description: "feedback: what is being done, or for addressed the full answer or what changed. Write it here, not in chat. Use whole sentences, one fact per line; keep every step and answer complete and leave revision IDs to the record." })),
 });
@@ -4377,7 +4431,7 @@ function createBoardExtension(service: BoardService): Extension {
 			"Work needed to finish a request gets parent only, even if unplanned. foundWhile is for separate work discovered along the way, never a duplicate of parent. If the owner sends a request back, fix it on that request, not as a new task. " +
 			"Messages about a task are feedback entries on it (F3): mark each `handling` when you act on it and `addressed`, with a note of what addressed it, when done. " +
 			"Write task text in whole sentences with their small words; short is good, shorthand is not. Limit each line, not the number of lines. Style warnings are advisory: the text is saved.",
-		parameters: boardToolParameters(service.answers !== undefined),
+		parameters: boardToolParameters(service.answers !== undefined, service.workAndTaskAnswersEnabled),
 		replay: "unsafe",
 		execute: async (args, api, context) => {
 			if (!service.isCoordinator(api.conversationId)) {
@@ -4406,27 +4460,44 @@ function createBoardExtension(service: BoardService): Extension {
 					}
 					case "answer": {
 						const answers = need(service.answers, input.action, "answers feature");
+						const working = input.state === "working";
+						if (working && !service.workAndTaskAnswersEnabled) throw new ServerError("bad_request", "Working answers are not enabled.");
+						const reply = working ? "Work is in progress." : need(input.answer, input.action, "answer");
+						if (!reply.trim()) throw new ServerError("bad_request", "Answer needs a non-blank reply.");
+						const at = new Date(api.now()).toISOString();
 						const first = (await api.snapshot(LiveDoc, api.conversationId, context))?.run?.first;
 						const question = first === undefined ? undefined : await service.questionForAnswer(api.conversationId, first, context);
-						if (first === undefined || !question) throw new ServerError("bad_request", "Answer needs an owner chat message in this turn.");
-						const title = need(input.title, input.action, "title").trim();
-						const reply = need(input.answer, input.action, "answer");
-						if (!title || !reply.trim()) throw new ServerError("bad_request", "Answer needs a non-blank title and reply.");
+						if (first === undefined || !question) {
+							if (!service.workAndTaskAnswersEnabled || working || !input.answerId) throw new ServerError("bad_request", "Answer needs an owner chat message in this turn.");
+							const answer = await api.commit(tx => answers.completeWorking(tx, input.answerId!, threadId, reply, at), context);
+							answers.changed(answer.id);
+							return toolText(`Filed ${answer.id}.`, { details: { answerId: answer.id } });
+						}
+						if (service.isTaskAnswerQuestion(question)) throw new ServerError("bad_request", "Answer the task question in its feedback note, not a separate answer.");
+						if (working && question.taskId) throw new ServerError("bad_request", "A working answer is for an errand without a task.");
 						const answerId = question.answerId ?? input.answerId;
 						if (question.answerId && input.answerId && question.answerId !== input.answerId) throw new ServerError("bad_request", `This follow-up is for ${question.answerId}.`);
 						const related = [...new Set([...(input.related ?? []), ...(question.taskId ? [question.taskId] : [])])];
 						const coordinatorTitle = await service.answerCoordinatorTitle(threadId);
 						const answer = await api.commit(async tx => {
+							const previous = answerId === undefined ? undefined : await answers.inTransaction(tx, answerId);
+							if (working && previous && (!previous.working || previous.coordinatorId !== threadId)) {
+								throw new ServerError("bad_request", "Start a new working answer for this errand.");
+							}
+							if (previous?.working && previous.coordinatorId !== threadId) throw new ServerError("bad_request", "This working answer belongs to another coordinator.");
+							const title = (input.title ?? (previous?.working ? previous.title : "")).trim();
+							if (!title) throw new ServerError("bad_request", "Answer needs a non-blank title.");
 							if (related.length) {
 								const board = await openBoard(tx, answers.coordinator);
 								for (const id of related) if (!board.tasks.some(task => task.id === id)) throw unknownTask(id);
 							}
 							return answers.fileInTurn(tx, api.conversationId, first, { title, related, ...(answerId === undefined ? {} : { answerId }),
-								exchange: { question: question.question, questionEntryId: question.questionEntryId, answer: reply, at: new Date(api.now()).toISOString(),
+								...(working ? { working: typeof input.workerId === "string" ? { workerId: input.workerId } : previous?.working ?? {} } : {}),
+								exchange: { question: question.question, questionEntryId: question.questionEntryId, answer: reply, at,
 									coordinatorId: threadId, coordinatorTitle, filedBy: "coordinator" } });
 						}, context);
 						answers.changed(answer.id);
-						return toolText(`Filed ${answer.id}.`, { details: { answerId: answer.id } });
+						return toolText(working ? `${answer.id} is working. Complete it with answerId ${answer.id} when the worker reports.` : `Filed ${answer.id}.`, { details: { answerId: answer.id } });
 					}
 					case "add_task": {
 						const explicitOwner = input.owner === undefined ? undefined : await service.coordinatorOwner(input.owner);
@@ -4658,7 +4729,7 @@ function createBoardExtension(service: BoardService): Extension {
 						const id = need(input.id, input.action, "id");
 						const feedbackId = need(input.feedbackId, input.action, "feedbackId");
 						const feedbackState = need(input.state, input.action, "state");
-						if (!COORDINATOR_FEEDBACK_STATES.includes(feedbackState)) {
+						if (feedbackState === "working" || !COORDINATOR_FEEDBACK_STATES.includes(feedbackState)) {
 							return toolText("Only the user dismisses feedback. Set it to handling, addressed or open.", { isError: true });
 						}
 						const entry = await service.setFeedbackFor(

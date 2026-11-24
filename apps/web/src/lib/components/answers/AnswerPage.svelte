@@ -3,7 +3,7 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
-	import { answerWhen } from '#lib/answers.js';
+	import { answerWhen, answerWorkLabel } from '#lib/answers.js';
 	import type { ProjectAnswers } from '#lib/answers.svelte.js';
 	import type { Answer, BoardTask } from '@kemiri/protocol';
 	import AnswerTaskChip from './AnswerTaskChip.svelte';
@@ -33,7 +33,7 @@
 
 	$effect(() => {
 		void answer.at;
-		if (catalogue.ready && !answer.read) {
+		if (catalogue.ready && !answer.working && !answer.read) {
 			const id = answer.id;
 			untrack(() => void markRead(id));
 		}
@@ -68,9 +68,14 @@
 	<header class="mb-4 border-b border-(--chat-border) pb-3">
 		<p class="text-xs font-medium text-(--chat-fg-subtle)">Answer · {answer.id}</p>
 		<h1 id="answer-title" class="mt-1 text-xl leading-snug font-semibold text-(--chat-fg)">{answer.title}</h1>
-		<p class="mt-2 text-xs text-(--chat-fg-muted)">Answered <time datetime={answer.at}>{when}</time> · by {answer.coordinatorTitle}</p>
+		{#if answer.working}
+			<p class="mt-2 flex items-center gap-1.5 text-xs {answer.working.status === 'failed' ? 'text-(--chat-danger)' : 'text-(--chat-fg-muted)'}" role="status">
+				{#if answer.working.status === 'running'}<span class="size-2 rounded-full bg-(--accent-2) motion-safe:animate-pulse" aria-hidden="true"></span>{/if}
+				{answerWorkLabel(answer.working, answer.at, now)}
+			</p>
+		{:else}<p class="mt-2 text-xs text-(--chat-fg-muted)">Answered <time datetime={answer.at}>{when}</time> · by {answer.coordinatorTitle}</p>{/if}
 	</header>
-	<Markdown source={answer.answer} />
+	{#if answer.working}<p class="text-sm text-(--chat-fg)">{answer.question}</p>{:else}<Markdown source={answer.answer} />{/if}
 	{#if taskIds.length}
 		<div class="mt-4 flex flex-wrap gap-1.5" aria-label="Related tasks" role="group">
 			{#each taskIds as id (id)}
@@ -78,8 +83,9 @@
 			{/each}
 		</div>
 	{/if}
-	<p class="mt-4 border-l-2 border-(--chat-border) pl-3 text-xs leading-relaxed text-(--chat-fg-muted)">A snapshot from {when}. It does not update itself.</p>
+	{#if !answer.working}<p class="mt-4 border-l-2 border-(--chat-border) pl-3 text-xs leading-relaxed text-(--chat-fg-muted)">A snapshot from {when}. It does not update itself.</p>{/if}
 	<div class="mt-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Answer actions">
+		{#if !answer.working}
 		<Button variant="outline" size="sm" disabled={acting || !catalogue.ready} onclick={() => ask()}>Ask again</Button>
 		<Button variant="outline" size="sm" disabled={acting || !catalogue.ready} aria-expanded={followUp} onclick={() => followUp = !followUp}>Ask a follow-up…</Button>
 		{#if !answer.taskId}
@@ -87,6 +93,7 @@
 				const taskId = await catalogue.requests.turnIntoTask(answer.id);
 				onopenTask(taskId);
 			})}>Turn into a task</Button>
+		{/if}
 		{/if}
 		<Button variant="ghost" size="sm" disabled={acting || !catalogue.ready} onclick={() => act(async () => {
 			await catalogue.requests.update(answer.id, { pinned: !answer.pinned });
