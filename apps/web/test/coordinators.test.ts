@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { taskCoordinatorInAllView, type CoordinatorTaskView } from '../src/lib/coordinator-task-view.js';
 import { landingTurnPresentation, otherLandingTurnWaiters } from "../src/lib/landing-turn.js";
 import type { BoardQuestion, BoardTask, ThreadSummary } from '@kemiri/protocol';
 import { coordinatorBadges, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, externalParts, projectEntryHref, scopedQuestions, scopedTasks } from '../src/lib/coordinators.js';
@@ -17,6 +18,20 @@ describe('coordinator presentation', () => {
 		expect(coordinatorRoster(rows, false)).toEqual([]);
 		expect(coordinatorOfThread(job.id, rows)).toBe('shop');
 		expect(coordinatorOfThread('legacy-job', rows)).toBe('main');
+	});
+
+	test('shows task owner marks only in an all-coordinators view with multiple active coordinators', () => {
+		const archived = thread('archive', { archived: true });
+		const roster = [general, shop, kitchen, archived];
+		const all: CoordinatorTaskView = { roster, threads: [...roster, job], hidden: new Set() };
+		const generalOnly = { ...all, roster: [general, archived] };
+		expect(taskCoordinatorInAllView(task('T1'), generalOnly)).toBeUndefined();
+		expect(taskCoordinatorInAllView(task('T1'), { ...all, coordinatorId: general.id })).toBeUndefined();
+		expect(taskCoordinatorInAllView(task('T1'), undefined)).toBeUndefined();
+		expect(taskCoordinatorInAllView(task('T1'), all)).toBe(general);
+		expect(taskCoordinatorInAllView(task('T2', kitchen.id), all)).toBe(kitchen);
+		expect(taskCoordinatorInAllView(task('T3', archived.id), all)).toBe(archived);
+		expect(taskCoordinatorInAllView(task('T1'), { ...all, hidden: new Set([shop.id, kitchen.id]) })).toBe(general);
 	});
 
 	test('separates explicit pause, work, unread and needs attention', () => {

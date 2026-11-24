@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
-	import { coordinatorColor, taskCoordinator } from '#lib/coordinators.js';
+	import { taskCoordinatorInAllView, useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
+	import { coordinatorColor, coordinatorMark } from '#lib/coordinators.js';
 	import CircleIcon from '@lucide/svelte/icons/circle';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
@@ -291,13 +291,13 @@
 			{#each renderedNodes as node (node.id)}
 				{@const p=positions.get(node.id)}
 				{#if p}
+					{@const coordinator = node.task ? taskCoordinatorInAllView(node.task, coordinatorView) : undefined}
 					<g transform="translate({p.x} {p.y})" class="node-position" class:dimmed={!highlighted.has(node.id)&&!departures.has(node.id)} in:arrive|global={{duration:enterDuration}} out:fade|global={{duration:reduced||camera.zoom<.5||departures.has(node.id)?0:280}}>
-						<a href={node.kind==='task'?taskHref(node.task!.id):undefined} role={node.kind==='task'?undefined:'button'} aria-haspopup={node.kind==='task'?undefined:'dialog'} tabindex="0" aria-label={graphLabel(node)} data-node={node.id} onmouseenter={()=>focused=node.id} onmouseleave={()=>focused=null} onfocus={()=>focused=node.id} onblur={()=>focused=null} onclick={(event)=>{if(drag?.moved)event.preventDefault();}}>
+						<a href={node.kind==='task'?taskHref(node.task!.id):undefined} role={node.kind==='task'?undefined:'button'} aria-haspopup={node.kind==='task'?undefined:'dialog'} tabindex="0" aria-label={`${graphLabel(node)}${coordinator ? ` · Coordinator: ${coordinator.title}` : ''}`} data-node={node.id} onmouseenter={()=>focused=node.id} onmouseleave={()=>focused=null} onfocus={()=>focused=node.id} onblur={()=>focused=null} onclick={(event)=>{if(drag?.moved)event.preventDefault();}}>
 							<g class="node {node.kind} status-{node.status}" class:closed={node.kind==='task'&&(node.status==='done'||node.status==='dropped')}>
 								{#if node.kind==='task'&&node.attention}<circle class="attention-halo" r={node.radius+12}/>{/if}
 								{#if node.kind==='task'}
-									{@const coordinator = coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(row => row.id === taskCoordinator(node.task!)) : undefined}
-									<circle class="task-body" r={node.radius} style:stroke={coordinator ? coordinatorColor(coordinator) : undefined}/><circle r={node.radius-2} fill="url(#task-graph-shine)"/>
+									<circle class="task-body" r={node.radius}/><circle r={node.radius-2} fill="url(#task-graph-shine)"/>
 									{@const parts=taskPartProgress(node.task!)}
 									{#if parts}
 										{@const total=parts.segments.reduce((sum,segment)=>sum+segment.count,0)}
@@ -308,7 +308,13 @@
 									{@const kind=node.task?.state?.kind ?? ({failure:'failed',question:'answer_needed',review:'review',working:'working',deploy:'working',waiting:'waiting_outside',blocked:'blocked_by_task',done:'done',dropped:'dropped'} as Record<string,string>)[activity?.kind??''] ?? node.status}
 									{@const StateIcon=({failed:TriangleAlertIcon,blocked:TriangleAlertIcon,answer_needed:CircleHelpIcon,steps_needed:ListChecksIcon,clarifying:CircleHelpIcon,review:EyeIcon,paused:PauseIcon,blocked_by_task:LockIcon,waiting_outside:ClockIcon,waiting:ClockIcon,todo:CircleIcon,done:CheckIcon,dropped:BanIcon} as Record<string,typeof CircleIcon>)[kind]}
 									{#if StateIcon}<StateIcon x={-10} y={-10} width={20} height={20} class="state-glyph" aria-hidden="true"/>{:else}<circle class="working-dot" r="6"/>{/if}
-									<title>{activity?.text ?? graphLabel(node)}</title>
+									{#if coordinator}
+										<g aria-hidden="true" transform="translate({node.radius * .46} {-node.radius * .56})" style:--coordinator-color={coordinatorColor(coordinator)}>
+											<circle class="graph-coordinator-mark" r="6"/>
+											<text class="graph-coordinator-initial" y="3">{coordinatorMark(coordinator.title)}</text>
+										</g>
+									{/if}
+									<title>{activity?.text ?? graphLabel(node)}{coordinator ? ` · Coordinator: ${coordinator.title}` : ''}</title>
 								{:else}
 									<GraphCrew {node} state={crewStates.get(node.id)!} allowance={motionBudget.get(node.id)!} zoom={camera.zoom} {reduced} departing={departures.has(node.id)} {gradientPrefix}/>
 								{/if}
@@ -353,6 +359,7 @@
 	.edge{fill:none;stroke:var(--chat-fg-subtle);stroke-width:1.6;opacity:.45}.edge.parent{stroke:var(--graph-working);stroke-width:2}.edge.foundWhile{stroke:var(--graph-waiting);stroke-dasharray:2 6;stroke-linecap:round}.edge.blockedBy{stroke:var(--chat-fg-subtle);stroke-width:1.8;stroke-dasharray:5 5}.edge.blockedBy.edge-focused{stroke:var(--graph-blocked);opacity:.85;animation:blocked-dashes 2.4s linear infinite}.motion-still .edge.blockedBy.edge-focused{animation:none}.edge.related{stroke:var(--graph-review);stroke-dasharray:8 6}.edge.dimmed{opacity:.08}
 	.task-body{fill:color-mix(in srgb,var(--node-color) 23%,var(--chat-bg));stroke:var(--node-color);stroke-width:2}.task-id{font-size:12px;font-weight:600;font-family:var(--font-mono);fill:light-dark(#4338ca,#c7d2fe);text-anchor:middle;pointer-events:none}.graph-task-id-chip{fill:color-mix(in srgb,var(--accent-2) 12%,var(--chat-bg));pointer-events:none}:global([data-theme="neutral"]) .task-id{fill:var(--chat-fg)}.graph-label{fill:var(--chat-fg);stroke:var(--chat-bg);paint-order:stroke;text-anchor:middle;font-weight:550;pointer-events:none;stroke-linejoin:round}.progress-track{fill:none;stroke:var(--chat-border);stroke-width:3}.progress{fill:none;stroke:var(--graph-working);stroke-width:3;stroke-linecap:round}.attention-halo{fill:color-mix(in srgb,var(--node-color) 4%,transparent);stroke:var(--node-color);stroke-width:2;opacity:.4;}
 	a[role=button]:focus-visible{outline:2px solid var(--accent-2);outline-offset:3px}.resting-panel li>button:focus-visible{outline:2px solid var(--accent-2)}
+	.graph-coordinator-mark{fill:color-mix(in srgb,var(--coordinator-color) 22%,var(--chat-bg))}.graph-coordinator-initial{fill:color-mix(in srgb,var(--coordinator-color) 62%,var(--chat-fg));font-size:8px;font-weight:750;text-anchor:middle}
 	a{cursor:pointer;outline:none}a:focus-visible .task-body{stroke:var(--chat-fg);stroke-width:4}a:hover .task-body{stroke-width:3}
 
 	.empty-graph{position:absolute;top:45%;width:100%;text-align:center;font-size:13px;color:var(--chat-fg-muted);pointer-events:none}

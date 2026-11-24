@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { taskPartProgress, taskUsesPartsSentence } from '#lib/task-parts.js';
-	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
+	import { hasMultipleTaskCoordinators, useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
 	import { taskCoordinator } from '#lib/coordinators.js';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
@@ -70,7 +70,10 @@
 				{@const target = group.items[0]!}
 				{@const coordinator = group.kind === 'blockedBy' ? relationCoordinator(target.id) : undefined}
 				<a href={taskHref(target.id)} onclick={() => onopen?.(target.id)} title={label} aria-label={label} class="family-link inline-flex items-center" class:opacity-60={target.closed}>
-					{#if coordinator}<CoordinatorMark thread={coordinator} /> Waits for {target.id}{:else}{@render relationIcon(group.kind)}{/if}
+					{#if coordinator}
+						{@const view = getTaskView?.()}
+						{#if view && hasMultipleTaskCoordinators(view)}<CoordinatorMark thread={coordinator} compact />{/if} Waits for {target.id}
+					{:else}{@render relationIcon(group.kind)}{/if}
 				</a>
 			{:else}
 				<Popover.Root open={openGroup === group.kind} onOpenChange={(open) => openGroup = open ? group.kind : null}>

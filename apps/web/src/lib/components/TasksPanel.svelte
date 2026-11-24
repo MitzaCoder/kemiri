@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
+	import { hasMultipleTaskCoordinators, taskCoordinatorInAllView, useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
 	import { coordinatorRoster, externalParts, taskCoordinator } from '#lib/coordinators.js';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
@@ -45,6 +45,7 @@
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { relativeTime } from '#lib/relative-time.js';
 	import { answeredQuestions } from '#lib/board.js';
+	import { questionNeedsAnswer } from '#lib/question-clarify.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import {
 		isWarning,
@@ -54,6 +55,8 @@
 		SECTION_LABELS,
 		taskRefs,
 		taskSections,
+		taskSectionOf,
+		waitingOn,
 		taskDisplayToneClass,
 		type TaskRow,
 		type TaskSection,
@@ -278,9 +281,15 @@
 			{@render taskRow(family, depth)}
 			{#if !requestAttention && coordinatorView?.coordinatorId && family.role === 'task'}
 				{#each externalParts(family.row.task, tasks, shownIds) as part (part.id)}
-					{@const owner = coordinatorView.roster.find(thread => thread.id === taskCoordinator(part))}
-					<a href={taskHref(part.id)} onclick={() => onopentask?.(part.id)} class="my-1 mr-1 ml-6 flex items-center gap-1.5 rounded-lg border border-dashed border-(--chat-border) px-2 py-1 text-xs hover:bg-(--chat-surface-2)" aria-label={`Part ${part.id}: ${part.title}${owner ? ` · ${owner.title}` : ''}`}>
-						{#if owner}<CoordinatorMark thread={owner} />{/if}<span class="min-w-0 flex-1 truncate">{part.title}</span><span class="text-(--chat-fg-muted)"><TaskStateLabel task={part} {tasks} /></span><TaskIdChip taskId={part.id} />
+					{@const owner = hasMultipleTaskCoordinators(coordinatorView) ? coordinatorView.roster.find(thread => thread.id === taskCoordinator(part)) : undefined}
+					{@const waiting = waitingOn(board?.board?.questions ?? [], part.id)}
+					{@const needsYou = taskSectionOf(part, waiting.filter(questionNeedsAnswer).length) === 'needs_you'}
+					<a href={taskHref(part.id)} onclick={() => onopentask?.(part.id)} class="my-1 mr-1 ml-6 flex items-center gap-1.5 rounded-lg border border-dashed border-(--chat-border) px-2 py-1 text-xs hover:bg-(--chat-surface-2)">
+						{@render taskRowIcon(part, needsYou, waiting.some(isWarning))}
+						<span class="min-w-0 flex-1 truncate"><span class="sr-only">Part: </span>{part.title}</span>
+						<span class="text-(--chat-fg-muted)"><TaskStateLabel task={part} {tasks} /></span>
+						{#if owner}<CoordinatorMark thread={owner} compact /><span class="sr-only">Coordinator: {owner.title}</span>{/if}
+						<TaskIdChip taskId={part.id} />
 					</a>
 				{/each}
 			{/if}
@@ -301,25 +310,27 @@
 	{@const gist = rowGist(row, board?.activityEnabled === true)}
 	{@const activity = taskRowActivity(row.task, board?.activityEnabled === true, tasks)}
 	{@const refs = taskRefs(row.task)}
-	{@const owner = coordinatorView && !coordinatorView.coordinatorId ? coordinatorView.roster.find(thread => thread.id === taskCoordinator(row.task)) : undefined}
+	{@const owner = taskCoordinatorInAllView(row.task, coordinatorView)}
 	{@const needsYou = row.section === 'needs_you'}
 	{@const attention = requestAttention && !searching && depth === 0 && !row.task.parent ? requestAttentionLink(row.task, board?.board?.questions ?? [], taskHref) : undefined}
 	{#if family.role === 'parentHeader'}
 		<a class="task-row family-compact family-header flex items-center gap-2.5 px-3 text-xs text-(--chat-fg-subtle)"
 			data-parent-header={row.task.id} href={taskHref(row.task.id)} onclick={() => onopentask?.(row.task.id)}
-			aria-label="Parent {row.task.id}: {row.task.title}, {SECTION_LABELS[row.section]}">
+			aria-label={`Parent ${row.task.id}: ${row.task.title}, ${SECTION_LABELS[row.section]}${owner ? ` · Coordinator: ${owner.title}` : ''}`}>
 			<GitBranchIcon class="size-3.5 shrink-0" aria-hidden="true" />
 			<span class="min-w-0 flex-1 truncate"><strong class="font-semibold text-(--chat-fg)">{row.task.title}</strong> · {SECTION_LABELS[row.section]}</span>
+			{#if owner}<CoordinatorMark thread={owner} compact />{/if}
 			<TaskIdChip taskId={row.task.id} />
 		</a>
 	{:else if family.role === 'pointer'}
 		<div class="task-row family-compact {taskDisplayToneClass(row.task)} relative flex items-center gap-2.5 px-3 text-xs" data-task-pointer={row.task.id}>
-			{@render taskRowIcon(row, false, false)}
+			{@render taskRowIcon(row.task, false, false)}
 			<a class="task-row-link flex min-w-0 flex-1 items-baseline gap-1 outline-none" href={taskHref(row.task.id)}
 				onclick={() => onopentask?.(row.task.id)} onkeydown={event => foldWithArrow(event, family)}
 				title={row.task.title}>
 				<span class="min-w-0 truncate">{row.task.title}</span>
 				<span class="shrink-0 whitespace-nowrap text-(--chat-fg-subtle)">· {#if row.task.state?.kind === 'steps_needed'}Your steps to do{:else}<TaskStateLabel task={row.task} {tasks} />{/if}</span>
+				{#if owner}<span class="sr-only">Coordinator: {owner.title}</span>{/if}
 			</a>
 			{#if family.canToggle}
 				<button type="button" class="family-pointer-button shrink-0" onclick={() => toggleFamily(row.task.id)}
@@ -329,7 +340,7 @@
 			{/if}
 			<button type="button" class="family-pointer-button shrink-0 font-medium text-(--accent-2)" onclick={() => jumpToNeedsYou(row.task.id)}
 				aria-label="In Needs you ↑: {row.task.title}">In Needs you ↑</button>
-			<span class="shrink-0 text-(--chat-fg-subtle)"><TaskIdChip taskId={row.task.id} /></span>
+			<span class="flex shrink-0 items-center gap-1.5 text-(--chat-fg-subtle)">{#if owner}<CoordinatorMark thread={owner} compact />{/if}<TaskIdChip taskId={row.task.id} /></span>
 		</div>
 	{:else}
 		<!-- The title's link covers the whole row; the ref chips sit above it, so neither link is inside the other. -->
@@ -341,7 +352,7 @@
 			class:task-row-jump={jumpedTask === row.task.id}
 			data-task={row.task.id}
 		>
-			{#if owner}<CoordinatorMark thread={owner} />{:else}{@render taskRowIcon(row, needsYou, warned)}{/if}
+			{@render taskRowIcon(row.task, needsYou, warned)}
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
 				<a
 					href={attention?.href ?? taskHref(row.task.id)}
@@ -350,7 +361,7 @@
 					class="task-row-link line-clamp-2 text-[0.875rem] leading-5 font-semibold break-words outline-none {row.section === 'closed'
 						? 'text-(--chat-fg-muted)'
 						: 'text-(--chat-fg)'}"
-					aria-label="Open {row.task.id}: {row.task.title}">{#each row.task.title.split('') as letter, at}{#if searching && searchHitById.get(row.task.id)?.ranges.some(([start, end]) => at >= start && at < end)}<mark>{letter}</mark>{:else}{letter}{/if}{/each}</a
+					aria-label={`Open ${row.task.id}: ${row.task.title}${owner ? ` · Coordinator: ${owner.title}` : ''}`}>{#each row.task.title.split('') as letter, at}{#if searching && searchHitById.get(row.task.id)?.ranges.some(([start, end]) => at >= start && at < end)}<mark>{letter}</mark>{:else}{letter}{/if}{/each}</a
 				>
 				{#if searching && searchHitById.get(row.task.id)?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHitById.get(row.task.id)?.snippet}</p>{/if}
 				{#if attention}
@@ -375,7 +386,8 @@
 					</span>
 				{/if}
 			</span>
-			<span class="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
+			<span class="flex shrink-0 items-center gap-1.5 pt-0.5 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
+				{#if owner}<CoordinatorMark thread={owner} compact />{/if}
 				<TaskIdChip taskId={row.task.id} />
 			</span>
 			<ChevronRightIcon class="task-row-chevron mt-0.5 size-3.5 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
@@ -383,17 +395,17 @@
 	{/if}
 {/snippet}
 
-{#snippet taskRowIcon(row: TaskRow, needsYou: boolean, warned: boolean)}
+{#snippet taskRowIcon(task: TaskRow['task'], needsYou: boolean, warned: boolean)}
 	<span class="flex h-5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-		{#if row.task.state && row.task.state.kind !== 'working'}
-			{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: ListChecksIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[row.task.state.kind]}
+		{#if task.state && task.state.kind !== 'working'}
+			{@const StateIcon = ({ failed: TriangleAlertIcon, answer_needed: CircleHelpIcon, steps_needed: ListChecksIcon, clarifying: CircleHelpIcon, review: EyeIcon, paused: PauseIcon, blocked_by_task: LockIcon, waiting_outside: ClockIcon, todo: CircleIcon, done: CheckIcon, dropped: BanIcon })[task.state.kind]}
 			<StateIcon class="size-3.5 text-(--task-status)" />
 		{:else if needsYou && warned}
 			<TriangleAlertIcon class="size-3.5 text-(--chat-warning)" />
-		{:else if needsYou && !row.task.state}
+		{:else if needsYou && !task.state}
 			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 		{:else}
-			<span class="task-status-dot" class:task-row-pulse={row.task.state ? row.task.state.kind === 'working' : row.task.status === 'in_progress'}></span>
+			<span class="task-status-dot" class:task-row-pulse={task.state ? task.state.kind === 'working' : task.status === 'in_progress'}></span>
 		{/if}
 	</span>
 {/snippet}

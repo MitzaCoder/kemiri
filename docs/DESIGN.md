@@ -2956,8 +2956,13 @@ retry of the same mutation; no keep-warm control is exposed here.
 
 **Web task scope.** On `task-coordinator` backends, the Tasks panel defaults to the
 open coordinator. Its per-coordinator device preference also supports All coordinators,
-with the same ownership filter for list, board and graph. The list keeps external
-parts as dashed links and shows the other coordinator on cross-coordinator blockers.
+with the same ownership filter for list, board and graph. Task and part rows keep
+state at the leading edge, board cards keep their state mark, and graph outlines
+and glyphs keep their state colour. In All coordinators, a roster with more than
+one active coordinator adds a small owner mark beside the row ID, in the card
+footer, or inside the graph node. The list keeps external parts as dashed links
+with leading state and a secondary owner mark. Cross-coordinator blocker links
+still identify the other task.
 The task sheet and board menu write `ownerThreadId` (`null` for General) with the
 row revision; moving a parent and its parts is a sequence of checked saves, not a
 batch. Replies keep the task-specific draft and submit `taskId` without fixing a
