@@ -59,20 +59,16 @@ internal fun AttentionSummary(limits: List<GlanceLimit>, loading: Boolean) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ComputerPicker(computers: List<BackendConfig>, computer: BackendConfig?, select: (BackendConfig?) -> Unit) {
-    var choosing by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { choosing = true }) {
-            Text("Computer: ${computer?.name ?: "All"}", Modifier.widthIn(max = 230.dp),
-                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Spacer(Modifier.width(6.dp))
-            LucideGlyph(Lucide.ChevronDown, size = 14.dp)
-        }
-        DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
-            (listOf(null) + computers).forEach { choice ->
-                DropdownMenuItem(text = { Text(choice?.name ?: "All computers") }, onClick = { choosing = false; select(choice) },
-                    modifier = Modifier.semantics { if (choice == computer) stateDescription = "Selected" })
+internal fun UsageBackendTabs(computers: List<BackendConfig>, selectedKey: String?, select: (String?) -> Unit, modifier: Modifier = Modifier) {
+    val backendTabs = listOf(null) + computers
+    val selectedIndex = backendTabs.indexOfFirst { it?.key == selectedKey }.coerceAtLeast(0)
+    PrimaryScrollableTabRow(selectedTabIndex = selectedIndex, modifier = modifier, edgePadding = 0.dp) {
+        backendTabs.forEachIndexed { index, backend ->
+            key(backend?.key) {
+                Tab(selected = index == selectedIndex, onClick = { select(backend?.key) },
+                    text = { Text(backend?.name ?: "All", maxLines = 1) })
             }
         }
     }

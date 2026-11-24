@@ -19,7 +19,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.protocol.*
-import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import java.time.Instant
 import java.time.YearMonth
@@ -124,41 +123,43 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
     }
     val scroll = rememberScrollState()
     val sectionOffsets = remember { mutableStateMapOf<String, Int>() }
-    PullToRefreshBox(isRefreshing = computers.any { it.limits.loading || it.stats.loading }, onRefresh = ::refreshUsage,
-        modifier = modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                AttentionSummary(limits, computers.any { it.limits.loading })
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    ComputerPicker(sessions.map { it.config }, computer?.config) { picked ->
-                        if (picked?.key != computer?.config?.key) {
-                            sheets = emptyList()
-                            scope.launch { repository.setUsageComputer(picked?.key) }
-                        }
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                UsageBackendTabs(sessions.map { it.config }, computer?.config?.key, modifier = Modifier.weight(1f), select = { key ->
+                    if (key != computer?.config?.key) {
+                        sheets = emptyList()
+                        scope.launch { repository.setUsageComputer(key) }
                     }
-                    IconButton(onClick = ::refreshUsage, enabled = computers.any { it.ready }) {
-                        LucideGlyph(io.github.mitzacoder.kemiri.features.settings.SettingsGlyphs.Refresh, contentDescription = "Refresh usage")
-                    }
+                })
+                IconButton(onClick = ::refreshUsage, enabled = computers.any { it.ready }) {
+                    LucideGlyph(io.github.mitzacoder.kemiri.features.settings.SettingsGlyphs.Refresh, contentDescription = "Refresh usage")
                 }
-                if (sessions.isEmpty()) ValueNote("Add a computer in Settings to see its usage.")
-                else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("Limits", "Spend", "Worth a look").forEach { heading ->
-                            TextButton(onClick = { scope.launch { sectionOffsets[heading]?.let { scroll.animateScrollTo(it) } } },
-                                contentPadding = PaddingValues(horizontal = 8.dp)) { Text(heading) }
+            }
+            PullToRefreshBox(isRefreshing = computers.any { it.limits.loading || it.stats.loading }, onRefresh = ::refreshUsage,
+                modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    AttentionSummary(limits, computers.any { it.limits.loading })
+                    if (sessions.isEmpty()) ValueNote("Add a computer in Settings to see its usage.")
+                    else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("Limits", "Spend", "Worth a look").forEach { heading ->
+                                TextButton(onClick = { scope.launch { sectionOffsets[heading]?.let { scroll.animateScrollTo(it) } } },
+                                    contentPadding = PaddingValues(horizontal = 8.dp)) { Text(heading) }
+                            }
                         }
+                        computers.filterNot { it.ready }.forEach { ValueNote("${it.backend.config.name} is not connected.") }
+                        computers.forEach { read -> read.limits.error?.let { ValueNote("${read.backend.config.name}: limits could not refresh. $it") } }
+                        LimitsSection(limits, subscriptions, nowMillis, Modifier.onGloballyPositioned { sectionOffsets["Limits"] = it.positionInParent().y.roundToInt() },
+                            openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) }, pauseBackends = selected)
+                        SpendSection(period, { period = it }, recorded, subscriptionSpend, stats, totalCost, months,
+                            loading = computers.any { it.stats.loading }, monthLoading = computers.any { it.monthly.loading },
+                            spendIncomplete = spendIncomplete, monthComplete = !spendIncomplete && computers.all { it.monthly.report != null && it.monthly.error == null },
+                            modifier = Modifier.onGloballyPositioned { sectionOffsets["Spend"] = it.positionInParent().y.roundToInt() },
+                            openSpend = { row -> sheets = listOf(row.subscription?.let { UsageSheet.Subscription(it) } ?: UsageSheet.Spend(row, range, totalCost)) })
+                        WorthALook(stats, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
                     }
-                    computers.filterNot { it.ready }.forEach { ValueNote("${it.backend.config.name} is not connected.") }
-                    computers.forEach { read -> read.limits.error?.let { ValueNote("${read.backend.config.name}: limits could not refresh. $it") } }
-                    LimitsSection(limits, subscriptions, nowMillis, Modifier.onGloballyPositioned { sectionOffsets["Limits"] = it.positionInParent().y.roundToInt() },
-                        openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) }, pauseBackends = selected)
-                    SpendSection(period, { period = it }, recorded, subscriptionSpend, stats, totalCost, months,
-                        loading = computers.any { it.stats.loading }, monthLoading = computers.any { it.monthly.loading },
-                        spendIncomplete = spendIncomplete, monthComplete = !spendIncomplete && computers.all { it.monthly.report != null && it.monthly.error == null },
-                        modifier = Modifier.onGloballyPositioned { sectionOffsets["Spend"] = it.positionInParent().y.roundToInt() },
-                        openSpend = { row -> sheets = listOf(row.subscription?.let { UsageSheet.Subscription(it) } ?: UsageSheet.Spend(row, range, totalCost)) })
-                    WorthALook(stats, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
                 }
             }
         }

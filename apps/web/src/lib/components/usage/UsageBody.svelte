@@ -32,6 +32,9 @@
 	let sheetTrigger: HTMLElement | undefined;
 	let sheetClose: HTMLButtonElement | null = $state(null);
 	let sheetScroll: HTMLDivElement | null = $state(null);
+	const usageId = $props.id();
+	const backendTabs = $derived([{ id: '', name: 'All' }, ...harness.backends]);
+	let backendTabList: HTMLDivElement | undefined = $state();
 	let backendId = $state('');
 	let period = $state<UsagePeriod>('rolling');
 	let dimension = $state<SpendDimension>('task');
@@ -54,6 +57,7 @@
 	const periodRequestKey = $derived(JSON.stringify(periodRequest));
 	const localDay = $derived(period === 'today' ? new Date(now).toDateString() : '');
 	const selectedId = $derived(harness.backends.some(backend => backend.id === backendId) ? backendId : '');
+	const selectedTabIndex = $derived(backendTabs.findIndex(backend => backend.id === selectedId));
 	const selectedBackends = $derived(harness.backends.filter(backend => !selectedId || backend.id === selectedId));
 	const offline = $derived(selectedBackends.filter(backend => !backend.ready));
 	const usageSources = $derived(selectedBackends.filter(backend => backend.supports('subscription-usage') && backend.ready).map(backend => usageBoard.for(backend)));
@@ -94,6 +98,9 @@
 		try { backendId = localStorage.getItem(USAGE_BACKEND_KEY) ?? ''; } catch { /* Storage is optional. */ }
 		const timer = setInterval(() => now = Date.now(), 10_000);
 		return () => clearInterval(timer);
+	});
+	$effect(() => {
+		backendTabList?.querySelectorAll('button')[selectedTabIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 	});
 	$effect(() => {
 		const sources = usageSources;
@@ -141,6 +148,20 @@
 		expandedLimit = undefined;
 		try { localStorage.setItem(USAGE_BACKEND_KEY, id); } catch { /* The view still changes. */ }
 	}
+	function navigateBackendTabs(event: KeyboardEvent, index: number) {
+		const count = backendTabs.length;
+		let next: number;
+		switch (event.key) {
+			case 'ArrowLeft': next = (index - 1 + count) % count; break;
+			case 'ArrowRight': next = (index + 1) % count; break;
+			case 'Home': next = 0; break;
+			case 'End': next = count - 1; break;
+			default: return;
+		}
+		event.preventDefault();
+		pickBackend(backendTabs[next].id);
+		backendTabList?.querySelectorAll('button')[next]?.focus({ preventScroll: true });
+	}
 	function refresh() {
 		now = Date.now();
 		refreshRevision += 1;
@@ -168,12 +189,6 @@
 
 <Dialog.Header class="usage-glance-heading">
 	<Dialog.Title class="flex min-w-0 flex-1 items-center gap-2 text-xl font-bold tracking-tight"><ChartIcon class="hidden size-5 text-(--accent-2) sm:block" />Usage</Dialog.Title>
-	<label class="computer-filter"><span class="sr-only md:not-sr-only md:mr-1.5 md:text-xs md:text-muted-foreground">Computer</span>
-		<select value={selectedId} onchange={event => pickBackend(event.currentTarget.value)}>
-			<option value="">All</option>
-			{#each harness.backends as backend (backend.id)}<option value={backend.id}>{backend.name}</option>{/each}
-		</select>
-	</label>
 	{#if newestUpdate}<span class="hidden text-xs text-muted-foreground md:inline">{updatedLabel(newestUpdate, now)}</span>{/if}
 	<Button variant="ghost" size="icon" onclick={refresh} disabled={refreshing || !selectedBackends.some(backend => backend.ready)} aria-label="Refresh usage" title="Refresh usage"><RefreshIcon class="size-4 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}" /></Button>
 	{#if inAppBackVisible(page.state.navigation)}<Button variant="ghost" onclick={() => history.back()}>Back</Button>{/if}
@@ -181,7 +196,15 @@
 	<Dialog.Description class="sr-only">Live subscription limits and recorded work at API prices.</Dialog.Description>
 </Dialog.Header>
 
-<div class="relative min-h-0 flex-1">
+<div class="usage-backend-tabs" role="tablist" aria-label="Usage by computer" bind:this={backendTabList}>
+	{#each backendTabs as backend, index (backend.id)}
+		<button type="button" role="tab" id="{usageId}-backend-{index}" aria-selected={selectedTabIndex === index}
+			aria-controls="{usageId}-overview" tabindex={selectedTabIndex === index ? 0 : -1}
+			onclick={() => pickBackend(backend.id)} onkeydown={event => navigateBackendTabs(event, index)}>{backend.name}</button>
+	{/each}
+</div>
+
+<div class="relative min-h-0 flex-1" role="tabpanel" id="{usageId}-overview" aria-labelledby="{usageId}-backend-{selectedTabIndex}">
 	<div use:overlayScroll={'parent'} bind:this={scroll} class="usage-scroll">
 		<nav class="usage-jumps" aria-label="Usage sections">
 			<button onclick={() => jumpTo('usage-limits')} type="button">Limits</button>
@@ -340,7 +363,11 @@
 
 <style>
 	:global(.usage-glance-heading) { display: flex; flex-direction: row; align-items: center; gap: .55rem; flex-shrink: 0; border-bottom: 1px solid var(--chat-border); padding: max(.55rem, env(safe-area-inset-top)) 1rem .55rem; }
-	.computer-filter select { min-height: 2rem; max-width: min(32vw, 13rem); border: 1px solid var(--chat-border-strong); background: var(--chat-surface); color: var(--chat-fg); padding: .2rem .45rem; border-radius: .55rem; font-size: .8125rem; }
+	.usage-backend-tabs { display: flex; flex: none; gap: .25rem; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-inline: 1rem; scroll-padding-inline: 1rem; border-bottom: 1px solid var(--chat-border); }
+	.usage-backend-tabs button { flex: none; min-width: 3.75rem; min-height: 2.75rem; padding-inline: .85rem; border-bottom: 2px solid transparent; color: var(--chat-fg-muted); font-size: .875rem; font-weight: 650; white-space: nowrap; }
+	.usage-backend-tabs button:hover { background: var(--chat-surface-2); }
+	.usage-backend-tabs button[aria-selected='true'] { color: var(--chat-fg); border-bottom-color: var(--accent-2); }
+	.usage-backend-tabs button:focus-visible { outline-offset: -4px; }
 	.usage-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }
 	.usage-jumps { position: sticky; top: 0; z-index: 1; display: flex; gap: 1.25rem; align-items: center; padding: .1rem 1.25rem; background: var(--chat-surface); border-bottom: 1px solid var(--chat-border); }
 	.usage-jumps button { min-height: 2rem; color: var(--chat-fg-muted); font-size: .75rem; font-weight: 650; }

@@ -2238,8 +2238,10 @@ older release therefore keeps working with its own log. Requests logged during a
 The web Usage modal is full-screen on phones and compact below the `2xl` breakpoint. On larger screens it
 shares the text artifact viewer’s size (80vw up to 100rem, 90dvh tall).
 
-Web Usage is one scrollable overview with jump links for Limits, Spend and Worth a look. The header's Computer
-filter defaults to All and is saved locally on the device. All uses connected backends, names the contributing
+Web Usage has a horizontally scrollable computer tab row under the title, with All first and one tab per backend
+by display name. The tabs support arrow keys, Home and End and keep the previous Computer filter preference. Each
+view contains the same scrollable overview with jump links for Limits, Spend and Worth a look. A computer tab
+scopes limits and spend to that backend. All is the default, uses connected backends, names the contributing
 computers on the rows, and sums recorded work. Projects and tasks retain their backend identity; provider + model
 and caller identities can aggregate. A known shared provider account and plan is shown once with both computers.
 The newest reading for each window wins, not a sum of percentages. When a provider does not identify the account,
@@ -2282,8 +2284,9 @@ For local proof, `packages/server/scripts/subscription-value-demo.ts` starts two
 app's `aiki.backends.v1` local storage before opening `/usage`. It uses four synthetic plans and one shared login.
 
 **Android Glance (T406).** Usage replaces the Limits and Value tabs with one native Compose overview, using the same
-attention statuses, live window rankings, periods and spend dimensions as web. The Computer filter is saved in device
-settings and defaults to All. Live limits use `subscription-usage`; spend and breakdown requests require
+attention statuses, live window rankings, periods and spend dimensions as web. A native scrollable computer tab row
+sits above the overview and section links. It defaults to All and uses the existing device setting for the selected
+backend. Live limits use `subscription-usage`; spend and breakdown requests require
 `recorded-usage`, and older or disconnected computers are marked as missing from spend. The overview and each drill-down
 use the same period fields. The prompt-cache diagnosis is folded under Worth a look and uses the selected period.
 Android limit cards use the same gauge, pace badge, reset time, and always-visible chart in one column on phones
