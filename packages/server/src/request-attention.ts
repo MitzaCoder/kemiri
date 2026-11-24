@@ -32,7 +32,7 @@ export function requestAttention(tasks: readonly BoardTask[], questions: readonl
 		if (!request) continue;
 		if (task !== request) requestsByPart.set(task.id, request);
 		if (closed(request) || request.archived) continue;
-		const need = taskNeed(task, ownerQuestions.get(task.id) ?? []);
+		const need = taskNeed(task, ownerQuestions.get(task.id) ?? [], !request.state?.liveWorkSince);
 		if (!need) continue;
 		const previous = needsByRequest.get(request.id);
 		if (!previous || need.rank > previous.rank || (need.rank === previous.rank && (
@@ -42,12 +42,12 @@ export function requestAttention(tasks: readonly BoardTask[], questions: readonl
 	return { requestsByPart, needsByRequest };
 }
 
-function taskNeed(task: BoardTask, questions: readonly BoardQuestion[]): RequestNeed | undefined {
+function taskNeed(task: BoardTask, questions: readonly BoardQuestion[], includeSteps: boolean): RequestNeed | undefined {
 	const state = task.state;
 	if (!closed(task) && !task.archived) {
 		if (state?.kind === "failed") return { rank: 5, task, state };
 		if (state?.kind === "answer_needed") return { rank: 4, task, state };
-		if (state?.kind === "steps_needed") return { rank: 3, task, state };
+		if (includeSteps && state?.kind === "steps_needed") return { rank: 3, task, state };
 	}
 	if (state && questions.length) {
 		const ordered = [...questions].sort((a, b) => a.askedAt.localeCompare(b.askedAt) || a.id.localeCompare(b.id));

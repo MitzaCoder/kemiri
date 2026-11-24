@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.features.tasks.*
+import io.github.mitzacoder.kemiri.protocol.BoardTaskState
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 import io.github.mitzacoder.kemiri.protocol.BoardQuestionChoice
 import io.github.mitzacoder.kemiri.protocol.BoardReportCheck
@@ -64,6 +65,23 @@ class TaskDetailsTest {
         assertEquals("To do", taskDetailState("todo", needs("todo", enabled = false), "steps_needed"))
         val withQuestion = taskNeedsYou(task, listOf(question), false, true)
         assertEquals("Needs your answer", taskDetailState("todo", withQuestion, "answer_needed"))
+    }
+
+    @Test fun liveWorkHidesOldStepsAndReviewButKeepsWarnings() {
+        val review = task("T1", "review")
+        val working = review.copy(report = review.report.copy(steps = "Print the old draft."),
+            state = BoardTaskState(group = "needs_you", kind = "answer_needed", since = review.updatedAt,
+                refs = listOf("Q1"), liveWorkSince = review.updatedAt))
+        val needs = taskNeedsYou(working, listOf(question.copy(kind = "warning")), false, true)
+        assertTrue(needs.show)
+        assertFalse(needs.showSteps)
+        assertFalse(needs.review)
+        assertEquals("Working", taskDetailState(working.status, needs, working.state?.kind))
+        assertFalse(taskNeedsYou(working, emptyList(), false, true).show)
+        val quiet = taskNeedsYou(review, listOf(question.copy(kind = "warning")), false, true)
+        assertEquals("Paused", taskDetailState("in_progress", quiet, "paused"))
+        assertEquals("Needs attention", taskDetailState("in_progress", quiet, "answer_needed"))
+        assertEquals("Failed", taskDetailState("in_progress", quiet, "failed"))
     }
 
     @Test fun onlyWorkingTasksShowNowAndOnlyForWorkActivityOrLegacyProse() {

@@ -623,6 +623,26 @@ function applyReportWrite(state: BoardState, task: BoardTask, input: ReportWrite
  return state.taskActivityEnabled ? plain(boardView(state, Date.parse(input.now), true).tasks.find(row => row.id === task.id)!) : plain(task);
 }
 
+/** Read task markers from this run's inputs, never from earlier turns or ordinary mentions. */
+export async function taskIdsNamedInRun(conversation: Conversation | undefined, first: EntryId | undefined, context: Context, ownerOnly = false): Promise<Set<string>> {
+ const taskIds = new Set<string>();
+ if (!conversation || first === undefined) return taskIds;
+ let cursor: Parameters<Conversation["entries"]>[2];
+ do {
+  const page = await conversation.entries({ minEntryId: first }, 200, cursor, context);
+  for (const entry of page.items) {
+   if (ownerOnly && entry.kind !== OWNER_CHAT_ENTRY) continue;
+   for (const message of entry.model ?? []) if (message.role === "user") {
+    const text = typeof message.content === "string" ? message.content : message.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+    const id = splitTaskReference(text).taskId;
+    if (id && /^T[1-9]\d*$/.test(id)) taskIds.add(id);
+   }
+  }
+  cursor = page.next;
+ } while (cursor !== undefined);
+ return taskIds;
+}
+
 /** Task-linked coordinator actions imply activity for the rest of this turn, not ownership. */
 export async function inferCoordinatorTaskFocusIn(tx: Tx, mainId: ConversationId, conversationId: ConversationId, threadId: string, taskId: string, at: string,threadTitle?: string): Promise<void> {
  const live = await tx.doc(LiveDoc, conversationId);
@@ -1256,7 +1276,8 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
    const live = state.taskLiveEnabled && !isSettled(task) ? taskLive(tracking, activity?.actor) : undefined;
    let shown = derived;
    if (activity && subtaskStates?.length && derived && derived.kind !== "clarifying" && (derived.group === "in_progress" || derived.group === "todo")) {
-    const { done, total, working, needsOwner } = partProgress(subtaskStates);
+    const { done, total, needsOwner } = partProgress(subtaskStates);
+    const working = counted.filter(child => stateFor(child).liveWorkSince).length;
     activity = { kind: derived.kind === "working" ? "working" : derived.kind === "todo" ? "not_started" : "idle", text: `${done} of ${total} parts done${working ? ` · ${working} working` : ""}${needsOwner ? ` · ${needsOwner} needs you` : ""}`, since: derived.since, refs: derived.refs };
     shown = { ...derived, sentence: { ...activity, ageFormat: "none" } };
    }
@@ -1292,8 +1313,10 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
 			return digestPart(part, stateFor(part).kind, closedBy, part.status === "dropped" ? partDropReason(state, id) : undefined);
 		});
 		const derivedNotDone = droppedPartLines(parts);
+		const directParts = parts.filter(part => part.parentId === task.id);
+		const working = directParts.filter(part => derivedStates.get(part.id)?.liveWorkSince).length;
 		return {
-			...task, partsDigest: { parts, ...partProgress(parts.filter(part => part.parentId === task.id).map(part => part.state)) },
+			...task, partsDigest: { parts, ...partProgress(directParts.map(part => part.state)), working },
 			...(derivedNotDone.length ? { derivedNotDone } : {}),
 		};
 	});
@@ -1329,7 +1352,7 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
 			if (request) return { ...task, requestId: request.id };
 			const need = attention.needsByRequest.get(task.id);
 			if (!need || !task.state || need.state === task.state) return task;
-			return { ...task, state: { ...need.state, ...(need.task.id === task.id ? {} : { fromPartId: need.task.id, fromPartTitle: need.task.title }) } };
+			return { ...task, state: { ...need.state, liveWorkSince: task.state.liveWorkSince, ...(need.task.id === task.id ? {} : { fromPartId: need.task.id, fromPartTitle: need.task.title }) } };
 		}),
 		questions: legacyBoard.questions.map(question => {
 			const request = question.taskId == null ? undefined : attention.requestsByPart.get(question.taskId);
@@ -2271,7 +2294,10 @@ function clip(text: string, limit: number): string {
 }
 
 export function describeTask(task: BoardTask): string {
-	const parts = [`${task.id} r${task.revision} [${task.status}${task.state ? ` · ${task.state.kind === "blocked_by_task" ? `blocked by ${task.state.refs.join(", ")}` : task.state.kind}` : ""}] ${task.title}${task.archived ? " (archived)" : ""}`];
+	const taskState = task.state;
+	const derivedKind = taskState?.kind === "blocked_by_task" ? `blocked by ${taskState.refs.join(", ")}` : taskState?.kind;
+	const status = [task.status, ...(taskState?.liveWorkSince && taskState.kind !== "working" ? ["working"] : []), ...(derivedKind ? [derivedKind] : [])].join(" · ");
+	const parts = [`${task.id} r${task.revision} [${status}] ${task.title}${task.archived ? " (archived)" : ""}`];
 	if ((task.refs ?? []).length > 0) parts.push(`refs ${task.refs.join(",")}`);
 	if ((task.parent ?? null) !== null) parts.push(`↳${task.parent}`);
 	if ((task.foundWhile ?? null) !== null) parts.push(`found while ${task.foundWhile}`);
@@ -3672,22 +3698,10 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
  async #updateTaskFocus(conversationId: number, threadId: string, live: Readonly<LiveState> | undefined | null): Promise<void> {
   const threadTitle = await this.#options.threadTitle?.(threadId);
-  const taskIds = new Set<string>();
   const run = live?.run?.afterRun ? undefined : live?.run;
   const runId = run ? String(run.first ?? run.taskId) : undefined;
-  if (run?.first !== undefined) {
-   const conversation = await this.#options.harness.conversation(conversationId as ConversationId, BACKGROUND_CONTEXT);
-   let cursor: Parameters<Conversation["entries"]>[2];
-   do {
-    const page = await conversation?.entries({ minEntryId: run.first }, 200, cursor, BACKGROUND_CONTEXT);
-    for (const entry of page?.items ?? []) for (const message of entry.model ?? []) if (message.role === "user") {
-     const text = typeof message.content === "string" ? message.content : message.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-     const id = /^\[task (T[1-9]\d*)[\],]/.exec(text)?.[1];
-     if (id) taskIds.add(id);
-    }
-    cursor = page?.next;
-   } while (cursor !== undefined);
-  }
+  const conversation = run?.first === undefined ? undefined : await this.#options.harness.conversation(conversationId as ConversationId, BACKGROUND_CONTEXT);
+  const taskIds = await taskIdsNamedInRun(conversation, run?.first, BACKGROUND_CONTEXT);
   await this.#options.harness.commit(async tx => {
    const state = await openBoard(tx, this.#mainId);
    if (!state.taskActivityEnabled) return;
@@ -3847,7 +3861,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    const due = [
     ...(state.pausedNotices?.length ? [this.#options.now() + 1000] : []),
     ...board.tasks.filter(task => task.activity?.kind === "delivery").map(task => Date.parse(task.activity!.since) + DELIVERY_ACTIVITY_MS),
-    ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !task.state.refs.length && !Object.values(state.taskActivity?.[task.id]?.sources ?? {}).some(s => s.state === "running") && state.taskActivity?.[task.id]?.deploy?.state !== "active").map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
+    ...board.tasks.filter(task => task.status === "in_progress" && task.state?.kind === "working" && !task.state.liveWorkSince).map(task => Date.parse(taskQuietSince(task, state.taskActivity?.[task.id])) + TASK_PAUSED_MS),
    ].filter(at => at > this.#options.now());
    if (board.tasks.some(task => task.state?.kind === "paused") || state.pausedNotices?.length) void this.checkPaused().catch(error => this.#options.log(`board paused: ${errorMessage(error)}`));
    if (due.length) { expiry = setTimeout(() => publish(boardState), Math.min(...due) - this.#options.now()); expiry.unref?.(); }

@@ -3829,6 +3829,7 @@ data class BoardTaskState(
     val `since`: String,
     val `refs`: List<String>,
     val `sentence`: BoardTaskActivity? = null,
+    val `liveWorkSince`: String? = null,
     val `fromPartId`: String? = null,
     val `fromPartTitle`: String? = null
 )

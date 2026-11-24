@@ -85,6 +85,7 @@ import {
  logLinkChanges,
 	moveTaskForWorker,
  inferCoordinatorTaskFocusIn,
+ taskIdsNamedInRun,
 	openBoard,
 	openTaskHistory,
 	recordScheduledReport,
@@ -746,7 +747,7 @@ const REQUEST_PARTS_RULE = `Work needed to finish the request gets a required pa
 const TASK_EVERY_SUBJECT = "Every subject the user raises is a task on the project's board, kept with the `board` tool. Before you reply, find its task or add one with add_task.";
 const FILE_QUICK_ANSWERS = "Not every message needs a task. When the owner asks a question, wants a status, or asks for a small errand whose result is one answer, reply and file it with the board action answer: a short title, the full answer and any related tasks. Add a task when something is to be built, changed or looked into with a result to review, or when it needs a worker for more than a few minutes. If an answer turns into work, add the task with fromAnswer. A question about a task still goes on that task.";
 const WORKING_ANSWER_RULE = "For a short errand that uses a worker, file answer with state working and workerId, then file the reply with the same answerId.";
-const BOARD_TASK_RULES = `Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.`;
+const BOARD_TASK_RULES = `Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Pass taskId to worker_spawn for board work, including review fixes and work restarting from waiting. A linked spawn moves the task to in_progress and a linked failure moves it to blocked. The harness can infer a single task from this turn's task-scoped owner messages or a background thread's assigned task, but it does not guess from general chat or the worker brief. Use taskId: null only for work with no board task. Pass taskId to thread_start for board work too. The harness writes Now automatically.`;
 
 const GO_LIVE_RULE = `When the project's rules ask the owner before going live, ask once per request, on the request, when its outcome is ready to show. Land its parts on the request's line of work without asking for each one. Offer the choice "Deploy, and do not ask again for this request"; when the owner picks it, record it with \`decide\` on the request and land its later parts once their checks pass.`;
 
@@ -1384,10 +1385,20 @@ export class WorkerService {
 		if (place === undefined) {
 			return toolText(this.notCoordinatorMessage("worker_spawn"), { isError: true });
 		}
-		const board = args.taskId === undefined ? undefined : ((await this.harness.snapshot(BoardDoc, this.mainId as ConversationId, context)) as BoardState | undefined);
-		const task = args.taskId === undefined ? undefined : board?.tasks.find((candidate) => candidate.id === args.taskId);
-		if (args.taskId !== undefined && task === undefined) {
-			return toolText(`No task "${args.taskId}" on the board (unknown_task). List the board, or spawn without taskId.`, {
+		const board = args.taskId === null ? undefined : await this.harness.snapshot(BoardDoc, this.mainId as ConversationId, context);
+		if (args.taskId === undefined) {
+			const live = await this.harness.snapshot(LiveDoc, conversationId, context);
+			const first = live?.run?.first;
+			const conversation = first === undefined ? undefined : await this.harness.conversation(conversationId, context);
+			const named = await taskIdsNamedInRun(conversation, first, context, true);
+			const focused = named.size === 1 ? [...named][0] : named.size === 0 ? board?.taskFocus?.[place.threadId] : undefined;
+			const inferred = board?.tasks.find(task => task.id === focused && !task.archived && task.status !== "done" && task.status !== "dropped" && (task.ownerThreadId ?? "main") === place.threadId);
+			// Freeze the decision before model approval; an approval can arrive on another turn.
+			args = { ...args, taskId: inferred?.id ?? null };
+		}
+		const task = args.taskId == null ? undefined : board?.tasks.find(candidate => candidate.id === args.taskId);
+		if (args.taskId != null && task === undefined) {
+			return toolText(`No task "${args.taskId}" on the board (unknown_task). List the board, or use taskId: null for work with no board task.`, {
 				isError: true,
 				details: { code: "unknown_task", taskId: args.taskId },
 			});
@@ -1463,7 +1474,7 @@ export class WorkerService {
 			if ((current?.conversationId ?? null) !== (existing?.conversationId ?? null) || (current && current.status !== "done")) {
 				throw new ServerError("board_conflict", `Worker "${args.id}" was already started in the meantime.`);
 			}
-			if (previousConversationId !== undefined && args.taskId !== undefined) {
+			if (previousConversationId !== undefined && args.taskId != null) {
 				const task = (await openBoard(tx, this.mainId as ConversationId)).tasks.find(row => row.id === args.taskId);
 				if (!task || task.archived || task.status === "done" || task.status === "dropped" || (task.ownerThreadId != null && task.ownerThreadId !== place.threadId)) {
 					throw new ServerError("board_conflict", `Task ${args.taskId} is now closed or belongs to another coordinator.`);
@@ -2479,9 +2490,8 @@ const workerSpawnParameters = Type.Object({
 	model: Type.Optional(modelRefSchema),
 	thinkingLevel: Type.Optional(thinkingLevelSchema),
 	taskId: Type.Optional(
-		Type.String({
-			minLength: 1,
-			description: "The board task (T3) this worker runs. It moves to in_progress now and to blocked if the worker fails. The worker keeps the task's report current; its final report does not move the task, you move it to review once you checked the work.",
+		Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
+			description: "Pass the board task ID (T3) for board work. A linked start moves the task to in_progress, including from review or waiting; failure moves it to blocked. Omit to use an unambiguous task-scoped owner message or the thread's assigned task. Use null only for work with no board task. The worker's final report does not move it to review.",
 		}),
 	),
 });

@@ -44,6 +44,19 @@ describe('Needs you', () => {
 		expect(taskNeedsYou({ ...withSteps, status: 'review' }, [], false, true)).toMatchObject({ review: true, hasSteps: true });
 	});
 
+	test('work hides old review and steps but keeps owner warnings, and quiet work shows Paused', () => {
+		const working = { ...task('review'), report: { steps: 'Print the old draft.' },
+			state: { kind: 'answer_needed' as const, group: 'needs_you' as const, since: question.askedAt, refs: ['Q1'], liveWorkSince: question.askedAt } };
+		const needs = taskNeedsYou(working, [{ ...question, kind: 'warning' }], false, true);
+		expect(needs).toMatchObject({ review: false, hasSteps: false, show: true });
+		expect(taskDetailState(working.status, needs, 'answer_needed')).toBe('Working');
+		expect(taskNeedsYou(working, [], false, true).show).toBe(false);
+		const quiet = taskNeedsYou(task('in_progress'), [{ ...question, kind: 'warning' }], false, true);
+		expect(taskDetailState('in_progress', quiet, 'paused')).toBe('Paused');
+		expect(taskDetailState('in_progress', quiet, 'answer_needed')).toBe('Needs attention');
+		expect(taskDetailState('in_progress', quiet, 'failed')).toBe('Failed');
+	});
+
 	test.each([
 		['todo', 'To do'], ['in_progress', 'Working'], ['review', 'Ready for you to check'],
 		['blocked', 'Blocked'], ['waiting', 'Waiting'], ['done', 'Done'], ['dropped', 'Dropped'],

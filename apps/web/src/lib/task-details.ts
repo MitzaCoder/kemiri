@@ -2,22 +2,28 @@ import type { BoardQuestion, BoardReportCheck, BoardTask } from '@kemiri/protoco
 import { hasReportSection, hasTypedNext, type TaskReportSections } from './report-sections.js';
 import { isSettled, isWarning, waitingOn } from './tasks.js';
 
-export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason'> & { report?: Pick<BoardTask['report'], 'steps' | 'blocks'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
+export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason' | 'state'> & { report?: Pick<BoardTask['report'], 'steps' | 'blocks'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
 	const open = waitingOn(questions, task.id);
 	const ownerQuestions = open.filter(question => question.waitingOn !== 'agent');
 	const questionsForAgent = open.filter(question => question.waitingOn === 'agent');
-	const review = task.status === 'review';
+	const working = Boolean(task.state?.liveWorkSince);
+	const review = !working && task.status === 'review';
 	const blocked = task.status === 'blocked' && (Boolean(task.blockedReason?.trim()) || hasBlockers);
-	const showSteps = stepsSupported && !isSettled(task.status);
+	const showSteps = !working && stepsSupported && !isSettled(task.status);
 	const hasSteps = showSteps && task.report !== undefined && hasReportSection(task.report, 'steps');
-	return { ownerQuestions, questionsForAgent, review, blocked, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
+	return { ownerQuestions, questionsForAgent, review, blocked, working, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
 }
 
 export function taskDetailState(status: BoardTask['status'], needsYou: ReturnType<typeof taskNeedsYou>, kind?: NonNullable<BoardTask['state']>['kind']): string {
+	if (needsYou.working || kind === 'working') return 'Working';
+	if (kind === 'paused') return 'Paused';
+	if (kind === 'clarifying') return 'Clarifying';
+	if (kind === 'blocked_by_task') return 'Blocked by another task';
 	if (needsYou.hasSteps && kind === 'steps_needed') return 'Your steps to do';
+	if (kind === 'failed' && status !== 'blocked') return 'Failed';
 	if (needsYou.ownerQuestions.some(question => !isWarning(question))) return 'Needs your answer';
+	if (kind === 'answer_needed') return 'Needs attention';
 	if (needsYou.hasSteps) {
-		if (kind === 'failed' && status !== 'blocked') return 'Failed';
 		if (kind === undefined && !needsYou.blocked) return 'Your steps to do';
 	}
 	return {

@@ -27,7 +27,7 @@ export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<
 		if (state?.kind === "steps_needed") steps.push(state.fromPartId ?? need?.task.id ?? task.id);
 		if (state?.kind === "review") reviews.push(task.id);
 	}
-	const waiting = board.tasks.filter((task) => task.status === "waiting");
+	const waiting = board.tasks.filter((task) => task.status === "waiting" && !task.state?.liveWorkSince);
 	const dates = waiting.flatMap((task) => task.waiting?.until && Number.isFinite(Date.parse(task.waiting.until)) ? [task.waiting.until] : []);
 	dates.sort((left, right) => Date.parse(left) - Date.parse(right));
 	return {

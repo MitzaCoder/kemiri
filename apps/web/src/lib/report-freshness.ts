@@ -17,5 +17,5 @@ export function reportSectionReasons(section: BoardReportSection, emptyResults =
 }
 
 export function emptyFinishedResults(task: BoardTask): boolean {
-	return (task.status === 'review' || task.status === 'done') && task.report.results.trim().length === 0;
+	return !task.state?.liveWorkSince && (task.status === 'review' || task.status === 'done') && task.report.results.trim().length === 0;
 }

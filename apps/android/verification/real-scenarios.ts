@@ -50,7 +50,7 @@ export function scenarioResponse(request: TranscriptContext, root: string) {
 			return say("Evidence saved. Waiting for R2 scoped, R2 worker, R2 handoff or R2 finish.");
 		}
 		if (input === "R2 worker" && !tool) return call("worker_spawn", { id: "proof-worker", task: "Save actual worker evidence for T1.", isolation: "shared" });
-		if (input === "R2 handoff" && !tool) return call("board", { action: "handoff", id: "T1", expectedRevision: 2, toThread: "main" });
+		if (input === "R2 handoff" && !tool) return call("board", { action: "handoff", id: "T1", expectedRevision: 3, toThread: "main" });
 		if (input === "R2 finish" && !tool) return call("thread_finish", { summary: FINISH_SUMMARY });
 		if (input === "R2 late") {
 			if (!tool) return call("write", { path: "late.txt", content: "Saved after the first finish; not in its historical strip.\n" });
@@ -62,7 +62,7 @@ export function scenarioResponse(request: TranscriptContext, root: string) {
 		if (!tool) return call("board", { action: "add_task", title: TASK_TITLE, description: "Tool-driven real background proof" });
 		if (tool === "board") return call("thread_start", { title: "Contract proof", brief: "R2 background kickoff", onFinish: "review", taskId: "T1" });
 	}
-	if (input === "R2 return" && !tool) return call("board", { action: "handoff", id: "T1", expectedRevision: 3, toThread: PROOF_THREAD });
+	if (input === "R2 return" && !tool) return call("board", { action: "handoff", id: "T1", expectedRevision: 4, toThread: PROOF_THREAD });
 	if (input === "R2 bad message" && !tool) return call("thread_send", { id: "missing-real-thread", message: "Do not create a success card" });
 	if (input === "R2 bad save" && !tool) return call("artifact_save", { path: "missing-real-file.txt", title: "Must not create preview" });
 	if (input === "R2 main save") {

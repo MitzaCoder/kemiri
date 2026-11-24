@@ -14,6 +14,7 @@ internal data class TaskNeedsYou(
     val blocked: Boolean,
     val showSteps: Boolean = false,
     val failed: Boolean = false,
+    val working: Boolean = false,
 ) {
     val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps || failed
 }
@@ -21,22 +22,28 @@ internal data class TaskNeedsYou(
 internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean, attentionQuestionId: String? = null, failed: Boolean = false): TaskNeedsYou {
     val (warnings, ordinary) = questions.filter { it.status == "open" && it.taskId == task.id }.partition(::isWarning)
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
-    val stepsEnabled = stepsSupported && !isSettled(task.status)
+    val working = task.state?.liveWorkSince != null
+    val stepsEnabled = !working && stepsSupported && !isSettled(task.status)
     val showSteps = stepsEnabled && readReportSection(task.report, ReportSectionKind.Steps).hasContent
-    return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, task.status == "review",
-        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed)
+    return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, !working && task.status == "review",
+        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed, working)
 }
 
 internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: String? = null): String = when {
+    needsYou.working || kind == "working" -> "Working"
+    kind == "paused" -> "Paused"
+    kind == "clarifying" -> "Clarifying"
+    kind == "blocked_by_task" -> "Blocked by another task"
     needsYou.showSteps && kind == "steps_needed" -> "Your steps to do"
+    kind == "failed" && status != "blocked" -> "Failed"
     needsYou.ownerQuestions.any { !isWarning(it) } -> "Needs your answer"
-    needsYou.showSteps && kind == "failed" && status != "blocked" -> "Failed"
+    kind == "answer_needed" -> "Needs attention"
     needsYou.showSteps && kind == null && !needsYou.blocked -> "Your steps to do"
     status == "review" -> "Ready for you to check"
     else -> taskStatusWords(status)
 }
 
-internal fun showTaskNow(task: BoardTask, activity: BoardTaskActivity?): Boolean = task.status == "in_progress" &&
+internal fun showTaskNow(task: BoardTask, activity: BoardTaskActivity?): Boolean = (task.status == "in_progress" || task.state?.liveWorkSince != null) &&
     if (activity == null) task.report.now.isNotBlank() else activity.kind in setOf("working", "deploy", "idle", "unknown")
 
 internal data class TaskDetailFields(

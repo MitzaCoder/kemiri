@@ -95,7 +95,8 @@ export async function verifyRealContracts(url: string, projectId: string, root: 
 		const peek = tools(await page(), "thread_peek")[0];
 		assert.equal(peek.details.threadId, PROOF_THREAD);
 		await submit("R2 worker", PROOF_THREAD);
-		await until(async () => (await scoped("workers.list", { threadId: PROOF_THREAD })).workers, (ws) => ws.length === 1 && ws[0].status !== "running", "actual shared worker");
+		const [worker] = await until(async () => (await scoped("workers.list", { threadId: PROOF_THREAD })).workers, (ws) => ws.length === 1 && ws[0].status !== "running", "actual shared worker");
+		assert.equal(worker.taskId, "T1", "the worker inherits the background thread’s assigned task");
 		await idle();
 		const workerArtifacts = (await scoped("artifacts.list", { threadId: PROOF_THREAD, workerId: "proof-worker", taskId: "T1" })).artifacts;
 		assert.equal(workerArtifacts.length, 1);
@@ -106,7 +107,7 @@ export async function verifyRealContracts(url: string, projectId: string, root: 
 		await until(() => page(), (es) => texts(es).some((t) => t.startsWith(`[board] Thread "${PROOF_THREAD}" handed T1`)), "actual board handoff input");
 		await idle();
 		assert.equal((await scoped("board.get")).board.tasks[0].ownerThreadId, "main");
-		assert(texts(await page()).includes(`[board] Thread "${PROOF_THREAD}" handed T1 ${JSON.stringify(TASK_TITLE)} (r3) to you. It is yours now: read it with the board tool and carry it on.`));
+		assert(texts(await page()).includes(`[board] Thread "${PROOF_THREAD}" handed T1 ${JSON.stringify(TASK_TITLE)} (r4) to you. It is yours now: read it with the board tool and carry it on.`));
 		await submit("R2 finish", PROOF_THREAD);
 		await until(threads, (ts) => ts.find((t) => t.id === PROOF_THREAD)?.status === "done", "thread_finish");
 		await until(() => page(), (es) => texts(es).includes(`[thread ${PROOF_THREAD} finished]\n${FINISH_SUMMARY}`), "actual finish card input");

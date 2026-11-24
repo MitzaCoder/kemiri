@@ -289,6 +289,7 @@ export const BoardTaskStateSchema = Type.Object({
  since: Type.String(),
  refs: Type.Array(Type.String()),
  sentence: Type.Optional(BoardTaskActivitySchema),
+ liveWorkSince: Type.Optional(Type.String({ description: "Start of live work on this task or a required descendant, independent of owner attention." })),
  fromPartId: Type.Optional(Type.String({ description: "request-attention: the part that raised this request's state." })),
  fromPartTitle: Type.Optional(Type.String({ description: "request-attention: title of the part that raised this state." })),
 });

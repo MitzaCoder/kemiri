@@ -2448,10 +2448,17 @@ Status: backend, protocol, client and web UI done (milestone 2).
   lines (bearer tokens, common prefixed keys, password/API-key assignments, long hex/base64 blobs) and whole PEM private-key
   blocks before anything is queued. It is a heuristic, not a guarantee: maintenance also must never save secrets.
 - The coordinator keeps every tool and gains six: `worker_spawn` (`id`, `task`, `title`, `isolation`, `model`,
-  `thinkingLevel`), `worker_send` (`id`, `message`, `interrupt`), `worker_stop` (`id`), `worker_peek` (`id`,
+  `thinkingLevel`, `taskId`), `worker_send` (`id`, `message`, `interrupt`), `worker_stop` (`id`), `worker_peek` (`id`,
   `entries?`), `worker_list`, `worker_forget` (`id`, `removeWorkspace`). Workers get the coding tools and none of these,
   so they cannot start workers. A system prompt section tells the coordinator to plan, delegate, review reports and
   merge.
+- For board work, the coordinator passes `taskId` to `worker_spawn` or `thread_start`. A linked start
+  moves review or waiting back to `in_progress`; a worker report does not move it to review.
+  An omitted worker `taskId` uses the single explicit task marker in the current run's owner inputs,
+  or, with no markers, the background thread's assigned task. The candidate must be open and owned
+  by the caller. General chat, past turns and worker brief text do not imply a link. `taskId: null`
+  opts out. The resolved link is saved before any outside-model approval so it cannot drift to the
+  approval turn's task.
 - `workerInstructions` includes a short project brief from the active global and project `worker-brief` memory topics
   (see "What is always in context" below). `WorkerService.createWorkerIn` reads and renders it once, for main's workers,
   background threads' workers and scheduled workers alike. The complete instructions are persisted by `configure` in
@@ -3912,44 +3919,42 @@ First match wins, using the same blocking-question, run and deployment facts as 
 
 1. Stored done/dropped → closed/done|dropped, even with lingering failures or work.
 2. Activity failure (deployment or worker/thread), or stored blocked with a reason or
-   without any open task blocker → needs_you/failed. Bare blocked with open blockers uses rule 5.
+   without any open task blocker → needs_you/failed. Bare blocked with open blockers uses rule 7.
 3. Open blocking question waiting on the owner → needs_you/answer_needed. Questions default blocking, warnings
    nonblocking; `blocksWork` overrides either. Refs are question IDs.
-3a. Non-empty Your steps → needs_you/steps_needed, after Failed and Answer needed, before
-   Review and any working or waiting kind. Clearing the steps restores normal derivation;
-   closing the task takes precedence without removing the text. The sentence is “Your steps”.
-   The wire uses `steps_needed` only if both server `hello.features` and request `hello.client.features`
-   include `task-steps`. Otherwise the state and part-kind array use `review` instead, retaining Needs you
-   without sending an unknown kind to older clients. Additive report fields are safe to ignore.
-3b. Open question/warning waiting on the agent → in_progress/clarifying, refs question IDs.
-   This follows Answer needed and Your steps and precedes Working, even for nonblocking warnings.
-4. Running task-focused worker/thread/coordinator or deployment → in_progress/working.
-5. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
-6. Stored review → needs_you/review.
-7. Stored waiting → waiting/waiting_outside.
-8. A parent with a direct part in derived working with live work → in_progress/working,
-   after its own failure/question/blocker/review/outside-wait rules. Part states are derived
-   bottom-up once per emission: descendant work propagates through working parts, but not
-   through a part that itself needs attention or waits. Working refs name those direct parts;
-   `since` is the earliest live part start. Idle grace (working without refs), unknown sources
-   and dropped parts do not count as live work. Otherwise stored in_progress without work →
-   in_progress/working until 15 minutes quiet, then in_progress/paused. Quiet begins at
-   max(last run ended, stored status began); paused `since` is that time plus 15 minutes.
-9. Stored todo → todo/todo.
+4. Live linked worker/thread/coordinator or deployment, here or on a required descendant →
+   in_progress/working. `state.liveWorkSince` carries the earliest live work time independently of
+   the attention kind. Descendant work propagates bottom-up, including through a part with an open
+   question or failure. Working refs name the live runs or direct parts. Closed tasks, unknown
+   sources and idle grace do not contribute live work. The task page chip says Working when this
+   time is present, even if the Needs you section shows a question, warning or failure.
+5. Non-empty Your steps with no live work → needs_you/steps_needed. Work hides, but never clears,
+   these steps and the old review actions. The wire uses `steps_needed` only if both hello feature
+   lists include `task-steps`; otherwise the state and part-kind array use `review` instead.
+6. Open question/warning waiting on the agent → in_progress/clarifying, refs question IDs.
+7. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
+8. Stored review → needs_you/review. Stored waiting → waiting/waiting_outside.
+9. Stored in_progress without work → in_progress/working during a 15-minute grace, then
+   in_progress/paused, including on the task page. Quiet starts at the later of last run end and
+   stored status start. The pause starts 15 minutes after that; neither rewrites the stored status.
+10. Stored todo → todo/todo.
 
 **Request attention (T457 / D135).** The server finds a part's request by following `parent` to the root,
 including through archived ancestors. Missing parents and cycles have no root. An open request takes the highest
 need from itself or its descendants: failure, blocking question or warning, Your steps, nonblocking question or
-warning, then request review. A review on a part does not rise. Equal needs prefer the request, then the oldest
-need; parts retain their own states. Closed requests keep their closed state. With `request-attention` in both
-hello feature lists, a part and its questions carry optional `requestId`, and a request state raised by a part
+warning, then request review. Request-wide live work suppresses lifted steps and passive review, not questions,
+warnings or failures. A review on a part does not rise. Equal needs prefer the request, then the oldest
+need; parts retain their own states. A lifted need keeps the request’s independent live work time. Closed
+requests keep their closed state. With `request-attention` in both hello feature lists, a part and its questions
+carry optional `requestId`, and a request state raised by a part
 has `fromPartId` and `fromPartTitle`. Only the projection changes; questions stay on the original task and no
 board document changes shape. `show_task` on a part names its request. Older clients keep their previous task
 rows and states while receiving request-level sidebar summaries and the quieter notice rules.
 
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator
-board tool keeps stored status visible, e.g. `[in_progress · paused]`, `[todo · blocked by T7]`.
+board tool shows stored status alongside live work and attention, e.g. `[in_progress · paused]` or
+`[review · working · answer_needed]`.
 The activity line remains available for extra detail, independent of this grouping contract.
 A shared delivery/pause expiry timer republishes at the boundary; no polling writes or
 per-second writes. One `[board]` follow-up nudges the owning coordinator (else main):

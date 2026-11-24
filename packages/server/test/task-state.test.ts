@@ -19,9 +19,9 @@ function update(state: BoardState, id: string, extra: Partial<BoardTaskInput>, a
  const task = state.tasks.find(t => t.id === id)!;
  return saveTask(state, { taskId: id, expectedRevision: task.revision, task: { ...task, ...extra }, author, now: at(10), openParts });
 }
-function source(state: BoardState, status: TaskActivitySource["state"] = "running", id = "run-1") {
+function source(state: BoardState, status: TaskActivitySource["state"] = "running", id = "run-1", taskId = "T1") {
  const run: TaskActivitySource = { actor: { id, kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: id }, state: status, since: at(2), title: "Synthetic task" };
- activityTracking(state, "T1").sources[id] = run; return run;
+ activityTracking(state, taskId).sources[id] = run; return run;
 }
 function derive(state: BoardState, ms = 100) { return taskState(state.tasks[0]!, state.questions, state.tasks, state.taskActivity?.T1, START + ms); }
 const blockedMessage = "T2 is blocked by T1 (in progress). Wait for T1 to close, or if T2 no longer needs it, remove the blocker in the same call: update_task id=T2 status=in_progress blockedBy=[]";
@@ -54,7 +54,7 @@ it("blocking questions override deploy, live sources and blockers; warnings use 
  expect(derive(s)).toMatchObject({ kind: "answer_needed", since: at(3), refs: ["Q2"] });
 });
 
-it("ranks open steps below failure and answers but above review, work and waiting", () => {
+it("ranks steps above idle review and waiting and keeps them while working", () => {
  const s = emptyBoardState(); add(s, { status: "review" });
  const write = (steps: string, ms: number) => writeReport(s, { taskId: "T1", sections: { steps }, by: HARNESS_WRITER, now: at(ms) });
  expect(LEGACY_HARNESS_FEATURES).not.toContain("task-steps");
@@ -71,7 +71,10 @@ it("ranks open steps below failure and answers but above review, work and waitin
   expect(derive(s).kind).toBe("steps_needed");
  }
  source(s);
+ expect(derive(s)).toMatchObject({ kind: "working", liveWorkSince: at(2) });
+ endActivitySource(activityTracking(s, "T1"), "run-1", at(3));
  expect(derive(s).kind).toBe("steps_needed");
+ source(s, "running", "run-2");
  askQuestion(s, { taskId: "T1", text: "Choose a value", options: [], now: at(4) });
  expect(derive(s).kind).toBe("answer_needed");
  source(s, "failed", "failed-run");
@@ -515,7 +518,7 @@ it("parent follows live direct and descendant work, but not idle grace or unknow
  activityTracking(s, "T5").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
  const before = JSON.stringify(s);
  const board = boardView(s, START + 2 * TASK_PAUSED_MS, true);
- expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), refs: ["T3"], sentence: { kind: "working", text: "1 of 3 parts done · 1 working", since: at(2), refs: ["T3"], ageFormat: "none" } });
+ expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), liveWorkSince: at(2), refs: ["T3"], sentence: { kind: "working", text: "1 of 3 parts done · 1 working", since: at(2), refs: ["T3"], ageFormat: "none" } });
  expect(board.tasks[0]!.subtaskCount).toEqual({ done: 1, total: 3 });
  expect(board.tasks[0]!.subtaskStates).toEqual(["done", "working", "todo"]);
  expect(board.tasks[0]!.activity!.text).toBe("1 of 3 parts done · 1 working");
@@ -529,7 +532,7 @@ it("parent follows live direct and descendant work, but not idle grace or unknow
  expect(HARNESS_FEATURES).toContain("task-part-states"); expect(LEGACY_HARNESS_FEATURES).not.toContain("task-part-states");
 });
 
-it.each(["failed", "answer_needed", "review", "blocked_by_task", "waiting_outside", "done"] as const)("parent's own %s is not replaced by parts", kind => {
+it.each(["failed", "answer_needed", "review", "blocked_by_task", "waiting_outside", "done"] as const)("parent keeps real attention beside live parts, but live parts replace passive %s", kind => {
  const s = emptyBoardState(); s.taskStateEnabled = true; s.taskPartStatesEnabled = true; s.taskActivityEnabled = true;
  add(s, { status: "in_progress" }); add(s, { parent: "T1", status: "in_progress" }); add(s);
  activityTracking(s, "T2").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
@@ -541,8 +544,10 @@ it.each(["failed", "answer_needed", "review", "blocked_by_task", "waiting_outsid
  if (kind === "waiting_outside") { root.status = "waiting"; root.waiting = { note: "Council", since: at(), by: "user" }; }
  if (kind === "done") root.status = "done";
  const parent = boardView(s, START + TASK_PAUSED_MS, true).tasks[0]!;
- expect(parent.state!.kind).toBe(kind);
- expect(parent.activity!.text).not.toContain("parts done");
+ const retainsKind = kind === "failed" || kind === "answer_needed" || kind === "done";
+ expect(parent.state!.kind).toBe(retainsKind ? kind : "working");
+ expect(parent.state!.liveWorkSince).toBe(kind === "done" ? undefined : at(2));
+ if (retainsKind) expect(parent.activity!.text).not.toContain("parts done");
 });
 
 it("live parts suppress parent pause notices until work ends, with an injected clock", async () => {
@@ -614,6 +619,31 @@ it("lifts owner-waiting warnings but not clarifications or review on a part", ()
  expect(boardAttention(view())).toMatchObject({ reviewTasks: 1, warnings: 0 });
 });
 
+it("live descendants suppress request steps but their questions and warnings still rise", () => {
+ const s = { ...emptyBoardState(), taskStateEnabled: true };
+ add(s, { status: "review" });
+ add(s, { parent: "T1", status: "waiting", waitingFor: "The shop" });
+ add(s, { parent: "T2" });
+ add(s, { parent: "T1" });
+ s.tasks[1]!.status = "waiting"; // Preserve a stored wait while a descendant runs.
+ const run = source(s, "running", "print-run", "T3");
+ writeReport(s, { taskId: "T4", sections: { steps: "Print the old draft." }, by: HARNESS_WRITER, now: at() });
+ const view = () => boardView(s, START + TASK_PAUSED_MS, false, undefined, true);
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "working", refs: ["T2"], liveWorkSince: at(2) });
+ expect(boardAttention(view())).toMatchObject({ stepsTasks: 0, waitingTasks: 0, reviewTasks: 0 });
+ askQuestion(s, { taskId: "T3", kind: "warning", text: "The printer may be late.", options: [], now: at(3) });
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "answer_needed", fromPartId: "T3", liveWorkSince: at(2) });
+ expect(boardAttention(view())).toMatchObject({ warnings: 1, stepsTasks: 0, waitingTasks: 0 });
+ askQuestion(s, { taskId: "T3", text: "Which printer?", options: [], now: at(4) });
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "answer_needed", refs: ["Q2"], fromPartId: "T3", liveWorkSince: at(2) });
+ expect(view().tasks[2]?.state).toMatchObject({ kind: "answer_needed", liveWorkSince: at(2) });
+ s.questions.forEach(question => { question.waitingOn = "agent"; });
+ endActivitySource(activityTracking(s, "T3"), run.actor.id, at(5));
+ expect(view().tasks[0]?.state).toMatchObject({ kind: "steps_needed", fromPartId: "T4" });
+ expect(view().tasks[0]?.state?.liveWorkSince).toBeUndefined();
+ expect(boardAttention(view())).toMatchObject({ stepsTasks: 1, waitingTasks: 1 });
+});
+
 it("a missing parent or a cycle cannot provide a top request", () => {
  const tasks = new Map([["T1", { id: "T1", parent: "T2" }], ["T2", { id: "T2", parent: "T1" }]]);
  expect(topRequest(tasks.get("T1")!, tasks)).toBeUndefined();
@@ -682,7 +712,8 @@ it("projects live parts, drops and reports on the request without touching evide
   await runtime.harness.commit(async tx => {
    const state = await tx.doc(BoardDoc, runtime.conversation.id) as BoardState;
    add(state, { title: "Ship the boxes" });
-   add(state, { title: "Pack the boxes", parent: "T1", status: "in_progress" });
+   const packing = add(state, { title: "Pack the boxes", parent: "T1", status: "in_progress" });
+   source(state, "running", "packing-run", packing.id);
    const nested = add(state, { title: "Print labels", parent: "T2" });
    add(state, { title: "Order cartons", parent: "T1" });
    const drop = add(state, { title: "Print flyers", parent: "T1" });

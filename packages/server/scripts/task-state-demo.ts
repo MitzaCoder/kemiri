@@ -16,6 +16,7 @@ setup.faux.setResponses(Array.from({ length: 30 }, () => async (_request: unknow
 	return fauxAssistantMessage('Synthetic session ended.');
 }));
 const requestParts = process.env.DEMO_REQUEST_PARTS === '1';
+const statusTruth = process.env.DEMO_STATUS_TRUTH === '1';
 const git = (...args: string[]) => {
 	const result = Bun.spawnSync(['git', '-c', 'user.name=Bakery Demo', '-c', 'user.email=demo@example.test', ...args], { cwd: setup.projectDir });
 	if (result.exitCode !== 0) throw new Error(result.stderr.toString());
@@ -108,6 +109,7 @@ for (let i = 0; !requestParts && !needsYouFamilies && i < titles.length; i++) {
 await runtime.harness.commit(async tx => {
 	const doc = await tx.doc(BoardDoc, runtime.conversation.id);
 	doc.questions.push({ id: 'Q1', revision: 1, kind: 'question', text: 'Paper boxes or tins?', options: ['Paper boxes', 'Tins'], taskId: requestParts ? 'T11' : needsYouFamilies ? 'T1' : 'T11', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
+	if (statusTruth) doc.questions.push({ id: 'Q2', revision: 1, kind: 'warning', text: 'The mill may deliver one day late.', options: [], taskId: 'T15', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
 	if (!requestParts && !needsYouFamilies && process.env.DEMO_PART_QUESTION === '1') {
 		doc.questions.push({ id: 'Q2', revision: 1, kind: 'question', text: 'Daylight or lamp?', options: ['Daylight', 'Lamp'], blocksWork: true, taskId: 'T3', status: 'open', answer: null, askedAt: new Date(clock).toISOString(), answeredAt: null, threadId: 'main' });
 	}
@@ -118,6 +120,8 @@ const liveTasks = requestParts
 	? [['fern', 'T7', 'Pastry photos'], ['moss', 'T8', 'Printed menus']] as const
 	: needsYouFamilies
 	? [['fern', 'T7', 'Sample boxes'], ['moss', 'T8', 'Oven repair']] as const
+	: statusTruth
+	? [['fern', 'T3', 'Pastry photos'], ['moss', 'T9', 'Loaf prices'], ['reed', 'T15', 'Flour delivery']] as const
 	: [['fern', 'T3', 'Pastry photos'], ['moss', 'T7', 'Oven repair']] as const;
 for (const [id, taskId, title] of liveTasks) {
 	const started = await runtime.threads.start({ id, title, brief: 'Synthetic held session; no tools.', model: null, thinkingLevel: null, onFinish: 'record', startedBy: 'main', scheduleId: null, taskId, key: `state-demo-${id}` });
@@ -132,6 +136,16 @@ if (needsYouFamilies) await runtime.harness.commit(async tx => {
 	};
 	doc.deployFeedConfigured = true;
 }, BACKGROUND_CONTEXT);
+if (statusTruth) {
+	for (const taskId of ['T1', 'T9']) await runtime.board.writeReport(change => runtime.harness.commit(change, BACKGROUND_CONTEXT), {
+		taskId, sections: { steps: 'Check the old draft and print a copy.' }, by: { author: 'coordinator', threadId: null, workerId: null },
+	}, `status-truth-steps-${taskId}`);
+	await runtime.harness.commit(async tx => {
+		const doc = await tx.doc(BoardDoc, runtime.conversation.id);
+		for (const id of ['T1', 'T9']) doc.tasks.find(task => task.id === id)!.status = 'review';
+		doc.tasks.find(task => task.id === 'T15')!.status = 'waiting';
+	}, BACKGROUND_CONTEXT);
+}
 // Advance only after the synthetic live work exists, avoiding an artificial pause episode during seeding.
 clock = Date.now();
 await Bun.write(output, JSON.stringify({ url: setup.server.url, projectId, pid: process.pid, root: setup.root }));

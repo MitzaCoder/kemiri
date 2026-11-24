@@ -79,7 +79,7 @@ private fun GraphTaskPeek(id: String, tasks: List<BoardTask>, questions: List<Bo
                 if (phase != null) TaskActivityView(phase) else ReportMarkdown(nowText)
             }
             val results = graphPeekResults(task.report.results)
-            if (results.isNotEmpty() || emptyFinishedResults(task.status, task.report.results)) {
+            if (results.isNotEmpty() || (task.state?.liveWorkSince == null && emptyFinishedResults(task.status, task.report.results))) {
                 GraphDetailHeading("Results")
                 results.forEach { Text("• $it", color = colors.fg, style = TaskType.xs) }
                 if (results.isEmpty()) Text("No results yet · work finished", color = colors.fgSubtle, style = TaskType.xs)

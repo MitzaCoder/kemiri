@@ -160,7 +160,7 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		task === undefined ? [] : task.workerIds.map((id) => ({ id, worker: workers.find((entry) => entry.id === id) }))
 	);
 	const activity = $derived(task === undefined ? undefined : automaticTaskActivity(task, taskActivitySupported(backend.connection.features)));
-	const now = $derived(task?.status !== 'in_progress' ? undefined : (activity
+	const now = $derived(!task || (task.status !== 'in_progress' && !task.state?.liveWorkSince) ? undefined : (activity
 		? ['working', 'deploy', 'idle', 'unknown'].includes(activity.kind) && !activity.refs.some(ref => questions.some(question => question.id === ref && question.status === 'open')) &&
 			!(delivery && (activity.kind === 'deploy' || activity.refs.some(ref => ref.startsWith('deploy:'))))
 			? { text: activity.text, at: activity.since, activity } : undefined

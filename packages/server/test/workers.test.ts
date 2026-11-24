@@ -5,6 +5,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { InboxDoc, type JsonObject } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { NO_NEW_WORKER_REPORT, WorkersDoc } from "../src/workers.ts";
+import { OWNER_CHAT_ENTRY } from "../src/wire.ts";
 import { openBoard, saveTask } from "../src/board.ts";
 import type { ConversationView, ModelRef, WorkerModel, WorkersListResponse } from "@kemiri/protocol";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -242,6 +243,37 @@ describe("workers", () => {
 
 		const unknown = await client.request({ type: "conversation.watch", projectId, workerId: "nobody" });
 		expect(errorOf(unknown).code).toBe("unknown_worker");
+	});
+
+	workerTest("links an omitted worker task only from a scoped owner message and resumes review", async () => {
+		const test = await setup();
+		const client = await connect(test.server);
+		await greet(client);
+		const projectId = await addProject(client, test.projectDir);
+		await configure(client, projectId);
+		const { runtime } = await test.server.manager.open(projectId);
+		const task = await runtime.board.saveTask({ task: { title: "Check the catalogue", description: "Synthetic task", acceptance: null,
+			status: "review", blockedBy: [], blockedReason: null, writeScopes: [] } }, "user");
+		const cases: { id: string; content: string; args: JsonObject; expected: string | null }[] = [
+			{ id: "unscoped", content: `Delegate ${task.id} as plain text`, args: {}, expected: null },
+			{ id: "optout", content: `[task ${task.id}] Delegate without a link`, args: { taskId: null }, expected: null },
+			{ id: "linked", content: `[task ${task.id}] Delegate the review fix`, args: {}, expected: task.id },
+		];
+		const route: FauxResponseFactory = request => {
+			const { role, text } = lastMessage(request);
+			const scenario = cases.find(entry => text.includes(entry.content));
+			return role === "user" && scenario
+				? fauxAssistantMessage([fauxToolCall("worker_spawn", { id: scenario.id, task: BRIEF, ...scenario.args })], { stopReason: "toolUse" })
+				: fauxAssistantMessage("Checked.");
+		};
+		test.faux.setResponses(Array.from({ length: 30 }, () => route));
+		for (const scenario of cases) {
+			await runtime.conversation.submit({ type: "input", entry: { kind: OWNER_CHAT_ENTRY }, content: scenario.content, requestId: scenario.id }, BACKGROUND_CONTEXT);
+			await until(async () => (await listWorkers(client, projectId)).workers.some(worker => worker.id === scenario.id));
+			expect((await listWorkers(client, projectId)).workers.find(worker => worker.id === scenario.id)?.taskId).toBe(scenario.expected);
+			expect((await runtime.board.get(true)).tasks.find(candidate => candidate.id === task.id)?.status).toBe(scenario.expected ? "in_progress" : "review");
+			await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+		}
 	});
 
 	workerTest("pushes the worker list, and records the tool call that spawned each worker", async () => {

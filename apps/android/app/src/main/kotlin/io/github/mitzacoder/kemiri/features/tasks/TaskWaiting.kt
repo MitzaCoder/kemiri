@@ -20,6 +20,7 @@ import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskWaiting
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -65,7 +66,7 @@ internal fun TaskStatusMenu(task: BoardTask, label: String, supportsWaiting: Boo
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TaskStatusDot(taskStateTone(task))
+                TaskStatusDot(if (task.state?.liveWorkSince != null) TaskStatusTone.Working else taskStateTone(task))
                 Text(label, Modifier.weight(1f, fill = false), style = TaskType.xs)
                 LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 16.dp, tint = Jarvis.colors.fgMuted)
             }

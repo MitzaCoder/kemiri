@@ -115,7 +115,12 @@ export function taskQuietSince(task: BoardTask, tracking: TaskActivityTracking |
 /** One shared state, first match wins. Facts are the same ones used by activity. */
 export function taskState(task: BoardTask, questions: readonly BoardQuestion[], tasks: readonly BoardTask[], tracking: TaskActivityTracking | undefined, now: number, parts: readonly { id: string; state: BoardTaskState }[] = []): BoardTaskState {
  const since = tracking?.statusSince ?? task.updatedAt;
- const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs, sentence: taskStateSentence(kind, task, questions, tasks, tracking, now, at, refs) });
+ const closed = task.status === "done" || task.status === "dropped";
+ const live = closed ? [] : Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
+ const deploy = !closed && tracking?.deploy?.state === "active" ? tracking.deploy : undefined;
+ const workingParts = closed ? [] : parts.filter(part => part.state.liveWorkSince);
+ const liveWorkSince = [live[0]?.since, deploy?.since, ...workingParts.map(part => part.state.liveWorkSince)].filter((at): at is string => !!at).sort()[0];
+ const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs, ...(liveWorkSince ? { liveWorkSince } : {}), sentence: taskStateSentence(kind, task, questions, tasks, tracking, now, at, refs) });
  if (task.status === "done" || task.status === "dropped") return make("closed", task.status, task.settledAt ?? since);
  const activity = taskActivity(task, questions, tasks, tracking, now);
  const blockers = openTaskBlockers(task, tasks);
@@ -123,18 +128,15 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  if (task.status === "blocked" && (task.blockedReason?.trim() || !blockers.length)) return make("needs_you", "failed");
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("needs_you", "answer_needed", blocking[0].askedAt, blocking.map(q => q.id));
+ if (liveWorkSince) {
+  return make("in_progress", "working", liveWorkSince, [...live.map(s => s.actor.id), ...(deploy?.refs ?? []), ...workingParts.map(part => part.id)]);
+ }
  if (task.report?.steps?.trim()) return make("needs_you", "steps_needed", task.report.stepsWrittenAt ?? since);
  const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
  if (clarifying[0]) return make("in_progress", "clarifying", clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
- const live = Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
- if (live[0] || tracking?.deploy?.state === "active") return make("in_progress", "working", [live[0]?.since, tracking?.deploy?.state === "active" ? tracking.deploy.since : undefined].filter((at): at is string => !!at).sort()[0]!, [...live.map(s => s.actor.id), ...(tracking?.deploy?.state === "active" ? tracking.deploy.refs : [])]);
  if (blockers.length) return make("waiting", "blocked_by_task", since, blockers.map(t => t.id));
  if (task.status === "review") return make("needs_you", "review");
  if (task.status === "waiting") return make("waiting", "waiting_outside", task.waiting?.since ?? since);
- // A direct part counts only with live work (refs), never the short idle grace period.
- // Part states are derived bottom-up, so live descendant work follows the same rule at every level.
- const workingParts = parts.filter(part => part.state.kind === "working" && part.state.refs.length > 0);
- if (workingParts.length) return make("in_progress", "working", workingParts.map(part => part.state.since).sort()[0]!, workingParts.map(part => part.id));
  if (task.status === "in_progress") {
   const quiet = taskQuietSince(task, tracking);
   const paused = now - Date.parse(quiet) >= TASK_PAUSED_MS;

@@ -141,7 +141,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         if (fields.showSummary) ReportSection(task, ReportSectionKind.Summary)
                         if (sheet.staleReport) StaleTaskReport(context, task.id)
                         if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts, sheet.sectionViewsSupported)
-                        else if (!fields.showSummary && failedChecks == null) Text(if (emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
+                        else if (!fields.showSummary && failedChecks == null) Text(if (task.state?.liveWorkSince == null && emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                         failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                         TaskUsageDisclosure(sheet.usage, taskId)
                         TaskProof(context, automaticProof)
