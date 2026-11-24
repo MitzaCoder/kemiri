@@ -3360,6 +3360,10 @@ is where they talk.
   request to `review` once it is ready (a `task_review` notification goes out), but cannot close it. A task with
   a parent is a part. The coordinator checks it and marks it `done`, or drops it with a reason. A worker's
   report does not close a part or send a request to review.
+- **Go live once per request.** When a project's rules ask the owner before going live, the coordinator prompts
+  ask once per request, on the request, when its outcome is ready to show. Parts land on the request's line of
+  work without a question each. The question offers "Deploy, and do not ask again for this request"; that answer
+  is recorded with `decide` on the request, and later parts then land once their checks pass (T461).
 - **Talking about a task.** A message can name a task (`submit.taskId`, shown as a chip; the input starts with
   `[task T12] `), from the chat's composer or from the reply box on the task page. Both go to main, which forwards to
   a background thread when that thread owns the task.

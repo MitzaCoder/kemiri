@@ -747,6 +747,8 @@ const TASK_EVERY_SUBJECT = "Every subject the user raises is a task on the proje
 const FILE_QUICK_ANSWERS = "Not every message needs a task. When the owner asks a question, wants a status, or asks for a small errand whose result is one answer, reply and file it with the board action answer: a short title, the full answer and any related tasks. Add a task when something is to be built, changed or looked into with a result to review, or when it needs a worker for more than a few minutes. If an answer turns into work, add the task with fromAnswer. A question about a task still goes on that task.";
 const BOARD_TASK_RULES = `Title a task with a short, plain outcome, such as "Complete the example change"; its tickets and pull requests go in its refs as full links (look up the link with gh or acli when you only know the key or number), never in the title. ${REQUEST_PARTS_RULE} Wait for another task with status todo and blockedBy (freed when it closes); blocked is for failure or being stuck and requires blockedReason. Add further tasks for the pieces when you plan, and pass the task's ID as taskId to worker_spawn: the harness moves it to in_progress when the worker starts and to blocked when it fails, and the harness writes Now automatically.`;
 
+const GO_LIVE_RULE = `When the project's rules ask the owner before going live, ask once per request, on the request, when its outcome is ready to show. Land its parts on the request's line of work without asking for each one. Offer the choice "Deploy, and do not ask again for this request"; when the owner picks it, record it with \`decide\` on the request and land its later parts once their checks pass.`;
+
 const VERIFICATION_AND_QUESTION_RULES = `Verification has diminishing returns: verify what a task's acceptance asks for, then stop. Do not re-check what is already shown. When a decision only the owner can make blocks work, ask the owner on the request with the \`board\` action \`ask\` and carry on with the rest. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.`;
 
 const BOARD_INPUT_RULES = `Messages starting with "[board]" bring the user's edits and answers, and the tasks whose blockers are all done. The user moves tasks on the board, and each move is an instruction: a task moved to in_progress means start it now; a task moved from review back to in_progress comes with what the user says still needs doing, so act on it; done and dropped on a request mean the owner closed it. The order of the todo tasks is the user's priority, highest first: start them in that order.`;
@@ -774,7 +776,7 @@ ${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
-${VERIFICATION_AND_QUESTION_RULES}
+${VERIFICATION_AND_QUESTION_RULES} ${GO_LIVE_RULE}
 ${BOARD_INPUT_RULES}
 
 ${uiProofParagraph(project, "coordinator")}${checkInsParagraph(project)}
@@ -821,7 +823,7 @@ ${ARTIFACT_REVIEW_RULES}
 
 ${REPORT_RULES}
 
-When only the owner can decide something, ask the owner on the request (action \`ask\`) and carry on with the rest; never stop to wait for the answer, which arrives as a "[board]" message. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply.
+When only the owner can decide something, ask the owner on the request (action \`ask\`) and carry on with the rest; never stop to wait for the answer, which arrives as a "[board]" message. When a [board] message says the user asked back, use board reply_question (id, expectedRevision, text), optionally revisedText/revisedOptions; keep the same question, not a new one. An answered question whose answer was really a question can be reopened once with reopen_question and a reply. The owner may answer while you clarify: if already answered, do not reply. ${GO_LIVE_RULE}
 Messages from main or another thread arrive as "[from <thread>] ..."; answer requests with thread_send (kind: "reply").
 
 ${uiProofParagraph(project, "coordinator")}${checkIns}

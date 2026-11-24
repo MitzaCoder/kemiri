@@ -106,6 +106,14 @@ describe("workerInstructions", () => {
 		}
 	});
 
+	it("asks to go live once per request, with a do-not-ask-again choice", () => {
+		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
+			expect(text).toContain("ask once per request, on the request, when its outcome is ready to show");
+			expect(text).toContain("Land its parts on the request's line of work without asking for each one.");
+			expect(text).toContain('"Deploy, and do not ask again for this request"');
+		}
+	});
+
 	it("steers amendments, queues only next tasks, and tells both coordinators to stay silent on repeats", () => {
 		for (const text of [coordinatorSection(project()), threadCoordinatorSection(project())]) {
 			expect(text).toContain("To add to a running worker's current task, use worker_send with interrupt: true so it lands in the same run and report.");
