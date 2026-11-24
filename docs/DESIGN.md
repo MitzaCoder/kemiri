@@ -6941,6 +6941,8 @@ in that conversation. This is a display rule, not the outside-model approval cou
   Adjacent risks use the same spacing as findings. Results labels each risk “Caveat”; Not done needs no row label.
   A cited artifact replaces its automatic image/video thumbnail, including when a pinned version is unavailable.
   The caption remains readable and Files stays the full inventory. At most three uncited automatic thumbnails show.
+  On web, cited proof and automatic previews take the full reading-column width at 16:9, without cropping
+  the image, video or HTML preview. Prose keeps its own line-length limit.
   The Markdown fallback shapes flat bullets, plain Not done lines and short, unambiguous `Label: value` runs on
   read. It keeps paragraphs, nested lists, numbered steps and other structured Markdown intact. Report prose is
   limited to about 70 characters across. Android uses the same legacy shaping fixtures and the existing native
@@ -6984,15 +6986,23 @@ in that conversation. This is a display rule, not the outside-model approval cou
   Header refs retain their existing status and link controls without a second refs list. Unresolved blockers shown
   in Needs you aren't repeated here. Task-reference previews and T273's green “this task” chip stay available,
   as does quoting selected text from the page into chat.
-- **Compact refs and keyboard space (T113).** Header refs start closed per opened task: kind counts include
-  unknown status, and failing/running PR checks take precedence over open/closed totals. Historical checks on
-  merged/closed PRs do not demand attention. Expanded refs stay in a bounded scroll viewport (at most 15rem/240dp
-  and a quarter of the available height); the header also scrolls if it reaches its height cap. Web follows the
-  visual viewport above mobile keyboards and caps the draft field to 20% of that height. Android uses the
-  single-scroll layout below.
+- **Compact refs and keyboard space (T113).** In the wide web sheet, header refs start closed per opened task.
+  Counts include links without live state, and failing/running PR checks take precedence over open/closed totals.
+  Historical checks on merged/closed PRs do not demand attention. The expanded wide refs list stays in a bounded
+  scroll viewport (at most 15rem and a quarter of the available height), and the wide header keeps its height cap.
+  Web follows the visual viewport above mobile keyboards and caps the draft field to 20% of that height.
+  Android uses the single-scroll layout below.
+- **Narrow web task page (T477).** At sheet widths up to 40rem, the 48px bar holds the task ID,
+  status pill, More and Close. The full title, coordinator and refs scroll with the report; the title
+  reappears on one line in the bar once it scrolls out of view. More offers Edit and Move to coordinator;
+  the coordinator chip opens the same picker. One or two refs show directly with live state when available.
+  More refs use one count chip that expands inline, without another scrollport. Refs without live state are
+  labelled Link. The report summary is 16px medium with a 24px line height.
 - **Reply.** `TaskReply` stays in a fixed sheet footer outside the scrolling body. The footer respects the bottom
   safe area and stays above the keyboard. It reuses the coordinator `Composer` without model/worker/task pickers.
-  Attachments, paste/drop, autosizing and keyboard rules are unchanged. The hint reads `To the coordinator · this task`.
+  In the narrow web sheet, attach, `Message {coordinator}…` and Send share one row, without a recipient caption.
+  The draft field grows to five lines, constrained by the visual viewport. The wide composer keeps its recipient
+  caption. Attachment, paste/drop and keyboard rules are unchanged.
   Drafts are independent per backend/project/task (`task-reply:<taskId>`), using the existing text and image stores.
   Sending goes to main with `taskId` and `keepDraft: true`; main still forwards to a holding thread. Composer
   clears/restores the task draft on success/failure and announces a successful send politely.

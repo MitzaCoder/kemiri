@@ -5,6 +5,8 @@
 	--task-page-gutter: clamp(1rem, 4cqw, 2.5rem);
 	--task-page-text: 1rem;
 }
+.task-layout-measure { position: absolute; inline-size: 1px; block-size: 0; pointer-events: none; }
+.task-goal { max-width: 60ch; font-size: 1rem; overflow-wrap: anywhere; color: var(--chat-fg-muted); }
 [data-task-sheet] .task-header {
 	padding: max(0.75rem, env(safe-area-inset-top)) var(--task-page-gutter) 0.85rem;
 }
@@ -116,11 +118,75 @@ details[open] > .task-fold > svg { transform: rotate(90deg); }
 	}
 }
 @container task-sheet (max-width: 40rem) {
-	[data-task-sheet] [data-task-reply] {
-		padding-top: 0.65rem;
-		padding-bottom: max(0.65rem, env(safe-area-inset-bottom));
+	.task-layout-measure { inline-size: 0; }
+	.task-bar {
+		flex: none;
+		padding: env(safe-area-inset-top) 0.25rem 0 1rem;
+		box-shadow: inset 0 -1px var(--chat-border);
+		background: var(--chat-surface);
 	}
-	[data-task-sheet] :is(.task-question, [data-task-refs], [data-task-composer], .task-stale-report) :is(button, summary, textarea, a.ref-line),
+	.task-bar .task-actions { min-height: 3rem; }
+	.task-bar .task-actions button { min-height: 3rem; }
+	.task-bar-title {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.875rem;
+		font-weight: 600;
+		line-height: 1.25rem;
+	}
+	.task-status-touch { min-width: 0; max-width: 45%; }
+	.task-status-pill, .task-meta-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		min-width: 0;
+		max-width: 100%;
+		min-height: 1.875rem;
+		padding: 0.125rem 0.625rem;
+		border: 1px solid var(--chat-border-strong);
+		border-radius: 999px;
+		background: var(--chat-surface);
+		font-size: 0.75rem;
+		font-weight: 500;
+		line-height: 1rem;
+	}
+	.task-status-touch:hover .task-status-pill,
+	.task-status-touch[data-state='open'] .task-status-pill,
+	:is(button, a).task-meta-chip:hover { background: var(--chat-surface-2); }
+	.task-bar button:focus-visible, .task-meta-chip:focus-visible { outline: 2px solid var(--chat-ring); outline-offset: -2px; }
+	.task-introduction {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+		margin-bottom: 1.25rem;
+	}
+	.task-title { font-size: 1.125rem; line-height: 1.5rem; letter-spacing: -0.02em; }
+	.task-goal { font-size: 0.9375rem; line-height: 1.375rem; }
+	.task-metadata { display: flex; flex-wrap: wrap; align-items: start; gap: 0.375rem; }
+	.task-ref-disclosure { display: contents; }
+	.task-ref-list-container { flex-basis: 100%; }
+	.task-details-layout { --task-page-text: 0.9375rem; }
+	.task-details-layout, .task-detail-markdown.md { line-height: 1.375rem; }
+	.task-detail-heading { font-size: 0.8125rem; line-height: 1.25rem; }
+	.task-summary {
+		font-size: 1rem;
+		--task-summary-size: 1rem;
+		--task-summary-weight: 500;
+		--task-summary-line-height: 1.5rem;
+	}
+	[data-task-sheet] [data-task-body] { padding-top: 0.875rem; }
+	[data-task-sheet] [data-task-reply] {
+		padding: 0.375rem 0.625rem max(0.375rem, env(safe-area-inset-bottom));
+	}
+	[data-task-composer] .composer-input-compact {
+		/* One line plus padding at rest, up to five lines when the keyboard leaves room. */
+		max-height: min(8.875rem, max(2.875rem, calc(var(--task-viewport-height, 100dvh) * 0.2)));
+	}
+	[data-task-sheet] :is(.task-question, .task-stale-report) :is(button, summary, textarea),
+	[data-task-sheet] [data-task-refs] a.ref-line,
 	.question-reading-dialog button { min-height: 2.75rem; }
 	[data-task-sheet] .task-question button:has(> svg:only-child) { min-width: 2.75rem; }
 }

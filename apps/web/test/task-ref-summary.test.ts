@@ -6,14 +6,18 @@ const base = { ref: '#1', url: 'https://example.com/ref', title: 'Synthetic ref'
 const pull = (state: 'open' | 'draft' | 'merged' | 'closed', checks: 'failing' | 'passing' | 'pending' | null): RefStatus => ({ ...base, kind: 'pull', state, checks });
 
 test('ref summary counts kinds and prioritizes actionable PR checks', () => {
-	expect(taskRefSummary([pull('open', 'failing'), pull('draft', 'pending'), { ...base, kind: 'issue', state: 'closed' }, undefined])).toEqual({ counts: '2 PRs · 1 issue · 1 unknown', status: '1 PR failing checks · 1 PR running checks', attention: true });
+	expect(taskRefSummary([pull('open', 'failing'), pull('draft', 'pending'), { ...base, kind: 'issue', state: 'closed' }, undefined])).toEqual({ counts: '2 PRs · 1 issue · 1 link', status: '1 PR failing checks · 1 PR running checks', attention: true });
 });
 test('merged/closed checks are historical, not attention', () => {
 	expect(taskRefSummary([pull('merged', 'failing'), pull('closed', 'pending')])).toEqual({ counts: '2 PRs', status: '2 closed', attention: false });
 });
-test('unknown statuses are explicit and never counted as closed', () => {
-	expect(taskRefSummary([undefined, undefined])).toEqual({ counts: '2 refs', status: '2 status unknown', attention: false });
-	expect(taskRefSummary([pull('open', 'passing'), undefined]).status).toBe('1 open · 1 status unknown');
+test('refs without live state count as links, not closed refs', () => {
+	expect(taskRefSummary([undefined, undefined])).toEqual({ counts: '2 links', status: '', attention: false });
+	expect(taskRefSummary([pull('open', 'passing'), undefined]).status).toBe('1 open');
+});
+test('a mixed count lists tickets, PRs and links in that order', () => {
+	const ticket: RefStatus = { ...base, kind: 'jira', category: 'in_progress', status: 'Review' };
+	expect(taskRefSummary([ticket, ticket, ticket, pull('open', 'passing'), pull('merged', null), undefined]).counts).toBe('3 tickets · 2 PRs · 1 link');
 });
 test('Jira category, not free-form name, determines closed count', () => {
 	expect(taskRefSummary([{ ...base, kind: 'jira', category: 'done', status: 'Verified' }, { ...base, kind: 'jira', category: 'in_progress', status: 'Review' }])).toEqual({ counts: '2 tickets', status: '1 open · 1 closed', attention: false });

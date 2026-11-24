@@ -4,6 +4,8 @@ import type { TaskViewModel } from './model.svelte.js';
 
 export type TaskViewDesignProps = {
 	model: TaskViewModel;
+	/** The sheet's content width is at most 40rem. */
+	compact: boolean;
 	/** Render this in place of the usual body when model.editing is true. */
 	editor: Snippet;
 	/** Task-linked correspondence, rendered inside the design's record. */

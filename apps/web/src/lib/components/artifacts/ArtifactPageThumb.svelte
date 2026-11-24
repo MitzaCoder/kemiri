@@ -6,7 +6,7 @@
 	import { useArtifactSource } from '#lib/artifacts.svelte.js';
 	import { inView } from '#lib/in-view.js';
 
-	let { artifact, client, class: className = 'aspect-video w-full' }: { artifact: Artifact; client: HarnessClient; class?: string } = $props();
+	let { artifact, client, class: className = 'aspect-video w-full', fit = 'cover' }: { artifact: Artifact; client: HarnessClient; class?: string; fit?: 'cover' | 'contain' } = $props();
 	let visible = $state(false);
 	let loadedUrl = $state<string>();
 	let failedUrl = $state<string>();
@@ -27,7 +27,7 @@
 	{#if preview && preview !== failedUrl}
 		{#key preview}
 			<img src={preview} alt="" decoding="async" loading="lazy" draggable="false" referrerpolicy="no-referrer"
-				class="absolute inset-0 size-full bg-white object-cover object-top" class:opacity-0={loadedUrl !== preview}
+				class="absolute inset-0 size-full bg-white {fit === 'contain' ? 'object-contain' : 'object-cover object-top'}" class:opacity-0={loadedUrl !== preview}
 				onload={() => loadedUrl = preview} onerror={() => failedUrl = preview} />
 		{/key}
 	{/if}

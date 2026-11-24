@@ -46,7 +46,7 @@
 		/* About 70 characters of prose in the app font, whose digits are wider than prose. */
 		max-inline-size: 34em;
 		min-inline-size: 0;
-		line-height: 1.6;
+		line-height: var(--task-summary-line-height, 1.6);
 		overflow-wrap: anywhere;
 	}
 	.report-section-body :global(.report-section-markdown) {

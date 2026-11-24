@@ -10,7 +10,7 @@
 	import type { ChatFile } from '@kemiri/protocol';
 
 	/** Keyed by task in TaskSheet: its draft and send result cannot leak to the next opened task. */
-	let { backend, projectId, taskId, coordinatorId }: { backend: BackendConnection; projectId: string; taskId: string; coordinatorId?: string } = $props();
+	let { backend, projectId, taskId, coordinatorId, compact }: { backend: BackendConnection; projectId: string; taskId: string; coordinatorId?: string; compact: boolean } = $props();
 	const coordinatorView = useCoordinatorTaskView();
 	const recipient = $derived(coordinatorView?.()?.roster.find(row => row.id === (coordinatorId ?? 'main')));
 	const draftId = untrack(() => `task-reply:${taskId}`);
@@ -50,16 +50,19 @@
 		draftKey={draftKey(backend.id, projectId, draftId)}
 		draftChannel={draftChannel(backend, projectId, draftId)}
 		disabled={!backend.ready}
-		placeholder="Say something about this task…"
+		{compact}
+		placeholder={compact ? `Message ${recipient?.title ?? 'the coordinator'}…` : 'Say something about this task…'}
 		onModelChange={() => {}}
 		onThinkingChange={() => {}}
 		onstop={() => {}}
 		uploadFile={backend.supports('chat-files-v1') ? uploadFile : undefined}
 		onsend={send}
 	/>
-	<p class="mt-1.5 truncate px-2 text-xs text-(--chat-fg-subtle)">
-		To {recipient?.title ?? 'the coordinator'} · <TaskDetailText text={taskId} />
-	</p>
+	{#if !compact}
+		<p class="mt-1.5 truncate px-2 text-xs text-(--chat-fg-subtle)">
+			To {recipient?.title ?? 'the coordinator'} · <TaskDetailText text={taskId} />
+		</p>
+	{/if}
 	<span class="sr-only" role="status" data-reply-sent={sent ? '' : undefined}>{sent ? 'Sent. The reply appears in chat.' : ''}</span>
 	{#if problem}<p class="mt-1.5 text-xs break-words text-(--chat-danger)" role="alert"><TaskDetailText text={problem} /></p>{/if}
 </div>

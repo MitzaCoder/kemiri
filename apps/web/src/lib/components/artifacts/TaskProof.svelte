@@ -10,12 +10,12 @@
 	let open = $state(false);
 </script>
 
-<ul class="grid max-w-lg grid-cols-3 gap-2.5" aria-label="Proof">
+<ul class="grid gap-2.5" aria-label="Proof">
 	{#each media as artifact (artifact.id)}
 		<li class="min-w-0">
 			<button type="button" class="block min-h-11 w-full overflow-hidden rounded-lg border border-(--chat-border-strong) hover:border-(--accent-2) focus-visible:outline-2 focus-visible:outline-(--chat-ring)"
 				aria-label="Open proof: {artifactTitle(artifact)}" title={artifactTitle(artifact)} onclick={() => { preview = artifact; open = true; }}>
-				<ArtifactThumb {artifact} {client} class="aspect-[8/5] w-full" />
+				<ArtifactThumb {artifact} {client} fit="contain" class="aspect-video w-full" />
 			</button>
 		</li>
 	{/each}

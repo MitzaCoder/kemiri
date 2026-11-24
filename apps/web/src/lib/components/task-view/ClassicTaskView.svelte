@@ -23,6 +23,8 @@
 	import TaskFeedback from '#lib/components/TaskFeedback.svelte';
 	import TaskRelations from '#lib/components/TaskRelations.svelte';
 	import TaskRefs from '#lib/components/TaskRefs.svelte';
+	import TaskCoordinatorRow from '#lib/components/TaskCoordinatorRow.svelte';
+	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { provideArtifactScope } from '#lib/artifacts.svelte.js';
 	import { automaticReportProof, hasReportSection } from '#lib/report-sections.js';
@@ -46,13 +48,17 @@
 	import TaskViewDesignMenu from './TaskViewDesignMenu.svelte';
 	import type { TaskViewDesignProps } from '#lib/task-view/designs.js';
 
-	let { model, editor, coordinatorMessages }: TaskViewDesignProps = $props();
+	let { model, editor, compact, coordinatorMessages }: TaskViewDesignProps = $props();
 	const {
 		task, backend, projectId, board, tasks, previousTask, requestedId, editing, waitingForm, confirmDrop, closing, problem,
 		needsYou, taskFieldsEnabled, fields, blockers, liveNow, news, staleReport, failedChecks, artifacts,
 		supportsLinks, feedbackEntries, feedbackLoading, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
 		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks, partPage, taskDigest, derivedNotDone,
 	} = $derived(model);
+	const partClosureLabel = $derived(partPage?.closure
+		? partPage.closure + (partPage.closure === 'Checked by the coordinator' && partPage.closedAt && Number.isFinite(Date.parse(partPage.closedAt))
+			? ` · ${formatTime(partPage.closedAt, { hour: 'numeric', minute: '2-digit' })}` : '')
+		: undefined);
 	const partLabel = $derived(taskDigest ? model.artifactPartLabel : undefined);
 	const nextPlacement = $derived(task && taskNextPlacement(task.report, task.status === 'review'));
 	const proof = $derived(task ? automaticReportProof(task.report, artifacts.filter(artifact => !artifact.partIds?.length || artifact.taskId === task.id || artifact.laterTaskIds?.includes(task.id))) : []);
@@ -63,33 +69,42 @@
 		reopenNote = '';
 		model.showReopen();
 	}
+	let coordinatorRow = $state<ReturnType<typeof TaskCoordinatorRow>>();
+	let taskBody = $state<HTMLElement | null>(null);
+	let taskTitle = $state<HTMLElement | null>(null);
+	let titleScrolledAway = $state(false);
+	$effect(() => {
+		titleScrolledAway = false;
+		if (!compact || !taskTitle || !taskBody) return;
+		const observer = new IntersectionObserver(([entry]) => {
+			titleScrolledAway = !!entry?.rootBounds && entry.boundingClientRect.bottom <= entry.rootBounds.top;
+		}, { root: taskBody });
+		observer.observe(taskTitle);
+		return () => observer.disconnect();
+	});
+	$effect(() => {
+		// Reveal the editor or status prompt even when the phone bar action was taken far down the page.
+		if (compact && (editing || waitingForm || confirmDrop || problem) && taskBody) taskBody.scrollTop = 0;
+	});
 	let reply = $state<{ focus(): void }>();
 	$effect(() => reply && model.registerReply(reply));
 </script>
 
+{#snippet coordinator()}
+	{#if task}
+		{#key task.id}<TaskCoordinatorRow bind:this={coordinatorRow} {task} {board} {compact} />{/key}
+	{/if}
+{/snippet}
+
+{#snippet parentRequest()}
+	{#if partPage}
+		<a class="self-start rounded-md py-1 text-sm font-medium text-(--accent-2) hover:underline" href={model.taskHref(partPage.requestId)}>‹ {partPage.requestTitle ?? partPage.requestId}</a>
+	{/if}
+{/snippet}
+
 {#if task}
-	<header
-		class="task-header flex max-h-[35%] shrink-0 flex-col overflow-y-auto overscroll-contain gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3"
-	>
-		{#if partPage}
-			<a class="self-start rounded-md py-1 text-sm font-medium text-(--accent-2) hover:underline" href={model.taskHref(partPage.requestId)}>‹ {partPage.requestTitle ?? partPage.requestId}</a>
-		{:else if previousTask}
-			<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id}`} onclick={model.goBack}>
-				<span class="truncate">← {previousTask.id} · <TaskDetailText text={previousTask.title} focusable={false} /></span>
-			</Button>
-		{/if}
-		<div class="flex items-center gap-2">
-			<span class="shrink-0 whitespace-nowrap text-xs text-(--chat-fg-subtle)" class:font-mono={!partPage}>{partPage?.position ?? task.id}</span>
-			<TaskStatusMenu status={task.status} {task} label={partPage?.closure ? `${partPage.closure}${partPage.closure === 'Checked by the coordinator' && partPage.closedAt && Number.isFinite(Date.parse(partPage.closedAt)) ? ` · ${formatTime(partPage.closedAt, { hour: 'numeric', minute: '2-digit' })}` : ''}` : taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing || !model.canClose} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
-			<div class="ml-auto flex shrink-0 items-center sm:gap-2">
-				{#if !editing}
-					<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.showEditor} aria-label="Edit {task.id}" title="Edit the task"><PencilIcon /></Button>
-				{/if}
-				<TaskViewDesignMenu />
-				<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.close} aria-label="Close the task page" title="Close the task page"><XIcon /></Button>
-			</div>
-		</div>
-		<Dialog.Title class="text-lg leading-snug font-semibold break-words"
+	{#snippet introduction()}
+		<Dialog.Title bind:ref={taskTitle} class="task-title text-lg leading-snug font-semibold break-words"
 			>{#each splitRefMentions(task.title, model.refLinks) as piece, index (index)}{#if piece.href}<a
 						href={piece.href}
 						target="_blank"
@@ -97,14 +112,18 @@
 						class="underline decoration-(--chat-border-strong) underline-offset-2 hover:decoration-current">{piece.text}</a
 					>{:else}<TaskText text={piece.text} />{/if}{/each}</Dialog.Title
 		>
-		{#if fields?.goal}<p class="max-w-[60ch] text-base [overflow-wrap:anywhere] text-(--chat-fg-muted)">{fields.goal}</p>{/if}
-		{#key task.id}
-			{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} />{/if}
-			{#if !editing}
-				<CopyToAnswers {task} supported={answersWorkAndTasksSupported(backend.features)} copy={id => answerRequests(backend.client, projectId).copyFromTask(id)} />
-			{/if}
-		{/key}
-
+		{#if !compact && fields?.goal}<p class="task-goal">{fields.goal}</p>{/if}
+		<div class:task-metadata={compact} class:contents={!compact}>
+			{#if compact}{@render coordinator()}{/if}
+			{#key task.id}
+				{#if taskRefs(task).length > 0}<TaskRefs refs={taskRefs(task)} {compact} />{/if}
+			{/key}
+		</div>
+		{#if compact && fields?.goal}<p class="task-goal">{fields.goal}</p>{/if}
+		{#if !editing}
+			{#key task.id}<CopyToAnswers {task} supported={answersWorkAndTasksSupported(backend.features)} copy={id => answerRequests(backend.client, projectId).copyFromTask(id)} />{/key}
+		{/if}
+		{#if compact}{@render parentRequest()}{/if}
 		{#if waitingForm}
 			<TaskWaitingForm waiting={task.waiting} busy={closing} onsave={(note, until)=>model.setStatus('waiting',note,until)} oncancel={model.cancelWaiting}/>
 		{:else if confirmDrop}
@@ -113,12 +132,41 @@
 		{#if problem}
 			<p class="text-xs text-(--chat-danger)" role="alert"><TaskDetailText text={problem} /></p>
 		{/if}
+	{/snippet}
+
+	{#if !compact}{@render coordinator()}{/if}
+	<header class={compact ? 'task-bar' : 'task-header flex max-h-[35%] shrink-0 flex-col overflow-y-auto overscroll-contain gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3'}>
+		{#if partPage && !compact}
+			{@render parentRequest()}
+		{:else if previousTask && !compact}
+			<Button variant="ghost" class="min-h-11 max-w-full justify-start" title={`Back to ${previousTask.id}`} onclick={model.goBack}>
+				<span class="truncate">← {previousTask.id} · <TaskDetailText text={previousTask.title} focusable={false} /></span>
+			</Button>
+		{/if}
+		<div class="task-actions flex items-center gap-2">
+			{#if compact && previousTask}
+				<Button variant="ghost" size="icon-sm" class="size-11" aria-label={`Back to ${previousTask.id}`} onclick={model.goBack}><ArrowLeftIcon /></Button>
+			{/if}
+			<span class="shrink-0 whitespace-nowrap text-xs text-(--chat-fg-subtle)" class:font-mono={!partPage}>{partPage?.position ?? task.id}</span>
+			<TaskStatusMenu status={task.status} {task} {compact} label={partClosureLabel ?? taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing || !model.canClose} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
+			{#if compact}<span class="task-bar-title" aria-hidden="true">{titleScrolledAway ? task.title : ''}</span>{/if}
+			<div class="ml-auto flex shrink-0 items-center sm:gap-2">
+				{#if !compact && !editing}
+					<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.showEditor} aria-label="Edit {task.id}" title="Edit the task"><PencilIcon /></Button>
+				{/if}
+				<TaskViewDesignMenu onedit={compact && !editing ? model.showEditor : undefined}
+					onmove={compact && coordinatorRow?.canMove() ? coordinatorRow.openPicker : undefined} />
+				<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.close} aria-label="Close the task page" title="Close the task page"><XIcon /></Button>
+			</div>
+		</div>
+		{#if !compact}{@render introduction()}{/if}
 	</header>
 
 	<div class="task-body-viewport relative flex min-h-0 flex-1 flex-col">
-		<div use:registerQuoteScope data-navigation-scroll="task-body" use:overlayScroll={'parent'}
+		<div bind:this={taskBody} use:registerQuoteScope data-navigation-scroll="task-body" use:overlayScroll={'parent'}
 			class="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-task-body>
 			{#key model.viewTaskKey}
+				{#if compact}<div class="task-introduction">{@render introduction()}</div>{/if}
 				{#if editing}
 					{@render editor()}
 				{:else}
@@ -178,7 +226,7 @@
 
 							<section class="task-reading-section" aria-label="What you get">
 								<h2 class="task-detail-heading">What you get</h2>
-								{#if fields?.hasSummary}<ReportSection {task} section="summary" class="text-[1.0625rem] font-medium" />{/if}
+								{#if fields?.hasSummary}<ReportSection {task} section="summary" class="task-summary text-[1.0625rem] font-medium" />{/if}
 								{#if staleReport}
 									<div class="task-stale-report flex min-h-11 flex-wrap items-center gap-x-1 text-(--chat-fg-muted)"><span>Report may be out of date.</span><ReportStaleAction {backend} {projectId} taskId={task.id} /></div>
 								{/if}
@@ -351,7 +399,7 @@
 							<div class="flex gap-2 px-2">{#if isSettled(task.status)}<Button variant="outline" onclick={openReopenForm}>Reopen with a note…</Button>{/if}<Button variant="ghost" onclick={model.focusReply}>Comment</Button></div>
 						{/if}
 					{/if}
-					<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} />
+					<TaskReply bind:this={reply} {backend} {projectId} taskId={task.id} coordinatorId={task.coordinatorId} {compact} />
 				{/key}
 			</div>
 		</footer>

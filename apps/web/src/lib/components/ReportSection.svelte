@@ -61,7 +61,7 @@
 				<button type="button" class="proof-button" class:proof-media={(isMedia(artifact) || isHtmlArtifact(artifact))}
 					aria-label="Open proof: {artifactTitle(artifact)}" onclick={() => { preview = artifact; previewOpen = true; }}>
 					{#if (isMedia(artifact) || isHtmlArtifact(artifact))}
-						<ArtifactThumb {artifact} client={artifactConnection.client} class="aspect-[8/5] w-full rounded-t-lg" />
+						<ArtifactThumb {artifact} client={artifactConnection.client} fit="contain" class="aspect-video w-full" />
 					{/if}
 					<span>{artifactTitle(artifact)}</span>
 				</button>
@@ -128,11 +128,11 @@
 		gap: 1em;
 		min-inline-size: 0;
 		max-inline-size: 34em;
-		line-height: 1.6;
+		line-height: var(--task-summary-line-height, 1.6);
 		overflow-wrap: anywhere;
 	}
 	.report-blocks :global(.report-block-prose) { font-size: inherit; line-height: inherit; }
-	.summary-lead { font-size: 1.125em; font-weight: 600; }
+	.summary-lead { font-size: var(--task-summary-size, 1.125em); font-weight: var(--task-summary-weight, 600); }
 	.block-title { font-weight: 700; margin: 0; }
 	.report-label { color: var(--chat-fg-muted); font-size: .875em; font-weight: 600; }
 	.report-titled-rows, .report-steps, .report-actions { display: grid; gap: .65em; margin: 0; }
@@ -167,7 +167,9 @@
 		font-weight: 600;
 	}
 	.proof-button span { padding: .35em .75em; }
-	.proof-media { inline-size: 15em; }
+	.report-blocks:has(.proof-media) { max-inline-size: none; }
+	.report-blocks:has(.proof-media) > :not(.report-proof), .report-proof figcaption { max-inline-size: 34em; }
+	.proof-media { inline-size: 100%; overflow: hidden; }
 	.proof-button:hover { border-color: var(--accent-2); }
 	.proof-button:focus-visible { outline: 2px solid var(--chat-ring); outline-offset: 2px; }
 	.report-cleanup :global(.report-block-prose) { display: inline; }

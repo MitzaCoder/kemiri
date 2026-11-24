@@ -5,7 +5,6 @@
 	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
 	import type { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
 	import type { ThreadMessageLinks } from '#lib/thread-messages.js';
-	import TaskCoordinatorRow from './TaskCoordinatorRow.svelte';
 	import BoardTaskEditor from './BoardTaskEditor.svelte';
 	import SelectionQuote from './chat/SelectionQuote.svelte';
 	import { provideOpenTaskId } from '#lib/task-detail-context.js';
@@ -18,6 +17,9 @@
 	/** Task details over the project chat. Linked tasks keep a return trail; quoted text returns to chat. */
 	let props: TaskViewInputs & { peerMessages?: ProjectThreadMessages; peerLinks?: ThreadMessageLinks; onquote?: (quote: string) => void } = $props();
 	let sheet = $state<HTMLElement | null>(null);
+	// Read the CSS container query instead of guessing the sheet width from the window.
+	let compactLayoutWidth = $state<number>();
+	const compact = $derived(compactLayoutWidth === 0);
 	const model = createTaskViewModel(() => props, () => sheet);
 	const { task, taskId, loading } = $derived(model);
 	const { component: Design, sheetClass } = $derived(taskViewDesignPreference.current);
@@ -84,8 +86,8 @@
 				<div class="px-4 py-6 text-sm text-(--chat-fg-subtle)">{taskId} is not on the board any more.</div>
 			{/if}
 		{:else}
-			{#key task.id}<TaskCoordinatorRow {task} board={model.board} />{/key}
-			<Design {model} {editor} coordinatorMessages={coordinatorMessageCount ? { count: coordinatorMessageCount, content: coordinatorMessages } : undefined} />
+			<div class="task-layout-measure" aria-hidden="true" bind:clientWidth={compactLayoutWidth}></div>
+			<Design {model} {editor} {compact} coordinatorMessages={coordinatorMessageCount ? { count: coordinatorMessageCount, content: coordinatorMessages } : undefined} />
 		{/if}
 		{#if props.onquote}
 			<SelectionQuote scope={model.quoteScope} onquote={quote} />

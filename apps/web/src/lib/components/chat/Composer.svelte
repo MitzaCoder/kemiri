@@ -69,6 +69,7 @@
 		busy = false,
 		disabled = false,
 		placeholder,
+		compact = false,
 		onModelChange,
 		onThinkingChange,
 		onWorkerModelChange,
@@ -116,6 +117,8 @@
 		/** No conversation, no model, or a backend that is not connected. */
 		disabled?: boolean;
 		placeholder?: string;
+		/** Keep attach, input and send together for a narrow task reply. */
+		compact?: boolean;
 		onModelChange: (model: ModelInfo) => void;
 		onThinkingChange: (level: ThinkingLevel | null) => void;
 		onWorkerModelChange?: (model: ModelInfo | null) => void;
@@ -370,6 +373,7 @@
 	function autosize(): void {
 		if (textarea == null) return;
 		textarea.style.height = 'auto';
+		if (compact && textarea.value === '') return;
 		textarea.style.height = `${Math.min(textarea.scrollHeight, window.innerHeight * 0.4)}px`;
 	}
 
@@ -457,7 +461,7 @@
 <svelte:document onvisibilitychange={() => document.visibilityState === 'hidden' && sync?.flush()} />
 
 <form
-	class="composer relative rounded-[1.75rem] border border-(--chat-border) shadow-(--chat-shadow) glass transition-colors {dragging || artifactOver
+	class="composer {compact ? 'composer-compact' : ''} relative rounded-[1.75rem] border border-(--chat-border) shadow-(--chat-shadow) glass transition-colors {dragging || artifactOver
 		? 'border-(--accent-2) ring-2 ring-(--accent-2)/40'
 		: ''}"
 	use:imageDrop={{ images, disabled: disabled || sending || uploading > 0, onfiles: uploadFile ? addFiles : undefined, onover: (over) => (dragging = over) }}
@@ -517,6 +521,91 @@
 			/>
 		</div>
 	{/if}
+	{#if compact}
+		<div class="flex items-end">
+			{@render attachButton()}
+			<div class="composer-compact-field">
+				{@render messageInput()}
+				<span class="composer-placeholder" aria-hidden="true">{hint}</span>
+			</div>
+			{@render sendButton()}
+		</div>
+	{:else}
+		{@render messageInput()}
+	{/if}
+	{#if origin}
+		<p class="px-5 pb-1 text-[11px] leading-none text-(--chat-fg-subtle)" data-draft-origin>
+			Draft from {origin.name}{#if origin.attachments > 0}{' '}· {origin.attachments === 1 ? 'with its image' : `with its ${origin.attachments} images`}{/if}
+		</p>
+	{/if}
+	{#if images.error}
+		<p class="px-5 pb-1 text-xs break-words text-(--chat-danger)" role="alert" data-image-error>{images.error}</p>
+	{:else if blindModel}
+		<p class="px-5 pb-1 text-xs text-(--chat-fg-subtle)" data-image-blind>This model cannot read images; it will see a placeholder instead.</p>
+	{/if}
+
+	{#if !compact}
+		<!-- One row on phones: the model chip truncates, the thinking and worker chips are icons. -->
+		<div class="flex items-center gap-1 px-2 pb-2 sm:flex-wrap">
+			<div class="flex min-w-0 items-center gap-1 sm:flex-wrap">
+				{#if showModelPicker}
+					<ModelPicker {models} {providers} value={model} onchange={onModelChange} disabled={modelPickersDisabled} />
+					<EffortPicker levels={thinkingLevels} value={thinkingLevel} onchange={onThinkingChange} disabled={modelPickersDisabled} />
+				{:else if modelNote}
+					<span class="truncate px-2 text-xs text-(--chat-fg-subtle)">{modelNote}</span>
+				{/if}
+				{#if showWorkerPicker}
+					<WorkerPicker
+						models={workerModels}
+						providers={workerProviders}
+						{projectWorkerModels}
+						{workerSettingsHref}
+						{usesProjectWorkerDefault}
+						{usesThreadWorkerDefault}
+						model={workerModel}
+						thinkingLevel={workerThinkingLevel}
+						onModelChange={(entry) => onWorkerModelChange?.(entry)}
+						onThinkingChange={(level) => onWorkerThinkingChange?.(level)}
+						disabled={workerPickerDisabled}
+					/>
+				{/if}
+			</div>
+
+			<div class="ml-auto flex shrink-0 items-center gap-1.5">
+				{@render attachButton()}
+				{#if tasks !== undefined && !discussion}
+					<button
+						type="button"
+						class="grid size-9 place-items-center rounded-full transition-colors active:scale-95 {attached || pickerOpen
+							? 'bg-(--chat-surface-2) text-(--accent-2)'
+							: 'text-(--chat-fg-subtle) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)'}"
+						onclick={toggleList}
+						aria-label="Message about a task"
+						aria-expanded={pickerOpen}
+						title="Message about a task (type # to search)"
+						data-task-picker-toggle
+					>
+						<ClipboardListIcon class="size-4" />
+					</button>
+				{/if}
+				{#if busy}
+					<button
+						type="button"
+						class="grid size-9 place-items-center rounded-full bg-(--chat-fg) text-(--chat-bg) transition-transform active:scale-95"
+						onclick={onstop}
+						aria-label="Stop"
+						title="Stop"
+					>
+						<SquareIcon class="size-3.5 fill-current" />
+					</button>
+				{/if}
+				{@render sendButton()}
+			</div>
+		</div>
+	{/if}
+</form>
+
+{#snippet messageInput()}
 	<textarea
 		bind:this={textarea}
 		value={messageBody}
@@ -537,89 +626,55 @@
 		{onkeydown}
 		rows="1"
 		placeholder={hint}
+		class:composer-input-compact={compact}
 		class="block max-h-[40dvh] w-full resize-none bg-transparent px-5 {discussion || attached || quotes.length > 0 ? 'pt-2' : images.count > 0 ? 'pt-2' : 'pt-4'} pb-2 text-base leading-relaxed outline-none placeholder:text-(--chat-fg-subtle)"
-		aria-label="Message"
+		aria-label={compact ? hint : 'Message'}
 		enterkeyhint={coarse.current ? 'enter' : 'send'}
 	></textarea>
-	{#if origin}
-		<p class="px-5 pb-1 text-[11px] leading-none text-(--chat-fg-subtle)" data-draft-origin>
-			Draft from {origin.name}{#if origin.attachments > 0}{' '}· {origin.attachments === 1 ? 'with its image' : `with its ${origin.attachments} images`}{/if}
-		</p>
-	{/if}
-	{#if images.error}
-		<p class="px-5 pb-1 text-xs break-words text-(--chat-danger)" role="alert" data-image-error>{images.error}</p>
-	{:else if blindModel}
-		<p class="px-5 pb-1 text-xs text-(--chat-fg-subtle)" data-image-blind>This model cannot read images; it will see a placeholder instead.</p>
-	{/if}
+{/snippet}
 
-	<!-- One row on phones: the model chip truncates, the thinking and worker chips are icons. -->
-	<div class="flex items-center gap-1 px-2 pb-2 sm:flex-wrap">
-		<div class="flex min-w-0 items-center gap-1 sm:flex-wrap">
-			{#if showModelPicker}
-				<ModelPicker {models} {providers} value={model} onchange={onModelChange} disabled={modelPickersDisabled} />
-				<EffortPicker levels={thinkingLevels} value={thinkingLevel} onchange={onThinkingChange} disabled={modelPickersDisabled} />
-			{:else if modelNote}
-				<span class="truncate px-2 text-xs text-(--chat-fg-subtle)">{modelNote}</span>
-			{/if}
-			{#if showWorkerPicker}
-				<WorkerPicker
-					models={workerModels}
-					providers={workerProviders}
-					{projectWorkerModels}
-					{workerSettingsHref}
-					{usesProjectWorkerDefault}
-					{usesThreadWorkerDefault}
-					model={workerModel}
-					thinkingLevel={workerThinkingLevel}
-					onModelChange={(entry) => onWorkerModelChange?.(entry)}
-					onThinkingChange={(level) => onWorkerThinkingChange?.(level)}
-					disabled={workerPickerDisabled}
-				/>
-			{/if}
-		</div>
+{#snippet attachButton()}
+	<AttachButton {images} disabled={disabled || sending || uploading > 0} class={compact ? 'composer-attach-compact' : ''} onfiles={uploadFile ? addFiles : undefined} />
+{/snippet}
 
-		<div class="ml-auto flex shrink-0 items-center gap-1.5">
-			<AttachButton {images} disabled={disabled || sending || uploading > 0} onfiles={uploadFile ? addFiles : undefined} />
-			{#if tasks !== undefined && !discussion}
-				<button
-					type="button"
-					class="grid size-9 place-items-center rounded-full transition-colors active:scale-95 {attached || pickerOpen
-						? 'bg-(--chat-surface-2) text-(--accent-2)'
-						: 'text-(--chat-fg-subtle) hover:bg-(--chat-surface-2) hover:text-(--chat-fg)'}"
-					onclick={toggleList}
-					aria-label="Message about a task"
-					aria-expanded={pickerOpen}
-					title="Message about a task (type # to search)"
-					data-task-picker-toggle
-				>
-					<ClipboardListIcon class="size-4" />
-				</button>
-			{/if}
-			{#if busy}
-				<button
-					type="button"
-					class="grid size-9 place-items-center rounded-full bg-(--chat-fg) text-(--chat-bg) transition-transform active:scale-95"
-					onclick={onstop}
-					aria-label="Stop"
-					title="Stop"
-				>
-					<SquareIcon class="size-3.5 fill-current" />
-				</button>
-			{/if}
-			<button
-				type="submit"
-				class="send grid size-9 place-items-center rounded-full text-white transition-all active:scale-95 disabled:opacity-35 disabled:saturate-0"
-				disabled={!canSend}
-				aria-label="Send"
-				title="Send"
-			>
-				<ArrowUpIcon class="size-4.5" strokeWidth={2.5} />
-			</button>
-		</div>
-	</div>
-</form>
+{#snippet sendButton()}
+	<button
+		type="submit"
+		class:send-compact={compact}
+		class="send grid size-9 place-items-center rounded-full text-white transition-all active:scale-95 disabled:opacity-35 disabled:saturate-0"
+		disabled={!canSend}
+		aria-label="Send"
+		title="Send"
+	>
+		<ArrowUpIcon class="size-4.5" strokeWidth={2.5} />
+	</button>
+{/snippet}
 
 <style>
+	.composer-compact { border-radius: 1.5rem; box-shadow: none; }
+	.composer-compact-field { position: relative; min-width: 0; flex: 1; }
+	.composer-compact .composer-input-compact {
+		min-height: 2.875rem;
+		padding: 0.6875rem 0;
+		line-height: 1.5rem;
+	}
+	.composer-input-compact::placeholder { opacity: 0; }
+	.composer-placeholder {
+		display: none;
+		position: absolute;
+		inset: 0.6875rem 0 auto;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--chat-fg-subtle);
+		font-size: 1rem;
+		line-height: 1.5rem;
+		pointer-events: none;
+	}
+	.composer-input-compact:placeholder-shown + .composer-placeholder { display: block; }
+	.composer-compact :global(.composer-attach-compact) { width: 2.75rem; height: 2.875rem; flex: none; }
+	.composer-compact .send-compact { flex: none; margin: 0 0.3125rem 0.3125rem; min-height: 2.25rem; }
+
 	.send {
 		background: var(--chat-grad);
 		background-size: 150% 150%;

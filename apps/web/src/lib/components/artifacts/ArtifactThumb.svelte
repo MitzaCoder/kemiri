@@ -17,6 +17,7 @@
 		client,
 		class: className = '',
 		duration = true,
+		fit = 'cover',
 		play = true
 	}: {
 		artifact: Artifact;
@@ -24,6 +25,7 @@
 		class?: string;
 		/** A video's or audio's length in the corner. */
 		duration?: boolean;
+		fit?: 'cover' | 'contain';
 		/** A play glyph over a video. */
 		play?: boolean;
 	} = $props();
@@ -47,7 +49,7 @@
 </script>
 
 {#if isHtmlArtifact(artifact)}
-	<ArtifactPageThumb {artifact} {client} class={className} />
+	<ArtifactPageThumb {artifact} {client} {fit} class={className} />
 {:else}
 <span
 	class="artifact-thumb relative grid shrink-0 place-items-center overflow-hidden {className}"
@@ -64,7 +66,7 @@
 			loading="lazy"
 			decoding="async"
 			draggable="false"
-			class="absolute inset-0 size-full object-cover transition-opacity duration-300"
+			class="absolute inset-0 size-full {fit === 'contain' ? 'object-contain' : 'object-cover'} transition-opacity duration-300"
 			class:opacity-0={!ready}
 			onload={() => {
 				ready = true;
@@ -83,7 +85,7 @@
 			disableremoteplayback
 			tabindex="-1"
 			aria-hidden="true"
-			class="pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-300"
+			class="pointer-events-none absolute inset-0 size-full {fit === 'contain' ? 'object-contain' : 'object-cover'} transition-opacity duration-300"
 			class:opacity-0={!ready}
 			onloadeddata={() => {
 				ready = true;
