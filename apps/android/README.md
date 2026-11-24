@@ -1,15 +1,16 @@
-# Harness for Android
+# Kemiri for Android
 
 Native Jetpack Compose client, Kotlin namespace `io.github.mitzacoder.kemiri` (public application ID `io.github.mitzacoder.aiki`), Android 12+
 (API31). Streaming Markdown/tool transcripts, questions, image attachments,
-main/background/worker navigation, signed artifact previews and SAF downloads,
-Board/Memory/Workers/Schedules panels, provider/model settings and subscription
-usage use the existing server protocol. Threads/artifacts remain feature-gated.
+coordinator, background job and worker navigation, artifact previews and downloads.
+Pilot.7 adds Answers, Classic task details with Live transcript links, Glance
+usage charts and subscription controls. Per-coordinator model pickers are web only.
 
 Jarvis and Neutral support system/light/dark. Jarvis uses restrained gradients,
 static-by-default orbs, a glass-like composer and Lucide controls. This is **not
 Haze blur**. Compact bundled syntax grammars/fonts are not every reference asset.
-Push notifications go through Firebase Cloud Messaging (below); there is no voice implementation.
+In-app alerts work while Kemiri is open. The public APK does not include push;
+Firebase Cloud Messaging below is for operator-configured builds.
 
 ## Pilot release builds
 
@@ -18,13 +19,13 @@ See `docs/RELEASE.md` at the repository root for the owner-only release procedur
 and scrubbed environment; it never reads operator Android configuration. Signing is
 local, with an external owner-held keystore and password file, never GitHub secrets.
 
-Set `-Pkemiri.version=v0.1.0-pilot.4` (or `KEMIRI_RELEASE_VERSION`; tag workflows also
+Set `-Pkemiri.version=v0.1.0-pilot.7` (or `KEMIRI_RELEASE_VERSION`; tag workflows also
 read `GITHUB_REF_NAME` when `GITHUB_REF_TYPE=tag`). `versionName` drops `v`.
 `versionCode = major*100000000 + minor*1000000 + patch*10000 + stage`, where
 pilot N uses N (1–9998) and stable uses 9999. Major is 0–20, minor/patch 0–99.
 Thus pilot.1 is 1000001, pilot.2 is 1000002, pilot.3 is 1000003, pilot.4 is 1000004, stable 0.1.0 is 1009999;
 the next patch sorts after stable. Never reuse a distributed code or change schemes
-without preserving monotonicity. No release input means the current pilot, `0.1.0-pilot.4`, code 1000004.
+without preserving monotonicity. At the pilot.7 tag, no release input selects `0.1.0-pilot.7`, code 1000007.
 `:app:checkReleaseVersion` runs parser/order regressions; malformed release inputs fail.
 
 Settings → About and licences is available offline. Sora's LGPL notice/full text,
@@ -39,7 +40,7 @@ required; see `licenses/RELINKING.md`, not a blanket compliance claim.
 ## Install and run
 
 ```sh
-adb install -r ~/scratch/android-screens/harness-debug.apk
+adb install -r apps/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n io.github.mitzacoder.aiki/io.github.mitzacoder.kemiri.MainActivity
 ```
 
@@ -47,7 +48,7 @@ On this host use the isolated emulator wrapper, never default adb:
 
 ```sh
 apps/android/verification/device.sh start
-apps/android/verification/device.sh install ~/scratch/android-screens/harness-debug.apk
+apps/android/verification/device.sh install apps/android/app/build/outputs/apk/debug/app-debug.apk
 # Only while the owned scratch real server is running:
 apps/android/verification/device.sh adb reverse tcp:4790 tcp:4790
 ```
@@ -57,17 +58,6 @@ Parallel work gets its own device: `HARNESS_ANDROID_DEVICE=a` … `z` on every `
 (reversed at start, `device.sh env` prints them) and captures under `~/scratch/android-screens/track-<x>`. All share
 the read-only system image and the adb server on 5038. The wrapper reads the local application ID (or
 `HARNESS_ANDROID_PACKAGE`) for launch and demo commands. Unset is the original `emulator-5580` / 4790.
-
-Round-two independent rendered review **passed**, including the final five exact
-refinements; V1–V5 are closed. Runtime source is frozen at **64152b6**. The freshly
-rebuilt, byte-verified replacement is `~/scratch/android-screens/harness-debug.apk`.
-The previous APK is backed up as `harness-debug-before-round2-20261105T0704.apk`;
-the previous `android-screens/FINAL` remains intact. Current candidate/archive:
-
-- `~/scratch/android-screens/ROUND2/harness-android-r2-candidate.apk`
-- **50,129,601 bytes**; SHA256
-  `8eb003b6b9253a7cf74e099da8883a170c31fa9c46726740d35f405452bf7868`
-- Debug APK, not a signed production release/store submission.
 
 ## Build and test
 
@@ -90,11 +80,6 @@ once over the shared Gradle user home, which Gradle locks itself. No outer `floc
 Reuse the existing emulator image; monitor scratch free space (~14GB at this
 checkpoint). Output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Current gates (2026-11-07, with Track F notifications): **210 JVM tests / 43 suites**, 2 skipped (the live and fixture
-opt-ins), 0 failures; assemble; lint **18 warnings / 0 errors**. Verification Bun: **7 tests / 49 assertions**.
-Generation: **239 DTOs / 60 request overloads**. Root `bun test` and `bun run typecheck` pass. A full
-`--rerun-tasks` gate takes 70–110 s on this host with warm caches. The round-two figures below are history.
-
 ## Kemiri identity and compatible upgrades
 
 The Kotlin namespace and source paths use `io.github.mitzacoder.kemiri`. The
@@ -104,8 +89,7 @@ files and keystore aliases are installation identity, not display names. The old
 MainActivity launcher alias and configurable pre-T70 alias remain reachable.
 Connect previews accept `kemiri://connect`, `aiki://connect` and
 `harness://connect`; configured HTTPS app/pairing/OAuth origins do not move.
-Release scripts publish canonical `kemiri-*` APK/notices assets plus identical
-`aiki-*` copies, each with a separately named checksum sidecar.
+Releases publish only canonical `kemiri-*` APK and notices assets, with checksum sidecars.
 
 ## Remote MCP settings
 
@@ -230,63 +214,11 @@ FCM delivery, Play services behavior and release-signed sideloading require sepa
 
 ## Verification: actual behavior versus appearance
 
-See [verification/README.md](verification/README.md). Round-two evidence is staged
-under `~/scratch/android-screens/ROUND2`. The curated delivery is
-`ROUND2/FINAL/INDEX.md`: **48 byte-verified existing screenshots**, original
-source/APK sidecars, native proof inventory and `delivery.json`. The full accepted
-inventory contains288 inputs: eight protected images are screenshot-ineligible,
-not passes. Reports: `WEB/PHASE2-FINAL-MATRIX-REVIEW.md` and
-`WEB/PHASE2-FIVE-REFINEMENTS-REVIEW.md`. Exactly five PNGs were refined; other283
-unchanged. Rejected pre-theme images remain historical, never acceptance.
-
-- **Real imported server + deterministic faux model:** native composers initiate
-  actual thread/board/worker/write/artifact tools. Persistence, streaming/Chord,
-  signed HTTP, scoped input, four saving-owner combinations, same-name workers,
-  handoff/revival, historical finish cutoffs and errors are real. No external
-  model/provider credentials are used. Actual SAF destination bytes/hash and
-  Media3 decoded-frame/seek/paused+playing renewal proofs are retained separately.
-- **Additional actual visual checkout:** a long faux model name, genuine Working
-  and Waiting threads, a running worker, task-linked question/pin, Thinking and
-  consecutive write/read/bash calls supply stable rendered states. Board status
-  groups and disabled schedules use real APIs; Memory uses the real MemoryStore
-  because there is no public memory-write RPC.
-- **Explicitly SYNTHETIC Usage backend:** populated account/rate-limit/chart
-  appearance only. This does not verify OAuth, a real subscription or provider
-  rate limits. Empty Usage on the actual scratch checkout is genuine.
-- **Labeled contract fixture:** isolated schema/HTTP/transport/renderer checks;
-  never substituted for real-server tool execution.
-
-The eight-mode matrix is Jarvis/Neutral × light/dark × phone/tablet. Every new
-matrix/onboarding capture has an original installed-source/APK-hash sidecar;
-functional frames bind to source/hash in their associated proof JSON. Protected
-provider dialogs are screenshot-ineligible: black captures are NOT visual passes.
-Stable committed transcript,
-loaded controls, empty-body completion and media READY+frame—not a header's
-“Ready” label or an arbitrary delay—are the readiness criteria. Source review is
-approved through64152b6; the independent eight-mode rendered gate is now passed
-with its explicit secure/functional exclusions. Source64152b6 adds explicit48dp Copy actions to literal code/tool/file/output
-sections, preserving full text including final newlines. Seven actual native tap→paste exact comparisons passed; see
-`NATIVE/final-literal-required-copy.json` (write/read/command/stdout/code/error/diff).
-Optional CodeMode probing is inconclusive and not an acceptance blocker. Historical Board worker IDs are deliberately non-navigable: mutable
-current task ownership cannot establish historical worker provenance.
-
-Hard-wrap functional disposition: current-source Board grouped drag, accessible
-reorder, CAS conflict/rotation/draft retention/Save mine, first-backend8-mode forms,
-native confirmed Stop/Q1 answer and seven required clipboard cases passed.
-Artifact wrap and exact unsent Copy paste were reached, but its helper failed
-while clearing/re-finding the draft before native delete. Current-source native
-confirmed-delete/oldURL404/rotation/TTL is **not certified**; SAF and Media3 renewal
-repeats were stopped/not completed. Retained earlier SAF27224eb and Media3 proofs
-keep their original identities; do not call them new64152b6 repeats. All probe/
-capture loops stopped by user hard wrap; no known new app defect was established.
-
-Known boundaries: no physical camera/QR scan, external provider/account/OAuth,
-real subscription usage, physical-device decoder or native push claim. Emulator
-software codec preference is goldfish/ranchu-only; physical codec ordering is
-unchanged. Combined network-drop + image-picker rotation is not device-proven;
-ambiguous-admission/recreation safety has JVM coverage. Connect HTTPS links remain
-unverified/user-choice (no autoVerify/assetlinks/deployment). No push or manual deployment; validated main promotion is the separate final
-release step after green checks.
+See [the verification guide](verification/README.md) for the emulator and test
+fixtures. The real-server fixture uses a deterministic faux model for transport,
+conversation and tool checks. The synthetic Usage fixture checks rendering, not
+provider sign-in, actual subscription usage or rate limits. Screenshots do not
+prove physical camera, real-network pairing or push delivery.
 
 ## Architecture and stable interfaces
 

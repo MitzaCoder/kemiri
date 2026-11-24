@@ -1,6 +1,7 @@
 # Install Kemiri locally
 
-The download below targets pilot.6. Pilot.4 remains the upgrade bridge. Pilot.3 itself uses `aiki`;
+The download below follows the published site pin, pilot.7. See the [release notes](releases/v0.1.0-pilot.7.md) for what changed and how to update.
+Pilot.4 remains the upgrade bridge. Pilot.3 itself uses `aiki`;
 stop it and run `aiki update --version v0.1.0-pilot.4`, then use
 `kemiri`. Existing config/data and service names are retained, with no re-pairing.
 Pilot.5 and later read only KEMIRI_* process settings and migrate server.env.
@@ -19,6 +20,13 @@ Use `kemiri tailscale enable --port <P>` if 443 is busy. Scan the QR or open its
 on a tailnet device. Issued HTTPS certificates put machine names in public certificate transparency logs.
 `kemiri tailscale disable` removes Kemiri’s setup without changing other Serve mappings or device sign-in.
 
+## Agent app links in pilot.7
+
+**Running apps** shows listening apps, published links and logs for apps Kemiri
+manages. To share an app over Tailscale, follow the [one-time app link setup](releases/v0.1.0-pilot.7.md#set-up-app-links-once).
+It is separate from device pairing. Publishing requires approval for the project,
+and anyone the tailnet rules allow can open the link without Kemiri sign-in.
+
 ## Upgrading existing installations
 
 Use `kemiri` for commands and `KEMIRI_*` for settings. Pilot.5 and later remove
@@ -28,30 +36,29 @@ KEMIRI wins and the old assignment is dropped with a key-only log message.
 Rename process/build settings yourself before updating. Existing installation
 folders, credentials, pairings, service names and project context stay put.
 Do not rename or delete them. Fresh installs use Kemiri folders. Pilot.4 is the
-bridge: pilot.3 and earlier must update through it before pilot.6.
+bridge: pilot.3 and earlier must update through it before moving to a newer pilot.
 
 ## Install
 
-Install the published `v0.1.0-pilot.6` prerelease:
+Install the published `v0.1.0-pilot.7` prerelease:
 
 ```sh
-curl -fL https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.6/install.sh -o install.sh
+curl -fL https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.7/install.sh -o install.sh
 # Read install.sh before running it.
-sh install.sh --version v0.1.0-pilot.6
+sh install.sh --version v0.1.0-pilot.7
 ```
 
-The short command is `curl -fsSL https://kemiri.dev/install.sh | sh`.
-For a review before execution, download the domain bootstrap instead:
+Alternatively, download and review the domain bootstrap before running it:
 
 ```sh
 curl -fL https://kemiri.dev/install.sh -o install.sh
 # Read install.sh before running it.
-sh install.sh --version v0.1.0-pilot.6
+sh install.sh --version v0.1.0-pilot.7
 ```
 
 The [small bootstrap](../site/install.sh) downloads the exact version's `install.sh` and `install.sh.sha256`
 from GitHub Releases, validates the checksum, then runs that installer with the same arguments. No version
-means the pinned `v0.1.0-pilot.6`, not latest. An explicit `--version TAG` selects both the installer and release;
+means the pinned `v0.1.0-pilot.7`, not latest. An explicit `--version TAG` selects both the installer and release;
 `--version latest` is deliberately rejected. All other arguments (including `--no-service`) pass through.
 It requires HTTPS for both downloads and redirects, never executes an unverified installer, and cleans its
 temporary downloads on exit. The verified release installer still checks its own archives and runtimes.
@@ -79,7 +86,7 @@ The default tries to install and start a **user** service. Without a user system
 launchd GUI session (macOS), continue in the foreground instead:
 
 ```sh
-sh install.sh --version v0.1.0-pilot.6 --no-service
+sh install.sh --version v0.1.0-pilot.7 --no-service
 export PATH="$HOME/.local/bin:$PATH"   # if the installer says it is missing
 kemiri start                             # keep this terminal open
 # In another terminal:
@@ -139,8 +146,7 @@ retains the tiny ownership metadata so reinstalling into the same root reuses yo
 
 The installed CLI deliberately uses its recorded data/config directories, not another backend's inherited
 `KEMIRI_DATA_DIR`, `KEMIRI_CONFIG_DIR` or `KEMIRI_ENV_FILE`. Activation creates an empty owned `server.env` when absent;
-the installed CLI loads that explicit file, never a fallback HOME/XDG file. It uses T82’s shared loader and immutable
-private settings snapshot, not process-environment assignments or a second isolation layer. The source and installed
+the installed CLI loads that explicit file, never a fallback HOME/XDG file. It loads a private settings snapshot; it does not set process environment variables. The source and installed
 entry points then use the same startup/auth dispatcher and live-owner socket check. Startup prints effective data/config
 paths before importing the server. CLI-spawned helpers use the same shared child-environment scrubber. Keep
 persistent storage identity settings stable; never borrow another installation's environment or credential files.
@@ -163,7 +169,9 @@ After five minutes, “Restart anyway” appears and requires a second confirmat
 running commands may be killed and unsafe to retry. Set `KEMIRI_UPDATE_WAIT_TIMEOUT_MS`
 in `server.env` to change this cap. The prompt keeps new calls held until the commands
 finish or you choose. Cancel releases them without changing the running release.
-Conversations and held calls resume after restart. Cancel is unavailable during restart.
+Conversations and held calls normally resume after restart. Cancel is unavailable during restart.
+Update while idle when possible. Pilot.7 uses a newer format for in-progress turns;
+rolling back to pilot.6 preserves finished work but cannot resume a turn that was running during the update.
 
 `kemiri start` keeps a small supervisor alive, whether started in a terminal, systemd --user or launchd. It stops
 its child before switching code, restarts and checks the owner-only health socket for up to 30 seconds. Failure
@@ -184,14 +192,14 @@ Settings → About shows available versions and release notes. Installed release
 about once a day, without credentials; turn this off there for the whole backend. Dismissal hides the bottom-left update notice
 for that version, not the About row. Source/deploy checkouts do not check unless explicitly enabled in About.
 **Pilot.3 and earlier users:** stop it and run `aiki update --version v0.1.0-pilot.4`.
-For a supported binary install, then run `kemiri update --version v0.1.0-pilot.6`;
-for source/Bun installs use the downloaded pilot.6 installer as described below.
+For a supported binary install, then run `kemiri update --version v0.1.0-pilot.7`;
+for source/Bun installs use the downloaded pilot.7 installer as described below.
 Finally run `kemiri start`. For a user service, use `aiki service remove` before updating
 and `kemiri service install` afterwards. Keep existing folders and data.
 **Pilot.1 specifically:** the published exact-version update directly to pilot.4 works;
 no pilot.2/3 hop is needed. Its old updater installs pilot.4 through private Bun, not
-as a binary. Continue with the reviewed, checksum-verified pilot.6 installer:
-`sh install.sh --version v0.1.0-pilot.6 --dir "$ROOT" --runtime bun --no-service`,
+as a binary. Continue with the reviewed, checksum-verified pilot.7 installer:
+`sh install.sh --version v0.1.0-pilot.7 --dir "$ROOT" --runtime bun --no-service`,
 where `ROOT` is the same recorded absolute installation root. Then use `kemiri start`
 or `kemiri service install`. The bridge path was rehearsed with published assets
 on Linux x64; the pilot.6 source update and rollback were rehearsed with the release
@@ -200,9 +208,9 @@ If an old source launcher prints help for `--version`, use `aiki version` instea
 `.aiki-install.json` and `current/.ready` also record the selected version.
 **Pilot.3 and older releases lack the self-update API/supervisor.** This stopped manual
 upgrade acquires it before you can use the button.
-Later binary updates use plain `kemiri update`. For pilot.4 source/Bun fallback upgrades to pilot.6, download and review that release’s installer and run it with the same `--dir`: pilot.4’s embedded installer only accepts the old archive layout. Source activation can retain a harmless pilot.4-written `aiki` launcher pointing at pilot.6; use `kemiri` from now on. Self-update changes the backend, never Android's APK.
+Later binary updates use plain `kemiri update`. For pilot.4 source/Bun fallback upgrades to pilot.7, download and review that release’s installer and run it with the same `--dir`: pilot.4’s embedded installer only accepts the old archive layout. Source activation can retain a harmless pilot.4-written `aiki` launcher pointing at the new release; use `kemiri` from now on. Self-update changes the backend, never Android's APK.
 Install the Android APK over the old app; the release uses the same owner signing key,
-versionName `0.1.0-pilot.6`, code 1000006.
+versionName `0.1.0-pilot.7`, code 1000007.
 An older installer without channel support needs that first exact-version update to acquire this behavior.
 For an installation whose updater predates binary support, download/review the new installer and rerun it with
 an explicit reviewed `--version TAG` and the same `--dir` to switch directly. An old updater may first install the

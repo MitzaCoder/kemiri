@@ -2,6 +2,8 @@
 
 Follow these steps in order. Report each check without copying credentials or pairing
 links into chat. Linux is tested; macOS and Windows inside WSL are experimental.
+For pilot.7 changes, see the [release notes](releases/v0.1.0-pilot.7.md); the install
+commands still follow the published site pin.
 Use the published prerelease pinned by `KEMIRI_VERSION` in step 2. Step 3 also
 provides a forced Bun runtime and an exact-tag source-checkout fallback.
 Do not use `/latest`: GitHub excludes prereleases from it.
@@ -40,7 +42,7 @@ Pilot.3 and earlier users must update through pilot.4 (see step 6).
 
    ```sh
    # Keep this pin in sync with site/install.sh; scripts/site.test.ts checks it.
-   KEMIRI_VERSION=v0.1.0-pilot.6
+   KEMIRI_VERSION=v0.1.0-pilot.7
    KEMIRI_ROOT="$HOME/kemiri-local"
    KEMIRI_PORT=7317
    export KEMIRI_PORT
@@ -182,7 +184,7 @@ Require `Running at http://127.0.0.1:7317; selected release ...` and
 model-inference or authenticated protocol health test; there is no `/health`
 endpoint. The historical `/aiki-local.json`, `auth.sock`,
 `.aiki-managed`, `.aiki-install.json`, `aiki-local.service` and macOS launch-agent
-`io.github.mitzacoder.aiki.local` names remain internal in pilot.6; do not rename them.
+`io.github.mitzacoder.aiki.local` names remain internal; do not rename them.
 Open the printed loopback URL and confirm the web Welcome/device-sign-in page loads.
 For headless verification, use a fresh browser profile and wait for **Welcome to Kemiri**
 in the rendered DOM before taking a screenshot; an early HTML response or fixed
@@ -244,7 +246,7 @@ install:
    example through an explicitly authorized Tailscale setup. `kemiri pair` emits a
    loopback first-device link, not a phone tunnel. Do not send that loopback link
    to a phone or expose the backend on all interfaces. Follow the app's assisted
-   remote setup only with the human; no independent-user phone push in this pilot.
+   remote setup only with the human; the public APK has no Android push. In pilot.7, foreground alerts do not require push.
 
 At a STOP, report what is installed/running, the non-secret local URL and the next
 human action. Pause until they reply. A disposable rehearsal normally ends at
@@ -295,8 +297,10 @@ runtime types without changing the saved channel. To move directly from an older
 review/rerun the new installer with the same `--dir` and an explicit tag; an older updater may first install
 that release through Bun.
 Manual CLI updates do not restart the server. `kemiri rollback` selects the
-retained previous code release while stopped, but does not undo database migrations;
-read release notes before downgrading. The app's separately confirmed **Update now**
+retained previous code release while stopped, but does not undo database migrations.
+Pilot.7 stores in-progress turns in a newer format: finish work before updating,
+because returning to pilot.6 cannot resume a turn that was running during the switch.
+Read the release notes before downgrading. The app's separately confirmed **Update now**
 uses the running supervisor to restart, check health and automatically restore the
 previous code on failure. It does not roll back data. See
 [the supervised update procedure](INSTALL.md#updating-rollback-backup-and-removal).
@@ -318,7 +322,7 @@ human has decided what to retain.
 
 ## Troubleshooting
 
-These are pilot.6 installer/CLI messages (absolute paths and ports may vary).
+These are pilot.7 installer/CLI messages (absolute paths and ports may vary).
 Do not paste surrounding secret output into a report.
 
 | Message | Action |

@@ -1,6 +1,6 @@
 # Release procedure
 
-The bridge is **v0.1.0-pilot.4**. This procedure describes **v0.1.0-pilot.6**.
+The bridge is **v0.1.0-pilot.4**. This procedure describes **v0.1.0-pilot.7**.
 Pilot.5 introduced canonical-only releases. Owner approval is required for publication.
 Never move main, retarget a published tag, or deploy as a release step.
 Past release notes under `releases/` remain historical records.
@@ -34,13 +34,15 @@ service/state names stay in place. Never rename them as part of this release.
 
 Bump the four workspace package versions and bun.lock, SERVER_VERSION in
 packages/protocol/src/common.ts, the Android default release tag and its increasing
-version-code regression, and scripts/release-workflow.test.ts. Pilot.6 is
-`0.1.0-pilot.6` / Android code `1000006`. The release builders embed the approved
+version-code regression, and scripts/release-workflow.test.ts. Pilot.7 is
+`0.1.0-pilot.7` / Android code `1000007`. The release builders embed the approved
 tag and commit; do not manufacture RELEASE.json or signed metadata in source.
-Pilot.6 is published and its exact 20 public assets verified. The separate site-pin
-commit updates the website bootstrap, homepage downloads and current-install docs
-together. For future releases, leave these on the previous verified pilot until
-the new public assets verify; a prepared site page must not reach main earlier.
+Pilot.7 is the current verified public release. Prepare each site-pin commit separately:
+it bumps the default in `site/install.sh`, the homepage downloads and current
+installation guides. Keep that commit off main until the public assets verify.
+Tag the release-preparation commit, not the site-pin commit. Prepare source docs
+before tagging: GitHub’s source snapshot, the workflow’s source archive and the
+Android notices bundle are built from the release commit.
 
 ## Assets
 
@@ -79,7 +81,10 @@ HOME/XDG, USER set, loopback ports and no service operations. Verify retained
 config/data/pairings, restart and rollback. The source-fallback exception above
 must be in the next release notes. Self-update acceptance also covers held tools,
 Cancel, force confirmation, checksum refusal and broken-candidate rollback.
-A code rollback never rolls back data; retained releases must read the new state.
+A code rollback never rolls back data. For pilot.7, also rehearse updating from
+published pilot.6 using a local `--release-base-url` with the candidate assets.
+Update when idle and after a backup. Pilot.6 keeps tasks, chats and finished work
+on rollback but cannot resume a turn saved in pi 1.6.0's newer format.
 
 ## Release notes page on kemiri.dev
 

@@ -7,7 +7,7 @@ The [homepage](../../../README.md) uses only these four screenshots:
 | `graph-light.webp`, `graph-dark.webp` | Bubble club with task clusters, relationship lines and worker/thread creatures, 1440 × 1000 | Under 60 KiB |
 | `board-light.webp`, `board-dark.webp` | Task board with the earlier synthetic busy fixture, 1440 × 900 | Under 70 KiB |
 
-The homepage icon reuses `apps/web/static/icons/icon-192.png` directly. The graph pair uses quality-88 WebP; the unchanged board pair uses lossless WebP. There is no externally hosted image, animation or additional copied logo.
+The README uses the mascot from `assets/brand/logo.svg`. These captures show earlier builds of the real client, not a pilot.7 walkthrough. The graph pair uses quality-88 WebP; the unchanged board pair uses lossless WebP. There is no externally hosted image or animation.
 
 All product content is synthetic. Captures use the real web client and the [task graph demo seed](../../../packages/server/scripts/task-graph-demo.ts) with its default 25-task bubble scenario. The unchanged board images used the earlier busy scenario. That seed starts the server only through `createSetup` in `packages/server/test/support.ts`, allocates fresh temporary data/config/agent/Claude directories, and prints its data/config/project paths and PID before use. The faux provider never calls a model service or runs host tools. Fixture worker records drive the real client watches; they do not represent agents completing real work.
 

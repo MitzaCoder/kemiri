@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Kemiri is a personal AI workbench. One coordinator delegates to background agents and brings questions and results back to you.">
+  <meta name="description" content="Kemiri is a personal AI workbench. Coordinators delegate to background agents and bring questions and results back to you.">
   <meta name="color-scheme" content="light dark">
   <title>Kemiri — your personal AI workbench</title>
   <link rel="canonical" href="https://kemiri.dev/">
@@ -71,7 +71,7 @@
 <main id="main">
   <section class="hero wrap" aria-labelledby="h">
     <h1 id="h">Follow tasks,<br>not a <span class="grad">pile of chats.</span></h1>
-    <p class="lead">Kemiri is a personal AI workbench. One coordinator delegates to background agents and brings questions and results back to you.</p>
+    <p class="lead">Kemiri is a personal AI workbench. Coordinators delegate to background agents and bring questions and results back to you.</p>
     <div class="actions"><a class="btn" href="#start">Try the pilot <span aria-hidden="true">↓</span></a><a class="btn ghost" href="https://github.com/MitzaCoder/kemiri">View on GitHub <span aria-hidden="true">↗</span></a></div>
   </section>
 
@@ -132,7 +132,7 @@
     <div class="player">
       <button class="pp" type="button" aria-label="Pause the demo"><svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.6" height="12" rx="1"/><rect x="9.4" y="2" width="3.6" height="12" rx="1"/></svg><svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11a.6.6 0 0 0 .9.5l9-5.5a.6.6 0 0 0 0-1l-9-5.5a.6.6 0 0 0-.9.5z"/></svg></button>
       <ol class="phases">
-        <li><button class="phase" type="button"><span class="bar"></span><b><i>1</i>Ask</b><span class="cap">Tell the coordinator what you want. One project, one ongoing chat.</span></button></li>
+        <li><button class="phase" type="button"><span class="bar"></span><b><i>1</i>Ask</b><span class="cap">Tell the coordinator what you want. Give separate areas their own chats on one project.</span></button></li>
         <li><button class="phase" type="button"><span class="bar"></span><b><i>2</i>Delegate</b><span class="cap">It splits the work into tasks and puts a background worker on each.</span></button></li>
         <li><button class="phase" type="button"><span class="bar"></span><b><i>3</i>Step in</b><span class="cap">A task that needs you rises to the top. Answer, and the work continues.</span></button></li>
         <li><button class="phase" type="button"><span class="bar"></span><b><i>4</i>Review</b><span class="cap">Results come back with proof. Mark it done, or write feedback on the task.</span></button></li>
@@ -145,13 +145,13 @@
     <div class="section-head"><p class="kicker">Why Kemiri</p><h2 id="why-title">A little help. A bigger picture.</h2><p>Without a harness, every one of these is a habit you or your agents must remember.</p></div>
     <ul class="versus">
       <li class="head" aria-hidden="true"><span>Kept by hand</span><span class="to"><img src="/assets/logo.svg" width="18" height="24" alt="">With Kemiri</span></li>
-      <li><div><s>A tab for every agent, each with its own transcript</s></div><div class="to"><b>One chat with one coordinator</b><span>Give it a goal. It delegates the pieces to background agents, on models from your own providers.</span></div></li>
-      <li><div><s>You keep checking whether an agent is stuck</s></div><div class="to"><b>Questions and reviews come to you</b><span>Step in where your judgment matters.</span></div></li>
+      <li><div><s>A tab for every agent, each with its own transcript</s></div><div class="to"><b>Separate chats, one project</b><span>Give a coordinator a goal. It delegates the pieces to background agents, on models from your own providers.</span></div></li>
+      <li><div><s>You keep checking whether an agent is stuck</s></div><div class="to"><b>Questions and reviews come to you</b><span>Find quick replies and open questions in Answers. Choose what interrupts you with in-app alerts.</span></div></li>
       <li><div><s>You scroll logs to see what happened</s></div><div class="to"><b>Each task has a status, a report and its proof</b><span>What is happening now, what is finished, and the screenshots to show it.</span></div></li>
       <li><div><s>Status is whatever an agent last wrote</s></div><div class="to"><b>Kemiri works out each task's state</b><span>From task updates, blocking questions, live work, blockers, failures and deploys.</span></div></li>
       <li><div><s>You check in to see if anything moved</s></div><div class="to"><b>The coordinator waits, then wakes</b><span>Worker reports wake it; regular check-ins help it spot work that may be stuck.</span></div></li>
-      <li><div><s>Anyone can call it done</s></div><div class="to"><b>People close tasks. Agents request review.</b><span>The coordinator checks the work before review. A parent cannot go to review ahead of its parts.</span></div></li>
-      <li><div><s>A restart loses the thread</s></div><div class="to"><b>Runs resume where they stopped</b><span>Reports and artifacts stay with their tasks, ready when you are.</span></div></li>
+      <li><div><s>Anyone can call it done</s></div><div class="to"><b>Review requests, not every part</b><span>The coordinator checks and closes finished parts. You review the request with its results and proof.</span></div></li>
+      <li><div><s>A restart loses the thread</s></div><div class="to"><b>Runs resume after a normal restart</b><span>Reports and artifacts stay with their tasks, ready when you are.</span></div></li>
     </ul>
     <h3 class="away-title"><svg class="work-icon" aria-hidden="true" focusable="false"><use href="#h-clock"/></svg>While you're away</h3>
     <ol class="away-timeline">
@@ -168,7 +168,7 @@
   <section class="section real wrap" aria-labelledby="real-title" style="padding-top:0">
     <div class="section-head"><p class="kicker">The real thing</p><h2 id="real-title">Less tab juggling. More of the whole picture.</h2><p>The same tasks as a list, a board or a live graph, with the workers on them.</p></div>
     <figure><img class="only-light" src="/assets/graph-light.webp" loading="lazy" width="1440" height="1000" alt="Kemiri’s live task graph: soft clusters of task bubbles, relationship lines, and small creatures marking active workers."><img class="only-dark" src="/assets/graph-dark.webp" loading="lazy" width="1440" height="1000" alt="Kemiri’s live task graph: soft clusters of task bubbles, relationship lines, and small creatures marking active workers."></figure>
-    <p class="real-cap" style="font-size:.85rem;color:var(--muted);text-align:center;margin-top:.9rem">Real app, synthetic demo project.</p>
+    <p class="real-cap" style="font-size:.85rem;color:var(--muted);text-align:center;margin-top:.9rem">Real app, earlier capture of a synthetic demo project.</p>
     <h3 id="task-states-title" class="task-states-title">One state per task, worked out from facts</h3>
     <div class="task-states" role="group" aria-labelledby="task-states-title">
       <ul class="state-facts" aria-label="Facts Kemiri reads">
@@ -194,15 +194,15 @@
   <div class="section-head">
     <p class="kicker">Start on your own machine</p>
     <h2 id="start-title">Three steps to your first task.</h2>
-    <p>Current pilot: <strong>v0.1.0-pilot.6</strong> (<a href="/releases/">release notes</a>). Linux tested, macOS and WSL experimental, no phone push yet.</p>
+    <p>Pinned install: <strong>v0.1.0-pilot.7</strong> (<a href="/releases/v0.1.0-pilot.7/">release notes</a>). Linux tested, macOS and WSL experimental, no Android push in the public APK.</p>
   </div>
   <ol class="steps">
     <li class="step">
       <div><h3>Install and start</h3>
       <p>Read the small bootstrap before you run it. It fetches the release installer and checks its SHA-256.</p></div>
-      <div class="code"><div class="code-bar">Terminal<button class="copy" type="button" data-copy="curl -fL https://kemiri.dev/install.sh -o install.sh&#10;sh install.sh --version v0.1.0-pilot.6 --no-service&#10;kemiri start">Copy</button></div><pre><code>curl -fL https://kemiri.dev/install.sh -o install.sh
+      <div class="code"><div class="code-bar">Terminal<button class="copy" type="button" data-copy="curl -fL https://kemiri.dev/install.sh -o install.sh&#10;sh install.sh --version v0.1.0-pilot.7 --no-service&#10;kemiri start">Copy</button></div><pre><code>curl -fL https://kemiri.dev/install.sh -o install.sh
 <span class="cm"># Read install.sh before running it.</span>
-sh install.sh --version v0.1.0-pilot.6 --no-service
+sh install.sh --version v0.1.0-pilot.7 --no-service
 kemiri start</code></pre></div>
     </li>
     <li class="step">
@@ -225,7 +225,7 @@ kemiri pair</code></pre></div>
     </div>
     <div>
       <h3>Take the view with you</h3>
-      <p><a href="https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.6/kemiri-v0.1.0-pilot.6-android-universal.apk">Download the signed Android APK</a> (Android 12+). Your phone needs your backend reachable over HTTPS; the APK is not a tunnel.</p>
+      <p><a href="https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.7/kemiri-v0.1.0-pilot.7-android-universal.apk">Download the signed Android APK</a> (Android 12+). Your phone needs your backend reachable over HTTPS; the APK is not a tunnel.</p>
     </div>
   </div>
   <p class="fine">You need git; install jj for isolated workers. Short install: <code>curl -fsSL https://kemiri.dev/install.sh | sh</code>. Checksums detect corruption, not a compromised publisher. <a href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Full guide and direct GitHub downloads</a>.</p>

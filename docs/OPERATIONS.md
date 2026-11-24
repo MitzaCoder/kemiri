@@ -93,7 +93,8 @@ Typing an address is rarely necessary:
 - The backends page makes a "connect another device" link, `<app origin>/connect#<encoded backends>`, with a QR code
   and a copy button. The list stays in the fragment, so it never reaches a server log; opening the link on the other
   device shows the backends, the user confirms, and each one is added there (a URL that device already has is skipped)
-  before it lands on its projects. Only HTTPS origins can travel in a link.
+  before it lands on its projects. The link shares backend addresses, not sign-in or published app access.
+  Only HTTPS origins can travel in a link.
 - In the add form a bare name expands: `harness-pc` is that published backend, otherwise
   `https://<name>.<domain the published backends live under>` (or the app's own host's domain). The name field fills
   itself from the address's first label while it is left empty.
@@ -130,9 +131,24 @@ Environment for a backend:
 Hosted deployments build and serve the app separately. The backend serves the API, device-auth routes and artifacts;
 the local installer can also serve its bundled web app. See the install guide for first-run device sign-in.
 
+## Agent app links
+
+In pilot.7, **Running apps** shows listening apps and links, with logs for apps
+Kemiri manages. Run `kemiri tailscale enable --apps` as the backend account to
+reserve tailnet HTTPS ports, then use **Tailscale HTTPS (reserved ports)** under
+Settings → Advanced → Agent apps. See the [setup and limits](releases/v0.1.0-pilot.7.md#set-up-app-links-once).
+Publishing approval covers future apps in the same project. The tailnet rules
+control access to those apps; Kemiri device sign-in does not protect their links.
+
 ## Notifications
 
-The app holds one push subscription per browser and registers it with each backend it is connected to; a backend then
+Pilot.7 streams in-app alerts to connected web and Android clients independently
+of push. Use Settings → Notifications → In the app to set pop-ups, sounds, Do not
+disturb and device mutes. The web inbox keeps alerts even when banners are muted.
+The public Android APK does not include phone push. The push configuration below
+covers browser Web Push and operator-managed Android builds.
+
+A browser with Web Push enabled holds one push subscription and registers it with each backend it is connected to; a backend then
 pushes its own events to the devices that want them: a coordinator reply, a worker's report or failure, a scheduled
 task done (or failed/skipped), a deploy that failed or rolled back, a sign-in waiting for an answer, a compaction or a
 memory maintenance that failed. Payloads are encrypted end to end (RFC 8291 aes128gcm) and signed with VAPID, so the
