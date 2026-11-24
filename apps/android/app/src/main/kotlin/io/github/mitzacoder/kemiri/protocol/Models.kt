@@ -1222,7 +1222,10 @@ data class ProjectAttention(
     val `failedWorkerTaskId`: String?,
     val `failedThreadId`: String?,
     val `stepsTasks`: Long? = null,
-    val `stepsTaskId`: String? = null
+    val `stepsTaskId`: String? = null,
+    val `failedCoordinators`: Long? = null,
+    val `failedCoordinatorId`: String? = null,
+    val `failedTaskIds`: List<String>? = null
 )
 
 @Serializable
@@ -1243,6 +1246,7 @@ data class ProjectActivity(
     val `runningWorkers`: Long,
     val `lastReplyAt`: String?,
     val `lastReplyEntryId`: Long?,
+    val `failureEntryId`: Long? = null,
     val `backgroundJobs`: ProjectActivityBackgroundJobs? = null,
     val `backgroundThreads`: Long? = null,
     val `openQuestions`: Long? = null,
@@ -2244,6 +2248,7 @@ data class ThreadSummary(
     val `order`: Long? = null,
     val `held`: Boolean? = null,
     val `attention`: ThreadSummaryAttention? = null,
+    val `attentionFailures`: List<AttentionFailure>? = null,
     val `lastReplyAt`: String? = null,
     val `lastReplyEntryId`: Long? = null,
     val `openTasks`: Long? = null,
@@ -2274,6 +2279,16 @@ data class ThreadSummaryAttention(
     val `steps`: Long,
     val `review`: Long,
     val `failed`: Long
+)
+
+@Serializable
+data class AttentionFailure(
+    val `id`: String,
+    val `kind`: String,
+    val `title`: String,
+    val `threadId`: String,
+    val `workerId`: String? = null,
+    val `taskId`: String? = null
 )
 
 @Serializable
@@ -2321,6 +2336,14 @@ data class ThreadsStopRequest(
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `projectId`: String,
     val `threadId`: String
+)
+
+@Serializable
+data class ThreadsAcknowledgeFailureRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.acknowledgeFailure",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `failureId`: String
 )
 
 @Serializable
@@ -2435,6 +2458,12 @@ data class ThreadsStopResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "threads.stop",
     val `id`: String,
     val `thread`: ThreadSummary
+)
+
+@Serializable
+data class ThreadsAcknowledgeFailureResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "threads.acknowledgeFailure",
+    val `id`: String
 )
 
 @Serializable

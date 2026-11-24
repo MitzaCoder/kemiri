@@ -1,5 +1,5 @@
 /** Compact summaries from the watches the runtime already owns, not a board watch per client/project. */
-import { ProjectAttentionSchema, type ProjectAttention, type Board, type WorkerSummary, type ThreadSummary } from "@kemiri/protocol";
+import { ProjectAttentionSchema, type ProjectAttention, type Board, type WorkerSummary, type ThreadSummary, type AttentionFailure, MAIN_THREAD_ID } from "@kemiri/protocol";
 import { Value } from "typebox/value";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
@@ -7,7 +7,7 @@ import { requestAttention } from "./request-attention.ts";
 
 export const EMPTY_ATTENTION: ProjectAttention = {
 	questions: 0, warnings: 0, reviewTasks: 0, waitingTasks: 0, nextReturnAt: null,
-	failedWorkers: 0, failedThreads: 0, runningWorkers: 0,
+	failedWorkers: 0, failedThreads: 0, runningWorkers: 0, failedCoordinators: 0, failedCoordinatorId: null, failedTaskIds: [],
 	questionTaskId: null, warningTaskId: null, reviewTaskId: null, failedWorkerTaskId: null, failedThreadId: null,
 	stepsTasks: 0, stepsTaskId: null,
 };
@@ -38,14 +38,67 @@ export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<
 	};
 }
 
-export function workerAttention(workers: readonly Pick<WorkerSummary, "status" | "taskId">[]): Pick<ProjectAttention, "runningWorkers" | "failedWorkers" | "failedWorkerTaskId"> {
-	const failed = workers.filter((worker) => worker.status === "failed");
-	return { runningWorkers: workers.filter((worker) => worker.status === "running").length, failedWorkers: failed.length, failedWorkerTaskId: failed[0]?.taskId ?? null };
+type FailureThread = Pick<ThreadSummary, "id" | "title" | "conversationId" | "status" | "updatedAt" | "archived" | "kind" | "taskId" | "parentThreadId">;
+export type FailureAttention = { failure: AttentionFailure; sourceKey: string; coordinatorId: string; failedTaskRow: boolean };
+
+/** The same incident records feed the coordinator list, sidebar and Tasks panel. */
+export function actionableFailures(
+	tasks: readonly Board["tasks"][number][], workers: readonly WorkerSummary[], threads: readonly FailureThread[],
+	acknowledged: Readonly<Record<string, string>> = {},
+): FailureAttention[] {
+	const taskById = new Map(tasks.map(task => [task.id, task]));
+	const threadById = new Map(threads.map(thread => [thread.id, thread]));
+	const failures: FailureAttention[] = [];
+	const coordinatorOf = (threadId: string): string => {
+		const thread = threadById.get(threadId);
+		const coordinator = thread?.kind === "coordinator" ? thread.id : thread?.parentThreadId ?? MAIN_THREAD_ID;
+		return threadById.get(coordinator)?.archived ? MAIN_THREAD_ID : coordinator;
+	};
+	function add(kind: AttentionFailure["kind"], source: Pick<WorkerSummary, "id" | "title" | "taskId" | "updatedAt" | "conversationId">, threadId: string) {
+		const task = source.taskId == null ? undefined : taskById.get(source.taskId);
+		if (source.taskId != null && (!task || task.archived || task.status === "done" || task.status === "dropped")) return;
+		const sourceKey = JSON.stringify([kind, threadId, source.id]);
+		const id = JSON.stringify([sourceKey, source.conversationId, source.updatedAt]);
+		if (acknowledged[sourceKey] === id) return;
+		const failedTaskRow = task?.state?.kind === "failed";
+		failures.push({ sourceKey, failedTaskRow,
+			coordinatorId: failedTaskRow ? coordinatorOf(task.ownerThreadId ?? MAIN_THREAD_ID) : coordinatorOf(threadId),
+			failure: { id, kind, title: source.title || source.id, threadId,
+				...(kind === "worker" ? { workerId: source.id } : {}), ...(task ? { taskId: task.id } : {}) },
+		});
+	}
+	for (const worker of workers) {
+		if (worker.status === "failed") add("worker", worker, worker.threadId ?? MAIN_THREAD_ID);
+	}
+	for (const thread of threads) {
+		if (!thread.archived && thread.status === "failed") add(thread.kind === "coordinator" ? "coordinator" : "job", thread, thread.id);
+	}
+	return failures;
 }
 
-export function threadAttention(threads: readonly Pick<ThreadSummary, "main" | "archived" | "status" | "id">[]): Pick<ProjectAttention, "failedThreads" | "failedThreadId"> {
-	const failed = threads.filter((thread) => !thread.main && !thread.archived && thread.status === "failed");
-	return { failedThreads: failed.length, failedThreadId: failed[0]?.id ?? null };
+/** One failed task row stands for its failed runs; other failures each need a row of their own. */
+export function failureAttentionRows(failures: readonly FailureAttention[]): FailureAttention[] {
+	const failedTasks = new Set<string>();
+	return failures.filter(({ failedTaskRow, failure }) => {
+		if (!failedTaskRow || failure.taskId === undefined) return true;
+		if (failedTasks.has(failure.taskId)) return false;
+		failedTasks.add(failure.taskId);
+		return true;
+	});
+}
+
+export function projectFailureAttention(workers: readonly Pick<WorkerSummary, "status">[], failures: readonly FailureAttention[]) {
+	const rows = failureAttentionRows(failures);
+	const failedWorkers = rows.filter(row => row.failure.kind === "worker");
+	const failedJobs = rows.filter(row => row.failure.kind === "job");
+	const failedCoordinators = rows.filter(row => row.failure.kind === "coordinator");
+	return {
+		runningWorkers: workers.filter(worker => worker.status === "running").length,
+		failedWorkers: failedWorkers.length, failedWorkerTaskId: failedWorkers[0]?.failure.taskId ?? null,
+		failedThreads: failedJobs.length, failedThreadId: failedJobs[0]?.failure.threadId ?? null,
+		failedCoordinators: failedCoordinators.length, failedCoordinatorId: failedCoordinators[0]?.failure.threadId ?? null,
+		failedTaskIds: rows.flatMap(row => row.failedTaskRow && row.failure.taskId ? [row.failure.taskId] : []),
+	};
 }
 
 /** Small independent file: lists can read it without starting a Harness; writes serialize per project. */

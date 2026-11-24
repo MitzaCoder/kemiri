@@ -127,7 +127,7 @@ import { ToolCallDrain } from "./drain.ts";
 import { WorkerService } from "./workers.ts";
 import { TaskDeployObserver } from "./task-deploys.ts";
 import { TaskChangeObserver, TASK_CHANGES_FILE } from "./task-changes.ts";
-import { ProjectAttentionStore, boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
+import { ProjectAttentionStore, boardAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
 import type { ConversationIdentity, RequestLog } from "./request-log.ts";
 import { join } from "node:path";
 
@@ -526,11 +526,11 @@ export class ProjectManager {
 	async prepareAttention(): Promise<void> {
 		for (const project of await this.store.list()) {
 			try {
-				if ((await this.#attentionStore.read(project.id))?.stepsTasks === undefined) {
+				if ((await this.#attentionStore.read(project.id))?.failedCoordinators === undefined) {
 					const path = this.store.sessionPath(project.id);
 					await this.#maintainBoard(project.id);
 					this.#attentionStore.update(project.id, await Bun.file(path).exists()
-						? await this.#boardStorage.run({ type: "attention", path, now: this.#clock() }) : { ...EMPTY_ATTENTION });
+						? await this.#boardStorage.run({ type: "attention", path, now: this.#clock(), activity: await this.#activityStore.read(project.id) }) : { ...EMPTY_ATTENTION });
 				}
 				await this.#summaryOf(project);
 			} catch (error) {
@@ -721,6 +721,11 @@ export class ProjectManager {
 	async threadMessages(request: ThreadsMessagesRequest) {
 		const { runtime } = await this.open(request.projectId);
 		return runtime.threads.messages(request);
+	}
+
+	async acknowledgeFailure(projectId: string, failureId: string): Promise<void> {
+		const { runtime } = await this.open(projectId);
+		return runtime.threads.acknowledgeFailure(failureId);
 	}
 
 	async stopThread(projectId: string, threadId: string): Promise<ThreadSummary> {
@@ -1912,11 +1917,7 @@ export class ProjectManager {
 		const updateAttention = (patch: Parameters<ProjectAttentionStore["update"]>[1]) => {
 			if (this.#attentionStore.update(project.id, patch)) void this.#emitProject(project.id);
 		};
-		updateAttention({
-			...boardAttention(await board.state()),
-			...workerAttention((await workers.list()).workers),
-			...threadAttention(await threads.list(false)),
-		});
+		updateAttention(boardAttention(await board.state()));
 		const initialActivity = await this.#activityFor(project.id, entry);
 		const runningWorkers = (await workers.list(MAIN_THREAD_ID)).workers.filter((worker) => worker.status === "running").length;
 		const openQuestions = openQuestionCount(await board.state());
@@ -1984,11 +1985,11 @@ export class ProjectManager {
 			queueMicrotask(() => {
 				threadsQueued = false;
 				void (async () => {
-					const list = await threads.list(false);
+					const { threads: list, projectFailures } = await threads.attentionSnapshot();
 					void reconcileApps();
 					activity.setBackgroundThreads(await threads.backgroundCount());
  activity.setBackgroundJobs(backgroundJobCounts(list));
-					updateAttention(threadAttention(list));
+					updateAttention(projectFailures);
 					work.update({ runningThreads: list.filter((thread) => thread.kind === "job" && thread.parentThreadId === MAIN_THREAD_ID && thread.status === "running").length });
 					const landingTurn = await threads.landingTurn();
 					const encoded = JSON.stringify({ list, landingTurn });
@@ -2035,7 +2036,6 @@ export class ProjectManager {
 			.watch((list, defaults) => {
 				void reconcileApps();
 				this.#emitWorkers(project.id, list, defaults);
-				updateAttention(workerAttention(list));
 				// The project's activity counts main's running workers; each thread counts its own in the thread list.
 				activity.setRunningWorkers(
 					list.filter((worker) => worker.status === "running" && (worker.threadId ?? MAIN_THREAD_ID) === MAIN_THREAD_ID).length,
@@ -2053,7 +2053,7 @@ export class ProjectManager {
 				this.#emitBoard(project.id, view, legacyBoard);
 				activity.setOpenQuestions(openQuestions);
 				updateAttention(boardAttention(view));
-				threads.boardChanged(view);
+				threads.boardChanged(view, legacyBoard);
 			})
 			.catch((error: unknown) => {
 				this.#log(`project ${project.id}: board watch failed: ${errorMessage(error)}`);

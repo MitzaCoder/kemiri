@@ -43,6 +43,7 @@ import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -93,13 +94,17 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val searchHits = if (searching) search.index.search(search.query, eligible) else emptyList()
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
     val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks, questions = questions))
-    val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
     val looseGroups = loose.groupBy { it.waitingOn == "agent" }
     val requestsOnly = connection.supports(HarnessFeature.REQUEST_ATTENTION)
     val partsByRequest = if (requestsOnly) taskSections(view.tasks, view.questions, includeArchived = view.showArchived)
         .flatMap { it.rows }.filter { it.task.parent != null }.groupBy { it.task.requestId ?: it.task.parent!! } else null
     val familySections = if (searching) emptyList() else taskFamilySections(sections, requestsOnly)
     val needsYouSection = familySections.firstOrNull { it.id == TaskSectionId.NeedsYou }
+    val failedTaskIds = (if (searching) searchHits.mapNotNull { searchRows[it.id] } else needsYouSection?.rows.orEmpty())
+        .mapNotNull { row -> row.task.state?.takeIf { it.kind == "failed" }?.let { it.fromPartId ?: row.task.id } }.toSet()
+    val failures = coordinatorScope?.roster.orEmpty().filter { coordinatorScope?.includes(it.id) == true }
+        .flatMap { it.attentionFailures.orEmpty() }.filter { it.taskId !in failedTaskIds }
+    val empty = view.loaded && tasks.isEmpty() && loose.isEmpty() && failures.isEmpty()
     // Toolbar and filters, any error or empty message, then loose questions before the first section.
     val needsYouIndex = familySections.indexOf(needsYouSection) + 2 +
         (if (view.error != null) 1 else 0) + (if (!view.loaded || empty) 1 else 0) + looseGroups.size
@@ -219,6 +224,12 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 }
             }
         }
+        if (needsYouSection == null && failures.isNotEmpty()) item(key = "standalone-failures") {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SectionTitle("Needs you", failures.size, accent = true)
+                TaskGroup { FailureRows(context, failures) }
+            }
+        }
         familySections.forEach { section ->
             val open = sectionExpansion[section.id.name] ?: familySectionStartsOpen(section)
             val families = taskFamilies(section, expansion, partsByRequest)
@@ -229,7 +240,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                     if (section.collapsedByDefault) FoldHeading(section.label, open, onToggle = {
                         sectionExpansion = sectionExpansion + (section.id.name to !open)
                     }, count = taskFamilyCount(section, requestsOnly), chevronFirst = false, style = TaskType.sectionTitle)
-                    else SectionTitle(section.label, taskFamilyCount(section, requestsOnly), accent = needsYou)
+                    else SectionTitle(section.label, taskFamilyCount(section, requestsOnly) + if (needsYou) failures.size else 0, accent = needsYou)
                     if (open) TaskGroup {
                         val previewTask = LocalPreviewTaskId.current
                         CompositionLocalProvider(LocalPreviewTaskId provides (highlightedTask.takeIf { needsYou } ?: previewTask)) {
@@ -245,6 +256,10 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                                 shown = sections.flatMap { it.rows }.map { it.task.id }.toSet(),
                                 requestQuestions = view.questions.takeIf { requestsOnly }, onOpenAttention = { context.openTask(it.taskId, it.questionId) },
                             )
+                        }
+                        if (needsYou && failures.isNotEmpty()) {
+                            GroupHairline()
+                            FailureRows(context, failures)
                         }
                     }
                 }
@@ -283,6 +298,40 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
         if (view.loaded) item(key = "loose-workers") { LooseWorkers(context, view.tasks) }
         if (coordinatorScope != null) item(key = "coordinator-footer") { CoordinatorTasksFooter(context) }
     }
+}
+
+@Composable
+private fun FailureRows(context: ProjectScreenContext, failures: List<AttentionFailure>) {
+    val scope = rememberCoroutineScope()
+    var dismissing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(false) }
+    failures.forEachIndexed { index, failure ->
+        if (index > 0) GroupHairline()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val label = when (failure.kind) {
+                "worker" -> "A worker failed"
+                "job" -> "A job failed"
+                else -> "A coordinator failed"
+            }
+            Row(Modifier.weight(1f).heightIn(min = 48.dp).clickable(role = Role.Button) {
+                context.navigate(coordinatorRoute(context.route, failure.threadId).copy(workerId = failure.workerId))
+            }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                LucideGlyph(TaskIcons.TriangleAlert, size = 16.dp, tint = Jarvis.colors.fgMuted)
+                Text("$label: ${failure.title}", style = MaterialTheme.typography.bodyMedium)
+            }
+            TextButton(enabled = !dismissing, onClick = {
+                dismissing = true
+                error = false
+                scope.launch {
+                    try { context.backend.client.request(ThreadsAcknowledgeFailureRequest(projectId = context.route.projectId, failureId = failure.id)) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { error = true }
+                    finally { dismissing = false }
+                }
+            }) { Text("Dismiss") }
+        }
+    }
+    if (error) Text("Could not dismiss the failure. Try again.", Modifier.padding(8.dp), color = Jarvis.colors.danger)
 }
 
 /** Fold quiet branches independently so pinned parts never disappear during the transition. */

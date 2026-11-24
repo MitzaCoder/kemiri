@@ -52,6 +52,16 @@ const ThreadAttentionSchema = Type.Object({
 	failed: Type.Integer({ minimum: 0 }),
 });
 
+export const AttentionFailureSchema = Type.Object({
+	id: Type.String({ description: "Identifies this specific failure, not every run of its source." }),
+	kind: Type.Union([Type.Literal("worker"), Type.Literal("job"), Type.Literal("coordinator")]),
+	title: Type.String(),
+	threadId: Type.String(),
+	workerId: Type.Optional(Type.String()),
+	taskId: Type.Optional(Type.String({ description: "An open task linked to the failure." })),
+});
+export type AttentionFailure = Static<typeof AttentionFailureSchema>;
+
 export const ThreadSummarySchema = Type.Object({
 	id: Type.String({ minLength: 1, description: 'Unique in the project; "main" is the main thread.' }),
 	title: Type.String(),
@@ -66,6 +76,7 @@ export const ThreadSummarySchema = Type.Object({
 	order: Type.Optional(Type.Integer()),
 	held: Type.Optional(Type.Boolean()),
 	attention: Type.Optional(ThreadAttentionSchema),
+	attentionFailures: Type.Optional(Type.Array(AttentionFailureSchema)),
 	lastReplyAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	lastReplyEntryId: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
 	openTasks: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -117,6 +128,17 @@ export const ThreadsStopRequestSchema = Type.Object({
 	threadId: Type.String({ minLength: 1 }),
 });
 export type ThreadsStopRequest = Static<typeof ThreadsStopRequestSchema>;
+
+/** Acknowledges one failure without stopping work or deleting its transcript. */
+export const ThreadsAcknowledgeFailureRequestSchema = Type.Object({
+	type: Type.Literal("threads.acknowledgeFailure"), id: RequestIdSchema, projectId: ProjectIdSchema,
+	failureId: Type.String({ minLength: 1 }),
+});
+export type ThreadsAcknowledgeFailureRequest = Static<typeof ThreadsAcknowledgeFailureRequestSchema>;
+export const ThreadsAcknowledgeFailureResponseSchema = Type.Object({
+	type: Type.Literal("threads.acknowledgeFailure"), id: RequestIdSchema,
+});
+export type ThreadsAcknowledgeFailureResponse = Static<typeof ThreadsAcknowledgeFailureResponseSchema>;
 
 export const ThreadsArchiveRequestSchema = Type.Object({
 	type: Type.Literal("threads.archive"),
@@ -240,9 +262,10 @@ export function threadState(t: Pick<ThreadSummary, "status" | "openQuestions" | 
 export function backgroundJobCounts(threads: readonly ThreadSummary[], _now?: number): { needsYou: number; working: number } {
  const counts = { needsYou: 0, working: 0 };
  for (const t of threads) {
-  if (t.main || t.archived) continue;
+  if (t.main || t.archived || t.kind === "coordinator") continue;
   const state = t.state ?? threadState(t);
-  if (state === "needs_you" || state === "failed") counts.needsYou++;
+  if (state === "needs_you" || (state === "failed" && (t.openQuestions > 0 || t.attentionFailures === undefined ||
+   t.attentionFailures.some(failure => failure.kind === "job" && failure.threadId === t.id)))) counts.needsYou++;
   else if (state === "working") counts.working++;
  }
  return counts;

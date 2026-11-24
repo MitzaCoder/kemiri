@@ -213,6 +213,7 @@ private fun HarnessNavigation(
     val catalogue = if (projectTabs.isNotEmpty() && chat != null) backend!!.answers(chat.projectId) else null
     val answerCatalogue = catalogue?.catalogue?.collectAsStateWithLifecycle()?.value
     val unreadAnswers = hasUnreadAnswers(answerCatalogue?.answers.orEmpty())
+    val taskAttention = if (context != null && chat?.workerId == null) rememberTaskAttentionCount(context) else 0L
     val selectProjectTab: (AnswersProjectTab) -> Unit = select@{ tab ->
         val origin = chat ?: return@select
         val target = when (tab) {
@@ -240,6 +241,7 @@ private fun HarnessNavigation(
     }
     val latestPanelTabs by rememberUpdatedState(projectTabs)
     val latestUnreadAnswers by rememberUpdatedState(unreadAnswers)
+    val latestTaskAttention by rememberUpdatedState(taskAttention)
     val latestSelectProjectTab by rememberUpdatedState(selectProjectTab)
     val latestPanelContext by rememberUpdatedState(context)
     val latestPanelTab by rememberUpdatedState(panel?.tab ?: PanelTab.Info)
@@ -264,7 +266,7 @@ private fun HarnessNavigation(
                         currentContext, latestPanelTab, { latestClosePanel() }, panelModifier,
                         expanded = latestPanelExpanded, toggleExpanded = if (panelExpandable) ({ latestToggleExpanded() }) else null,
                         projectTabs = if (latestPanelTab == PanelTab.Board && AnswersProjectTab.Tasks in latestPanelTabs) latestPanelTabs else emptyList(),
-                        unreadAnswers = latestUnreadAnswers, selectProjectTab = { latestSelectProjectTab(it) },
+                        unreadAnswers = latestUnreadAnswers, taskAttention = latestTaskAttention, selectProjectTab = { latestSelectProjectTab(it) },
                     )
                 }
             }
@@ -319,12 +321,12 @@ private fun HarnessNavigation(
                                     (answersRoute != null && answerId == null)
                                 if (resolvedBack() != null && !chatRoute && answerId == null) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
                                 if (current.isSettings()) JarvisIconButton(Lucide.X, "Close settings", onClick = settingsNavigator.close)
-                                if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel)
+                                if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel, questions = taskAttention)
                             },
                         )
                         if (projectTabs.isNotEmpty() && (current is Destination.Chat || (answersRoute != null && answerId == null))) {
                             AnswersProjectTabRow(projectTabs, if (answersRoute != null) AnswersProjectTab.Answers else AnswersProjectTab.Chat,
-                                unreadAnswers, selectProjectTab)
+                                unreadAnswers, taskAttention, selectProjectTab)
                         }
                         if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task)) {
                             val board by context.board.view.collectAsStateWithLifecycle()
@@ -419,6 +421,7 @@ private fun PanelSurface(
     toggleExpanded: (() -> Unit)? = null,
     projectTabs: List<AnswersProjectTab> = emptyList(),
     unreadAnswers: Boolean = false,
+    taskAttention: Long = 0,
     selectProjectTab: (AnswersProjectTab) -> Unit = {},
 ) {
     val title = io.github.mitzacoder.kemiri.features.panels.panelTabLabel(initialTab, rememberTasksView(context.backend.client))
@@ -435,7 +438,7 @@ private fun PanelSurface(
                 )
             }
         })
-        if (projectTabs.isNotEmpty()) AnswersProjectTabRow(projectTabs, AnswersProjectTab.Tasks, unreadAnswers, selectProjectTab)
+        if (projectTabs.isNotEmpty()) AnswersProjectTabRow(projectTabs, AnswersProjectTab.Tasks, unreadAnswers, taskAttention, selectProjectTab)
     } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding)) }
 }
 

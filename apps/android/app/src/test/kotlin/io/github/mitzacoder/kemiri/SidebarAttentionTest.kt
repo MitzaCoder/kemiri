@@ -81,6 +81,18 @@ class SidebarAttentionTest {
         assertEquals(2L, attentionCount(project, board))
     }
 
+    @Test fun actionableFailuresAddStandaloneRowsWithoutRepeatingFailedTasks() {
+        val failed = io.github.mitzacoder.kemiri.tasks.task("T1")
+            .copy(state = BoardTaskState("needs_you", "failed", "now", emptyList()))
+        val board = Board(tasks = listOf(failed), questions = emptyList(), decisions = emptyList(), updatedAt = null)
+        val summary = empty.copy(failedWorkers = 1, failedWorkerTaskId = "T1", failedThreads = 1,
+            failedThreadId = "audit", failedCoordinators = 0, failedTaskIds = listOf("T1"))
+        val project = project("bakery", summary).copy(activity = ProjectActivity("failed", 0, null, null))
+        val actions = projectAttentionActions(project, board)
+        assertEquals(listOf(AttentionKind.Worker, AttentionKind.Thread), actions.map { it.kind })
+        assertEquals(2L, attentionCount(project, board))
+    }
+
     @Test fun failedThreadKeepsBackendProjectAndThreadIdentity() {
         val link = needsYouLinks(listOf(BackendAttentionProjects("b", "Remote", listOf(project("p", empty.copy(failedThreads = 1, failedThreadId = "release")))))).single()
         assertEquals("b", link.backendKey)

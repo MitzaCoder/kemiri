@@ -32,6 +32,11 @@ it("counts only unarchived background jobs; failures need the user", () => {
  expect(backgroundJobCounts([])).toEqual({ needsYou: 0, working: 0 });
 });
 
+it("keeps a historical failure out of job attention without hiding an open question", () => {
+ expect(backgroundJobCounts([summary("failed", { attentionFailures: [] })])).toEqual({ needsYou: 0, working: 0 });
+ expect(backgroundJobCounts([summary("failed", { attentionFailures: [], openQuestions: 1 })])).toEqual({ needsYou: 1, working: 0 });
+});
+
 it("prefers emitted state to the old-status fallback", () => {
  expect(backgroundJobCounts([summary("idle", { state: "working" }), summary("running", { state: "paused" })]))
   .toEqual({ needsYou: 0, working: 1 });

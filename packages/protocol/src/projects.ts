@@ -144,6 +144,7 @@ export const ProjectActivitySchema = Type.Object({
 			"ISO 8601, when the coordinator last finished an answer; clients compare it with when the user last looked.",
 	}),
 	lastReplyEntryId: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+	failureEntryId: Type.Optional(Type.Integer({ minimum: 1 })),
  backgroundJobs: Type.Optional(Type.Object({
   needsYou: Type.Integer({ minimum: 0 }),
   working: Type.Integer({ minimum: 0 }),
@@ -183,6 +184,9 @@ export const ProjectAttentionSchema = Type.Object({
 	failedThreadId: Type.Union([Type.String(), Type.Null()]),
 	stepsTasks: Type.Optional(Type.Integer({ minimum: 0 })),
 	stepsTaskId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+	failedCoordinators: Type.Optional(Type.Integer({ minimum: 0 })),
+	failedCoordinatorId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+	failedTaskIds: Type.Optional(Type.Array(Type.String())),
 });
 export type ProjectAttention = Static<typeof ProjectAttentionSchema>;
 

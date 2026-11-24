@@ -1050,7 +1050,14 @@
 {#snippet projectTabs(inSidebar: boolean)}
 	<nav aria-label="Project views" class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1 text-xs font-semibold max-sm:text-sm">
 		{#if phone.current}<button type="button" class={projectViewClass} aria-pressed={!inSidebar} onclick={() => setSidebarOpen(false)}>Chat</button>{/if}
-		{#if supportsBoard}<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'board'} onclick={() => selectSidebar('board')}>{boardTabName}</button>{/if}
+		{#if supportsBoard}
+			{@const badge = phone.current ? questionBadgeText(questionsWaiting) : undefined}
+			<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'board'}
+				aria-label={badge ? `${boardTabName} (${questionsWaiting} need attention)` : boardTabName} onclick={() => selectSidebar('board')}>
+				{boardTabName}
+				{#if badge}<span class="header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold" aria-hidden="true">{badge}</span>{/if}
+			</button>
+		{/if}
 		<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'answers'} aria-label={answers?.unread ? 'Answers (unread)' : 'Answers'} onclick={() => selectSidebar('answers')}>
 			Answers {#if answers?.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>{/if}
 		</button>

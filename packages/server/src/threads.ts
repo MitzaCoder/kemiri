@@ -4,7 +4,7 @@ import { enqueueCoordinatorNotes, noteField, removeCoordinatorNote, type Pending
 import { isWorkerOnlyModel } from "./official-agents/provider.ts";
 import { mcpRoleExtension } from "./mcp.ts";
 import { timelineId, upsertTimelineFact } from "./task-timeline.ts";
-import { boardAttention } from "./sidebar-attention.ts";
+import { actionableFailures, boardAttention, failureAttentionRows, projectFailureAttention } from "./sidebar-attention.ts";
 import { stateKind } from "./state-identity.ts";
 /**
  * Background threads: full coordinators of a project, started by a coordinator (or a schedule) for big, long work. The contract
@@ -162,6 +162,7 @@ export type ThreadRecord = {
 	status: ThreadStatus;
 	summary: string | null;
 	failure: string | null;
+	failureEntryId?: number;
 	createdAt: string;
 	updatedAt: string;
 	finishedAt: string | null;
@@ -178,6 +179,7 @@ type StoredThreadRecord = Omit<ThreadRecord, "kind" | "parentThreadId"> & Partia
 export type StoredThreadsState = {
 	main?: MainThreadRecord;
 	threads: Record<string, StoredThreadRecord>;
+	acknowledgedFailures?: Record<string, string>;
 	/** When the list was created: main's `createdAt` in the protocol. */
 	createdAt: string | null;
 };
@@ -203,6 +205,7 @@ function normalizeThreadRecord(record: Readonly<StoredThreadRecord>): ThreadReco
 function normalizeThreadsState(state: Readonly<StoredThreadsState> | undefined): ThreadsState {
 	return {
 		createdAt: state?.createdAt ?? null,
+		acknowledgedFailures: state?.acknowledgedFailures,
 		main: state?.main ?? { ...GENERAL },
 		threads: Object.fromEntries(Object.entries(state?.threads ?? {}).map(([id, record]) => [id, normalizeThreadRecord(record)])),
 	};
@@ -551,6 +554,7 @@ export class ThreadService {
 	/** Every thread's workers, from the worker watch. */
 	#workers: WorkerSummary[] = [];
 	#board: Board | undefined;
+	#failureTasks: Board["tasks"] = [];
 	#storage: { removeThread(threadId: string): Promise<void> } | undefined;
 	/** Status changes are serialized, so two watch callbacks never race on one thread. */
 	#queue: Promise<void> = Promise.resolve();
@@ -720,13 +724,40 @@ export class ThreadService {
 
 	/** Every thread, main first, then by creation; archived ones only when asked for. */
 	async list(includeArchived = false): Promise<ThreadSummary[]> {
+		return (await this.attentionSnapshot(includeArchived)).threads;
+	}
+
+	async attentionSnapshot(includeArchived = false) {
 		const state = await this.state();
 		const now = this.#options.now();
 		const records = Object.values(state.threads)
-			.filter((record) => includeArchived || !isThreadArchived(record, now))
 			.sort((left, right) => Number(right.kind === "coordinator") - Number(left.kind === "coordinator")
 				|| (left.order ?? 0) - (right.order ?? 0) || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
-		return [this.#mainSummary(state, now), ...records.map((record) => this.summaryOf(record, now))];
+		const main = this.#mainSummary(state, now);
+		const summaries = [main, ...records.map(record => this.summaryOf(record, now))];
+		const failureEntryId = this.#options.mainActivity().failureEntryId;
+		const failureThreads = [...summaries.slice(1).map((thread, index) => ({ ...thread,
+			updatedAt: records[index]?.failureEntryId === undefined ? thread.updatedAt : String(records[index].failureEntryId),
+		})), ...(failureEntryId === undefined ? [] : [{ ...main, updatedAt: String(failureEntryId) }])];
+		const failures = actionableFailures(this.#failureTasks, this.#workers, failureThreads, state.acknowledgedFailures);
+		const rows = failureAttentionRows(failures);
+		const threads = summaries.filter(thread => includeArchived || !thread.archived).map(thread => {
+			const attentionFailures = (thread.kind === "job"
+				? failures.filter(row => row.failure.threadId === thread.id)
+				: rows.filter(row => row.coordinatorId === thread.id)).map(row => row.failure);
+			return { ...thread, attentionFailures, attention: { ...thread.attention!, failed: attentionFailures.length } };
+		});
+		return { threads, failures, projectFailures: projectFailureAttention(this.#workers, failures) };
+	}
+
+	async acknowledgeFailure(failureId: string): Promise<void> {
+		const match = (await this.attentionSnapshot()).failures.find(row => row.failure.id === failureId);
+		if (!match) return; // Already gone: never acknowledge a later run from a stale panel.
+		await this.#options.harness.commit(async tx => {
+			const state = await tx.doc(ThreadsDoc, this.#mainId);
+			state.acknowledgedFailures = { ...state.acknowledgedFailures, [match.sourceKey]: failureId };
+		}, BACKGROUND_CONTEXT);
+		this.#changed();
 	}
 
 	/** Background threads still at work or waiting (not done, stopped, failed or archived). */
@@ -743,7 +774,7 @@ export class ThreadService {
 		return {
 			id: record.id,
 			title: record.title,
-			...this.#summaryFields(record.id, record.kind, this.#activities.get(record.id), record.status),
+			...this.#summaryFields(record.id, record.kind, this.#activities.get(record.id)),
 			...(record.parentThreadId === undefined ? {} : { parentThreadId: record.parentThreadId }),
 			...(record.area === undefined ? {} : { area: record.area }),
 			...(record.paths === undefined ? {} : { paths: record.paths }),
@@ -784,7 +815,7 @@ export class ThreadService {
 		return {
 			id: MAIN_THREAD_ID,
 			title: state.main.title,
-			...this.#summaryFields(MAIN_THREAD_ID, "coordinator", activity, status),
+			...this.#summaryFields(MAIN_THREAD_ID, "coordinator", activity),
 			area: state.main.area,
 			color: state.main.color,
 			status,
@@ -809,20 +840,18 @@ export class ThreadService {
 		};
 	}
 
-	#summaryFields(id: string, kind: ThreadKind, activity: ProjectActivity | undefined, status: ThreadStatus) {
+	#summaryFields(id: string, kind: ThreadKind, activity: ProjectActivity | undefined) {
 		const belongs = (threadId: string | null | undefined) => kind === "job"
 			? threadId === id : this.coordinators.coordinatorId(threadId) === id;
 		const tasks = (this.#board?.tasks ?? []).filter(task => belongs(task.ownerThreadId));
 		const attention = boardAttention({ tasks, questions: (this.#board?.questions ?? []).filter(q => belongs(q.threadId)) });
-		const failedJobs = kind === "coordinator" ? this.coordinators.places().filter(place =>
-			place.kind === "job" && place.parentThreadId === id && this.#activities.get(place.threadId)?.coordinator === "failed").length : 0;
 		return {
 			kind,
 			lastReplyAt: activity?.lastReplyAt ?? null,
 			lastReplyEntryId: activity?.lastReplyEntryId ?? null,
 			openTasks: tasks.filter(task => !task.archived && task.status !== "done" && task.status !== "dropped").length,
 			attention: { questions: attention.questions, warnings: attention.warnings, steps: attention.stepsTasks ?? 0,
-				review: attention.reviewTasks, failed: Number(status === "failed") + failedJobs + this.#workers.filter(w => belongs(w.threadId ?? MAIN_THREAD_ID) && w.status === "failed").length },
+				review: attention.reviewTasks, failed: 0 },
 		};
 	}
 
@@ -861,8 +890,9 @@ export class ThreadService {
 	}
 
 	/** The board changed: owned tasks and open questions are part of every summary. */
-	boardChanged(board: Board): void {
+	boardChanged(board: Board, legacyBoard: Board = board): void {
 		this.#board = board;
+		this.#failureTasks = legacyBoard.tasks;
 		this.#changed();
 	}
 
@@ -1110,11 +1140,13 @@ export class ThreadService {
 			break;
 		}
 		const key = `${record.id}:${entryId ?? "unknown"}`;
-		if (record.status === "failed" && record.failure === reason) return;
+		if (record.status === "failed" && record.failure === reason && record.failureEntryId === entryId) return;
 		await this.#update(record.id, (current) => {
 			if (current.status === "done" || current.status === "stopped") return;
 			current.status = "failed";
 			current.failure = reason;
+			if (entryId !== undefined) current.failureEntryId = entryId;
+			else delete current.failureEntryId;
 		}, true);
 		if (record.kind === "job") await this.#options.board.noteThreadOutcome(record.id, `failed:${key}`, "thread failed", record.taskId);
 		if (record.kind === "job") {

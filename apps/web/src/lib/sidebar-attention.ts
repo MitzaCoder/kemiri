@@ -15,7 +15,10 @@ export function projectAttentionActions(project: ProjectSummary): AttentionActio
 	const questions = summary?.questions ?? project.activity?.openQuestions ?? 0;
 	if (questions > 0) actions.push({ kind: "question", count: questions, label: `${questions} question${questions === 1 ? "" : "s"}`, taskId: summary?.questionTaskId });
 	if ((summary?.warnings ?? 0) > 0) actions.push({ kind: "warning", count: summary!.warnings, label: `${summary!.warnings} warning${summary!.warnings === 1 ? "" : "s"}`, taskId: summary?.warningTaskId });
-	if (project.state === "failed" || project.activity?.coordinator === "failed") actions.push({ kind: "coordinator", count: 1, label: project.state === "failed" ? "Project failed" : "Coordinator failed" });
+	if (project.state === "failed") actions.push({ kind: "coordinator", count: 1, label: "Project failed" });
+	const coordinators = summary?.failedCoordinators ?? Number(project.state !== "failed" && project.activity?.coordinator === "failed");
+	if (coordinators > 0) actions.push({ kind: "coordinator", count: coordinators, label: coordinators === 1 ? "Coordinator failed" : `${coordinators} coordinators failed`,
+		threadId: summary?.failedCoordinatorId === "main" ? undefined : summary?.failedCoordinatorId });
 	if ((summary?.failedWorkers ?? 0) > 0) actions.push({ kind: "worker", count: summary!.failedWorkers, label: summary!.failedWorkers === 1 ? "Worker failed" : `${summary!.failedWorkers} workers failed`, taskId: summary?.failedWorkerTaskId });
 	if ((summary?.failedThreads ?? 0) > 0) actions.push({ kind: "thread", count: summary!.failedThreads, label: summary!.failedThreads === 1 ? "Background job failed" : `${summary!.failedThreads} background jobs failed`, threadId: summary?.failedThreadId });
 	const steps = summary?.stepsTasks ?? 0;

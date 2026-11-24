@@ -60,6 +60,7 @@ export function sameActivity(left: ProjectActivity, right: ProjectActivity): boo
 		left.runningWorkers === right.runningWorkers &&
 		left.lastReplyAt === right.lastReplyAt &&
 		left.lastReplyEntryId === right.lastReplyEntryId &&
+		left.failureEntryId === right.failureEntryId &&
 		(left.openQuestions ?? 0) === (right.openQuestions ?? 0) &&
 		(left.backgroundThreads ?? 0) === (right.backgroundThreads ?? 0) &&
   (left.backgroundJobs?.needsYou ?? 0) === (right.backgroundJobs?.needsYou ?? 0) &&
@@ -123,6 +124,7 @@ function parseActivity(value: unknown): ProjectActivity | undefined {
 		lastReplyAt,
 		lastReplyEntryId,
 		runningTool: null,
+		...(typeof record.failureEntryId === "number" && Number.isSafeInteger(record.failureEntryId) && record.failureEntryId > 0 && { failureEntryId: record.failureEntryId }),
 		openQuestions,
 		...(backgroundThreads === undefined ? {} : { backgroundThreads }),
   ...(backgroundJobs === undefined ? {} : { backgroundJobs }),
@@ -435,12 +437,16 @@ export class ProjectActivityService {
 		}
 		const coordinator = this.#view === undefined ? this.#current.coordinator : coordinatorState(this.#view);
 		const runningTool = this.#view === undefined ? null : this.#runningTool(this.#view);
+		const failureEntryId = coordinator === "failed"
+			? this.#view ? latestAssistant(this.#view)?.entryId : this.#current.failureEntryId
+			: undefined;
 		return {
 			coordinator,
 			runningWorkers: this.#runningWorkers,
 			lastReplyAt,
 			lastReplyEntryId,
 			runningTool,
+			...(failureEntryId === undefined ? {} : { failureEntryId }),
 			openQuestions: this.#openQuestions,
 			backgroundThreads: this.#backgroundThreads,
  backgroundJobs: this.#backgroundJobs,

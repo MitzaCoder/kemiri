@@ -25,27 +25,35 @@ internal fun attentionGlyph(kind: AttentionKind): String = when (kind) {
 }
 
 fun projectAttentionActions(project: ProjectSummary, board: Board? = null): List<AttentionAction> = buildList {
-    if (project.archived != true && board?.tasks?.any { it.state != null } == true) {
-        val tasks = board.tasks.filter { !it.archived && it.state?.group == "needs_you" }
+    if (project.archived == true) return@buildList
+    val summary = project.attention
+    val coveredFailedTasks = summary?.failedTaskIds.orEmpty().toSet()
+    val derived = board?.tasks?.any { it.state != null } == true
+    if (derived) {
+        val tasks = board.tasks.filter { !it.archived && it.state?.group == "needs_you" &&
+            (it.state.kind != "failed" || (it.state.fromPartId ?: it.id) !in coveredFailedTasks) }
         val (steps, otherTasks) = tasks.partition { it.state?.kind == "steps_needed" }
         if (otherTasks.isNotEmpty()) add(AttentionAction(AttentionKind.Task, otherTasks.size.toLong(), "${otherTasks.size} need you", otherTasks.first().id))
         val loose = looseWaiting(board)
         if (loose.isNotEmpty()) add(AttentionAction(AttentionKind.Question, loose.size.toLong(), "${loose.size} question${if (loose.size == 1) "" else "s"}"))
-        if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, "Main chat failed"))
         if (steps.isNotEmpty()) add(stepsAction(steps.size.toLong(), steps.first().id))
-        return@buildList
+    } else {
+        val questions = summary?.questions ?: project.activity?.openQuestions ?: 0
+        if (questions > 0) add(AttentionAction(AttentionKind.Question, questions, "$questions question${if (questions == 1L) "" else "s"}", summary?.questionTaskId))
+        val warnings = summary?.warnings ?: 0
+        if (warnings > 0) add(AttentionAction(AttentionKind.Warning, warnings, "$warnings warning${if (warnings == 1L) "" else "s"}", summary?.warningTaskId))
     }
-    if (project.archived == true) return@buildList
-    val summary = project.attention
-    val questions = summary?.questions ?: project.activity?.openQuestions ?: 0
-    if (questions > 0) add(AttentionAction(AttentionKind.Question, questions, "$questions question${if (questions == 1L) "" else "s"}", summary?.questionTaskId))
-    val warnings = summary?.warnings ?: 0
-    if (warnings > 0) add(AttentionAction(AttentionKind.Warning, warnings, "$warnings warning${if (warnings == 1L) "" else "s"}", summary?.warningTaskId))
-    if (project.state == "failed" || project.activity?.coordinator == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, if (project.state == "failed") "Project failed" else "Main chat failed"))
+    if (project.state == "failed") add(AttentionAction(AttentionKind.Coordinator, 1, "Project failed"))
+    val coordinators = summary?.failedCoordinators ?: if (project.state != "failed" && project.activity?.coordinator == "failed") 1 else 0
+    if (coordinators > 0) add(AttentionAction(AttentionKind.Coordinator, coordinators,
+        if (summary?.failedCoordinators == null) "Main chat failed" else if (coordinators == 1L) "Coordinator failed" else "$coordinators coordinators failed",
+        threadId = summary?.failedCoordinatorId?.takeUnless { it == "main" }))
+    if (derived && summary?.failedCoordinators == null) return@buildList // Older backends do not deduplicate failed task rows.
     val workers = summary?.failedWorkers ?: 0
     if (workers > 0) add(AttentionAction(AttentionKind.Worker, workers, if (workers == 1L) "Worker failed" else "$workers workers failed", summary?.failedWorkerTaskId))
     val threads = summary?.failedThreads ?: 0
     if (threads > 0) add(AttentionAction(AttentionKind.Thread, threads, if (threads == 1L) "Background job failed" else "$threads background jobs failed", threadId = summary?.failedThreadId))
+    if (derived) return@buildList
     val steps = summary?.stepsTasks ?: 0
     if (steps > 0) add(stepsAction(steps, summary?.stepsTaskId))
     val reviews = summary?.reviewTasks ?: 0

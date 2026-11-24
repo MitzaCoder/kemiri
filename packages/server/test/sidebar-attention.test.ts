@@ -2,12 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { Board, WorkerSummary, ProjectAttention } from "@kemiri/protocol";
-import { boardAttention, workerAttention, threadAttention, EMPTY_ATTENTION, ProjectAttentionStore } from "../src/sidebar-attention.ts";
+import type { Board, WorkerSummary, ProjectAttention, ThreadSummary } from "@kemiri/protocol";
+import { actionableFailures, boardAttention, failureAttentionRows, projectFailureAttention, EMPTY_ATTENTION, ProjectAttentionStore } from "../src/sidebar-attention.ts";
 import { createSetup, TestClient, type TestSetup } from "./support.ts";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { BoardDoc, askQuestion, boardView, emptyBoardState, saveTask, settleQuestion, writeReport } from "../src/board.ts";
+import { WorkersDoc, type WorkerRecord } from "../src/workers.ts";
 import { readStoredAttention } from "../src/sidebar-attention-migration.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -51,15 +52,31 @@ test("steps count once instead of review, using the board’s attention preceden
 	expect(attention.stepsTasks! + attention.reviewTasks + attention.questions).toBe(board.tasks.filter(task => task.state?.group === "needs_you").length);
 });
 
-test("all threads' running/failed workers, but no dependency blockage is called a failure", () => {
-	expect(workerAttention([
-		{ status: "running", threadId: "main" }, { status: "running", threadId: "bg" },
-		{ status: "failed", taskId: "T2" }, { status: "done" }, { status: "stopped" },
-	] as WorkerSummary[])).toEqual({ runningWorkers: 2, failedWorkers: 1, failedWorkerTaskId: "T2" });
-	expect(threadAttention([
-		{ id: "main", main: true, archived: false, status: "failed" }, { id: "bg", main: false, archived: false, status: "failed" },
-		{ id: "old", main: false, status: "failed", archived: true }, { id: "done", main: false, archived: false, status: "done" },
-	])).toEqual({ failedThreads: 1, failedThreadId: "bg" });
+test("failed workers and jobs only count on open tasks or without a task", () => {
+	const tasks = [
+		{ id: "T1", status: "done" }, { id: "T2", status: "dropped" },
+		{ id: "T3", status: "todo", archived: true },
+		{ id: "T4", status: "blocked", state: { kind: "failed" }, ownerThreadId: "shop" },
+		{ id: "T5", status: "blocked" },
+	] as Board["tasks"];
+	const worker = (id: string, taskId: string | null, status = "failed") =>
+		({ id, title: id, status, taskId, updatedAt: "1", conversationId: 1 } as WorkerSummary);
+	const job = (id: string, taskId: string | null, archived = false) =>
+		({ id, title: id, status: "failed", kind: "job", archived, taskId, updatedAt: "1", conversationId: 1 } as ThreadSummary);
+	const workers = [worker("closed", "T1"), worker("dropped", "T2"), worker("archived-task", "T3"), worker("missing-task", "T6"),
+		worker("open", "T4"), worker("loose", null), worker("released", null, "done"), worker("running", null, "running")];
+	const threads = [job("closed-job", "T1"), job("open-job", "T4"), job("another-job", "T5"), job("archived-job", null, true), job("loose-job", null),
+		{ id: "shop", kind: "coordinator", status: "idle" } as ThreadSummary];
+	const failures = actionableFailures(tasks, workers, threads);
+	expect(failures.map(row => row.failure.title)).toEqual(["open", "loose", "open-job", "another-job", "loose-job"]);
+	expect(failureAttentionRows(failures).map(row => row.failure.title)).toEqual(["open", "loose", "another-job", "loose-job"]);
+	expect(failures.find(row => row.failure.title === "open")?.coordinatorId).toBe("shop");
+	expect(projectFailureAttention(workers, failures)).toMatchObject({ runningWorkers: 1, failedWorkers: 2, failedWorkerTaskId: "T4", failedThreads: 2, failedThreadId: "another-job" });
+	const loose = failures.find(row => row.failure.title === "loose")!;
+	const acknowledged = { [loose.sourceKey]: loose.failure.id };
+	expect(actionableFailures(tasks, workers, threads, acknowledged).some(row => row.failure.title === "loose")).toBe(false);
+	const later = { ...worker("loose", null), updatedAt: "2" };
+	expect(actionableFailures(tasks, [later], [], acknowledged)).toHaveLength(1);
 });
 
 test("summary store deduplicates, serializes and clears stale running counts on restart", async () => {
@@ -143,6 +160,63 @@ test("worker failure reaches projects subscription without a worker watch", asyn
     }));
     await client.request({ type: "conversation.submit", projectId: id, requestId: "delegate", content: "Delegate" });
     await waitAttention(client, id, (summary) => summary.failedWorkers === 1 && summary.runningWorkers === 0);
+});
+
+test("closed work drops out of both live counts and the rebuilt cache; dismissing preserves worker history", async () => {
+	const { test, client, id } = await setup();
+	const { runtime } = await test.server.manager.open(id);
+	const taskInput = { title: "Print price cards", description: "", acceptance: null, refs: [], blockedBy: [], blockedReason: null, writeScopes: [] };
+	const task = await runtime.board.saveTask({ task: { ...taskInput, status: "todo" } }, "user");
+	const model = { provider: "faux", modelId: "faux-1" };
+	const now = new Date().toISOString();
+	await runtime.harness.commit(async tx => {
+		const doc = await tx.doc(WorkersDoc, runtime.conversation.id);
+		for (const [workerId, taskId] of [["print", task.id], ["check-labels", null]] as const) {
+			doc.workers[workerId] = { id: workerId, title: workerId, status: "failed", taskId, model, thinkingLevel: null,
+				conversationId: runtime.conversation.id, anchorTaskId: 0, isolation: "shared", workspacePath: null,
+				spawnedByCallId: null, createdAt: now, updatedAt: now, lastReport: null, failure: "Synthetic failure" } satisfies WorkerRecord;
+		}
+	}, BACKGROUND_CONTEXT);
+	await waitAttention(client, id, attention => attention.failedWorkers === 2);
+	const close = await client.request({ type: "board.task.save", projectId: id, taskId: task.id, expectedRevision: task.revision, task: { ...taskInput, status: "done" } });
+	expect(close.type).toBe("board.task.save");
+	await waitAttention(client, id, attention => attention.failedWorkers === 1);
+	const list = await client.request({ type: "threads.list", projectId: id });
+	if (list.type !== "threads.list") throw Error(JSON.stringify(list));
+	const main = list.threads.find(thread => thread.main)!;
+	expect(main.attention?.failed).toBe(1);
+	expect(main.attentionFailures).toMatchObject([{ kind: "worker", workerId: "check-labels", threadId: "main" }]);
+	const dismiss = await client.request({ type: "threads.acknowledgeFailure", projectId: id, failureId: main.attentionFailures![0]!.id });
+	expect(dismiss.type).toBe("threads.acknowledgeFailure");
+	await waitAttention(client, id, attention => attention.failedWorkers === 0);
+	expect(await client.request({ type: "threads.list", projectId: id })).toMatchObject({ threads: [{ attention: { failed: 0 }, attentionFailures: [] }] });
+	expect(await client.request({ type: "workers.list", projectId: id })).toMatchObject({ workers: [
+		{ id: "check-labels", status: "failed" }, { id: "print", status: "failed" },
+	] });
+	await test.server.stop();
+	const projectDir = join(test.dataDir, "projects", id);
+	await Bun.write(join(projectDir, "attention.json"), JSON.stringify({ ...EMPTY_ATTENTION, failedCoordinators: undefined, failedWorkers: 2 }));
+	await test.restart();
+	const reopened = await TestClient.open(test.server);
+	cleanups.push(async () => reopened.close());
+	await reopened.hello();
+	expect(await reopened.request({ type: "projects.list" })).toMatchObject({ projects: [{ state: "closed", attention: { failedWorkers: 0 } }] });
+});
+
+test("acknowledging General's failed reply clears attention without changing its transcript status", async () => {
+	const { test, client, id } = await setup();
+	await client.request({ type: "projects.configure", projectId: id, coordinatorModel: { provider: "faux", modelId: "faux-1" } });
+	test.faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "Synthetic provider error" })]);
+	await client.request({ type: "conversation.submit", projectId: id, requestId: "error", content: "Try the sample reply" });
+	await waitAttention(client, id, attention => attention.failedCoordinators === 1);
+	const list = await client.request({ type: "threads.list", projectId: id });
+	if (list.type !== "threads.list") throw Error(JSON.stringify(list));
+	const failed = list.threads[0]?.attentionFailures?.[0];
+	expect(failed).toMatchObject({ kind: "coordinator", threadId: "main" });
+	await client.request({ type: "threads.acknowledgeFailure", projectId: id, failureId: failed!.id });
+	expect(await client.request({ type: "threads.list", projectId: id })).toMatchObject({
+		threads: [{ status: "failed", attention: { failed: 0 }, attentionFailures: [] }],
+	});
 });
 
 test("one-time upgrade reads closed durable boards without opening a Harness", async () => {

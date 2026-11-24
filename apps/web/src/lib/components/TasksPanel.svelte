@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
-	import { externalParts, taskCoordinator } from '#lib/coordinators.js';
+	import { coordinatorRoster, externalParts, taskCoordinator } from '#lib/coordinators.js';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
@@ -9,6 +9,7 @@
 	import TaskSearchBox from './TaskSearchBox.svelte';
 	import { useTaskSearch } from '#lib/task-search.svelte.js';
 	import { page } from '$app/state';
+	import { projectHref, threadHref, workerHref as workerTranscriptHref } from '#lib/backends.js';
 	import TaskFamilyMeta from './TaskFamilyMeta.svelte';
 	import { familyExpansionKey, loadFamilyExpansion, needsFamilyAttention, saveFamilyExpansion, taskFamilies, taskFamilySections, taskFamilyCount, type TaskFamily } from '#lib/task-families.js';
 	import { requestAttentionLink, requestRows } from '#lib/request-parts.js';
@@ -59,7 +60,7 @@
 		type TaskSectionId
 	} from '#lib/tasks.js';
 	import { questionAskedBy } from '#lib/threads.js';
-	import type { BoardQuestion, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
+	import type { AttentionFailure, BoardQuestion, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 	import { untrack, type Snippet } from 'svelte';
 
 	/**
@@ -180,7 +181,33 @@
 	const loose = $derived(board?.board === undefined ? [] : looseWaiting({ tasks: scoped, questions }));
 	const answered = $derived(board?.board === undefined ? [] : answeredQuestions({ ...board.board, questions }));
 	const decisions = $derived(board?.board?.decisions ?? []);
-	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0);
+	const needsYouSection = $derived(familySections.find(entry => entry.section.id === 'needs_you')?.section);
+	const visibleFailedTasks = $derived(new Set((searching ? searchFamilies.map(family => family.row) : needsYouSection?.rows ?? [])
+		.filter(row => row.task.state?.kind === 'failed').map(row => row.task.state?.fromPartId ?? row.task.id)));
+	const failures = $derived(coordinatorRoster(threads).filter(thread => coordinatorView?.coordinatorId !== undefined
+		? thread.id === coordinatorView.coordinatorId : !coordinatorView?.hidden.has(thread.id))
+		.flatMap(thread => thread.attentionFailures ?? []).filter(failure => !failure.taskId || !visibleFailedTasks.has(failure.taskId)));
+	let dismissing = $state<string>();
+	let dismissError = $state<string>();
+
+	function failureHref(failure: AttentionFailure): string {
+		const backendId = page.params.backend ?? '';
+		const projectId = board?.projectId ?? '';
+		const threadId = failure.threadId === 'main' ? undefined : failure.threadId;
+		if (failure.workerId) return workerTranscriptHref(backendId, projectId, failure.workerId, threadId);
+		return threadId ? threadHref(backendId, projectId, threadId) : projectHref(backendId, projectId);
+	}
+
+	async function dismissFailure(failure: AttentionFailure) {
+		if (dismissing !== undefined) return;
+		dismissing = failure.id;
+		dismissError = undefined;
+		try { await board?.acknowledgeFailure(failure.id); }
+		catch { dismissError = 'Could not dismiss the failure. Try again.'; }
+		finally { dismissing = undefined; }
+	}
+
+	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0 && failures.length === 0);
 	const archivedShown = $derived(board?.showArchived === true ? requestRows(scoped, requestAttention).filter((task) => task.archived).length : 0);
 	const openCount = $derived(requestRows(shownTasks, requestAttention).filter((task) => !task.archived && task.status !== 'done' && task.status !== 'dropped').length);
 
@@ -203,6 +230,20 @@
 	}
 
 </script>
+
+{#snippet failureRows()}
+	{#each failures as failure (failure.id)}
+		<li class="flex min-h-11 items-center gap-1 px-2 py-1 text-sm">
+			<a class="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1 hover:underline" href={failureHref(failure)}>
+				<TriangleAlertIcon class="size-4 shrink-0 text-(--chat-fg-muted)" />
+				<span>{failure.kind === 'worker' ? 'A worker failed' : failure.kind === 'job' ? 'A job failed' : 'A coordinator failed'}: {failure.title}</span>
+			</a>
+			<Button size="sm" variant="ghost" aria-label="Dismiss failure: {failure.title}" disabled={dismissing !== undefined} onclick={() => dismissFailure(failure)}>Dismiss</Button>
+		</li>
+	{/each}
+	{#if dismissError}<li role="alert" class="px-2 py-1 text-sm">{dismissError}</li>{/if}
+{/snippet}
+
 
 {#snippet countPill(count: number, accent = false)}
 	<span
@@ -439,7 +480,7 @@
 					</p>
 				{/if}
 
-				{#if board.loaded && !empty && (searching ? sections : familySections).length === 0 && loose.length === 0}
+				{#if board.loaded && !empty && (searching ? sections : familySections).length === 0 && loose.length === 0 && failures.length === 0}
 					<p class="px-1 text-sm text-(--chat-fg-subtle)" data-filter-empty>No task matches the filter.</p>
 				{/if}
 
@@ -460,6 +501,13 @@
 					</section>
 				{/if}
 
+				{#if failures.length > 0 && (searching || !needsYouSection)}
+					<section class="flex flex-col gap-1.5" aria-label="Needs you" data-section="needs_you">
+						{@render sectionTitle('Needs you', failures.length, true)}
+						<ul class="task-group">{@render failureRows()}</ul>
+					</section>
+				{/if}
+
 				{#each searching ? [] : familySections as entry (entry.section.id)}
 					{@const section = entry.section}
 					<section class="flex flex-col gap-1.5" data-section={section.id} aria-label={section.label}>
@@ -475,11 +523,12 @@
 								<ChevronRightIcon class="size-3.5 text-(--chat-fg-subtle) transition-transform {isOpen(section) ? 'rotate-90' : ''}" />
 							</button>
 						{:else}
-							{@render sectionTitle(section.label, taskFamilyCount(section, requestAttention), section.id === 'needs_you')}
+							{@render sectionTitle(section.label, taskFamilyCount(section, requestAttention) + (section.id === 'needs_you' ? failures.length : 0), section.id === 'needs_you')}
 						{/if}
 						{#if isOpen(section)}
 							<ul class="task-group">
 								{@render taskRows(entry.families)}
+								{#if section.id === 'needs_you'}{@render failureRows()}{/if}
 							</ul>
 						{/if}
 					</section>

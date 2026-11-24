@@ -228,7 +228,21 @@ fun connectionAwayWord(status: ConnectionStatus): String? = when (status) {
  * chat column's width, which decides between the inline row and the phone's menu.
  */
 @Composable
-fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destination.Panel?, width: Dp, close: () -> Unit, tasksInTabs: Boolean = false) {
+internal fun rememberTaskAttentionCount(context: ProjectScreenContext): Long {
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val board by context.board.view.collectAsStateWithLifecycle()
+    val threads = rememberCoordinatorThreads(context, connection.supports("task-coordinator") && connection.supports("coordinators"))
+    val coordinator = coordinatorRoster(threads).find { it.id == coordinatorOfThread(context.route.threadId, threads) }
+    return when {
+        coordinator != null -> coordinatorBadges(coordinator).needsYou
+        connection.supports("task-state") && board.tasks.any { it.state != null } ->
+            io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong()
+        else -> board.openQuestionCount.toLong()
+    }
+}
+
+@Composable
+fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destination.Panel?, width: Dp, close: () -> Unit, tasksInTabs: Boolean, questions: Long) {
     val backend = context.backend
     val route = context.route
     val client = backend.client
@@ -247,9 +261,6 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
 
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
     val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
-    val coordinatorThreads = rememberCoordinatorThreads(context, connection.supports("coordinators"))
-    val coordinator = coordinatorRoster(coordinatorThreads).find { it.id == coordinatorOfThread(route.threadId, coordinatorThreads) }
-    val questions = if (coordinator != null && connection.supports("task-coordinator")) coordinatorBadges(coordinator).needsYou else if (derivedCounts) io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong() else board.openQuestionCount.toLong()
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null

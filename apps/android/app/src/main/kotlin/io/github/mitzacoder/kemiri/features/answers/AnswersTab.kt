@@ -40,14 +40,19 @@ import kotlinx.coroutines.delay
 
 @Composable
 internal fun AnswersProjectTabRow(
-    tabs: List<AnswersProjectTab>, selected: AnswersProjectTab, unread: Boolean, select: (AnswersProjectTab) -> Unit,
+    tabs: List<AnswersProjectTab>, selected: AnswersProjectTab, unread: Boolean, taskAttention: Long, select: (AnswersProjectTab) -> Unit,
 ) {
     SecondaryTabRow(selectedTabIndex = tabs.indexOf(selected)) {
         tabs.forEach { tab ->
             val dot = tab == AnswersProjectTab.Answers && unread
-            Tab(selected == tab, { select(tab) }, modifier = Modifier.semantics { if (dot) stateDescription = "Unread answers" }, text = {
+            val count = taskAttention.takeIf { tab == AnswersProjectTab.Tasks && it > 0 }
+            Tab(selected == tab, { select(tab) }, modifier = Modifier.semantics {
+                if (dot) stateDescription = "Unread answers"
+                if (count != null) stateDescription = "$count need attention"
+            }, text = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tab.name)
+                    if (count != null) Badge { Text(if (count > 99) "99+" else count.toString()) }
                     if (dot) Box(Modifier.size(7.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
             })

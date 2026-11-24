@@ -1119,6 +1119,11 @@ export class ClientConnection {
 					this.#respond({ type: "threads.list", id: request.id, threads, ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
 					return;
 				}
+				case "threads.acknowledgeFailure": {
+					await this.#manager.acknowledgeFailure(request.projectId, request.failureId);
+					this.#respond({ type: "threads.acknowledgeFailure", id: request.id });
+					return;
+				}
 				case "threads.stop": {
 					const thread = await this.#manager.stopThread(request.projectId, request.threadId);
 					this.#respond({ type: "threads.stop", id: request.id, thread });

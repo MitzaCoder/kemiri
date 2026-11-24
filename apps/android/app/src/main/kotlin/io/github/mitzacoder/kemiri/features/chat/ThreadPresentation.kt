@@ -101,9 +101,13 @@ fun orderedBackgroundJobs(threads: List<ThreadSummary>) =
 fun foldFinishedJob(thread: ThreadSummary, now: Long): Boolean =
     threadState(thread) in setOf("finished", "stopped") && threadEndTime(thread) < now - 24 * 60 * 60 * 1000L
 fun backgroundJobCounts(threads: List<ThreadSummary>): ProjectActivityBackgroundJobs {
-    val jobs = threads.filter { !it.main && it.id != "main" && !it.archived }
+    val jobs = threads.filter { !it.main && it.id != "main" && !it.archived && it.kind != "coordinator" }
     return ProjectActivityBackgroundJobs(
-        needsYou = jobs.count { threadState(it) in setOf("needs_you", "failed") }.toLong(),
+        needsYou = jobs.count { job ->
+            val state = threadState(job)
+            state == "needs_you" || (state == "failed" && (job.openQuestions > 0 ||
+                job.attentionFailures?.any { it.kind == "job" && it.threadId == job.id } != false))
+        }.toLong(),
         working = jobs.count { threadState(it) == "working" }.toLong())
 }
 fun backgroundJobCountsText(counts: ProjectActivityBackgroundJobs): String? =

@@ -316,6 +316,10 @@ suspend fun HarnessClient.request(value: ThreadsStopRequest, explicitNulls: Set<
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsStopRequest.serializer(), value).jsonObject, explicitNulls), ThreadsStopResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: ThreadsAcknowledgeFailureRequest, explicitNulls: Set<String> = emptySet()): ThreadsAcknowledgeFailureResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsAcknowledgeFailureRequest.serializer(), value).jsonObject, explicitNulls), ThreadsAcknowledgeFailureResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: ThreadsArchiveRequest, explicitNulls: Set<String> = emptySet()): ThreadsArchiveResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(ThreadsArchiveRequest.serializer(), value).jsonObject, explicitNulls), ThreadsArchiveResponse.serializer()
 )

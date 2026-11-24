@@ -1650,6 +1650,16 @@ The 56px rail carries per-project action counts; the phone drawer uses the same 
 Both clients show the Your steps row and fall back to activity for older backends. When Android already has a
 live derived board, it lists those steps separately from its combined count of the other tasks that need attention.
 
+**Actionable failures (T473).** The coordinator Tasks badge and project sidebar use the same server failure
+selection. Failed workers and jobs with a task count only while that task is open and unarchived. Taskless failed
+workers count until released or acknowledged; taskless failed jobs count until archived or acknowledged. Multiple
+failed runs represented by the same failed task row count once. Web and Android show outstanding failures without
+a visible failed task row in the Tasks list's **Needs you**, even when a search or filter hides their task.
+The row opens the worker transcript or thread. **Dismiss** acknowledges that exact run across devices without
+changing the task, releasing a worker, or deleting its transcript. A later failure can surface again. Closed projects'
+old attention caches are rebuilt once using the same rule without opening a Harness. Transcript status and history
+still show past failures even when those failures no longer count toward attention.
+
 ## Topology
 
 - A static web app connects to multiple independent backends over HTTPS/WebSocket. Each backend owns its local

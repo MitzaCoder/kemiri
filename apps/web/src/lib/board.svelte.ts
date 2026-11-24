@@ -81,6 +81,11 @@ export class ProjectBoard {
 	readonly #unsubscribeState: () => void;
 	#stopped = false;
 
+	async acknowledgeFailure(failureId: string): Promise<void> {
+		const response = await this.#client.request({ type: 'threads.acknowledgeFailure', projectId: this.projectId, failureId });
+		if (response.type === 'error') throw new Error(response.error.message);
+	}
+
 	constructor(client: HarnessClient, projectId: string) {
 		this.projectId = projectId;
 		this.#client = client;
