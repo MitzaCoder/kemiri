@@ -94,7 +94,8 @@ export type LiveState = {
 	compactions?: { taskId?: number; reason?: string; blocking?: boolean; attempt?: number }[];
 	compactionFailure?: { reason?: string; error?: string };
 	/** Added upstream after 1.4.0; rendered when a newer server sends it. */
-	runFailure?: { reason?: string; detail?: string };
+	runFailure?: { reason?: string; detail?: string; first?: number; providerLabel?: string; assistantError?: string };
+	providerOutage?: { label: string; retryAt: number; tries: number; error: string };
 };
 
 export type TranscriptImage = { data: string; mimeType: string };
@@ -131,7 +132,7 @@ export type TurnPart =
 	| { type: "thinking"; key: string; text: string; streaming?: boolean }
 	| { type: "text"; key: string; text: string; entryAnchor?: number; answerId?: string }
 	| ToolPart
-	| { type: "error"; key: string; message: string }
+	| { type: "error"; key: string; message: string; count?: number }
 	| { type: "stopped"; key: string };
 
 /** A thinking part, as one step of a run of reasoning. */
@@ -496,7 +497,7 @@ export type TranscriptItem =
 			running?: boolean;
 			reason?: string;
 	  }
-	| { kind: "notice"; key: string; tone: "info" | "warning" | "error"; text: string; detail?: string };
+	| { kind: "notice"; key: string; tone: "info" | "warning" | "error"; text: string; detail?: string; retryAt?: number; tries?: number };
 
 function blocksOf(content: unknown): ContentBlock[] {
 	if (typeof content === "string") return [{ type: "text", text: content }];
@@ -643,6 +644,8 @@ export function buildTranscript(
 	options: BuildOptions = {},
 ): TranscriptItem[] {
 	const items: TranscriptItem[] = [];
+	const failure = live?.runFailure;
+	const firstFailedEntry = failure?.first ?? entries.findLast(entry => entry.kind === "pi.user")?.id ?? 0;
 	const warmByAnchor = cacheWarmByAnchor(options.keepWarm ?? [], new Set(entries.map(entry => entry.id)));
 	const cache = new CacheMissTracker();
 	const results = collectToolResults(entries);
@@ -845,11 +848,13 @@ export function buildTranscript(
 						}
 					}
 					if (message.stopReason === "error") {
-						ensureTurn().parts.push({
-							type: "error",
-							key: part(),
-							message: message.errorMessage ?? "The model response failed.",
-						});
+						const error = message.errorMessage ?? "The model response failed.";
+						const terminalDetail = failure?.assistantError ?? failure?.detail;
+						if (entry.id >= firstFailedEntry && terminalDetail === error) continue;
+						const parts = ensureTurn().parts;
+						const previous = parts.at(-1);
+						if (previous?.type === "error" && previous.message === error) previous.count = (previous.count ?? 1) + 1;
+						else parts.push({ type: "error", key: part(), message: error });
 					} else if (message.stopReason === "aborted") {
 						ensureTurn().parts.push({ type: "stopped", key: part() });
 					}
@@ -980,7 +985,12 @@ export function buildTranscript(
 		});
 	}
 
-	if (live?.generation?.retry !== undefined) {
+	if (live?.providerOutage) {
+		const outage = live.providerOutage;
+		items.push({ kind: "notice", key: "provider-outage", tone: "warning",
+			text: `Can't reach ${outage.label}. Check this computer’s connection.`, detail: outage.error,
+			retryAt: outage.retryAt, tries: outage.tries });
+	} else if (live?.generation?.retry !== undefined) {
 		items.push({
 			kind: "notice",
 			key: "live-retry",
@@ -990,14 +1000,12 @@ export function buildTranscript(
 		});
 	}
 
-	if (live?.runFailure !== undefined) {
-		items.push({
-			kind: "notice",
-			key: "live-run-failure",
-			tone: "error",
-			text: `The last run failed${live.runFailure.reason === undefined ? "" : ` (${live.runFailure.reason})`}.`,
-			...(live.runFailure.detail === undefined ? {} : { detail: live.runFailure.detail }),
-		});
+	if (failure !== undefined) {
+		const detail = failure.detail ?? failure.reason;
+		items.push({ kind: "notice", key: "live-run-failure", tone: "error",
+			text: failure.reason === "network_error" ? `The last run stopped because it couldn't reach ${failure.providerLabel ?? "the model provider"}.`
+				: failure.reason === "aborted" ? "The last run was stopped." : "The last run didn't finish.",
+			...(detail === undefined ? {} : { detail }) });
 	}
 
 	if (live?.compactionFailure !== undefined) {

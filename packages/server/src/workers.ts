@@ -1,3 +1,4 @@
+import { PROVIDER_UNREACHABLE } from "./provider-outage.ts";
 import type { AgentApps } from "./agent-apps.ts";
 import type { ActiveApps } from "./app-tools.ts";
 import { workerCommandIntent } from "./worker-command-intent.ts";
@@ -372,7 +373,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 								phase: "report",
 								text: null,
 								status: stopped ? "stopped" : "failed",
-								failure: stopped ? null : live?.runFailure?.detail ?? settled.reason,
+								failure: stopped ? null : settled.detail === PROVIDER_UNREACHABLE ? PROVIDER_UNREACHABLE : live?.runFailure?.detail ?? settled.reason,
 							},
 						}),
 						context,

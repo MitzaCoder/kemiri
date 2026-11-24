@@ -45,6 +45,7 @@ import { SubscriptionUsageService, type SubscriptionUsageOptions } from "./subsc
 import { usageRoleLabel } from "./usage-analysis.ts";
 import { UsageDrainMonitor } from "./usage-drain.ts";
 import { UsagePauseGate } from "./usage-pause.ts";
+import { ProviderOutageModels } from "./provider-outage.ts";
 import { UsagePauseModels } from "./usage-pause-models.ts";
 import type { UsagePause } from "@kemiri/protocol";
 import {
@@ -463,7 +464,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		gate: usagePause, isSubscriptionLogin, label: login => subscriptionUsage.label(login),
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
-	const models = usagePauseModels?.wrap(observedModels) ?? observedModels;
+	const providerOutages = new ProviderOutageModels(options.setTimer);
+	const models = providerOutages.wrap(usagePauseModels?.wrap(observedModels) ?? observedModels);
 	if (usagePause) requestLog?.warming.skipWhileUsagePaused(login => usagePause.isPaused(login));
 	const hostname = options.hostname ?? DEFAULT_HOSTNAME;
 	const port = options.port ?? resolvePort();
@@ -782,6 +784,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		models,
 		...(requestLog === undefined ? {} : { requestLog }),
 		cacheRetention,
+		providerOutages,
 		...(usagePauseModels ? { usagePauseModels } : {}),
 		...(drainInvestigation ? { drainInvestigation } : {}),
 		memory,

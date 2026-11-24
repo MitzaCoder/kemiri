@@ -750,3 +750,25 @@ test("thread_start always stays outside folded steps, breaking a run on either s
  expect(rows[1]).toMatchObject({kind:"part",part:{name:"thread_start"}});
  expect(groupTurnParts([tool("thread_start","one"),tool("thread_start","two")]).map(row=>row.kind)).toEqual(["part","part"]);
 });
+
+test("collapses consecutive identical attempt errors without merging distinct failures or crossing turns", () => {
+	const error = (id: number, message: string): EntryRecord => ({ id, conversationId: 1, kind: "pi.assistant",
+		model: [{ role: "assistant", content: [], stopReason: "error", errorMessage: message }] });
+	const items = buildTranscript([userEntry(1, "first"), error(2, "fetch failed"), error(3, "fetch failed"),
+		error(4, "bad key"), error(5, "fetch failed"), userEntry(6, "next"), error(7, "fetch failed")], undefined);
+	const turns = items.filter(item => item.kind === "turn");
+	expect(turns[0]?.parts).toMatchObject([{ type: "error", message: "fetch failed", count: 2 }, { message: "bad key" }, { message: "fetch failed" }]);
+	expect(turns[1]?.parts).toHaveLength(1);
+});
+
+test("projects a single retry notice and uses the friendly terminal banner instead of duplicating its error", () => {
+	const prompt = userEntry(1, "first");
+	const outage = { label: "Anthropic", error: "getaddrinfo ENOTFOUND api.example.test", retryAt: 1_000, tries: 4 };
+	expect(buildTranscript([prompt], { providerOutage: outage }).filter(item => item.kind === "notice"))
+		.toEqual([expect.objectContaining({ text: expect.stringContaining("Can't reach Anthropic"), detail: outage.error, retryAt: 1_000, tries: 4 })]);
+	const assistantError = "Could not reach the model provider.";
+	const failed: EntryRecord = { id: 2, conversationId: 1, kind: "pi.assistant", model: [{ role: "assistant", content: [], stopReason: "error", errorMessage: assistantError }] };
+	const items = buildTranscript([prompt, failed], { runFailure: { reason: "network_error", first: 1, detail: outage.error, providerLabel: outage.label, assistantError } });
+	expect(items.filter(item => item.kind === "turn")).toHaveLength(0);
+	expect(items.filter(item => item.kind === "notice")).toEqual([expect.objectContaining({ text: "The last run stopped because it couldn't reach Anthropic.", detail: outage.error })]);
+});

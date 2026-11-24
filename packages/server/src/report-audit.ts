@@ -102,6 +102,7 @@ export function parseAuditVerdicts(text: string, ids: ReadonlySet<string>): Audi
 }
 
 export type ReportAuditOptions = {
+	providerOutage?: () => Promise<boolean> | undefined;
 	models: Models;
 	settings(): ReportAuditSettings;
 	now(): number;
@@ -126,6 +127,8 @@ export class ReportAuditService {
 	async stop(): Promise<void> { this.#stopped = true; this.#abort?.abort(); await this.#run; }
 	async #check(): Promise<void> {
 		const o = this.#options;
+		const outage = o.providerOutage?.();
+		if (outage && await outage) return;
 		const settings = o.settings() ?? DEFAULT_REPORT_AUDIT;
 		const now = o.now();
 		let state = await o.state();
@@ -176,7 +179,8 @@ export class ReportAuditService {
 			const tokens = Math.max(0, usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
 			const parsed = answer.stopReason === "stop" && answer.content.every(b => b.type === "text" || b.type === "thinking") ? parseAuditVerdicts(answer.content.filter(b => b.type === "text").map(b => b.text).join(""), new Set(tasks.map(t => t.id))) : undefined;
 			const valid = parsed !== undefined;
-			const verdicts = parsed ?? [];
+			const activeOutage = o.providerOutage?.();
+			const verdicts = activeOutage && await activeOutage ? [] : parsed ?? [];
 			await o.update(doc => {
 				const r = doc.reportAudit!;
 				if (r.day === auditDay(now)) r.tokensUsed = Math.max(0, r.tokensUsed - reservation + tokens);

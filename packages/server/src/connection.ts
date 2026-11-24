@@ -79,6 +79,7 @@ import type { Notifier } from "./notifications.ts";
 import { PushRelayError } from "@kemiri/protocol";
 import type { ProjectManager } from "./runtime.ts";
 import { QueuedInputs, describeContent, queueClock, splitTaskReference } from "./queued-inputs.ts";
+import { ProviderOutageDoc } from "./provider-outage.ts";
 import { WatchWindow, resolveWindowBounds } from "./window.ts";
 import { OWNER_CHAT_ENTRY, wireEntry } from "./wire.ts";
 import type { TerminalAttachment, TerminalHost } from "./terminals.ts";
@@ -91,6 +92,7 @@ type WatchState = {
 	explicitStop: boolean;
 	/** Pushes `conversation.context.changed` for the same conversation; absent when that watch could not start. */
 	stopContext?: () => Promise<void>;
+	stopOutage?: () => void;
 };
 
 export type ConnectionIO = {
@@ -419,6 +421,7 @@ export class ClientConnection {
 		this.#watches.clear();
 		for (const watch of watches) {
 			watch.explicitStop = true;
+			watch.stopOutage?.();
 			void watch.handle.stop().catch(() => undefined);
 			void watch.stopContext?.().catch(() => undefined);
 		}
@@ -1853,7 +1856,10 @@ export class ClientConnection {
 			request.workerId === undefined
 				? this.#requestLog?.warmStretches(request.projectId, Number(conversation.id))
 				: undefined;
-		const view = tracker.initial(handle.value, await queue?.decorate(handle.value), warm());
+		const outage = async () => (await runtime.harness.snapshot(ProviderOutageDoc, conversation.id, BACKGROUND_CONTEXT))?.outage;
+		const initial = handle.value;
+		const view = tracker.initial(initial, await queue?.decorate(initial), warm(), await outage());
+		if (!this.#authorized()) { await handle.stop(); return; }
 		const watchId = `watch-${++this.#watchSequence}`;
 		const state: WatchState = { handle, tracker, explicitStop: false };
 		this.#watches.set(watchId, state);
@@ -1861,14 +1867,28 @@ export class ClientConnection {
 		// The response carries the initial value; from here on the client only applies ops to it.
 		this.#respond({ type: "conversation.watch", id: request.id, watchId, conversationId: conversation.id, view });
 
+		// Commits to a Kemiri document don't advance pi-durable's built-in conversation view.
+		// Serialize both watches and always read the newest view, so their notifications cannot reorder patches.
+		let refreshing = Promise.resolve();
+		const refresh = () => refreshing = refreshing.then(async () => {
+			if (this.#closed || state.explicitStop) return;
+			const value = handle.value;
+			const update = tracker.update(value, await queue?.decorate(value), warm(), await outage());
+			if (!this.#closed && !state.explicitStop && update.ops.length) this.#respond({ type: "conversation.view", watchId, ops: update.ops });
+		}).catch(error => this.#log(`conversation view: ${errorMessage(error)}`));
+		const observation = runtime.harness.observeCommits({
+			advance: ({ changes }) => {
+				if (changes.some(change => change.type === "document" && change.conversationId === conversation.id && change.record.kind === ProviderOutageDoc.definition.kind)) void refresh();
+			},
+			end: () => undefined,
+		});
+		state.stopOutage = () => observation.detach();
 		handle.start(async (call) => {
 			if (call.kind === "failed") throw call.error;
-			const value = call.value;
-			if (this.#closed || state.explicitStop) return;
-			const update = tracker.update(value, await queue?.decorate(value), warm());
-			if (update.ops.length === 0) return;
-			this.#respond({ type: "conversation.view", watchId, ops: update.ops });
+			await refresh();
 		});
+		// Cover a commit between the initial read and attaching the observer.
+		void refresh();
 
 		// The same conversation's context is pushed while it is watched, so the app sees a skill being read and the prompt
 		// changing with the files. A failure here must not cost the transcript watch.
@@ -1887,19 +1907,14 @@ export class ClientConnection {
 				return async () => undefined;
 			});
 
-		const stopWarm = this.#requestLog?.store.onWarmChange(() => {
-			if (this.#closed || state.explicitStop) return;
-			void (async () => {
-				const update = tracker.update(handle.value, await queue?.decorate(handle.value), warm());
-				if (update.ops.length > 0) this.#respond({ type: "conversation.view", watchId, ops: update.ops });
-			})().catch((error) => this.#log(`cache warm history: ${errorMessage(error)}`));
-		});
+		const stopWarm = this.#requestLog?.store.onWarmChange(() => { void refresh(); });
 		const stopContext = state.stopContext;
 		state.stopContext = async () => {
 			stopWarm?.();
 			await stopContext?.();
 		};
 		void handle.closed.then((end) => {
+			state.stopOutage?.();
 			stopWarm?.();
 			this.#watches.delete(watchId);
 			if (this.#closed || state.explicitStop) return;
@@ -1918,6 +1933,7 @@ export class ClientConnection {
 		if (state !== undefined) {
 			state.explicitStop = true;
 			this.#watches.delete(watchId);
+			state.stopOutage?.();
 			await state.handle.stop().catch(() => undefined);
 			await state.stopContext?.().catch(() => undefined);
 		}

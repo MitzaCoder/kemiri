@@ -12,10 +12,11 @@
  */
 import type { JsonValue } from "@earendil-works/chord/json";
 import { diffRevisions } from "@earendil-works/chord/delta";
-import type { ConversationView as DurableConversationView, EntryRecord as DurableEntry } from "@earendil-works/pi-durable";
+import type { LiveState, ConversationView as DurableConversationView, EntryRecord as DurableEntry } from "@earendil-works/pi-durable";
 import type { CacheWarmStretch, ChordOp, ConversationView } from "@kemiri/protocol";
 import { ServerError } from "./errors.ts";
 import type { QueueDecoration } from "./queued-inputs.ts";
+import { PROVIDER_UNREACHABLE, type ProviderOutage } from "./provider-outage.ts";
 import { wireConversation, wireEntry } from "./wire.ts";
 
 export type WindowBounds = { readonly min: number; readonly max: number };
@@ -40,7 +41,15 @@ function toWireView(
 	entries: readonly DurableEntry[],
 	queue: QueueDecoration | undefined,
 	keepWarm?: CacheWarmStretch[],
+	outage?: ProviderOutage,
 ): ConversationView {
+	const live = raw.docs["pi.live"] as LiveState | undefined;
+	let docs = raw.docs;
+	if (outage?.retryAt !== undefined && live?.run?.taskId === outage.taskId) {
+		docs = { ...docs, "pi.live": { ...live, providerOutage: { label: outage.label, retryAt: outage.retryAt, tries: outage.tries, error: outage.error } } };
+	} else if (outage && live?.runFailure?.taskId === outage.taskId && live.runFailure.detail === PROVIDER_UNREACHABLE) {
+		docs = { ...docs, "pi.live": { ...live, runFailure: { ...live.runFailure, reason: "network_error", detail: outage.error, providerLabel: outage.label, assistantError: PROVIDER_UNREACHABLE } } };
+	}
 	return {
 		conversation: wireConversation(raw.conversation),
 		...(keepWarm === undefined ? {} : { keepWarm }),
@@ -51,7 +60,7 @@ function toWireView(
 		}),
 		// `before` is the dependency's: recomputing it from the entries cannot see the history outside the window.
 		...(raw.before === undefined ? {} : { before: raw.before }),
-		docs: raw.docs as unknown as ConversationView["docs"],
+		docs: docs as unknown as ConversationView["docs"],
 		// Empty values are never sent, so a client that sees no `queued` has nothing waiting.
 		...(queue === undefined || queue.queued.length === 0 ? {} : { queued: queue.queued }),
 	};
@@ -67,15 +76,15 @@ export class WatchWindow {
 	#current: ConversationView | undefined;
 
 	/** The first value, exactly the window pi-durable opened for this client. */
-	initial(raw: DurableConversationView, queue?: QueueDecoration, keepWarm?: CacheWarmStretch[]): ConversationView {
-		this.#current = toWireView(raw, raw.entries, queue, keepWarm);
+	initial(raw: DurableConversationView, queue?: QueueDecoration, keepWarm?: CacheWarmStretch[], outage?: ProviderOutage): ConversationView {
+		this.#current = toWireView(raw, raw.entries, queue, keepWarm, outage);
 		return this.#current;
 	}
 
 	/** The next value plus the ops that turn the previous value into it. */
-	update(raw: DurableConversationView, queue?: QueueDecoration, keepWarm?: CacheWarmStretch[]): WindowUpdate {
+	update(raw: DurableConversationView, queue?: QueueDecoration, keepWarm?: CacheWarmStretch[], outage?: ProviderOutage): WindowUpdate {
 		const current = this.#current;
-		const value = toWireView(raw, raw.entries, queue, keepWarm);
+		const value = toWireView(raw, raw.entries, queue, keepWarm, outage);
 		if (current === undefined) {
 			this.#current = value;
 			return { value, ops: [] };

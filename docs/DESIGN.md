@@ -6503,6 +6503,28 @@ one quiet line; a failed one keeps the existing notice. The Info tab's usage blo
 
 ## Models
 
+### Provider connection outages
+
+Kemiri tags generation requests at the `beforeRequest` hook for both coordinators and workers. Its Models wrapper
+separates transport errors (DNS and socket failures, offline and failed fetch) from HTTP responses, credentials and
+model errors. Only an error before meaningful response output is retried. The same generation and submission stay open,
+so a tool round or visible answer is not replayed, and the worker does not report a failure while waiting.
+
+A conversation document records the generation ID, provider name, first failure time, attempt count, retry time and raw
+error. The wait starts at five seconds and backs off to at most two minutes. After three hours of continuous
+failure, the next unsuccessful probe ends the run. The existing model admission API marks the wait before sleeping and
+clears that marker before the provider request. Stop cancels the wait. A host restart during the wait reads the same
+retry time and deadline. A restart during a provider call follows pi-durable's ordinary interrupted-request rules.
+The wrapper applies to generation streams with a request hook, not separate compaction or deferred-result polling.
+
+The structural chat watch reads the Kemiri document alongside `pi.live`. It shows a single provider notice with a
+countdown and Details, then clears it on recovery. When the outage ends without an answer, Kemiri projects a
+`network_error` failure with the provider name and raw detail. Internally this uses pi-durable's existing terminal
+model-error path with a plain detail that cannot trigger its generic retries. Workers report that detail only if the
+run actually fails. Both clients group consecutive identical attempt errors within a turn and put the raw error in
+Details. While a project has a live generation waiting on the provider, report sweeps, report audits and paused-task
+nudges defer rather than treating the wait as lost work. A stopped, failed or finished generation no longer defers them.
+
 - Model catalogs come from the pinned `@earendil-works/pi-ai` provider factories in server
   `models.ts`. Pi-ai 1.6.0 ships native GPT-6.2 Astra and Sol on OpenAI, OpenAI Codex and Azure.
   Azure remains outside the harness provider set. Pi's provider defaults move from GPT-6.1 Sol to

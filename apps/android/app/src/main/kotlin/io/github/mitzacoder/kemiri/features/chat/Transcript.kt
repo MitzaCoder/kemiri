@@ -14,7 +14,7 @@ internal fun contentText(content: JsonElement?): String = when(content) {
     is JsonArray -> content.objects().filter { it.s("type") == "text" }.joinToString("\n") { it.s("text") }
     else -> ""
 }
-data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null, val peerMessageId: String? = null)
+data class ChatPart(val key: String, val kind: String, val text: String = "", val name: String = "", val status: String = "", val arguments: JsonElement? = null, val details: JsonElement? = null, val nested: List<JsonObject> = emptyList(), val viaScript: String? = null, val sourceConversationId: Long? = null, val sourceEntryId: Long? = null, val diagnostics: List<JsonObject> = emptyList(), val timestamp: Long? = null, val durationMs: Long? = null, val detail: String? = null, val peerMessageId: String? = null, val errorCount: Int = 0, val retryAt: Long? = null, val tries: Int? = null)
 /**
  * What a turn (everything the coordinator did between two user messages) took, for the footer under its last row: its
  * start and end, the model, the tokens and cost summed over its requests, the requests that re-billed much of the
@@ -55,6 +55,8 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
     peerMessages: Map<String, ThreadsMessagesResponseMessagesItem> = emptyMap(), showCoordinatorNotes: Boolean = false): List<ChatRow> {
     val warmByAnchor = cacheWarmByAnchor(keepWarm, entries.map { it.id }.toSet())
     val live = liveValue.obj()
+    val failure = live?.get("runFailure").obj()
+    val firstFailedEntry = (failure?.get("first") as? JsonPrimitive)?.longOrNull ?: entries.lastOrNull { it.kind == "pi.user" }?.id ?: 0L
     val results = mutableMapOf<String,Pair<JsonObject,JsonElement?>>()
     entries.forEach { e -> e.model.orEmpty().mapNotNull { it.obj() }.filter { it.s("role") == "toolResult" }.forEach { results[it.s("toolCallId")] = it to e.data } }
     val slots = live?.get("tools").objects().associateBy { it.s("callId") }
@@ -109,7 +111,7 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
         }
         parts += unwrapScript(ChatPart("call-$id","tool",output,call.s("name").ifBlank { message?.s("toolName") ?: "tool" },status,call["arguments"],details,children,diagnostics = diagnostics, timestamp = (message?.get("timestamp") as? JsonPrimitive)?.longOrNull, durationMs = (message?.get("durationMs") as? JsonPrimitive)?.longOrNull))
     }
-    fun assistant(message: JsonObject, key: String, active: Boolean = false) {
+    fun assistant(message: JsonObject, key: String, active: Boolean = false, entryId: Long? = null) {
         ensureTurn()
         val blocks = message["content"].objects()
         blocks.forEachIndexed { index,b ->
@@ -121,7 +123,17 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
             }
         }
         when(message.s("stopReason")) {
-            "error" -> parts += ChatPart("$key-end","notice",message.s("errorMessage").ifBlank { "The model response failed." },status = "error")
+            "error" -> {
+                val error = message.s("errorMessage").ifBlank { "The model response failed." }
+                val terminalDetail = failure?.let { it.s("assistantError").ifBlank { it.s("detail") } }
+                if (entryId == null || entryId < firstFailedEntry || terminalDetail != error) {
+                    val previous = parts.lastOrNull()
+                    if (previous != null && previous.errorCount > 0 && previous.detail == error) {
+                        val count = previous.errorCount + 1
+                        parts[parts.lastIndex] = previous.copy(errorCount = count, text = "The model request failed $count times.")
+                    } else parts += ChatPart("$key-end", "notice", "The model request failed.", status = "error", detail = error, errorCount = 1)
+                }
+            }
             "aborted" -> parts += ChatPart("$key-end","notice","Stopped.",status = "stopped")
         }
     }
@@ -154,7 +166,7 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
                 messages.forEachIndexed { i,m ->
                     absorb(m)
                     cache.observe(m)?.takeIf(::isNotableCacheMiss)?.let { ensureTurn().misses += it }
-                    assistant(m,"entry-${e.id}-$i")
+                    assistant(m,"entry-${e.id}-$i", entryId = e.id)
                 }
                 // Link once, after the entry's last visible prose block rather than after every Markdown block.
                 val lastText = (parts.lastIndex downTo start).firstOrNull { parts[it].kind == "text" && parts[it].text.isNotBlank() }
@@ -189,8 +201,21 @@ fun transcript(entries: List<EntryRecord>, liveValue: JsonElement?, keepWarm: Li
     slots.values.forEach { if(it.s("callId") !in seen) ensureTurn(); tool(it,it.s("callId")) }
     flush()
     live?.get("compactions").objects().forEachIndexed { i,c -> parts += ChatPart("compacting-$i","compaction",status = "running",detail = c.s("reason").ifBlank { null }) }
-    live?.get("generation").obj()?.get("retry").obj()?.let { parts += ChatPart("retry","notice","The model request failed; retrying.",status = "warning",detail = it.s("error").ifBlank { null }) }
-    live?.get("runFailure").obj()?.let { parts += ChatPart("runFailure","notice","The last run failed${it.s("reason").takeIf(String::isNotBlank)?.let { reason -> " ($reason)" }.orEmpty()}.",status = "error",detail = it.s("detail").ifBlank { null }) }
+    val outage = live?.get("providerOutage").obj()
+    if (outage != null) {
+        val provider = outage.s("label").ifBlank { "the model provider" }
+        parts += ChatPart("provider-outage", "notice", "Can't reach $provider. Check this computer’s connection.", status = "warning",
+            detail = outage.s("error").ifBlank { null }, retryAt = (outage["retryAt"] as? JsonPrimitive)?.longOrNull, tries = (outage["tries"] as? JsonPrimitive)?.intOrNull)
+    } else live?.get("generation").obj()?.get("retry").obj()?.let { parts += ChatPart("retry","notice","The model request failed; retrying.",status = "warning",detail = it.s("error").ifBlank { null }) }
+    failure?.let {
+        val provider = it.s("providerLabel").ifBlank { "the model provider" }
+        val text = when (it.s("reason")) {
+            "network_error" -> "The last run stopped because it couldn't reach $provider."
+            "aborted" -> "The last run was stopped."
+            else -> "The last run didn't finish."
+        }
+        parts += ChatPart("runFailure", "notice", text, status = "error", detail = it.s("detail").ifBlank { it.s("reason") }.ifBlank { null })
+    }
     live?.get("compactionFailure").obj()?.let { parts += ChatPart("compactionFailure","notice","Compaction failed.",status = "error",detail = it.s("error").ifBlank { null }) }
     return groupParts(parts).map { row -> turns[row.parts.last().key]?.let { row.copy(turn = it) } ?: row }
 }

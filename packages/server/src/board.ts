@@ -2570,7 +2570,10 @@ function describeEdit(edit: PendingEdit): string | undefined {
 
 // --- the service -------------------------------------------------------------------------------------------------
 
+const OUTAGE_BOARD_RECHECK_MS = 30_000;
+
 export type BoardServiceOptions = {
+	providerOutage?: () => Promise<boolean> | undefined;
 	project(): Project;
 	harness: Harness;
 	/** The coordinator conversation; its ID owns the board document. */
@@ -2630,6 +2633,8 @@ export class BoardService {
 	#waitingTimer: ReturnType<typeof setTimeout> | undefined;
 	#waitingRun: Promise<void> | undefined;
  #pauseRun: Promise<void> | undefined;
+ #pausedOutageTimer: ReturnType<typeof setTimeout> | undefined;
+ #reportsWaitForProvider = false;
 	#stopped = false;
 	#reportTimer: ReturnType<typeof setTimeout> | undefined;
 	#reportRun: Promise<void> | undefined;
@@ -2662,6 +2667,7 @@ export class BoardService {
   }, () => options.log("task watcher: could not process live news"));
 		if (options.auditModels) this.audit = new ReportAuditService({
 			models: options.auditModels,
+			...(options.providerOutage ? { providerOutage: options.providerOutage } : {}),
 			settings: () => options.project().archived || options.taskFreshness === false ? { mode: "off", dailyTokens: 0 } : options.project().reportAudit ?? DEFAULT_REPORT_AUDIT,
 			now: options.now,
 			state: () => this.state(),
@@ -3999,6 +4005,18 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const state = await this.state();
   if (!state.taskStateEnabled) return;
   const paused = boardView(state, this.#options.now(), true).tasks.filter(t => t.state?.kind === "paused");
+  if (!paused.length && !state.pausedNotices?.length) return;
+  const outage = this.#options.providerOutage?.();
+  if (outage && await outage) {
+   if (!this.#stopped && this.#pausedOutageTimer === undefined) {
+    this.#pausedOutageTimer = setTimeout(() => {
+     this.#pausedOutageTimer = undefined;
+     void this.checkPaused().catch(error => this.#options.log(`board paused: ${errorMessage(error)}`));
+    }, OUTAGE_BOARD_RECHECK_MS);
+    this.#pausedOutageTimer.unref?.();
+   }
+   return;
+  }
   if (paused.some(t => state.taskActivity?.[t.id]?.pauseNudgedEpisode !== pauseEpisode(t, state.taskActivity?.[t.id])) && !state.pausedNotices?.length) {
    await this.#commit(HARNESS_WRITER, doc => {
     for (const task of boardView(doc, this.#options.now(), true).tasks.filter(t => t.state?.kind === "paused")) {
@@ -4216,7 +4234,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   this.#reportTimer = setTimeout(() => {
    this.#reportTimer = undefined;
    void this.checkReports().catch((error) => this.#options.log(`board: report nudge failed: ${errorMessage(error)}`));
-  }, delay);
+  }, this.#reportsWaitForProvider ? Math.max(delay, OUTAGE_BOARD_RECHECK_MS) : delay);
   this.#reportTimer.unref?.();
  }
 
@@ -4232,6 +4250,9 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 
  async #deliverReports(): Promise<void> {
   if (this.#options.taskFreshness === false) return;
+  const outage = this.#options.providerOutage?.();
+  this.#reportsWaitForProvider = outage !== undefined && await outage;
+  if (this.#reportsWaitForProvider) return;
   const timings = this.#options.reportTimings;
   const state = await this.state();
   const live = new Set<string>(["main"]);
@@ -4284,6 +4305,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		this.#stopped = true;
 		if (this.#waitingTimer !== undefined) clearTimeout(this.#waitingTimer);
 		if (this.#reportTimer !== undefined) clearTimeout(this.#reportTimer);
+		if (this.#pausedOutageTimer !== undefined) clearTimeout(this.#pausedOutageTimer);
 		await this.audit?.stop();
   await this.#watcher?.stop();
   await this.#persistWatcherStatus;

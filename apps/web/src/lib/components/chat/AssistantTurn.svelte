@@ -1,6 +1,5 @@
 <script lang="ts">
 	import BookmarkCheck from '@lucide/svelte/icons/bookmark-check';
-	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
 	import CoinsIcon from '@lucide/svelte/icons/coins';
 	import CopyButton from '#lib/components/CopyButton.svelte';
@@ -14,6 +13,7 @@
 	import type { ThreadCards } from '#lib/threads.js';
 	import CallCard from './CallCard.svelte';
 	import CodingCalls from './CodingCalls.svelte';
+	import TurnNotice from './TurnNotice.svelte';
 	import StepsRow from './StepsRow.svelte';
 	import ThinkingBlock from './ThinkingBlock.svelte';
 
@@ -133,11 +133,10 @@
 						{threadCards}
 					/>
 				{:else if row.part.type === 'error'}
-					<div
-						class="my-2 flex items-start gap-2 rounded-2xl border border-(--chat-danger)/30 bg-(--chat-danger)/8 px-3.5 py-2.5 text-sm text-(--chat-danger)"
-					>
-						<CircleAlertIcon class="mt-0.5 size-4 shrink-0" />
-						<span class="min-w-0 break-words">{row.part.message}</span>
+					<div class="my-2">
+						<TurnNotice item={{ kind: 'notice', key: row.part.key, tone: 'error',
+							text: row.part.count ? `The model request failed ${row.part.count} times.` : 'The model request failed.',
+							detail: row.part.message }} />
 					</div>
 				{:else}
 					<p class="my-2 flex items-center gap-1.5 text-sm text-(--chat-fg-subtle)">

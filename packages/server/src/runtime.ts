@@ -28,6 +28,7 @@ import { createHash } from "node:crypto";
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import type { ProviderOutageModels } from "./provider-outage.ts";
 import type { UsagePauseModels } from "./usage-pause-models.ts";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Conversation, ConversationView, Harness, Registry } from "@earendil-works/pi-durable";
@@ -216,6 +217,7 @@ export type ProjectManagerOptions = {
 	/** Logs every turn's model request; each project installs its extension, which tells it the conversation. */
 	requestLog?: RequestLog;
 	usagePauseModels?: UsagePauseModels;
+	providerOutages?: ProviderOutageModels;
 	drainInvestigation?: UsageDrainInvestigation;
 	/** Sets each turn's cache retention from the project's `longPromptCache`; `models` must be wrapped by it. */
 	cacheRetention?: PromptCacheRetention;
@@ -408,6 +410,7 @@ export class ProjectManager {
 	readonly #requestLog: RequestLog | undefined;
 	readonly #drainInvestigation: UsageDrainInvestigation | undefined;
 	readonly #usagePauseModels: UsagePauseModels | undefined;
+	readonly #providerOutages: ProviderOutageModels | undefined;
 	readonly #cacheRetention: PromptCacheRetention | undefined;
 	/** One sandbox for every project this manager opens; fresh per process, like a restart in tests. */
 	readonly #codemodeSandbox: CodemodeSandbox;
@@ -470,6 +473,7 @@ export class ProjectManager {
 		this.#diskWarnings = options.diskWarnings;
 		this.#requestLog = options.requestLog;
 		this.#usagePauseModels = options.usagePauseModels;
+		this.#providerOutages = options.providerOutages;
 		this.#drainInvestigation = options.drainInvestigation;
 		this.#cacheRetention = options.cacheRetention;
 		this.#workFinished = {
@@ -1478,7 +1482,9 @@ export class ProjectManager {
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
 		const history = new HistoryService({ conversation, coordinators });
+		await this.#providerOutages?.restore(harness);
 		const board: BoardService = new BoardService({
+			providerOutage: () => this.#providerOutages?.checkProject(harness),
 			...(this.#onAnswersChanged ? { answers: {
 				workAndTasks: this.#answersWorkAndTasks,
 				changed: (answerId: string, deleted?: true) => this.#onAnswersChanged?.(project.id, answerId, deleted),
@@ -1841,6 +1847,8 @@ export class ProjectManager {
 		registry.install(memory.extension);
 		if (drainTool) registry.install(drainTool);
 		if (this.#usagePauseModels) registry.install(this.#usagePauseModels.extension(project.id));
+		// After hooks that replace the request context: tag the exact message sent to Models.
+		if (this.#providerOutages) registry.install(this.#providerOutages.extension(harness));
 		// Install drain last so its wraps see every tool and it holds only calls no other hook blocked.
 		registry.install(this.drain.extension(registry.snapshot().tools().map(({ tool }) => tool.name)));
 		try {

@@ -77,4 +77,27 @@ class ChatTranscriptTest {
         assertEquals("done",transcript(listOf(entry(1,"pi.tool-result","""{"role":"toolResult","toolCallId":"x","toolName":"read","content":"ok","details":{"diff":"here"}}""")),null).single().parts.single().status)
         assertEquals("interrupted",transcript(listOf(entry(1,"pi.assistant","""{"role":"assistant","content":[{"type":"toolCall","id":"x","name":"read"}]}""")),null).single().parts.single().status)
     }
+    @Test fun consecutiveIdenticalErrorsCollapseWithoutCrossingTurns() {
+        fun error(id: Long, detail: String) = entry(id, "pi.assistant", """{"role":"assistant","content":[],"stopReason":"error","errorMessage":"$detail"}""")
+        val breaks = entry(5, "pi.user", """{"role":"user","content":"Try something else"}""")
+        val rows = transcript(listOf(error(1, "fetch failed"), error(2, "fetch failed"), error(3, "bad key"), error(4, "fetch failed"), breaks, error(6, "fetch failed")), null)
+        val errors = rows.flatMap { it.parts }.filter { it.status == "error" }
+        assertEquals(listOf(2, 1, 1, 1), errors.map { it.errorCount })
+        assertEquals("The model request failed 2 times.", errors.first().text)
+        assertEquals("fetch failed", errors.first().detail)
+    }
+
+    @Test fun outageAndTerminalFailureKeepRawTextInDetails() {
+        val outage = Json.parseToJsonElement("""{"providerOutage":{"label":"Anthropic","error":"fetch failed","tries":4,"retryAt":1000}}""")
+        val notice = transcript(emptyList(), outage).single().parts.single()
+        assertTrue(notice.text.startsWith("Can't reach Anthropic."))
+        assertEquals(4, notice.tries)
+        assertEquals("fetch failed", notice.detail)
+        val failure = Json.parseToJsonElement("""{"runFailure":{"reason":"network_error","first":1,"providerLabel":"Anthropic","assistantError":"Could not reach the model provider.","detail":"fetch failed"}}""")
+        val assistant = entry(1, "pi.assistant", """{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Could not reach the model provider."}""")
+        val terminal = transcript(listOf(assistant), failure).single().parts.single()
+        assertEquals("The last run stopped because it couldn't reach Anthropic.", terminal.text)
+        assertEquals("fetch failed", terminal.detail)
+    }
+
 }

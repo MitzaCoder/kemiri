@@ -12,6 +12,14 @@
 		item: Extract<TranscriptItem, { kind: 'notice' }>;
 	} = $props();
 
+	let now = $state(Date.now());
+	$effect(() => {
+		if (item.retryAt === undefined) return;
+		now = Date.now();
+		const timer = setInterval(() => { now = Date.now(); }, 1000);
+		return () => clearInterval(timer);
+	});
+	const seconds = $derived(Math.max(0, Math.ceil(((item.retryAt ?? now) - now) / 1000)));
 	const Icon = $derived(
 		item.tone === 'error' ? CircleAlertIcon : item.tone === 'warning' ? TriangleAlertIcon : InfoIcon
 	);
@@ -27,10 +35,16 @@
 	<Icon class="mt-0.5 size-4 shrink-0" />
 	<div class="min-w-0">
 		<p class="break-words">{item.text}</p>
+		{#if item.tries !== undefined}
+			<p class="mt-0.5">{seconds > 0 ? `Retrying in ${seconds} s` : 'Trying again'} ({item.tries} {item.tries === 1 ? 'try' : 'tries'} so far).</p>
+		{/if}
 		{#if item.detail}
-			<div class="relative">
-			<pre use:overlayScroll={'parent'} class="mt-1 overflow-auto font-mono text-xs break-words whitespace-pre-wrap opacity-80">{item.detail}</pre>
-			</div>
+			<details class="mt-1 text-xs">
+				<summary class="w-fit cursor-pointer underline underline-offset-2">Details</summary>
+				<div class="relative">
+					<pre use:overlayScroll={'parent'} class="mt-1 overflow-auto font-mono break-words whitespace-pre-wrap opacity-80">{item.detail}</pre>
+				</div>
+			</details>
 		{/if}
 	</div>
 </div>

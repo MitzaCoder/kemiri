@@ -31,6 +31,7 @@ import io.github.mitzacoder.kemiri.protocol.WorkerModel
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 
 private val pretty = Json { prettyPrint = true }
@@ -310,7 +311,23 @@ private fun stepIcon(part: ChatPart): LucideIcon = when {
         LucideGlyph(icon,size = 16.dp,tint = tone,modifier = Modifier.padding(top = 2.dp))
         Column(Modifier.weight(1f)) {
             Text(part.text,style = MaterialTheme.typography.bodyMedium,color = tone)
-            part.detail?.let { Text(it,fontFamily = FontFamily.Monospace,fontSize = 12.sp,color = tone.copy(alpha = .8f)) }
+            part.tries?.let { tries ->
+                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(part.retryAt) {
+                    now = System.currentTimeMillis()
+                    while (now < (part.retryAt ?: 0L)) { delay(1_000); now = System.currentTimeMillis() }
+                }
+                val seconds = ((part.retryAt ?: now) - now + 999) / 1_000
+                val retry = if (seconds > 0) "Retrying in $seconds s" else "Trying again"
+                Text("$retry ($tries ${if (tries == 1) "try" else "tries"} so far).", style = MaterialTheme.typography.bodySmall, color = tone)
+            }
+            part.detail?.let { detail ->
+                var expanded by rememberSaveable { mutableStateOf(false) }
+                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }) {
+                    Text("Details", color = tone)
+                }
+                if (expanded) Text(detail, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = tone)
+            }
         }
     }
 }
