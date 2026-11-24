@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Separate chats for separate work">
+  <meta name="color-scheme" content="light dark">
+  <title>Kemiri v0.1.0-pilot.7 — release notes</title>
+  <link rel="canonical" href="https://kemiri.dev/releases/v0.1.0-pilot.7/">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://kemiri.dev/releases/v0.1.0-pilot.7/">
+  <meta property="og:title" content="Kemiri v0.1.0-pilot.7 — release notes">
+  <meta property="og:description" content="Separate chats for separate work">
+  <meta property="og:image" content="https://kemiri.dev/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/assets/favicon-16.png" type="image/png" sizes="16x16">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="preload" href="/assets/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Before first paint: the system decides light or dark; the header button switches by hand. Nothing is stored.
+    (function () {
+      var root = document.documentElement, dark = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", dark.matches ? "dark" : "light");
+      dark.addEventListener("change", function (e) { if (!root.dataset.chosen) root.setAttribute("data-theme", e.matches ? "dark" : "light"); });
+      root.classList.add("js");
+    })();
+  </script>
+</head>
+<body id="top">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top wrap">
+  <a class="brand" href="/" aria-label="Kemiri home"><img src="/assets/logo.svg" width="32" height="40" alt="">Kemiri</a>
+  <nav aria-label="Main">
+    <a class="hide-s" href="/#start">Install</a>
+    <a href="/releases/">Releases</a>
+    <a class="hide-s" href="https://github.com/MitzaCoder/kemiri/blob/main/docs/INSTALL.md">Docs</a>
+    <a href="https://github.com/MitzaCoder/kemiri">GitHub <span aria-hidden="true">&nbsp;↗</span></a>
+    <button class="theme" type="button" aria-label="Switch between light and dark" title="Light / dark">
+      <svg class="only-dark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></svg>
+      <svg class="only-light" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+    </button>
+  </nav>
+</header>
+<main id="main" class="rel wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/releases/">Release notes</a><span aria-hidden="true">/</span><span>v0.1.0-pilot.7</span></nav>
+  <div class="rel-head">
+    <p class="rel-meta"><span class="ver">v0.1.0-pilot.7</span><time datetime="2026-11-24">24 November 2026</time><span>Web, Android and backend</span></p>
+    <h1>Separate chats <span class="grad">for separate work</span></h1>
+    <p class="lead">Keep several conversations going on one project without mixing up their work. Review requests instead of every part, choose which alerts interrupt work, and see when a subscription is likely to run out.</p>
+    <div class="actions"><a class="btn" href="#update">How to update</a><a class="btn ghost" href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.7">Downloads on GitHub <span aria-hidden="true">↗</span></a></div>
+  </div>
+
+  <ul class="glance" aria-label="Highlights">
+    <li><h2>Several coordinators, one project</h2><p>Give each area its own chat and switch between recent chats without interrupting work.</p></li>
+    <li><h2>Alerts on your terms</h2><p>Keep an inbox of what happened, with controls for pop-ups, sounds and timed mutes.</p></li>
+    <li><h2>See a limit coming</h2><p>Follow subscription usage in Glance and let Kemiri warn or pause when a limit drains fast.</p></li>
+  </ul>
+
+  <div class="rel-cols">
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#chats">Chats and usage</a>
+      <a href="#alerts">Notifications</a>
+      <a href="#apps">Running apps</a>
+      <a href="#review">Artifacts and code</a>
+      <a href="#tasks">Tasks and tools</a>
+      <a href="#update">How to update</a>
+      <a href="#limits">Limits and help</a>
+    </nav>
+    <div class="notes">
+      <section id="chats" aria-labelledby="chats-title">
+        <p class="kicker">Chats and usage</p>
+        <h2 id="chats-title">Keep the conversations apart and the work together</h2>
+        <ul class="changes">
+          <li><h3>Coordinators for different areas <span class="where">Web · Android</span></h3><p>Give areas and jobs their own chats on the same board and switch without interrupting work. On web, start one from <b>New coordinator</b> in the sidebar and choose its model, thinking level and worker defaults in the composer. Android shows the model but does not have the per-coordinator pickers yet.</p></li>
+          <li><h3>Choose how long chats are summarized</h3><p>Computer settings let you tune when the coordinator starts summarizing and when it waits for a summary.</p></li>
+          <li><h3>Usage at a glance</h3><p>Limit gauges and charts are back in Glance. Usage on web and Android has tabs for all computers or one backend. Spend stays visible while refreshing.</p></li>
+          <li><h3>Get ahead of fast subscription drain <span class="where">Web · Android</span></h3><p>Usage shows a forecast when a limit could run out before reset. Kemiri can warn or hold new requests without interrupting work in flight. A coordinator can investigate first. Pause or resume the subscription from Usage.</p></li>
+        </ul>
+      </section>
+
+      <section id="alerts" aria-labelledby="alerts-title">
+        <p class="kicker">Notifications</p>
+        <h2 id="alerts-title">Hear about the work without being interrupted by everything</h2>
+        <ul class="changes">
+          <li><h3>Pop-ups, sounds and an inbox</h3><p>Get in-app alerts for replies, failures and work that needs attention. Choose which alerts pop up or make a sound. The web inbox keeps a history, even of alerts that never popped up.</p></li>
+          <li><h3>Take a break from alerts <span class="where">Web · Android</span></h3><p>Use Do not disturb to silence pop-ups and sounds, or mute a project or computer on this device for an hour, eight hours or until unmuted.</p></li>
+        </ul>
+      </section>
+
+      <section id="apps" aria-labelledby="apps-title">
+        <p class="kicker">Running apps</p>
+        <h2 id="apps-title">Try an agent’s app from another device</h2>
+        <p class="intro">Open <b>Running apps</b> to see what’s listening, which links are published and the logs for apps Kemiri manages. The owner approves publishing for a project first. That approval also allows future apps in that project.</p>
+        <ul class="changes">
+          <li><h3>One-time tailnet setup</h3><p>Enable MagicDNS and HTTPS Certificates in Tailscale and start Kemiri at least once. Run <code>kemiri tailscale enable --apps</code> in a terminal as the account that runs Kemiri. This is separate from pairing the backend. <code>kemiri tailscale status</code> checks the Kemiri tailnet setup.</p></li>
+          <li><h3>App links have no Kemiri sign-in</h3><p>Anyone the tailnet rules allow can open the link. Only publish apps safe for those people to see. Tailnet HTTPS puts the machine name in public certificate logs.</p></li>
+        </ul>
+      </section>
+
+      <section id="review" aria-labelledby="review-title">
+        <p class="kicker">Artifacts and code</p>
+        <h2 id="review-title">Find what changed and point to the part that needs work</h2>
+        <ul class="changes">
+          <li><h3>A library across tasks</h3><p>Browse the Artifacts tab, pick an HTML report from its thumbnail when available, or compare saved versions. Pin an HTML artifact as a project panel. Leave comment pins in a report so the agent can see exactly where to revise it.</p></li>
+          <li><h3>Code next to the conversation</h3><p>Browse project files or named checkouts. Review a committed change or work in progress and suggest an edit on a line. Direct file saves on web stay off unless enabled.</p></li>
+        </ul>
+      </section>
+
+      <section id="tasks" aria-labelledby="tasks-title">
+        <p class="kicker">Tasks and tools</p>
+        <h2 id="tasks-title">Get back to the work sooner</h2>
+        <ul class="changes">
+          <li><h3>Review requests, not every part <span class="where">Web · Android</span></h3><p>Coordinators close checked parts, the request shows their progress, and go-live approval is asked once per request. The project <b>Answers</b> tab gathers quick replies, open questions and short errands in progress.</p></li>
+          <li><h3>Classic task details</h3><p>Classic is the single task view on web and Android. Open a running worker’s transcript from the task’s <b>Live</b> section. Reconnecting skips old board updates, and saved files load when opened.</p></li>
+          <li><h3>Settings sorted by what they change</h3><p>Project, computer and device settings are grouped separately on web and Android.</p></li>
+          <li><h3>New downloads for workers</h3><p>Kemiri fetches a pinned agent-browser package from npm for browser proof and a pinned Antigravity archive for official-agent work, when needed.</p></li>
+        </ul>
+      </section>
+
+      <section id="update" aria-labelledby="update-title">
+        <p class="kicker">How to update</p>
+        <h2 id="update-title">Update from pilot.6</h2>
+        <p class="intro">Your projects, paired devices, credentials and settings stay where they are. Back up your Kemiri config and data folders first: an update can migrate data, and a rollback restores code, not data. Update when idle, after backing up while stopped. This release uses pi 1.6.0. If you roll back to pilot.6, tasks, chats and finished work stay, but a turn running during the update cannot resume on pilot.6 because the saved format changed.</p>
+        <ol class="how">
+          <li>
+            <h3>Update the backend from the app</h3>
+            <p>On an installed release, choose <b>Update now</b> beside the version in the navigation, or in Settings → About. Check the from → to versions and confirm. Kemiri waits for commands that are already running, restarts, and puts the previous version back by itself if the new one does not come up healthy.</p>
+          </li>
+          <li>
+            <h3>Or update from a terminal</h3>
+            <p>Stop Kemiri first: Ctrl-C in its terminal, or <code>kemiri service remove</code> if it runs as a user service. Then:</p>
+            <div class="code"><div class="code-bar">Terminal<button class="copy" type="button" data-copy="kemiri update --version v0.1.0-pilot.7&#10;kemiri start">Copy</button></div><pre><code>kemiri update --version v0.1.0-pilot.7
+kemiri start</code></pre></div>
+            <p style="margin-top:.8rem">With a user service, run <code>kemiri service install</code> instead of <code>kemiri start</code>.</p>
+          </li>
+          <li>
+            <h3>Update the Android app</h3>
+            <p>Updating the backend does not update your phone. Get the signed APK from the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.7">v0.1.0-pilot.7 release page</a> and install it over the app you have. Do not uninstall first.</p>
+          </li>
+        </ol>
+        <p style="margin-top:1.2rem">Still on pilot.3 or earlier? Go through pilot.4 first. On pilot.4 with Bun or source installs, Intel Macs or Linux musl, use the new checksum-verified installer with the same install directory: the old updater cannot read the new archive. See the <a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.7">full upgrade instructions</a>. New here? <a href="/#start">Start with the install steps</a>.</p>
+      </section>
+
+      <section id="limits" aria-labelledby="limits-title">
+        <p class="kicker">Good to know</p>
+        <h2 id="limits-title">Limits and help</h2>
+        <aside class="bounds"><strong>Still an early pilot.</strong> Linux is the tested host; macOS and Windows through WSL are experimental. The Android app needs Android 12 or newer and your backend reachable over HTTPS. Android in-app alerts work while Kemiri is open; this pilot does not include phone push notifications. Every paired device has full owner access, so keep the backend private.</aside>
+        <p style="margin-top:1.2rem"><strong>Official-agent subscriptions.</strong> Google does not support delegated work on consumer subscriptions and may suspend Antigravity or Gemini CLI access. A Gemini API key avoids that risk.</p>
+        <p style="margin-top:1.2rem">Something off? Write to <a href="mailto:support@kemiri.dev">support@kemiri.dev</a> with your version and what you saw. Never send credentials, pairing links or private conversations.</p>
+      </section>
+      <div class="rel-end"><a href="/releases/">←&nbsp;All releases</a><a href="https://github.com/MitzaCoder/kemiri/releases/tag/v0.1.0-pilot.6">Previous: v0.1.0-pilot.6&nbsp;↗</a></div>
+    </div>
+  </div>
+</main>
+<footer class="foot-site wrap">
+  <p>Built on <a href="https://github.com/earendil-works/pi/tree/main/packages/durable">pi durable</a>. Open source, <a href="https://github.com/MitzaCoder/kemiri/blob/main/LICENSE">MIT licensed</a>.</p>
+  <nav aria-label="More"><a href="/releases/">Release notes</a><a href="/privacy/">Privacy</a><a href="mailto:support@kemiri.dev">Contact</a></nav>
+</footer>
+<script src="/home.js" defer></script>
+</body>
+</html>

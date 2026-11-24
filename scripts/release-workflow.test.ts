@@ -80,7 +80,7 @@ test('the pinned dedicated browser is installed before root/browser tests and it
 });
 
 test('current pilot identities and reviewed notes agree', async () => {
-	const version = '0.1.0-pilot.6';
+	const version = '0.1.0-pilot.7';
 	for (const path of ['apps/web', 'packages/client', 'packages/protocol', 'packages/server']) {
 		const manifest = await Bun.file(new URL('../' + path + '/package.json', import.meta.url)).json();
 		expect(manifest.version).toBe(version);
@@ -89,11 +89,11 @@ test('current pilot identities and reviewed notes agree', async () => {
 	expect(common).toContain('SERVER_VERSION = "' + version + '"');
 	const android = await Bun.file(new URL('../apps/android/app/build.gradle.kts', import.meta.url)).text();
 	expect(android).toContain('releaseTag ?: "v' + version + '"');
-	expect(android).toContain('("0.1.0-pilot.6" to 1_000_006)');
+	expect(android).toContain('("0.1.0-pilot.7" to 1_000_007)');
 	const notes = await Bun.file(new URL('../docs/releases/v' + version + '.md', import.meta.url)).text();
 	expect(notes.split('\n')[0]).toBe('# Kemiri v' + version);
-	expect(notes).toContain('kemiri update --version v0.1.0-pilot.6\nkemiri start');
-	expect(notes).toContain('1000006');
+	expect(notes).toContain('kemiri update --version v0.1.0-pilot.7\nkemiri start');
+	expect(notes).toContain('1000007');
 	expect(notes).not.toMatch(/\]\((?!https:\/\/)/);
 	const commands = workflow.jobs.release!.steps.map(step => step.run ?? '').join('\n');
 	expect(commands).toContain('test "$(head -n 1 "$notes")" = "# Kemiri $GITHUB_REF_NAME"');
