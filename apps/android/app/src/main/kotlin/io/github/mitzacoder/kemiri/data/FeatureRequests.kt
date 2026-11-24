@@ -12,6 +12,7 @@ object HarnessFeature {
     const val REQUEST_DIGEST = "request-digest"
     const val APPS = "apps"
     const val ANSWERS = "answers"
+    const val ANSWERS_WORK_AND_TASKS = "answers-work-and-tasks"
     const val PROJECT_REPOSITORY = "project-repository"
     const val MEMORY_MAINTENANCE_ENABLED = "memory-maintenance-enabled"
     const val OUTSIDE_MODEL_LIMIT = "outside-model-limit"

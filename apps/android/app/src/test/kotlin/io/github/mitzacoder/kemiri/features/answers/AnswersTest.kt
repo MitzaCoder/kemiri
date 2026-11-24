@@ -3,6 +3,9 @@ package io.github.mitzacoder.kemiri.features.answers
 import io.github.mitzacoder.kemiri.data.BackendConfig
 import io.github.mitzacoder.kemiri.data.ConnectionState
 import io.github.mitzacoder.kemiri.data.answersListRequest
+import io.github.mitzacoder.kemiri.data.copyAnswerFromTaskRequest
+import io.github.mitzacoder.kemiri.data.supportsAnswersWorkAndTasks
+import io.github.mitzacoder.kemiri.data.toCatalogue
 import io.github.mitzacoder.kemiri.data.wireJson
 import io.github.mitzacoder.kemiri.features.notifications.AppLink
 import io.github.mitzacoder.kemiri.features.notifications.InAppAlert
@@ -13,6 +16,7 @@ import io.github.mitzacoder.kemiri.features.notifications.resolve
 import io.github.mitzacoder.kemiri.navigation.ChatHighlight
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.protocol.*
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.*
@@ -30,7 +34,7 @@ class AnswersTest {
             answer("A5", pinned = true)), LocalDate.parse("2026-01-08"), ZoneId.of("America/New_York"))
         assertEquals(listOf("Pinned", "Today", "Yesterday"), groups.take(3).map { it.label })
         assertEquals(listOf(listOf("A5", "A1"), listOf("A8", "A4"), listOf("A2"), listOf("A3")),
-            groups.map { group -> group.answers.map { it.id } })
+            groups.map { group -> group.entries.map { it.key } })
     }
 
     @Test fun `unread pinned or outside search still lights the tab`() {
@@ -49,6 +53,61 @@ class AnswersTest {
         val catalogue = answersListRequest("bakery", "  ", subscribe = true)
         assertNull(catalogue.query)
         assertEquals(true, catalogue.subscribe)
+    }
+
+    @Test fun `catalogue and search decode task questions alongside saved answers`() {
+        val result = wireJson.decodeFromString(AnswersListResponse.serializer(), """
+            {"id":"search","answers":[],"taskQuestions":[
+              {"taskId":"T5","feedbackId":"F2","question":"Can I print old cards?\nWhere?","note":"Use Print.","at":"2026-01-08T13:32:00Z"},
+              {"taskId":"T6","feedbackId":"F2","question":"Can I use this oven?","at":"2026-01-08T13:29:00Z"}
+            ]}
+        """.trimIndent())
+        val catalogue = result.copy(answers = listOf(answer())).toCatalogue(extended = true)
+        val groups = groupAnswers(catalogue.answers.orEmpty(), LocalDate.parse("2026-01-08"), ZoneId.of("UTC"), catalogue.taskQuestions)
+        val entries = groups.single().entries
+        assertEquals(listOf("task-question:T5:F2", "A1", "task-question:T6:F2"), entries.map { it.key })
+        val question = entries.first() as AnswerListEntry.TaskQuestion
+        assertEquals("Can I print old cards?", question.title)
+        assertEquals("T5", question.question.taskId)
+        assertEquals("Use Print.", question.question.note)
+        assertTrue(entries[1] is AnswerListEntry.SavedAnswer)
+    }
+
+    @Test fun `working pulses with elapsed minutes but failed and awaiting reply do not`() {
+        val now = Instant.parse("2026-01-08T13:32:20Z")
+        val pending = answer(read = false).copy(working = AnswerWork("menu-preview", "running", 1))
+        val running = requireNotNull(pending.working)
+        assertEquals(AnswerWorkStatus("Working · menu-preview · 2 min", AnswerWorkIndicator.Pulse), answerWorkStatus(running, pending.at, now))
+        assertEquals("Working · menu-preview · 4 min", answerWorkStatus(running.copy(elapsedMinutes = 4), pending.at, now).label)
+        assertEquals(AnswerWorkStatus("Worker failed · menu-preview", AnswerWorkIndicator.Problem), answerWorkStatus(running.copy(status = "failed"), pending.at, now))
+        assertEquals(AnswerWorkStatus("Awaiting reply · menu-preview", AnswerWorkIndicator.Waiting), answerWorkStatus(running.copy(status = "awaiting_reply"), pending.at, now))
+        assertFalse(hasUnreadAnswers(listOf(pending)))
+        assertTrue(hasUnreadAnswers(listOf(pending.copy(working = null))))
+    }
+
+    @Test fun `only closed requests can send Copy to Answers when both features are present`() {
+        val request = copyAnswerFromTaskRequest("bakery", "T5")
+        val payload = wireJson.encodeToJsonElement(AnswersCopyFromTaskRequest.serializer(), request)
+        assertEquals(wireJson.parseToJsonElement("""{"type":"answers.copyFromTask","id":"${request.id}","projectId":"bakery","taskId":"T5"}"""), payload)
+        assertTrue(canCopyToAnswers(true, null, "done"))
+        assertTrue(canCopyToAnswers(true, null, "dropped"))
+        assertFalse(canCopyToAnswers(true, null, "review"))
+        assertFalse(canCopyToAnswers(true, "T9", "done"))
+        assertFalse(canCopyToAnswers(false, null, "done"))
+    }
+
+    @Test fun `legacy catalogue has only saved answers and no task copy capability`() {
+        fun supports(vararg features: String) = ConnectionState(hello = HelloResponse(id = "hello", features = features.toList(),
+            server = HelloResponseServer("Harness", "test"))).supportsAnswersWorkAndTasks()
+        assertFalse(supports("answers"))
+        assertFalse(supports("answers-work-and-tasks"))
+        assertTrue(supports("answers", "answers-work-and-tasks"))
+        val oldResponse = wireJson.decodeFromString(AnswersListResponse.serializer(), """{"id":"list","answers":[]}""")
+        assertEquals(emptyList<TaskAnswerQuestion>(), oldResponse.toCatalogue(extended = true).taskQuestions)
+        val mixed = oldResponse.copy(answers = listOf(answer(), answer("A2").copy(working = AnswerWork("menu-preview"))),
+            taskQuestions = listOf(TaskAnswerQuestion("T5", "F1", "Can I print old cards?", at = answer().at)))
+        assertEquals(listOf(answer()), mixed.toCatalogue(extended = false).answers)
+        assertTrue(mixed.toCatalogue(extended = false).taskQuestions.isEmpty())
     }
 
     @Test fun `chat chips match coordinator and latest or earlier entry`() {

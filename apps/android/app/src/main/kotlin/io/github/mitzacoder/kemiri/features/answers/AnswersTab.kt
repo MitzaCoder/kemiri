@@ -21,14 +21,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.AnswersCatalogue
 import io.github.mitzacoder.kemiri.data.ConnectionStatus
 import io.github.mitzacoder.kemiri.features.chat.markdownText
 import io.github.mitzacoder.kemiri.features.tasks.LocalTaskLinks
 import io.github.mitzacoder.kemiri.features.tasks.taskStateLabel
 import io.github.mitzacoder.kemiri.features.tasks.taskStateTone
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
-import io.github.mitzacoder.kemiri.protocol.Answer
 import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideIcon
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -61,11 +62,11 @@ internal fun AnswersTab(context: ProjectScreenContext, openAnswer: (String) -> U
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     val term = query.trim()
-    var matches by remember(term) { mutableStateOf<List<Answer>?>(null) }
+    var matches by remember(term, connection.generation) { mutableStateOf<AnswersCatalogue?>(null) }
     var searchError by remember(term) { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     val ready = connection.status == ConnectionStatus.Ready
-    LaunchedEffect(catalogue, term, full.answers, ready, connection.generation, retry) {
+    LaunchedEffect(catalogue, term, full.answers, full.taskQuestions, ready, connection.generation, retry) {
         if (term.isEmpty() || !ready) return@LaunchedEffect
         searchError = null
         delay(250)
@@ -73,10 +74,10 @@ internal fun AnswersTab(context: ProjectScreenContext, openAnswer: (String) -> U
         catch (error: CancellationException) { throw error }
         catch (error: Exception) { searchError = answerError(error) }
     }
-    val answers = if (term.isEmpty()) full.answers else matches
+    val shown = if (term.isEmpty()) full else matches
     val error = if (term.isEmpty()) full.error else searchError
     val (today, zone) = rememberAnswerDay()
-    val groups = remember(answers, today, zone) { groupAnswers(answers.orEmpty(), today, zone) }
+    val groups = remember(shown, today, zone) { groupAnswers(shown?.answers.orEmpty(), today, zone, shown?.taskQuestions.orEmpty()) }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         OutlinedTextField(
             value = query, onValueChange = { query = it }, label = { Text("Search answers") }, singleLine = true,
@@ -91,16 +92,16 @@ internal fun AnswersTab(context: ProjectScreenContext, openAnswer: (String) -> U
             AnswerHint(error, isError = true)
             TextButton(onClick = { if (term.isEmpty()) catalogue.refresh() else retry++ }, enabled = ready) { Text("Retry") }
         }
-        if (answers == null && ready && error == null) LinearProgressIndicator(Modifier.widthIn(max = 680.dp).fillMaxWidth())
-        if (answers?.isEmpty() == true) AnswerHint(if (term.isEmpty()) "No answers yet." else "No matching answers.")
+        if (shown?.answers == null && ready && error == null) LinearProgressIndicator(Modifier.widthIn(max = 680.dp).fillMaxWidth())
+        if (shown?.answers != null && groups.isEmpty()) AnswerHint(if (term.isEmpty()) "No answers yet." else "No matching answers.")
         LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
             groups.forEach { group ->
                 item(key = group.label) {
                     Text(group.label, Modifier.padding(start = 16.dp, top = 18.dp, bottom = 5.dp).semantics { heading() },
                         style = MaterialTheme.typography.labelLarge, color = Jarvis.colors.fgMuted)
                 }
-                items(group.answers, key = { it.id }) { answer ->
-                    AnswerRow(answer, today, zone, { openAnswer(answer.id) }, context::openTask)
+                items(group.entries, key = { it.key }) { entry ->
+                    AnswerRow(entry, today, zone, openAnswer, context::openTask)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 }
             }
@@ -108,21 +109,36 @@ internal fun AnswersTab(context: ProjectScreenContext, openAnswer: (String) -> U
     }
 }
 
+private val taskQuestionIcon = LucideIcon("message-circle", "M7.9 20A9 9 0 1 0 4 16.1L3 21Z")
+
 @Composable
-private fun AnswerRow(answer: Answer, today: LocalDate, zone: ZoneId, open: () -> Unit, openTask: (String) -> Unit) {
-    val preview = remember(answer.answer) { markdownText(answer.answer).replace(Regex("\\s+"), " ").trim() }
-    val weight = if (answer.read) FontWeight.Normal else FontWeight.Bold
-    Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = open)
-        .semantics { if (!answer.read) stateDescription = "Unread" }.padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-        LucideGlyph(Lucide.Check, Modifier.padding(top = 2.dp), size = 16.dp, tint = Jarvis.colors.accent2)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(answer.title, style = MaterialTheme.typography.bodyMedium, fontWeight = weight)
-            Text(preview, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted,
-                fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            (answer.taskId ?: answer.related.firstOrNull())?.let { id -> AnswerTaskChip(id, false) { openTask(id) } }
+private fun AnswerRow(entry: AnswerListEntry, today: LocalDate, zone: ZoneId, openAnswer: (String) -> Unit, openTask: (String) -> Unit) {
+    val answer = (entry as? AnswerListEntry.SavedAnswer)?.answer
+    val question = entry as? AnswerListEntry.TaskQuestion
+    val work = answer?.working?.let { rememberAnswerWorkStatus(it, entry.at) }
+    val taskId = question?.question?.taskId ?: answer?.taskId ?: answer?.related?.firstOrNull()
+    val title = answer?.title ?: question?.title.orEmpty()
+    val reply = answer?.answer ?: question?.question?.note ?: "Question on a task"
+    val preview = work?.label ?: remember(reply) { markdownText(reply).replace(Regex("\\s+"), " ").trim() }
+    val unread = answer?.read == false && work == null
+    val weight = if (unread) FontWeight.Bold else FontWeight.Normal
+    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) {
+        when (entry) {
+            is AnswerListEntry.SavedAnswer -> openAnswer(entry.answer.id)
+            is AnswerListEntry.TaskQuestion -> openTask(entry.question.taskId)
         }
-        Text(if (answer.pinned) answerWhen(answer.at, today, zone) else answerTime(answer.at, zone),
+    }.semantics { if (unread) stateDescription = "Unread" }.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+        if (work != null) AnswerWorkGlyph(work.indicator, Modifier.padding(top = 2.dp))
+        else LucideGlyph(if (question != null) taskQuestionIcon else Lucide.Check,
+            Modifier.padding(top = 2.dp), size = 16.dp, tint = Jarvis.colors.accent2)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = weight)
+            Text(preview, style = MaterialTheme.typography.bodySmall, color = answerWorkColor(work?.indicator),
+                fontWeight = weight, maxLines = if (work == null) 1 else 2, overflow = TextOverflow.Ellipsis)
+            taskId?.let { AnswerTaskChip(it, false) { openTask(it) } }
+        }
+        Text(if (entry.pinned) answerWhen(entry.at, today, zone) else answerTime(entry.at, zone),
             style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted, modifier = Modifier.padding(top = 2.dp))
     }
 }

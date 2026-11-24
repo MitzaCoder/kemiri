@@ -6375,6 +6375,13 @@ Turn into a task, Pin, and confirmed Delete use the existing Answers requests. *
 coordinator at the reply entry. Push and in-app reply notices carrying `answerId` open the page with the chat behind
 it. Backends without `answers` keep the existing project controls and chat routing.
 
+With `answers-work-and-tasks`, Android includes task feedback questions in the same day groups and server search.
+The question and its task chip both open the task. Pending errands show the worker and elapsed minutes with a
+pulsing dot while running, and name failures directly. The existing catalogue refresh replaces pending state with
+the filed reply, which is when it can count as unread. **Copy to Answers** on a closed request copies its report
+as a linked snapshot and opens the answer. Backends with only `answers` keep the earlier catalogue and
+no copy action.
+
 ### Board
 
 The board keeps only its current value. Task histories are separate documents. Closed-task normalization changes

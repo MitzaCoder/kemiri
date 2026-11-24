@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.features.answers.CopyToAnswers
 import io.github.mitzacoder.kemiri.features.refs.refLinkedText
 import io.github.mitzacoder.kemiri.features.chat.clockTime
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
@@ -102,6 +103,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         style = TaskType.xs, color = if (closure != null) colors.success else colors.fgMuted)
                 }
                 fields.goal?.let { Text(it, style = TextStyles.task, color = colors.fgMuted) }
+                if (!sheet.editing) CopyToAnswers(context, task)
                 if (task.refs.isNotEmpty()) TaskRefs(task.refs, refsMaxHeight)
                 if (status.waitingForm) TaskWaitingForm(task.waiting, status.saving, status.workDayStart, { note, until -> status.onSet("waiting", note, until) }, status.onCancelWaiting)
                 else if (status.confirmDrop) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

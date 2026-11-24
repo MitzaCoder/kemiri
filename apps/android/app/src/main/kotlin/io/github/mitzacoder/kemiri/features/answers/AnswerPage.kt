@@ -50,9 +50,10 @@ internal fun AnswerPage(context: ProjectScreenContext, answerId: String, onDelet
         } else key(answer.id) {
             var readError by remember { mutableStateOf<String?>(null) }
             var retryRead by remember { mutableIntStateOf(0) }
-            LaunchedEffect(client, ready, connection.generation, answer.at, answer.entryId, answer.read, retryRead) {
-                if (answer.read) readError = null
-                if (ready && !answer.read) {
+            val pending = answer.working != null
+            LaunchedEffect(client, ready, connection.generation, answer.at, answer.entryId, answer.read, pending, retryRead) {
+                if (answer.read || pending) readError = null
+                if (ready && !answer.read && !pending) {
                     readError = null
                     try { client.request(AnswersUpdateRequest(projectId = projectId, answerId = answerId, read = true)) }
                     catch (error: CancellationException) { throw error }
@@ -97,22 +98,30 @@ internal fun AnswerPage(context: ProjectScreenContext, answerId: String, onDelet
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Answer · ${answer.id}", style = MaterialTheme.typography.labelMedium, color = Jarvis.colors.fgMuted)
                 Text(answer.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
-                Text("Answered $whenAnswered · by ${answer.coordinatorTitle}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                val work = answer.working?.let { rememberAnswerWorkStatus(it, answer.at) }
+                if (work == null) {
+                    Text("Answered $whenAnswered · by ${answer.coordinatorTitle}", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AnswerWorkGlyph(work.indicator)
+                    Text(work.label, style = MaterialTheme.typography.bodySmall, color = answerWorkColor(work.indicator))
+                }
                 HorizontalDivider()
-                RichMarkdown(answer.answer, Modifier.fillMaxWidth())
+                if (pending) Text(answer.question) else RichMarkdown(answer.answer, Modifier.fillMaxWidth())
                 if (taskIds.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     taskIds.forEach { id -> AnswerTaskChip(id, true) { context.openTask(id) } }
                 }
-                Text("A snapshot from $whenAnswered. It does not update itself.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                if (!pending) Text("A snapshot from $whenAnswered. It does not update itself.", style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ask(null) }, enabled = enabled) { Text("Ask again") }
-                    OutlinedButton(onClick = { followUp = !followUp }, enabled = enabled) { Text("Ask a follow-up…") }
-                    if (answer.taskId == null) OutlinedButton(onClick = {
-                        act {
-                            val task = client.request(AnswersTurnIntoTaskRequest(projectId = projectId, answerId = answerId))
-                            context.openTask(task.taskId)
-                        }
-                    }, enabled = enabled) { Text("Turn into a task") }
+                    if (!pending) {
+                        OutlinedButton(onClick = { ask(null) }, enabled = enabled) { Text("Ask again") }
+                        OutlinedButton(onClick = { followUp = !followUp }, enabled = enabled) { Text("Ask a follow-up…") }
+                        if (answer.taskId == null) OutlinedButton(onClick = {
+                            act {
+                                val task = client.request(AnswersTurnIntoTaskRequest(projectId = projectId, answerId = answerId))
+                                context.openTask(task.taskId)
+                            }
+                        }, enabled = enabled) { Text("Turn into a task") }
+                    }
                     TextButton(onClick = {
                         act { client.request(AnswersUpdateRequest(projectId = projectId, answerId = answerId, pinned = !answer.pinned)) }
                     }, enabled = enabled) { Text(if (answer.pinned) "Unpin" else "Pin") }
@@ -126,7 +135,7 @@ internal fun AnswerPage(context: ProjectScreenContext, answerId: String, onDelet
                         Text("Delete", color = if (enabled) MaterialTheme.colorScheme.error else androidx.compose.ui.graphics.Color.Unspecified)
                     }
                 }
-                if (followUp) {
+                if (followUp && !pending) {
                     OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Follow-up question") },
                         enabled = !acting, minLines = 2)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
