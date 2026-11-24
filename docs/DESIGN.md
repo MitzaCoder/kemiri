@@ -2569,12 +2569,13 @@ Status: backend, protocol, client and web UI done (milestone 2).
   `ProjectSummary.checkIns` and `projects.configure`'s
   `checkIns` (null resets to the defaults) carry the check-in settings, `longPromptCache` the one-hour prompt cache
   (Context → One-hour prompt cache).
-- Web app (T192 / Q210): header toggle buttons alone select Tasks (or Board), Background, Info, Artifacts and Memory.
-  Badges stay in the header, and `aria-pressed` plus a filled background identifies the open panel; pressing it again
-  closes it. At narrow header widths, every hidden panel remains in More actions. The shared right sidebar has no
-  panel tab row: a plain heading labels its content region beside Close (and desktop Expand). Below 72rem the same
-  heading and close appear in a full-screen modal sheet, with focus containment and Escape dismissal. Main and thread
-  chats share this shell; worker transcripts offer Info, Artifacts and Memory. Panels are feature-gated. Info shows the conversation's context (`conversation.context`, live from
+- Web app: Tasks (or Board), Answers, Background, Info, Artifacts and Memory are feature-gated views of the project
+  sidebar. They share one panel top bar with Close and desktop Expand, with the active view marked by `aria-pressed`.
+  A hidden heading still names the panel without repeating the active tab on screen. The chat top bar has one Panel
+  button, which reopens the last available view and shows the Tasks attention count and unread Answers when closed.
+  Below 72rem the sidebar is a full-screen sheet with focus containment and Escape dismissal. Main and thread chats
+  share this shell; worker transcripts still offer Info, Artifacts and Memory from the worker header. Info shows the
+  conversation's context (`conversation.context`, live from
   `conversation.context.changed`) for scanning: a Context usage block above the overview (a bar of the tokens the next
   request would send against the model's window with tick marks at the background and blocking thresholds, the numbers
   in k tokens, the compaction count and when the last one was, "Compacting…" while one runs, and a "Compact now" action
@@ -6834,12 +6835,14 @@ in that conversation. This is a display rule, not the outside-model approval cou
   offset across prepend/fling. Keep the `earlier` slot while loading (capability is temporarily false), include it in
   highlight/tail index offsets, and remove it only at exhaustion. Android also separates `earlierError` from the live
   watch; Retry clears it. Highlight loads run outside their loading-keyed effect so starting a page cannot cancel itself.
-- The project chat header spans the full chat pane, excluding the projects sidebar and any docked right panel.
-  Its controls adapt to the measured header row width, not the viewport. Coordinator chips use the available width
-  and scroll horizontally when needed; an oversized label truncates within its chip.
-  The transcript and composer still share a centred readable width (`CHAT_COLUMN_CLASS`, `max-w-4xl`).
-  The right sidebar (Tasks/Background/Info/Memory) runs from the top edge and can expand over the whole chat pane;
-  below 72rem it stays a full-screen sheet.
+- The project chat and docked right sidebar have separate 3.5rem top bars with the same surface and bottom border.
+  Chat keeps the conversation switcher, Files and Uncommitted changes (full-screen overlays), Terminal and settings
+  (separate routes), connection status and mute. The chat actions adapt to the measured pane width and fold into More
+  actions where necessary. The panel keeps its tabs beside Expand and Close. It uses compact tab labels or icons as
+  space narrows, and keeps the controls available when it becomes a full-screen sheet below 72rem. The sidebar
+  restores its stored tab, while `?answer=` opens Answers and `?task=` opens the separate task sheet.
+  Coordinator chips scroll horizontally when needed; the transcript and composer keep their shared centred width
+  (`CHAT_COLUMN_CLASS`, `max-w-4xl`).
 - Every project is one click away: a persistent left sidebar lists every backend's projects, grouped by backend, with
   the current one highlighted, each row's coordinator status (working, failed, workers running, when it last answered)
   and an unread mark for a reply this browser has not seen. It collapses to an icon rail on a wide screen (remembered per

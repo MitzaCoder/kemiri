@@ -8,6 +8,7 @@
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import {
 		DEFAULT_SIDEBAR_WIDTH,
+		SIDEBAR_DOCKED_QUERY,
 		MIN_SIDEBAR_WIDTH,
 		clampSidebarWidth,
 		loadSidebarState,
@@ -28,8 +29,7 @@
 	 * expands to fill the chat area; below 72rem it is a full-screen sheet instead,
 	 * with no resize and no expand.
 	 *
-	 * The available panels and their bodies come from the screen, so the coordinator's chat and a
-	 * worker's transcript share this shell. Only the chat header switches panels; this shell shows a title and close.
+	 * Project chat supplies its panel navigation here. Worker transcripts still switch panels from their own header.
 	 */
 	let {
 		open = $bindable(false),
@@ -39,7 +39,8 @@
 		labels = {},
 		label,
 		preferredTab,
-		projectTabs,
+		panelTabs,
+		restoreFocus,
 		answersPanel,
 		infoPanel,
 		artifactsPanel,
@@ -58,7 +59,8 @@
 		label: string;
 		/** A URL-linked panel takes priority over the restored tab. */
 		preferredTab?: SidebarTab;
-		projectTabs?: Snippet;
+		panelTabs?: Snippet;
+		restoreFocus?: () => void;
 		answersPanel?: Snippet;
 		/** The board's body; told whether the sidebar is full width (expanded, or the sheet), where the board fits. */
 		boardPanel?: Snippet<[boolean]>;
@@ -69,7 +71,7 @@
 	} = $props();
 
 	/** Wide enough for a sidebar beside the chat: below it the same state is a sheet. */
-	const wide = new MediaQuery('(min-width: 72rem)');
+	const wide = new MediaQuery(SIDEBAR_DOCKED_QUERY);
 	/** The width the user chose, kept as chosen so a narrow window does not overwrite it. */
 	let width = $state(DEFAULT_SIDEBAR_WIDTH);
 	let viewportWidth = $state(0);
@@ -125,8 +127,7 @@
 	// Desktop has no dialog focus scope: closing returns keyboard users to the header toggle.
 	let headerTrigger: HTMLElement | undefined;
 	$effect(() => {
-		// Switching panels while open should remember the most recent header toggle too.
-		if (!open || !tabs.includes(tab)) return;
+		if (restoreFocus || !open || !tabs.includes(tab)) return;
 		const focused = document.activeElement;
 		if (focused instanceof HTMLElement && focused.closest('header')) headerTrigger = focused;
 	});
@@ -134,7 +135,9 @@
 	function close(): void {
 		open = false;
 		expanded = false;
-		if (wide.current) headerTrigger?.focus();
+		if (wide.current) {
+			if (restoreFocus) restoreFocus(); else headerTrigger?.focus();
+		}
 	}
 
 	function startResize(event: PointerEvent): void {
@@ -179,45 +182,54 @@
 	}
 </script>
 
-{#snippet panel(closable: boolean)}
+{#snippet panelControls(sheet: boolean)}
+	{#if !sheet}
+		<Button variant="ghost" size="icon-sm" onclick={() => (expanded = !expanded)}
+			aria-label={expanded ? 'Collapse the sidebar' : 'Expand the sidebar'}
+			title={expanded ? 'Collapse' : 'Expand'} aria-pressed={expanded}>
+			{#if expanded}<Minimize2Icon />{:else}<Maximize2Icon />{/if}
+		</Button>
+	{/if}
+	<Button variant="ghost" size="icon-sm" onclick={close} aria-label="Close the sidebar" title="Close">
+		<XIcon />
+	</Button>
+{/snippet}
+
+{#snippet panel(sheet: boolean)}
 	<div class="flex min-h-0 flex-1 flex-col">
-		{@render projectTabs?.()}
-		<div class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1.5">
-			<div class="mx-auto flex w-full max-w-3xl items-center gap-1">
-				{#if closable}
-					<Dialog.Title id="sidebar-heading" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold">
-						{sidebarTabLabel(tab, labels)}
-					</Dialog.Title>
-				{:else}
-					<h2 id="sidebar-heading" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold">
-						{sidebarTabLabel(tab, labels)}
-					</h2>
-				{/if}
-				{#if !closable}
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						onclick={() => (expanded = !expanded)}
-						aria-label={expanded ? 'Collapse the sidebar' : 'Expand the sidebar'}
-						title={expanded ? 'Collapse' : 'Expand'}
-						aria-pressed={expanded}
-					>
-						{#if expanded}<Minimize2Icon />{:else}<Maximize2Icon />{/if}
-					</Button>
-				{/if}
-				<Button variant="ghost" size="icon-sm" onclick={close} aria-label="Close the sidebar" title="Close">
-					<XIcon />
-				</Button>
+		{#if panelTabs}
+			<header class="project-topbar project-panel-nav" aria-label={label}>
+				{@render panelTabs()}
+				<div class="flex shrink-0 items-center gap-1 border-l border-(--chat-border) pl-1">
+					{@render panelControls(sheet)}
+				</div>
+			</header>
+			{#if sheet}
+				<Dialog.Title id="sidebar-heading" class="sr-only">{sidebarTabLabel(tab, labels)}</Dialog.Title>
+				<Dialog.Description class="sr-only">Switch project views or close the panel to return to chat.</Dialog.Description>
+			{:else}
+				<h2 id="sidebar-heading" class="sr-only">{sidebarTabLabel(tab, labels)}</h2>
+			{/if}
+		{:else}
+			<div class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1.5">
+				<div class="mx-auto flex w-full max-w-3xl items-center gap-1">
+					{#if sheet}
+						<Dialog.Title id="sidebar-heading" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold">
+							{sidebarTabLabel(tab, labels)}
+						</Dialog.Title>
+					{:else}
+						<h2 id="sidebar-heading" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold">
+							{sidebarTabLabel(tab, labels)}
+						</h2>
+					{/if}
+					{@render panelControls(sheet)}
+				</div>
 			</div>
-		</div>
-		<div
-			id="sidebar-panel"
-			role="region"
-			aria-labelledby="sidebar-heading"
-			class="flex min-h-0 flex-1 flex-col overflow-hidden"
-		>
+		{/if}
+		<div id="sidebar-panel" role="region" aria-labelledby="sidebar-heading"
+			class="flex min-h-0 flex-1 flex-col overflow-hidden">
 			{#if tab === 'board'}
-				{@render boardPanel?.(closable || expanded)}
+				{@render boardPanel?.(sheet || expanded)}
 			{:else if body !== undefined}
 				{@render body()}
 			{/if}
@@ -262,7 +274,8 @@
 	<Dialog.Root bind:open>
 		<Dialog.Content
 			showCloseButton={false}
-			class="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:max-w-none"
+			onCloseAutoFocus={restoreFocus ? event => { event.preventDefault(); restoreFocus?.(); } : undefined}
+			class="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-none {panelTabs ? '' : 'pt-[env(safe-area-inset-top)]'}"
 		>
 			{@render panel(true)}
 		</Dialog.Content>

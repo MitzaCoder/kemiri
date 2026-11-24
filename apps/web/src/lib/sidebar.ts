@@ -10,13 +10,13 @@
 import type { HarnessFeature } from "@kemiri/protocol";
 
 /**
- * The tabs the sidebar can show: the project's board, main's background jobs, the conversation's context, and its
- * memory.
+ * The tabs with a body in the sidebar. Files and working changes use separate overlays.
  */
 export const SIDEBAR_TABS = ["board", "answers", "background", "info", "artifacts", "memory"] as const;
 export type SidebarTab = (typeof SIDEBAR_TABS)[number];
 
-export const DEFAULT_SIDEBAR_TAB: SidebarTab = "info";
+export const DEFAULT_SIDEBAR_TAB: SidebarTab = "board";
+export const SIDEBAR_DOCKED_QUERY = "(min-width: 72rem)";
 export const DEFAULT_SIDEBAR_WIDTH = 360;
 export const MIN_SIDEBAR_WIDTH = 280;
 /** The share of the window the sidebar may take when resized. */

@@ -89,11 +89,17 @@ describe("sidebar tabs", () => {
 		expect(visibleSidebarTabs((feature) => feature === "board", { background: true })).toEqual(["board"]);
 	});
 
+	test("project navigation lists docked panels but not routes or overlays", () => {
+		const features = new Set(["board", "answers", "threads", "context", "project-artifacts", "memory", "project-files", "project-changes-working", "terminal"]);
+		expect(visibleSidebarTabs(feature => features.has(feature), { background: true, answers: true }))
+			.toEqual(["board", "answers", "background", "info", "artifacts", "memory"]);
+	});
+
 	test("falls back to a tab that is still there", () => {
 		expect(resolveSidebarTab("memory", ["info", "memory"])).toBe("memory");
 		expect(resolveSidebarTab("background", ["info"])).toBe("info");
 		expect(resolveSidebarTab("info", [])).toBeUndefined();
-		expect(DEFAULT_SIDEBAR_TAB).toBe("info");
+		expect(DEFAULT_SIDEBAR_TAB).toBe("board");
 		expect(sidebarTabLabel("board")).toBe("Board");
 		expect(sidebarTabLabel("info")).toBe("Info");
 		expect(sidebarTabLabel("memory")).toBe("Memory");
@@ -155,23 +161,16 @@ describe("stored sidebar state", () => {
 	});
 
 	test("falls back to the defaults for missing, broken or partial values", () => {
-		expect(loadSidebarState(memoryStorage())).toEqual({ width: DEFAULT_SIDEBAR_WIDTH, open: false, tab: "info" });
-		expect(loadSidebarState(memoryStorage({ [SIDEBAR_STORAGE_KEY]: "not json" }))).toEqual({
-			width: DEFAULT_SIDEBAR_WIDTH,
-			open: false,
-			tab: "info",
-		});
-		expect(parseSidebarState(JSON.stringify({ width: "wide", open: "yes", tab: "context" }))).toEqual({
-			width: DEFAULT_SIDEBAR_WIDTH,
-			open: false,
-			tab: "info",
-		});
+		const closed = { width: DEFAULT_SIDEBAR_WIDTH, open: false, tab: DEFAULT_SIDEBAR_TAB };
+		expect(loadSidebarState(memoryStorage())).toEqual(closed);
+		expect(loadSidebarState(memoryStorage({ [SIDEBAR_STORAGE_KEY]: "not json" }))).toEqual(closed);
+		expect(parseSidebarState(JSON.stringify({ width: "wide", open: "yes", tab: "context" }))).toEqual(closed);
 		expect(parseSidebarState(JSON.stringify({ width: 20, open: true }))).toEqual({
 			width: MIN_SIDEBAR_WIDTH,
 			open: true,
-			tab: "info",
+			tab: DEFAULT_SIDEBAR_TAB,
 		});
-		expect(loadSidebarState(undefined)).toEqual({ width: DEFAULT_SIDEBAR_WIDTH, open: false, tab: "info" });
+		expect(loadSidebarState(undefined)).toEqual(closed);
 	});
 
 	test("survives storage that throws", () => {
@@ -184,7 +183,7 @@ describe("stored sidebar state", () => {
 				throw new Error("full");
 			},
 		};
-		expect(loadSidebarState(broken)).toEqual({ width: DEFAULT_SIDEBAR_WIDTH, open: false, tab: "info" });
+		expect(loadSidebarState(broken)).toEqual({ width: DEFAULT_SIDEBAR_WIDTH, open: false, tab: DEFAULT_SIDEBAR_TAB });
 		expect(() => saveSidebarState({ width: 400, open: true, tab: "info" }, broken)).not.toThrow();
 	});
 });

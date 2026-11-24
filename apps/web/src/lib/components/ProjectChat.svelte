@@ -6,6 +6,8 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import ProjectMuteMenu from '#lib/components/alerts/ProjectMuteMenu.svelte';
+	import LayersIcon from '@lucide/svelte/icons/layers';
+	import PanelRightIcon from '@lucide/svelte/icons/panel-right';
 	import ClipboardListIcon from '@lucide/svelte/icons/clipboard-list';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import PaperclipIcon from '@lucide/svelte/icons/paperclip';
@@ -98,7 +100,7 @@
 		type ChatSession,
 		type ProjectContext
 	} from '#lib/harness.svelte.js';
-	import { visibleSidebarTabs, type SidebarTab } from '#lib/sidebar.js';
+	import { DEFAULT_SIDEBAR_TAB, SIDEBAR_DOCKED_QUERY, sidebarTabLabel, visibleSidebarTabs, type SidebarTab } from '#lib/sidebar.js';
 	import { questionBadgeText, questionsWaitingLabel } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { alerts } from '#lib/alerts.svelte.js';
@@ -121,7 +123,7 @@
 	/**
 	 * One project's coordinator conversation: the transcript, the composer, the
 	 * model and thinking level the composer changes, the workers it delegates to,
-	 * the conversation's context and the project's memory. All three live in one
+	 * the conversation's context and the project's memory. Panels share one
 	 * resizable right sidebar (a full-screen sheet below 72rem).
 	 *
 	 * With `threadId` this is a background job's chat instead: the same transcript and composer, typed into
@@ -212,12 +214,13 @@
 
 	/** The right sidebar: open, which tab, and whether it fills the chat area. */
 	let sidebarOpen = $state(false);
-	let sidebarTab = $state<SidebarTab>('info');
+	let sidebarTab = $state<SidebarTab>(DEFAULT_SIDEBAR_TAB);
+	const dockedSidebar = new MediaQuery(SIDEBAR_DOCKED_QUERY);
+	let sidebarToggle = $state<HTMLElement | null>(null);
+	let sidebarNavigation = $state<HTMLElement>();
 	let sidebarExpanded = $state(false);
 	let questionPin: ReturnType<typeof BoardQuestionPin> | undefined = $state();
 	const supportsAnswers = $derived(answersSupported(backend.features));
-	const phone = new MediaQuery('(width < 640px)');
-	const projectViewClass = 'inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md px-2 text-(--chat-fg-muted) hover:bg-(--chat-surface-2) aria-pressed:bg-(--chat-surface-2) aria-pressed:text-(--chat-fg) max-sm:flex-1';
 	const answerId = $derived(shown && supportsAnswers ? answerFromUrl(page.url) : undefined);
 	const answerReplies = $derived(answers && supportsAnswers ? answersByReply(answers.answers, threadId ?? 'main') : undefined);
 	$effect(() => {
@@ -236,7 +239,6 @@
 	}, () => shown);
 
 	const supportsWorkers = $derived(backend.supports('workers'));
-	const supportsMemory = $derived(backend.supports('memory'));
 	const supportsBoard = $derived(backend.supports('board'));
 	// With task reports the Board tab is the Tasks view, and `?task=<id>` opens a task's sheet over the chat.
 	const supportsTasks = $derived(supportsBoard && backend.supports('task-reports'));
@@ -408,27 +410,35 @@
 		return error instanceof Error ? error.message : String(error);
 	}
 
-	/** One control in the chat header: a tab of the right sidebar or the project settings button. */
+	const sidebarTabIcons: Record<SidebarTab, Component> = {
+		board: ClipboardListIcon,
+		answers: BookmarkIcon,
+		background: LayersIcon,
+		info: InfoIcon,
+		artifacts: PaperclipIcon,
+		memory: BookOpenIcon
+	};
+	const taskAttentionLabel = $derived(questionsWaiting > 0
+		? supportsAssignment ? `${questionsWaiting} need attention` : questionsWaitingLabel(questionsWaiting)
+		: undefined);
+	const taskAttentionBadge = $derived(questionBadgeText(questionsWaiting));
+	const sidebarLabels = $derived({ board: boardTabName, background: 'Background' });
+	const sidebarToggleName = $derived([
+		sidebarOpen ? 'Close project panel' : 'Open project panel',
+		!sidebarOpen ? taskAttentionLabel : undefined,
+		!sidebarOpen && answers?.unread ? 'Unread answers' : undefined
+	].filter(Boolean).join(' · '));
+
+	/** The panel opener and the chat's routes and overlays, not tabs of the project panel. */
 	type HeaderAction = {
 		id: string;
-		/** A sidebar tab (it has a label where the row shows labels) or one of the icons after the connection badge. */
-		kind: 'tab' | 'utility';
-		/** What the button is called, count included: its aria-label. */
+		kind: 'panel' | 'navigation' | 'utility';
 		name: string;
-		/** Its tooltip, when saying what the button does is not the same thing; the name stands in for it. */
 		title?: string;
-		/** The text beside its icon where the row has room for labels; a control without one stays an icon. */
 		label?: string;
-		/** What the overflow menu calls it, when that reads better than the header's label. */
-		menuLabel?: string;
 		icon: Component;
-		/** The count on the button: beside its label on a wide row, over its icon's corner without one. */
-		count?: string;
-		unread?: boolean;
-		tone?: 'primary' | 'accent';
-		/** Tasks and Workers stay in the row when the rest fold into the menu. */
+		badge?: boolean;
 		primary?: boolean;
-		pressed?: boolean;
 		href?: string;
 		onclick?: () => void;
 	};
@@ -448,99 +458,38 @@
 		return () => observer.disconnect();
 	});
 
-	/** The right sidebar's tabs as header buttons; the board and the workers are the two a phone keeps in the row. */
-	const tabActions = $derived.by((): HeaderAction[] => {
+	const headerActions = $derived.by((): HeaderAction[] => {
 		const actions: HeaderAction[] = [];
-		if (supportsBoard && !(supportsAnswers && phone.current)) {
-			actions.push({
-				id: 'board',
-				kind: 'tab',
-				name: `${boardTabName}${questionsWaiting > 0 ? ` (${supportsAssignment ? `${questionsWaiting} need attention` : questionsWaitingLabel(questionsWaiting)})` : ''}`,
-				label: boardTabName,
-				icon: ClipboardListIcon,
-				count: questionBadgeText(questionsWaiting),
-				tone: 'primary',
-				primary: true,
-				pressed: sidebarOpen && sidebarTab === 'board',
-				onclick: () => toggleSidebar('board')
-			});
-		}
-		if (supportsAnswers && !phone.current) actions.push({
-			id: 'answers', kind: 'tab', name: answers?.unread ? 'Answers (unread)' : 'Answers', label: 'Answers',
-			icon: BookmarkIcon, unread: answers?.unread, primary: true,
-			pressed: sidebarOpen && sidebarTab === 'answers', onclick: () => toggleSidebar('answers')
+		if (filesNavigation.available()) actions.push({
+			id: 'files', kind: 'navigation', name: 'Files', label: 'Files', icon: FolderIcon,
+			onclick: () => { headerMenuOpen = false; void filesNavigation.open(); }
 		});
-		if (backend.supports('context')) {
-			actions.push({
-				id: 'info',
-				kind: 'tab',
-				name: 'Conversation info',
-				label: 'Info',
-				icon: InfoIcon,
-				pressed: sidebarOpen && sidebarTab === 'info',
-				onclick: () => toggleSidebar('info')
-			});
-		}
-		if (backend.supports('project-artifacts')) actions.push({
-			id: 'artifacts', kind: 'tab', name: 'Artifacts', label: 'Artifacts', icon: PaperclipIcon,
-			pressed: sidebarOpen && sidebarTab === 'artifacts', onclick: () => toggleSidebar('artifacts')
-		});
-		if (supportsMemory) {
-			actions.push({
-				id: 'memory',
-				kind: 'tab',
-				name: 'Memory',
-				label: 'Memory',
-				icon: BookOpenIcon,
-				pressed: sidebarOpen && sidebarTab === 'memory',
-				onclick: () => toggleSidebar('memory')
-			});
-		}
-		if (filesNavigation.available()) actions.push({ id: 'files', kind: 'tab', name: 'Files', label: 'Files', icon: FolderIcon, onclick: () => { headerMenuOpen = false; void filesNavigation.open(); } });
 		if (threadId && thread && !thread.archived && backend.features?.includes('project-changes-working')) actions.push({
-			id: 'working-changes', kind: 'tab', name: 'Uncommitted changes', label: 'Uncommitted changes', icon: FolderIcon,
+			id: 'working-changes', kind: 'navigation', name: 'Uncommitted changes', label: 'Uncommitted changes', icon: FolderIcon,
 			onclick: () => { headerMenuOpen = false; void openWorkingChanges({ kind: 'thread', threadId: threadId! }); }
 		});
-		// A shell on this backend in the project's folder, on a page of its own (zellij sessions, tabs, a phone key bar).
-		if (project && backend.supports('terminal')) {
-			actions.push({
-				id: 'terminal',
-				kind: 'tab',
-				name: 'Terminal',
-				title: 'A terminal on this backend, in the project folder',
-				label: 'Terminal',
-				icon: TerminalIcon,
-				href: terminalHref(backend.id, { projectId: project.id })
-			});
-		}
+		if (project && backend.supports('terminal')) actions.push({
+			id: 'terminal', kind: 'navigation', name: 'Terminal', title: 'A terminal on this backend, in the project folder',
+			label: 'Terminal', icon: TerminalIcon, href: terminalHref(backend.id, { projectId: project.id })
+		});
+		if (project && (backend.supports('models') || backend.supports('credentials') || backend.supports('logins'))) actions.push({
+			id: 'settings', kind: 'utility', name: 'Project settings', icon: SettingsIcon,
+			href: projectSettingsHref(backend.id, project.id), onclick: () => (headerMenuOpen = false)
+		});
+		if (supportsSidebar) actions.push({
+			id: 'panel', kind: 'panel', name: sidebarToggleName, label: 'Panel', icon: PanelRightIcon,
+			badge: !sidebarOpen && taskAttentionBadge !== undefined, primary: true, onclick: toggleSidebar
+		});
 		return actions;
 	});
 
-	/** Project settings folds into More actions when the header gets narrow. */
-	const utilityActions = $derived.by((): HeaderAction[] => {
-		const actions: HeaderAction[] = [];
-		if (project && (backend.supports('models') || backend.supports('credentials') || backend.supports('logins'))) {
-			actions.push({
-				id: 'settings',
-				kind: 'utility',
-				name: 'Project settings',
-				menuLabel: 'Project settings',
-				icon: SettingsIcon,
-				href: projectSettingsHref(backend.id, project.id),
-				onclick: () => (headerMenuOpen = false)
-			});
-		}
-		return actions;
-	});
-
-	const headerActions = $derived([...tabActions, ...utilityActions]);
 	/** Labels where they fit beside the project's name, icons where they do not, and a menu when even those are too many. */
 	const wideProjectsSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
 	// Leave room for the 44px inbox and mute buttons (plus their gaps), separate from the foldable actions.
 	const headerRowLayout = $derived(headerLayout(headerWidth - (wideProjectsSidebar.current ? 0 : 48) - (showProjectMuteMenu ? 48 : 0), headerActions));
 	const shownHeaderActions = $derived(visibleHeaderActions(headerRowLayout, headerActions));
-	const shownTabActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'tab'));
-	const shownUtilityActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'utility'));
+	const chatNavigationActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'navigation'));
+	const chatUtilityActions = $derived(shownHeaderActions.inline.filter((action) => action.kind !== 'navigation'));
 	/** A dropped connection is worth a mark on the menu, which is the only place it shows on a phone. */
 	const connectionTone = $derived(connectionView(backend.connection).tone);
 
@@ -757,21 +706,27 @@
 		};
 	});
 
-	function toggleSidebar(target: SidebarTab): void {
-		if (sidebarOpen && sidebarTab === target) {
-			setSidebarOpen(false);
-			sidebarExpanded = false;
-			return;
+	function toggleSidebar(): void {
+		if (sidebarOpen) setSidebarOpen(false);
+		else {
+			selectSidebar(sidebarTab);
+			if (dockedSidebar.current) void afterRender().then(() => {
+				sidebarNavigation?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus();
+			});
 		}
-		selectSidebar(target);
 	}
 
 	function selectSidebar(target: SidebarTab): void {
+		if (sidebarOpen && sidebarTab === target) return;
 		if (target !== 'answers' && answerId) returnToAnswersList();
+		// Keep an expanded panel expanded when switching tabs. Tasks also expand for Board and Graph.
+		sidebarExpanded = (sidebarOpen && sidebarExpanded) || (target === 'board' && supportsTasks && tasksView.mode !== 'list');
 		sidebarTab = target;
 		sidebarOpen = true;
-		// Tasks open the way this device last looked at them: the list beside the chat, or the board full width.
-		sidebarExpanded = target === 'board' && supportsTasks && tasksView.mode !== 'list';
+	}
+
+	function focusSidebarToggle(): void {
+		if (shown) void afterRender().then(() => sidebarToggle?.focus());
 	}
 
 	function returnToAnswersList(): void {
@@ -780,7 +735,10 @@
 
 	function setSidebarOpen(open: boolean): void {
 		sidebarOpen = open;
-		if (!open && answerId) returnToAnswersList();
+		if (!open) {
+			sidebarExpanded = false;
+			if (answerId) returnToAnswersList();
+		}
 	}
 
 	function answerHref(id: string): string {
@@ -989,93 +947,62 @@
 
 {#snippet headerButton(action: HeaderAction)}
 	{@const labelled = headerActionShowsLabel(headerRowLayout, action)}
-	{@const badgeClass =
-		'header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold'}
-	<Button
-		variant="ghost"
-		size={labelled ? 'sm' : 'icon-sm'}
-		class={`${action.kind === 'tab' ? 'header-panel-action' : 'aria-pressed:bg-muted aria-pressed:text-foreground'} ${labelled ? 'shrink-0' : 'relative shrink-0'}`}
-		href={action.href}
-		onclick={action.onclick}
-		aria-label={action.name}
-		title={action.title ?? action.name}
-		aria-pressed={action.pressed}
-	>
-		<action.icon class="size-4" />
-		{#if action.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>
-		{:else if action.id === 'background'}
-			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
-				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
-				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
-			</span>
-		{:else if action.count !== undefined}
-			<span
-				class={labelled ? `h-4 ${badgeClass}` : `absolute -top-0.5 -right-0.5 ${badgeClass}`}
-			>
-				{action.count}
-			</span>
-		{/if}
-		{#if labelled && action.label}{action.label}{/if}
-	</Button>
+	{#if action.kind === 'panel'}
+		<Button variant="ghost" size={labelled ? 'sm' : 'icon-sm'} class="header-panel-action relative"
+			bind:ref={sidebarToggle} onclick={action.onclick} aria-label={action.name} title={action.name}
+			aria-expanded={sidebarOpen}>
+			<action.icon class="size-4" />
+			{#if labelled}{action.label}{/if}
+			{#if !sidebarOpen && taskAttentionBadge}
+				<span class="header-panel-badge {labelled ? '' : 'absolute -top-0.5 -right-0.5'}" aria-hidden="true">{taskAttentionBadge}</span>
+			{/if}
+			{#if !sidebarOpen && answers?.unread}<span class="absolute right-0 bottom-0 size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>{/if}
+		</Button>
+	{:else}
+		<Button variant="ghost" size={labelled ? 'sm' : 'icon-sm'} class="header-panel-action"
+			href={action.href} onclick={action.onclick} aria-label={action.name} title={action.title ?? action.name}>
+			<action.icon class="size-4" />
+			{#if labelled}{action.label}{/if}
+		</Button>
+	{/if}
 {/snippet}
 
 {#snippet headerMenuRow(action: HeaderAction)}
-	<Button
-		variant="ghost"
-		size="sm"
-		class={`h-8 w-full justify-start gap-2 px-2 font-normal ${action.kind === 'tab' ? 'header-panel-action' : 'aria-pressed:bg-muted aria-pressed:text-foreground'}`}
-		href={action.href}
-		onclick={() => pickHeaderAction(action)}
-		aria-label={action.name}
-		aria-pressed={action.pressed}
-	>
-		<action.icon class="size-4 shrink-0" />
-		<span class="min-w-0 flex-1 truncate text-left">{action.menuLabel ?? action.label ?? action.name}</span>
-		{#if action.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>
-		{:else if action.id === 'background'}
-			<span class="inline-flex gap-1 text-[0.625rem] font-semibold" aria-hidden="true">
-				<span class="rounded-full bg-(--chat-warning)/10 px-1 text-(--chat-warning)">{jobCounts.needsYou}</span>
-				<span class="rounded-full bg-(--chat-surface-2) px-1 text-(--chat-fg-muted)">{jobCounts.working}</span>
-			</span>
-		{:else if action.count !== undefined}
-			<span
-				class="header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold"
-			>
-				{action.count}
-			</span>
-		{/if}
+	<Button variant="ghost" size="sm" class="h-8 w-full justify-start gap-2 px-2 font-normal"
+		href={action.href} onclick={() => pickHeaderAction(action)} aria-label={action.name}>
+		<action.icon class="size-4" />
+		<span class="min-w-0 flex-1 truncate text-left">{action.label ?? action.name}</span>
 	</Button>
 {/snippet}
 
-{#snippet projectTabs(inSidebar: boolean)}
-	<nav aria-label="Project views" class="flex shrink-0 items-center gap-1 border-b border-(--chat-border) px-2 py-1 text-xs font-semibold max-sm:text-sm">
-		{#if phone.current}<button type="button" class={projectViewClass} aria-pressed={!inSidebar} onclick={() => setSidebarOpen(false)}>Chat</button>{/if}
-		{#if supportsBoard}
-			{@const badge = phone.current ? questionBadgeText(questionsWaiting) : undefined}
-			<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'board'}
-				aria-label={badge ? `${boardTabName} (${questionsWaiting} need attention)` : boardTabName} onclick={() => selectSidebar('board')}>
-				{boardTabName}
-				{#if badge}<span class="header-panel-badge grid min-w-4 place-items-center rounded-full px-1 text-[0.625rem] font-semibold" aria-hidden="true">{badge}</span>{/if}
-			</button>
-		{/if}
-		<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'answers'} aria-label={answers?.unread ? 'Answers (unread)' : 'Answers'} onclick={() => selectSidebar('answers')}>
-			Answers {#if answers?.unread}<span class="size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>{/if}
-		</button>
-		{#if !phone.current}
-			{#if supportsThreads}<button type="button" class={projectViewClass} aria-pressed={inSidebar && sidebarTab === 'background'} onclick={() => selectSidebar('background')}>Background</button>{/if}
-			{#if filesNavigation.available()}<button type="button" class={projectViewClass} onclick={() => { if (answerId) setSidebarOpen(false); void filesNavigation.open(); }}>Files</button>{/if}
-		{/if}
+{#snippet sidebarPanelTabs()}
+	<nav bind:this={sidebarNavigation} aria-label="Project panel views"
+		class="-ml-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overscroll-x-contain p-1 [scrollbar-width:none]">
+		{#each sidebarTabs as tab (tab)}
+			{@const TabIcon = sidebarTabIcons[tab]}
+			{@const label = sidebarTabLabel(tab, sidebarLabels)}
+			{@const details = tab === 'board' ? taskAttentionLabel : tab === 'answers' && answers?.unread ? 'Unread' : undefined}
+			{@const showCompactLabel = tab === 'board' || tab === 'answers' || tab === 'background'}
+			<Button variant="ghost" size="sm" class="header-panel-action project-panel-tab relative gap-1.5"
+				data-compact-label={showCompactLabel ? '' : undefined}
+				aria-pressed={sidebarTab === tab} aria-label={details ? `${label} (${details})` : label}
+				title={details ? `${label} (${details})` : label} onclick={() => selectSidebar(tab)}>
+				<span class="project-panel-tab-icon"><TabIcon class="size-4" /></span>
+				<span class="project-panel-tab-label">{label}</span>
+				{#if tab === 'board' && taskAttentionBadge}
+					<span class="header-panel-badge project-panel-task-badge absolute -top-0.5 right-0" aria-hidden="true">{taskAttentionBadge}</span>
+				{:else if tab === 'answers' && answers?.unread}
+					<span class="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>
+				{/if}
+			</Button>
+		{/each}
 	</nav>
 {/snippet}
 
-{#snippet sidebarProjectTabs()}{@render projectTabs(true)}{/snippet}
-
 <div class="flex h-full w-full overflow-hidden" bind:this={chatRoot}>
-	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-			<header
-				class="relative z-10 flex w-full shrink-0 flex-col gap-0.5 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 sm:px-3"
-			>
-				<div class="flex min-h-12 min-w-0 items-center gap-1 sm:h-12" bind:this={headerRow}>
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" inert={sidebarOpen && sidebarExpanded && dockedSidebar.current}>
+			<header class="project-topbar relative z-10" aria-label="Project chat">
+				<div class="flex h-full min-w-0 flex-1 items-center gap-1" bind:this={headerRow}>
 					<ProjectsMenuButton />
 					{#if isThread}
 						<Button
@@ -1090,17 +1017,17 @@
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => { sidebarTab = 'background'; sidebarOpen = true; }} />
+						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => selectSidebar('background')} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
-					{#each shownTabActions as action (action.id)}
+					{#each chatNavigationActions as action (action.id)}
 						{@render headerButton(action)}
 					{/each}
 					{#if headerRowLayout !== 'menu'}
 						<ConnectionBadge {backend} />
 					{:else}
-						<!-- The rest of the row, one tap away: secondary tabs and the settings gear. -->
+						<!-- Chat routes, connection and settings stay reachable when the pane is narrow. -->
 						<Popover.Root bind:open={headerMenuOpen}>
 							<Popover.Trigger
 								class="relative inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground"
@@ -1129,10 +1056,12 @@
 					{#if project && showProjectMuteMenu}
 						<ProjectMuteMenu backendId={backend.id} {projectId} projectName={project.name} />
 					{/if}
-					{#each shownUtilityActions as action (action.id)}
+					{#each chatUtilityActions as action (action.id)}
 						{@render headerButton(action)}
 					{/each}
 				</div>
+			</header>
+			<div class="relative z-10 flex shrink-0 flex-col gap-0.5 px-2 not-empty:py-1 sm:px-3">
 				<div class="empty:hidden sm:hidden" bind:this={chatBannerHost}></div>
 				{#if !isThread && !supportsCoordinators}
 					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
@@ -1183,8 +1112,7 @@
 				{#if backend.features?.includes('apps')}
 					<RunningApps tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />
 				{/if}
-			</header>
-			{#if supportsAnswers && phone.current}{@render projectTabs(false)}{/if}
+			</div>
 			{#if isThread && thread && threads && !coordinatorChat}
 				<BackgroundJobBand {thread} {threads} {board} {now} projectName={project?.name ?? 'Project'} mainHref={supportsCoordinators ? coordinatorHref(backend.id, projectId, coordinatorId) : projectHref(backend.id, projectId)}
 					onpromote={backend.supports('coordinator-schedules') ? () => manager = thread : undefined}
@@ -1362,11 +1290,12 @@
 				<ConversationSidebar
 					bind:open={() => sidebarOpen, setSidebarOpen}
 					preferredTab={answerId ? 'answers' : undefined}
-					projectTabs={supportsAnswers ? sidebarProjectTabs : undefined}
+					panelTabs={sidebarPanelTabs}
+					restoreFocus={focusSidebarToggle}
 					bind:tab={sidebarTab}
 					bind:expanded={sidebarExpanded}
 					tabs={sidebarTabs}
-					labels={{ board: boardTabName }}
+					labels={sidebarLabels}
 					label="Project sidebar"
 				>
 					{#snippet boardPanel(fullWidth: boolean)}
@@ -1488,27 +1417,69 @@
 {/if}
 
 <style>
-	/* Scoped to panel actions: utility toggles retain their own pressed state. */
+	/* Shared by the chat navigation and the docked or sheet panel navigation. */
+	:global(.project-topbar) {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+		min-width: 0;
+		height: calc(3.5rem + env(safe-area-inset-top));
+		gap: 0.25rem;
+		padding: env(safe-area-inset-top) 0.75rem 0;
+		border-bottom: 1px solid var(--chat-border);
+		background: var(--chat-bg);
+	}
+	@media (width < 40rem) {
+		:global(.project-topbar) { padding-inline: 0.5rem; }
+	}
+	:global(.project-panel-nav) { container: project-panel-nav / inline-size; }
+	:global(.project-panel-tab) { width: 2rem; padding-inline: 0; }
+	.project-panel-tab-label { display: none; }
+	@container project-panel-nav (width < 19rem) {
+		:global(.project-panel-tab) { width: 1.6875rem; }
+	}
+	@container project-panel-nav (width >= 19rem) and (width < 23rem) {
+		:global(.project-panel-tab[aria-pressed='true']) { width: auto; padding-inline: 0.625rem; }
+		:global(.project-panel-tab[aria-pressed='true']) .project-panel-tab-label { display: inline; }
+	}
+	@container project-panel-nav (width >= 23rem) and (width < 42rem) {
+		:global(.project-panel-tab) { width: 1.75rem; }
+		:global(.project-panel-tab[data-compact-label]) { width: auto; padding-inline: 0.3125rem; font-size: 0.8125rem; }
+		:global(.project-panel-tab[data-compact-label]) .project-panel-tab-label { display: inline; }
+		:global(.project-panel-tab[data-compact-label]) .project-panel-tab-icon { display: none; }
+		.project-panel-task-badge { position: static; }
+	}
+	@container project-panel-nav (width >= 42rem) {
+		:global(.project-panel-tab) { width: auto; padding-inline: 0.625rem; }
+		.project-panel-tab-label { display: inline; }
+		.project-panel-task-badge { position: static; }
+	}
 	:global(.header-panel-action) {
 		color: var(--chat-fg-muted);
 		border-radius: 999px;
 	}
-	:global(.header-panel-action[aria-pressed='true']) {
+	:global(.header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])) {
 		color: light-dark(#4338ca, #c7d2fe);
 		background: light-dark(#e0e7ff, #312e81);
 	}
-	:global(.header-panel-action[aria-pressed='true']:hover) {
+	:global(.header-panel-action:is([aria-pressed='true'], [aria-expanded='true']):hover) {
 		background: light-dark(#c7d2fe, #3730a3);
 	}
 	:global(.header-panel-badge) {
+		min-width: 1rem;
+		border-radius: 999px;
+		padding-inline: 0.25rem;
+		text-align: center;
+		font-size: 0.625rem;
+		font-weight: 600;
 		color: light-dark(#ffffff, #0b0b14);
 		background: light-dark(#4f46e5, #818cf8);
 	}
-	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']) {
+	:global([data-theme='neutral'] .header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])) {
 		color: light-dark(#171717, #fafafa);
 		background: light-dark(#d4d4d4, #404040);
 	}
-	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']:hover) {
+	:global([data-theme='neutral'] .header-panel-action:is([aria-pressed='true'], [aria-expanded='true']):hover) {
 		background: light-dark(#bfbfbf, #525252);
 	}
 	:global([data-theme='neutral'] .header-panel-badge) {

@@ -23,10 +23,10 @@ function pair(selector: string, property: string): string[] {
 
 for (const prefix of ["", "[data-theme='neutral'] "]) {
 	test(`${prefix || "Jarvis "}selected panel text and hover meet AA in both modes`, () => {
-		const selector = `:global(${prefix}.header-panel-action[aria-pressed='true'])`;
-		const foreground = pair(selector, "color");
-		const background = pair(selector, "background");
-		const hover = pair(`:global(${prefix}.header-panel-action[aria-pressed='true']:hover)`, "background");
+		const selector = `${prefix}.header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])`;
+		const foreground = pair(`:global(${selector})`, "color");
+		const background = pair(`:global(${selector})`, "background");
+		const hover = pair(`:global(${selector}:hover)`, "background");
 		for (let mode = 0; mode < 2; mode++) {
 			expect(contrast(foreground[mode]!, background[mode]!)).toBeGreaterThanOrEqual(4.5);
 			expect(contrast(foreground[mode]!, hover[mode]!)).toBeGreaterThanOrEqual(4.5);
@@ -41,10 +41,12 @@ test("badge labels meet AA independently of the selected panel", () => {
 	for (let mode = 0; mode < 2; mode++) expect(contrast(foreground[mode]!, background[mode]!)).toBeGreaterThanOrEqual(4.5);
 });
 
-test("inline and overflow actions share panel-only styling and retain pressed semantics", () => {
-	const actions = source.slice(source.indexOf("{#snippet headerButton"), source.indexOf('<div class="flex h-full'));
-	expect(actions.match(/action.kind === 'tab' \? 'header-panel-action'/g)).toHaveLength(2);
-	expect(actions.match(/aria-pressed=\{action.pressed\}/g)).toHaveLength(2);
-	expect(actions).not.toContain("text-(--chat-fg-subtle)");
+test("the chat opener and panel tabs use the same active styling with their own ARIA states", () => {
+	const opener = source.slice(source.indexOf("{#snippet headerButton"), source.indexOf("{#snippet headerMenuRow"));
+	const tabs = source.slice(source.indexOf("{#snippet sidebarPanelTabs"), source.indexOf('<div class="flex h-full'));
+	expect(opener).toContain('class="header-panel-action relative"');
+	expect(opener).toContain("aria-expanded={sidebarOpen}");
+	expect(tabs).toContain('class="header-panel-action project-panel-tab');
+	expect(tabs).toContain("aria-pressed={sidebarTab === tab}");
 	expect(css).not.toContain("outline: none");
 });
