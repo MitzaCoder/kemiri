@@ -134,7 +134,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         onCloseTask = if (actions.canClose) ({ status.onSet("done", null, null) }) else null, onFocusReply = sheet.onFocusReply)
                 }
                 if (liveNow != null && task.live != null) item(key = "live") {
-                    TaskLive(task.live, liveNow, context.backend.config.key, context.route.projectId, taskId, sheet.liveNews)
+                    TaskLive(task.live, liveNow, context.backend.config.key, context.route.projectId, taskId, sheet.liveNews, workers, context::openTaskWorkerTranscript)
                 }
                 item(key = "results") {
                     TaskReadingSection("What you get") {
@@ -210,11 +210,11 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                                 if (linksEnabled) TaskTimeline(timeline?.entries.orEmpty(), record.timelineNewestFirst, record.onToggleTimelineOrder, record.writerName, now,
                                     groups = timeline?.groups.takeIf { timelineGroupsEnabled }, onKindsChanged = record.onTimelineKindsChanged)
                                 if (task.snapshots > 0) TaskReadingSection("History") { TaskHistory(context, task, record.writerName) }
-                                if (task.workerIds.isNotEmpty()) TaskRecordWorkers(context, task.workerIds, workers)
                             }
                         } } else null,
                     )
                 }
+                if (task.workerIds.isNotEmpty()) item(key = "workers") { TaskRecordWorkers(context, task.workerIds, workers) }
                 item(key = "about") {
                     TaskAbout(context, task, sheet.tasks, sheet.archivedLinks, sheet.owner,
                         legacyDelivery = activity.takeUnless { deliveryEnabled }, delivery = delivery,

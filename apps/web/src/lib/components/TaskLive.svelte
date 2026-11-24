@@ -1,14 +1,18 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { liveCounterLabels, type BoardTaskActivity, type BoardTaskLive } from '@kemiri/protocol';
-	import { liveSeenKey, liveTrailBelowNow, visitLiveTrail, type LiveNewsActions } from '#lib/task-live.js';
+	import { liveCounterLabels, type BoardTaskActivity, type BoardTaskLive, type WorkerSummary } from '@kemiri/protocol';
+	import { liveSeenKey, liveTrailBelowNow, liveTranscriptWorkers, visitLiveTrail, type LiveNewsActions } from '#lib/task-live.js';
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { exactTime, relativeTime } from '#lib/relative-time.js';
 	import TaskLivePulse from './TaskLivePulse.svelte';
 	import TaskLivePlan from './TaskLivePlan.svelte';
 	import TaskLiveLine from './TaskLiveLine.svelte';
 
-	let { live, now, backendId, projectId, taskId, news }: { live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string; news?: LiveNewsActions } = $props();
+	let { live, now, backendId, projectId, taskId, news, workers, workerHref }: {
+		live: BoardTaskLive; now: BoardTaskActivity; backendId: string; projectId: string; taskId: string;
+		news?: LiveNewsActions; workers: readonly WorkerSummary[]; workerHref: (worker: WorkerSummary) => string;
+	} = $props();
+	const { nowWorker, transcriptWorkers } = $derived(liveTranscriptWorkers(taskId, now, workers));
 	const chronological = $derived(liveTrailBelowNow(live.lines, now, !!news));
 	const newestFirst = $derived(chronological.toReversed());
 	const newestLimit = 3;
@@ -42,8 +46,23 @@
 {/snippet}
 
 <section class="task-live" aria-label="Live" data-task-live>
-	<h2 class="live-heading">Live</h2>
-	<p class="live-now"><strong>Now</strong> <span>{now.text}</span> <time datetime={now.since} title={exactTime(now.since)}>{relativeTime(now.since, $activityMinute)}</time></p>
+	<header class="live-header">
+		<h2 class="live-heading">Live</h2>
+		{#if transcriptWorkers.length}
+			<nav class="live-transcripts" aria-label="Worker transcripts">
+				{#each transcriptWorkers as worker (worker.conversationId)}
+					<a href={workerHref(worker)} aria-label={`Transcript for ${worker.id}`}>
+						{transcriptWorkers.length > 1 ? `Transcript · ${worker.id}` : 'Transcript'}
+					</a>
+				{/each}
+			</nav>
+		{/if}
+	</header>
+	<p class="live-now">
+		<strong>Now</strong>
+		<span>{#if nowWorker}<a href={workerHref(nowWorker)} aria-label={`Transcript for ${nowWorker.id}`}>{nowWorker.id}</a>{now.text.slice(nowWorker.id.length)}{:else}{now.text}{/if}</span>
+		<time datetime={now.since} title={exactTime(now.since)}>{relativeTime(now.since, $activityMinute)}</time>
+	</p>
 	{#if live.pulse}<TaskLivePulse pulse={live.pulse} />{/if}
 	{#if counters.length}
 		<ul class="live-counters" aria-label="Run counters" role="list">
@@ -78,6 +97,10 @@
 <style>
 	.task-live { display: grid; gap: 0.5rem; min-width: 0; padding: 0 0 0.875rem; border-bottom: 1px solid var(--chat-border); }
 	.live-heading { font-size: 0.8125rem; font-weight: 600; }
+	.live-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem; }
+	.live-transcripts { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; min-width: 0; font-size: 0.75rem; }
+	.live-transcripts a { display: inline-flex; align-items: center; min-height: 1.5rem; overflow-wrap: anywhere; }
+	.live-header a, .live-now a { text-decoration: underline; text-underline-offset: 0.15em; }
 	.live-now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.5rem; font-size: 0.875rem; overflow-wrap: anywhere; }
 	.live-now strong, .live-now time, .live-earlier summary { font-size: 0.75rem; color: var(--chat-fg-muted); }
 	.live-counters { display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; color: var(--chat-fg-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }

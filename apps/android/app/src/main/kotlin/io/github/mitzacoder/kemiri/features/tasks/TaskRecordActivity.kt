@@ -62,7 +62,7 @@ internal fun TaskRecordActivity(
             TaskHeading(day.day, Modifier.padding(bottom = 4.dp))
             day.entries.forEach { row -> key(row.id) {
                 val worker = workersById[row.workerId]
-                val openWorker: (() -> Unit)? = worker?.let { { context.navigate(context.route.copy(threadId = it.threadId, workerId = it.id)) } }
+                val openWorker: (() -> Unit)? = worker?.let { { context.openTaskWorkerTranscript(it) } }
                 val openTask: (() -> Unit)? = row.taskId?.let { { context.openTask(it) } }
                 RecordActivityRow(row, task, before[row.snapshot?.seq], writerName, openTask ?: openWorker,
                     if (openTask != null) "Open linked task" else "Open worker", news)

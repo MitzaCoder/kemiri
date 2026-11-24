@@ -172,7 +172,7 @@
 
 							{#if requestedId !== null && task.live && liveNow}
 								{#key JSON.stringify([backend.id, projectId, task.id])}
-									<TaskLive live={task.live} now={liveNow} backendId={backend.id} {projectId} taskId={task.id} {news} />
+									<TaskLive live={task.live} now={liveNow} backendId={backend.id} {projectId} taskId={task.id} {news} workers={model.projectWorkers} workerHref={model.workerTranscriptHref} />
 								{/key}
 							{/if}
 
@@ -311,6 +311,19 @@
 								partsInChecklist={!!taskDigest?.parts.length} requestInHeader={!!partPage}
 								blockersInNeedsYou={needsYou?.blocked ? blockers.map(blocker => blocker.id) : []}
 								onshowlinked={model.showLinked} />
+							{#if taskWorkers.length}
+								<section aria-label="Workers">
+									<h3 class="task-detail-heading">Workers</h3>
+									<ul class="text-sm" role="list">
+										{#each taskWorkers as { id, worker } (id)}
+											<li class="py-1 [overflow-wrap:anywhere]">
+												{#if worker}<a class="task-fact-link underline" href={model.workerTranscriptHref(worker)} aria-label={`Transcript for ${id}`}>{id}</a>
+												{:else}<span>{id} · Worker no longer available</span>{/if}
+											</li>
+										{/each}
+									</ul>
+								</section>
+							{/if}
 							<dl class="task-facts">
 								<div><dt>Created</dt><dd><time datetime={task.createdAt} title={exactTime(task.createdAt)}>{model.ago(task.createdAt)}</time></dd></div>
 								<div><dt>Updated</dt><dd><time datetime={task.updatedAt} title={exactTime(task.updatedAt)}>{model.ago(task.updatedAt)}</time></dd></div>

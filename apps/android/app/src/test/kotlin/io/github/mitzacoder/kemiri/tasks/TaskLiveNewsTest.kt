@@ -40,6 +40,19 @@ class TaskLiveNewsTest {
         assertEquals(autoLinePresentation(LiveLineKind.Auto, line)?.evidence, wrong.evidence)
     }
 
+    @Test fun selectsTheNowActorAndOtherRunningWorkersOnTheTask() {
+        val now = BoardTaskActivity(kind = "working", text = "fern is checking the balance", since = at, refs = emptyList(), actor = line.actor)
+        val fern = WorkerSummary(id = "fern", title = "Checkout", status = "idle", conversationId = 1,
+            model = ModelRef(provider = "faux", modelId = "faux-1"), thinkingLevel = null, isolation = "shared", workspacePath = null,
+            spawnedByCallId = null, createdAt = at, updatedAt = at, lastReport = null, failure = null)
+        val sage = fern.copy(id = "sage", conversationId = 2, threadId = "checkout", taskId = "T1", status = "running")
+        val finished = fern.copy(id = "finished", conversationId = 3, taskId = "T1")
+        val otherTask = sage.copy(id = "other-task", conversationId = 4, taskId = "T2")
+        assertEquals(LiveTranscriptWorkers(fern, listOf(fern, sage)), liveTranscriptWorkers("T1", now, listOf(sage, finished, otherTask, fern)))
+        assertNull(liveTranscriptWorkers("T1", now, listOf(fern.copy(threadId = "other"))).nowWorker)
+        assertNull(liveTranscriptWorkers("T1", now, listOf(fern.copy(conversationId = 99))).nowWorker)
+    }
+
     @Test fun linksOnlyToTheMatchingWorkersEntry() {
         val chat = Destination.Chat(backendKey = "demo", projectId = "bakery", threadId = "other")
         val worker = WorkerSummary(id = "fern", title = "Checkout", status = "idle", conversationId = 1,

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -24,7 +25,12 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -35,6 +41,7 @@ import io.github.mitzacoder.kemiri.protocol.BoardLiveLine
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 import io.github.mitzacoder.kemiri.protocol.BoardTaskLive
 import io.github.mitzacoder.kemiri.protocol.BoardTaskLivePulse
+import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -69,7 +76,10 @@ private fun rememberShown(): Boolean {
  * device-local checkpoint.
  */
 @Composable
-internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String, news: LiveNewsActions?) {
+internal fun TaskLive(
+    live: BoardTaskLive, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String,
+    news: LiveNewsActions?, workers: List<WorkerSummary>, onOpenTranscript: (WorkerSummary) -> Unit,
+) {
     val colors = Jarvis.colors
     val minute = rememberTaskMinuteNow()
     val context = LocalContext.current
@@ -84,12 +94,41 @@ internal fun TaskLive(live: BoardTaskLive, now: BoardTaskActivity, backendKey: S
     val trail = remember(chronological, now.text, visitState, watcher) { liveTrail(chronological, now.text, visitState.unseenIds, watcher) }
     var earlierOpen by rememberSaveable(taskId) { mutableStateOf(false) }
 
-    TaskReadingSection("Live") {
-        Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = liveNowDescription(now, relativeTime(now.since, minute)) },
+    val (nowWorker, transcriptWorkers) = remember(taskId, now, workers) { liveTranscriptWorkers(taskId, now, workers) }
+    TaskReadingSection(null) {
+        if (transcriptWorkers.isEmpty()) TaskHeading("Live")
+        else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
+            TaskHeading("Live")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                transcriptWorkers.forEach { worker ->
+                    TextButton(onClick = { onOpenTranscript(worker) }, modifier = Modifier.heightIn(min = 48.dp).semantics {
+                        contentDescription = "Transcript for ${worker.id}"
+                    }) {
+                        Text(if (transcriptWorkers.size == 1) "Transcript" else "Transcript · ${worker.id}", style = TaskType.xs, color = colors.fg,
+                            textDecoration = TextDecoration.Underline)
+                    }
+                }
+            }
+        }
+        val age = relativeTime(now.since, minute)
+        val nowSemantics = if (nowWorker != null) Modifier else Modifier.semantics(mergeDescendants = true) {
+            contentDescription = liveNowDescription(now, age)
+        }
+        Row(Modifier.fillMaxWidth().then(nowSemantics),
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
             Text("Now", Modifier.alignByBaseline(), style = TaskType.xsSemibold, color = colors.fgMuted)
-            TaskDetailText(now.text, Modifier.weight(1f).alignByBaseline(), style = TextStyles.sm, color = colors.fg)
-            Text(relativeTime(now.since, minute), Modifier.alignByBaseline(), style = TaskType.xs, color = colors.fgMuted)
+            val sentence = buildAnnotatedString {
+                if (nowWorker == null) append(now.text)
+                else {
+                    val link = LinkAnnotation.Clickable("worker:${nowWorker.id}", TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))) {
+                        onOpenTranscript(nowWorker)
+                    }
+                    withLink(link) { append(nowWorker.id) }
+                    append(now.text.substring(nowWorker.id.length))
+                }
+            }
+            TaskDetailText(sentence, Modifier.weight(1f).alignByBaseline(), style = TextStyles.sm, color = colors.fg)
+            Text(age, Modifier.alignByBaseline(), style = TaskType.xs, color = colors.fgMuted)
         }
         live.pulse?.let { LivePulse(it, shown) }
         if (counters.isNotEmpty()) LiveCounters(counters)

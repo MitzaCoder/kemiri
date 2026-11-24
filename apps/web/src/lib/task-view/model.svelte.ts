@@ -358,6 +358,8 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		get owner() { return owner; },
 		get workers() { return workers; },
 		get taskWorkers() { return taskWorkers; },
+		get projectWorkers() { return workers; },
+		workerTranscriptHref: (worker: WorkerSummary) => workerHref(worker),
 		get activity() { return activity; },
 		get now() { return now; },
 		get liveNow() { return liveNow; },

@@ -1472,7 +1472,7 @@
 
 	{#if supportsTasks}
 		<TaskCloseDialog {board} />
-		<TaskSheet peerMessages={peerLog} {peerLinks} {backend} {projectId} projectName={project?.name} {board} workers={workerList} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
+		<TaskSheet peerMessages={peerLog} {peerLinks} {backend} {projectId} projectName={project?.name} {board} workers={workers?.allWorkers ?? []} threads={threadList} workerHref={(worker) => workerLink(worker)} onquote={backend.supports('conversation') ? quote : undefined} onshowlinked={showLinkedTasks} />
 	{/if}
 
 	<FilesHost {backend} {projectId} projectName={project?.name ?? 'Project'} navigation={filesNavigation} repository={project?.repository} workers={workerList} threads={threadList} {threadId} onquote={backend.supports('conversation') ? quote : undefined} />

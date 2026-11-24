@@ -3,6 +3,7 @@ package io.github.mitzacoder.kemiri.features.tasks
 import io.github.mitzacoder.kemiri.protocol.BoardLiveLine
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
+import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -49,6 +50,19 @@ internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: Boa
     if (!hasPlan && live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
         visibleLiveLines(live.lines, watcher).isEmpty()) return null
     return task.state.sentence ?: activity
+}
+
+internal data class LiveTranscriptWorkers(val nowWorker: WorkerSummary?, val transcriptWorkers: List<WorkerSummary>)
+
+internal fun liveTranscriptWorkers(taskId: String, now: BoardTaskActivity, workers: List<WorkerSummary>): LiveTranscriptWorkers {
+    val actor = now.actor
+    val nowWorker = actor?.takeIf { it.kind == "worker" && now.text.startsWith("${it.name} is ") }?.let {
+        workers.firstOrNull { worker -> worker.id == it.name && worker.conversationId == it.conversationId &&
+            (worker.threadId ?: "main") == it.threadId }
+    }
+    // A running worker may not have written a trail line yet. The project list also carries its task assignment.
+    val otherWorkers = workers.filter { it != nowWorker && it.taskId == taskId && it.status == "running" }
+    return LiveTranscriptWorkers(nowWorker, listOfNotNull(nowWorker) + otherWorkers)
 }
 
 private val workersSuffix = Regex("""\s*·\s*\+\d+ workers?$""")

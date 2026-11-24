@@ -100,6 +100,10 @@ private fun TaskCheck(check: BoardReportCheck) {
     }
 }
 
+internal fun ProjectScreenContext.openTaskWorkerTranscript(worker: WorkerSummary) {
+    navigate(route.copy(threadId = worker.threadId?.takeUnless { it == "main" }, workerId = worker.id, highlight = null))
+}
+
 @Composable
 internal fun TaskRecordWorkers(context: ProjectScreenContext, workerIds: List<String>, workers: List<WorkerSummary>) {
     Column {
@@ -108,14 +112,13 @@ internal fun TaskRecordWorkers(context: ProjectScreenContext, workerIds: List<St
             val worker = workers.firstOrNull { it.id == id }
             if (worker == null) Text("$id · Worker no longer available", Modifier.padding(vertical = 6.dp), style = TaskType.xs, color = Jarvis.colors.fgMuted)
             else {
-                val title = worker.title.ifBlank { worker.id }
                 Row(
-                    Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Read $title") {
-                        context.navigate(context.route.copy(threadId = worker.threadId, workerId = worker.id))
+                    Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Transcript for ${worker.id}") {
+                        context.openTaskWorkerTranscript(worker)
                     }.heightIn(min = 48.dp).padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    TaskDetailText(title, Modifier.weight(1f), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
+                    TaskDetailText(worker.id, Modifier.weight(1f), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
                     StatusBadge(worker.status, domain = "worker")
                 }
             }

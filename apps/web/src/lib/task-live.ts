@@ -4,6 +4,16 @@ import { workerHref } from './backends.js';
 
 export type LiveNewsActions = { markWrong(lineId: string): Promise<void>; workLogHref(line: BoardLiveLine, entryId: string): string | undefined };
 
+export function liveTranscriptWorkers(taskId: string, now: BoardTaskActivity, workers: readonly WorkerSummary[]) {
+ const actor = now.actor;
+ const nowWorker = actor?.kind === 'worker' && now.text.startsWith(`${actor.name} is `)
+  ? workers.find(worker => worker.id === actor.name && worker.conversationId === actor.conversationId && (worker.threadId ?? 'main') === actor.threadId)
+  : undefined;
+ // A running worker may not have written a trail line yet. The project list also carries its task assignment.
+ const otherWorkers = workers.filter(worker => worker !== nowWorker && worker.taskId === taskId && worker.status === 'running');
+ return { nowWorker, transcriptWorkers: nowWorker ? [nowWorker, ...otherWorkers] : otherWorkers };
+}
+
 export function liveNewsWorkLogHref(backendId: string, projectId: string, workers: readonly WorkerSummary[], line: BoardLiveLine, entryId: string): string | undefined {
  const worker = workers.find(worker => worker.conversationId === line.evidence?.conversationId && worker.id === line.actor.name && (worker.threadId ?? 'main') === line.actor.threadId);
  return worker && /^[1-9]\d*$/.test(entryId) ? `${workerHref(backendId, projectId, worker.id, worker.threadId === 'main' ? undefined : worker.threadId)}#entry-${entryId}` : undefined;

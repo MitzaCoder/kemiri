@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { loadSvelteSsr } from './svelte-ssr.js';
 import type { BoardLiveLine, BoardTaskActivity, WorkerSummary } from '@kemiri/protocol';
-import { liveNewsWorkLogHref, liveSeenKey, visibleLiveLines, visitLiveTrail } from '../src/lib/task-live.js';
+import { workerHref } from '../src/lib/backends.js';
+import { liveNewsWorkLogHref, liveSeenKey, liveTranscriptWorkers, visibleLiveLines, visitLiveTrail } from '../src/lib/task-live.js';
 
 const line = (id: string, kind = 'phase'): BoardLiveLine => ({ id, kind, at: new Date(Date.UTC(2026, 5, 1, 12, 0, id.charCodeAt(0))).toISOString(), text: 'Checking the page', actor: { id: 'a', kind: 'worker', name: 'fern', threadId: 'main', conversationId: 1, runId: 'one' } });
 const [a, b, c, d] = ['a', 'b', 'c', 'd'].map(id => line(id)) as [BoardLiveLine, BoardLiveLine, BoardLiveLine, BoardLiveLine];
@@ -47,8 +48,37 @@ describe('task live server rendering', () => {
  });
 
  const now: BoardTaskActivity = { actor: a.actor, kind: 'working', text: `fern is ${a.text}`, since: a.at, refs: [] };
- const props = { now, backendId: 'demo', projectId: 'bakery', taskId: 'T1' };
+ const props = { now, backendId: 'demo', projectId: 'bakery', taskId: 'T1', workers: [],
+  workerHref: (worker: WorkerSummary) => workerHref('demo', 'bakery', worker.id, worker.threadId === 'main' ? undefined : worker.threadId) };
  const fact = { ...b, kind: 'fact', text: 'Saved 9 files' };
+ const fern = { id: 'fern', conversationId: 1, threadId: 'main', taskId: 'T1', status: 'running', title: 'Check gift cards',
+  model: { provider: 'faux', modelId: 'faux-1' }, thinkingLevel: null, isolation: 'shared', workspacePath: null,
+  spawnedByCallId: null, createdAt: a.at, updatedAt: a.at, lastReport: null, failure: null } satisfies WorkerSummary;
+ const sage = { ...fern, id: 'sage', conversationId: 2, threadId: 'checkout' };
+
+ it('links only the worker name in Now and gives every running task worker a header link', () => {
+  const { TaskLive, render } = ssr;
+  const finished = { ...fern, id: 'finished', conversationId: 3, status: 'idle' } as const;
+  const otherTask = { ...fern, id: 'other-task', conversationId: 4, taskId: 'T2' };
+  const html = render(TaskLive, { props: { ...props, workers: [sage, finished, otherTask, fern], live: { lines: [] } } }).body;
+  expect(html).toContain('Transcript · fern');
+  expect(html).toContain('Transcript · sage');
+  expect(html).toContain(`href="${props.workerHref(sage)}"`);
+  expect(html).toContain(`href="${props.workerHref(fern)}"`);
+  expect(html).toMatch(/>fern<\/a>.* is Checking the page/);
+  expect(html).not.toContain('Transcript for finished');
+  expect(html).not.toContain('Transcript for other-task');
+ });
+
+ it('does not link Now to a reused name from another thread or conversation', () => {
+  const { TaskLive, render } = ssr;
+  for (const unrelated of [{ ...fern, conversationId: 99 }, { ...fern, threadId: 'other' }]) {
+   expect(liveTranscriptWorkers('T1', now, [unrelated]).nowWorker).toBeUndefined();
+  }
+  const html = render(TaskLive, { props: { ...props, live: { lines: [] } } }).body;
+  expect(html).toContain('fern is Checking the page');
+  expect(html).not.toContain('Transcript for');
+ });
 
  it('renders the pulse and recorded facts with nonzero counters, without repeating Now', () => {
   const { TaskLive, render } = ssr;

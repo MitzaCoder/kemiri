@@ -4242,6 +4242,12 @@ none when the system animator scale is 0. Ages tick on the shared minute clock; 
 descriptions with kind, actor, age and text. Colours come only from the theme. The completed Work row opens to its
 lines in Activity, oldest first, like the web. Without the flag the Android sheet is unchanged.
 
+On both clients, the worker name in Live’s Now sentence and the Transcript link in its header
+open the existing worker chat in that worker’s owning thread. Now links only when the actor’s
+name, thread and conversation match a known worker. The header has a separate named link for
+each running worker on the task, even before that worker writes a trail line. The task’s Workers
+section also links the transcripts of finished workers that are still available on the backend.
+
 #### Harness facts in the Live block (T315, stage B of T305)
 
 The existing `task-live` flag covers optional `pulse` and `counters` and the `fact` line
