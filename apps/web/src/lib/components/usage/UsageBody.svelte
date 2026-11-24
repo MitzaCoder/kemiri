@@ -5,7 +5,7 @@
 	import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { page } from '$app/state';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import type { CacheStats, UsageValueResponse } from '@kemiri/protocol';
 	import Orb from '#lib/components/Orb.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -20,6 +20,7 @@
 	import { apiKeySpendRate, computerNames, mergeSubscriptions, providerSpend, quietLimits, rankedLimits, spendRows, subscriptionMonths,
 		SPEND_DIMENSIONS, USAGE_BACKEND_KEY, USAGE_PERIODS, usagePeriodRequest, type SpendDimension, type SpendRow, type UsagePeriod } from '#lib/usage-glance.js';
 	import { usageMoney } from '#lib/usage-money.js';
+	import { UsageReads, type UsageRead } from '#lib/usage-reads.js';
 	import CacheSection from './CacheSection.svelte';
 	import GlanceLimitCard from './GlanceLimitCard.svelte';
 	import GlanceSpendDetail from './GlanceSpendDetail.svelte';
@@ -44,43 +45,52 @@
 	let expandedLimit = $state<string>();
 	let now = $state(Date.now());
 	let refreshRevision = $state(0);
-	let recordedReads = $state<{ computer: BackendConnection; stats?: CacheStats; error?: string }[]>([]);
-	let monthlyReads = $state<{ computer: BackendConnection; report?: UsageValueResponse; error?: string }[]>([]);
-	let readingRecorded = $state(false);
-	let readingMonth = $state(false);
+	let recordedSnapshot = $state.raw<{ scope: string; reads: UsageRead<BackendConnection, CacheStats>[] }>();
+	let monthlySnapshot = $state.raw<{ scope: string; reads: UsageRead<BackendConnection, UsageValueResponse>[] }>();
+	const recordedReports = new UsageReads<BackendConnection, CacheStats>((scope, reads) => { recordedSnapshot = { scope, reads }; });
+	const monthlyReports = new UsageReads<BackendConnection, UsageValueResponse>((scope, reads) => { monthlySnapshot = { scope, reads }; });
 
 	const month = $derived(localValueMonth(new Date(now)));
 	const monthLabel = $derived(new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }));
 	const periodLabel = $derived(period === 'month' ? `${monthLabel} so far` : (USAGE_PERIODS.find(([key]) => key === period)?.[1] ?? ''));
-	const periodRequest = $derived(usagePeriodRequest(period, month, new Date(now)));
-	// The wall clock drives the countdown; only a changed calendar boundary or offset drives a new recorded read.
-	const periodRequestKey = $derived(JSON.stringify(periodRequest));
-	const localDay = $derived(period === 'today' ? new Date(now).toDateString() : '');
+	// Countdown ticks are not a polling schedule. Keep the range identity stable for drill-downs too.
+	const recordedScope = $derived(JSON.stringify([usagePeriodRequest(period, month, new Date(now)), period === 'today' ? new Date(now).toDateString() : '']));
+	const periodRequest = $derived((JSON.parse(recordedScope) as [ReturnType<typeof usagePeriodRequest>, string])[0]);
+	const needsMonth = $derived(period === 'month' || sheet?.kind === 'subscription');
 	const selectedId = $derived(harness.backends.some(backend => backend.id === backendId) ? backendId : '');
 	const selectedTabIndex = $derived(backendTabs.findIndex(backend => backend.id === selectedId));
 	const selectedBackends = $derived(harness.backends.filter(backend => !selectedId || backend.id === selectedId));
 	const offline = $derived(selectedBackends.filter(backend => !backend.ready));
-	const usageSources = $derived(selectedBackends.filter(backend => backend.supports('subscription-usage') && backend.ready).map(backend => usageBoard.for(backend)));
-	const subscriptions = $derived(mergeSubscriptions(usageSources.flatMap(source => source.subscriptions.map(subscription => ({ computer: source.backend, subscription })))));
+	const usageSources = $derived(selectedBackends.filter(backend => backend.supports('subscription-usage')).map(backend => usageBoard.for(backend)));
+	const liveUsageSources = $derived(usageSources.filter(source => source.backend.ready));
+	const liveSubscriptions = $derived(subscriptionsFrom(liveUsageSources));
+	// Keep the cards above Spend in place while a computer reconnects. Only live sources drive the verdict.
+	const subscriptions = $derived(subscriptionsFrom(usageSources));
 	const limits = $derived(rankedLimits(subscriptions, now));
+	const liveLimits = $derived(rankedLimits(liveSubscriptions, now));
 	const quiet = $derived(quietLimits(limits, now));
 	const quietKeys = $derived(new Set(quiet.map(limit => limit.key)));
 	const visibleLimits = $derived(showQuiet ? limits : limits.filter(limit => !quietKeys.has(limit.key)));
-	const attention = $derived(limits.filter(limit => limit.status === 'near' || limit.status === 'hot').slice(0, 2));
-	const newestUpdate = $derived(subscriptions.map(subscription => subscription.reading.updatedAt ?? '').sort().at(-1));
-	const refreshing = $derived(usageSources.some(source => source.refreshing));
-	const recorded = $derived(recordedReads.flatMap(({ computer, stats }) => stats ? [{ computer, stats }] : []));
+	const attention = $derived(liveLimits.filter(limit => limit.status === 'near' || limit.status === 'hot').slice(0, 2));
+	const newestUpdate = $derived(liveSubscriptions.map(subscription => subscription.reading.updatedAt ?? '').sort().at(-1));
+	const recordedTargets = $derived(selectedBackends.filter(computer => computer.supports('cache-stats')).map(computer => ({ computer, ready: computer.ready })));
+	const monthlyTargets = $derived(needsMonth ? selectedBackends.filter(computer => computer.supports('subscription-value')).map(computer => ({ computer, ready: computer.ready })) : []);
+	const recordedReads = $derived(readsForTargets(recordedScope, recordedSnapshot, recordedTargets));
+	const monthlyReads = $derived(readsForTargets(month, monthlySnapshot, monthlyTargets));
+	const readingRecorded = $derived(readingUsage(recordedTargets, recordedReads));
+	const readingMonth = $derived(readingUsage(monthlyTargets, monthlyReads));
+	const refreshing = $derived(usageSources.some(source => source.refreshing) || readingRecorded || readingMonth);
+	const recorded = $derived(recordedReads.flatMap(({ computer, report }) => report ? [{ computer, stats: report }] : []));
 	const total = $derived(recorded.reduce((sum, { stats }) => sum + (stats.recorded?.totals.cost ?? stats.usage?.totals.cost ?? stats.totals.cost + (stats.keepWarm?.cost ?? 0)), 0));
 	const rankedSpend = $derived(spendRows(recorded, dimension));
 	const subscriptionSpend = $derived(providerSpend(recorded, subscriptions));
 	const providerTotal = $derived(subscriptionSpend.reduce((sum, row) => sum + row.cost, 0));
 	const months = $derived(subscriptionMonths(monthlyReads.flatMap(({ computer, report }) => report ? [{ computer, report }] : []), subscriptions));
 	const selectedSubscription = $derived(sheet?.kind === 'subscription' ? subscriptions.find(subscription => subscription.key === sheet.key) : undefined);
-	const needsMonth = $derived(period === 'month' || sheet?.kind === 'subscription');
 	const knownPlanPrice = $derived([...months.values()].reduce((sum, entry) => sum + (entry.price?.monthlyPrice ?? 0), 0));
 	const subscriptionMonthCost = $derived([...months.values()].reduce((sum, entry) => sum + entry.cost, 0));
 	const completeComparison = $derived(months.size > 0 && [...months.values()].every(entry => entry.price?.monthlyPrice != null)
-		&& selectedBackends.filter(backend => backend.ready && (backend.supports('cache-stats') || backend.supports('subscription-usage')))
+		&& selectedBackends.filter(backend => backend.supports('cache-stats') || backend.supports('subscription-usage'))
 			.every(backend => monthlyReads.some(read => read.computer.id === backend.id && read.report)));
 	const priceMarker = $derived(period === 'month' && completeComparison && knownPlanPrice > 0 ? knownPlanPrice : 0);
 	const spendScale = $derived(Math.max(total, priceMarker));
@@ -97,51 +107,53 @@
 	onMount(() => {
 		try { backendId = localStorage.getItem(USAGE_BACKEND_KEY) ?? ''; } catch { /* Storage is optional. */ }
 		const timer = setInterval(() => now = Date.now(), 10_000);
-		return () => clearInterval(timer);
+		return () => {
+			clearInterval(timer);
+			recordedReports.stop();
+			monthlyReports.stop();
+		};
 	});
 	$effect(() => {
 		backendTabList?.querySelectorAll('button')[selectedTabIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 	});
 	$effect(() => {
 		const sources = usageSources;
-		for (const source of sources) source.start();
+		untrack(() => { for (const source of sources) source.start(); });
 		return () => { for (const source of sources) source.stop(); };
 	});
 	$effect(() => {
-		const backends = selectedBackends.filter(backend => backend.ready && backend.supports('cache-stats'));
-		const range = JSON.parse(periodRequestKey) as typeof periodRequest;
-		void refreshRevision;
-		void localDay;
-		recordedReads = [];
-		let ignore = false;
-		readingRecorded = backends.length > 0;
-		void Promise.all(backends.map(async computer => {
+		const scope = recordedScope;
+		const range = periodRequest;
+		const targets = recordedTargets;
+		const revision = refreshRevision;
+		untrack(() => recordedReports.sync(scope, targets, revision, async computer => {
 			const supported = computer.supports('recorded-usage');
-			if (range.month && !supported) return { computer, error: 'does not report calendar-month usage yet' };
-			try {
-				const stats = await computer.client.readCacheStats({ ...range, ...(supported ? { recorded: true } : {}) });
-				return { computer, stats };
-			} catch { return { computer, error: 'could not be read' }; }
-		})).then(reads => { if (!ignore) { recordedReads = reads; readingRecorded = false; } });
-		return () => { ignore = true; };
+			if (range.month && !supported) throw new Error('This computer does not report calendar-month usage yet.');
+			return computer.client.readCacheStats({ ...range, ...(supported ? { recorded: true } : {}) });
+		}));
 	});
 	$effect(() => {
-		const backends = selectedBackends.filter(backend => backend.ready && backend.supports('subscription-value'));
-		const query = valueMonthRequest(month);
-		void refreshRevision;
-		let ignore = false;
-		monthlyReads = [];
-		readingMonth = needsMonth && backends.length > 0;
-		if (!needsMonth) return;
-		void Promise.all(backends.map(async computer => {
-			try {
-				const report = await computer.client.request<UsageValueResponse>(query);
-				if (report.type === 'usage.value') return { computer, report };
-			} catch { /* A partial comparison is labelled below. */ }
-			return { computer, error: 'could not be read' };
-		})).then(reads => { if (!ignore) { monthlyReads = reads; readingMonth = false; } });
-		return () => { ignore = true; };
+		const scope = month;
+		const query = valueMonthRequest(scope);
+		const targets = monthlyTargets;
+		const revision = refreshRevision;
+		untrack(() => monthlyReports.sync(scope, targets, revision, async computer => {
+			const report = await computer.client.request<UsageValueResponse>(query);
+			if (report.type !== 'usage.value' || report.month !== scope) throw new Error('Unexpected subscription value reply.');
+			return report;
+		}));
 	});
+
+	function subscriptionsFrom(sources: typeof usageSources) {
+		return mergeSubscriptions(sources.flatMap(source => source.subscriptions.map(subscription => ({ computer: source.backend, subscription }))));
+	}
+	function readsForTargets<T>(scope: string, snapshot: { scope: string; reads: UsageRead<BackendConnection, T>[] } | undefined, targets: { computer: BackendConnection }[]) {
+		const reads = snapshot?.scope === scope ? snapshot.reads : [];
+		return targets.flatMap(({ computer }) => reads.find(read => read.computer === computer) ?? []);
+	}
+	function readingUsage<T>(targets: { computer: BackendConnection; ready: boolean }[], reads: UsageRead<BackendConnection, T>[]) {
+		return targets.some(({ computer, ready }) => ready && reads.find(read => read.computer === computer)?.loading !== false);
+	}
 
 	function pickBackend(id: string) {
 		backendId = id;
@@ -165,7 +177,7 @@
 	function refresh() {
 		now = Date.now();
 		refreshRevision += 1;
-		void Promise.allSettled(usageSources.map(source => source.load(true)));
+		void Promise.allSettled(liveUsageSources.map(source => source.load(true)));
 	}
 	function jumpTo(id: string) {
 		const heading = scroll?.querySelector<HTMLElement>(`#${id}`);
@@ -217,8 +229,8 @@
 				{#if attention.length}<span>
 					{#each attention as limit, index (limit.key)}{#if index > 0}{'; '}{/if}<strong>{limit.subscription.reading.label}’s {limit.window.label.replace(/^(Weekly|Monthly)/, label => label.toLowerCase())} is {limit.status === 'near' ? 'nearly out' : 'running hot'}</strong> ({Math.round(limit.window.usedPercent!)}%){limit.pace.resetsAt === null ? ' · reset time unknown' : ` and ${resetLabel(limit.pace, now)}`}{/each}.
 				</span>
-				{:else if limits.some(limit => limit.status === 'room')}<span><strong>No measured limit needs attention.</strong>{limits.some(limit => limit.status === 'unknown') ? ' Some readings are missing or out of date.' : ''}</span>
-				{:else if usageSources.some(source => !source.loaded && !source.error)}<span>Reading subscription limits…</span>
+				{:else if liveLimits.some(limit => limit.status === 'room')}<span><strong>No measured limit needs attention.</strong>{offline.length || liveLimits.some(limit => limit.status === 'unknown') ? ' Some readings are missing or out of date.' : ''}</span>
+				{:else if liveUsageSources.some(source => !source.loaded && !source.error)}<span>Reading subscription limits…</span>
 				{:else}<span><strong>No current limit readings.</strong> {selectedBackends.length ? 'Check the computers and their subscription sign-ins.' : 'Add a computer to see its usage.'}</span>{/if}
 			</p>
 
@@ -230,6 +242,9 @@
 						<button type="button" aria-pressed={grouped} onclick={() => grouped = true}>By subscription</button>
 					</div>
 				</div>
+				{#each usageSources.filter(source => !source.backend.ready && source.subscriptions.length > 0) as source (source.backend.id)}
+					<p class="mb-2 text-xs text-muted-foreground">{source.backend.name} is offline. Showing its last limit readings.</p>
+				{/each}
 				<div class="limits-collection">
 					{#if grouped}
 						{#each subscriptions as subscription (subscription.key)}
@@ -251,9 +266,9 @@
 						<div class="empty-copy flex items-center gap-3"><Orb size={24} /><p>No subscription limits to show. <a href={generalSettingsHref('backends')}>Add a computer</a>.</p></div>
 					{:else if !limits.length}<p class="empty-copy">No subscription limits to show.</p>{/if}
 				</div>
-				{#each usageSources.filter(source => source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">Could not read limits on {source.backend.name}: {source.error}</p>{/each}
+				{#each liveUsageSources.filter(source => source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">Could not read limits on {source.backend.name}: {source.error}</p>{/each}
 				{#each subscriptions.filter(subscription => subscription.reading.error || !subscription.windows.length) as subscription (subscription.key)}<p class="mt-2 text-xs text-muted-foreground"><button class="underline underline-offset-4" type="button" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>{subscription.reading.label}</button> · {computerNames(subscription.members.map(member => member.computer))}: {subscription.reading.error ?? 'No limit readings yet.'}</p>{/each}
-				{#each usageSources.filter(source => source.loaded && !source.subscriptions.length && !source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">No subscriptions on {source.backend.name}. <a class="underline underline-offset-4" href={backendSettingsHref(source.backend.id, 'accounts')}>Open Accounts</a></p>{/each}
+				{#each liveUsageSources.filter(source => source.loaded && !source.subscriptions.length && !source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">No subscriptions on {source.backend.name}. <a class="underline underline-offset-4" href={backendSettingsHref(source.backend.id, 'accounts')}>Open Accounts</a></p>{/each}
 			</section>
 
 			<section aria-labelledby="usage-spend">
@@ -263,16 +278,19 @@
 						{#each USAGE_PERIODS as [key, label] (key)}<button type="button" aria-pressed={period === key} onclick={() => { period = key; showAllSpend = false; }}>{label}</button>{/each}
 					</div>
 				</div>
-				{#each recordedReads.filter(read => read.error) as read (read.computer.id)}<p class="mb-2 text-xs text-muted-foreground">Usage on {read.computer.name} {read.error}.</p>{/each}
+				{#each recordedReads.filter(read => read.error) as read (read.computer.id)}<p class="mb-2 text-xs text-muted-foreground">Could not refresh spend on {read.computer.name}.{read.report ? ' Showing the last reading.' : ` ${read.error}`}</p>{/each}
+				{#if period === 'month'}
+					{#each monthlyReads.filter(read => read.error) as read (read.computer.id)}<p class="mb-2 text-xs text-muted-foreground">Could not refresh monthly usage on {read.computer.name}.{read.report ? ' Showing the last reading.' : ''}</p>{/each}
+				{/if}
 				{#if offline.length}<p class="mb-2 text-xs text-muted-foreground">Not connected: {computerNames(offline)}.</p>{/if}
 				<div class="spend-grid" aria-busy={readingRecorded}>
 					<div class="usage-card spend-total">
 						<p class="text-xs text-muted-foreground">{periodLabel}</p>
-						{#if readingRecorded}<p role="status" class="py-3 text-sm text-muted-foreground">Reading spend…</p>
-						{:else if recorded.length}<p class="my-1 text-sm text-muted-foreground"><strong class="mr-1 text-[2rem] leading-tight tracking-tight text-foreground tabular-nums">{usageMoney(total)}</strong> of work at API prices</p>
-						{:else}<p class="py-3 text-sm text-muted-foreground">No recorded spend is available.</p>{/if}
-						{#if period === 'month' && !readingRecorded}
-							{#if readingMonth}<p class="mb-2 text-xs text-muted-foreground">Reading monthly prices…</p>
+						{#if recorded.length}<p class="my-1 text-sm text-muted-foreground"><strong class="mr-1 text-[2rem] leading-tight tracking-tight text-foreground tabular-nums">{usageMoney(total)}</strong> of work at API prices</p>
+						{:else if readingRecorded}<p role="status" class="py-3 text-sm text-muted-foreground">Reading spend…</p>
+						{:else}<p class="py-3 text-sm text-muted-foreground">Recorded spend is unavailable for this selection.</p>{/if}
+						{#if period === 'month' && recorded.length}
+							{#if readingMonth && !monthlyReads.some(read => read.report)}<p class="mb-2 text-xs text-muted-foreground">Reading monthly prices…</p>
 							{:else if completeComparison && knownPlanPrice > 0}<p class="mb-2 text-sm">Subscriptions cost <strong>{usageMoney(knownPlanPrice)}</strong> a month. Subscription work at API prices is <strong>{(subscriptionMonthCost / knownPlanPrice).toFixed(1)}×</strong> that price.</p>
 							{:else if recorded.length}<p class="mb-2 text-xs text-muted-foreground">{knownPlanPrice > 0 ? `${usageMoney(knownPlanPrice)} a month in known plan prices. ` : ''}A full price comparison is not available.</p>{/if}
 						{/if}
@@ -291,7 +309,7 @@
 						{#if rankedSpend.length}
 							<ol class="mt-1 divide-y divide-(--chat-border)">{#each (showAllSpend ? rankedSpend : rankedSpend.slice(0, 5)) as row (row.key)}<li>{@render spendButton(row, true)}</li>{/each}</ol>
 							{#if rankedSpend.length > 5}<button type="button" class="quiet-toggle" aria-expanded={showAllSpend} onclick={() => showAllSpend = !showAllSpend}>{showAllSpend ? 'Show the top five' : `Show ${rankedSpend.length - 5} more`}</button>{/if}
-						{:else if !readingRecorded}<p class="py-3 text-xs text-muted-foreground">No rows for this group and period.</p>{/if}
+						{:else if recorded.length}<p class="py-3 text-xs text-muted-foreground">No rows for this group and period.</p>{/if}
 					</div>
 				</div>
 			</section>
@@ -306,7 +324,8 @@
 					<details class="usage-disclosure"><summary>Prompt-cache diagnosis</summary>
 						{#each recorded as { computer, stats } (computer.id)}<div class="mt-4 min-w-0"><h3 class="mb-2 font-semibold">{computer.name}</h3><CacheSection {stats} days={Math.max(1, stats.days.length)} /></div>{/each}
 					</details>
-				{:else}<p class="empty-copy">No prompt-cache numbers for this period.</p>{/if}
+				{:else if readingRecorded}<p class="empty-copy">Reading prompt-cache numbers…</p>
+				{:else}<p class="empty-copy">Prompt-cache numbers are unavailable for this selection.</p>{/if}
 			</section>
 
 			<details class="usage-disclosure info-disclosure">

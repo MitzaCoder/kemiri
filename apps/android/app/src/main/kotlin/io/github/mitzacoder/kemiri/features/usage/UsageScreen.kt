@@ -44,17 +44,18 @@ internal suspend fun <T> readUsage(read: suspend () -> T): UsageRead<T> = try {
 }
 
 @Composable
-private fun <T> observeUsageRead(enabled: Boolean, generation: Int, query: Any, refresh: Int, read: suspend () -> T): UsageRead<T> {
+private fun <T> observeUsageRead(supported: Boolean, ready: Boolean, generation: Int, query: Any, refresh: Int, read: suspend () -> T): UsageRead<T> {
     val owner = LocalLifecycleOwner.current
-    var result by remember(query, enabled, generation) { mutableStateOf(UsageRead<T>(loading = enabled)) }
-    LaunchedEffect(owner, query, enabled, generation, refresh) {
-        if (enabled) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+    // A new socket triggers a read, not a new report scope. Only a different query or lost support invalidates it.
+    var result by remember(query, supported) { mutableStateOf(UsageRead<T>(loading = supported && ready)) }
+    LaunchedEffect(owner, query, supported, ready, generation, refresh) {
+        if (supported && ready) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             result = result.copy(loading = true, error = null)
             val answer = readUsage(read)
             result = answer.copy(report = answer.report ?: result.report)
         }
     }
-    return result
+    return if (ready) result else result.copy(loading = false)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,10 +93,10 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
         LaunchedEffect(owner, watch) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { watch.observe() } }
         val ready = connection.status == ConnectionStatus.Ready
         val supportsRecorded = connection.supports(HarnessFeature.RECORDED_USAGE)
-        val stats = observeUsageRead(ready && supportsRecorded, connection.generation, overviewQuery, refresh) {
+        val stats = observeUsageRead(supportsRecorded, ready, connection.generation, overviewQuery, refresh) {
             backend.client.request(range.overview()).stats
         }
-        val monthly = observeUsageRead(needsMonth && ready && connection.supports(HarnessFeature.SUBSCRIPTION_VALUE),
+        val monthly = observeUsageRead(needsMonth && connection.supports(HarnessFeature.SUBSCRIPTION_VALUE), ready,
             connection.generation, month to zone, refresh) {
             backend.client.request(valueMonthRequest(month, zone)).also {
                 check(it.month == month.toString()) { "The computer returned a different month." }
@@ -103,16 +104,21 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
         }
         GlanceComputer(backend, ready, supportsRecorded, limits, stats, monthly)
     } }
-    val subscriptions = mergeSubscriptions(computers.filter { it.ready }.flatMap { computerRead ->
+    fun subscriptionsFrom(computers: List<GlanceComputer>) = mergeSubscriptions(computers.flatMap { computerRead ->
         computerRead.limits.subscriptions.map { ComputerSubscription(computerRead.backend.config, it) }
     })
+    // Keep the cards above Spend in place during a reconnect, but base attention on connected computers only.
+    val subscriptions = subscriptionsFrom(computers)
     val limits = rankedLimits(subscriptions, nowMillis)
+    val liveLimits = rankedLimits(subscriptionsFrom(computers.filter { it.ready }), nowMillis)
     val stats = computers.mapNotNull { read -> read.stats.report?.let { read.backend.config to it } }
     val recorded = stats.mapNotNull { (config, report) -> report.recorded?.let { config to it } }
     val months = subscriptionMonths(computers.mapNotNull { read -> read.monthly.report?.let { read.backend.config to it } }, subscriptions)
     val totalCost = recorded.sumOf { it.second.totals.cost }
     val subscriptionSpend = providerSpend(recorded, subscriptions)
     val spendIncomplete = computers.any { !it.ready || !it.supportsRecorded || it.stats.error != null || (it.stats.report != null && it.stats.report.recorded == null) }
+    val readingSpend = computers.any { it.stats.loading }
+    val refreshing = computers.any { it.limits.loading || it.stats.loading || it.monthly.loading }
     fun refreshUsage() {
         selected.forEach { backend -> if (backend.client.state.value.status == ConnectionStatus.Ready) watches.getValue(backend).refresh() }
         refresh++
@@ -132,15 +138,15 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
                         scope.launch { repository.setUsageComputer(key) }
                     }
                 })
-                IconButton(onClick = ::refreshUsage, enabled = computers.any { it.ready }) {
+                IconButton(onClick = ::refreshUsage, enabled = !refreshing && computers.any { it.ready }) {
                     LucideGlyph(io.github.mitzacoder.kemiri.features.settings.SettingsGlyphs.Refresh, contentDescription = "Refresh usage")
                 }
             }
-            PullToRefreshBox(isRefreshing = computers.any { it.limits.loading || it.stats.loading }, onRefresh = ::refreshUsage,
+            PullToRefreshBox(isRefreshing = refreshing, onRefresh = { if (!refreshing) refreshUsage() },
                 modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    AttentionSummary(limits, computers.any { it.limits.loading })
+                    AttentionSummary(liveLimits, computers.any { it.limits.loading })
                     if (sessions.isEmpty()) ValueNote("Add a computer in Settings to see its usage.")
                     else {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -149,16 +155,20 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
                                     contentPadding = PaddingValues(horizontal = 8.dp)) { Text(heading) }
                             }
                         }
-                        computers.filterNot { it.ready }.forEach { ValueNote("${it.backend.config.name} is not connected.") }
+                        computers.filterNot { it.ready }.forEach { computer ->
+                            val cached = computer.limits.subscriptions.isNotEmpty() || computer.stats.report != null
+                            ValueNote("${computer.backend.config.name} is not connected." + if (cached) " Showing the last readings." else "")
+                        }
                         computers.forEach { read -> read.limits.error?.let { ValueNote("${read.backend.config.name}: limits could not refresh. $it") } }
                         LimitsSection(limits, subscriptions, nowMillis, Modifier.onGloballyPositioned { sectionOffsets["Limits"] = it.positionInParent().y.roundToInt() },
                             openSubscription = { sheets = listOf(UsageSheet.Subscription(it)) }, pauseBackends = selected)
                         SpendSection(period, { period = it }, recorded, subscriptionSpend, stats, totalCost, months,
-                            loading = computers.any { it.stats.loading }, monthLoading = computers.any { it.monthly.loading },
-                            spendIncomplete = spendIncomplete, monthComplete = !spendIncomplete && computers.all { it.monthly.report != null && it.monthly.error == null },
+                            loading = readingSpend, monthLoading = computers.any { it.monthly.loading },
+                            spendIncomplete = spendIncomplete, monthComplete = computers.all { it.monthly.report != null && it.stats.report?.recorded != null },
+                            monthReadFailed = computers.any { it.monthly.error != null },
                             modifier = Modifier.onGloballyPositioned { sectionOffsets["Spend"] = it.positionInParent().y.roundToInt() },
                             openSpend = { row -> sheets = listOf(row.subscription?.let { UsageSheet.Subscription(it) } ?: UsageSheet.Spend(row, range, totalCost)) })
-                        WorthALook(stats, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
+                        WorthALook(stats, readingSpend, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
                     }
                 }
             }

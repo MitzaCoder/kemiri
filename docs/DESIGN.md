@@ -2262,6 +2262,16 @@ subscription-covered work and plan prices. A shared plan is counted once in the 
 An owner price takes precedence over a default on a shared account; the highest price of that kind wins a conflict.
 Missing coverage or prices make the comparison partial. Account settings remain the place to edit the price.
 
+On web and Android, Spend, Worth a look and the monthly comparison retain each selected computer's last successful
+report for the same query while refreshing, reconnecting or after a failed read. Disconnected computers are labelled.
+Their last limit cards stay in place above Spend, but only connected computers drive the attention summary.
+Changing the period or its calendar boundary discards reports for the old query. A computer tab uses only reports
+from that selection. Opening the view, changing the query or source, reconnecting, and Refresh usage trigger reads;
+on Android, returning to the foreground also does. A reconnect rereads only that computer. Countdown ticks (10 seconds
+on web and 15 on Android) do not poll recorded usage. Live limit pushes are independent of spend: they follow changed
+provider readings. The server polls provider limits every five minutes by default and can also learn from responses
+or read after a turn goes quiet.
+
 What cost most ranks tasks, projects, models or callers. Rows open a side sheet (bottom sheet on phones), with the
 same period, source computers, other splits and tokens. Task details link back to the task. A project includes work
 not tied to a task. The subscription sheet shows limits and observed resets, this month's work and price, models,

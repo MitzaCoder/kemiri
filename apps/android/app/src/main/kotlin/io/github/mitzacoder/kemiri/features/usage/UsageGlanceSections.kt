@@ -86,8 +86,8 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
             GlanceHeading("Limits")
             FilterChip(selected = bySubscription, onClick = { bySubscription = !bySubscription }, label = { Text("By subscription") })
         }
-        ValueNote(if (bySubscription) "Live windows grouped by plan" else "Closest first")
-        if (limits.isEmpty()) ValueNote("No live subscription windows to show.")
+        ValueNote(if (bySubscription) "Subscription windows grouped by plan" else "Closest first")
+        if (limits.isEmpty()) ValueNote("No subscription windows to show.")
         if (bySubscription) {
             subscriptions.forEach { subscription ->
                 key(subscription.identity) {
@@ -219,7 +219,7 @@ internal fun computerNames(computers: List<BackendConfig>) = computers.joinToStr
 internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Unit, recorded: List<Pair<BackendConfig, RecordedUsage>>,
     providerRows: List<SpendRow>, stats: List<Pair<BackendConfig, CacheStats>>, totalCost: Double,
     months: Map<Pair<SubscriptionIdentity, String?>, SubscriptionMonth>, loading: Boolean, monthLoading: Boolean,
-    spendIncomplete: Boolean, monthComplete: Boolean, modifier: Modifier, openSpend: (SpendRow) -> Unit) {
+    spendIncomplete: Boolean, monthComplete: Boolean, monthReadFailed: Boolean, modifier: Modifier, openSpend: (SpendRow) -> Unit) {
     var dimension by rememberSaveable { mutableStateOf(SpendDimension.Tasks) }
     var showingAll by rememberSaveable { mutableStateOf(false) }
     val ranked = spendRows(recorded, dimension)
@@ -227,9 +227,9 @@ internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Un
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         GlanceHeading("Spend")
         UsageFilters(UsagePeriod.entries, period, { it.label }, selectPeriod)
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (spendIncomplete) ValueNote("Spend may be incomplete. Not every selected computer returned recorded usage.")
-        if (!loading && recorded.isEmpty()) ValueNote("No recorded usage available for this selection.")
+        if (loading && recorded.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (spendIncomplete) ValueNote("Spend may be out of date or incomplete for some computers.")
+        if (!loading && recorded.isEmpty()) ValueNote("Recorded spend is unavailable for this selection.")
         if (recorded.isNotEmpty()) {
             Text(usageMoney(totalCost), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             ValueNote("of work at API prices")
@@ -237,12 +237,13 @@ internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Un
                 val price = months.values.sumOf { it.price?.monthlyPrice ?: 0.0 }
                 val work = months.values.sumOf { it.cost }
                 when {
-                    monthLoading -> ValueNote("Reading monthly subscription prices…")
+                    monthLoading && months.isEmpty() -> ValueNote("Reading monthly subscription prices…")
                     months.isNotEmpty() && monthComplete && months.values.all { it.price != null } && price > 0 ->
                         ValueNote("Subscriptions cost ${usageMoney(price)} a month. Subscription work at API prices is ${formatUsageRatio(work / price)}× that price.")
                     months.isNotEmpty() -> ValueNote("Partial comparison: ${usageMoney(work)} in subscription work and ${usageMoney(price)} in known monthly prices.")
                     else -> ValueNote("No monthly plan comparison available.")
                 }
+                if (monthReadFailed) ValueNote("Could not refresh monthly usage on every computer.")
                 if (months.values.any { it.priceConflict }) ValueNote("Shared prices differ. The highest owner price, or highest default, is used.")
             }
             if (unpriced > 0) ValueNote("$unpriced requests had no catalog price.")
@@ -251,7 +252,7 @@ internal fun SpendSection(period: UsagePeriod, selectPeriod: (UsagePeriod) -> Un
         }
         GlanceHeading("What cost most")
         UsageFilters(SpendDimension.entries, dimension, { it.label }) { dimension = it; showingAll = false }
-        if (ranked.isEmpty() && !loading && recorded.isNotEmpty()) ValueNote("No ${dimension.label.lowercase(Locale.ROOT)} recorded for this period.")
+        if (ranked.isEmpty() && recorded.isNotEmpty()) ValueNote("No ${dimension.label.lowercase(Locale.ROOT)} recorded for this period.")
         if (ranked.isNotEmpty()) OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                 (if (showingAll) ranked else ranked.take(5)).forEachIndexed { index, row ->
@@ -291,13 +292,13 @@ private fun ProviderBreakdown(rows: List<SpendRow>, stats: List<Pair<BackendConf
 }
 
 @Composable
-internal fun WorthALook(stats: List<Pair<BackendConfig, CacheStats>>, modifier: Modifier) {
+internal fun WorthALook(stats: List<Pair<BackendConfig, CacheStats>>, loading: Boolean, modifier: Modifier) {
     var showingDiagnosis by rememberSaveable { mutableStateOf(false) }
     val reports = stats.map { it.second }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         GlanceHeading("Worth a look")
         ValueNote("Signals from retained request logs, not proof of waste.")
-        if (reports.isEmpty()) ValueNote("No cache or request signals available for this selection.")
+        if (reports.isEmpty()) ValueNote(if (loading) "Reading cache and request signals…" else "Cache and request signals are unavailable for this selection.")
         else {
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
