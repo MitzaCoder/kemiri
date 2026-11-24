@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.familyExpansion
 import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.panels.panelData
@@ -94,7 +95,10 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks, questions = questions))
     val empty = view.loaded && tasks.isEmpty() && loose.isEmpty()
     val looseGroups = loose.groupBy { it.waitingOn == "agent" }
-    val familySections = if (searching) emptyList() else taskFamilySections(sections)
+    val requestsOnly = connection.supports(HarnessFeature.REQUEST_ATTENTION)
+    val partsByRequest = if (requestsOnly) taskSections(view.tasks, view.questions, includeArchived = view.showArchived)
+        .flatMap { it.rows }.filter { it.task.parent != null }.groupBy { it.task.requestId ?: it.task.parent!! } else null
+    val familySections = if (searching) emptyList() else taskFamilySections(sections, requestsOnly)
     val needsYouSection = familySections.firstOrNull { it.id == TaskSectionId.NeedsYou }
     // Toolbar and filters, any error or empty message, then loose questions before the first section.
     val needsYouIndex = familySections.indexOf(needsYouSection) + 2 +
@@ -132,8 +136,9 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     }
     val answered = questions.filter { it.status == "answered" }
     val decisions = loadedBoard?.decisions.orEmpty()
-    val archivedShown = if (view.showArchived) tasks.count { it.archived } else 0
-    val openCount = tasks.count { !it.archived && !isSettled(it.status) }
+    val requestRows = requestRows(tasks, requestsOnly)
+    val archivedShown = if (view.showArchived) requestRows.count { it.archived } else 0
+    val openCount = requestRows.count { !it.archived && !isSettled(it.status) }
 
     LazyColumn(modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         view.error?.let { error ->
@@ -208,7 +213,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                     TaskGroup {
                         searchHits.forEachIndexed { index, hit -> searchRows[hit.id]?.let { row ->
                             if (index > 0) GroupHairline()
-                            TaskListRow(TaskFamily(row, TaskFamilyRole.Task, emptyList(), false, true, 0), now, reducedMotion, connection.supports("task-links"), false, loadedBoard?.archivedLinks.orEmpty(), {}) { context.openTask(hit.id) }
+                            TaskListRow(TaskFamily(row, TaskFamilyRole.Task, emptyList(), false, true, 0), now, reducedMotion, connection.supports("task-links"), false, loadedBoard?.archivedLinks.orEmpty(), {}, requestView = requestsOnly) { context.openTask(hit.id) }
                         } }
                     }
                 }
@@ -216,15 +221,15 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
         }
         familySections.forEach { section ->
             val open = sectionExpansion[section.id.name] ?: familySectionStartsOpen(section)
-            val families = taskFamilies(section, expansion)
+            val families = taskFamilies(section, expansion, partsByRequest)
             item(key = "section-${section.id.name}") {
                 val needsYou = section.id == TaskSectionId.NeedsYou
                 val sectionModifier = if (needsYou) Modifier.onGloballyPositioned { needsYouLayout = it } else Modifier
                 Column(sectionModifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (section.collapsedByDefault) FoldHeading(section.label, open, onToggle = {
                         sectionExpansion = sectionExpansion + (section.id.name to !open)
-                    }, count = taskFamilyCount(section), chevronFirst = false, style = TaskType.sectionTitle)
-                    else SectionTitle(section.label, taskFamilyCount(section), accent = needsYou)
+                    }, count = taskFamilyCount(section, requestsOnly), chevronFirst = false, style = TaskType.sectionTitle)
+                    else SectionTitle(section.label, taskFamilyCount(section, requestsOnly), accent = needsYou)
                     if (open) TaskGroup {
                         val previewTask = LocalPreviewTaskId.current
                         CompositionLocalProvider(LocalPreviewTaskId provides (highlightedTask.takeIf { needsYou } ?: previewTask)) {
@@ -238,6 +243,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                                     if (layout == null) needsYouRowLayouts.remove(id) else needsYouRowLayouts[id] = layout
                                 }) else null,
                                 shown = sections.flatMap { it.rows }.map { it.task.id }.toSet(),
+                                requestQuestions = view.questions.takeIf { requestsOnly }, onOpenAttention = { context.openTask(it.taskId, it.questionId) },
                             )
                         }
                     }
@@ -285,6 +291,7 @@ private fun TaskFamilyRows(
     branches: List<TaskFamilyBranch>, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
     archived: List<BoardTaskBrief>, onToggle: (TaskFamily) -> Unit, onOpen: (String) -> Unit,
     onJump: (String) -> Unit, onRowLayout: ((String, LayoutCoordinates?) -> Unit)?, depth: Int = 0, shown: Set<String> = emptySet(),
+    requestQuestions: List<BoardQuestion>? = null, onOpenAttention: (RequestAttention) -> Unit,
 ) {
     val guide = Jarvis.colors.border
     val firstVisible = branches.indexOfFirst { it.visible }
@@ -304,16 +311,28 @@ private fun TaskFamilyRows(
                                 DisposableEffect(id) { onDispose { onRowLayout(id, null) } }
                                 Modifier.onGloballyPositioned { onRowLayout(id, it) }
                             }
-                            TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) }, rowModifier) { onOpen(id) }
+                            val attention = requestQuestions?.takeIf { depth == 0 }?.let { requestAttention(family.row.task, it) }
+                            TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) },
+                                rowModifier, attention, requestView = requestQuestions != null) {
+                                if (attention == null) onOpen(id) else onOpenAttention(attention)
+                            }
                         }
                     }
                     TaskCoordinatorMark(family.row.task)
-                    ExternalTaskFamily(family.row.task, shown, onOpen, showParts = family.role != TaskFamilyRole.Pointer)
-                    if (family.branches.isNotEmpty()) Box(
+                    if (requestQuestions == null) ExternalTaskFamily(family.row.task, shown, onOpen, showParts = family.role != TaskFamilyRole.Pointer)
+                    if (family.branches.isNotEmpty() || family.doneParts > 0) Box(
                         Modifier.padding(start = if (depth < 3) 14.dp else 0.dp)
                             .drawBehind { drawLine(guide, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) },
                     ) {
-                        TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump, onRowLayout, depth + 1, shown)
+                        Column {
+                            TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump,
+                                onRowLayout, depth + 1, shown, requestQuestions, onOpenAttention)
+                            if (family.doneParts > 0) {
+                                if (family.branches.isNotEmpty()) GroupHairline()
+                                Text("✓ ${family.doneParts} done ${if (family.doneParts == 1) "part" else "parts"}",
+                                    Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), style = TaskType.xs, color = Jarvis.colors.fgMuted)
+                            }
+                        }
                     }
                 }
                 if (depth == 0 || reducedMotion) {

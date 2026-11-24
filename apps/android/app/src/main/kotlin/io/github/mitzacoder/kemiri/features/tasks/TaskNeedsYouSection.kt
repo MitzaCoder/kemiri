@@ -15,7 +15,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.mix
 
 @Composable
-internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, nextPlacement: ReportNextPlacement?, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: () -> Unit, onFocusReply: () -> Unit) {
+internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, nextPlacement: ReportNextPlacement?, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: (() -> Unit)?, onFocusReply: () -> Unit) {
     val colors = Jarvis.colors
     Surface(
         Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
@@ -24,6 +24,7 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             TaskHeading("Needs you")
+            if (needsYou.failed) Text(task.state?.sentence?.text ?: "Failed", style = TaskType.xs, color = colors.danger)
             needsYou.ownerQuestions.forEachIndexed { index, question -> key(question.id) {
                 if (index > 0) HorizontalDivider(color = colors.borderStrong)
                 QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
@@ -32,7 +33,7 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
                 if (needsYou.ownerQuestions.isNotEmpty()) HorizontalDivider(color = colors.borderStrong)
                 TaskReadingSection("Your steps") { ReportSection(task, ReportSectionKind.Steps) }
             }
-            if (needsYou.review) {
+            if (needsYou.review && onCloseTask != null) {
                 if (needsYou.ownerQuestions.isNotEmpty() || needsYou.showSteps) HorizontalDivider(color = colors.borderStrong)
                 TaskHeading("Check the work")
                 if (nextPlacement == ReportNextPlacement.Review) ReportSection(task, ReportSectionKind.Next)

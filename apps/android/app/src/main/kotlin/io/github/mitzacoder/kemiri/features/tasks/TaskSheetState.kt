@@ -30,6 +30,10 @@ internal data class TaskSheetState(
     val threads: List<ThreadSummary>,
     val workers: List<WorkerSummary>,
     val artifacts: List<Artifact>,
+    val partProof: List<ArtifactsListResponsePartProofItem>,
+    val requestDigest: Boolean,
+    val partPage: RequestPartPage?,
+    val raisedAttention: RequestAttention?,
     val sectionViewsSupported: Boolean,
     val artifactsProblem: String?,
     val onRetryArtifacts: () -> Unit,
@@ -66,6 +70,10 @@ internal data class TaskSheetStatus(
     val waitingForm: Boolean,
     val problem: String?,
     val onChoose: (String) -> Unit,
+    val reopenForm: Boolean,
+    val onShowReopen: () -> Unit,
+    val onCancelReopen: () -> Unit,
+    val onReopen: (String) -> Unit,
     val onSet: (target: String, waitingFor: String?, waitUntil: String?) -> Unit,
     val onCancelDrop: () -> Unit,
     val onCancelWaiting: () -> Unit,
@@ -109,14 +117,22 @@ internal fun rememberTaskSheetState(
     val project = context.route.projectId
     val taskId = task.id
     val board = context.board
+    val digestSupported = connection.supports(HarnessFeature.REQUEST_DIGEST)
+    val attentionSupported = connection.supports(HarnessFeature.REQUEST_ATTENTION)
+    val partPage = requestPartPage(task, view.tasks, digestSupported)
+    val actions = taskPageActions(task, partPage)
+    val partIds = task.partsDigest?.parts.takeIf { digestSupported }.orEmpty().map { it.id }.toSet()
     val threads = if (connection.supports("threads")) panelData(context, "sheet-threads", { it is ThreadsStateEvent && it.projectId == project }) {
         context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
     }.value.orEmpty() else emptyList()
     val workers = if (connection.supports("workers")) panelData(context, "sheet-workers", { it is WorkersStateEvent && it.projectId == project }) {
         context.backend.client.request(WorkersListRequest(projectId = project)).workers
     }.value.orEmpty() else emptyList()
-    val artifactFeed = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId", { it is ArtifactsChangedEvent && it.projectId == project && it.artifact.taskId == taskId }) {
-        context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId)).artifacts
+    val artifactFeed = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId/$digestSupported/${partIds.joinToString()}", {
+        it is ArtifactsChangedEvent && it.projectId == project &&
+            (it.artifact.taskId == taskId || it.artifact.taskId in partIds || it.artifact.laterTaskIds.orEmpty().any { id -> id == taskId || id in partIds })
+    }) {
+        context.backend.client.request(ArtifactsListRequest(projectId = project, taskId = taskId))
     } else null
     val now = rememberTaskMinuteNow()
 
@@ -125,6 +141,7 @@ internal fun rememberTaskSheetState(
     var waitingForm by remember(taskId) { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
+    var reopenForm by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val linksEnabled = connection.supports(HarnessFeature.TASK_LINKS)
     val timelineGroupsEnabled = connection.supports(HarnessFeature.TASK_TIMELINE_GROUPS)
@@ -143,7 +160,7 @@ internal fun rememberTaskSheetState(
     var feedbackBusy by remember(taskId) { mutableStateOf(false) }
     var timelineRefresh by remember(taskId) { mutableIntStateOf(0) }
     LaunchedEffect(linksEnabled, timelineGroupsEnabled, timelineKinds, connection.status, task.timelineRevision, task.feedback,
-        task.status, task.report.revision, timelineRefresh, deliveryEnabled, activity?.kind.takeIf { deliveryEnabled }) {
+        task.status, task.report.revision, timelineRefresh, deliveryEnabled, digestSupported, task.partsDigest, activity?.kind.takeIf { deliveryEnabled }) {
         if (!linksEnabled) return@LaunchedEffect
         try {
             val kinds = timelineKinds.takeUnless { deliveryEnabled }
@@ -169,7 +186,9 @@ internal fun rememberTaskSheetState(
     }
     val decisions = decisionsFor(view.board?.decisions.orEmpty(), task.id)
     val blockers = blockersOf(task, view.tasks).filterNot { it.settled }
-    val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS))
+    val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS),
+        attentionQuestionId = context.attentionQuestionId, failed = attentionSupported && task.state?.kind == "failed" && task.state.fromPartId == null)
+        .let { if (actions.canClose) it else it.copy(review = false) }
     val delivery = timeline?.delivery?.takeIf { deliveryEnabled && it.commits.isNotEmpty() }
     val taskQuestions = view.questions.filter { it.taskId == task.id }
     val decided = if (deliveryEnabled) taskDecided(task.id, decisions, taskQuestions) else null
@@ -184,17 +203,17 @@ internal fun rememberTaskSheetState(
     val keyboard = LocalSoftwareKeyboardController.current
     fun writerName(writer: BoardWriter) = shortWriterLabel(writer, threads)
 
-    fun setStatus(target: String, waitingFor: String? = null, waitUntil: String? = null) {
-        if (closing) return
+    fun setStatus(target: String, waitingFor: String? = null, waitUntil: String? = null, note: String? = null) {
+        if (closing || (!actions.canClose && isSettled(target))) return
         closing = true
         problem = null
         confirmDrop = false
         scope.launch {
             // No refs: a status change keeps the task's own.
             val input = task.editorDraft().toInput(baseRefs = task.refs).copy(status = target, waitingFor = waitingFor, waitUntil = waitUntil)
-            when (val outcome = board.saveTask(input, task.id, task.revision)) {
+            when (val outcome = board.saveTask(input, task.id, task.revision, note = note)) {
                 SaveOutcome.Cancelled -> Unit
-                is SaveOutcome.Saved -> { waitingForm = false; onTaskSaved(outcome.task) }
+                is SaveOutcome.Saved -> { waitingForm = false; reopenForm = false; onTaskSaved(outcome.task) }
                 is SaveOutcome.Conflict -> problem = "${task.id} changed while you were looking. Check it and try again."
                 is SaveOutcome.Failed -> problem = outcome.message
             }
@@ -209,7 +228,9 @@ internal fun rememberTaskSheetState(
         context = context, task = task, tasks = view.tasks, archivedLinks = view.board?.archivedLinks.orEmpty(),
         previousTaskId = previousTaskId, previousTaskTitle = view.task(previousTaskId.orEmpty())?.title,
         wide = wide, bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
-        threads = threads, workers = workers, artifacts = artifactFeed?.value.orEmpty(),
+        threads = threads, workers = workers, artifacts = artifactFeed?.value?.artifacts.orEmpty(),
+        requestDigest = digestSupported, partPage = partPage, partProof = artifactFeed?.value?.partProof.orEmpty(),
+        raisedAttention = if (attentionSupported && task.state?.fromPartId != null) requestAttention(task, view.questions) else null,
         sectionViewsSupported = connection.supports("task-report-section-views"),
         artifactsProblem = artifactFeed?.error, onRetryArtifacts = { artifactFeed?.refresh?.trySend(Unit) },
         onUpdateArtifactTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
@@ -234,7 +255,11 @@ internal fun rememberTaskSheetState(
                 waitingForm = status == "waiting"
                 if (!confirmDrop && !waitingForm) setStatus(status)
             },
-            onSet = ::setStatus, onCancelDrop = { confirmDrop = false }, onCancelWaiting = { waitingForm = false },
+            onSet = { target, note, until -> setStatus(target, note, until) },
+            reopenForm = reopenForm, onShowReopen = { problem = null; reopenForm = true },
+            onCancelReopen = { problem = null; reopenForm = false },
+            onReopen = { note -> if (actions.reopenWithNote && note.isNotBlank()) setStatus("in_progress", note = note) },
+            onCancelDrop = { confirmDrop = false }, onCancelWaiting = { waitingForm = false },
         ),
         editing = editing, onEditChange = { editing = it }, reply = reply,
         onFocusReply = { if (replyFocus.requestFocus()) keyboard?.show() },

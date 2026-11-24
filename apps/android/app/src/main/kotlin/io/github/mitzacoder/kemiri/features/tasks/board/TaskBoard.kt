@@ -56,6 +56,8 @@ import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
 import io.github.mitzacoder.kemiri.features.tasks.looseQuestions
+import io.github.mitzacoder.kemiri.features.tasks.requestRows
+import io.github.mitzacoder.kemiri.features.tasks.requestAttention
 import io.github.mitzacoder.kemiri.features.tasks.taskIdOrder
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
@@ -134,6 +136,7 @@ fun TaskBoard(
     val client = context.backend.client
     val connection by client.state.collectAsStateWithLifecycle()
     val canNote = connection.supports(HarnessFeature.BOARD_MOVES)
+    val requestsOnly = connection.supports(HarnessFeature.REQUEST_ATTENTION)
     val canSendReason = connection.supports("conversation")
     val project = context.route.projectId
     val workers = if (connection.supports("workers")) panelData(context, "board-workers", { it is WorkersStateEvent && it.projectId == project }) {
@@ -164,14 +167,15 @@ fun TaskBoard(
     val filtered = io.github.mitzacoder.kemiri.features.tasks.filteredTasks(context, tasks, includeSearch = false)
     val search = io.github.mitzacoder.kemiri.features.tasks.taskSearchState(context, tasks)
     val searchHits = if (search.query.isBlank()) emptyMap() else search.index.search(search.query, filtered.map { it.id }.toSet()).associateBy { it.id }
-    val visibleTasks = if (search.query.isBlank()) filtered else filtered.filter { it.id in searchHits }
+    val matchingRequests = if (requestsOnly) tasks.filter { it.id in searchHits }.mapNotNull { it.requestId ?: it.parent }.toSet() else emptySet()
+    val visibleTasks = requestRows(filtered, requestsOnly).filter { search.query.isBlank() || it.id in searchHits || it.id in matchingRequests }
     val questions = coordinatorScope?.questions(view.questions) ?: view.questions
     val columns = remember(visibleTasks, questions, view.showArchived, doneExpanded, onlyNeedsYou) {
         kanbanColumns(visibleTasks, questions, view.showArchived, if (doneExpanded) Int.MAX_VALUE else DONE_SHOWN, onlyNeedsYou)
     }
     val needsYou = needsYouCount(visibleTasks, questions)
     val loose = if (view.board == null) emptyList() else looseQuestions(Board(tasks = tasks, questions = questions, decisions = emptyList(), updatedAt = null))
-    val archivedShown = if (view.showArchived) tasks.count { it.archived } else 0
+    val archivedShown = if (view.showArchived) requestRows(tasks, requestsOnly).count { it.archived } else 0
     val columnOf = remember(columns) { columns.flatMap { column -> column.cards.map { it.task.id to column.id } }.toMap() }
     val latestColumnOf by rememberUpdatedState(columnOf)
 
@@ -347,12 +351,13 @@ fun TaskBoard(
 
     val cardContent: @Composable (KanbanCard, Int, Int, Boolean, Modifier) -> Unit = { card, index, count, draggable, itemModifier ->
         val id = card.task.id
+        val attention = if (requestsOnly) requestAttention(card.task, view.questions) else null
         val latestCard by rememberUpdatedState(card)
         DisposableEffect(id, card.column) { onDispose { cardGone(id, card.column) } }
         val hidden = glides.any { it.card.task.id == id }
         TaskCard(
             card, view.tasks, workers, threads, now,
-            searchHit = searchHits[id],
+            searchHit = searchHits[id], requestView = requestsOnly, attention = attention,
             linksEnabled = connection.supports(HarnessFeature.TASK_LINKS),
             modifier = itemModifier
                 .alpha(if (hidden) 0f else 1f)
@@ -376,7 +381,7 @@ fun TaskBoard(
                         onDragCancel = { drag = null },
                     )
                 },
-            onOpen = { context.openTask(id) },
+            onOpen = { context.openTask(attention?.taskId ?: id, attention?.questionId) },
             menu = {
                 MoveMenu(
                     card.task,
@@ -501,13 +506,13 @@ fun TaskBoard(
                     .then(if (reduced) Modifier else Modifier.rotate(1.5f).scale(1.02f))
                     .shadow(12.dp, RoundedCornerShape(12.dp)),
             ) {
-                TaskCard(current.card, tasks, workers, threads, now, ghost = true, pulse = false, linksEnabled = connection.supports(HarnessFeature.TASK_LINKS))
+                TaskCard(current.card, tasks, workers, threads, now, ghost = true, pulse = false, linksEnabled = connection.supports(HarnessFeature.TASK_LINKS), requestView = requestsOnly)
             }
         }
         glides.toList().forEach { glide ->
             key(glide.card.task.id, glide.from) {
                 GlidingCard(glide, boardBounds, onLanded = { glides.remove(glide) }) {
-                    TaskCard(glide.card, tasks, workers, threads, now, ghost = true, pulse = false, linksEnabled = connection.supports(HarnessFeature.TASK_LINKS))
+                    TaskCard(glide.card, tasks, workers, threads, now, ghost = true, pulse = false, linksEnabled = connection.supports(HarnessFeature.TASK_LINKS), requestView = requestsOnly)
                 }
             }
         }

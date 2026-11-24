@@ -183,8 +183,8 @@ data class ComparePair(val before: Artifact, val after: Artifact)
 data class MediaSlide(val artifact: Artifact, val pair: ComparePair? = null)
 
 /** Collapse each filtered pair at its earliest member, using after for the thumbnail/caption. */
-fun mediaSlides(items: List<Artifact>, separate: Boolean = false): List<MediaSlide> {
-    val pairs = comparePairs(items)
+fun mediaSlides(items: List<Artifact>, separate: Boolean = false, partScope: (Artifact) -> String? = { null }): List<MediaSlide> {
+    val pairs = comparePairs(items, partScope)
     val seen = HashSet<String>()
     return buildList {
         for (item in items) {
@@ -215,17 +215,18 @@ private fun otherTagsKey(item: Artifact): String =
  * `before` and an `after` are a pair when their other tags are the same set; several with the same other tags pair in
  * order (the first before with the first after, by save time). An item with both tags, or whose other tags have no
  * partner, is unpaired. Give the items as filtered: a pair needs both of them in the list.
+ * When the request gathers proof from parts, only pair images within the same part.
  */
-fun comparePairs(items: List<Artifact>): Map<String, ComparePair> {
+fun comparePairs(items: List<Artifact>, partScope: (Artifact) -> String? = { null }): Map<String, ComparePair> {
     class Group { val befores = ArrayList<Artifact>(); val afters = ArrayList<Artifact>() }
-    val groups = LinkedHashMap<String, Group>()
+    val groups = LinkedHashMap<Pair<String?, String>, Group>()
     for (item in items.sortedWith(byTimeThenId)) {
         if (item.kind != "image") continue
         val tags = item.tagList()
         val before = BEFORE_TAG in tags
         val after = AFTER_TAG in tags
         if (before == after) continue
-        val group = groups.getOrPut(otherTagsKey(item)) { Group() }
+        val group = groups.getOrPut(partScope(item) to otherTagsKey(item)) { Group() }
         (if (before) group.befores else group.afters).add(item)
     }
     val pairs = LinkedHashMap<String, ComparePair>()

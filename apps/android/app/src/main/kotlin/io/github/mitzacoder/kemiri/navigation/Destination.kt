@@ -33,7 +33,7 @@ sealed interface Destination {
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Panel") data class Panel(val chat: Chat, val tab: PanelTab = PanelTab.Info) : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Artifact") data class Artifact(val chat: Chat, val artifactId: String) : Destination
     /** A task's sheet over the chat it was opened from (the web's `?task=` on main's or a thread's page); back closes it. */
-    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null, val attentionQuestionId: String? = null) : Destination
     @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.Changes")
     data class Changes(val chat: Chat, val taskId: String, val title: String, val commitHash: String? = null) : Destination
     @Serializable @SerialName("io.github.mitzacoder.kemiri.navigation.Destination.Files")
@@ -116,11 +116,15 @@ data class ProjectScreenContext(
     val highlight: ChatHighlight? = null,
     val goBack: (() -> Unit)? = null,
     val taskOrigin: String? = null,
+    val attentionQuestionId: String? = null,
 ) {
     /** The project's live board, shared by every screen of this backend. */
     val board: ProjectBoard get() = backend.board(route.projectId)
     /** Opens a task's sheet over this chat. */
-    fun openTask(taskId: String) = navigate(Destination.Task(route, taskId, fromTaskId = taskOrigin))
+    fun openTask(taskId: String) = openTask(taskId, attentionQuestionId = null)
+
+    fun openTask(taskId: String, attentionQuestionId: String?) =
+        navigate(Destination.Task(route, taskId, fromTaskId = taskOrigin, attentionQuestionId = attentionQuestionId))
 
     val target get() = ConversationTarget(route.projectId, route.threadId, route.workerId)
 }

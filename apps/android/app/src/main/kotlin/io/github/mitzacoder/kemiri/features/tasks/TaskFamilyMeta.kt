@@ -28,17 +28,17 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 
 @Composable
-internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<BoardTaskBrief>, summary: String, onToggle: () -> Unit) {
+internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<BoardTaskBrief>, summary: String, onToggle: () -> Unit, requestView: Boolean = false) {
     val task = family.row.task
     val links = LocalTaskLinks.current
     val colors = Jarvis.colors
     val groups = linkGroups(task, emptyList(), archived)
-    val parent = groups.firstOrNull { it.kind == "parent" }?.items?.firstOrNull()?.takeUnless { nested }
+    val parent = groups.firstOrNull { it.kind == "parent" }?.items?.firstOrNull()?.takeUnless { nested || requestView }
     val hints = groups.filter { it.kind in setOf("foundWhile", "blockedBy", "related") }
     val progress = task.subtaskCount?.takeIf { it.total > 0 }
     val parts = taskPartProgress(task)
     val feedback = openFeedbackCount(task)
-    if (summary.isEmpty() && parent == null && hints.isEmpty() && progress == null && !family.canToggle && feedback == 0L) return
+    if (summary.isEmpty() && parent == null && hints.isEmpty() && progress == null && parts == null && !family.canToggle && feedback == 0L) return
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
         if (summary.isNotEmpty() && !taskUsesPartsSentence(task)) Text(
             summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
@@ -75,15 +75,16 @@ internal fun TaskFamilyMeta(family: TaskFamily, nested: Boolean, archived: List<
                 }
             }
         }
-        if (progress != null || family.canToggle) {
+        if (progress != null || parts != null || family.canToggle) {
             val label = parts?.text ?: progress?.let { "${it.done} of ${it.total} subtasks done" } ?: "Subtasks of ${task.id}"
+            val partsNoun = if (requestView) "parts" else "subtasks"
             // Foundation clickable expands touch bounds to the platform's 48dp minimum without a layout column.
             Row(
                 Modifier.background(colors.fgSubtle.copy(alpha = .08f), RoundedCornerShape(4.dp))
-                    .then(if (family.canToggle) Modifier.clickable(role = Role.Button, onClickLabel = "${if (family.expanded) "Collapse" else "Expand"} subtasks of ${task.id}", onClick = onToggle) else Modifier)
+                    .then(if (family.canToggle) Modifier.clickable(role = Role.Button, onClickLabel = "${if (family.expanded) "Collapse" else "Expand"} $partsNoun of ${task.id}", onClick = onToggle) else Modifier)
                     .semantics(mergeDescendants = true) {
                         contentDescription = label
-                        if (family.canToggle) stateDescription = if (family.expanded) "Expanded" else "Collapsed, ${family.foldedCount} folded subtasks"
+                        if (family.canToggle) stateDescription = if (family.expanded) "Expanded" else "Collapsed, ${family.foldedCount} folded $partsNoun"
                     }.padding(horizontal = 4.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {

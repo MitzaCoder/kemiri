@@ -15,7 +15,13 @@ data class CloseTaskParts(val taskId: String, val parts: List<BoardTask>, val re
 fun openDirectParts(tasks: List<BoardTask>, taskId: String): List<BoardTask> =
     tasks.filter { it.parent == taskId && !isSettled(it.status) }
 
-fun needsClosePartsChoice(status: String?, taskId: String?, tasks: List<BoardTask>, supported: Boolean): Boolean =
-    supported && taskId != null && status?.let(::isSettled) == true && openDirectParts(tasks, taskId).isNotEmpty()
+fun needsClosePartsChoice(
+    status: String?, taskId: String?, tasks: List<BoardTask>, supported: Boolean, requestDigest: Boolean = false,
+): Boolean {
+    if (!supported || taskId == null || status?.let(::isSettled) != true) return false
+    val task = tasks.find { it.id == taskId }
+    if (requestDigest && task != null && (task.parent != null || task.status == status)) return false
+    return openDirectParts(tasks, taskId).isNotEmpty()
+}
 
 fun isOpenPartsError(error: Throwable): Boolean = (error as? ClientException)?.code == "open_parts"

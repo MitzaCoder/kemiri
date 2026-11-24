@@ -37,7 +37,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 internal fun TaskListRow(
     family: TaskFamily, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
     nested: Boolean, archived: List<BoardTaskBrief>, onToggle: () -> Unit,
-    modifier: Modifier = Modifier, onOpen: () -> Unit,
+    modifier: Modifier = Modifier, attention: RequestAttention? = null, requestView: Boolean = false, onOpen: () -> Unit,
 ) {
     val taskLinks = LocalTaskLinks.current
     val row = family.row
@@ -59,11 +59,11 @@ internal fun TaskListRow(
         modifier.fillMaxWidth().alpha(if (searchHit?.context == true) .5f else 1f)
             .then(if (wash != null) Modifier.background(wash) else Modifier)
             .taskReferenceHighlight(task.id, reducedMotion)
-            .clickable(role = Role.Button, onClickLabel = "Open ${task.id}", onClick = onOpen)
+            .clickable(role = Role.Button, onClickLabel = "Open ${attention?.taskId ?: task.id}", onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    "${task.id}: ${task.title}", activity?.let { activityDescription(it, now) } ?: taskStateLabel(task),
-                    task.parent?.takeIf { nested }?.let { "Subtask of $it" },
+                    "${task.id}: ${task.title}", attention?.text ?: activity?.let { activityDescription(it, now) } ?: taskStateLabel(task),
+                    task.parent?.takeIf { nested }?.let { "${if (requestView) "Part" else "Subtask"} of $it" },
                     if (partsSummary != null) partsSummary.takeUnless { it == activity?.text } else task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" },
                 ).joinToString(". ")
             }
@@ -87,13 +87,20 @@ internal fun TaskListRow(
                 append(task.title)
                 searchHit?.ranges?.forEach { range -> addStyle(SpanStyle(background = colors.accent2.copy(alpha = .22f)), range.start, range.end) }
             }, style = TaskType.rowTitle, color = if (row.section == TaskSectionId.Closed) colors.fgMuted else colors.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (requestView && searchHit != null && task.parent != null) {
+                val requestId = task.requestId ?: task.parent
+                Text("Part of ${taskLinks?.title(requestId) ?: requestId}", style = TaskType.meta, color = colors.fgMuted,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val summary = if (!searchHit?.snippet.isNullOrEmpty()) "" else if (task.status == "waiting") waitingSummary(task, now) else gist
-            if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) {
-                if (!linksEnabled || !taskUsesPartsSentence(task)) TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
-                if (linksEnabled) TaskFamilyMeta(family, nested, archived, "", onToggle)
+            if (attention != null) {
+                Text(attention.text, style = TextStyles.taskSm, color = colors.fgMuted)
+            } else if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) {
+                if (!(linksEnabled || requestView) || !taskUsesPartsSentence(task)) TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
+                if (linksEnabled || requestView) TaskFamilyMeta(family, nested, archived, "", onToggle, requestView = requestView)
             }
-            else if (linksEnabled) TaskFamilyMeta(family, nested, archived, summary, onToggle)
+            else if (linksEnabled || requestView) TaskFamilyMeta(family, nested, archived, summary, onToggle, requestView = requestView)
             else if (summary.isNotEmpty()) Text(
                 summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
                 maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
@@ -122,7 +129,7 @@ internal fun TaskListRow(
     }
 }
 
-private fun taskStateGlyph(kind: String?) = when (kind) {
+internal fun taskStateGlyph(kind: String?) = when (kind) {
     "failed" -> TaskIcons.TriangleAlert
     "answer_needed", "clarifying" -> TaskIcons.CircleHelp
     "steps_needed" -> TaskIcons.ListChecks

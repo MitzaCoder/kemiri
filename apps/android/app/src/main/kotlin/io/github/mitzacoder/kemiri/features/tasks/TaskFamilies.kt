@@ -12,6 +12,7 @@ data class TaskFamily(
     val canToggle: Boolean,
     val expanded: Boolean,
     val foldedCount: Int,
+    val doneParts: Int = 0,
 ) {
     val children: List<TaskFamily> get() = branches.filter { it.visible }.map { it.family }
 }
@@ -19,7 +20,9 @@ data class TaskFamily(
 private fun TaskRow.needsOwner() = task.state?.group == "needs_you"
 
 /** List-only relocation; search and board retain their ordinary state sections. */
-fun taskFamilySections(sections: List<TaskSection>): List<TaskSection> {
+fun taskFamilySections(sections: List<TaskSection>, requestAttention: Boolean = false): List<TaskSection> {
+    if (requestAttention) return sections.map { it.copy(rows = it.rows.filter { row -> row.task.parent == null }, parentRows = emptyList()) }
+        .filter { it.rows.isNotEmpty() }
     val rows = sections.flatMap { it.rows }
     val byId = rows.associateBy { it.task.id }
     fun familySection(row: TaskRow): TaskSectionId {
@@ -46,7 +49,8 @@ fun taskFamilySections(sections: List<TaskSection>): List<TaskSection> {
     }.filter { it.rows.isNotEmpty() }
 }
 
-fun taskFamilyCount(section: TaskSection): Int = when {
+fun taskFamilyCount(section: TaskSection, requestAttention: Boolean = false): Int = when {
+    requestAttention -> section.rows.size
     section.rows.none { it.task.state != null } -> section.rows.size
     section.id == TaskSectionId.NeedsYou -> section.rows.count { it.needsOwner() }
     else -> taskFamilies(section).size
@@ -62,7 +66,22 @@ fun familySectionStartsOpen(section: TaskSection): Boolean =
  * Derived families nest across states; legacy families retain same-status nesting.
  * Needs-you parts have their full row in Needs you, with a foldable pointer in a different family section.
  */
-fun taskFamilies(section: TaskSection, expansion: Map<String, Boolean> = emptyMap()): List<TaskFamily> {
+fun taskFamilies(
+    section: TaskSection, expansion: Map<String, Boolean> = emptyMap(), partsByRequest: Map<String, List<TaskRow>>? = null,
+): List<TaskFamily> {
+    if (partsByRequest != null) return section.rows.map { row ->
+        val task = row.task
+        val showParts = section.id !in setOf(TaskSectionId.NeedsYou, TaskSectionId.Closed)
+        val parts = if (showParts) partsByRequest[task.id].orEmpty() else emptyList()
+        val done = if (!showParts) 0 else task.partsDigest?.parts?.count { it.state == "done" }
+            ?: parts.count { it.task.status == "done" }
+        val canToggle = parts.isNotEmpty() || done > 0
+        val expanded = canToggle && expansion[task.id] == true
+        val branches = if (expanded) requestPartRows(parts).map {
+            TaskFamilyBranch(TaskFamily(it, TaskFamilyRole.Task, emptyList(), false, false, 0), visible = true)
+        } else emptyList()
+        TaskFamily(row, TaskFamilyRole.Task, branches, canToggle, expanded, parts.size, doneParts = if (expanded) done else 0)
+    }
     val needsYou = section.id == TaskSectionId.NeedsYou
     val byId = section.rows.associateBy { it.task.id }
     val parents = linkedMapOf<String, String>()

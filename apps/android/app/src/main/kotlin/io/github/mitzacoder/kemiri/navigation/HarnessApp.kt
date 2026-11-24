@@ -196,7 +196,7 @@ private fun HarnessNavigation(
     val terminal = current as? Destination.Terminal
     val codeView = current is Destination.Changes || current is Destination.WorkingChanges || current is Destination.Files
     val highlight = (current as? Destination.Chat)?.highlight
-    val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight, goBack = if (backStack.canGoBack) ::pop else null, taskOrigin = (current as? Destination.Task)?.taskId) else null
+    val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight, goBack = if (backStack.canGoBack) ::pop else null, taskOrigin = (current as? Destination.Task)?.taskId, attentionQuestionId = (current as? Destination.Task)?.attentionQuestionId) else null
     // A task sheet opened from a panel keeps the panel under it, so closing the sheet returns to the panel as it was.
     val panelUnderTask = (current as? Destination.Task)?.let { task ->
         panelBehindTask(stack.dropLast(1), task)

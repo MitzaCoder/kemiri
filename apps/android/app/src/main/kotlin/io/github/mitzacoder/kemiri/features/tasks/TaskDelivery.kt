@@ -9,6 +9,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.changes.*
 import io.github.mitzacoder.kemiri.navigation.Destination
@@ -72,14 +73,28 @@ internal fun TaskDelivery(
         var changesOpen by rememberSaveable { mutableStateOf(false) }
         TaskFold("Changes", changesOpen, { changesOpen = !changesOpen }) {
             val connection by context.backend.client.state.collectAsStateWithLifecycle()
-            if (connection.supports(PROJECT_CHANGES)) DeliveryCommitRows(context, task, delivery.commits)
-            else delivery.commits.forEach { Text(it.take(12), Modifier.padding(start = 24.dp), style = TaskType.metaMono, color = colors.fgMuted) }
+            val partCommits = delivery.partCommits.takeIf { connection.supports(HarnessFeature.REQUEST_DIGEST) }.orEmpty()
+            val partHashes = partCommits.flatMap { it.commits }.toSet()
+            val requestCommits = delivery.commits.filterNot { it in partHashes }
+            val groups = buildList {
+                if (requestCommits.isNotEmpty()) add((if (partCommits.isEmpty()) null else "Request") to requestCommits)
+                partCommits.forEach { part ->
+                    val title = task.partsDigest?.parts?.find { it.id == part.partId }?.title ?: part.partId
+                    add(title to part.commits)
+                }
+            }
+            if (connection.supports(PROJECT_CHANGES)) DeliveryCommitRows(context, task, groups)
+            else groups.forEach { (title, hashes) ->
+                title?.let { TaskHeading(it) }
+                hashes.forEach { Text(it.take(12), Modifier.padding(start = 24.dp), style = TaskType.metaMono, color = colors.fgMuted) }
+            }
         }
     }
 }
 
 @Composable
-private fun DeliveryCommitRows(context: ProjectScreenContext, task: BoardTask, hashes: List<String>) {
+private fun DeliveryCommitRows(context: ProjectScreenContext, task: BoardTask, groups: List<Pair<String?, List<String>>>) {
+    val hashes = groups.flatMap { it.second }.distinct()
     val client = context.backend.client
     val project = context.route.projectId
     val list by produceState<ChangesListResponse?>(null, client, project, task.id, hashes) {
@@ -95,13 +110,16 @@ private fun DeliveryCommitRows(context: ProjectScreenContext, task: BoardTask, h
     fun open(hash: String? = null) = context.navigate(Destination.Changes(context.route, task.id, task.title, hash))
     OutlinedButton(onClick = { open() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review changes") }
     val commits = list?.commits.orEmpty().associateBy { it.hash }
-    for (hash in hashes) {
-        val detail = details[hash]
-        Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Review commit") { open(hash) }
-            .heightIn(min = 48.dp).padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(commits[hash]?.subject ?: detail?.commits?.firstOrNull()?.subject ?: hash.take(12), style = TaskType.sectionTitle)
-            Text(listOfNotNull(hash.take(12), detail?.let { changeCounts(it.files).label() + if (it.truncated) " · partial" else "" })
-                .joinToString(" · "), style = TaskType.metaMono, color = Jarvis.colors.fgMuted)
+    groups.forEach { (title, commitsInGroup) ->
+        title?.let { TaskHeading(it) }
+        for (hash in commitsInGroup) {
+            val detail = details[hash]
+            Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Review commit") { open(hash) }
+                .heightIn(min = 48.dp).padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(commits[hash]?.subject ?: detail?.commits?.firstOrNull()?.subject ?: hash.take(12), style = TaskType.sectionTitle)
+                Text(listOfNotNull(hash.take(12), detail?.let { changeCounts(it.files).label() + if (it.truncated) " · partial" else "" })
+                    .joinToString(" · "), style = TaskType.metaMono, color = Jarvis.colors.fgMuted)
+            }
         }
     }
 }

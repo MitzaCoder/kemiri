@@ -38,13 +38,17 @@ fun taskStateLabel(task: BoardTask, title: (String) -> String? = { null }): Stri
 fun taskRowStateLabel(task: BoardTask, title: (String) -> String? = { null }): String? =
     if (task.state != null) null else taskStateLabel(task, title)
 
-fun taskStateTone(task: BoardTask): TaskStatusTone = when (task.state?.kind) {
+fun taskStateTone(task: BoardTask): TaskStatusTone = taskKindTone(task.state?.kind, taskStatusTone(task.status))
+
+internal fun taskKindTone(kind: String?, fallback: TaskStatusTone = TaskStatusTone.Todo): TaskStatusTone = when (kind) {
     "failed" -> TaskStatusTone.Blocked
     "answer_needed", "steps_needed", "review" -> TaskStatusTone.Review
     "working", "clarifying" -> TaskStatusTone.Working
     "paused" -> TaskStatusTone.Paused
     "blocked_by_task", "waiting_outside" -> TaskStatusTone.Waiting
-    else -> taskStatusTone(task.status)
+    "done" -> TaskStatusTone.Done
+    "dropped" -> TaskStatusTone.Dropped
+    else -> fallback
 }
 
 fun needsTaskOwner(task: BoardTask, waiting: Int): Boolean =

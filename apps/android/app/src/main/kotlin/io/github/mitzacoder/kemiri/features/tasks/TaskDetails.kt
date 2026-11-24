@@ -13,17 +13,18 @@ internal data class TaskNeedsYou(
     val review: Boolean,
     val blocked: Boolean,
     val showSteps: Boolean = false,
+    val failed: Boolean = false,
 ) {
-    val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps
+    val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps || failed
 }
 
-internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean): TaskNeedsYou {
+internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean, attentionQuestionId: String? = null, failed: Boolean = false): TaskNeedsYou {
     val (warnings, ordinary) = questions.filter { it.status == "open" && it.taskId == task.id }.partition(::isWarning)
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
     val stepsEnabled = stepsSupported && !isSettled(task.status)
     val showSteps = stepsEnabled && readReportSection(task.report, ReportSectionKind.Steps).hasContent
-    return TaskNeedsYou(ownerQuestions, questionsForAgent, task.status == "review",
-        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps)
+    return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, task.status == "review",
+        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed)
 }
 
 internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: String? = null): String = when {

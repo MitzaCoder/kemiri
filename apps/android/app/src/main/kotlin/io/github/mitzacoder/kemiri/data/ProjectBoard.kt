@@ -137,7 +137,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
      */
     suspend fun saveTask(input: BoardTaskInput, taskId: String? = null, expectedRevision: Long? = null, note: String? = null, coordinator: String? = null): SaveOutcome {
         var openParts: String? = null
-        if (needsClosePartsChoice(input.status, taskId, view.value.tasks, client.supports("task-state"))) {
+        if (needsClosePartsChoice(input.status, taskId, view.value.tasks, client.supports("task-state"), client.supports(HarnessFeature.REQUEST_DIGEST))) {
             openParts = askCloseParts(taskId!!) ?: return SaveOutcome.Cancelled
         }
         return try {

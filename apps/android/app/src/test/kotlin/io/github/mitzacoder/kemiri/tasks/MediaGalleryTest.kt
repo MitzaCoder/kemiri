@@ -55,6 +55,14 @@ class MediaGalleryTest {
         assertEquals(items.map { MediaSlide(it) }, mediaSlides(items, separate = true))
     }
 
+    @Test fun gatheredProofNeverComparesImagesFromDifferentParts() {
+        val before = artifact(tags = listOf("before", "phone")).copy(taskId = "T2")
+        val unrelatedAfter = artifact(tags = listOf("after", "phone")).copy(taskId = "T3")
+        val after = artifact(tags = listOf("after", "phone")).copy(taskId = "T2")
+        val slides = mediaSlides(listOf(before, unrelatedAfter, after), partScope = Artifact::taskId)
+        assertEquals(listOf(MediaSlide(after, ComparePair(before, after)), MediaSlide(unrelatedAfter)), slides)
+    }
+
     @Test fun unpairedAmbiguousAndVideoMediaAreUnchanged() {
         val items = listOf(artifact(tags = listOf("before")), artifact(tags = listOf("before", "after")), artifact(kind = "video", tags = listOf("after")))
         assertEquals(items.map { MediaSlide(it) }, mediaSlides(items))

@@ -4658,7 +4658,7 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 ### Collapsible task families (T74 / D44)
 
 The web task list uses collapsible families, with no prototype switch or query flag. The following legacy family
-rules still apply on web without `request-attention`, and on Android until it adopts request rows.
+rules still apply on web and Android without `request-attention`.
 On web and Android, parts nest beneath their parent across derived groups (T246 / D94 stage 3; same stored status on old backends) with a 14px guide/indent capped visually at three levels.
 A task having subtasks never adds a leading column: status, title, status line and trailing ID keep exactly the
 same positions as plain rows at every width. The direct-parts bar and summary (T244 / D94) are
@@ -4697,13 +4697,16 @@ relevance results and family context, and board grouping is unchanged. Without d
 the previous same-status, same-section nesting and attention visibility (review, blocked, waiting,
 questions and warnings cannot fold away), including the old counts.
 
-**Request rows on web (T459).** With `request-attention`, Needs you has one row per request. A row uses the
+**Request rows on web and Android (T459, T460).** With `request-attention`, Needs you has one row per request. A row uses the
 server's highest-priority owner need, names the part that raised it and links to its question, steps or failure
 on that part. There are no extra part rows or pointers in Needs you. In progress, To do and Waiting show the
 existing parts bar. Unfolding a request lists running and attention parts first, then other unfinished or dropped
 parts, and combines done parts into one count. Done parts remain individually readable in the request's checklist.
 List counts, Recently closed and Kanban cards count requests only. Kanban cards show the direct-parts bar; list
 search still finds parts individually and labels their parent. Follow-ups have no parent and remain requests.
+Android advertises `request-attention` in hello. Tapping the request's attention row opens the source
+part's sheet with the named question first, or its steps or failure in Needs you. Android has pop-ups
+but no in-app notification history to group.
 
 **Choices and access.** Families default collapsed. Explicit true/false choices persist per parent in the
 project/backend-scoped local key `aiki.task-families.v1:<backend>:<project>`; nested choices survive closing their
@@ -6964,6 +6967,15 @@ lines; a stale one offers the existing update action. There is no section naviga
   costs by worker or thread. Board cards and the live block do not change.
 - The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
   sync. See Compact refs and keyboard space above.
+
+**Android request and part sheets (T460).** Android advertises `request-digest` in hello. The request's
+Parts section uses the digest order, state glyphs, summaries and check counts. The artifact response
+adds proof counts and labels the request's gallery by part. The checklist shows five parts before a
+fold; each row opens the part. Dropped-part lines appear in Not done, and Delivery groups commits under
+the part titles without repeating them under the request. The part sheet links back to the request,
+shows its position and closure attribution, and has no close or review action. Settled parts can be
+reopened with a note; Comment focuses the task reply. Closing a request asks only about unfinished direct
+parts. Without the new capabilities, Android keeps the old families, counts and task actions.
 
 **Android task view designs.** Classic (`classic`) is the default and only registered design.
 Task view in the sheet header and in Settings → This device → Appearance appears only with multiple designs.

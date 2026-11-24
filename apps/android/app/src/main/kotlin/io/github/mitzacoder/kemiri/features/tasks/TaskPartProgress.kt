@@ -6,15 +6,16 @@ internal enum class PartTone { Done, Working, NeedsYou, Other }
 internal data class PartSegment(val tone: PartTone, val count: Int)
 internal data class TaskPartProgress(val text: String, val segments: List<PartSegment>, val proportional: Boolean)
 
+internal fun partTone(kind: String?) = when (kind) {
+    "done" -> PartTone.Done
+    "working" -> PartTone.Working
+    "failed", "answer_needed", "steps_needed", "review" -> PartTone.NeedsYou
+    else -> PartTone.Other
+}
+
 internal fun taskPartProgress(task: BoardTask): TaskPartProgress? {
     val states = task.subtaskStates?.filter { it != "dropped" }?.takeIf { it.isNotEmpty() } ?: return null
-    fun tone(kind: String) = when (kind) {
-        "done" -> PartTone.Done
-        "working" -> PartTone.Working
-        "failed", "answer_needed", "steps_needed", "review" -> PartTone.NeedsYou
-        else -> PartTone.Other
-    }
-    val counts = PartTone.entries.map { PartSegment(it, states.count { state -> tone(state) == it }) }
+    val counts = PartTone.entries.map { PartSegment(it, states.count { state -> partTone(state) == it }) }
     val text = "${counts[0].count} of ${states.size} parts done" +
         (if (counts[1].count > 0) " · ${counts[1].count} working" else "") +
         (if (counts[2].count > 0) " · ${counts[2].count} needs you" else "")

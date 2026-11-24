@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.chat.*
+import io.github.mitzacoder.kemiri.features.tasks.PartProofOrigin
 import io.github.mitzacoder.kemiri.features.tasks.TaskDetailText
 import io.github.mitzacoder.kemiri.features.tasks.TaskType
 import io.github.mitzacoder.kemiri.features.tasks.relativeTime
@@ -34,6 +35,7 @@ internal fun TaskFiles(
     artifacts: List<Artifact>,
     onUpdateTags: (suspend (Artifact, List<String>) -> Artifact?)?,
     modifier: Modifier = Modifier,
+    proofPartOrigins: Map<String, PartProofOrigin> = emptyMap(),
 ) {
     val split = remember(artifacts) { splitMedia(artifacts) }
     fun open(artifact: Artifact) {
@@ -46,19 +48,19 @@ internal fun TaskFiles(
         pages.take(if (pagesExpanded) pages.size else 4).forEach { page ->
             Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${artifactTitle(page)}") { open(page) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 TaskDetailText(artifactTitle(page), style = TaskType.sectionTitle, color = Jarvis.colors.fg)
-                Text("Page", style = TaskType.meta, color = Jarvis.colors.accent2)
+                Text(listOfNotNull("Page", proofPartOrigins[page.id]?.title).joinToString(" · "), style = TaskType.meta, color = Jarvis.colors.accent2)
                 ArtifactPageThumb(context, page, onOpen = { open(page) })
             }
         }
         if (pages.size > 4) OutlinedButton(onClick = { pagesExpanded = !pagesExpanded }) { Text(if (pagesExpanded) "Fewer pages" else "Show all ${pages.size} pages") }
-        if (split.media.isNotEmpty()) MediaGalleryView(context, split.media, onUpdateTags, onDetails = ::open)
-        if (split.files.isNotEmpty()) FileRows(split.files.filterNot { isHtmlArtifact(it.name, it.mimeType) }, onOpen = ::open)
+        if (split.media.isNotEmpty()) MediaGalleryView(context, split.media, onUpdateTags, onDetails = ::open, proofPartOrigins = proofPartOrigins)
+        if (split.files.isNotEmpty()) FileRows(split.files.filterNot { isHtmlArtifact(it.name, it.mimeType) }, onOpen = ::open, proofPartOrigins = proofPartOrigins)
     }
 }
 
 /** The other files, newest first: four, then all on request. */
 @Composable
-private fun FileRows(files: List<Artifact>, onOpen: (Artifact) -> Unit) {
+private fun FileRows(files: List<Artifact>, onOpen: (Artifact) -> Unit, proofPartOrigins: Map<String, PartProofOrigin>) {
     val colors = Jarvis.colors
     var expanded by rememberSaveable { mutableStateOf(false) }
     val limit = 4
@@ -78,7 +80,7 @@ private fun FileRows(files: List<Artifact>, onOpen: (Artifact) -> Unit) {
                 Column(Modifier.weight(1f)) {
                     TaskDetailText(artifactTitle(file), style = TaskType.sectionTitle, color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        listOf(artifactKindLabel(file.kind), artifactDetailSize(file.size).orEmpty(), artifactVersionCount(file), file.createdAt.takeIf { it.isNotBlank() }?.let { relativeTime(it, now) }.orEmpty())
+                        listOfNotNull(proofPartOrigins[file.id]?.title, artifactKindLabel(file.kind), artifactDetailSize(file.size).orEmpty(), artifactVersionCount(file), file.createdAt.takeIf { it.isNotBlank() }?.let { relativeTime(it, now) }.orEmpty())
                             .filter { it.isNotEmpty() }.joinToString(" · "),
                         style = TaskType.meta, color = colors.fgSubtle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )

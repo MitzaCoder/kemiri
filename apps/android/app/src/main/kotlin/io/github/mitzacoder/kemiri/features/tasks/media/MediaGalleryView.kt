@@ -31,6 +31,7 @@ import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.chat.ArtifactThumb
 import io.github.mitzacoder.kemiri.features.chat.artifactKindIcon
 import io.github.mitzacoder.kemiri.features.chat.artifactTitle
+import io.github.mitzacoder.kemiri.features.tasks.PartProofOrigin
 import io.github.mitzacoder.kemiri.features.tasks.TaskType
 import io.github.mitzacoder.kemiri.features.tasks.rememberReducedMotion
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -58,6 +59,7 @@ internal fun MediaGalleryView(
     onUpdateTags: (suspend (Artifact, List<String>) -> Artifact?)?,
     onDetails: (Artifact) -> Unit,
     modifier: Modifier = Modifier,
+    proofPartOrigins: Map<String, PartProofOrigin> = emptyMap(),
 ) {
     val colors = Jarvis.colors
     val reducedMotion = rememberReducedMotion()
@@ -84,12 +86,13 @@ internal fun MediaGalleryView(
     val counts = tagCounts(tagged)
     val activeFilter = resolveTagFilter(counts, filter)
     val filtered = filterByTag(tagged, activeFilter)
-    val slides = mediaSlides(filtered, separate)
+    val partScope: (Artifact) -> String? = { proofPartOrigins[it.id]?.partId }
+    val slides = mediaSlides(filtered, separate, partScope)
     val shown = slides.map { it.artifact }
-    val pairs = comparePairs(filtered)
+    val pairs = comparePairs(filtered, partScope)
     val comparing = slides.filter { it.pair != null }.map { it.artifact.id }.toSet()
     val keys = shown.map { it.id }
-    val labels = slides.mapIndexed { at, slide -> mediaSlideLabel(slide, at, slides.size) }
+    val labels = slides.mapIndexed { at, slide -> listOfNotNull(proofPartOrigins[slide.artifact.id]?.title, mediaSlideLabel(slide, at, slides.size)).joinToString(" · ") }
     val taskTagNames = counts.map { it.tag }
 
     val pager = rememberPagerState(initialPage = keys.indexOf(anchorId).coerceAtLeast(0)) { shown.size }
@@ -118,7 +121,7 @@ internal fun MediaGalleryView(
     fun goTo(at: Int) { scope.launch { if (reducedMotion) pager.scrollToPage(at) else pager.animateScrollToPage(at, animationSpec = MediaMotion.slide()) } }
     fun setFilter(tag: String?) {
         val keep = current?.id
-        val next = mediaSlides(filterByTag(tagged, tag), separate).map { it.artifact }
+        val next = mediaSlides(filterByTag(tagged, tag), separate, partScope).map { it.artifact }
         filter = tag
         val at = keep?.let { id -> next.indexOfFirst { it.id == id } } ?: -1
         anchorId = next.getOrNull(if (at >= 0) at else 0)?.id
@@ -164,7 +167,7 @@ internal fun MediaGalleryView(
             val near = loadsFull(distance)
             DisposableEffect(item.id) { onDispose { slideRects.forget(item.id) } }
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(artifactTitle(item), style = TaskType.sectionTitle, color = colors.fg, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(listOfNotNull(proofPartOrigins[item.id]?.title, artifactTitle(item)).joinToString(" · "), style = TaskType.sectionTitle, color = colors.fg, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 Box(
                     Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)).background(colors.surface2).border(1.dp, colors.border, RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center,

@@ -1,5 +1,10 @@
 package io.github.mitzacoder.kemiri.features.tasks.board
 
+import io.github.mitzacoder.kemiri.features.tasks.RequestAttention
+import io.github.mitzacoder.kemiri.features.tasks.TaskPartsBar
+import io.github.mitzacoder.kemiri.features.tasks.TaskType
+import io.github.mitzacoder.kemiri.features.tasks.taskPartProgress
+import io.github.mitzacoder.kemiri.features.tasks.taskUsesPartsSentence
 import io.github.mitzacoder.kemiri.features.tasks.TaskRelationChips
 
 import io.github.mitzacoder.kemiri.features.tasks.TaskIdChip
@@ -77,7 +82,7 @@ private val small = textStyle(0.6875f, 1f / 0.6875f)
  * copy that follows a finger or glides to a new column; [lifted] is the card being dragged, which stays faded in place.
  */
 @Composable
-fun TaskCard(
+internal fun TaskCard(
     card: KanbanCard,
     tasks: List<BoardTask>,
     workers: List<WorkerSummary>,
@@ -91,6 +96,8 @@ fun TaskCard(
     pulse: Boolean = true,
     linksEnabled: Boolean = false,
     searchHit: TaskSearchHit? = null,
+    requestView: Boolean = false,
+    attention: RequestAttention? = null,
 ) {
     val colors = Jarvis.colors
     val task = card.task
@@ -119,7 +126,7 @@ fun TaskCard(
             .background(background)
             .taskReferenceHighlight(task.id, rememberReducedMotion())
             .border(1.dp, border, cardShape)
-            .then(if (onOpen != null && !ghost) Modifier.clickable(onClickLabel = "Open ${task.id}", onClick = onOpen) else Modifier),
+            .then(if (onOpen != null && !ghost) Modifier.clickable(onClickLabel = "Open ${attention?.taskId ?: task.id}", onClick = onOpen) else Modifier),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.height(20.dp).width(14.dp), contentAlignment = Alignment.Center) {
@@ -142,10 +149,19 @@ fun TaskCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) io.github.mitzacoder.kemiri.features.tasks.TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { tone })
-                else if (task.status == "waiting") Text(io.github.mitzacoder.kemiri.features.tasks.waitingSummary(task), style = TextStyles.taskSm, color = colors.fgMuted)
-            else if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            else if (gist.isNotEmpty()) Text(gist, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (attention != null) Text(attention.text, style = TextStyles.taskSm, color = colors.fgMuted)
+                else if (!requestView || !taskUsesPartsSentence(task) || !searchHit?.snippet.isNullOrEmpty()) {
+                    if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) io.github.mitzacoder.kemiri.features.tasks.TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { tone })
+                    else if (task.status == "waiting") Text(io.github.mitzacoder.kemiri.features.tasks.waitingSummary(task), style = TextStyles.taskSm, color = colors.fgMuted)
+                    else if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (gist.isNotEmpty()) Text(gist, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (requestView) taskPartProgress(task)?.let { progress ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TaskPartsBar(progress)
+                        Text(progress.text, style = TaskType.meta, color = colors.fgSubtle)
+                    }
+                }
                 if (needsYou && card.waiting.size > 1) Text("+${card.waiting.size - 1} more waiting", style = small, color = colors.fgSubtle)
                 if (linksEnabled) TaskRelationChips(task)
                 if (task.refs.isNotEmpty()) RefChips(task.refs, max = 3)

@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.refs.refLinkedText
+import io.github.mitzacoder.kemiri.features.chat.clockTime
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskFiles
 import io.github.mitzacoder.kemiri.features.tasks.media.TaskProof
 import io.github.mitzacoder.kemiri.features.tasks.media.automaticReportProof
@@ -42,7 +44,16 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
     val workers = sheet.workers
     val artifacts = sheet.artifacts
     val results = remember(task.report) { readReportSection(task.report, ReportSectionKind.Results) }
-    val automaticProof = remember(results, artifacts) { automaticReportProof(results, artifacts) }
+    val partPage = sheet.partPage
+    val actions = taskPageActions(task, partPage)
+    val digest = task.partsDigest.takeIf { sheet.requestDigest }
+    val derivedNotDone = task.derivedNotDone.takeIf { sheet.requestDigest }.orEmpty()
+    val proofPartOrigins = remember(digest, artifacts) {
+        if (digest == null) emptyMap() else artifacts.mapNotNull { artifact -> proofPartOrigin(artifact, digest.parts)?.let { artifact.id to it } }.toMap()
+    }
+    val automaticProof = remember(results, artifacts, proofPartOrigins) {
+        automaticReportProof(results, artifacts.filterNot { it.id in proofPartOrigins })
+    }
     val showNext = sheet.nextPlacement == ReportNextPlacement.Next
     val now = sheet.now
     val activity = sheet.activity
@@ -64,9 +75,9 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
     val replyInputMaxHeight = (maxHeight * .20f).coerceIn(40.dp, 160.dp)
     val shortViewport = maxHeight < 400.dp
     Column(Modifier.widthIn(max = 672.dp).fillMaxSize().align(Alignment.TopCenter)) {
-        previousTaskId?.let { id ->
-            val title = sheet.previousTaskTitle
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+        (partPage?.requestId ?: previousTaskId)?.let { id ->
+            val title = if (partPage != null) sheet.tasks.find { it.id == id }?.title ?: sheet.archivedLinks.find { it.id == id }?.title else sheet.previousTaskTitle
+            TextButton(onClick = { if (id == previousTaskId) onDismiss() else context.openTask(id) }, modifier = Modifier.fillMaxWidth()) {
                 TaskDetailText("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -75,7 +86,8 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(task.id, style = TaskType.xs.copy(fontFamily = JetBrainsMono), color = colors.fgSubtle)
                 Box(Modifier.weight(1f)) {
-                    TaskStatusMenu(task, status.title, status.waitingEnabled, !status.saving, status.onChoose)
+                    if (partPage == null) TaskStatusMenu(task, status.title, status.waitingEnabled, !status.saving, status.onChoose)
+                    else Text(partPage.position, style = TaskType.xs, color = colors.fgMuted)
                 }
                 if (!sheet.editing) IconButton(onClick = { sheet.onEditChange(true) }) { LucideGlyph(TaskIcons.Pencil, size = 18.dp, contentDescription = "Edit ${task.id}") }
                 TaskViewMenu(sheet.designId, sheet.onSelectDesign)
@@ -83,6 +95,12 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             }
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TaskDetailText(refLinkedText(task.title), Modifier.semantics { heading() }, style = TextStyles.lg.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
+                if (partPage != null) {
+                    val closure = partPage.closure
+                    val clock = isoMillis(partPage.closedAt).takeIf { it > 0 }?.let(::clockTime)
+                    Text(if (closure == null) status.title else listOfNotNull("✓ $closure", clock).joinToString(" · "),
+                        style = TaskType.xs, color = if (closure != null) colors.success else colors.fgMuted)
+                }
                 fields.goal?.let { Text(it, style = TextStyles.task, color = colors.fgMuted) }
                 if (task.refs.isNotEmpty()) TaskRefs(task.refs, refsMaxHeight)
                 if (status.waitingForm) TaskWaitingForm(task.waiting, status.saving, status.workDayStart, { note, until -> status.onSet("waiting", note, until) }, status.onCancelWaiting)
@@ -100,11 +118,18 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
             state = bodyState, modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(if (shortViewport) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            if (sheet.editing) item(key = "editor") { TaskEditor(context, task, sheet.tasks, onBack = { sheet.onEditChange(false) }, scrolls = false) }
+            if (sheet.editing) item(key = "editor") { TaskEditor(context, task, sheet.tasks, onBack = { sheet.onEditChange(false) }, scrolls = false, editStatus = actions.canClose) }
             else {
+                sheet.raisedAttention?.let { attention ->
+                    item(key = "part-needs-you") {
+                        TaskReadingSection("Needs you") {
+                            OutlinedButton(onClick = { context.openTask(attention.taskId, attention.questionId) }) { Text(attention.text) }
+                        }
+                    }
+                }
                 if (needsYou.show) item(key = "needs-you") {
                     TaskNeedsYouSection(context, task, needsYou, sheet.nextPlacement, blockers, threads, status.saving,
-                        onCloseTask = { status.onSet("done", null, null) }, onFocusReply = sheet.onFocusReply)
+                        onCloseTask = if (actions.canClose) ({ status.onSet("done", null, null) }) else null, onFocusReply = sheet.onFocusReply)
                 }
                 if (liveNow != null && task.live != null) item(key = "live") {
                     TaskLive(task.live, liveNow, context.backend.config.key, context.route.projectId, taskId, sheet.liveNews)
@@ -120,14 +145,23 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskProof(context, automaticProof)
                     }
                 }
+                if (digest != null && digest.parts.isNotEmpty()) item(key = "parts-checklist") {
+                    PartsChecklist(digest, sheet.partProof, context::openTask)
+                }
                 item(key = "apps") { io.github.mitzacoder.kemiri.features.apps.TaskApps(taskId) }
                 if (artifacts.isNotEmpty()) item(key = "files") {
                     TaskReadingSection("Files") {
-                        TaskFiles(context, artifacts, onUpdateTags = sheet.onUpdateArtifactTags)
+                        TaskFiles(context, artifacts, onUpdateTags = sheet.onUpdateArtifactTags, proofPartOrigins = proofPartOrigins)
                     }
                 }
-                if (fields.showNotDone) item(key = "not-done") {
-                    TaskReadingSection("Not done") { ReportSection(task, ReportSectionKind.NotDone, context, artifacts, sheet.sectionViewsSupported) }
+                if (fields.showNotDone || derivedNotDone.isNotEmpty()) item(key = "not-done") {
+                    TaskReadingSection("Not done") {
+                        if (fields.showNotDone) ReportSection(task, ReportSectionKind.NotDone, context, artifacts, sheet.sectionViewsSupported)
+                        derivedNotDone.forEach { line ->
+                            Text(line.text, Modifier.fillMaxWidth().clickable(onClickLabel = "Open dropped part") { context.openTask(line.partId) }
+                                .heightIn(min = 48.dp).padding(vertical = 8.dp), style = TaskType.xs, color = colors.fgMuted)
+                        }
+                    }
                 }
                 if (sheet.showNow || showNext) item(key = "next") {
                     TaskReadingSection("Next") {
@@ -187,8 +221,13 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                 }
             }
         }
+        if (status.reopenForm && actions.reopenWithNote) ReopenPartDialog(status.saving, status.problem, status.onCancelReopen, status.onReopen)
         sheet.reply?.let { reply ->
             HorizontalDivider(color = colors.border)
+            if (actions.comment) Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (actions.reopenWithNote) TextButton(onClick = status.onShowReopen) { Text("Reopen with a note…", style = TaskType.xs) }
+                TextButton(onClick = sheet.onFocusReply) { Text("Comment", style = TaskType.xs) }
+            }
             TaskReplyBox(reply, onDismiss, replyInputMaxHeight)
         }
     }

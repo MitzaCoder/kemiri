@@ -57,7 +57,7 @@ internal data class TaskEditorState(
  * where the editor sits in a scrolling body already (the task sheet).
  */
 @Composable
-fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<BoardTask>, onBack: () -> Unit, modifier: Modifier = Modifier, scrolls: Boolean = true) {
+fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<BoardTask>, onBack: () -> Unit, modifier: Modifier = Modifier, scrolls: Boolean = true, editStatus: Boolean = true) {
     val colors = Jarvis.colors
     val taskScope = LocalCoordinatorTaskScope.current
     var destination by rememberSaveable(task?.id, taskScope?.coordinator) { mutableStateOf(taskScope?.coordinator ?: "main") }
@@ -141,7 +141,7 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
         Field("Tickets and links", draft.refs, { update { copy(refs = it) } }, minLines = 2, placeholder = "One per line, like EX-1234, #1234 or a link", style = mono)
         Field("Description", draft.description, { update { copy(description = it) } }, minLines = 4)
         Field("Done when", draft.acceptance, { update { copy(acceptance = it) } }, minLines = 2, placeholder = "Acceptance, optional")
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (editStatus) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Status", style = label, color = colors.fgSubtle)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TASK_STATUSES.forEach { status ->
