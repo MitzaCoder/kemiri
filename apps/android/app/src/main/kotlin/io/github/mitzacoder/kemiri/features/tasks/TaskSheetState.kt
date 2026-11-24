@@ -7,6 +7,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
+import io.github.mitzacoder.kemiri.features.coordinators.coordinator
 import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.media.ARTIFACT_TAGS_FEATURE
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -22,12 +23,13 @@ internal data class TaskSheetState(
     val archivedLinks: List<BoardTaskBrief>,
     val previousTaskId: String?,
     val previousTaskTitle: String?,
-    val wide: Boolean,
     val bodyState: LazyListState,
     val designId: String,
     val onSelectDesign: (String) -> Unit,
     val onDismiss: () -> Unit,
     val threads: List<ThreadSummary>,
+    val coordinatorTitle: String?,
+    val coordinatorMessagesEnabled: Boolean,
     val workers: List<WorkerSummary>,
     val artifacts: List<Artifact>,
     val partProof: List<ArtifactsListResponsePartProofItem>,
@@ -105,7 +107,6 @@ internal fun rememberTaskSheetState(
     task: BoardTask,
     view: BoardView,
     deviceSettings: DeviceSettings,
-    wide: Boolean,
     previousTaskId: String?,
     bodyState: LazyListState,
     onDismiss: () -> Unit,
@@ -122,7 +123,7 @@ internal fun rememberTaskSheetState(
     val partPage = requestPartPage(task, view.tasks, digestSupported)
     val actions = taskPageActions(task, partPage)
     val partIds = task.partsDigest?.parts.takeIf { digestSupported }.orEmpty().map { it.id }.toSet()
-    val threads = if (connection.supports("threads")) panelData(context, "sheet-threads", { it is ThreadsStateEvent && it.projectId == project }) {
+    val threads = if (connection.supports("threads") || connection.supports("coordinators")) panelData(context, "sheet-threads", { it is ThreadsStateEvent && it.projectId == project }) {
         context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
     }.value.orEmpty() else emptyList()
     val workers = if (connection.supports("workers")) panelData(context, "sheet-workers", { it is WorkersStateEvent && it.projectId == project }) {
@@ -223,12 +224,15 @@ internal fun rememberTaskSheetState(
 
     val taskUsage = rememberTaskUsage(context, taskId)
 
-    val reply = if (editing) null else rememberTaskReply(context, task, owner, replyFocus)
+    val assigned = task.coordinator.takeIf { connection.supports("task-coordinator") }
+    val coordinatorTitle = assigned?.let { id -> threads.find { it.id == id }?.title ?: if (id == MAIN_THREAD_ID) "General" else id }
+    val reply = if (editing) null else rememberTaskReply(context, task, assigned?.takeUnless { it == MAIN_THREAD_ID }, coordinatorTitle ?: "General", replyFocus)
     return TaskSheetState(
         context = context, task = task, tasks = view.tasks, archivedLinks = view.board?.archivedLinks.orEmpty(),
         previousTaskId = previousTaskId, previousTaskTitle = view.task(previousTaskId.orEmpty())?.title,
-        wide = wide, bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
-        threads = threads, workers = workers, artifacts = artifactFeed?.value?.artifacts.orEmpty(),
+        bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
+        threads = threads, coordinatorTitle = coordinatorTitle, coordinatorMessagesEnabled = connection.supports("coordinator-messages"),
+        workers = workers, artifacts = artifactFeed?.value?.artifacts.orEmpty(),
         requestDigest = digestSupported, partPage = partPage, partProof = artifactFeed?.value?.partProof.orEmpty(),
         raisedAttention = if (attentionSupported && task.state?.fromPartId != null) requestAttention(task, view.questions) else null,
         sectionViewsSupported = connection.supports("task-report-section-views"),

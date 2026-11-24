@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.mitzacoder.kemiri.features.tasks.TaskDetailText
 import io.github.mitzacoder.kemiri.ui.components.GlassComposerSurface
 import io.github.mitzacoder.kemiri.ui.components.JarvisIconButton
@@ -39,34 +40,60 @@ internal fun MessageComposer(
     inputTransformation: InputTransformation? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     hintMaxLines: Int = Int.MAX_VALUE,
+    compact: Boolean = false,
     beforeInput: @Composable ColumnScope.() -> Unit = {},
     afterInput: @Composable ColumnScope.() -> Unit = {},
     controls: @Composable RowScope.() -> Unit = { Spacer(Modifier.weight(1f)) },
 ) {
-    GlassComposerSurface(modifier) {
-        beforeInput()
-        if (images.isNotEmpty()) ImageThumbs(images, onRemove = onRemoveImage, modifier = Modifier.padding(horizontal = 8.dp))
+    val fieldStyle = MaterialTheme.typography.bodyLarge.let { style ->
+        if (compact) style.copy(fontSize = 15.sp, lineHeight = 22.sp) else style
+    }
+    val input: @Composable (Modifier) -> Unit = { inputModifier ->
         BasicTextField(
             state = textState,
             inputTransformation = inputTransformation,
-            lineLimits = TextFieldLineLimits.MultiLine(),
+            lineLimits = if (compact) TextFieldLineLimits.MultiLine(maxHeightInLines = 5) else TextFieldLineLimits.MultiLine(),
             keyboardOptions = keyboardOptions,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 200.dp).padding(horizontal = 8.dp).then(fieldModifier),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Jarvis.colors.fg),
+            modifier = inputModifier.then(fieldModifier),
+            textStyle = fieldStyle.copy(color = Jarvis.colors.fg),
             cursorBrush = SolidColor(Jarvis.colors.accent2),
             decorator = TextFieldDecorator { field ->
                 Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
-                    if (textState.text.isEmpty()) TaskDetailText(hint, style = MaterialTheme.typography.bodyLarge, color = Jarvis.colors.fgSubtle,
+                    if (textState.text.isEmpty()) TaskDetailText(hint, style = fieldStyle, color = Jarvis.colors.fgSubtle,
                         maxLines = hintMaxLines, overflow = if (hintMaxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis)
                     field()
                 }
             },
         )
+    }
+    val attach: @Composable () -> Unit = {
+        JarvisIconButton(Lucide.Paperclip, if (attaching) "Reading attachments" else attachLabel, enabled = attachEnabled, onClick = onAttach)
+    }
+    val send: @Composable () -> Unit = {
+        JarvisIconButton(Lucide.ArrowUp, sendLabel, emphasized = true, enabled = sendEnabled, onClick = onSend)
+    }
+    val attachments: @Composable ColumnScope.() -> Unit = {
+        beforeInput()
+        if (images.isNotEmpty()) ImageThumbs(images, onRemove = onRemoveImage, modifier = Modifier.padding(horizontal = 8.dp))
+    }
+    if (compact) {
+        Column(modifier) {
+            attachments()
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.Bottom) {
+                attach()
+                input(Modifier.weight(1f).align(Alignment.CenterVertically).padding(horizontal = 4.dp))
+                send()
+            }
+            afterInput()
+        }
+    } else GlassComposerSurface(modifier) {
+        attachments()
+        input(Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 200.dp).padding(horizontal = 8.dp))
         afterInput()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            JarvisIconButton(Lucide.Paperclip, if (attaching) "Reading attachments" else attachLabel, enabled = attachEnabled, onClick = onAttach)
+            attach()
             controls()
-            JarvisIconButton(Lucide.ArrowUp, sendLabel, emphasized = true, enabled = sendEnabled, onClick = onSend)
+            send()
         }
     }
 }

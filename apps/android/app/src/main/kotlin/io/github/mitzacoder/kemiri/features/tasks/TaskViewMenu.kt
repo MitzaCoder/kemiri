@@ -28,26 +28,32 @@ internal fun TaskViewMenu(designId: String, onSelectDesign: (String) -> Unit) {
             LucideGlyph(Lucide.MoreHorizontal, modifier = Modifier.rotate(90f), size = 18.dp, contentDescription = "Task view")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = colors.surface) {
-            Text("Task view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { heading() },
-                style = MaterialTheme.typography.titleSmall, color = colors.fg)
-            Column(Modifier.width(248.dp).selectableGroup()) {
-                TaskViewDesigns.entries.forEach { design ->
-                    val selected = design.id == designId
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .selectable(selected, role = Role.RadioButton, onClick = {
-                                expanded = false
-                                onSelectDesign(design.id)
-                            }).padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        RadioButton(selected = selected, onClick = null)
-                        Column {
-                            Text(design.label, style = MaterialTheme.typography.bodyMedium, color = colors.fg)
-                            Text(design.description, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted)
-                        }
-                    }
+            TaskViewChoices(designId) { expanded = false; onSelectDesign(it) }
+        }
+    }
+}
+
+@Composable
+internal fun TaskViewChoices(designId: String, onSelectDesign: (String) -> Unit) {
+    if (TaskViewDesigns.entries.size <= 1) return
+    val colors = Jarvis.colors
+    Text("Task view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { heading() },
+        style = MaterialTheme.typography.titleSmall, color = colors.fg)
+    Column(Modifier.width(248.dp).selectableGroup()) {
+        TaskViewDesigns.entries.forEach { design ->
+            val selected = design.id == designId
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .selectable(selected, role = Role.RadioButton, onClick = {
+                        onSelectDesign(design.id)
+                    }).padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RadioButton(selected = selected, onClick = null)
+                Column {
+                    Text(design.label, style = MaterialTheme.typography.bodyMedium, color = colors.fg)
+                    Text(design.description, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted)
                 }
             }
         }

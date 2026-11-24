@@ -12,6 +12,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.status.exactTime
+import io.github.mitzacoder.kemiri.features.coordinators.CoordinatorMessageList
+import io.github.mitzacoder.kemiri.features.coordinators.rememberCoordinatorMessages
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -21,7 +23,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import java.text.NumberFormat
 
 @Composable
-internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks: List<BoardReportCheck>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, decided: List<DecidedRow>?, threadLabel: (String?) -> String, activityContent: (@Composable ColumnScope.() -> Unit)?) {
+internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks: List<BoardReportCheck>, now: Long, savedFolds: Map<String, Boolean>, onFoldChange: (TaskRecordRow, Boolean) -> Unit, decided: List<DecidedRow>?, threadLabel: (String?) -> String, coordinatorMessages: (@Composable () -> Unit)?, activityContent: (@Composable ColumnScope.() -> Unit)?) {
     Column {
         TaskHeading("The record", Modifier.padding(bottom = 8.dp))
         val requestOpen = readTaskRecordFold(TaskRecordRow.Request, savedFolds)
@@ -52,10 +54,34 @@ internal fun TaskRecord(task: BoardTask, decisions: List<BoardDecision>, checks:
                 }
             }
         }
+        coordinatorMessages?.invoke()
         if (activityContent != null) {
             val activityOpen = readTaskRecordFold(TaskRecordRow.Activity, savedFolds)
             TaskFold(TaskRecordRow.Activity.title, activityOpen, { onFoldChange(TaskRecordRow.Activity, !activityOpen) }, content = activityContent)
         }
+    }
+}
+
+@Composable
+internal fun TaskCoordinatorMessagesFold(
+    context: ProjectScreenContext,
+    taskId: String,
+    threads: List<ThreadSummary>,
+    savedFolds: Map<String, Boolean>,
+    onFoldChange: (TaskRecordRow, Boolean) -> Unit,
+) {
+    val feed = rememberCoordinatorMessages(context, true, taskId)
+    if (feed.messages.isEmpty() && feed.error == null) return
+    val row = TaskRecordRow.CoordinatorMessages
+    val expanded = readTaskRecordFold(row, savedFolds)
+    TaskFold(expanded, { onFoldChange(row, !expanded) }, heading = {
+        TaskHeading(row.title)
+        if (feed.messages.isNotEmpty()) {
+            val count = feed.messages.size.toString() + if (feed.before != null) "+" else ""
+            Text(count, style = TaskType.xs, color = Jarvis.colors.fgMuted)
+        }
+    }) {
+        CoordinatorMessageList(context, threads, feed, taskId)
     }
 }
 

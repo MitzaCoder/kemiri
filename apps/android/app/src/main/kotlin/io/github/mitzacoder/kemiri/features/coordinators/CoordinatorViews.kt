@@ -107,26 +107,29 @@ internal fun coordinatorColor(thread: ThreadSummary?) = Color(0xff000000 or (thr
     }
 }
 
-@Composable internal fun CoordinatorMessageFeed(context: ProjectScreenContext, threads: List<ThreadSummary>, taskId: String? = null, initiallyExpanded: Boolean = false) {
-    val feed = rememberCoordinatorMessages(context, true, taskId)
-    val scope = rememberCoroutineScope()
-    var expanded by rememberSaveable(taskId) { mutableStateOf(initiallyExpanded) }
+@Composable internal fun CoordinatorMessageFeed(context: ProjectScreenContext, threads: List<ThreadSummary>) {
+    val feed = rememberCoordinatorMessages(context, true)
+    var expanded by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (!initiallyExpanded) TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp).semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }) {
-            Text(if (taskId == null) "Between coordinators" else "Coordinator messages")
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp).semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }) {
+            Text("Between coordinators")
         }
-        if (expanded) {
-            feed.messages.values.sortedWith(compareByDescending<ThreadsMessagesResponseMessagesItem> { it.at }.thenByDescending { it.id }).forEach { row ->
-                CoordinatorMessageCard(context, row, threads)
-            }
-            if (feed.loading) Text("Loading messages…", style = MaterialTheme.typography.bodySmall)
-            else if (feed.error != null) {
-                Text(feed.error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { scope.launch { feed.read(context.backend.client, context.route.projectId, taskId, feed.before) } }) { Text("Retry") }
-            } else if (feed.messages.isEmpty()) Text("No coordinator messages yet.", style = MaterialTheme.typography.bodySmall)
-            if (!feed.loading && feed.error == null && feed.before != null) TextButton(onClick = {
-                scope.launch { feed.read(context.backend.client, context.route.projectId, taskId, feed.before) }
-            }) { Text("Earlier messages") }
-        }
+        if (expanded) CoordinatorMessageList(context, threads, feed)
     }
+}
+
+@Composable
+internal fun CoordinatorMessageList(context: ProjectScreenContext, threads: List<ThreadSummary>, feed: CoordinatorMessages, taskId: String? = null) {
+    val scope = rememberCoroutineScope()
+    feed.messages.values.sortedWith(compareByDescending<ThreadsMessagesResponseMessagesItem> { it.at }.thenByDescending { it.id }).forEach { row ->
+        key(row.id) { CoordinatorMessageCard(context, row, threads) }
+    }
+    if (feed.loading) Text("Loading messages…", style = MaterialTheme.typography.bodySmall)
+    else if (feed.error != null) {
+        Text(feed.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+        TextButton(onClick = { scope.launch { feed.read(context.backend.client, context.route.projectId, taskId, feed.before) } }) { Text("Retry") }
+    } else if (feed.messages.isEmpty()) Text("No coordinator messages yet.", style = MaterialTheme.typography.bodySmall)
+    if (!feed.loading && feed.error == null && feed.before != null) TextButton(onClick = {
+        scope.launch { feed.read(context.backend.client, context.route.projectId, taskId, feed.before) }
+    }) { Text("Earlier messages") }
 }

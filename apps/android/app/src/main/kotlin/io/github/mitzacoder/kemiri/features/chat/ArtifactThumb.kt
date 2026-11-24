@@ -109,6 +109,7 @@ internal fun ArtifactThumb(
     modifier: Modifier = Modifier,
     duration: Boolean = true,
     play: Boolean = true,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     if (isHtmlArtifact(artifact.name, artifact.mimeType)) {
         HtmlArtifactThumbnail(context, artifact, modifier)
@@ -158,7 +159,7 @@ internal fun ArtifactThumb(
         val pictureShown = (video && poster != null) || (!video && ready)
         if (!pictureShown) LucideGlyph(artifactKindIcon(artifact.kind), Modifier.alpha(.8f), size = min(28.dp, maxWidth * .38f).coerceAtLeast(14.dp), tint = tint)
         if (request != null && artifact.kind == "image") AsyncImage(
-            model = request, contentDescription = null, contentScale = ContentScale.Crop,
+            model = request, contentDescription = null, contentScale = contentScale,
             modifier = Modifier.fillMaxSize().alpha(if (ready) 1f else 0f),
             onSuccess = { ready = true; failures = 0 },
             onError = {
@@ -168,7 +169,7 @@ internal fun ArtifactThumb(
         )
         poster?.let { frame ->
             val bitmap = remember(frame) { frame.asImageBitmap() }
-            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Image(bitmap, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
         }
         if (video && play) {
             val size: Dp = min(36.dp, maxWidth * .42f)

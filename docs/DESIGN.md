@@ -6988,9 +6988,8 @@ in that conversation. This is a display rule, not the outside-model approval cou
   unknown status, and failing/running PR checks take precedence over open/closed totals. Historical checks on
   merged/closed PRs do not demand attention. Expanded refs stay in a bounded scroll viewport (at most 15rem/240dp
   and a quarter of the available height); the header also scrolls if it reaches its height cap. Web follows the
-  visual viewport above mobile keyboards and caps the draft field to 20% of that height. Android budgets from
-  inset/IME-reduced constraints (header at most 35%, reserving 220dp outside it on short windows; draft field at
-  most 20%/160dp).
+  visual viewport above mobile keyboards and caps the draft field to 20% of that height. Android uses the
+  single-scroll layout below.
 - **Reply.** `TaskReply` stays in a fixed sheet footer outside the scrolling body. The footer respects the bottom
   safe area and stays above the keyboard. It reuses the coordinator `Composer` without model/worker/task pickers.
   Attachments, paste/drop, autosizing and keyboard rules are unchanged. The hint reads `To the coordinator · this task`.
@@ -7035,21 +7034,30 @@ steps a checklist glyph and the review tone. Review uses the existing close flow
 Next omits the review check, and a working task shows its Now text only once. A current report has no freshness
 lines; a stale one offers the existing update action. There is no section navigation, scroll-spy or heading badge.
 
-- The side sheet still starts at 600dp, has a maximum width of 1184dp and a 48dp outside gutter. The reading
-  column is capped at 672dp and keeps About below the record at all widths. Headings retain accessibility
-  semantics; fold buttons have 48dp targets and announce their expanded or collapsed state.
+- Classic keeps a 48dp bar with the ID, a 30dp status pill with a 48dp target, Task actions and Close.
+  Edit and Move to coordinator are in Task actions. The title scrolls with the goal, metadata and report in
+  one list. When the title leaves the list viewport, the bar shows it on one line. The side sheet still starts
+  at 600dp, is at most 1184dp wide and leaves a 48dp outside gutter. The reading column is capped at 672dp.
+- The coordinator chip opens the same move dialog as Task actions. One or two refs show as individual chips
+  with their live state, or “Link” without one. More than two refs use a count chip that expands all rows in
+  the reading list. Only failing checks on open or draft PRs use the danger tone.
+- The summary is 16sp medium with a 24sp line height. Inline proof fills the reading column and fits its
+  image, video frame or HTML thumbnail in a 16:9 frame without cropping. Files uses the same HTML thumbnail.
 - Results shows up to three photos or videos, which open the existing artifact reader. About retains the full
   Files gallery, tag controls and Show with linked. Related tasks show by title with small IDs; blockers already
   in Needs you do not repeat. The green “this task” chip is unchanged.
 - Your notes folds addressed and dismissed entries and shows each stored reply under its note. The request
-  starts open; Decided and Activity start closed. The three choices are saved independently on the device.
-  Activity keeps timeline filtering and sort, snapshot history and worker links.
+  starts open; Decided, Checks, Coordinator messages and Activity start closed. Fold choices are saved
+  independently on the device. The Coordinator messages fold shows the loaded count and hides when there
+  are no messages. Activity keeps timeline filtering and sort, snapshot history and worker links.
 - With `task-usage`, Android reads the task's usage projection when the sheet opens. Below the report, tasks with
   recorded requests get a fold showing their API value, estimated limit share and worker, thread and subtask counts.
   The fold separates the task's own work from its nested subtasks, subscription coverage from API-key spend, and lists
   costs by worker or thread. Board cards and the live block do not change.
-- The fixed reply retains Android's text/image state, paste and send rules; there is no web-style task draft
-  sync. See Compact refs and keyboard space above.
+- The sheet root applies safe drawing insets, including the IME, once. The fixed reply sits directly above
+  the keyboard and starts as a 48dp row with attach, “Message {coordinator}…” and send. It grows up to five
+  lines within the inset-reduced viewport. Text and image state, paste and send rules are unchanged; there
+  is no web-style task draft sync.
 
 **Android request and part sheets (T460).** Android advertises `request-digest` in hello. The request's
 Parts section uses the digest order, state glyphs, summaries and check counts. The artifact response
@@ -7061,7 +7069,7 @@ reopened with a note; Comment focuses the task reply. Closing a request asks onl
 parts. Without the new capabilities, Android keeps the old families, counts and task actions.
 
 **Android task view designs.** Classic (`classic`) is the default and only registered design.
-Task view in the sheet header and in Settings → This device → Appearance appears only with multiple designs.
+Task view in Task actions and in Settings → This device → Appearance appears only with multiple designs.
 The choice is saved on this device for all projects and applies to an open task without reopening it.
 Missing or unrecognized choices, including the retired `route` ID, display Classic. Each entry in
 `TaskViewDesigns` supplies a stable ID, label, description and composable. Designs share `TaskSheetState`

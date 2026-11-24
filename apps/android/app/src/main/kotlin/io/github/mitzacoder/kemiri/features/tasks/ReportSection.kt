@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,7 +110,7 @@ private fun ReportViewUnavailable() {
 
 @Composable
 private fun ReportProseStyle(section: ReportSectionKind, content: @Composable () -> Unit) {
-    val style = if (section == ReportSectionKind.Summary) TextStyles.task.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    val style = if (section == ReportSectionKind.Summary) TextStyles.task.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium)
         else TextStyles.task
     ProvideTextStyle(style, content)
 }
@@ -158,12 +159,14 @@ private fun ReportProofBlock(block: ReportBlock.Proof, context: ProjectScreenCon
         } else {
             val title = artifactTitle(artifact)
             val shape = RoundedCornerShape(8.dp)
-            Column(Modifier.widthIn(max = 260.dp).clip(shape).border(1.dp, Jarvis.colors.borderStrong, shape)
+            Column(Modifier.fillMaxWidth().clip(shape).border(1.dp, Jarvis.colors.borderStrong, shape)
                 .clickable(role = Role.Button, onClickLabel = "Open proof") {
                     ChatArtifactMetadata.keep(context.backend.config.key, artifact)
                     context.navigate(Destination.Artifact(context.route, artifact.id))
                 }.semantics { contentDescription = "Open proof: $title" }) {
-                if (isMedia(artifact) || isHtmlArtifact(artifact.name, artifact.mimeType)) ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(8f / 5))
+                if (isMedia(artifact) || isHtmlArtifact(artifact.name, artifact.mimeType)) {
+                    ArtifactThumb(context, artifact, Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentScale = ContentScale.Fit)
+                }
                 Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
                     Text(title, fontWeight = FontWeight.SemiBold, color = Jarvis.colors.fg)
                 }

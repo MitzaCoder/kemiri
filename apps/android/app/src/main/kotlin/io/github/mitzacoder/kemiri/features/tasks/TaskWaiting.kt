@@ -1,7 +1,10 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -12,6 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -49,26 +55,22 @@ internal fun TaskStatusMenu(task: BoardTask, label: String, supportsWaiting: Boo
     val focused by interactionSource.collectIsFocusedAsState()
     val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "Status menu chevron")
     Box {
-        OutlinedButton(
-            enabled = enabled,
-            onClick = { expanded = !expanded },
-            interactionSource = interactionSource,
-            modifier = Modifier.heightIn(min = 48.dp).semantics {
-                contentDescription = "Change task status: ${label}"
+        val shape = RoundedCornerShape(50)
+        Box(Modifier.widthIn(max = 138.dp).height(48.dp).clip(shape)
+            .clickable(interactionSource = interactionSource, indication = ripple(), enabled = enabled, role = Role.Button) {
+                expanded = !expanded
+            }.semantics {
+                contentDescription = "Change task status: $label"
                 stateDescription = if (expanded) "Expanded" else "Collapsed"
-            },
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-            border = BorderStroke(if (focused) 2.dp else 1.dp, if (focused) Jarvis.colors.accent2 else Jarvis.colors.borderStrong),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = if (expanded) Jarvis.colors.surface2 else Jarvis.colors.surface,
-                contentColor = Jarvis.colors.fg,
-            ),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            }, contentAlignment = Alignment.Center) {
+            Row(Modifier.height(30.dp).background(Jarvis.colors.surface2, shape)
+                .border(if (focused) 2.dp else 1.dp, if (focused) Jarvis.colors.accent2 else Jarvis.colors.borderStrong, shape)
+                .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 TaskStatusDot(if (task.state?.liveWorkSince != null) TaskStatusTone.Working else taskStateTone(task))
-                Text(label, Modifier.weight(1f, fill = false), style = TaskType.xs)
-                LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 16.dp, tint = Jarvis.colors.fgMuted)
+                Text(label, Modifier.weight(1f, fill = false), style = TaskType.xs, color = Jarvis.colors.fg,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 12.dp, tint = Jarvis.colors.fgMuted)
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = Jarvis.colors.surface) {

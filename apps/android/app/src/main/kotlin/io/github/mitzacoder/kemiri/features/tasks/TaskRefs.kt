@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.graphics.Color
@@ -11,8 +13,6 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import io.github.mitzacoder.kemiri.features.chat.CODE_TAG
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,44 +20,89 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.features.refs.LocalRefLinks
-import io.github.mitzacoder.kemiri.features.refs.RefLines
+import io.github.mitzacoder.kemiri.features.coordinators.CoordinatorMark
+import io.github.mitzacoder.kemiri.features.refs.RefLinks
+import io.github.mitzacoder.kemiri.features.refs.title
+import io.github.mitzacoder.kemiri.protocol.ThreadSummary
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
-internal fun TaskRefs(refs: List<String>, maxHeight: Dp) {
+internal fun TaskSheetMetadata(refs: List<String>, coordinatorTitle: String?, coordinator: ThreadSummary?, onMove: (() -> Unit)?) {
+    if (refs.isEmpty() && coordinatorTitle == null) return
     val colors = Jarvis.colors
     val links = LocalRefLinks.current
-    val summary = taskRefSummary(refs.map { links?.status(it) })
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(8.dp), color = colors.bg, border = BorderStroke(1.dp, colors.border)) {
-        Column {
-            Surface(onClick = { expanded = !expanded }, color = colors.bg,
-                modifier = Modifier.fillMaxWidth().semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }) {
-                Row(Modifier.heightIn(min = 44.dp).padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LucideGlyph(if (expanded) Lucide.ChevronDown else Lucide.ChevronRight, size = 14.dp, tint = colors.fgSubtle)
-                    Column(Modifier.weight(1f)) {
-                        Text(summary.counts, style = TaskType.xs, color = colors.fgMuted)
-                        Text(summary.status, style = TaskType.xs, color = if (summary.attention) colors.danger else colors.fgSubtle)
-                    }
-                    Text(if (expanded) "Hide" else "Show", style = TaskType.xs, color = colors.fgSubtle)
-                }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        if (coordinatorTitle != null) TaskMetadataChip(onClick = onMove, onClickLabel = "Move to coordinator") {
+            CoordinatorMark(coordinator, coordinatorTitle)
+            Text(coordinatorTitle, style = TaskType.xsMedium, color = colors.fg,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (refs.size > 2) {
+            val summary = taskRefSummary(refs.map { links?.status(it) })
+            TaskMetadataChip(Modifier.semantics {
+                stateDescription = (if (expanded) "Expanded" else "Collapsed") + if (summary.failingChecks) ", checks failing" else ""
+            }, onClick = { expanded = !expanded }, onClickLabel = if (expanded) "Hide links" else "Show links") {
+                Text(summary.counts, Modifier.weight(1f, fill = false), style = TaskType.xs,
+                    color = if (summary.failingChecks) colors.danger else colors.fgMuted,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                LucideGlyph(if (expanded) Lucide.ChevronDown else Lucide.ChevronRight, size = 14.dp, tint = colors.fgMuted)
             }
-            if (expanded) {
-                HorizontalDivider(color = colors.border)
-                Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 4.dp)) {
-                    RefLines(refs)
-                }
+        } else refs.forEach { ref ->
+            val status = links?.status(ref)
+            TaskMetadataChip(onClick = refAction(ref, links), onClickLabel = "Open link") {
+                Text(refLabel(ref, links?.links) + " · " + taskRefStateLabel(status), style = TaskType.xs,
+                    color = if (taskRefHasFailingChecks(status)) colors.danger else colors.fgMuted,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
+    if (refs.size > 2 && expanded) Column(Modifier.fillMaxWidth()) {
+        refs.forEach { ref -> key(ref) {
+            val status = links?.status(ref)
+            val open = refAction(ref, links)
+            HorizontalDivider(color = colors.border)
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .then(if (open != null) Modifier.clickable(role = Role.Button, onClickLabel = "Open link", onClick = open) else Modifier)
+                .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(refLabel(ref, links?.links), style = TaskType.xsMedium, color = colors.fg)
+                    status?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = TaskType.xs, color = colors.fgMuted) }
+                }
+                Text(taskRefStateLabel(status), Modifier.widthIn(max = 132.dp), style = TaskType.xs,
+                    color = if (taskRefHasFailingChecks(status)) colors.danger else colors.fgMuted)
+                if (open != null) LucideGlyph(Lucide.ExternalLink, size = 12.dp, tint = colors.fgSubtle)
+            }
+        } }
+    }
+}
+
+private fun refAction(ref: String, links: RefLinks?): (() -> Unit)? =
+    if (links?.url(ref) != null) { { links.open(ref) } } else null
+
+@Composable
+private fun TaskMetadataChip(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)?,
+    onClickLabel: String,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val colors = Jarvis.colors
+    val shape = RoundedCornerShape(50)
+    Box(modifier.heightIn(min = 48.dp).clip(shape)
+        .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick) else Modifier),
+        contentAlignment = Alignment.CenterStart) {
+        Row(Modifier.heightIn(min = 30.dp).background(colors.surface2, shape).border(1.dp, colors.border, shape)
+            .padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp), content = content)
     }
 }
 

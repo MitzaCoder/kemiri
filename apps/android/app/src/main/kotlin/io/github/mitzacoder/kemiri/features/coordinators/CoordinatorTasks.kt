@@ -115,70 +115,60 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
     if (showParts) selector.externalParts(task, tasks, shown).forEach { Related(it, "${it.id} · ${it.title}", true) }
 }
 
-@Composable internal fun TaskCoordinatorRow(context: ProjectScreenContext, task: BoardTask, allTasks: List<BoardTask>) {
-    val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val enabled = connection.supports("task-coordinator")
-    val threads = rememberCoordinatorThreads(context, connection.supports("coordinators") && enabled)
-    if (!enabled) return
-    val roster = coordinatorRoster(threads)
-    val owner = threads.find { it.id == task.coordinator }
-    var moving by rememberSaveable(task.id) { mutableStateOf(false) }
-    Surface(onClick = { moving = true }, enabled = !task.archived && roster.size > 1, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp), color = Jarvis.colors.surface2) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Coordinator", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-            CoordinatorMark(owner, owner?.title ?: task.coordinator)
-            Text(owner?.title ?: if (task.coordinator == MAIN_THREAD_ID) "General" else task.coordinator, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-    if (moving) {
-        val scope = rememberCoroutineScope()
-        val remembered = remember(task.id) { task }
-        val parts = remember(task.id) { allTasks.filter { it.parent == remembered.id && !it.archived && it.coordinator == remembered.coordinator } }
-        var destination by rememberSaveable(task.id) { mutableStateOf(remembered.coordinator) }
-        var includeParts by rememberSaveable(task.id) { mutableStateOf(true) }
-        var busy by remember { mutableStateOf(false) }
-        var error by remember { mutableStateOf<String?>(null) }
-        var partial by remember { mutableStateOf(false) }
-        AlertDialog(onDismissRequest = { if (!busy) moving = false }, title = { Text("Move ${task.id} to coordinator") }, text = {
-            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
-                roster.forEach { row ->
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(destination == row.id, !busy, Role.RadioButton) { destination = row.id },
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RadioButton(destination == row.id, onClick = null)
-                        CoordinatorMark(row)
-                        Text(row.title)
-                    }
+@Composable
+internal fun TaskCoordinatorMoveDialog(
+    context: ProjectScreenContext,
+    task: BoardTask,
+    allTasks: List<BoardTask>,
+    roster: List<ThreadSummary>,
+    onClose: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val remembered = remember(task.id) { task }
+    val parts = remember(task.id) { allTasks.filter { it.parent == remembered.id && !it.archived && it.coordinator == remembered.coordinator } }
+    var destination by rememberSaveable(task.id) { mutableStateOf(remembered.coordinator) }
+    var includeParts by rememberSaveable(task.id) { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var partial by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = { if (!busy) onClose() }, title = { Text("Move ${task.id} to coordinator") }, text = {
+        Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+            roster.forEach { row ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(destination == row.id, !busy, Role.RadioButton) { destination = row.id },
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RadioButton(destination == row.id, onClick = null)
+                    CoordinatorMark(row)
+                    Text(row.title)
                 }
-                if (parts.isNotEmpty()) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !busy) { includeParts = !includeParts }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(includeParts, onCheckedChange = null); Spacer(Modifier.width(8.dp)); Text("Also move its ${parts.size} parts in the same coordinator")
-                }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
-        }, confirmButton = {
-            TextButton(enabled = !busy && !partial && roster.any { it.id == destination } && destination != remembered.coordinator, onClick = {
-                busy = true
-                scope.launch {
-                    val to = destination
-                    for (row in listOf(remembered) + if (includeParts) parts else emptyList()) {
-                        val outcome = context.board.saveTask(row.input().copy(refs = null), row.id, row.revision, coordinator = to)
-                        if (outcome !is SaveOutcome.Saved) {
-                            val reason = when (outcome) {
-                                is SaveOutcome.Conflict -> "changed while the picker was open"
-                                is SaveOutcome.Failed -> outcome.message
-                                else -> "the save was cancelled"
-                            }
-                            error = if (row.id == remembered.id) "${row.id} was not moved: $reason. Close and reopen the picker to retry."
-                                else "${remembered.id} moved, but ${row.id} was not moved: $reason."
-                            partial = true
-                            busy = false
-                            return@launch
+            if (parts.isNotEmpty()) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !busy) { includeParts = !includeParts }, verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(includeParts, onCheckedChange = null); Spacer(Modifier.width(8.dp)); Text("Also move its ${parts.size} parts in the same coordinator")
+            }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }, confirmButton = {
+        TextButton(enabled = !busy && !partial && roster.any { it.id == destination } && destination != remembered.coordinator, onClick = {
+            busy = true
+            scope.launch {
+                val to = destination
+                for (row in listOf(remembered) + if (includeParts) parts else emptyList()) {
+                    val outcome = context.board.saveTask(row.input().copy(refs = null), row.id, row.revision, coordinator = to)
+                    if (outcome !is SaveOutcome.Saved) {
+                        val reason = when (outcome) {
+                            is SaveOutcome.Conflict -> "changed while the picker was open"
+                            is SaveOutcome.Failed -> outcome.message
+                            else -> "the save was cancelled"
                         }
+                        error = if (row.id == remembered.id) "${row.id} was not moved: $reason. Close and reopen the picker to retry."
+                            else "${remembered.id} moved, but ${row.id} was not moved: $reason."
+                        partial = true
+                        busy = false
+                        return@launch
                     }
-                    busy = false
-                    moving = false
                 }
-            }) { Text(if (busy) "Moving…" else "Move task") }
-        }, dismissButton = { TextButton(onClick = { moving = false }, enabled = !busy) { Text(if (partial) "Close" else "Cancel") } })
-    }
+                busy = false
+                onClose()
+            }
+        }) { Text(if (busy) "Moving…" else "Move task") }
+    }, dismissButton = { TextButton(onClick = { onClose() }, enabled = !busy) { Text(if (partial) "Close" else "Cancel") } })
 }

@@ -1,11 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
-import io.github.mitzacoder.kemiri.features.coordinators.*
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -72,7 +68,11 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
                     shadowElevation = if (sideSheet) 12.dp else 0.dp,
                     border = if (sideSheet) BorderStroke(1.dp, Jarvis.colors.border) else null,
                 ) {
-                    key(taskId) { TaskSheetContent(context, taskId, sideSheet, onDismiss, previousTaskId, bodyState, deviceSettings, design) }
+                    // Safe drawing already includes the IME. Keep it at the sheet root so the reply and
+                    // reading area share the same available height and consume the bottom inset once.
+                    Box(Modifier.fillMaxSize().windowInsetsPadding(taskSheetInsets(sideSheet))) {
+                        key(taskId) { TaskSheetContent(context, taskId, onDismiss, previousTaskId, bodyState, deviceSettings, design) }
+                    }
                 }
                 overlay()
             }
@@ -81,7 +81,7 @@ fun TaskSheet(context: ProjectScreenContext, taskId: String, onDismiss: () -> Un
 }
 
 @Composable
-private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide: Boolean, onDismiss: () -> Unit, previousTaskId: String?, bodyState: LazyListState,
+private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, onDismiss: () -> Unit, previousTaskId: String?, bodyState: LazyListState,
     deviceSettings: io.github.mitzacoder.kemiri.data.DeviceSettings, design: TaskViewDesign,
 ) {
     val board = context.board
@@ -98,10 +98,9 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
     val task = liveTask ?: archivedTask
     val scope = rememberCoroutineScope()
     val selectDesign: (String) -> Unit = { id -> scope.launch { context.repository.setTaskViewDesign(id) } }
-    val insets = Modifier.windowInsetsPadding(taskSheetInsets(wide))
     if (task == null) {
         val colors = Jarvis.colors
-        Column(Modifier.fillMaxSize().then(insets)) {
+        Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(taskId, Modifier.weight(1f), style = TextStyles.base.copy(fontWeight = FontWeight.SemiBold), color = colors.fg)
                 TaskViewMenu(design.id, selectDesign)
@@ -118,29 +117,12 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, wide
         return
     }
 
-    val sheet = rememberTaskSheetState(context, task, view, deviceSettings, wide, previousTaskId, bodyState,
+    val sheet = rememberTaskSheetState(context, task, view, deviceSettings, previousTaskId, bodyState,
         onDismiss, design.id, selectDesign, onTaskSaved = { if (archivedTask?.id == task.id) archivedTask = it })
-    val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    if (connection.supports("task-coordinator") || connection.supports("coordinator-messages")) {
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f)) { key(design.id) { design.content(sheet) } }
-            Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 12.dp, vertical = 4.dp)) {
-                TaskCoordinatorRow(context, task, view.tasks)
-                if (connection.supports("coordinator-messages")) {
-                    val threads = rememberCoordinatorThreads(context, connection.supports("coordinators"))
-                    var showMessages by androidx.compose.runtime.saveable.rememberSaveable(task.id) { mutableStateOf(false) }
-                    TextButton(onClick = { showMessages = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Coordinator messages") }
-                    if (showMessages) androidx.compose.material3.AlertDialog(onDismissRequest = { showMessages = false },
-                        title = { Text("Messages about ${task.id}") },
-                        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) { CoordinatorMessageFeed(context, threads, task.id, initiallyExpanded = true) } },
-                        confirmButton = { TextButton(onClick = { showMessages = false }) { Text("Close") } })
-                }
-            }
-        }
-    } else key(design.id) { design.content(sheet) }
+    key(design.id) { design.content(sheet) }
 }
 
 @Composable
-internal fun taskSheetInsets(wide: Boolean) = WindowInsets.safeDrawing.only(
+private fun taskSheetInsets(wide: Boolean) = WindowInsets.safeDrawing.only(
     WindowInsetsSides.Vertical + if (wide) WindowInsetsSides.End else WindowInsetsSides.Horizontal,
 )

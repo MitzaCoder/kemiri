@@ -23,8 +23,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.mitzacoder.kemiri.features.coordinators.coordinator
-import io.github.mitzacoder.kemiri.features.coordinators.rememberCoordinatorThreads
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -61,12 +59,7 @@ internal data class TaskReplyState(
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, owner: TaskOwner, focus: FocusRequester): TaskReplyState {
-    val replyConnection by context.backend.client.state.collectAsStateWithLifecycle()
-    val coordinatorThreads = rememberCoordinatorThreads(context, replyConnection.supports("coordinators"))
-    val assigned = task.coordinator.takeIf { replyConnection.supports("task-coordinator") }
-    val replyThread = assigned?.takeUnless { it == "main" }
-    val replyTitle = assigned?.let { id -> coordinatorThreads.find { it.id == id }?.title ?: if (id == "main") "General" else id }
+internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, replyThread: String?, replyTitle: String, focus: FocusRequester): TaskReplyState {
     // Typed in a text field's own state, so the field can take pasted and keyboard images; kept per task.
     val reply = key(task.id) { rememberTextFieldState() }
     var sending by remember { mutableStateOf(false) }
@@ -145,7 +138,7 @@ internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, o
     val chatFilesEnabled = connection.supports("chat-files-v1")
     return TaskReplyState(
         taskId = task.id, text = reply,
-        hint = if (replyTitle != null) "To $replyTitle · about ${task.id}" else "To main · about ${task.id}" + if (owner.claimed && !owner.main) " · ${owner.label}" else "",
+        hint = "Message $replyTitle…",
         images = images, attachments = attachments, attaching = attaching,
         attachEnabled = !attaching && !sending && images.size + attachments.size < INPUT_MAX_IMAGES,
         attachLabel = if (chatFilesEnabled) "Attach files" else "Attach images",
@@ -161,11 +154,12 @@ internal fun rememberTaskReply(context: ProjectScreenContext, task: BoardTask, o
 @Composable
 internal fun TaskReplyBox(reply: TaskReplyState, onDismiss: () -> Unit, inputMaxHeight: Dp) {
     val colors = Jarvis.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         MessageComposer(
             textState = reply.text,
             hint = reply.hint,
             hintMaxLines = 1,
+            compact = true,
             images = reply.images,
             onRemoveImage = reply.onRemoveImage,
             attaching = reply.attaching,
@@ -181,8 +175,8 @@ internal fun TaskReplyBox(reply: TaskReplyState, onDismiss: () -> Unit, inputMax
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
         when {
-            reply.problem != null -> Text(reply.problem, style = TaskType.xs, color = colors.danger)
-            reply.sent -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            reply.problem != null -> Text(reply.problem, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = TaskType.xs, color = colors.danger)
+            reply.sent -> Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Sent. The answer appears in the chat.", style = TaskType.xs, color = colors.fgMuted)
                 Text("Back to the chat", Modifier.clickableLink("Back to the chat", onDismiss).padding(vertical = 4.dp),
                     style = TaskType.xs.copy(textDecoration = TextDecoration.Underline), color = colors.fgMuted)

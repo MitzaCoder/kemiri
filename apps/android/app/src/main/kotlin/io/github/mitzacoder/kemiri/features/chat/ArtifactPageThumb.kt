@@ -68,7 +68,7 @@ internal fun HtmlArtifactThumbnail(context: ProjectScreenContext, artifact: Arti
     }, contentAlignment = Alignment.Center) {
         if (!ready) Text(artifactTitle(artifact), Modifier.padding(3.dp).clearAndSetSemantics {},
             style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Jarvis.colors.fgMuted)
-        if (visible && picture != null) AsyncImage(model = picture, contentDescription = null, contentScale = ContentScale.Crop,
+        if (visible && picture != null) AsyncImage(model = picture, contentDescription = null, contentScale = ContentScale.Fit,
             modifier = Modifier.matchParentSize(), onSuccess = { ready = true }, onError = { ready = false })
     }
 }

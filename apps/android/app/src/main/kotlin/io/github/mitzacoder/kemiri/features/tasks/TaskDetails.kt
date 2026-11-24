@@ -87,6 +87,7 @@ internal enum class TaskRecordRow(val storageKey: String, val title: String, val
     Request("request", "The request", true),
     Checks("checks", "Checks"),
     Decided("decided", "Decided"),
+    CoordinatorMessages("coordinator-messages", "Coordinator messages"),
     Activity("activity", "Activity"),
 }
 

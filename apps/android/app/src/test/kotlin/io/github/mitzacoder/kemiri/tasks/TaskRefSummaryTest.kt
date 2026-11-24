@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri.tasks
 
 import io.github.mitzacoder.kemiri.features.tasks.taskRefSummary
+import io.github.mitzacoder.kemiri.features.tasks.taskRefStateLabel
+import io.github.mitzacoder.kemiri.features.tasks.taskRefHasFailingChecks
 import io.github.mitzacoder.kemiri.protocol.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -8,28 +10,29 @@ import org.junit.Test
 class TaskRefSummaryTest {
     private fun pull(state: String, checks: String?) = RefStatusPull(ref = "#1", url = "https://example.com/ref", title = "Synthetic ref", checkedAt = "2026-01-01T00:00:00Z", state = state, checks = checks)
 
-    @Test fun prioritizesOnlyActionableChecks() {
-        val summary = taskRefSummary(listOf(pull("open", "failing"), pull("draft", "pending"), null))
-        assertEquals("2 PRs · 1 unknown", summary.counts)
-        assertEquals("1 PR failing checks · 1 PR running checks", summary.status)
-        assertTrue(summary.attention)
-    }
-    @Test fun mergedAndClosedChecksAreHistorical() {
-        val summary = taskRefSummary(listOf(pull("merged", "failing"), pull("closed", "pending")))
-        assertEquals("2 closed", summary.status)
-        assertFalse(summary.attention)
-    }
-    @Test fun unknownIsNeverClosed() {
+    @Test fun callsReferencesWithoutLiveStateLinks() {
         val summary = taskRefSummary(listOf(null, null))
-        assertEquals("2 refs", summary.counts)
-        assertEquals("2 status unknown", summary.status)
-        assertFalse(summary.attention)
+        assertEquals("2 links", summary.counts)
+        assertEquals("Link", taskRefStateLabel(null))
+        assertFalse(summary.failingChecks)
     }
-    @Test fun countsIssuesAndTicketCategories() {
+
+    @Test fun onlyFailingChecksOnOpenOrDraftPullsAreWarnings() {
+        assertTrue(taskRefSummary(listOf(pull("open", "failing"), null)).failingChecks)
+        assertTrue(taskRefHasFailingChecks(pull("draft", "failing")))
+        assertFalse(taskRefHasFailingChecks(pull("open", "pending")))
+        assertFalse(taskRefHasFailingChecks(pull("closed", "failing")))
+        val merged = pull("merged", "failing")
+        assertFalse(taskRefHasFailingChecks(merged))
+        assertEquals("Merged", taskRefStateLabel(merged))
+        assertEquals("Open · checks failing", taskRefStateLabel(pull("open", "failing")))
+    }
+
+    @Test fun countsTicketsPullRequestsIssuesAndLinks() {
         val issue = RefStatusIssue(ref = "#2", url = "https://example.com/issue", title = "Synthetic issue", checkedAt = "2026-01-01T00:00:00Z", state = "open")
         val ticket = RefStatusJira(ref = "EX-1", url = "https://example.com/ticket", title = "Synthetic ticket", checkedAt = "2026-01-01T00:00:00Z", status = "Verified", category = "done")
-        val summary = taskRefSummary(listOf(issue, ticket))
-        assertEquals("1 issue · 1 ticket", summary.counts)
-        assertEquals("1 open · 1 closed", summary.status)
+        assertEquals("1 ticket · 2 PRs · 1 issue · 1 link", taskRefSummary(listOf(issue, ticket, pull("open", null), pull("draft", null), null)).counts)
+        assertEquals("Verified", taskRefStateLabel(ticket))
+        assertEquals("Open", taskRefStateLabel(issue))
     }
 }

@@ -147,11 +147,12 @@ class TaskDetailsTest {
 
     @Test fun requestStartsOpenAndRowsRememberTheirChoicesIndependently() {
         val empty = emptyMap<String, Boolean>()
-        assertEquals(listOf(TaskRecordRow.Request, TaskRecordRow.Checks, TaskRecordRow.Decided, TaskRecordRow.Activity), TaskRecordRow.entries)
+        assertEquals(listOf(TaskRecordRow.Request, TaskRecordRow.Checks, TaskRecordRow.Decided, TaskRecordRow.CoordinatorMessages, TaskRecordRow.Activity), TaskRecordRow.entries)
         assertTrue(readTaskRecordFold(TaskRecordRow.Request, empty))
         assertFalse(readTaskRecordFold(TaskRecordRow.Decided, empty))
         assertFalse(readTaskRecordFold(TaskRecordRow.Activity, empty))
         assertFalse(readTaskRecordFold(TaskRecordRow.Checks, empty))
+        assertFalse(readTaskRecordFold(TaskRecordRow.CoordinatorMessages, empty))
         val basicFolds = saveTaskRecordFold(TaskRecordRow.Activity, true, saveTaskRecordFold(TaskRecordRow.Request, false, empty))
         val saved = saveTaskRecordFold(TaskRecordRow.Checks, true, basicFolds)
         assertTrue(readTaskRecordFold(TaskRecordRow.Checks, saved))
