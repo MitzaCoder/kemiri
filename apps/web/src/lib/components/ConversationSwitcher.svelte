@@ -2,6 +2,9 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import { tick } from 'svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import PauseIcon from '@lucide/svelte/icons/pause';
+	import { questionBadgeText } from '#lib/board.js';
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import ThreadStatusBadge from './chat/ThreadStatusBadge.svelte';
@@ -11,20 +14,28 @@
 	import { coordinatorBadges, coordinatorHref, coordinatorStatus } from '#lib/coordinators.js';
 	import { threadActivityLine } from '#lib/threads.js';
 	import type { BoardQuestion, ThreadSummary } from '@kemiri/protocol';
-	let { shown = true, projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage }: {
+	let { shown = true, projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage, onedit, onprefetch, archivedCoordinator }: {
 		shown?: boolean; projectName: string; backendId: string; projectId: string; threadId?: string;
 		threads: readonly ThreadSummary[]; questions: readonly BoardQuestion[]; now: number;
 		counts: { needsYou: number; working: number }; onshowall: () => void;
 		roster?: readonly ThreadSummary[]; seen?: (id: string) => string | null;
+		archivedCoordinator?: ThreadSummary;
+		onedit?: (coordinator: ThreadSummary) => void; onprefetch?: (id: string) => void;
 		onnew?: () => void; onalltasks?: () => void; onmanage?: () => void;
 	} = $props();
 	const phone = new MediaQuery('(max-width: 639px)');
+	const switcherId = $props.id();
 	let open = $state(false);
 	let expanded = $state(false);
 	$effect(() => { if (!shown) open = false; });
 	let trigger = $state<HTMLButtonElement | null>(null);
 	const choices = $derived(conversationChoices(roster ? threads.filter(row => row.kind !== 'coordinator') : threads, backendId, projectId, threadId, now));
-	const thread = $derived(threads.find(thread => thread.id === (threadId ?? (roster ? 'main' : undefined))));
+	const thread = $derived(archivedCoordinator ?? threads.find(thread => thread.id === (threadId ?? (roster ? 'main' : undefined))));
+	const coordinator = $derived(thread && (thread.main || thread.kind === 'coordinator') ? thread : undefined);
+	const coordinatorActivity = $derived(coordinator ? coordinatorBadges(coordinator) : undefined);
+	const otherCoordinatorsNeedingAttention = $derived(roster?.filter(row => row.id !== (threadId ?? 'main') && coordinatorBadges(row).needsYou > 0).length ?? 0);
+	const attentionBadge = $derived(questionBadgeText(otherCoordinatorsNeedingAttention));
+	const titleTooltip = $derived(coordinator?.area || 'Switch conversation (Alt+J)');
 	function close() { open = false; trigger?.focus(); }
 	function choose(event: MouseEvent, current: boolean) {
 		if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -52,27 +63,49 @@
 <svelte:window onkeydown={shortcut} />
 
 {#snippet title()}
-{#if roster}
-		{#if thread && (thread.main || thread.kind === 'coordinator')}<CoordinatorMark {thread} />{/if}
+	{#if roster}
+		{#if coordinator}<span class="flex shrink-0 items-center @max-[7rem]/switcher:hidden"><CoordinatorMark thread={coordinator} /></span>{/if}
 		<span class="min-w-0 leading-tight"><small class="block truncate text-[.65rem] text-(--chat-fg-muted)">{projectName}</small><strong class="block truncate">{thread?.title || threadId || 'General'}</strong></span>
-		{#if thread && (thread.main || thread.kind === 'coordinator')}<span class="hidden shrink-0 text-xs text-(--chat-fg-muted) sm:inline">{coordinatorBadges(thread).state}</span>
+		{#if coordinator}
+			{#if coordinator.archived}
+				<span class="shrink-0 text-xs text-(--chat-fg-subtle)">Archived</span>
+			{:else if coordinatorActivity?.paused}
+				<span class="shrink-0 text-(--chat-fg-muted) @max-[7rem]/switcher:sr-only" role="img" aria-label="Paused" title="Paused"><PauseIcon class="size-3.5" /></span>
+			{:else if coordinatorActivity?.working}
+				<span class="shrink-0 text-(--accent-2) @max-[7rem]/switcher:sr-only" role="img" aria-label="Working" title="Working"><LoaderCircleIcon class="size-3.5 motion-safe:animate-spin" /></span>
+			{/if}
 		{:else if thread}<ThreadStatusBadge {thread} class="shrink-0" />{/if}
 	{:else}
 		<span class="min-w-0 truncate"><strong>{threadId ? thread?.title || threadId : projectName}</strong>{#if !threadId}<span class="font-normal text-(--chat-fg-subtle)"> · Main chat</span>{/if}</span>
 		{#if thread}<ThreadStatusBadge {thread} class="shrink-0" />{/if}
 	{/if}
-	<ChevronDownIcon class="size-3.5 shrink-0" />
+	<ChevronDownIcon class="size-3.5 shrink-0 text-(--chat-fg-muted)" />
+	{#if attentionBadge}
+		<span class="coordinator-attention shrink-0" title={`${otherCoordinatorsNeedingAttention} other coordinators need attention`}>
+			<span aria-hidden="true">{attentionBadge}</span><span class="sr-only">{otherCoordinatorsNeedingAttention} other {otherCoordinatorsNeedingAttention === 1 ? 'coordinator needs' : 'coordinators need'} attention</span>
+		</span>
+	{/if}
 {/snippet}
 {#snippet list()}
 	<div role="menu" tabindex="-1" aria-label="Conversations" data-conversation-menu onkeydown={keyboard} class="max-h-[70dvh] overflow-y-auto overscroll-contain p-1">
 		{#if roster}
-			{#each roster as coordinator (coordinator.id)}
+			{#each archivedCoordinator ? [...roster, archivedCoordinator] : roster as coordinator (coordinator.id)}
 				{@const here = coordinator.id === (threadId ?? 'main')}
-				<a role="menuitem" href={coordinatorHref(backendId, projectId, coordinator.id)} onclick={event => choose(event, here)} aria-current={here ? 'page' : undefined} class="conversation-choice">
-					<span class="flex items-center gap-2"><CoordinatorMark thread={coordinator} /><strong class="min-w-0 flex-1 truncate">{coordinator.title}</strong><span class="text-xs text-(--chat-fg-muted)">{coordinatorBadges(coordinator).state}</span><CoordinatorBadges thread={coordinator} seen={seen?.(coordinator.id)} /></span>
-					{#if coordinator.area}<span class="truncate pl-8 text-xs text-(--chat-fg-muted)">{coordinator.area}</span>{/if}
-					{#if coordinatorStatus(coordinator)}<span class="truncate pl-8 text-xs text-(--chat-fg-subtle)">{coordinatorStatus(coordinator)}</span>{/if}
-				</a>
+				{@const areaId = `${switcherId}-area-${coordinator.id}`}
+				<div class="coordinator-choice" class:current-coordinator={here}>
+					<a role="menuitem" href={coordinatorHref(backendId, projectId, coordinator.id)} onclick={event => choose(event, here)}
+						onpointerenter={event => { if (event.pointerType === 'mouse' && !here) onprefetch?.(coordinator.id); }}
+						aria-current={here ? 'page' : undefined} aria-describedby={areaId} class="conversation-choice">
+						<span class="flex items-center gap-2"><CoordinatorMark thread={coordinator} /><strong class="min-w-0 flex-1 wrap-anywhere">{coordinator.title}</strong><span class="shrink-0 text-xs text-(--chat-fg-muted)">{coordinator.archived ? 'Archived' : coordinatorBadges(coordinator).state}</span><CoordinatorBadges thread={coordinator} seen={seen?.(coordinator.id)} /></span>
+						{#if coordinatorStatus(coordinator)}<span class="truncate pl-8 text-xs text-(--chat-fg-subtle)">{coordinatorStatus(coordinator)}</span>{/if}
+					</a>
+					<div class="flex items-start gap-2 px-3 pb-2 pl-11 text-xs text-(--chat-fg-muted)">
+						<p id={areaId} class="min-w-0 flex-1 wrap-anywhere whitespace-pre-line">{coordinator.area || 'No area set'}</p>
+						{#if here && !coordinator.archived && onedit}
+							<button role="menuitem" aria-label="Edit area" class="shrink-0 rounded px-1.5 py-0.5 font-medium text-(--accent-2) hover:bg-(--chat-surface-2) focus-visible:outline-2" onclick={() => { close(); onedit(coordinator); }}>Edit</button>
+						{/if}
+					</div>
+				</div>
 				{#each [...choices.visible, ...(expanded ? choices.finished : [])].filter(job => (job.thread.parentThreadId ?? 'main') === coordinator.id) as row (row.href)}
 					<div class="ml-5 border-l border-(--chat-border) pl-2">{@render job(row)}</div>
 				{/each}
@@ -107,10 +140,10 @@
 	</a>
 {/snippet}
 
-<div class="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:flex-nowrap">
+<div class="@container/switcher flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:flex-nowrap">
 	{#if phone.current}
 		<Dialog.Root bind:open>
-			<Dialog.Trigger bind:ref={trigger} class="switcher-trigger max-sm:w-full" aria-haspopup="menu" aria-keyshortcuts="Alt+J" title="Switch conversation (Alt+J)">{@render title()}</Dialog.Trigger>
+			<Dialog.Trigger bind:ref={trigger} class="switcher-trigger max-sm:w-full" aria-haspopup="menu" aria-keyshortcuts="Alt+J" title={titleTooltip}>{@render title()}</Dialog.Trigger>
 			<Dialog.Content class="top-auto bottom-0 left-0 w-full max-w-none translate-x-0 translate-y-0 gap-1 rounded-b-none p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]" onOpenAutoFocus={focusMenu} onCloseAutoFocus={event => { event.preventDefault(); trigger?.focus(); }}>
 				<Dialog.Title class="px-3 py-2 font-semibold">{roster ? 'Coordinators' : 'Conversations'}</Dialog.Title>
 				<Dialog.Description class="sr-only">{roster ? 'Switch between coordinators and their background jobs.' : 'Switch between Main chat and background jobs.'}</Dialog.Description>
@@ -119,7 +152,7 @@
 		</Dialog.Root>
 	{:else}
 		<Popover.Root bind:open>
-			<Popover.Trigger bind:ref={trigger} class="switcher-trigger max-sm:w-full" aria-haspopup="menu" aria-keyshortcuts="Alt+J" title="Switch conversation (Alt+J)">{@render title()}</Popover.Trigger>
+			<Popover.Trigger bind:ref={trigger} class="switcher-trigger max-sm:w-full" aria-haspopup="menu" aria-keyshortcuts="Alt+J" title={titleTooltip}>{@render title()}</Popover.Trigger>
 			<Popover.Content align="start" class="w-[28rem] max-w-[calc(100vw-2rem)] gap-0 p-1" onOpenAutoFocus={focusMenu} onCloseAutoFocus={event => { event.preventDefault(); trigger?.focus(); }}>{@render list()}</Popover.Content>
 		</Popover.Root>
 	{/if}
@@ -133,6 +166,9 @@
 	:global(.switcher-trigger:hover) { background:var(--chat-surface-2); }
 	:global(.switcher-trigger:focus-visible) { outline:2px solid var(--accent-2); }
 	.conversation-choice { display:flex; flex-direction:column; gap:0.25rem; padding:0.625rem 0.75rem; border-radius:0.375rem; font-size:0.8125rem; }
-	.conversation-choice[aria-current=page] { box-shadow:inset 2px 0 var(--accent-2); background:color-mix(in srgb,var(--accent-2) 8%,var(--chat-bg)); }
+	.coordinator-choice { border-radius: 0.375rem; }
+	.coordinator-choice .conversation-choice { padding-bottom: 0.25rem; }
+	.current-coordinator { box-shadow:inset 2px 0 var(--accent-2); background:color-mix(in srgb,var(--accent-2) 8%,var(--chat-bg)); }
+	.coordinator-attention { min-width: 1rem; padding-inline: 0.25rem; border-radius: 1rem; background: color-mix(in srgb, var(--chat-warning) 12%, var(--chat-bg)); color: var(--chat-warning); font-size: 0.625rem; font-weight: 600; text-align: center; }
 	.conversation-choice:hover, .conversation-choice:focus { background:var(--chat-surface-2); outline:2px solid transparent; }
 </style>

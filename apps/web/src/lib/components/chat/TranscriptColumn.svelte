@@ -35,6 +35,7 @@
 	 */
 	let {
 		items,
+		fadeTop = false,
 		cwd,
 		workers = [],
 		workerHref,
@@ -61,6 +62,7 @@
 		answerHref, messageLinks, viewingThread = 'main', messageAnchor
 	}: {
 		items: readonly TranscriptItem[];
+		fadeTop?: boolean;
 		answerHref?: (id: string) => string;
 		/** The directory tool cards shorten paths against. */
 		cwd?: string;
@@ -233,7 +235,7 @@
 	const LINE_KINDS: ReadonlySet<string> = new Set(['report', 'checkin', 'thread', 'board', 'reports', 'coordinatorNote']);
 </script>
 
-<div class="relative min-h-0 flex-1">
+<div class="relative min-h-0 flex-1" class:fade-top={fadeTop}>
 	<div
 		bind:this={scroller}
 		data-navigation-scroll="transcript"
@@ -365,3 +367,14 @@
 		</button>
 	{/if}
 </div>
+
+<style>
+	.fade-top::after {
+		content: '';
+		position: absolute;
+		inset: 0 0 auto;
+		height: 12px;
+		pointer-events: none;
+		background: linear-gradient(var(--chat-bg), transparent);
+	}
+</style>

@@ -39,6 +39,7 @@
 	 */
 	let {
 		context,
+		coordinatorArea,
 		loaded,
 		error,
 		canCompact = false,
@@ -47,6 +48,8 @@
 		oncompact
 	}: {
 		context: ConversationContext | undefined;
+		/** Undefined outside a coordinator chat. */
+		coordinatorArea?: string;
 		/** The first `conversation.context` answer has arrived. */
 		loaded: boolean;
 		error?: string;
@@ -224,6 +227,12 @@
 	class="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3"
 >
 	<div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
+		{#if coordinatorArea !== undefined}
+			<section class="space-y-1 border-b border-(--chat-border) pb-3">
+				<h2 class={heading}>Area</h2>
+				<p class="wrap-anywhere text-sm whitespace-pre-line text-(--chat-fg-muted)">{coordinatorArea || 'No area set'}</p>
+			</section>
+		{/if}
 		{#if error}
 			<Banner tone="error">{error}</Banner>
 		{/if}

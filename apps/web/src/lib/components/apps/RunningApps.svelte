@@ -1,12 +1,14 @@
 <script lang="ts">
 	import type { BoardTask, ProjectApp, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
-	import { APP_LINK_WARNING, appCountLabel, appLink, visibleApps } from '#lib/agent-apps.js';
+	import { APP_LINK_WARNING, appLink, visibleApps } from '#lib/agent-apps.js';
 	import { projectApps } from '#lib/agent-apps.svelte.js';
 	import DetectedAppRow from './DetectedAppRow.svelte';
 	import PublishedAppRow from './PublishedAppRow.svelte';
 
-	let { tasks = [], threads = [], workers = [], now }: {
+	let { open = $bindable(false), restoreFocus, tasks = [], threads = [], workers = [], now }: {
+		open?: boolean;
+		restoreFocus: () => void;
 		tasks?: readonly Pick<BoardTask, 'id' | 'title'>[];
 		threads?: readonly ThreadSummary[];
 		workers?: readonly WorkerSummary[];
@@ -15,7 +17,6 @@
 	const apps = projectApps();
 	const detected = $derived(apps?.current?.detected ?? []);
 	const rows = $derived(visibleApps(apps?.current?.apps ?? []));
-	let open = $state(false);
 
 	function publisher(app: ProjectApp): string {
 		if (app.ownerPublished) return 'the owner';
@@ -34,8 +35,7 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Trigger class="apps-chip" aria-label={`Running apps: ${appCountLabel(rows)}`}>{appCountLabel(rows)}</Dialog.Trigger>
-	<Dialog.Content class="max-h-[85dvh] gap-3 overflow-y-auto sm:max-w-3xl">
+	<Dialog.Content class="max-h-[85dvh] gap-3 overflow-y-auto sm:max-w-3xl" onCloseAutoFocus={event => { event.preventDefault(); restoreFocus(); }}>
 		<Dialog.Title>Running apps</Dialog.Title>
 		<Dialog.Description>Stop app ends a process started by Kemiri and removes its link. Unpublish only removes the link.</Dialog.Description>
 		{#if rows.some(app => app.state === 'pending')}
@@ -69,9 +69,3 @@
 		{/if}
 	</Dialog.Content>
 </Dialog.Root>
-
-<style>
-	:global(.apps-chip) { align-self: flex-start; border-radius: 2rem; padding: .25rem .625rem; font-size: .75rem; font-weight: 650; background: color-mix(in srgb, var(--chat-success) 13%, var(--chat-bg)); color: var(--chat-success); }
-	:global(.apps-chip:hover) { text-decoration: underline; }
-	@media (max-width: 640px) { :global(.apps-chip) { min-height: 2.25rem; } }
-</style>

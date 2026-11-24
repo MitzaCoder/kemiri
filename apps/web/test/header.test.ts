@@ -1,80 +1,42 @@
-/**
- * The chat header's row: when its controls show labels, when only their icons, and when the secondary ones fold into
- * the "⋯" menu. The component feeds these the row's measured width, so this is where the decision is pinned.
- */
-import { describe, expect, test } from "bun:test";
-import { headerActionShowsLabel, headerLayout, visibleHeaderActions, type HeaderActionWidth } from "../src/lib/chat/header.ts";
+import { describe, expect, test } from 'bun:test';
+import { headerHasRoomForApps, headerLayout, visibleHeaderActions, type HeaderActionWidth } from '../src/lib/chat/header.ts';
 
-/** The coordinator chat's controls: the board (3 waiting), background threads, info, workers (1 active), memory. */
-const PROJECT_ACTIONS: HeaderActionWidth[] = [
-	{ label: "Tasks", badge: true, primary: true },
-	{ label: "Background", badge: true },
-	{ label: "Info" },
-	{ label: "Workers", badge: true, primary: true },
-	{ label: "Memory" },
-];
+const tools = [{ label: 'Files' }, { label: 'Changes' }, { label: 'Terminal' }];
+const apps = { id: 'apps', placement: 'persistent' } as const;
+const panel = { label: 'Panel', badge: true, placement: 'persistent' } as const;
+const settings = { label: 'Project settings', placement: 'more' } as const;
+const chatActions: (HeaderActionWidth & { id?: string })[] = [...tools, apps, panel, settings];
+const phoneRow = 390 - 16; // the measured row excludes padding
+const drawerAndInbox = 84;
 
-/** The measured header row in a wide pane, with the projects sidebar beside it. */
-const WIDE_HEADER_ROW = 1632;
-/** A narrower header row with a docked right panel. */
-const HEADER_ROW_NEXT_TO_PANEL = 840;
-/** A 390px phone. */
-const PHONE_COLUMN = 390;
-
-describe("header layout", () => {
-	test("labels everything when the header row has room", () => {
-		expect(headerLayout(WIDE_HEADER_ROW, PROJECT_ACTIONS)).toBe("labels");
-		expect(headerLayout(HEADER_ROW_NEXT_TO_PANEL, PROJECT_ACTIONS)).toBe("labels");
+describe('chat header layout', () => {
+	test('labels fit on desktop with a docked panel, settings stay under More', () => {
+		const besidePanel = [...tools, apps, settings];
+		const layout = headerLayout(650, besidePanel);
+		expect(layout).toBe('labels');
+		expect(visibleHeaderActions(layout, besidePanel)).toEqual({ inline: [...tools, apps], menu: [settings] });
 	});
 
-	test("keeps Tasks' and Workers' labels when the sidebar leaves too little room for all of them", () => {
-		expect(headerLayout(700, PROJECT_ACTIONS)).toBe("primary-labels");
-		expect(headerActionShowsLabel("primary-labels", PROJECT_ACTIONS[0]!)).toBe(true);
-		expect(headerActionShowsLabel("primary-labels", PROJECT_ACTIONS[1]!)).toBe(false);
+	test('folds to icons before moving the tools into More', () => {
+		const layout = headerLayout(480, chatActions);
+		expect(layout).toBe('icons');
+		expect(visibleHeaderActions(layout, chatActions)).toEqual({ inline: [...tools, apps, panel], menu: [settings] });
 	});
 
-	test("drops every label when even those do not fit", () => {
-		expect(headerLayout(560, PROJECT_ACTIONS)).toBe("icons");
+	test('a phone reserves the title space and keeps active apps and Panel in reach', () => {
+		for (const width of [phoneRow, 320 - 16]) {
+			const layout = headerLayout(width, chatActions, drawerAndInbox);
+			expect(layout).toBe('menu');
+			expect(visibleHeaderActions(layout, chatActions)).toEqual({ inline: [apps, panel], menu: [...tools, settings] });
+		}
 	});
 
-	test("folds the secondary controls into a menu on a phone", () => {
-		expect(headerLayout(PHONE_COLUMN, PROJECT_ACTIONS)).toBe("menu");
-		expect(headerLayout(320, PROJECT_ACTIONS)).toBe("menu");
-	});
-
-	test("a shorter row keeps its labels longer", () => {
-		// A background thread's chat: no Background tab, so one control and one badge fewer.
-		const thread = PROJECT_ACTIONS.filter((action) => action.label !== "Background");
-		expect(headerLayout(700, thread)).toBe("labels");
-		expect(headerLayout(560, thread)).toBe("icons");
-		expect(headerLayout(PHONE_COLUMN, thread)).toBe("menu");
-	});
-
-	test("a control without a label is an icon button at every width", () => {
-		// The mute bell: it takes room like an icon even where everything else is labelled.
-		expect(headerActionShowsLabel("labels", { label: undefined })).toBe(false);
-		expect(headerActionShowsLabel("icons", { label: "Tasks" })).toBe(false);
-		expect(headerActionShowsLabel("labels", { label: "Tasks" })).toBe(true);
-		expect(headerLayout(WIDE_HEADER_ROW, [...PROJECT_ACTIONS, {}])).toBe("labels");
-		expect(headerLayout(560, [...PROJECT_ACTIONS, {}])).toBe("icons");
-	});
-});
-
-describe("which controls stay in the row", () => {
-	test("every control is inline until they fold", () => {
-		const visible = visibleHeaderActions("icons", PROJECT_ACTIONS);
-		expect(visible.inline).toHaveLength(PROJECT_ACTIONS.length);
-		expect(visible.menu).toHaveLength(0);
-	});
-
-	test("a phone keeps the board and the workers, and moves the rest into the menu", () => {
-		const visible = visibleHeaderActions("menu", PROJECT_ACTIONS);
-		expect(visible.inline.map((action) => action.label)).toEqual(["Tasks", "Workers"]);
-		expect(visible.menu.map((action) => action.label)).toEqual(["Background", "Info", "Memory"]);
-	});
-
-	test("the menu keeps the actions' order, so the rows do not move around", () => {
-		const actions: HeaderActionWidth[] = [{ label: "Tasks", primary: true }, { label: "Memory" }, { label: "Workers", primary: true }];
-		expect(visibleHeaderActions("menu", actions).inline.map((action) => action.label)).toEqual(["Tasks", "Workers"]);
+	test('the connection problem chip can fold tools earlier and moves apps into More if the title would be squeezed', () => {
+		expect(headerLayout(480, chatActions)).toBe('icons');
+		const layout = headerLayout(480, chatActions, 108);
+		expect(layout).toBe('menu');
+		expect(visibleHeaderActions(layout, chatActions).inline).toEqual([apps, panel]);
+		expect(headerHasRoomForApps(phoneRow, drawerAndInbox)).toBe(true);
+		expect(headerHasRoomForApps(phoneRow, drawerAndInbox + 108)).toBe(false);
 	});
 });

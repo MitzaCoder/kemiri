@@ -6,9 +6,13 @@ export function visibleApps(apps: readonly ProjectApp[], taskId?: string): Proje
 	return apps.filter(app => app.state !== 'unpublished' && (taskId === undefined || taskId === app.taskId));
 }
 
-export function appCountLabel(apps: readonly ProjectApp[]): string {
+export function appCounts(apps: readonly ProjectApp[]) {
 	const running = apps.filter(app => app.state === 'live').length;
 	const pending = apps.filter(app => app.state === 'pending').length;
+	return { running, pending, active: running + pending };
+}
+
+export function appCountLabel({ running, pending }: ReturnType<typeof appCounts>): string {
 	return `${running} ${running === 1 ? 'app' : 'apps'} running${pending ? ` · ${pending} pending` : ''}`;
 }
 

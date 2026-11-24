@@ -253,9 +253,14 @@ are not rewritten.
 
 ## Conversation panel controls
 
-Web and Android use accent-tinted selected header pills with accent text/icons;
-unselected panels stay muted. Overflow rows follow the same selection rule,
-while hover/focus and badges remain distinct. Neutral stays achromatic.
+On web, the quiet Panel button carries the current scope's attention count.
+It leaves the chat bar while the panel is docked open. The panel's own 56 px
+bar holds its view tabs, their counts and its Close control; closing returns
+focus to Panel. Only selected view tabs use accent-tinted pills.
+
+On Android, selected header pills use accent text/icons; unselected panels
+stay muted. Overflow rows follow the same selection rule, while hover/focus
+and badges remain distinct. Neutral stays achromatic.
 
 Android follows the same header-only panel selection rule (T192). Its panel surface already supplies the title and
 close action, so PanelsScreen draws only the selected body. Header buttons retain question/running badges and expose
@@ -2944,13 +2949,13 @@ editing existing rows. Transcripts, workspaces, board rows and memory stay in pl
 **Web coordinator roster (T395).** On `coordinators` backends, General stays at the
 project address. New coordinator chats use the existing thread route and draft key.
 Project entry links use the last coordinator on that device, without redirecting the
-General route or overriding Back/Forward. The title menu (Alt+J) and scrollable chips
-(Alt+1–9) use roster order; jobs nest under their coordinator. Colour and letter marks
+General route or overriding Back/Forward. The title menu (Alt+J) and direct
+shortcuts (Alt+1–9) use roster order; jobs nest under their coordinator. Colour and letter marks
 identify owners across the sidebar, roster and tasks. An amber badge counts attention,
 while working, explicit pause and unread replies have independent marks. Reply stamps
 are local to the device. The open project's sidebar roster ends with New coordinator,
-even when General is the only coordinator. The desktop sidebar, phone drawer, chat
-chip and title menu share the same creation dialog. The phone drawer stays open behind
+even when General is the only coordinator. The desktop sidebar, phone drawer and
+chat title menu share the same creation dialog. The phone drawer stays open behind
 the form, so cancel returns to the roster. New and Manage use `operationId` again for a
 retry of the same mutation; no keep-warm control is exposed here.
 
@@ -2985,8 +2990,8 @@ and opens the coordinator chat at the reply entry when supplied. These surfaces 
 feature-gated and require no server document version changes.
 
 **Switching between coordinators (T403).** The project layout on web owns the chat
-surface across the General and thread URLs. The chip strip, title menu, sidebar
-and Back/Forward still use those URLs. The four most recent coordinators keep
+surface across the General and thread URLs. The title menu, sidebar and
+Back/Forward still use those URLs. The four most recent coordinators keep
 mounted, inert when hidden, so transcript nodes, scroll containers, composers
 and task filters do not reset. Mouse hover can open a watch in an unused slot
 without evicting a visited chat. Board, roster and peer messages are read once
@@ -3002,6 +3007,24 @@ isolated web and emulator comparisons.
 `chat-header-demo.ts` seeds a smaller fixture for chat-header proof: three coordinators
 with areas, four waiting questions, one published app, a terminal with
 `DEMO_TERMINALS=1` and a turn that stays working with `DEMO_WORKING=1`.
+
+**One-bar web chat header (T478).** The 56 px bar is the only navigation row
+above a coordinator transcript. The title opens the roster (a bottom sheet
+on phones) with coordinator state, counts, area text, Edit on the open
+coordinator, and New. The same area appears in Info and as a title tooltip.
+The title shows a working or paused mark and the number of *other* coordinators
+that need attention, separate from the attention count on Panel. Peer chats
+have no back arrow. Background jobs keep their back link, and older backends
+without coordinators keep the Main chat status line.
+
+Files, Changes and Terminal keep short labels while they fit, then fold to
+icons, then into More. Width follows the measured chat pane so it also responds
+to the docked panel. Changes opens the project root in General and the thread
+root in a thread. More always holds project settings and notification mute
+when supported, plus the connection and release line. Only connection problems
+and active mutes put a status mark in the bar. Running apps is always reachable
+in More on apps-capable backends; its shortcut shows for live or pending apps
+when there is room. The transcript fades over 12 px at its top edge.
 
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins
@@ -7848,9 +7871,9 @@ post it silently without a replacement buzz, even for failures. With no visible 
 
 ### Timed mutes on one device
 
-The slashed bell in the chat header opens a project mute menu for one hour, eight hours or until manually
-unmuted. It stays in the phone app bar. An active mute accents the bell and shows its end time, if any, with
-Unmute. The card menu, Notifications settings and Project settings → General use the same device preferences.
+More in the web chat header offers a project mute for one hour, eight hours or until manually unmuted.
+Only an active mute shows a slashed bell in the bar. More shows the end time, if any, and Unmute.
+The card menu, Notifications settings and Project settings → General use the same device preferences.
 The General toggle reads both timed and legacy indefinite mutes and can clear either.
 
 Decision D4 covers pop-ups, sound and OS push on one device. The app stores mutes locally with its existing device

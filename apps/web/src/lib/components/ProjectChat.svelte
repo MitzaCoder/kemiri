@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { provideProjectApps, useProjectApps } from '#lib/agent-apps.svelte.js';
+	import { appCountLabel, appCounts } from '#lib/agent-apps.js';
 	import RunningApps from '#lib/components/apps/RunningApps.svelte';
 	import { rememberConversationView, conversationBack } from "#lib/conversation-navigation.svelte.js";
 	import { agentWaitingForUser } from '#lib/agent-activity.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import BellOffIcon from '@lucide/svelte/icons/bell-off';
+	import PanelsTopLeftIcon from '@lucide/svelte/icons/panels-top-left';
+	import GitCompareArrowsIcon from '@lucide/svelte/icons/git-compare-arrows';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import ProjectMuteMenu from '#lib/components/alerts/ProjectMuteMenu.svelte';
 	import LayersIcon from '@lucide/svelte/icons/layers';
@@ -22,14 +26,13 @@
 	import { getCoordinatorCreation } from '#lib/coordinator-creation.js';
 	import { goto } from '$app/navigation';
 	import CoordinatorMark from './CoordinatorMark.svelte';
-	import CoordinatorBadges from './CoordinatorBadges.svelte';
 	import type { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
 	import { threadMessageHref, threadMessageAnchor, type ThreadMessageLinks } from '#lib/thread-messages.js';
 	import ThreadMessagesFeed from './ThreadMessagesFeed.svelte';
 	import LandingTurn from './LandingTurn.svelte';
 	import { landingTurnPresentation, provideLandingTurn } from '#lib/landing-turn.js';
 	import CoordinatorManager from './CoordinatorManager.svelte';
-	import { coordinatorBadges, coordinatorColor, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
+	import { coordinatorBadges, coordinatorHref, coordinatorOfThread, coordinatorRoster, coordinatorShortcut, coordinatorStorageKey, readCoordinatorPreference, saveCoordinatorPreference, scopedQuestions, scopedTasks } from '#lib/coordinators.js';
 	import { provideCoordinatorTaskView } from '#lib/coordinator-task-view.js';
 	import type { ThreadSummary, ThreadsUpdateRequest } from '@kemiri/protocol';
 	import FolderIcon from '@lucide/svelte/icons/folder';
@@ -104,9 +107,11 @@
 	import { questionBadgeText, questionsWaitingLabel } from '#lib/board.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { alerts } from '#lib/alerts.svelte.js';
+	import { projectMuteMenuState } from '#lib/alert-quiet.js';
+	import { notifications } from '#lib/notifications.svelte.js';
 	import { taskFromUrl, withTask } from '#lib/tasks.js';
-	import { connectionDotClass, connectionView } from '#lib/connection.js';
-	import { headerActionShowsLabel, headerLayout, visibleHeaderActions } from '#lib/chat/header.js';
+	import { connectionView } from '#lib/connection.js';
+	import { headerHasRoomForApps, headerLayout, visibleHeaderActions } from '#lib/chat/header.js';
 	import { memoryExtractionFor, type MemoryExtraction } from '#lib/memory.js';
 	import { elapsedFor } from '#lib/relative-time.js';
 	import { CHAT_COLUMN_CLASS } from '#lib/chat/layout.js';
@@ -163,7 +168,9 @@
 		const query = new URLSearchParams({ name: file.name, ...(threadId ? { threadId } : {}) });
 		return (await backend.attachmentRequest(`/attachments/${projectId}?${query}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file })).json();
 	}
-	provideProjectApps(useProjectApps(() => backend.features?.includes('apps') ? { client: backend.client, projectId } : undefined));
+	const apps = useProjectApps(() => backend.supports('apps') ? { client: backend.client, projectId } : undefined);
+	provideProjectApps(apps);
+	const runningAppCounts = $derived(appCounts(apps.current?.apps ?? []));
 	provideArtifactScope(() => ({ client: backend.client, projectId, available: backend.supports('artifacts') }));
 
 	let session = $state<ChatSession | undefined>(undefined);
@@ -254,6 +261,7 @@
 	const showProjectMuteMenu = $derived(project !== undefined && (backend.supports('notifications') || backend.supports('in-app-alerts')));
 	/** A worker a schedule started says which schedule; the names come from the project's schedule list. */
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
+	const projectMute = $derived(projectMuteMenuState(notifications.settings, backend.id, projectId, notifications.muteClock));
 	const supportsThreads = $derived(backend.supports('threads'));
 	const sidebarTabs = $derived(visibleSidebarTabs((feature) => backend.supports(feature), { background: true, answers: supportsAnswers }));
 	/** This thread as the list has it; undefined on main's chat and while the list loads. */
@@ -281,6 +289,8 @@
 	const viewingCoordinator = $derived(roster.find(row => row.id === coordinatorId));
 	const coordinatorChat = $derived(supportsCoordinators && (!isThread || thread?.kind === 'coordinator'));
 	const archivedCoordinator = $derived(coordinatorChat && thread?.archived === true);
+	const chatCoordinator = $derived(coordinatorChat ? (archivedCoordinator ? thread : viewingCoordinator) : undefined);
+	const showBackToProject = $derived(isThread && !coordinatorChat);
 	const jobs = $derived(supportsCoordinators ? threadList.filter(row => row.kind !== 'coordinator' && (row.parentThreadId ?? 'main') === coordinatorId) : threadList);
 	let manager = $state<'manage' | ThreadSummary>();
 	const coordinatorCreation = getCoordinatorCreation();
@@ -432,13 +442,13 @@
 	/** The panel opener and the chat's routes and overlays, not tabs of the project panel. */
 	type HeaderAction = {
 		id: string;
-		kind: 'panel' | 'navigation' | 'utility';
+		kind: 'panel' | 'navigation' | 'apps';
 		name: string;
 		title?: string;
 		label?: string;
 		icon: Component;
 		badge?: boolean;
-		primary?: boolean;
+		placement?: 'persistent' | 'more';
 		href?: string;
 		onclick?: () => void;
 	};
@@ -448,6 +458,25 @@
 	let headerRow = $state<HTMLDivElement | null>(null);
 	let headerWidth = $state(0);
 	let headerMenuOpen = $state(false);
+	let moreTrigger = $state<HTMLButtonElement | null>(null);
+	let appsDialogOpen = $state(false);
+	let appsTrigger = $state<HTMLElement>();
+	let connectionBadgeWidth = $state(0);
+	$effect(() => {
+		if (!shown) { headerMenuOpen = false; appsDialogOpen = false; }
+	});
+	const connectionProblem = $derived(connectionView(backend.connection).tone !== 'ok');
+	const projectMuted = $derived(showProjectMuteMenu && projectMute.kind !== 'none');
+
+	function openRunningApps(trigger?: HTMLElement) {
+		appsTrigger = trigger;
+		headerMenuOpen = false;
+		appsDialogOpen = true;
+	}
+
+	function restoreAppsFocus() {
+		(appsTrigger?.isConnected ? appsTrigger : moreTrigger)?.focus();
+	}
 
 	$effect(() => {
 		if (headerRow == null) return;
@@ -458,40 +487,45 @@
 		return () => observer.disconnect();
 	});
 
+	const wideProjectsSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
+	// Projects and Inbox take 32px + 44px, with two gaps. The status chip reserves only what it uses.
+	const headerFixedWidth = $derived((wideProjectsSidebar.current ? 0 : 84) + (showBackToProject ? 36 : 0)
+		+ (projectMuted ? 20 : 0) + (connectionProblem ? connectionBadgeWidth + 4 : 0));
+
 	const headerActions = $derived.by((): HeaderAction[] => {
 		const actions: HeaderAction[] = [];
 		if (filesNavigation.available()) actions.push({
 			id: 'files', kind: 'navigation', name: 'Files', label: 'Files', icon: FolderIcon,
 			onclick: () => { headerMenuOpen = false; void filesNavigation.open(); }
 		});
-		if (threadId && thread && !thread.archived && backend.features?.includes('project-changes-working')) actions.push({
-			id: 'working-changes', kind: 'navigation', name: 'Uncommitted changes', label: 'Uncommitted changes', icon: FolderIcon,
-			onclick: () => { headerMenuOpen = false; void openWorkingChanges({ kind: 'thread', threadId: threadId! }); }
+		if (backend.supports('project-changes-working') && (threadId ? thread && !thread.archived : project)) actions.push({
+			id: 'working-changes', kind: 'navigation', name: 'Changes', label: 'Changes', icon: GitCompareArrowsIcon,
+			onclick: () => { headerMenuOpen = false; void openWorkingChanges(threadId ? { kind: 'thread', threadId } : PROJECT_ROOT); }
 		});
 		if (project && backend.supports('terminal')) actions.push({
 			id: 'terminal', kind: 'navigation', name: 'Terminal', title: 'A terminal on this backend, in the project folder',
 			label: 'Terminal', icon: TerminalIcon, href: terminalHref(backend.id, { projectId: project.id })
 		});
+		// Keep the apps shortcut in More if drawer or connection chrome would squeeze out the title.
+		if (runningAppCounts.active && headerHasRoomForApps(headerWidth, headerFixedWidth)) actions.push({
+			id: 'running-apps', kind: 'apps', name: `Running apps: ${appCountLabel(runningAppCounts)}`, icon: PanelsTopLeftIcon, placement: 'persistent'
+		});
 		if (project && (backend.supports('models') || backend.supports('credentials') || backend.supports('logins'))) actions.push({
-			id: 'settings', kind: 'utility', name: 'Project settings', icon: SettingsIcon,
+			id: 'settings', kind: 'navigation', name: 'Project settings', icon: SettingsIcon, placement: 'more',
 			href: projectSettingsHref(backend.id, project.id), onclick: () => (headerMenuOpen = false)
 		});
-		if (supportsSidebar) actions.push({
+		if (supportsSidebar && !(sidebarOpen && dockedSidebar.current)) actions.push({
 			id: 'panel', kind: 'panel', name: sidebarToggleName, label: 'Panel', icon: PanelRightIcon,
-			badge: !sidebarOpen && taskAttentionBadge !== undefined, primary: true, onclick: toggleSidebar
+			badge: !sidebarOpen && taskAttentionBadge !== undefined, placement: 'persistent', onclick: toggleSidebar
 		});
 		return actions;
 	});
 
-	/** Labels where they fit beside the project's name, icons where they do not, and a menu when even those are too many. */
-	const wideProjectsSidebar = new MediaQuery(PROJECTS_NAV_WIDE_QUERY);
-	// Leave room for the 44px inbox and mute buttons (plus their gaps), separate from the foldable actions.
-	const headerRowLayout = $derived(headerLayout(headerWidth - (wideProjectsSidebar.current ? 0 : 48) - (showProjectMuteMenu ? 48 : 0), headerActions));
+	/** Labels where they fit, icons where they do not, and More when even those are too wide. */
+	const headerRowLayout = $derived(headerLayout(headerWidth, headerActions, headerFixedWidth));
 	const shownHeaderActions = $derived(visibleHeaderActions(headerRowLayout, headerActions));
-	const chatNavigationActions = $derived(shownHeaderActions.inline.filter((action) => action.kind === 'navigation'));
-	const chatUtilityActions = $derived(shownHeaderActions.inline.filter((action) => action.kind !== 'navigation'));
-	/** A dropped connection is worth a mark on the menu, which is the only place it shows on a phone. */
-	const connectionTone = $derived(connectionView(backend.connection).tone);
+	const chatToolActions = $derived(shownHeaderActions.inline.filter(action => action.kind !== 'panel'));
+	const panelAction = $derived(shownHeaderActions.inline.find(action => action.kind === 'panel'));
 
 	function pickHeaderAction(action: HeaderAction): void {
 		headerMenuOpen = false;
@@ -946,9 +980,9 @@
 {/snippet}
 
 {#snippet headerButton(action: HeaderAction)}
-	{@const labelled = headerActionShowsLabel(headerRowLayout, action)}
+	{@const labelled = headerRowLayout === 'labels' && action.label !== undefined}
 	{#if action.kind === 'panel'}
-		<Button variant="ghost" size={labelled ? 'sm' : 'icon-sm'} class="header-panel-action relative"
+		<Button variant="ghost" size={labelled ? 'sm' : 'icon-sm'} class="chat-panel-toggle relative"
 			bind:ref={sidebarToggle} onclick={action.onclick} aria-label={action.name} title={action.name}
 			aria-expanded={sidebarOpen}>
 			<action.icon class="size-4" />
@@ -956,7 +990,12 @@
 			{#if !sidebarOpen && taskAttentionBadge}
 				<span class="header-panel-badge {labelled ? '' : 'absolute -top-0.5 -right-0.5'}" aria-hidden="true">{taskAttentionBadge}</span>
 			{/if}
-			{#if !sidebarOpen && answers?.unread}<span class="absolute right-0 bottom-0 size-1.5 rounded-full bg-(--accent-2)" aria-hidden="true"></span>{/if}
+		</Button>
+	{:else if action.kind === 'apps'}
+		<Button variant="ghost" size="icon-sm" class="relative text-(--chat-fg-muted)" aria-label={action.name}
+			title={action.name} aria-haspopup="dialog" onclick={event => openRunningApps(event.currentTarget as HTMLElement)}>
+			<action.icon class="size-4" />
+			<span class="apps-count absolute -right-0.5 -top-0.5" class:pending={runningAppCounts.pending > 0} aria-hidden="true">{questionBadgeText(runningAppCounts.active)}</span>
 		</Button>
 	{:else}
 		<Button variant="ghost" size={labelled ? 'sm' : 'icon-sm'} class="header-panel-action"
@@ -1004,7 +1043,7 @@
 			<header class="project-topbar relative z-10" aria-label="Project chat">
 				<div class="flex h-full min-w-0 flex-1 items-center gap-1" bind:this={headerRow}>
 					<ProjectsMenuButton />
-					{#if isThread}
+					{#if showBackToProject}
 						<Button
 							href={projectHref(backend.id, projectId)}
 							variant="ghost"
@@ -1017,54 +1056,60 @@
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => selectSidebar('background')} />
+						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} archivedCoordinator={archivedCoordinator ? thread : undefined}
+							onprefetch={prefetchCoordinator} onedit={coordinator => manager = coordinator} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => selectSidebar('background')} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
 					{/if}
-					{#each chatNavigationActions as action (action.id)}
+					{#each chatToolActions as action (action.id)}
 						{@render headerButton(action)}
 					{/each}
-					{#if headerRowLayout !== 'menu'}
-						<ConnectionBadge {backend} />
-					{:else}
-						<!-- Chat routes, connection and settings stay reachable when the pane is narrow. -->
-						<Popover.Root bind:open={headerMenuOpen}>
-							<Popover.Trigger
-								class="relative inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground"
-								aria-label="More actions"
-								title="More actions"
-							>
-								<EllipsisIcon class="size-4" />
-								{#if connectionTone !== 'ok'}
-									<span class="absolute top-1 right-1 size-1.5 rounded-full {connectionDotClass(connectionTone)}"></span>
+					{#if showProjectMuteMenu && projectMute.kind !== 'none'}
+						<span class="shrink-0 text-(--chat-fg-muted)" role="img" aria-label={projectMute.status} title={projectMute.status}><BellOffIcon class="size-4" /></span>
+					{/if}
+					{#if connectionProblem}
+						<div class="connection-problem flex shrink-0" role="status" bind:clientWidth={connectionBadgeWidth}>
+							<ConnectionBadge {backend} />
+						</div>
+					{/if}
+					<Popover.Root bind:open={headerMenuOpen}>
+						<Popover.Trigger bind:ref={moreTrigger}
+							class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-(--chat-fg-muted) transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground"
+							aria-label="More actions" title="More actions">
+							<EllipsisIcon class="size-4" />
+						</Popover.Trigger>
+						<Popover.Content side="bottom" align="end" class="w-64 gap-1 p-1" onCloseAutoFocus={event => { if (appsDialogOpen) event.preventDefault(); }}>
+							{#each shownHeaderActions.menu.filter(action => action.placement !== 'more') as action (action.id)}
+								{@render headerMenuRow(action)}
+							{/each}
+							{#if backend.supports('apps')}
+								<Button variant="ghost" size="sm" class="h-8 w-full justify-start gap-2 px-2 font-normal" aria-haspopup="dialog" onclick={() => openRunningApps()}>
+									<PanelsTopLeftIcon class="size-4" /> Running apps
+									{#if runningAppCounts.active}<span class="apps-count ml-auto" class:pending={runningAppCounts.pending > 0} title={appCountLabel(runningAppCounts)}>{questionBadgeText(runningAppCounts.active)}</span>{/if}
+								</Button>
+							{/if}
+							{#if showProjectMuteMenu}
+								<ProjectMuteMenu backendId={backend.id} {projectId} mute={projectMute} onpick={() => headerMenuOpen = false} />
+							{/if}
+							{#each shownHeaderActions.menu.filter(action => action.placement === 'more') as action (action.id)}
+								{@render headerMenuRow(action)}
+							{/each}
+							<Separator class="my-1" />
+							<div class="flex flex-col items-start gap-1 px-2 py-1 text-xs text-(--chat-fg-subtle)">
+								<div class="flex flex-wrap items-center gap-1"><ConnectionBadge {backend} /><span>· {backend.name}</span></div>
+								{#if backend.supports('server-status') && backend.status?.release !== undefined}
+									<ReleaseLine release={backend.status.release} deploy={backend.status.deploy} compact />
 								{/if}
-							</Popover.Trigger>
-							<Popover.Content side="bottom" align="end" class="w-60 gap-1 p-1">
-								{#each shownHeaderActions.menu as action (action.id)}
-									{@render headerMenuRow(action)}
-								{/each}
-								<Separator class="my-1" />
-								<div class="flex flex-col items-start gap-1 px-2 py-1 text-xs text-(--chat-fg-subtle)">
-									<ConnectionBadge {backend} />
-									{#if backend.supports('server-status') && backend.status?.release !== undefined}
-										<ReleaseLine release={backend.status.release} deploy={backend.status.deploy} compact />
-									{/if}
-								</div>
-							</Popover.Content>
-						</Popover.Root>
-					{/if}
-					{#if project && showProjectMuteMenu}
-						<ProjectMuteMenu backendId={backend.id} {projectId} projectName={project.name} />
-					{/if}
-					{#each chatUtilityActions as action (action.id)}
-						{@render headerButton(action)}
-					{/each}
+							</div>
+						</Popover.Content>
+					</Popover.Root>
+					{#if panelAction}{@render headerButton(panelAction)}{/if}
 				</div>
 			</header>
-			<div class="relative z-10 flex shrink-0 flex-col gap-0.5 px-2 not-empty:py-1 sm:px-3">
-				<div class="empty:hidden sm:hidden" bind:this={chatBannerHost}></div>
+			<div class="relative z-10 flex shrink-0 flex-col gap-0.5 px-2 sm:px-3">
+				<div class="py-1 empty:hidden sm:hidden" bind:this={chatBannerHost}></div>
 				{#if !isThread && !supportsCoordinators}
-					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 text-xs text-(--chat-fg-subtle)">
+					<div class="flex min-w-0 items-center gap-x-2 overflow-hidden px-2 py-1 text-xs text-(--chat-fg-subtle)">
 						<span class="min-w-0 truncate">Main chat · {backend.name}</span>
 						{#if project}
 							<span class="shrink-0">·</span>
@@ -1087,30 +1132,8 @@
 						{/if}
 					</div>
 				{/if}
-				{#if coordinatorChat && (viewingCoordinator || archivedCoordinator)}
-					{@const chatCoordinator = archivedCoordinator ? thread : viewingCoordinator}
-					<div class="flex min-w-0 items-center gap-2 rounded-lg border border-(--chat-border) px-2.5 py-1 text-xs" style:background={`color-mix(in srgb, ${coordinatorColor(chatCoordinator)} 8%, var(--chat-bg))`}>
-						<span class="min-w-0 flex-1 truncate text-(--chat-fg-muted)" title={chatCoordinator?.area}>{chatCoordinator?.area || 'No area set'}</span>
-						{#if chatCoordinator && !archivedCoordinator}<button class="shrink-0 rounded px-1 py-1 font-medium text-(--accent-2) hover:underline" onclick={() => manager = chatCoordinator}>Edit area</button>{:else}<span>Archived</span>{/if}
-					</div>
-				{/if}
-				{#if roster.length > 1}
-					<nav aria-label="Coordinators" class="flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 py-1.5 [scrollbar-width:thin]">
-						{#each roster as row, index (row.id)}
-							{@const here = row.id === (threadId ?? 'main')}
-							<a href={coordinatorHref(backend.id, projectId, row.id)} aria-current={here ? 'page' : undefined} onpointerenter={event => { if (event.pointerType === 'mouse') prefetchCoordinator(row.id); }} aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
-								class="flex max-w-full shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-(--chat-surface-2)" style:border-color={here ? coordinatorColor(row) : 'var(--chat-border)'}>
-								<CoordinatorMark thread={row} /><span class="min-w-0 truncate" title={row.title}>{row.title}</span><CoordinatorBadges thread={row} seen={seen(row.id)} />
-							</a>
-						{/each}
-						<button class="shrink-0 rounded-lg border border-dashed border-(--chat-border) px-2 text-xs font-semibold text-(--chat-fg-muted) hover:bg-(--chat-surface-2)" aria-label="New coordinator" aria-haspopup="dialog" onclick={openCoordinatorCreation}>+ New</button>
-					</nav>
-				{/if}
 				{#if outsideWorkerCount > 0}
-					<p class="text-xs text-muted-foreground">{outsideWorkerCount} on other models</p>
-				{/if}
-				{#if backend.features?.includes('apps')}
-					<RunningApps tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />
+					<p class="py-1 text-xs text-muted-foreground">{outsideWorkerCount} on other models</p>
 				{/if}
 			</div>
 			{#if isThread && thread && threads && !coordinatorChat}
@@ -1122,6 +1145,7 @@
 				{#key session}
 				<TranscriptColumn
 					bind:this={transcript}
+					fadeTop
 					{items}
 					answerHref={supportsAnswers ? answerHref : undefined}
 					messageLinks={peerLinks} viewingThread={threadId ?? 'main'} messageAnchor={peerAnchor}
@@ -1382,6 +1406,7 @@
 					{/snippet}
 					{#snippet infoPanel()}
 						<ContextPanel
+							coordinatorArea={chatCoordinator ? chatCoordinator.area ?? '' : undefined}
 							context={projectContext?.context}
 							loaded={projectContext?.loaded ?? false}
 							error={projectContext?.error}
@@ -1432,6 +1457,22 @@
 	@media (width < 40rem) {
 		:global(.project-topbar) { padding-inline: 0.5rem; }
 	}
+	.connection-problem :global([data-slot='badge']) { display: block; max-width: 7rem; overflow: hidden; text-overflow: ellipsis; }
+	@media (width < 22.5rem) {
+		.connection-problem :global([data-slot='badge']) { max-width: 5rem; }
+	}
+	:global(.chat-panel-toggle) { border: 1px solid var(--chat-border); color: var(--chat-fg-muted); }
+	.apps-count {
+		min-width: 0.875rem;
+		border-radius: 1rem;
+		padding-inline: 0.2rem;
+		background: var(--chat-surface-2);
+		color: var(--chat-fg-muted);
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-align: center;
+	}
+	.apps-count.pending { color: var(--chat-warning); }
 	:global(.project-panel-nav) { container: project-panel-nav / inline-size; }
 	:global(.project-panel-tab) { width: 2rem; padding-inline: 0; }
 	.project-panel-tab-label { display: none; }
@@ -1458,11 +1499,11 @@
 		color: var(--chat-fg-muted);
 		border-radius: 999px;
 	}
-	:global(.header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])) {
+	:global(.header-panel-action[aria-pressed='true']) {
 		color: light-dark(#4338ca, #c7d2fe);
 		background: light-dark(#e0e7ff, #312e81);
 	}
-	:global(.header-panel-action:is([aria-pressed='true'], [aria-expanded='true']):hover) {
+	:global(.header-panel-action[aria-pressed='true']:hover) {
 		background: light-dark(#c7d2fe, #3730a3);
 	}
 	:global(.header-panel-badge) {
@@ -1475,11 +1516,11 @@
 		color: light-dark(#ffffff, #0b0b14);
 		background: light-dark(#4f46e5, #818cf8);
 	}
-	:global([data-theme='neutral'] .header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])) {
+	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']) {
 		color: light-dark(#171717, #fafafa);
 		background: light-dark(#d4d4d4, #404040);
 	}
-	:global([data-theme='neutral'] .header-panel-action:is([aria-pressed='true'], [aria-expanded='true']):hover) {
+	:global([data-theme='neutral'] .header-panel-action[aria-pressed='true']:hover) {
 		background: light-dark(#bfbfbf, #525252);
 	}
 	:global([data-theme='neutral'] .header-panel-badge) {
@@ -1487,6 +1528,10 @@
 		background: var(--primary);
 	}
 </style>
+
+{#if shown && backend.supports('apps')}
+	<RunningApps bind:open={appsDialogOpen} restoreFocus={restoreAppsFocus} tasks={board?.tasks ?? []} threads={threadList} workers={workerList} {now} />
+{/if}
 
 <svelte:window onkeydown={coordinatorKeys} />
 {#if shown && manager && threads && supportsCoordinators}

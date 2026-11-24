@@ -29,7 +29,8 @@ describe("conversation panels", () => {
 		for (const action of ["files", "working-changes", "terminal", "settings", "panel"]) {
 			expect(actions).toContain(`id: '${action}'`);
 		}
-		expect(chat).toContain("shownHeaderActions.menu as action");
+		expect(chat).toContain("shownHeaderActions.menu.filter");
+		expect(actions).toContain("supportsSidebar && !(sidebarOpen && dockedSidebar.current)");
 		expect(chat).toContain("aria-expanded={sidebarOpen}");
 		expect(chat).toContain("!sidebarOpen && taskAttentionBadge");
 		expect(chat).toContain("selectSidebar(sidebarTab)");

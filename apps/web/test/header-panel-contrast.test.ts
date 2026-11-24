@@ -23,7 +23,7 @@ function pair(selector: string, property: string): string[] {
 
 for (const prefix of ["", "[data-theme='neutral'] "]) {
 	test(`${prefix || "Jarvis "}selected panel text and hover meet AA in both modes`, () => {
-		const selector = `${prefix}.header-panel-action:is([aria-pressed='true'], [aria-expanded='true'])`;
+		const selector = `${prefix}.header-panel-action[aria-pressed='true']`;
 		const foreground = pair(`:global(${selector})`, "color");
 		const background = pair(`:global(${selector})`, "background");
 		const hover = pair(`:global(${selector}:hover)`, "background");
@@ -41,10 +41,10 @@ test("badge labels meet AA independently of the selected panel", () => {
 	for (let mode = 0; mode < 2; mode++) expect(contrast(foreground[mode]!, background[mode]!)).toBeGreaterThanOrEqual(4.5);
 });
 
-test("the chat opener and panel tabs use the same active styling with their own ARIA states", () => {
+test("the chat opener is quiet and only the panel tabs have selected styling", () => {
 	const opener = source.slice(source.indexOf("{#snippet headerButton"), source.indexOf("{#snippet headerMenuRow"));
 	const tabs = source.slice(source.indexOf("{#snippet sidebarPanelTabs"), source.indexOf('<div class="flex h-full'));
-	expect(opener).toContain('class="header-panel-action relative"');
+	expect(opener).toContain('class="chat-panel-toggle relative"');
 	expect(opener).toContain("aria-expanded={sidebarOpen}");
 	expect(tabs).toContain('class="header-panel-action project-panel-tab');
 	expect(tabs).toContain("aria-pressed={sidebarTab === tab}");

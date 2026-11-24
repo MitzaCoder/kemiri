@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import type { ProjectApp } from '@kemiri/protocol';
-import { appCountLabel, appIdFromCall, appLink, appStateLabel, visibleApps } from '../src/lib/agent-apps.js';
+import { appCountLabel, appCounts, appIdFromCall, appLink, appStateLabel, visibleApps } from '../src/lib/agent-apps.js';
 
 const app: ProjectApp = {
 	appId: 'orders', name: 'Orders', projectId: 'bakery', taskId: 'T1', port: 41340, path: '/',
@@ -14,7 +14,9 @@ test('Running apps shows live and pending rows, while the task row is scoped to 
 	const apps = [app, pending, unpublished];
 	expect(visibleApps(apps)).toEqual([app, pending]);
 	expect(visibleApps(apps, 'T1')).toEqual([app]);
-	expect(appCountLabel(apps)).toBe('1 app running · 1 pending');
+	expect(appCountLabel(appCounts(apps))).toBe('1 app running · 1 pending');
+	expect(appCounts(apps)).toEqual({ running: 1, pending: 1, active: 2 });
+	expect(appCounts([pending]).active).toBe(1);
 	expect(appStateLabel(pending)).toBe('Waiting for approval');
 });
 
@@ -33,7 +35,7 @@ test('the card gets identity from the tool call, but only a live HTTP address fr
 test('a stopped app keeps a task row but loses its link and running count', () => {
 	const stopped: ProjectApp = { ...app, state: 'stopped' };
 	expect(visibleApps([stopped], 'T1')).toEqual([stopped]);
-	expect(appCountLabel([stopped])).toBe('0 apps running');
+	expect(appCounts([stopped]).active).toBe(0);
 	expect(appLink(stopped)).toBeNull();
 	expect(appStateLabel(stopped)).toBe(`Stopped · nothing listens on port ${stopped.port} any more`);
 });
