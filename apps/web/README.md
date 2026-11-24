@@ -3,7 +3,7 @@
 The app: a SvelteKit app built as a pure single-page app
 (`adapter-static` with a `200.html` fallback, `ssr = false`). It is
 deployed separately from every backend and talks to them over WebSockets.
-Caddy serves the build in production; no backend serves it.
+Hosted deployments serve the web build separately. The local installer bundles and serves it on the backend.
 
 Generated with `sv create` (minimal template, TypeScript),
 `sv add sveltekit-adapter="adapter:static"` and `sv add tailwindcss`.
@@ -32,7 +32,7 @@ localhost). The app keeps one connection per backend and routes projects as
 
 ## Published backends and connect links
 
-`deploy/backends.json` is the list of backends this app is offered to a new
+`deploy/local/backends.json` is the optional list of backends this app is offered to a new
 browser. `vite-plugin-published-backends.ts` publishes it as `/backends.json`
 (dev server middleware; an emitted asset in the build, so it lands in the app
 release next to `200.html`). It is optional: absent or unreadable means no
@@ -72,11 +72,14 @@ focuses an open window and navigates it to the payload's route (built from
 new subscription with every backend it was told about — the page hands it
 those registrations with `postMessage`, and the worker keeps them in a Cache.
 
-The Notifications page (`/notifications`) enables push for this browser, lists
+In-app alerts work independently of browser push. Use Settings → Notifications
+→ In the app for pop-ups, sounds, Do not disturb and device mutes. The Inbox bell
+opens alert history, even for alerts that did not pop up.
+
+The Web Push settings enable push for this browser, list
 what each backend knows about the device (registered, no feature, failed, key
-mismatch), chooses the event kinds, sets quiet hours in the device's
-timezone, sends a test notification with the push service's answer, and
-lists muted projects. A project is muted from the bell in its chat header;
+mismatch), set event kinds and quiet hours in the device's timezone, and send
+a test notification. Project and computer mutes are shown in settings;
 preferences live in this browser (`localStorage`, one device ID) and are
 pushed to every backend, with muted project IDs kept per backend. Presence
 (visible, current project) goes to each registered backend on connect, on
@@ -96,5 +99,4 @@ shadcn-svelte@latest init` needs a `--preset <code>` because the
 interactive preset picker is not scriptable — `bIkeymG` is the "vega"
 preset (Inter, neutral, lucide) this app started from; the app now uses Atkinson Hyperlegible Next for text.
 
-The build has no prerendered pages; the static host must answer unmatched
-routes with `200.html`.
+The static host must answer unmatched app routes with `200.html`.

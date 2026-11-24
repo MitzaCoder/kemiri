@@ -73,7 +73,7 @@ test('homepage weaves pilot work tracking into the comparison and graph, with qu
 	const groups = real.match(/<ul class="state-groups"[^>]*>([\s\S]*?)<\/ul>/)![1]!;
 	expect([...groups.matchAll(/<b>([^<]+)<\/b>/g)].map(match => match[1])).toEqual(['Needs you', 'In progress', 'Waiting', 'To do', 'Closed']);
 	expect(real).toContain('Task updates'); // States include authored updates, not only live facts.
-	expect(home).toContain('no phone push yet');
+	expect(home).toContain('no Android push in the public APK');
 	// Every new diagram icon is local and defined exactly once.
 	const references = new Set([...home.matchAll(/<use href="#(h-[^"]+)"/g)].map(match => match[1]));
 	for (const id of references) expect(home.match(new RegExp(`<symbol id="${id}"`, 'g'))).toHaveLength(1);
@@ -109,7 +109,9 @@ test('release notes: every release is in the index, the newest has a finished pa
 	// Unwritten template text never reaches the published site.
 	for (const path of new Bun.Glob('**/*.html').scanSync(join(root, 'site'))) expect(await Bun.file(join(root, 'site', path)).text()).not.toMatch(/TODO|\{\{/);
 	const home = await Bun.file(join(root, 'site/index.html')).text();
-	expect(home.match(/href="\/releases\/"/g)!.length).toBeGreaterThanOrEqual(3);
+	expect(home).toMatch(/<header[\s\S]*?href="\/releases\/"[\s\S]*?<\/header>/);
+	expect(home).toMatch(/<footer[\s\S]*?href="\/releases\/"[\s\S]*?<\/footer>/);
+	expect(home).toContain(`href="/releases/${pinned}/"`);
 });
 
 test('new-release-page starts the next page from the template and makes it the latest in the index', async () => {

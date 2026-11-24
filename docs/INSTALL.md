@@ -1,6 +1,6 @@
 # Install Kemiri locally
 
-The download below targets pilot.6. Pilot.4 remains the upgrade bridge. Pilot.3 itself uses `aiki`;
+The download below follows the published site pin, pilot.6. For pilot.7 changes and exact-tag update commands, see the [pilot.7 notes](releases/v0.1.0-pilot.7.md). Pilot.4 remains the upgrade bridge. Pilot.3 itself uses `aiki`;
 stop it and run `aiki update --version v0.1.0-pilot.4`, then use
 `kemiri`. Existing config/data and service names are retained, with no re-pairing.
 Pilot.5 and later read only KEMIRI_* process settings and migrate server.env.
@@ -19,6 +19,13 @@ Use `kemiri tailscale enable --port <P>` if 443 is busy. Scan the QR or open its
 on a tailnet device. Issued HTTPS certificates put machine names in public certificate transparency logs.
 `kemiri tailscale disable` removes Kemiri’s setup without changing other Serve mappings or device sign-in.
 
+## Agent app links in pilot.7
+
+**Running apps** shows listening apps, published links and logs for apps Kemiri
+manages. To share an app over Tailscale, follow the [one-time app link setup](releases/v0.1.0-pilot.7.md#set-up-app-links-once).
+It is separate from device pairing. Publishing requires approval for the project,
+and anyone the tailnet rules allow can open the link without Kemiri sign-in.
+
 ## Upgrading existing installations
 
 Use `kemiri` for commands and `KEMIRI_*` for settings. Pilot.5 and later remove
@@ -28,7 +35,7 @@ KEMIRI wins and the old assignment is dropped with a key-only log message.
 Rename process/build settings yourself before updating. Existing installation
 folders, credentials, pairings, service names and project context stay put.
 Do not rename or delete them. Fresh installs use Kemiri folders. Pilot.4 is the
-bridge: pilot.3 and earlier must update through it before pilot.6.
+bridge: pilot.3 and earlier must update through it before moving to a newer pilot.
 
 ## Install
 
@@ -40,8 +47,7 @@ curl -fL https://github.com/MitzaCoder/kemiri/releases/download/v0.1.0-pilot.6/i
 sh install.sh --version v0.1.0-pilot.6
 ```
 
-The short command is `curl -fsSL https://kemiri.dev/install.sh | sh`.
-For a review before execution, download the domain bootstrap instead:
+Alternatively, download and review the domain bootstrap before running it:
 
 ```sh
 curl -fL https://kemiri.dev/install.sh -o install.sh
@@ -139,8 +145,7 @@ retains the tiny ownership metadata so reinstalling into the same root reuses yo
 
 The installed CLI deliberately uses its recorded data/config directories, not another backend's inherited
 `KEMIRI_DATA_DIR`, `KEMIRI_CONFIG_DIR` or `KEMIRI_ENV_FILE`. Activation creates an empty owned `server.env` when absent;
-the installed CLI loads that explicit file, never a fallback HOME/XDG file. It uses T82’s shared loader and immutable
-private settings snapshot, not process-environment assignments or a second isolation layer. The source and installed
+the installed CLI loads that explicit file, never a fallback HOME/XDG file. It loads a private settings snapshot; it does not set process environment variables. The source and installed
 entry points then use the same startup/auth dispatcher and live-owner socket check. Startup prints effective data/config
 paths before importing the server. CLI-spawned helpers use the same shared child-environment scrubber. Keep
 persistent storage identity settings stable; never borrow another installation's environment or credential files.
@@ -163,7 +168,9 @@ After five minutes, “Restart anyway” appears and requires a second confirmat
 running commands may be killed and unsafe to retry. Set `KEMIRI_UPDATE_WAIT_TIMEOUT_MS`
 in `server.env` to change this cap. The prompt keeps new calls held until the commands
 finish or you choose. Cancel releases them without changing the running release.
-Conversations and held calls resume after restart. Cancel is unavailable during restart.
+Conversations and held calls normally resume after restart. Cancel is unavailable during restart.
+Update while idle when possible. Pilot.7 uses a newer format for in-progress turns;
+rolling back to pilot.6 preserves finished work but cannot resume a turn that was running during the update.
 
 `kemiri start` keeps a small supervisor alive, whether started in a terminal, systemd --user or launchd. It stops
 its child before switching code, restarts and checks the owner-only health socket for up to 30 seconds. Failure
@@ -196,6 +203,7 @@ where `ROOT` is the same recorded absolute installation root. Then use `kemiri s
 or `kemiri service install`. The bridge path was rehearsed with published assets
 on Linux x64; the pilot.6 source update and rollback were rehearsed with the release
 candidate. Neither certifies other platforms or services.
+For pilot.7 and later, use that release’s matching installer and APK after publication.
 If an old source launcher prints help for `--version`, use `aiki version` instead;
 `.aiki-install.json` and `current/.ready` also record the selected version.
 **Pilot.3 and older releases lack the self-update API/supervisor.** This stopped manual

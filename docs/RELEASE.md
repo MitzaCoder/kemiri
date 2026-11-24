@@ -40,7 +40,9 @@ tag and commit; do not manufacture RELEASE.json or signed metadata in source.
 Pilot.6 is the previous verified release. Prepare the site-pin commit separately:
 it bumps the default in `site/install.sh`, the homepage downloads and current
 installation guides. Keep that commit off main until the public assets verify.
-Tag the release-preparation commit, not the site-pin commit.
+Tag the release-preparation commit, not the site-pin commit. Prepare source docs
+before tagging: GitHub’s source snapshot, the workflow’s source archive and the
+Android notices bundle are built from the release commit.
 
 ## Assets
 

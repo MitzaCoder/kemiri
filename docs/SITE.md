@@ -11,7 +11,8 @@ The homepage follows one made-up request ("Add dark mode and fix login on mobile
 through a product window that plays by itself: ask, delegate, step in, review. Under
 it sit the "Kept by hand / With Kemiri" comparison, a two-column "While you're away"
 timeline (one column on phones), the real task graph with a five-state explanation,
-and the install steps. The work-tracking content describes the published pilot.6:
+and the install steps. The homepage demo follows one coordinator; pilot.7
+projects can have several. The work-tracking defaults remain the same:
 check-ins default to every 10 minutes while workers run, quiet in-progress work
 becomes Paused after 15 minutes, and nightly memory maintenance requires a configured
 model and changed memory. Changing these defaults or conditions means updating the
@@ -48,18 +49,20 @@ only the deployment job can write Pages and request the deployment OIDC token.
 There is no repository-content write permission, automatic commit or release sync.
 The uploaded artifact is exactly `site/`, not the checkout or its local configuration.
 
-## Pilot.6 publication and live domain
+## Published install pin
 
 The bootstrap and download links are pinned to the published pilot.6 release.
-The current install command is `curl -fsSL https://kemiri.dev/install.sh | sh`.
-Prefer downloading and reviewing it before execution. For a new release, change
-the pinned version and links only after its public assets and checksums verify.
+Download `https://kemiri.dev/install.sh` and read it before running it with `sh`.
+For a new release, change the pinned version and links only after its public
+assets and checksums verify. The release page and site copy can be prepared
+in the tagged tree, but Pages publishes only from main.
 
 ## Release notes
 
 `/releases/` lists every release, newest first. Releases from pilot.6 on have their own
 page at `/releases/TAG/`; pilot.1 to pilot.5 link to their GitHub release pages. The
-homepage links to the index from the header, the "Current pilot" line and the footer.
+homepage links to the index from the header and footer. The install section links
+to the pinned pilot’s notes.
 Pages share `style.css` (the "release notes" block) and load `home.js` for the theme
 switch and copy buttons; the demo part of that script runs only on the homepage. Each
 page has highlights, sections of changes, "How to update" and "Limits and help". They
