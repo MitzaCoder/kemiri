@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.protocol.BoardTaskWaiting
@@ -49,14 +50,14 @@ internal fun waitingSummary(task: BoardTask, now: Long = System.currentTimeMilli
 }.orEmpty()
 
 @Composable
-internal fun TaskStatusMenu(task: BoardTask, label: String, supportsWaiting: Boolean, enabled: Boolean, onPick: (String) -> Unit) {
+internal fun TaskStatusMenu(label: String, tone: TaskStatusTone, supportsWaiting: Boolean, enabled: Boolean, onPick: (String) -> Unit, maxWidth: Dp = 138.dp) {
     var expanded by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "Status menu chevron")
     Box {
         val shape = RoundedCornerShape(50)
-        Box(Modifier.widthIn(max = 138.dp).height(48.dp).clip(shape)
+        Box(Modifier.widthIn(max = maxWidth).height(48.dp).clip(shape)
             .clickable(interactionSource = interactionSource, indication = ripple(), enabled = enabled, role = Role.Button) {
                 expanded = !expanded
             }.semantics {
@@ -67,7 +68,7 @@ internal fun TaskStatusMenu(task: BoardTask, label: String, supportsWaiting: Boo
                 .border(if (focused) 2.dp else 1.dp, if (focused) Jarvis.colors.accent2 else Jarvis.colors.borderStrong, shape)
                 .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                TaskStatusDot(if (task.state?.liveWorkSince != null) TaskStatusTone.Working else taskStateTone(task))
+                TaskStatusDot(tone)
                 Text(label, Modifier.weight(1f, fill = false), style = TaskType.xs, color = Jarvis.colors.fg,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 LucideGlyph(Lucide.ChevronDown, modifier = Modifier.rotate(chevronRotation), size = 12.dp, tint = Jarvis.colors.fgMuted)

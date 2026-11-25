@@ -134,7 +134,7 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
 @Composable internal fun TaskPill(taskId: String, modifier: Modifier = Modifier, title: String? = null, showTitle: Boolean = true, onRemove: (() -> Unit)? = null, exactTitle: String? = null, feedbackId: String? = null) {
     val links = LocalTaskLinks.current
     val shown = exactTitle ?: if (showTitle) links?.title(taskId) ?: title else null
-    val status = links?.status(taskId)
+    val tone = links?.statusTone(taskId)
     val opens = links != null && links.knows(taskId)
     Row(
         modifier.clip(RoundedCornerShape(50)).background(Jarvis.colors.surface2.copy(alpha = .6f)).border(1.dp, Jarvis.colors.border, RoundedCornerShape(50))
@@ -142,7 +142,7 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
             .heightIn(min = 24.dp).padding(start = 8.dp, end = if (onRemove != null) 0.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        status?.let { TaskStatusDot(it) }
+        tone?.let { TaskStatusDot(it) }
         Text(listOfNotNull(taskId, feedbackId).joinToString(" · "), style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, color = Jarvis.colors.accent2, maxLines = 1)
         if (!shown.isNullOrBlank()) Text(shown, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium, color = Jarvis.colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (onRemove != null) Box(Modifier.size(28.dp).clip(RoundedCornerShape(50)).clickable(role = Role.Button, onClickLabel = "Remove $taskId", onClick = onRemove).semantics { contentDescription = "Remove $taskId" }, contentAlignment = Alignment.Center) {

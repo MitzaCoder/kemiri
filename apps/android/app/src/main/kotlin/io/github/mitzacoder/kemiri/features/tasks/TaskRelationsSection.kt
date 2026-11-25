@@ -11,10 +11,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 
 @Composable
-internal fun TaskRelations(task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTaskBrief>, blockersInNeedsYou: Set<String>, onOpen: (String) -> Unit, onShowLinked: () -> Unit) {
+internal fun TaskRelations(task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTaskBrief>, blockersInNeedsYou: Set<String>, statusDetails: Boolean, onOpen: (String) -> Unit, onShowLinked: () -> Unit) {
     val groups = linkGroups(task, tasks, archived)
     if (groups.isEmpty()) return
     groups.forEach { group ->
@@ -26,7 +28,9 @@ internal fun TaskRelations(task: BoardTask, tasks: List<BoardTask>, archived: Li
                 LinearProgressIndicator(progress = { subtaskFraction(task) ?: 0f }, modifier = Modifier.fillMaxWidth(), color = Jarvis.colors.accent2, trackColor = Jarvis.colors.surface2)
             }
             shown.forEach { target ->
-                TaskFactLink(target.id, target.title, onOpen, if (target.archived) "Archived" else target.status?.let(::taskStatusWords))
+                val relatedTask = tasks.firstOrNull { statusDetails && !target.archived && it.id == target.id && it.state != null }
+                val label = if (target.archived) "Archived" else relatedTask?.let { taskStateLabel(it) } ?: target.status?.let(::taskStatusWords)
+                TaskFactLink(target.id, target.title, onOpen, label, relatedTask?.let(::taskStateTone))
             }
         }
     }
@@ -34,7 +38,7 @@ internal fun TaskRelations(task: BoardTask, tasks: List<BoardTask>, archived: Li
 }
 
 @Composable
-internal fun TaskFactLink(id: String, title: String, onOpen: (String) -> Unit, status: String? = null) {
+internal fun TaskFactLink(id: String, title: String, onOpen: (String) -> Unit, status: String? = null, tone: TaskStatusTone? = null) {
     val colors = Jarvis.colors
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open $id") { onOpen(id) }.heightIn(min = 48.dp).padding(vertical = 4.dp),
@@ -42,7 +46,10 @@ internal fun TaskFactLink(id: String, title: String, onOpen: (String) -> Unit, s
     ) {
         Column(Modifier.weight(1f)) {
             TaskDetailText(title.ifBlank { "Not on the board" }, style = TaskType.sectionTitle, color = colors.fg)
-            if (status != null) Text(status, style = TaskType.meta, color = colors.fgMuted)
+            if (status != null) {
+                if (tone != null) TaskStatusBadge(status, tone)
+                else Text(status, style = TaskType.meta, color = colors.fgMuted)
+            }
         }
         Text(id, Modifier.background(colors.surface2, RoundedCornerShape(5.dp)).padding(horizontal = 6.dp, vertical = 3.dp), style = TaskType.metaMono, color = colors.fgMuted)
     }

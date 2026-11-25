@@ -41,6 +41,22 @@ class QuestionClarificationTest {
         assertEquals("You", questionExchangeAuthor(BoardWriter(author = "user", threadId = null, workerId = null)))
     }
 
+    @Test fun onlyAnOpenQuestionReturnedByTheLatestNoteIsBeingChecked() {
+        val note = BoardQuestionExchange(BoardWriter(author = "user", threadId = null, workerId = null),
+            "What if we use the new printer?", "2026-01-01T09:00:00Z", feedbackId = "F1")
+        val checking = question("Q1", "T1").copy(waitingOn = "agent", exchanges = listOf(note))
+        assertEquals("F1", questionCheckingFeedbackId(checking))
+        assertNull(questionCheckingFeedbackId(checking.copy(status = "answered")))
+        assertNull(questionCheckingFeedbackId(checking.copy(waitingOn = "user")))
+        assertNull(questionCheckingFeedbackId(checking.copy(exchanges = listOf(note, note.copy(feedbackId = null)))))
+        val task = task("T1").copy(state = BoardTaskState("in_progress", "clarifying", note.at, listOf("Q1"), checkingFeedbackId = "F1"))
+        val needs = taskNeedsYou(task, listOf(checking), hasBlockers = false, stepsSupported = false)
+        assertEquals(listOf(checking), needs.questionsForAgent)
+        assertTrue(needs.ownerQuestions.isEmpty())
+        assertEquals("Question being checked", taskPageStatusLabel(task, needs, statusDetails = true))
+        assertEquals("Clarifying", taskPageStatusLabel(task, needs, statusDetails = false))
+    }
+
     @Test fun agentWaitingLeavesAttentionButKeepsTheCardAndAnswerActions() {
         val waiting = question("Q1", "T1").copy(waitingOn = "agent", threadId = "main")
         val loose = waiting.copy(id = "Q2", taskId = null)

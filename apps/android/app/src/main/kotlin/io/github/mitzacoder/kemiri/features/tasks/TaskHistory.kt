@@ -33,6 +33,7 @@ import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 import kotlinx.coroutines.CancellationException
 
@@ -197,7 +198,12 @@ private fun AsItWas(snapshot: BoardTaskSnapshot) {
     ) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
             TaskDetailText(refLinkedText(snapshot.title), style = TaskType.rowTitle.copy(fontSize = TaskType.sectionTitle.fontSize), color = colors.fg)
-            TaskStatusBadge(snapshot.status)
+            val state = snapshot.state
+            if (state == null) TaskStatusBadge(snapshot.status)
+            else {
+                TaskStatusBadge(taskStateLabel(snapshot.status, state), taskKindTone(state.kind))
+                if (state.additionalRunningWork() != null) TaskStatusBadge("Working", TaskStatusTone.Working)
+            }
         }
         ReportSection.entries.forEach { section ->
             val text = snapshot.report.section(section)

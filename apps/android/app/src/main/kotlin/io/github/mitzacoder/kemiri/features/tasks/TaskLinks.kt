@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.HarnessFeature
@@ -17,7 +18,7 @@ import io.github.mitzacoder.kemiri.protocol.BoardTask
  * What the chat's components need to name a task: whether it is on the board, its title and status (so a chip wears its
  * row's colour), and how to open its sheet. The Android twin of the web's `lib/task-links.svelte.ts`.
  */
-private data class TaskLinkLabel(val title: String, val status: String)
+private data class TaskLinkLabel(val title: String, val status: String, val derivedTone: TaskStatusTone?)
 
 @Stable
 class TaskLinks internal constructor(
@@ -29,8 +30,11 @@ class TaskLinks internal constructor(
     internal var taskIds by mutableStateOf<Set<String>>(emptySet())
         private set
 
-    internal suspend fun collectIndex() {
-        board.select { view -> view.tasks.associate { it.id to TaskLinkLabel(it.title, it.status) } }.collect {
+    internal suspend fun collectIndex(statusDetails: Boolean) {
+        board.select { view -> view.tasks.associate { task ->
+            val tone = if (statusDetails && task.state != null) taskStateTone(task) else null
+            task.id to TaskLinkLabel(task.title, task.status, tone)
+        } }.collect {
             labels = it
             taskIds = it.keys
         }
@@ -39,6 +43,8 @@ class TaskLinks internal constructor(
     fun knows(taskId: String): Boolean = taskId in taskIds
     fun title(taskId: String): String? = labels[taskId]?.title
     fun status(taskId: String): String? = labels[taskId]?.status
+    internal fun derivedTone(taskId: String): TaskStatusTone? = labels[taskId]?.derivedTone
+    internal fun statusTone(taskId: String): TaskStatusTone? = labels[taskId]?.let { it.derivedTone ?: taskStatusTone(it.status) }
     @Composable fun task(taskId: String): BoardTask? = remember(board, taskId) { board.taskFlow(taskId) }
         .collectAsStateWithLifecycle(remember(board, taskId) { board.view.value.task(taskId) }).value
     fun open(taskId: String) = opener(taskId)
@@ -66,7 +72,8 @@ fun ProvideTaskLinks(context: ProjectScreenContext?, content: @Composable () -> 
     val supported = connection.supports(HarnessFeature.TASK_REPORTS)
     val loaded by remember(board) { board.select { it.loaded } }.collectAsStateWithLifecycle(remember(board) { board.view.value.loaded })
     val registry = remember(board) { TaskLinks(board, { previewTaskId = it }) { latest.openTask(it) } }
-    LaunchedEffect(registry, supported) { if (supported) registry.collectIndex() }
+    val statusDetails = connection.supports(HarnessFeature.TASK_STATUS_DETAILS)
+    LaunchedEffect(registry, supported, statusDetails) { if (supported) registry.collectIndex(statusDetails) }
     val links = registry.takeIf { supported && loaded }
     CompositionLocalProvider(LocalTaskLinks provides links, LocalPreviewTaskId provides previewTaskId, content = content)
     previewTaskId?.let { id ->
@@ -77,7 +84,12 @@ fun ProvideTaskLinks(context: ProjectScreenContext?, content: @Composable () -> 
                 if (task == null) Text("Task not found.")
                 else {
                     Text(task.title, style = MaterialTheme.typography.titleMedium, color = Jarvis.colors.fg)
-                    TaskStatusBadge(task.status)
+                    if (statusDetails && task.state != null) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TaskStatusBadge(taskStateLabel(task), taskStateTone(task))
+                            if (task.state.additionalRunningWork() != null) TaskStatusBadge("Working", TaskStatusTone.Working)
+                        }
+                    } else TaskStatusBadge(task.status)
                     TextButton(onClick = { previewTaskId = null; links?.open(id) }) { Text("Open task") }
                 }
                 TextButton(onClick = { previewTaskId = null }) { Text("Close preview") }

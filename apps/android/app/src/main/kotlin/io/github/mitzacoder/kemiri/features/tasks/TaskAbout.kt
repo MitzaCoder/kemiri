@@ -16,7 +16,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 @Composable
 internal fun TaskAbout(
     context: ProjectScreenContext, task: BoardTask, tasks: List<BoardTask>, archived: List<BoardTaskBrief>, owner: TaskOwner,
-    legacyDelivery: BoardTaskActivity?, delivery: BoardTaskTimelineResponseDelivery?, blockersInNeedsYou: Set<String>, now: Long,
+    legacyDelivery: BoardTaskActivity?, delivery: BoardTaskTimelineResponseDelivery?, blockersInNeedsYou: Set<String>, now: Long, statusDetails: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider(color = Jarvis.colors.border)
@@ -32,7 +32,7 @@ internal fun TaskAbout(
         } else TaskFact("Owner thread", owner.label)
         if (task.status == "waiting" && task.waiting != null) TaskFact("Waiting details", waitingSummary(task, now))
         if (task.archived) TaskFact("Status", "Archived")
-        TaskRelations(task, tasks, archived, blockersInNeedsYou, context::openTask) {
+        TaskRelations(task, tasks, archived, blockersInNeedsYou, statusDetails, context::openTask) {
             context.board.showWithLinked(task.id)
             context.navigate(Destination.Panel(context.route, PanelTab.Board))
         }

@@ -40,16 +40,19 @@ internal fun visibleLiveLines(lines: List<BoardLiveLine>, watcher: Boolean = fal
     lines.filter { LiveLineKind.fromWire(it.kind, watcher) != null }
 
 /**
- * A working task with supported live content replaces the older Now lines when the backend advertises the feature.
- * The block's Now is the state sentence, or the automatic activity when the sentence is missing.
+ * An independent work fact can feed Live even when the main state is not Working or the trail is empty.
+ * Older backends still need a Working state and visible live content before Live replaces the Now lines.
  */
 internal fun taskLiveNow(task: BoardTask, featureEnabled: Boolean, activity: BoardTaskActivity?, watcher: Boolean = false): BoardTaskActivity? {
-    if (!featureEnabled || task.state?.kind != "working") return null
+    if (!featureEnabled) return null
+    val state = task.state ?: return null
+    state.runningWork?.let { return it }
+    if (state.kind != "working") return null
     val live = task.live ?: return null
     val hasPlan = live.plan?.any { LivePlanStepStatus.fromWire(it.status) != null } == true
     if (!hasPlan && live.pulse == null && liveCounterLabels(live.counters).isEmpty() &&
         visibleLiveLines(live.lines, watcher).isEmpty()) return null
-    return task.state.sentence ?: activity
+    return state.sentence ?: activity
 }
 
 internal data class LiveTranscriptWorkers(val nowWorker: WorkerSummary?, val transcriptWorkers: List<WorkerSummary>)

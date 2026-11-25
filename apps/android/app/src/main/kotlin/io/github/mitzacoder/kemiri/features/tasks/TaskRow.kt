@@ -25,6 +25,7 @@ import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.LucideIcon
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 
 /**
@@ -47,6 +48,7 @@ internal fun TaskListRow(
     val stateLabel = taskRowStateLabel(task) { taskLinks?.title(it) }
     val needsYou = row.section == TaskSectionId.NeedsYou
     val warned = row.waiting.any(::isWarning)
+    val runningWork = task.state.additionalRunningWork()
     val activity = taskRowActivity(task, LocalTaskActivityEnabled.current) { taskLinks?.title(it) }
     val gist = rowGist(row, LocalTaskActivityEnabled.current)
     val partsSummary = taskPartProgress(task)?.text
@@ -63,6 +65,7 @@ internal fun TaskListRow(
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
                     "${task.id}: ${task.title}", attention?.text ?: activity?.let { activityDescription(it, now) } ?: taskStateLabel(task),
+                    runningWork?.let { activityDescription(it, now) },
                     task.parent?.takeIf { nested }?.let { "${if (requestView) "Part" else "Subtask"} of $it" },
                     if (partsSummary != null) partsSummary.takeUnless { it == activity?.text } else task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" },
                 ).joinToString(". ")
@@ -105,6 +108,7 @@ internal fun TaskListRow(
                 summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
                 maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
             )
+            runningWork?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
             if ((stateLabel != null && (task.state != null || needsYou)) || row.waiting.size > 1 || task.refs.isNotEmpty()) {
                 FlowRow(
                     Modifier.padding(top = 2.dp),

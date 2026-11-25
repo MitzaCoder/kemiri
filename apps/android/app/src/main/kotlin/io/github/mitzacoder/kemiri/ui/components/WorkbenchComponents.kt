@@ -129,13 +129,15 @@ fun workbenchStatus(status: String, domain: String = "task"): WorkbenchStatus = 
     TaskStatusDot(taskStatusTone(status), modifier, pulse)
 
 /** A task's status as a pill (web `.task-status-badge`): a dot and its words in the tone's colour, a wash of it behind. */
-@Composable fun TaskStatusBadge(status: String, modifier: Modifier = Modifier) {
-    val tone = taskStatusTone(status)
+@Composable fun TaskStatusBadge(status: String, modifier: Modifier = Modifier) =
+    TaskStatusBadge(taskStatusWords(status), taskStatusTone(status), modifier)
+
+@Composable fun TaskStatusBadge(label: String, tone: TaskStatusTone, modifier: Modifier = Modifier) {
     val color = Jarvis.colors.taskStatus(tone)
     Surface(modifier, shape = RoundedCornerShape(50), color = color.copy(alpha = .12f), contentColor = color, border = BorderStroke(1.dp, color.copy(alpha = .40f))) {
         Row(Modifier.padding(horizontal = 8.dp).heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TaskStatusDot(tone)
-            Text(taskStatusWords(status), style = textStyle(0.6875f, 1.25f / 0.6875f, weight = 500), maxLines = 1)
+            Text(label, style = textStyle(0.6875f, 1.25f / 0.6875f, weight = 500), maxLines = 1)
         }
     }
 }

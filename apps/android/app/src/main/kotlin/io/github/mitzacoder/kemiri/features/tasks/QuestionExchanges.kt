@@ -20,6 +20,9 @@ import java.time.format.FormatStyle
 internal fun questionExchangeAuthor(writer: BoardWriter): String =
     if (writer.author == "user") "You" else shortWriterLabel(writer)
 
+internal fun questionCheckingFeedbackId(question: BoardQuestion): String? =
+    question.exchanges?.lastOrNull()?.feedbackId?.takeIf { question.status == "open" && question.waitingOn == "agent" }
+
 internal fun questionWaitingLabel(question: BoardQuestion): String? = when {
     question.status != "open" -> null
     question.waitingOn == "agent" -> "Waiting for the agent"

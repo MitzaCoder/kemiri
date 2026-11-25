@@ -26,12 +26,12 @@ fun TaskChip(taskId: String, modifier: Modifier = Modifier, withTitle: Boolean =
     val links = LocalTaskLinks.current
     val colors = Jarvis.colors
     val title = links?.title(taskId)
-    val status = links?.status(taskId)
+    val tone = links?.statusTone(taskId)
     val open = onOpen ?: links?.takeIf { it.knows(taskId) }?.let { { it.open(taskId) } }
     val label = if (withTitle && !title.isNullOrEmpty()) "$taskId · $title" else taskId
     val content: @Composable () -> Unit = {
         Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-            status?.let { TaskStatusDot(it) }
+            tone?.let { TaskStatusDot(it) }
             Text(label, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

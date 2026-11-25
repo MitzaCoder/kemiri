@@ -111,7 +111,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                                     TaskDetailText("← $id" + (title?.let { " · $it" } ?: ""), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
-                            if (partPage != null) {
+                            if (partPage != null && (!status.detailsSupported || partPage.closure != null)) {
                                 val closure = partPage.closure
                                 val clock = isoMillis(partPage.closedAt).takeIf { it > 0 }?.let(::clockTime)
                                 Text(if (closure == null) status.title else listOfNotNull("✓ $closure", clock).joinToString(" · "),
@@ -139,7 +139,15 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskNeedsYouSection(context, task, needsYou, sheet.nextPlacement, sheet.report, blockers, threads, status.saving,
                             onCloseTask = if (actions.canClose) ({ status.onSet("done", null, null) }) else null, onFocusReply = sheet.onFocusReply)
                     }
-                    if (liveNow != null && task.live != null) item(key = "live") {
+                    val (checkingQuestions, otherAgentQuestions) = needsYou.questionsForAgent.partition { questionCheckingFeedbackId(it) != null }
+                    if (checkingQuestions.isNotEmpty()) item(key = "checking-questions") {
+                        TaskReadingSection(QUESTION_BEING_CHECKED) {
+                            checkingQuestions.forEach { question -> key(question.id) {
+                                QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
+                            } }
+                        }
+                    }
+                    if (liveNow != null) item(key = "live") {
                         TaskLive(task.live, liveNow, context.backend.config.key, context.route.projectId, taskId, sheet.liveNews, workers, context::openTaskWorkerTranscript)
                     }
                     item(key = "results") {
@@ -154,7 +162,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         }
                     }
                     if (digest != null && digest.parts.isNotEmpty()) item(key = "parts-checklist") {
-                        PartsChecklist(digest, sheet.partProof, context::openTask)
+                        PartsChecklist(digest, sheet.partProof, sheet.tasks.takeIf { status.detailsSupported }.orEmpty(), context::openTask)
                     }
                     item(key = "apps") { io.github.mitzacoder.kemiri.features.apps.TaskApps(taskId) }
                     if (artifacts.isNotEmpty()) item(key = "files") {
@@ -180,9 +188,9 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                             if (showNext) ReportSection(task, ReportSectionKind.Next, content = sheet.report.next)
                         }
                     }
-                    if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {
+                    if (otherAgentQuestions.isNotEmpty()) item(key = "agent-questions") {
                         TaskReadingSection("Waiting for an agent reply") {
-                            needsYou.questionsForAgent.forEach { question -> key(question.id) {
+                            otherAgentQuestions.forEach { question -> key(question.id) {
                                 QuestionCard(context, question, askedBy = questionAskedBy(question, threads), compact = true, plain = true)
                             } }
                         }
@@ -228,7 +236,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         TaskAbout(context, task, sheet.tasks, sheet.archivedLinks, sheet.owner,
                             legacyDelivery = activity.takeUnless { deliveryEnabled }, delivery = delivery,
                             blockersInNeedsYou = if (needsYou.blocked) blockers.mapTo(mutableSetOf()) { it.id } else emptySet(),
-                            now = now)
+                            now = now, statusDetails = status.detailsSupported)
                     }
                 }
             }

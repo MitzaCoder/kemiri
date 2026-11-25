@@ -19,6 +19,7 @@ object HarnessFeature {
     const val WORKER_PICKER_PROJECT_DEFAULT = "worker-picker-project-default"
     const val STORAGE = "storage"
     const val TASK_DELIVERY = "task-delivery"
+    const val TASK_STATUS_DETAILS = "task-status-details"
     const val TASK_LIVE = "task-live"
     const val TASK_LIVE_WATCHER = "task-live-watcher"
     const val TASK_FIELDS = "task-fields"

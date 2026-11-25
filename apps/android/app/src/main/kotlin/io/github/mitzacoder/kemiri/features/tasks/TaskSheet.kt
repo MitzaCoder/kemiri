@@ -99,7 +99,8 @@ internal data class TaskSheetBoard(
 )
 
 internal fun BoardView.forTaskSheet(task: BoardTask, previousTaskId: String?): TaskSheetBoard {
-    val relatedIds = linkGroups(task, emptyList()).flatMap { group -> group.items.map { it.id } }.toSet() + listOfNotNull(task.requestId)
+    val relatedIds = linkGroups(task, emptyList()).flatMap { group -> group.items.map { it.id } }.toSet() +
+        listOfNotNull(task.requestId) + task.partsDigest?.parts.orEmpty().map { it.id }
     return TaskSheetBoard(
         relatedIds.mapNotNull { id -> this.task(id) }, board?.archivedLinks.orEmpty().filter { it.id in relatedIds },
         questions.filter { it.taskId == task.id || it.taskId != null && it.taskId == task.state?.fromPartId },

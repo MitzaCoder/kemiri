@@ -12,12 +12,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.ArtifactsListResponsePartProofItem
 import io.github.mitzacoder.kemiri.protocol.PartsDigest
+import io.github.mitzacoder.kemiri.protocol.BoardTask
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
-internal fun PartsChecklist(digest: PartsDigest, proof: List<ArtifactsListResponsePartProofItem>, onOpen: (String) -> Unit) {
+internal fun PartsChecklist(digest: PartsDigest, proof: List<ArtifactsListResponsePartProofItem>, tasks: List<BoardTask>, onOpen: (String) -> Unit) {
     val colors = Jarvis.colors
     val rows = remember(digest, proof) { partsChecklist(digest, proof) }
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -31,11 +33,14 @@ internal fun PartsChecklist(digest: PartsDigest, proof: List<ArtifactsListRespon
                         .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top,
                 ) {
-                    val tone = taskKindTone(row.part.state)
-                    LucideGlyph(taskStateGlyph(row.part.state), Modifier.padding(top = 3.dp), size = 16.dp,
-                        tint = colors.taskStatus(tone), contentDescription = partStateLabel(row.part.state))
+                    val task = tasks.firstOrNull { it.id == row.part.id && it.state != null }
+                    val tone = task?.let(::taskStateTone) ?: taskKindTone(row.part.state)
+                    LucideGlyph(taskStateGlyph(task?.state?.kind ?: row.part.state), Modifier.padding(top = 3.dp), size = 16.dp,
+                        tint = colors.taskStatus(tone), contentDescription = if (task == null) partStateLabel(row.part.state) else null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(row.part.title, style = TaskType.rowTitle, color = colors.fg)
+                        if (task != null) Text(taskStateLabel(task), style = TaskType.meta, color = colors.taskStatus(tone))
+                        task?.state.additionalRunningWork()?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
                         if (row.summary.isNotBlank()) Text(row.summary, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(row.counts, style = TaskType.meta, color = if (row.part.checks.failed > 0) colors.danger else colors.fgSubtle)
                     }

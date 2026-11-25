@@ -2,6 +2,7 @@ package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.protocol.BoardTask
+import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
@@ -25,7 +27,11 @@ internal fun TaskRelationChips(task: BoardTask) {
                 val parent = task.parent?.takeIf { label == "↳ $it" }
                 val modifier = if (parent != null && links != null) Modifier.clickable(onClickLabel = "Open parent $parent") { links.open(parent) }
                     .semantics { contentDescription = "Subtask of $parent" } else Modifier
-                Text(label, modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = TaskType.meta, color = Jarvis.colors.fgMuted)
+                Row(modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    parent?.let { links?.derivedTone(it) }?.let { TaskStatusDot(it) }
+                    Text(label, style = TaskType.meta, color = Jarvis.colors.fgMuted)
+                }
             }
         }
     }

@@ -66,6 +66,7 @@ internal data class TaskSheetState(
 
 internal data class TaskSheetStatus(
     val title: String,
+    val detailsSupported: Boolean,
     val waitingEnabled: Boolean,
     val workDayStart: String,
     val saving: Boolean,
@@ -145,7 +146,8 @@ internal fun rememberTaskSheetState(
     val timelineGroupsEnabled = connection.supports(HarnessFeature.TASK_TIMELINE_GROUPS)
     val deliveryEnabled = connection.supports(HarnessFeature.TASK_DELIVERY)
     val activity = taskActivity(task, connection.supports("task-activity"))
-    // The Live block replaces the Now lines; it needs the backend flag, a working task and a trail.
+    // The Live block replaces the Now lines when the backend supplies live work.
+    val statusDetails = connection.supports(HarnessFeature.TASK_STATUS_DETAILS)
     val liveEnabled = connection.supports(HarnessFeature.TASK_LIVE)
     val news = if (liveEnabled && connection.supports(HarnessFeature.TASK_LIVE_WATCHER)) LiveNewsActions(
         openWorkLog = { line, entryId -> liveWorkLogRoute(context.route, workers, line, entryId)?.let { route -> { context.navigate(route) } } },
@@ -249,7 +251,8 @@ internal fun rememberTaskSheetState(
             ::writerName,
         ),
         status = TaskSheetStatus(
-            title = taskDetailState(task.status, needsYou, task.state?.kind), waitingEnabled = connection.supports("task-waiting"),
+            title = taskPageStatusLabel(task, needsYou, statusDetails), detailsSupported = statusDetails,
+            waitingEnabled = connection.supports("task-waiting"),
             workDayStart = deviceSettings.workDayStart, saving = closing, confirmDrop = confirmDrop, waitingForm = waitingForm,
             problem = problem,
             onChoose = { status ->

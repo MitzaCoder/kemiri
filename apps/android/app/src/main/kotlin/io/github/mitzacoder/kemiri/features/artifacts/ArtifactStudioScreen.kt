@@ -179,7 +179,7 @@ private fun StudioHeading(title: String) {
 private fun TaskLink(context: ProjectScreenContext, id: String, title: String, task: ArtifactTaskFolder?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         TextButton(onClick = { context.openTask(id) }, modifier = Modifier.weight(1f, fill = false)) { Text(title) }
-        task?.let { TaskStateChip(it.status, it.settledAt) }
+        task?.let { TaskStateChip(it.status, it.settledAt, it.state) }
     }
 }
 

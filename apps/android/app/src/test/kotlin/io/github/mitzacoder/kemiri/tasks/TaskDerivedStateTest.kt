@@ -155,6 +155,32 @@ class TaskDerivedStateTest {
         assertEquals(2, io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphCounts(graph).attention)
     }
 
+    @Test fun aQuestionKeepsItsPrimaryChipWhileRunningWorkFeedsLiveWithoutATrail() {
+        val waiting = question("Q1", "T1")
+        val work = BoardTaskActivity("working", "Printing a test order", waiting.askedAt, emptyList())
+        val main = BoardTaskActivity("question", "Answer needed", waiting.askedAt, listOf(waiting.id))
+        val state = BoardTaskState("needs_you", "answer_needed", waiting.askedAt, listOf(waiting.id),
+            sentence = main, runningWork = work, liveWorkSince = work.since)
+        val task = task("T1", "in_progress").copy(state = state)
+        val needs = taskNeedsYou(task, listOf(waiting), hasBlockers = false, stepsSupported = true)
+        assertEquals("Answer needed", taskPageStatusLabel(task, needs, statusDetails = true))
+        assertEquals("Working", taskPageStatusLabel(task, needs, statusDetails = false))
+        assertSame(main, taskRowActivity(task, enabled = true))
+        assertSame(work, state.additionalRunningWork())
+        assertSame(work, taskLiveNow(task, featureEnabled = true, activity = main))
+        assertNull(taskLiveNow(task, featureEnabled = false, activity = main))
+        assertNull(taskLiveNow(task.copy(state = state.copy(runningWork = null)), featureEnabled = true, activity = main))
+        assertNull(state.copy(kind = "working").additionalRunningWork())
+    }
+
+    @Test fun pausedUsesTheSameLabelOnThePageAndInTheList() {
+        val paused = derived("T1", "in_progress", "paused").copy(status = "in_progress")
+        val needs = taskNeedsYou(paused, emptyList(), hasBlockers = false, stepsSupported = false)
+        assertEquals("Paused", taskPageStatusLabel(paused, needs, statusDetails = true))
+        assertEquals("Paused", taskRowActivity(paused, enabled = true)?.text)
+        assertEquals("in_progress", paused.editorDraft().status)
+    }
+
     @Test fun closeChoiceCountsOnlyOpenDirectPartsIncludingReview() {
         val tasks = listOf(task("T1"), task("T2").copy(parent = "T1"), task("T3", "review").copy(parent = "T1"), task("T4", "done").copy(parent = "T1"), task("T5").copy(parent = "T2"))
         assertEquals(listOf("T2", "T3"), openDirectParts(tasks, "T1").map { it.id })

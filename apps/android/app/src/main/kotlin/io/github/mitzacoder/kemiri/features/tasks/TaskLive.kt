@@ -77,7 +77,7 @@ private fun rememberShown(): Boolean {
  */
 @Composable
 internal fun TaskLive(
-    live: BoardTaskLive, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String,
+    live: BoardTaskLive?, now: BoardTaskActivity, backendKey: String, projectId: String, taskId: String,
     news: LiveNewsActions?, workers: List<WorkerSummary>, onOpenTranscript: (WorkerSummary) -> Unit,
 ) {
     val colors = Jarvis.colors
@@ -86,8 +86,8 @@ internal fun TaskLive(
     val shown = rememberShown()
     val key = remember(backendKey, projectId, taskId) { liveSeenKey(backendKey, projectId, taskId) }
     val watcher = news != null
-    val chronological = remember(live.lines, watcher) { visibleLiveLines(live.lines, watcher) }
-    val counters = remember(live.counters) { liveCounterLabels(live.counters) }
+    val chronological = remember(live?.lines, watcher) { visibleLiveLines(live?.lines.orEmpty(), watcher) }
+    val counters = remember(live?.counters) { liveCounterLabels(live?.counters) }
     // A visit starts when the sheet becomes visible and keeps its divider until it is hidden or the task changes.
     val visit = remember(key, shown) { if (shown) LiveTrailVisit(PreferencesLiveSeenStore(context), key) else null }
     val visitState = remember(visit, chronological) { visit?.update(chronological) ?: LiveVisitState(emptySet(), emptySet()) }
@@ -130,9 +130,9 @@ internal fun TaskLive(
             TaskDetailText(sentence, Modifier.weight(1f).alignByBaseline(), style = TextStyles.sm, color = colors.fg)
             Text(age, Modifier.alignByBaseline(), style = TaskType.xs, color = colors.fgMuted)
         }
-        live.pulse?.let { LivePulse(it, shown) }
+        live?.pulse?.let { LivePulse(it, shown) }
         if (counters.isNotEmpty()) LiveCounters(counters)
-        live.plan?.let { steps -> key(key) { TaskLivePlan(steps, foldOnPhone = true) } }
+        live?.plan?.let { steps -> key(key) { TaskLivePlan(steps, foldOnPhone = true) } }
         if (trail.newest.isNotEmpty()) {
             TaskHeading("So far")
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

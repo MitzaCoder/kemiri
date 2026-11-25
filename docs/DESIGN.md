@@ -4065,6 +4065,14 @@ board's In progress and Waiting sort oldest first. To do retains priority and Cl
 Family nesting follows the parent across derived groups (T246), with one full row per task in Needs you and a direct-parts progress disclosure.
 Rows, header status, toolbar/sidebar counts and Connected work use the derived state; Paused
 has a quiet distinct tone and task blockers belong to Waiting. Graph mapping stays Android-only.
+With `task-status-details` (T494), the full-screen task route keeps the derived status chip first,
+adds a Working chip when another state wins, and uses `runningWork` for Live even without a trail.
+List and board rows and the request's Parts list show running work beside the primary state.
+A question returned by the latest note moves out of Needs you; its task page shows Question being
+checked and the note from the question exchange. Ordinary ask-backs keep their previous section.
+Related links, previews, artifact folders and new snapshots use the derived status where supplied.
+The edit form separates Current status from Set status: saving still writes the stored status.
+Without the capability, the page and editor keep their earlier presentation.
 
 **One state sentence per row/card (T214, web and Android; T245 / D94).** The compact activity line carries
 state. List rows have one leading theme-coloured glyph: warning triangle for Failed, question

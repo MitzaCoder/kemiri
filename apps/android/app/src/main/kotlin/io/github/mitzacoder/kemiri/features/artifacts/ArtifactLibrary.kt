@@ -147,4 +147,4 @@ internal fun boardTaskFolders(project: String, board: Board): List<ArtifactTaskF
         board.decisions.filter { it.taskId == task.id }.map { ArtifactTaskFolderDecisionsItem(it.id, it.text, it.why, it.at) })
 }
 
-internal fun ArtifactTaskFolder.facts() = ArtifactTaskFacts(projectId, id, title, status, archived, settledAt, summary)
+internal fun ArtifactTaskFolder.facts() = ArtifactTaskFacts(projectId, id, title, status, archived, settledAt, summary, state)

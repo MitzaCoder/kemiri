@@ -20,6 +20,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.SaveOutcome
 import io.github.mitzacoder.kemiri.features.panels.boardDraftKey
 import io.github.mitzacoder.kemiri.features.panels.boardDraftSaver
@@ -27,7 +29,9 @@ import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 import io.github.mitzacoder.kemiri.ui.components.JarvisIconButton
 import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.theme.textStyle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -73,6 +77,9 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
     val validation = draftProblem(draft, taskId, tasks)
     val dirty = draftIsDirty(draft, state.shown)
     val live = taskId?.let { id -> tasks.firstOrNull { it.id == id } }
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val statusDetails = connection.supports(HarnessFeature.TASK_STATUS_DETAILS)
+    val taskWithDerivedState = (live ?: task ?: state.shown)?.takeIf { statusDetails && it.state != null }
     val movedOn = !state.conflicted && live != null && state.baseRevision != null && live.revision != state.baseRevision
     fun update(change: TaskEditorDraft.() -> TaskEditorDraft) { state = state.copy(draft = state.draft.change()) }
 
@@ -141,8 +148,17 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
         Field("Tickets and links", draft.refs, { update { copy(refs = it) } }, minLines = 2, placeholder = "One per line, like EX-1234, #1234 or a link", style = mono)
         Field("Description", draft.description, { update { copy(description = it) } }, minLines = 4)
         Field("Done when", draft.acceptance, { update { copy(acceptance = it) } }, minLines = 2, placeholder = "Acceptance, optional")
+        taskWithDerivedState?.let { shown ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Current status", style = label, color = colors.fgSubtle)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TaskStatusBadge(taskStateLabel(shown), taskStateTone(shown))
+                    if (shown.state.additionalRunningWork() != null) TaskStatusBadge("Working", TaskStatusTone.Working)
+                }
+            }
+        }
         if (editStatus) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Status", style = label, color = colors.fgSubtle)
+            Text(if (taskWithDerivedState != null) "Set status" else "Status", style = label, color = colors.fgSubtle)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TASK_STATUSES.forEach { status ->
                     FilterChip(draft.status == status, { update { copy(status = status) } }, enabled = !saving, label = { Text(taskStatusLabel(status)) })
@@ -171,7 +187,7 @@ fun TaskEditor(context: ProjectScreenContext, task: BoardTask?, tasks: List<Boar
                         Text(androidx.compose.ui.text.buildAnnotatedString {
                             withStyle(androidx.compose.ui.text.SpanStyle(fontFamily = io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono, color = colors.fgSubtle)) { append(choice.id) }
                             append(" ${choice.title} ")
-                            withStyle(androidx.compose.ui.text.SpanStyle(color = colors.fgSubtle)) { append("· ${taskStatusLabel(choice.status)}") }
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = colors.fgSubtle)) { append("· ${if (statusDetails && choice.state != null) taskStateLabel(choice) else taskStatusLabel(choice.status)}") }
                         }, style = TaskType.xs, color = colors.fg)
                     }
                 }

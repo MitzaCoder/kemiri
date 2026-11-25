@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks.board
 
 import io.github.mitzacoder.kemiri.features.tasks.RequestAttention
+import io.github.mitzacoder.kemiri.features.tasks.TaskActivityView
+import io.github.mitzacoder.kemiri.features.tasks.additionalRunningWork
 import io.github.mitzacoder.kemiri.features.tasks.TaskPartsBar
 import io.github.mitzacoder.kemiri.features.tasks.TaskType
 import io.github.mitzacoder.kemiri.features.tasks.taskPartProgress
@@ -156,6 +158,7 @@ internal fun TaskCard(
                     else if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else if (gist.isNotEmpty()) Text(gist, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
+                task.state.additionalRunningWork()?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
                 if (requestView) taskPartProgress(task)?.let { progress ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         TaskPartsBar(progress)

@@ -21,6 +21,9 @@ import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.features.tasks.media.CompareSlider
 import io.github.mitzacoder.kemiri.features.tasks.rememberReducedMotion
+import io.github.mitzacoder.kemiri.features.tasks.taskKindTone
+import io.github.mitzacoder.kemiri.features.tasks.taskStateLabel
+import io.github.mitzacoder.kemiri.features.tasks.taskStatusTone
 import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -141,7 +144,7 @@ internal fun ArtifactLibraryScreen(
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(shelf.title, style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        shelf.task?.let { TaskStateChip(it.status, it.settledAt) }
+                        shelf.task?.let { TaskStateChip(it.status, it.settledAt, it.state) }
                         shelf.project?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted) }
                     }
                 }
@@ -193,16 +196,19 @@ private fun LibraryChips(content: @Composable RowScope.() -> Unit) {
 }
 
 @Composable
-internal fun TaskStateChip(status: String, settledAt: String?) {
-    val label = when (status) {
-        "done" -> settledAt?.let { "Done ${libraryDate(it)}" } ?: "Done"
-        "in_progress" -> "In progress"
-        "todo" -> "To do"
+internal fun TaskStateChip(status: String, settledAt: String?, state: BoardTaskState? = null) {
+    val label = when {
+        status == "done" -> settledAt?.let { "Done ${libraryDate(it)}" } ?: "Done"
+        state != null -> taskStateLabel(status, state)
+        status == "in_progress" -> "In progress"
         else -> status.replace('_', ' ').replaceFirstChar { it.uppercase() }
     }
-    Surface(shape = RoundedCornerShape(50), color = if (status == "done") Jarvis.colors.success.copy(alpha = .12f) else Jarvis.colors.surface2) {
+    val colors = Jarvis.colors
+    val tone = state?.let { colors.taskStatus(taskKindTone(it.kind, taskStatusTone(status))) }
+        ?: if (status == "done") colors.success else null
+    Surface(shape = RoundedCornerShape(50), color = tone?.copy(alpha = .12f) ?: colors.surface2) {
         Text(label, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall,
-            color = if (status == "done") Jarvis.colors.success else Jarvis.colors.fgMuted)
+            color = tone ?: colors.fgMuted)
     }
 }
 

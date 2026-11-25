@@ -43,6 +43,9 @@ internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: Strin
     else -> taskStatusWords(status)
 }
 
+internal fun taskPageStatusLabel(task: BoardTask, needsYou: TaskNeedsYou, statusDetails: Boolean): String =
+    if (statusDetails && task.state != null) taskStateLabel(task) else taskDetailState(task.status, needsYou, task.state?.kind)
+
 internal fun showTaskNow(task: BoardTask, activity: BoardTaskActivity?): Boolean = (task.status == "in_progress" || task.state?.liveWorkSince != null) &&
     if (activity == null) task.report.now.isNotBlank() else activity.kind in setOf("working", "deploy", "idle", "unknown")
 
