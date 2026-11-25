@@ -216,8 +216,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** What came in since the last answer in the messages a request sends, and the instruction updates among them. */
-export function requestTail(messages: readonly unknown[]): RequestTail & { updates: string[]; systemUpdates: number } {
+function toolNames(declarations: unknown): string[] {
+	if (!Array.isArray(declarations)) return [];
+	return declarations.flatMap((tool) => isRecord(tool) && typeof tool.name === "string" ? [tool.name] : []);
+}
+
+/** What came in since the last answer in the messages a request sends, and the prompt updates among them. */
+export function requestTail(messages: readonly unknown[]): RequestTail & { updates: string[]; toolChanges: string[]; systemUpdates: number } {
 	let lastAssistant = -1;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -226,7 +231,8 @@ export function requestTail(messages: readonly unknown[]): RequestTail & { updat
 			break;
 		}
 	}
-	const tail = { toolResults: 0, userTexts: [] as string[], firstTurn: lastAssistant < 0, repeated: false, updates: [] as string[], systemUpdates: 0 };
+	const tail = { toolResults: 0, userTexts: [] as string[], firstTurn: lastAssistant < 0, repeated: false,
+		updates: [] as string[], toolChanges: [] as string[], systemUpdates: 0 };
 	// Before the first answer, the leading system message is the prompt itself, not an update.
 	const start = lastAssistant < 0 ? 1 : lastAssistant + 1;
 	for (let index = start; index < messages.length; index += 1) {
@@ -237,7 +243,12 @@ export function requestTail(messages: readonly unknown[]): RequestTail & { updat
 		else if (message.role === "system") {
 			tail.systemUpdates += 1;
 			if (isRecord(message.sections)) tail.updates.push(...Object.keys(message.sections));
-			if (Array.isArray(message.toolsAdded) || Array.isArray(message.toolsRemoved)) tail.updates.push("tools");
+			const added = toolNames(message.toolsAdded);
+			const removed = toolNames(message.toolsRemoved);
+			if (added.length > 0 || removed.length > 0) tail.updates.push("tools");
+			// A replacement removes and adds the same name in one entry. Log names only, never declarations.
+			for (const name of added) tail.toolChanges.push(`${removed.includes(name) ? "tool" : "tool+"}:${name}`);
+			for (const name of removed) if (!added.includes(name)) tail.toolChanges.push(`tool-:${name}`);
 		}
 	}
 	tail.updates = [...new Set(tail.updates)];
@@ -572,10 +583,12 @@ export class RequestLog {
 		for (const stretch of this.store.warmStretches(projectId, conversationId)) {
 			if (stretch.lastReadAt !== undefined && stretch.lastReadAt < count(request.message.timestamp)) live.requests.touch(stretch.lastReadAt);
 		}
+		const changes = previous === undefined ? null : diffFingerprints(previous, fingerprint, tail.updates);
+		if (!sameMessages) changes?.push(...tail.toolChanges);
 		const row = live.requests.request(request.message, {
 			wake,
 			retention: request.retention,
-			changes: previous === undefined ? null : diffFingerprints(previous, fingerprint, tail.updates),
+			changes,
 			source: "live",
 		});
 		await this.#writeLiveRow({ ...row, priced: hasCatalogPrice(request.warm.model) }, request.recorded);

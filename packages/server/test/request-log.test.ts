@@ -293,8 +293,9 @@ describe("observing requests", () => {
 			},
 		} as unknown as Models;
 		const observed = log.observeModels(models);
-		const request = async (tagged: boolean, provider = "synthetic", cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }) => {
-			const messages = [{ role: "user", content: "Hi", timestamp: 1 }];
+		const initialMessages: object[] = [{ role: "user", content: "Hi", timestamp: 1 }];
+		const request = async (tagged: boolean, provider = "synthetic", cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, transcript = initialMessages) => {
+			const messages = transcript.map((message) => ({ ...message }));
 			if (tagged) await beforeRequest({ messages }, { conversationId: 1 });
 			const stream = (observed.streamSimple as unknown as (...args: unknown[]) => { result(): Promise<unknown> })({ provider, cost }, { messages }, {
 				onPayload: (payload: unknown) => {
@@ -309,13 +310,21 @@ describe("observing requests", () => {
 		await request(false);
 		await credentials.modify("synthetic", async () => ({ type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: 42 }));
 		await request(true, "synthetic", { input: 1, output: 0, cacheRead: 0, cacheWrite: 0 });
-		await request(true, "opencode-go");
+		const toolUpdate = [...initialMessages, answer(3000, "synthetic"), { role: "user", content: "Next", timestamp: 3001 }, {
+			role: "system", content: "", timestamp: 3002,
+			toolsRemoved: [{ name: "read" }, { name: "old_tool" }],
+			toolsAdded: [{ name: "read", description: "New description" }, { name: "new_tool", description: "New tool" }],
+		}];
+		await request(true, "opencode-go", undefined, toolUpdate);
+		await request(true, "opencode-go", undefined, toolUpdate);
 		await log.flush();
-		expect(sent).toHaveLength(4);
+		expect(sent).toHaveLength(5);
 		const rows = log.store.rows({ from: 0, to: 10_000 });
-		expect(rows.map((row) => row.at)).toEqual([1000, 3000, 4000]);
-		expect(rows.map((row) => [row.billing, row.priced])).toEqual([["api_key", false], ["subscription", true], ["plan_key", false]]);
+		expect(rows.map((row) => row.at)).toEqual([1000, 3000, 4000, 5000]);
+		expect(rows.map((row) => [row.billing, row.priced])).toEqual([["api_key", false], ["subscription", true], ["plan_key", false], ["plan_key", false]]);
 		expect(rows[1]?.changes).toEqual(["wire:system[0]"]);
+		expect(rows[2]?.changes).toEqual(["update:tools", "tool:read", "tool+:new_tool", "tool-:old_tool"]);
+		expect(rows[3]?.changes).toEqual(["update:tools"]);
 		await log.close();
 	});
 });

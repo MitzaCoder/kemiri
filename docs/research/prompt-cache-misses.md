@@ -2,7 +2,8 @@
 
 A study of where conversations re-bill prompt text the provider should have cached, and how to stop it (T480).
 Workload measurements stay in private local records, as for `cache-keep-warm.md`. This note keeps the mechanisms, the
-code they live in and the plan, so a builder can start without redoing the analysis. Nothing here is built yet.
+code they live in and the plan, so a builder can start without redoing the analysis. Stage 1 is patched locally;
+Claude's cache behavior with a replacement is still unverified.
 
 ## How it was studied
 
@@ -15,7 +16,7 @@ transcripts' `pi.system` entries. Backend restarts came from the service journal
 
 ### 1. One changed tool re-sends every tool (pi-durable)
 
-`planTools` in pi-durable's `harness/prompt.js` keeps the tool order equal to the desired order. A changed declaration
+Unpatched `planTools` in pi-durable's `harness/prompt.js` keeps the tool order equal to the desired order. A changed declaration
 is removed and re-added, and replay appends additions. When that does not give the desired order, it removes every
 offered tool and re-adds every desired tool. A changed tool is rarely last, so nearly every change to one tool's text
 becomes a full re-send of twenty to forty tools in one `pi.system` entry.
@@ -90,6 +91,56 @@ Each stage is generic and independent of the others.
    memory rounds two and later.
 4. **Cache health.** Flag a model whose mid-turn requests start missing with no prompt change, in Usage → Worth a
    look. Then measure a week again before deciding on a longer keep-warm limit or cached compaction summaries.
+
+## First deploy with a tool replacement
+
+The patch alone does not change a tool definition. On the first deploy that changes one existing description, take
+a warm Claude conversation with a large cached transcript and send one turn before and one after the deploy. Keep
+the same model and stay within the active cache TTL. Avoid compaction and changes to other tools. Send one more
+turn immediately after the update.
+
+In the backend's `request-log-v3.sqlite`, read the three live rows for that project and conversation in time order.
+Use a read-only connection.
+
+```sql
+SELECT at, model, stop_reason, retention, idle_ms, changes,
+       prompt_tokens, cache_read, cache_write, miss_reason, miss_tokens
+FROM requests
+WHERE project_id = ? AND conversation_id = ? AND source = 'live' AND provider = 'anthropic'
+ORDER BY at DESC LIMIT 3;
+```
+
+The middle row should have `update:tools` (or a combined update ending in `,tools`) and just one
+`tool:<name>`, without other `tool+:` or `tool-:` codes. There should be no `restart` or model switch. The
+update's cache read should be close to the previous prompt size, not just the opening instructions. The next row
+should not have to write the whole transcript again. A large drop in reads on the update followed by a large
+rewrite on the next turn would show that the replacement still misses. A cold prior cache, compaction, or
+unrelated prefix changes make the result inconclusive.
+
+If a warm single replacement still misses, set `KEMIRI_DEFER_TOOL_DESCRIPTION_CHANGES=1` in the backend
+environment for the next start. This keeps the old description until compaction or a new transcript while
+still applying schema changes, tool additions and removals immediately. It does not guess that an existing
+transcript is cold from the wall clock. An existing conversation can still have a warm cache after a long idle
+gap, for example from a refresh. Unset the flag to resume immediate description updates.
+
+## Draft upstream issue for earendil-works/pi
+
+**Title: pi-durable re-sends every tool after a one-tool update to preserve registry order**
+
+In pi-durable 1.6.0, start a conversation with three tools in order: `first`, `middle`, `last`. Send a turn.
+Change only the description of `middle` while retaining the conversation. Send another turn and inspect the
+new `pi.system` entry. `planTools` in `harness/prompt.ts` deletes all three names and adds all three
+declarations. Replay would otherwise produce `first`, `last`, `middle`, which triggers the order fallback.
+
+For providers with native mid-conversation tool changes, this sends the unchanged tool definitions again.
+We observed this update reading only the start of the Claude prompt, with the following request rewriting the
+whole transcript. An addition of just one tool kept the cache. We have not yet measured whether a single
+same-name replacement also keeps it.
+
+Could live entries use the existing `getToolStateChanges` comparison by name and declaration, allowing the
+changed tool to append? That leaves unchanged tools in their relative order, sends just `middle` in the remove
+and add lists, and sends no further update on the next turn. A new or compacted transcript can still use
+registry order. Section ordering can stay as it is.
 
 ## Looked at and not recommended
 

@@ -2200,6 +2200,9 @@ older release therefore keeps working with its own log. Requests logged during a
   the memory agent; they ask for no cache) are not logged. Rows are worked out one at a time after a `setTimeout(0)`;
   any failure is logged (the first five, then every hundredth) and dropped, and a log that will not open leaves the
   server without it and without the `cache-stats` feature.
+- Mid-conversation tool updates record `update:tools` and the added, removed or replaced names (`tool+:`, `tool-:`,
+  `tool:`). The log keeps names and token usage, not tool declarations. These markers separate a tool replacement
+  from a pure addition when checking Claude cache reads.
 - Conversations are told apart by `identify` in `ProjectManager.#openRuntime` (coordinators, the thread records, every
   coordinator's worker list), cached once known. Each model request captures its identity before it runs, so a queued
   log write keeps its original task. `worker_send` drops the identity when it reassigns the worker, before the next
@@ -8009,7 +8012,13 @@ project mutes still use `mutedProjects`, and Android omits new mute fields on ba
   `@earendil-works/chord/delta`.
 
 - TypeScript on Bun. No Nix flake for now.
-- `@earendil-works/pi-durable` is experimental; pin its exact version (currently 1.6.0).
+- `@earendil-works/pi-durable` is experimental; pin its exact version (currently 1.6.0). Its Bun patch keeps
+  tool updates minimal: a changed declaration is removed and re-added without re-sending the other tools. Replay
+  appends the replacement and keeps unchanged tools in their relative order. Fresh and compacted baselines use
+  registry order. Section ordering is unchanged. If Claude misses on one replacement, setting
+  `KEMIRI_DEFER_TOOL_DESCRIPTION_CHANGES=1` in the backend environment defers description-only edits until a new
+  baseline. New tools, removals and schema changes still apply immediately. See the prompt cache research note
+  for the first-deploy check.
 - Bun 1.4.2 on the host provides `node:sqlite`, so the Node SQLite
   storage may work as is. Not verified yet.
 
