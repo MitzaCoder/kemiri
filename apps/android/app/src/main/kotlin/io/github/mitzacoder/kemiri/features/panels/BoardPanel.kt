@@ -116,12 +116,8 @@ internal fun boardReorderedIds(tasks: List<BoardTask>, taskId: String, delta: In
     val client = context.backend.client
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by client.state.collectAsStateWithLifecycle()
-    val threads = if (connection.supports("threads")) panelData(context, "board-owners", { it is ThreadsStateEvent && it.projectId == project }) {
-        client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    }.value.orEmpty() else emptyList()
-    val workers = if (connection.supports("workers")) panelData(context, "board-workers", { it is WorkersStateEvent && it.projectId == project }) {
-        client.request(WorkersListRequest(projectId = project)).workers
-    }.value.orEmpty() else emptyList()
+    val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
+    val workers = projectWorkers(context, connection.supports("workers"))?.value?.workers.orEmpty()
     // The project's newest artifacts, read once for every row, by the task each is evidence for (web: 500 of them).
     val artifacts = if (connection.supports("artifacts")) rememberTranscriptArtifacts(context) else emptyList()
     val taskArtifacts = remember(artifacts) { artifactsByTask(artifacts) }

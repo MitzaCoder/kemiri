@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.coordinators.*
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.QuestionCard
 import io.github.mitzacoder.kemiri.features.tasks.TaskIcons
 import io.github.mitzacoder.kemiri.features.tasks.isWarning
@@ -91,9 +90,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     if (waiting.isEmpty()) return
     val tasksView = connection.supports(HarnessFeature.TASK_REPORTS)
     val project = context.route.projectId
-    val threads = coordinatorThreads ?: if (connection.supports("threads")) panelData(context, "pin-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    }.value.orEmpty() else emptyList()
+    val threads = coordinatorThreads ?: projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
     // The window, not the chat column: the web asks the viewport (48rem).
     val window = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.let { DpSize(it.width.toDp(), it.height.toDp()) } }
     val wide = window.width >= 768.dp

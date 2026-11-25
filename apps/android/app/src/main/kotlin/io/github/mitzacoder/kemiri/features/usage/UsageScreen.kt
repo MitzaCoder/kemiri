@@ -62,7 +62,7 @@ private fun <T> observeUsageRead(supported: Boolean, ready: Boolean, generation:
 @Composable
 fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, navigate: (Destination) -> Unit) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val usageComputerKey by repository.collectSettings { it.usageComputerKey }
     val scope = rememberCoroutineScope()
     val owner = LocalLifecycleOwner.current
     var now by remember { mutableStateOf(Instant.now()) }
@@ -75,7 +75,7 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
     val zone = ZoneId.systemDefault()
     val month = YearMonth.from(now.atZone(zone))
     val nowMillis = now.toEpochMilli().toDouble()
-    val computer = sessions.firstOrNull { it.config.key == settings.usageComputerKey }
+    val computer = sessions.firstOrNull { it.config.key == usageComputerKey }
     val selected = computer?.let { listOf(it) } ?: sessions
     var period by rememberSaveable { mutableStateOf(UsagePeriod.Rolling) }
     val range = usageRange(period, now, zone)

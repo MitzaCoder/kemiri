@@ -24,7 +24,7 @@ internal fun DevicesPage(repository: HarnessRepository, backend: BackendSession)
     val connection by backend.client.state.collectAsStateWithLifecycle()
     val controller = backend.client.deviceAuth
     val auth = controller?.state?.collectAsStateWithLifecycle()?.value
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val backends by repository.collectSettings { it.backends }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var devices by remember { mutableStateOf<List<AuthDevice>>(emptyList()) }
@@ -109,7 +109,7 @@ internal fun DevicesPage(repository: HarnessRepository, backend: BackendSession)
             if (authenticated) TextButton(onClick = { addressOnly = !addressOnly }) {
                 Text(if (addressOnly) "Hide address sharing" else "Only share the address (no sign-in)")
             }
-            if (!authenticated || addressOnly) AddressShareRow(backend.config, settings.backends)
+            if (!authenticated || addressOnly) AddressShareRow(backend.config, backends)
         }
         if (authenticated && pairings.isNotEmpty()) SettingsGroup(title = "Pending pairings") {
             pairings.forEach { pairing ->

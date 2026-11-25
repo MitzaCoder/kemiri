@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks.board
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,8 +44,7 @@ fun TasksView(
     addTask: (@Composable (close: () -> Unit) -> Unit)? = { close -> NewTaskEditor(context, close) },
     list: @Composable (toolbarStart: @Composable () -> Unit) -> Unit,
 ) {
-    val settings by context.repository.settings.collectAsStateWithLifecycle()
-    val mode = tasksViewMode(settings.projectTasksView[context.backend.config.key]?.get(context.route.projectId) ?: settings.tasksView)
+    val mode by rememberTasksViewMode(context)
     val scope = rememberCoroutineScope()
     val switch: @Composable () -> Unit = { TasksViewSwitch(mode) { scope.launch { context.repository.setProjectTasksView(context.backend.config.key, context.route.projectId, it.stored) } } }
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
@@ -65,9 +65,9 @@ fun TasksView(
  */
 @Composable
 fun showsTasksBoard(context: ProjectScreenContext, tab: PanelTab?): Boolean {
-    val settings by context.repository.settings.collectAsStateWithLifecycle()
+    val mode by rememberTasksViewMode(context)
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    return tab == PanelTab.Board && connection.supports(HarnessFeature.TASK_REPORTS) && tasksViewMode(settings.projectTasksView[context.backend.config.key]?.get(context.route.projectId) ?: settings.tasksView) != TasksViewMode.List
+    return tab == PanelTab.Board && connection.supports(HarnessFeature.TASK_REPORTS) && mode != TasksViewMode.List
 }
 
 /** Three 48dp choices, wrapping instead of clipping with large system text. */
@@ -107,4 +107,13 @@ internal fun NewTaskEditor(context: ProjectScreenContext, close: () -> Unit) {
         TaskDraft(null, null, BoardTaskInput(title = "", description = "", acceptance = null, refs = null, status = "todo", blockedBy = emptyList(), blockedReason = null, writeScopes = emptyList()))
     }
     TaskEditor(context, draft, view.tasks, close = close, saved = close)
+}
+
+@Composable
+private fun rememberTasksViewMode(context: ProjectScreenContext): State<TasksViewMode> {
+    val backend = context.backend.config.key
+    val project = context.route.projectId
+    return context.repository.collectSettings(backend, project) { settings ->
+        tasksViewMode(settings.projectTasksView[backend]?.get(project) ?: settings.tasksView)
+    }
 }

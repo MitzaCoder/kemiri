@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks.media
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -69,8 +70,8 @@ internal fun MediaGalleryView(
     var viewerOpen by remember { mutableStateOf(false) }
     var viewerStart by remember { mutableIntStateOf(0) }
     var viewerAutoplay by remember { mutableStateOf(false) }
-    val settings by context.repository.settings.collectAsStateWithLifecycle()
-    val separate = settings.mediaSeparate
+    val mediaSeparate by context.repository.collectSettings { it.mediaSeparate }
+    val separate = mediaSeparate
     val playing = remember { mutableStateMapOf<String, Boolean>() }
     val seeks = remember { MutableSharedFlow<Pair<String, Int>>(extraBufferCapacity = 4) }
     val slideRects = remember { SlideRects() }

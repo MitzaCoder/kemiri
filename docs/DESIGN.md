@@ -5798,6 +5798,32 @@ Built as the section above describes, from the same rules and constants:
    was sent, so the server's clear is right.
 
 
+## Android task and chat redraw boundaries (T489)
+
+`BackendSession` shares a `ProjectBoard` per project. Authoritative board reads and pushes compare each decoded
+row with its previous row by ID and full value, on the background dispatcher. Equal live and archived tasks
+retain their references. Revision alone cannot detect changes to live work or a request digest. A task route
+observes its own row plus its related rows, questions and decisions. Its editor and Move dialog read the full
+list only while open. Chat picks up just task options and questions. The header observes the attention count.
+
+Task and ref link registries keep their identities across a board push. Task membership or project link settings
+can invalidate text links. Titles, task statuses and ref statuses update the chips that use them without replacing
+Markdown linkers. Markdown nodes memoize rendered inline text with their linker inputs. The task page separately
+memoizes typed report validation for each section's own JSON and Markdown mirror. Visibility checks and rendered
+sections use the same validated values, retaining the whole-section fallback for malformed content.
+
+Activity appearance and screen preferences collect distinct slices of `DeviceSettings`, not the full stored record.
+A seen-reply save updates the unread indicators without redrawing the activity. A closed phone drawer keeps only
+its drawer sheet, not the project collectors. Below 600 dp, Task Details replaces the chat and Tasks compositions in
+the activity window. The saved navigation stack and panel state restore Back and list position. Quotes wait for the
+originating chat composer if it is not composed. Wider windows retain the existing task sheet and layout options.
+
+Search builds documents and a BM25 index on the background dispatcher only for a nonblank query. The index is
+reused for query changes; feedback search reads also start only while searching. Project thread and worker stores
+read once per connection generation and apply push snapshots directly. Thread pushes omit archives, so the store
+retains known archived rows and re-reads the complete list when a live thread disappears. Panel retries share that
+same read rather than opening a new subscription for each screen.
+
 ## Android chat code and diffs
 
 Android highlights fenced code and language-tagged tool output natively in Compose with the tm4e engine

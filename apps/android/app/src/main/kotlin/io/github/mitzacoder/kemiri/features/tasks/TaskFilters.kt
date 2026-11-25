@@ -11,21 +11,16 @@ import io.github.mitzacoder.kemiri.protocol.BoardTask
 
 /** Shared list/board focus filter, per project's live board. */
 @Composable
-internal fun filteredTasks(context: ProjectScreenContext, tasks: List<BoardTask>, includeSearch: Boolean = true): List<BoardTask> {
+internal fun filteredTasks(context: ProjectScreenContext, tasks: List<BoardTask>): List<BoardTask> {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val focus by context.board.linkedTask.collectAsStateWithLifecycle()
-    val filtered = if (connection.supports(HarnessFeature.TASK_LINKS)) applyTaskFilter(tasks, focus) else tasks
-    val search = taskSearchState(context, tasks)
-    return if (includeSearch && search.query.isNotBlank()) {
-        val ids = search.index.search(search.query, filtered.map { it.id }.toSet()).map { it.id }.toSet()
-        filtered.filter { it.id in ids }
-    } else filtered
+    return if (connection.supports(HarnessFeature.TASK_LINKS)) applyTaskFilter(tasks, focus) else tasks
 }
 
 @Composable
-internal fun TaskFilters(context: ProjectScreenContext, tasks: List<BoardTask>) {
+internal fun TaskFilters(context: ProjectScreenContext) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val search = taskSearchState(context, tasks)
+    val search = taskSearchState(context)
     val focus by context.board.linkedTask.collectAsStateWithLifecycle()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         TaskSearchBox(search)

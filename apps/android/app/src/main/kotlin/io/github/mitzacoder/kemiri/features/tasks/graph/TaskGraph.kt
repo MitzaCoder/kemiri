@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks.graph
 
+import io.github.mitzacoder.kemiri.data.collectSettings
+import io.github.mitzacoder.kemiri.data.projectWorkers
+import io.github.mitzacoder.kemiri.data.projectThreads
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.foundation.layout.*
@@ -10,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.request
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
 import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.*
 import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphFoldGroups
@@ -28,23 +30,18 @@ import kotlinx.coroutines.launch
 fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, viewSwitch: @Composable () -> Unit, onLeave: () -> Unit) {
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val settings by context.repository.settings.collectAsStateWithLifecycle()
     val backend = context.backend.config.key
     val project = context.route.projectId
     val key = "$backend/$project"
-    val mode = settings.graphMode(backend, project)
+    val mode by context.repository.collectSettings(backend, project) { it.graphMode(backend, project) }
     val linkedTask by context.board.linkedTask.collectAsStateWithLifecycle()
-    val workersRead = if (connection.supports("workers")) panelData(context, "graph-workers", { it is WorkersStateEvent && it.projectId == project }) {
-        context.backend.client.request(WorkersListRequest(projectId = project)).workers
-    } else null
-    val threadsRead = if (connection.supports("threads")) panelData(context, "graph-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    } else null
+    val workersRead = projectWorkers(context, connection.supports("workers"))
+    val threadsRead = projectThreads(context, connection.supports("threads"))
     val coordinatorScope = LocalCoordinatorTaskScope.current
     val scopedTasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
     val scopedQuestions = coordinatorScope?.questions(view.questions) ?: view.questions
-    val threads = threadsRead?.value.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.id, coordinatorScope.threads)) }
-    val workers = workersRead?.value.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.threadId, coordinatorScope.threads)) }
+    val threads = threadsRead?.value?.threads.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.id, coordinatorScope.threads)) }
+    val workers = workersRead?.value?.workers.orEmpty().filter { coordinatorScope == null || coordinatorScope.includes(coordinatorOfThread(it.threadId, coordinatorScope.threads)) }
     var selectedId by rememberSaveable(key) { mutableStateOf(linkedTask) }
     var workerSelection by rememberSaveable(key) { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable(key) { mutableStateOf(false) }
@@ -61,7 +58,7 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     val folds = remember(graph, view.questions) { graphFoldGroups(graph, view.questions) }
     val shown = remember(graph, folds, mode, expandedFolds, showResting) { liveTaskGraph(graph, folds, mode, expandedFolds, showResting) }
     val counts = remember(graph) { graphCounts(graph) }
-    val canvas = remember(key) { BubbleCanvasState(loadGraphCamera(settings, backend, project)) }
+    val canvas = remember(key) { BubbleCanvasState(loadGraphCamera(context.repository.settings.value, backend, project)) }
     val scope = rememberCoroutineScope()
     val motionBaseline = remember(key) { BubbleMotionBaseline() }
     var motionBatch by remember(key) { mutableStateOf(BubbleMotionBatch()) }

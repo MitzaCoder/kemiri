@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.status
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -120,9 +121,9 @@ fun MachineLine(status: ServerStatus?, modifier: Modifier = Modifier) {
 @Composable
 fun DeployBanner(repository: HarnessRepository, backend: BackendSession, modifier: Modifier = Modifier) {
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val dismissedDeploys by repository.collectSettings { it.dismissedDeploys }
     val problem = deployProblem(status) ?: return
-    if (isDeployDismissed(settings.dismissedDeploys, problem.deploy)) return
+    if (isDeployDismissed(dismissedDeploys, problem.deploy)) return
     val view = deployBanner(problem, rememberNow())
     val scope = rememberCoroutineScope()
     ToneBanner(view.tone, modifier) {

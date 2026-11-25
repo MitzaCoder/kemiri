@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import io.github.mitzacoder.kemiri.protocol.BoardTaskReport
 import kotlinx.serialization.json.*
 import org.commonmark.ext.gfm.tables.TablesExtension
@@ -45,10 +47,30 @@ internal sealed interface ReportSectionContent {
     }
 }
 
+private fun BoardTaskReport.sectionPayload(section: ReportSectionKind) = (blocks as? JsonObject)?.get(section.wireKey)
+
 /** Read only the requested section. Never let a partial block list or a newer sibling replace readable text. */
 internal fun readReportSection(report: BoardTaskReport, section: ReportSectionKind): ReportSectionContent =
-    decodeReportBlocks((report.blocks as? JsonObject)?.get(section.wireKey), section)
-        ?.let(ReportSectionContent::Blocks) ?: ReportSectionContent.Mirror(section.mirror(report))
+    reportSectionContent(section, report.sectionPayload(section), section.mirror(report))
+
+private fun reportSectionContent(section: ReportSectionKind, payload: JsonElement?, mirror: String): ReportSectionContent =
+    decodeReportBlocks(payload, section)?.let(ReportSectionContent::Blocks) ?: ReportSectionContent.Mirror(mirror)
+
+@Composable
+internal fun rememberReportSection(report: BoardTaskReport, section: ReportSectionKind): ReportSectionContent {
+    val payload = report.sectionPayload(section)
+    val mirror = section.mirror(report)
+    return remember(section, payload, mirror) { reportSectionContent(section, payload, mirror) }
+}
+
+internal data class ParsedTaskReport(val summary: ReportSectionContent, val results: ReportSectionContent,
+    val notDone: ReportSectionContent, val next: ReportSectionContent, val steps: ReportSectionContent)
+
+@Composable internal fun rememberParsedTaskReport(report: BoardTaskReport) = ParsedTaskReport(
+    rememberReportSection(report, ReportSectionKind.Summary), rememberReportSection(report, ReportSectionKind.Results),
+    rememberReportSection(report, ReportSectionKind.NotDone), rememberReportSection(report, ReportSectionKind.Next),
+    rememberReportSection(report, ReportSectionKind.Steps),
+)
 
 private fun decodeReportBlocks(payload: JsonElement?, section: ReportSectionKind): List<ReportBlock>? {
     val blocks = payload as? JsonArray ?: return null
@@ -65,8 +87,8 @@ internal fun hasTypedNext(report: BoardTaskReport): Boolean = when (val next = (
 
 internal enum class ReportNextPlacement { Next, Review }
 
-internal fun reportNextPlacement(report: BoardTaskReport, review: Boolean): ReportNextPlacement? = when {
-    !readReportSection(report, ReportSectionKind.Next).hasContent -> null
+internal fun reportNextPlacement(report: BoardTaskReport, review: Boolean, next: ReportSectionContent = readReportSection(report, ReportSectionKind.Next)): ReportNextPlacement? = when {
+    !next.hasContent -> null
     review && !hasTypedNext(report) -> ReportNextPlacement.Review
     else -> ReportNextPlacement.Next
 }

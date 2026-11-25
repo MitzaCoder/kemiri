@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.files
 
+import io.github.mitzacoder.kemiri.data.projectWorkers
+import io.github.mitzacoder.kemiri.data.projectThreads
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -20,7 +22,6 @@ import io.github.mitzacoder.kemiri.data.request
 import io.github.mitzacoder.kemiri.features.changes.*
 import io.github.mitzacoder.kemiri.navigation.Destination
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
-import io.github.mitzacoder.kemiri.navigation.rememberPushedList
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.JarvisIconButton
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -33,12 +34,8 @@ import kotlinx.coroutines.delay
     val project = context.route.projectId
     val connection by client.state.collectAsStateWithLifecycle()
     val supported = connection.supports(PROJECT_FILES)
-    val workers = rememberPushedList(client, project, supported && connection.supports("workers"),
-        { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == project }?.workers },
-        { client.request(WorkersListRequest(projectId = project)).workers })
-    val threads = rememberPushedList(client, project, supported && connection.supports("threads"),
-        { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == project }?.threads },
-        { client.request(ThreadsListRequest(projectId = project)).threads })
+    val workers = projectWorkers(context, supported && connection.supports("workers"))?.value?.workers.orEmpty()
+    val threads = projectThreads(context, supported && connection.supports("threads"))?.value?.threads.orEmpty().filterNot { it.archived }
     val choices = remember(workers, threads) { checkoutChoices(workers, threads) }
     val checkout = choices.firstOrNull { it.root == route.root }?.label ?: route.root.label()
     var rootMenu by remember { mutableStateOf(false) }

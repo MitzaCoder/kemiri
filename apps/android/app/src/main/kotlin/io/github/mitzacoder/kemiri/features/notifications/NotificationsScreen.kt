@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import android.Manifest
 import android.content.Intent
 import android.provider.Settings
@@ -86,8 +87,9 @@ internal fun NotificationsSection(repository: HarnessRepository) {
     val center = LocalNotificationCenter.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val deviceSettings by repository.settings.collectAsStateWithLifecycle()
-    val settings = deviceSettings.notifications
+    val inAppAlerts by repository.collectSettings { it.inAppAlerts }
+    val notificationPreferences by repository.collectSettings { it.notifications }
+    val settings = notificationPreferences
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val states by (center?.states ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyMap()) }).collectAsStateWithLifecycle()
     var message by rememberSaveable { mutableStateOf<String?>(null) }
@@ -104,7 +106,7 @@ internal fun NotificationsSection(repository: HarnessRepository) {
     }
     val unavailable = center?.pushUnavailableReason
     SettingsSectionPage(GeneralSection.Notifications) {
-        InAppAlertSettingsGroup(deviceSettings.inAppAlerts, { transform -> scope.launch { repository.setInAppAlerts(transform) } }) {
+        InAppAlertSettingsGroup(inAppAlerts, { transform -> scope.launch { repository.setInAppAlerts(transform) } }) {
             val mutes = center?.activeMutes?.collectAsStateWithLifecycle()?.value ?: settings.activeMutes(System.currentTimeMillis())
             MutedNotificationsRow(sessions, mutes) { backendKey, projectId, mute ->
                 update { it.withMute(backendKey, projectId, mute) }

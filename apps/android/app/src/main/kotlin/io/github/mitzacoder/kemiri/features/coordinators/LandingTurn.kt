@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.coordinators
 
+import io.github.mitzacoder.kemiri.data.projectThreads
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -8,7 +9,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.data.request
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -36,11 +36,9 @@ internal val LocalLandingTurn = staticCompositionLocalOf<LandingTurnSnapshot?> {
 
 @Composable internal fun rememberLandingTurn(context: ProjectScreenContext, enabled: Boolean): LandingTurnSnapshot? {
     if (!enabled) return null
-    val project = context.route.projectId
-    val snapshot = panelData(context, "landing-turn", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project))
-    }.value ?: return null
-    return LandingTurnSnapshot(landingTurnPresentation(snapshot.landingTurn, snapshot.threads), snapshot.threads)
+    val snapshot = projectThreads(context)?.value ?: return null
+    val threads = snapshot.threads.filterNot { it.archived }
+    return LandingTurnSnapshot(landingTurnPresentation(snapshot.landingTurn, threads), threads)
 }
 
 @Composable internal fun LandingTurnLine(turn: LandingTurnPresentation) {

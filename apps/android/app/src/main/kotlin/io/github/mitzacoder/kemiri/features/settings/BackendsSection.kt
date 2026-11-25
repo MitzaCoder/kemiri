@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsNavigator, connectPayload: String?, onConnectHandled: () -> Unit) {
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val backends by repository.collectSettings { it.backends }
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val local = LocalContext.current
@@ -51,7 +51,7 @@ internal fun BackendsSection(repository: HarnessRepository, navigator: SettingsN
     val imported = previewValue?.let { decodeConnect(it.substringAfter('#', it)).getOrNull() } ?: suggestion?.let { listOf(it) }
     LaunchedEffect(refresh) { suggestions = fetchPublishedBackends(publishedUrl) }
     LaunchedEffect(connectPayload) { connectPayload?.let { preview(it); onConnectHandled() } }
-    val missing = suggestions.filter { row -> settings.backends.none { it.key == row.key } }
+    val missing = suggestions.filter { row -> backends.none { it.key == row.key } }
 
     SettingsSectionPage(GeneralSection.Backends) {
         SettingsGroup(title = "Your computers") {

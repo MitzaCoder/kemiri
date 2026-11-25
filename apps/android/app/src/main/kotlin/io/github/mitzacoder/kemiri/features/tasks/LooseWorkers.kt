@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.data.projectWorkers
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.foundation.layout.*
@@ -20,7 +21,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.request
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.panels.sortWorkers
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
@@ -52,9 +52,7 @@ internal fun LooseWorkers(context: ProjectScreenContext, tasks: List<BoardTask>)
     val project = context.route.projectId
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     if (!connection.supports("workers")) return
-    val workers = panelData(context, "loose-workers", { it is WorkersStateEvent && it.projectId == project }) {
-        context.backend.client.request(WorkersListRequest(projectId = project)).workers
-    }.value.orEmpty()
+    val workers = projectWorkers(context)?.value?.workers.orEmpty()
     val selector = LocalCoordinatorTaskScope.current
     val loose = workersWithoutTask(workers.filter { selector == null || selector.includes(coordinatorOfThread(it.threadId, selector.threads)) }, tasks.flatMap { it.workerIds })
     if (loose.isEmpty()) return

@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,7 +39,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
     val threads = sheet.threads
     val workers = sheet.workers
     val artifacts = sheet.artifacts
-    val results = remember(task.report) { readReportSection(task.report, ReportSectionKind.Results) }
+    val results = sheet.report.results
     val partPage = sheet.partPage
     val actions = taskPageActions(task, partPage)
     val digest = task.partsDigest.takeIf { sheet.requestDigest }
@@ -66,7 +67,10 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
     val roster = coordinatorRoster(threads)
     var movingTask by rememberSaveable { mutableStateOf(false) }
     val moveTask: (() -> Unit)? = if (sheet.coordinatorTitle != null && !task.archived && roster.size > 1) { { movingTask = true } } else null
-    if (movingTask && moveTask != null) TaskCoordinatorMoveDialog(context, task, sheet.tasks, roster) { movingTask = false }
+    if (movingTask && moveTask != null) {
+        val board by context.board.view.collectAsStateWithLifecycle()
+        TaskCoordinatorMoveDialog(context, task, board.tasks, roster) { movingTask = false }
+    }
 
     var titleHeight by remember { mutableIntStateOf(0) }
     val editorScroll = rememberLazyListState()
@@ -94,7 +98,8 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 if (sheet.editing) item(key = "editor") {
-                    TaskEditor(context, task, sheet.tasks, onBack = { sheet.onEditChange(false) }, scrolls = false, editStatus = actions.canClose)
+                    val board by context.board.view.collectAsStateWithLifecycle()
+                    TaskEditor(context, task, board.tasks, onBack = { sheet.onEditChange(false) }, scrolls = false, editStatus = actions.canClose)
                 } else {
                     item(key = "task-header") {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -131,7 +136,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                         }
                     }
                     if (needsYou.show) item(key = "needs-you") {
-                        TaskNeedsYouSection(context, task, needsYou, sheet.nextPlacement, blockers, threads, status.saving,
+                        TaskNeedsYouSection(context, task, needsYou, sheet.nextPlacement, sheet.report, blockers, threads, status.saving,
                             onCloseTask = if (actions.canClose) ({ status.onSet("done", null, null) }) else null, onFocusReply = sheet.onFocusReply)
                     }
                     if (liveNow != null && task.live != null) item(key = "live") {
@@ -139,9 +144,9 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                     }
                     item(key = "results") {
                         TaskReadingSection("What you get") {
-                            if (fields.showSummary) ReportSection(task, ReportSectionKind.Summary)
+                            if (fields.showSummary) ReportSection(task, ReportSectionKind.Summary, content = sheet.report.summary)
                             if (sheet.staleReport) StaleTaskReport(context, task.id)
-                            if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts, sheet.sectionViewsSupported)
+                            if (results.hasContent) ReportSection(task, ReportSectionKind.Results, context, artifacts, sheet.sectionViewsSupported, content = results)
                             else if (!fields.showSummary && failedChecks == null) Text(if (task.state?.liveWorkSince == null && emptyFinishedResults(task.status, task.report.results)) "No results yet · work finished" else "Nothing written yet.", style = TaskType.xs, color = colors.fgMuted)
                             failedChecks?.let { Text(it, style = TextStyles.task, color = colors.danger) }
                             TaskUsageDisclosure(sheet.usage, taskId)
@@ -159,7 +164,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                     }
                     if (fields.showNotDone || derivedNotDone.isNotEmpty()) item(key = "not-done") {
                         TaskReadingSection("Not done") {
-                            if (fields.showNotDone) ReportSection(task, ReportSectionKind.NotDone, context, artifacts, sheet.sectionViewsSupported)
+                            if (fields.showNotDone) ReportSection(task, ReportSectionKind.NotDone, context, artifacts, sheet.sectionViewsSupported, content = sheet.report.notDone)
                             derivedNotDone.forEach { line ->
                                 Text(line.text, Modifier.fillMaxWidth().clickable(onClickLabel = "Open dropped part") { context.openTask(line.partId) }
                                     .heightIn(min = 48.dp).padding(vertical = 8.dp), style = TaskType.xs, color = colors.fgMuted)
@@ -172,7 +177,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                                 TaskHeading("Now")
                                 if (activity != null) TaskActivityView(activity, inlineAge = true) else ReportMarkdown(task.report.now)
                             }
-                            if (showNext) ReportSection(task, ReportSectionKind.Next)
+                            if (showNext) ReportSection(task, ReportSectionKind.Next, content = sheet.report.next)
                         }
                     }
                     if (needsYou.questionsForAgent.isNotEmpty()) item(key = "agent-questions") {

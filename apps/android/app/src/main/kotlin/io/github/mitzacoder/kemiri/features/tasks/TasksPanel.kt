@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.data.collectSettings
+import io.github.mitzacoder.kemiri.data.projectThreads
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.animation.AnimatedVisibility
@@ -35,7 +37,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.familyExpansion
 import io.github.mitzacoder.kemiri.data.request
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -63,11 +64,9 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val view by board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
-    val settings by context.repository.settings.collectAsStateWithLifecycle()
-    val expansion = settings.familyExpansion(context.backend.config.key, project)
-    val threads = if (connection.supports("threads")) panelData(context, "task-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    }.value.orEmpty() else emptyList()
+    val backendKey = context.backend.config.key
+    val expansion by context.repository.collectSettings(backendKey, project) { it.familyExpansion(backendKey, project) }
+    val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
     val stateKey = "${context.backend.config.key}/$project"
     var adding by rememberSaveable(stateKey) { mutableStateOf(false) }
     // Sections the user opened or folded against their default.
@@ -87,11 +86,11 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val coordinatorScope = LocalCoordinatorTaskScope.current
     val tasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
     val questions = coordinatorScope?.questions(view.questions) ?: view.questions
-    val sections = if (loadedBoard == null) emptyList() else taskSections(filteredTasks(context, tasks, includeSearch = false), questions, includeArchived = view.showArchived)
-    val search = taskSearchState(context, tasks)
+    val sections = if (loadedBoard == null) emptyList() else taskSections(filteredTasks(context, tasks), questions, includeArchived = view.showArchived)
+    val search = taskSearchState(context)
     val searching = search.query.isNotBlank()
-    val eligible = sections.flatMap { it.rows }.filter { !isSettled(it.task.status) || sectionExpansion[TaskSectionId.Closed.name] == true }.map { it.task.id }.toSet()
-    val searchHits = if (searching) search.index.search(search.query, eligible) else emptyList()
+    val eligible = if (searching) sections.flatMap { it.rows }.filter { !isSettled(it.task.status) || sectionExpansion[TaskSectionId.Closed.name] == true }.map { it.task.id }.toSet() else emptySet()
+    val searchHits = taskSearchHits(context, search, tasks, eligible)
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
     val loose = if (loadedBoard == null) emptyList() else looseQuestions(loadedBoard.copy(tasks = tasks, questions = questions))
     val looseGroups = loose.groupBy { it.waitingOn == "agent" }
@@ -170,7 +169,7 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 }
             }
         }
-        item(key = "task-filters") { TaskFilters(context, tasks) }
+        item(key = "task-filters") { TaskFilters(context) }
         if (!view.loaded) {
             item(key = "skeleton") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

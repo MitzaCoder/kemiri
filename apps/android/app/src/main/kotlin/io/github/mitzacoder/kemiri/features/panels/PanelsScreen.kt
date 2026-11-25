@@ -62,9 +62,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
-    val threads = if (connection.supports("threads")) panelData(context, "task-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    }.value.orEmpty() else emptyList()
+    val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
     CoordinatorTaskScopeLayout(context, modifier) {
     TasksView(
         context, Modifier.fillMaxSize(),
@@ -113,9 +111,8 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     val client = context.backend.client
     val connection by client.state.collectAsStateWithLifecycle()
     val project = context.route.projectId
-    val data = panelData(context, showArchived, { it is ThreadsStateEvent && it.projectId == project }) {
-        client.request(ThreadsListRequest(projectId = project, includeArchived = showArchived)).threads
-    }
+    val store = context.backend.threads(project)
+    val data by store.snapshot.collectAsStateWithLifecycle()
     val now = rememberPanelNow()
     val scheduleName = scheduleNames(context, "thread-schedules")
     val colors = io.github.mitzacoder.kemiri.ui.theme.Jarvis.colors
@@ -127,7 +124,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         busy = thread.id
         problem = null
         scope.launch {
-            try { request(); done(); data.refresh.trySend(Unit) }
+            try { request(); done(); store.refresh() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { problem = thread.id to panelError(e) }
             finally { busy = null }
@@ -137,7 +134,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         Text("Big jobs Main chat handed off. They report back to Main chat; ask Main chat to start, steer or stop one.",
             Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        PanelBody(data) { threads ->
+        PanelBody(data.value?.threads?.filter { showArchived || !it.archived }, data.error, data.loading, store::refresh) { threads ->
             val jobThreads = if (connection.supports("coordinators")) {
                 val owner = coordinatorOfThread(context.route.threadId, threads)
                 threads.filter { it.kind != "coordinator" && (it.parentThreadId ?: "main") == owner }
@@ -172,7 +169,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
     stopping?.let { thread ->
         io.github.mitzacoder.kemiri.features.chat.ThreadStopConfirmation(context, thread,
             onDismiss = { stopping = null }, onPending = { busy = if (it) thread.id else null },
-            onStopped = { stopping = null; data.refresh.trySend(Unit) })
+            onStopped = { stopping = null; store.refresh() })
     }
 }
 

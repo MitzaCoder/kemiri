@@ -157,7 +157,8 @@ enum class TaskLineTone { Quiet, Report, Done, Failed, Tool }
  */
 @Composable internal fun TaskText(text: String, modifier: Modifier = Modifier, titles: Boolean = false, strong: Boolean = false, color: Color = if (strong) Jarvis.colors.fg else Jarvis.colors.fgMuted) {
     val links = LocalTaskLinks.current
-    val pieces = remember(text, links) { if (links == null) listOf(TextPiece.Plain(text)) else splitTaskMentions(text) { links.knows(it) } }
+    val ids = links?.taskIds.orEmpty()
+    val pieces = remember(text, ids) { splitTaskMentions(text, known = ids::contains) }
     if (pieces.none { it is TextPiece.Task }) {
         LineWords(text, modifier, color, if (strong) FontWeight.SemiBold else null)
         return
@@ -243,12 +244,14 @@ private val LocalTaskMentionsProvided = compositionLocalOf { false }
     if (links == null) { CompositionLocalProvider(LocalTextLinkers provides outer, content = content); return }
     // Like the web's task links: the ID in the accent colour on a faint wash of it.
     val style = TextLinkStyles(SpanStyle(color = if(userMessage) Jarvis.colors.fg else Jarvis.colors.accent2, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, background = Jarvis.colors.accent2.copy(alpha = .12f)))
-    val linker = remember(links, streaming, source, style) {
+    val ids = links.taskIds
+    val linker = remember(links, ids, streaming, source, style) {
         TextLinker { text ->
-            taskMentionSpans(text, atTail(text), links::knows, style, links::preview)
+            taskMentionSpans(text, atTail(text), ids::contains, style, links::preview)
         }
     }
-    CompositionLocalProvider(LocalTaskMentionsProvided provides true, LocalTextLinkers provides outer + linker, content = content)
+    val linkers = remember(outer, linker) { outer + linker }
+    CompositionLocalProvider(LocalTaskMentionsProvided provides true, LocalTextLinkers provides linkers, content = content)
 }
 
 /** The same parsed-text task linker in chat and task details; Markdown owns code/link exclusions. */

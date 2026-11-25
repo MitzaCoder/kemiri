@@ -29,12 +29,12 @@ internal fun GeneralSettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val notifications by repository.collectSettings { it.notifications }
     val counts by remember(sessions) {
         val flows: List<Flow<Pair<Boolean, Int>>> = sessions.map { s -> combine(s.client.state, s.projects) { c, p -> (c.status != ConnectionStatus.Ready) to p.archivedOnes().size } }
         if (flows.isEmpty()) flowOf(0 to 0) else combine(flows) { rows -> rows.count { it.first } to rows.sumOf { it.second } }
     }.collectAsStateWithLifecycle(0 to 0)
-    val chips = generalChips(counts.first, settings.notifications.enabled, counts.second)
+    val chips = generalChips(counts.first, notifications.enabled, counts.second)
     val backend = sessions.firstOrNull { it.config.key == page.backendKey }
     val computer = page.backendKey != null
     val parent = generalParent(page)

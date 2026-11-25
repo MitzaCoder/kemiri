@@ -15,7 +15,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.mix
 
 @Composable
-internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, nextPlacement: ReportNextPlacement?, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: (() -> Unit)?, onFocusReply: () -> Unit) {
+internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask, needsYou: TaskNeedsYou, nextPlacement: ReportNextPlacement?, report: ParsedTaskReport, blockers: List<Blocker>, threads: List<ThreadSummary>, closing: Boolean, onCloseTask: (() -> Unit)?, onFocusReply: () -> Unit) {
     val colors = Jarvis.colors
     Surface(
         Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
@@ -31,12 +31,12 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
             } }
             if (needsYou.showSteps) {
                 if (needsYou.ownerQuestions.isNotEmpty()) HorizontalDivider(color = colors.borderStrong)
-                TaskReadingSection("Your steps") { ReportSection(task, ReportSectionKind.Steps) }
+                TaskReadingSection("Your steps") { ReportSection(task, ReportSectionKind.Steps, content = report.steps) }
             }
             if (needsYou.review && onCloseTask != null) {
                 if (needsYou.ownerQuestions.isNotEmpty() || needsYou.showSteps) HorizontalDivider(color = colors.borderStrong)
                 TaskHeading("Check the work")
-                if (nextPlacement == ReportNextPlacement.Review) ReportSection(task, ReportSectionKind.Next)
+                if (nextPlacement == ReportNextPlacement.Review) ReportSection(task, ReportSectionKind.Next, content = report.next)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(onClick = onCloseTask, enabled = !closing, modifier = Modifier.heightIn(min = 48.dp)) { Text("It works: close the task") }
                     OutlinedButton(onClick = onFocusReply, modifier = Modifier.heightIn(min = 48.dp)) { Text("Something is off…") }

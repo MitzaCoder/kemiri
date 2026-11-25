@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -44,11 +45,11 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
     val center = LocalNotificationCenter.current ?: return
     val presence by center.presence.collectAsStateWithLifecycle()
     val banners by center.banners.collectAsStateWithLifecycle()
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val inAppAlerts by repository.collectSettings { it.inAppAlerts }
     val banner = banners.firstOrNull() ?: return
     var menuOpen by remember(banner.id, presence.visible) { mutableStateOf(false) }
     if (!presence.visible || (!LocalWindowInfo.current.isWindowFocused && !menuOpen) ||
-        settings.inAppAlerts.disturbedAt(System.currentTimeMillis())) return
+        inAppAlerts.disturbedAt(System.currentTimeMillis())) return
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val session = sessions.firstOrNull { it.config.key == banner.latest.backendKey }
     val projects = session?.projects?.collectAsStateWithLifecycle()?.value.orEmpty()
@@ -75,7 +76,7 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
             } finally { center.stopBannerClock(banner.id) }
         }
         key(banner.id) {
-            AlertBannerCard(banner, banners.size, projectName, session?.config?.name, settings.inAppAlerts.showMessageText,
+            AlertBannerCard(banner, banners.size, projectName, session?.config?.name, inAppAlerts.showMessageText,
                 dismiss, open, onNeedsYou, { answer -> center.answerAlert(banner.latest, answer) },
                 menuOpen = menuOpen, onMenuOpen = { menuOpen = it },
                 onMute = { projectId -> center.muteFromBanner(banner.latest.backendKey, projectId) },

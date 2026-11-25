@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.settings
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,7 +44,15 @@ internal val THEME_CARDS = listOf(
  */
 @Composable
 internal fun AppearanceSection(repository: HarnessRepository) {
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val mode by repository.collectSettings { it.mode }
+    val palette by repository.collectSettings { it.palette }
+    val timeFormat by repository.collectSettings { it.timeFormat }
+    val workDayStart by repository.collectSettings { it.workDayStart }
+    val taskViewDesignId by repository.collectSettings { it.taskViewDesignId }
+    val codeWrap by repository.collectSettings { it.codeWrap }
+    val timelineNewestFirst by repository.collectSettings { it.timelineNewestFirst }
+    val mediaSeparate by repository.collectSettings { it.mediaSeparate }
+    val taskRecordFolds by repository.collectSettings { it.taskRecordFolds }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     SettingsSectionPage(GeneralSection.Appearance) {
@@ -51,16 +60,16 @@ internal fun AppearanceSection(repository: HarnessRepository) {
             GroupRow {
                 Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     THEME_CARDS.forEach { (palette, name, description) ->
-                        ThemeCard(palette, name, description, chosen = settings.palette == palette) { scope.launch { repository.setTheme(palette, settings.mode) } }
+                        ThemeCard(palette, name, description, chosen = palette == palette) { scope.launch { repository.setTheme(palette, mode) } }
                     }
                 }
             }
             SettingsRow("Light or dark", hint = "Follows your device's setting unless you choose.", control = RowControl.Wide) {
                 Row(Modifier.selectableGroup().fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->
-                        val chosen = settings.mode == mode
+                        val chosen = mode == mode
                         FilterChip(
-                            chosen, { scope.launch { repository.setTheme(settings.palette, mode) } }, label = { Text(if (mode == ThemeMode.System) "Device" else mode.name) },
+                            chosen, { scope.launch { repository.setTheme(palette, mode) } }, label = { Text(if (mode == ThemeMode.System) "Device" else mode.name) },
                             leadingIcon = when (mode) {
                                 ThemeMode.Light -> ({ LucideGlyph(SettingsGlyphs.Sun, size = 16.dp) })
                                 ThemeMode.Dark -> ({ LucideGlyph(SettingsGlyphs.Moon, size = 16.dp) })
@@ -77,7 +86,7 @@ internal fun AppearanceSection(repository: HarnessRepository) {
             SettingsRow("Time format", hint = "Automatic follows your device locale. Saved on this device.", control = RowControl.Wide) {
                 Row(Modifier.selectableGroup().fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TimeFormat.entries.forEach { format ->
-                        FilterChip(settings.timeFormat == format, { scope.launch { repository.setTimeFormat(format) } },
+                        FilterChip(timeFormat == format, { scope.launch { repository.setTimeFormat(format) } },
                             label = { Text(format.label) }, modifier = Modifier.heightIn(min = 44.dp).weight(1f))
                     }
                 }
@@ -86,16 +95,16 @@ internal fun AppearanceSection(repository: HarnessRepository) {
         SettingsGroup(title = "Waiting tasks") {
             SettingsRow("Waiting tasks come back at", term = "Work day start", hint = "A task waiting until a date returns at this time, in this device's time zone.") {
                 TextButton(onClick = {
-                    val time = java.time.LocalTime.parse(io.github.mitzacoder.kemiri.data.normalizeWorkDayStart(settings.workDayStart))
+                    val time = java.time.LocalTime.parse(io.github.mitzacoder.kemiri.data.normalizeWorkDayStart(workDayStart))
                     android.app.TimePickerDialog(context, { _, hour, minute ->
                         scope.launch { repository.setWorkDayStart(String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute)) }
-                    }, time.hour, time.minute, settings.timeFormat == TimeFormat.Hour24 || (settings.timeFormat == TimeFormat.Automatic && android.text.format.DateFormat.is24HourFormat(context))).show()
-                }) { Text(displayWallTime(settings.workDayStart)) }
+                    }, time.hour, time.minute, timeFormat == TimeFormat.Hour24 || (timeFormat == TimeFormat.Automatic && android.text.format.DateFormat.is24HourFormat(context))).show()
+                }) { Text(displayWallTime(workDayStart)) }
             }
         }
         SettingsGroup(title = "Reading") {
             if (TaskViewDesigns.entries.size > 1) {
-                val taskViewDesign = TaskViewDesigns.resolve(settings.taskViewDesignId)
+                val taskViewDesign = TaskViewDesigns.resolve(taskViewDesignId)
                 SettingsRow("Task view", hint = "${taskViewDesign.description} Saved on this device.", control = RowControl.Wide) {
                     Row(Modifier.selectableGroup().fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TaskViewDesigns.entries.forEach { design ->
@@ -105,14 +114,14 @@ internal fun AppearanceSection(repository: HarnessRepository) {
                     }
                 }
             }
-            SettingsRow("Wrap code", hint = when (settings.codeWrap) {
+            SettingsRow("Wrap code", hint = when (codeWrap) {
                 "wrap" -> "Wrap lines"
                 "scroll" -> "Scroll sideways"
                 else -> "Use each view's default"
             })
-            SettingsRow("Timeline order", hint = if (settings.timelineNewestFirst) "Newest first" else "Oldest first")
-            SettingsRow("Before and after images", hint = if (settings.mediaSeparate) "Show separately" else "Compare side by side")
-            SettingsRow("Task record folds", hint = if (settings.taskRecordFolds.isEmpty()) "Use each row's default" else "Remember your open and closed rows")
+            SettingsRow("Timeline order", hint = if (timelineNewestFirst) "Newest first" else "Oldest first")
+            SettingsRow("Before and after images", hint = if (mediaSeparate) "Show separately" else "Compare side by side")
+            SettingsRow("Task record folds", hint = if (taskRecordFolds.isEmpty()) "Use each row's default" else "Remember your open and closed rows")
             GroupRow {
                 OutlinedButton(onClick = { scope.launch { repository.resetReadingChoices() } }) { Text("Reset reading choices") }
             }

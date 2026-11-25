@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
-import io.github.mitzacoder.kemiri.features.panels.panelData
 import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
 import io.github.mitzacoder.kemiri.features.tasks.looseQuestions
 import io.github.mitzacoder.kemiri.features.tasks.requestRows
@@ -139,12 +138,8 @@ fun TaskBoard(
     val requestsOnly = connection.supports(HarnessFeature.REQUEST_ATTENTION)
     val canSendReason = connection.supports("conversation")
     val project = context.route.projectId
-    val workers = if (connection.supports("workers")) panelData(context, "board-workers", { it is WorkersStateEvent && it.projectId == project }) {
-        client.request(WorkersListRequest(projectId = project)).workers
-    }.value.orEmpty() else emptyList()
-    val threads = if (connection.supports("threads")) panelData(context, "board-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        client.request(ThreadsListRequest(projectId = project)).threads
-    }.value.orEmpty() else emptyList()
+    val workers = projectWorkers(context, connection.supports("workers"))?.value?.workers.orEmpty()
+    val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty().filterNot { it.archived }
 
     val colors = Jarvis.colors
     val density = LocalDensity.current
@@ -164,9 +159,10 @@ fun TaskBoard(
     fun withPending(tasks: List<BoardTask>) = if (pending.isEmpty()) tasks else tasks.map { task -> pending[task.id]?.let { task.copy(status = it) } ?: task }
     val coordinatorScope = LocalCoordinatorTaskScope.current
     val tasks = withPending(coordinatorScope?.tasks(view.tasks) ?: view.tasks)
-    val filtered = io.github.mitzacoder.kemiri.features.tasks.filteredTasks(context, tasks, includeSearch = false)
-    val search = io.github.mitzacoder.kemiri.features.tasks.taskSearchState(context, tasks)
-    val searchHits = if (search.query.isBlank()) emptyMap() else search.index.search(search.query, filtered.map { it.id }.toSet()).associateBy { it.id }
+    val filtered = io.github.mitzacoder.kemiri.features.tasks.filteredTasks(context, tasks)
+    val search = io.github.mitzacoder.kemiri.features.tasks.taskSearchState(context)
+    val searchHits = io.github.mitzacoder.kemiri.features.tasks.taskSearchHits(context, search, tasks,
+        if (search.query.isNotBlank()) filtered.map { it.id }.toSet() else emptySet()).associateBy { it.id }
     val matchingRequests = if (requestsOnly) tasks.filter { it.id in searchHits }.mapNotNull { it.requestId ?: it.parent }.toSet() else emptySet()
     val visibleTasks = requestRows(filtered, requestsOnly).filter { search.query.isBlank() || it.id in searchHits || it.id in matchingRequests }
     val questions = coordinatorScope?.questions(view.questions) ?: view.questions
@@ -420,7 +416,7 @@ fun TaskBoard(
                     Text("Add task", style = textStyle(0.75f, 1.4f, weight = 500), color = colors.fg)
                 }
             }
-            io.github.mitzacoder.kemiri.features.tasks.TaskFilters(context, view.tasks)
+            io.github.mitzacoder.kemiri.features.tasks.TaskFilters(context)
             if (search.query.isNotBlank() && searchHits.isEmpty()) Text("No tasks match your search.", style = textStyle(0.8125f, 1.4f), color = colors.fgMuted)
             view.error?.let { error ->
                 Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(10.dp), color = colors.danger.fade(10f), contentColor = colors.danger) {

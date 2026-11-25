@@ -122,19 +122,19 @@ private val LocalCompactMarkdown = compositionLocalOf { false }
     val linkers = LocalTextLinkers.current
     val compact = LocalCompactMarkdown.current
     val lineHeight = if (compact) 21.sp else 25.sp
-    fun inline(node: Node) = inline(node, linkers, userMessage)
+    @Composable fun renderedInline(node: Node) = remember(node, linkers, userMessage) { inline(node, linkers, userMessage) }
     when(node) {
         is FencedCodeBlock -> CodeBlock(node.literal,node.info)
         is IndentedCodeBlock -> CodeBlock(node.literal,"")
-        is Heading -> MarkdownText(inline(node),fontSize = (if(compact) 15 else if(userMessage) maxOf(16, 19 - node.level) else 26 - node.level * 2).sp,fontWeight = FontWeight.SemiBold)
+        is Heading -> MarkdownText(renderedInline(node),fontSize = (if(compact) 15 else if(userMessage) maxOf(16, 19 - node.level) else 26 - node.level * 2).sp,fontWeight = FontWeight.SemiBold)
         is ThematicBreak -> HorizontalDivider()
-        is TableBlock -> MarkdownTable(node, ::inline)
+        is TableBlock -> MarkdownTable(node) { renderedInline(it) }
         is org.commonmark.node.Paragraph -> if(children(node).any { it is org.commonmark.node.Image }) {
             Column { children(node).forEach { child ->
-                if(child is org.commonmark.node.Image && (child.destination.startsWith("https://") || child.destination.startsWith("http://"))) AsyncImage(model = child.destination,contentDescription = inline(child).text,modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp))
-                else MarkdownText(inline(child))
+                if(child is org.commonmark.node.Image && (child.destination.startsWith("https://") || child.destination.startsWith("http://"))) AsyncImage(model = child.destination,contentDescription = renderedInline(child).text,modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp))
+                else MarkdownText(renderedInline(child))
             } }
-        } else MarkdownText(inline(node),lineHeight = lineHeight)
+        } else MarkdownText(renderedInline(node),lineHeight = lineHeight)
         // The marker's Text is Compose's: a bare `Text(String)` here is commonmark's node constructor and draws nothing.
         // Markers in the subtle colour, numbers in tabular figures (web `li::marker`).
         is BulletList, is OrderedList -> Column { children(node).forEachIndexed { i,item -> Row {
@@ -150,7 +150,7 @@ private val LocalCompactMarkdown = compositionLocalOf { false }
             }
         }
         is HtmlBlock -> androidx.compose.material3.Text(node.literal) // Never execute model-supplied HTML. (Plain `Text` here would be commonmark's node.)
-        else -> MarkdownText(inline(node),lineHeight = lineHeight)
+        else -> MarkdownText(renderedInline(node),lineHeight = lineHeight)
     }
 }
 
@@ -225,7 +225,7 @@ private fun codeBoxes(layout: TextLayoutResult, start: Int, end: Int, codeSize: 
  * their content (cells from 96dp, wrapping past 320dp; header cells never wrap), filling the width when they fit and
  * scrolling sideways when they do not.
  */
-@Composable private fun MarkdownTable(node: TableBlock, inline: (Node) -> AnnotatedString) {
+@Composable private fun MarkdownTable(node: TableBlock, inline: @Composable (Node) -> AnnotatedString) {
     val colors = Jarvis.colors
     val rows = remember(node) { children(node).flatMap(::children) }
     val columns = rows.maxOfOrNull { children(it).size } ?: 0

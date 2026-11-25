@@ -13,12 +13,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun rememberCoordinatorThreads(context: ProjectScreenContext, enabled: Boolean): List<ThreadSummary> {
-    val client = context.backend.client
-    val project = context.route.projectId
-    val active = rememberPushedList(client, project, enabled,
-        pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == project }?.threads },
-        read = { client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads })
-    return if (enabled) active else emptyList()
+    return projectThreads(context, enabled)?.value?.threads.orEmpty()
 }
 
 private fun Context.coordinatorPreferences() = getSharedPreferences("coordinator-presentation", Context.MODE_PRIVATE)

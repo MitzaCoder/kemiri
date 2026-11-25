@@ -11,6 +11,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.mitzacoder.kemiri.ui.components.*
@@ -66,7 +67,7 @@ fun HarnessApp(
         // Even with the expanded projects sidebar (264dp at 1024dp and up), settings still
         // has at least SETTINGS_SPLIT_WIDTH. Read width when opening, never from an effect.
         HarnessNavigation(repository, connectPayload, onConnectHandled, pendingLink, onLinkHandled,
-            splitSettings = maxWidth >= SETTINGS_SPLIT_WIDTH, wide = maxWidth >= 1024.dp)
+            splitSettings = maxWidth >= SETTINGS_SPLIT_WIDTH, wide = maxWidth >= 1024.dp, phoneWidth = maxWidth < 600.dp)
     }
 }
 
@@ -80,6 +81,7 @@ private fun HarnessNavigation(
     onLinkHandled: () -> Unit,
     splitSettings: Boolean,
     wide: Boolean,
+    phoneWidth: Boolean,
 ) {
     var savedBackStack by rememberSaveable { mutableStateOf(wireJson.encodeToString(BackStack.serializer(), BackStack())) }
     fun readBackStack() = wireJson.decodeFromString(BackStack.serializer(), savedBackStack)
@@ -89,12 +91,14 @@ private fun HarnessNavigation(
     val backStack = remember(savedBackStack) { readBackStack() }
     val stack = backStack.entries
     val current = backStack.current
+    val phoneTask = phoneWidth && current is Destination.Task
     val nestedBackTargets = remember { mutableStateListOf<NestedBackTarget>() }
     val scope = rememberCoroutineScope()
     val screenState = rememberSaveableStateHolder()
     // Panel content moves between a Dialog and the tablet Row. An explicit registry key
     // preserves editors across Activity recreation even though those call sites differ.
     val panelState = rememberSaveableStateHolder()
+    val drawerSaveableState = rememberSaveableStateHolder()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val loaded by repository.loaded.collectAsStateWithLifecycle()
@@ -150,9 +154,11 @@ private fun HarnessNavigation(
         { updateBackStack { it.close() } },
         { next -> updateBackStack { it.switchSettingsScope(next, splitSettings) } },
     )
-    val deviceSettings by repository.settings.collectAsStateWithLifecycle()
     val projectMcpParent = (stack.getOrNull(stack.lastIndex - 1) as? Destination.ProjectSettings)?.takeIf { it.section == ProjectSection.Mcp }
-    val settingsScopes = if (current.isSettings()) SettingsScopes(rememberScopeComputers(sessions), backStack.settingsProjectContext(), deviceSettings, settingsNavigator, projectMcpParent) else null
+    val settingsScopes = if (current.isSettings()) {
+        val latestLocations by repository.collectSettings { it.lastOpenedProject to it.lastUsedComputerKey }
+        SettingsScopes(rememberScopeComputers(sessions), backStack.settingsProjectContext(), latestLocations.first, latestLocations.second, settingsNavigator, projectMcpParent)
+    } else null
     val openedProject = (current as? Destination.Chat)?.let { ProjectLocation(it.backendKey, it.projectId) }
     val usedComputer = (current as? Destination.Settings)?.page?.backendKey?.takeIf { key -> sessions.any { it.config.key == key } }
     LaunchedEffect(openedProject, loaded) { if (loaded && openedProject != null) repository.rememberOpenedProject(openedProject) }
@@ -197,8 +203,8 @@ private fun HarnessNavigation(
     val codeView = current is Destination.Changes || current is Destination.WorkingChanges || current is Destination.Files
     val highlight = (current as? Destination.Chat)?.highlight
     val context = if (backend != null && chat != null) ProjectScreenContext(repository, backend, chat, navigate, highlight = highlight, goBack = if (backStack.canGoBack) ::pop else null, taskOrigin = (current as? Destination.Task)?.taskId, attentionQuestionId = (current as? Destination.Task)?.attentionQuestionId) else null
-    // A task sheet opened from a panel keeps the panel under it, so closing the sheet returns to the panel as it was.
-    val panelUnderTask = (current as? Destination.Task)?.let { task ->
+    // Only a tablet keeps the panel composed behind the task. Its saveable state survives the phone route.
+    val panelUnderTask = (current as? Destination.Task)?.takeUnless { phoneTask }?.let { task ->
         panelBehindTask(stack.dropLast(1), task)
     }
     val panel = current as? Destination.Panel ?: panelUnderTask
@@ -213,7 +219,7 @@ private fun HarnessNavigation(
     val catalogue = if (projectTabs.isNotEmpty() && chat != null) backend!!.answers(chat.projectId) else null
     val answerCatalogue = catalogue?.catalogue?.collectAsStateWithLifecycle()?.value
     val unreadAnswers = hasUnreadAnswers(answerCatalogue?.answers.orEmpty())
-    val taskAttention = if (context != null && chat?.workerId == null) rememberTaskAttentionCount(context) else 0L
+    val taskAttention = if (!phoneTask && context != null && chat?.workerId == null) rememberTaskAttentionCount(context) else 0L
     val selectProjectTab: (AnswersProjectTab) -> Unit = select@{ tab ->
         val origin = chat ?: return@select
         val target = when (tab) {
@@ -277,7 +283,26 @@ private fun HarnessNavigation(
     val tabs = if (backend != null) rememberPanelTabs(backend.client) else emptyList()
     CompositionLocalProvider(LocalNestedBackTargets provides nestedBackTargets, io.github.mitzacoder.kemiri.features.apps.LocalProjectApps provides apps) {
     LaunchedEffect(wide) { if (wide) drawer.snapTo(DrawerValue.Closed) }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = (current !is Destination.ArtifactStudio && !codeView && !wide) || drawer.isOpen, drawerContent = { if (!wide) ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null } }) {
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        gesturesEnabled = (!phoneTask && current !is Destination.ArtifactStudio && !codeView && !wide) || drawer.isOpen,
+        drawerContent = {
+            if (!wide) {
+                var drawerWidth by remember { mutableIntStateOf(0) }
+                val revealed by remember(drawer) { derivedStateOf {
+                    drawer.currentValue != DrawerValue.Closed || drawer.targetValue != DrawerValue.Closed ||
+                        drawerWidth > 0 && drawer.currentOffset > -drawerWidth + 1f
+                } }
+                ModalDrawerSheet(Modifier.width(DrawerDefaults.MaximumDrawerWidth).onSizeChanged { drawerWidth = it.width }) {
+                    if (revealed) {
+                        drawerSaveableState.SaveableStateProvider("projects-drawer") {
+                            ProjectsDrawer(repository, current, navigate, unknownBackend) { unknownBackend = null }
+                        }
+                    }
+                }
+            }
+        },
+    ) {
         Row(Modifier.fillMaxSize()) {
         if (wide && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) ProjectsSidebar(repository, current, navigate, sidebarCollapsed, toggleCollapsed = {
             sidebarCollapsed = !sidebarCollapsed
@@ -295,7 +320,7 @@ private fun HarnessNavigation(
             SideEffect { panelExpandable = sideBySide && !boardWide }
             // The header's row follows the chat column, which narrows while a panel sits beside it.
             val chatWidth = if (sideBySide && !panelWide) maxWidth - 401.dp else maxWidth
-            Row(Modifier.fillMaxSize()) {
+            if (!phoneTask || context == null) Row(Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.weight(1f),
                     topBar = { Column {
@@ -329,8 +354,7 @@ private fun HarnessNavigation(
                                 unreadAnswers, taskAttention, selectProjectTab)
                         }
                         if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task)) {
-                            val board by context.board.view.collectAsStateWithLifecycle()
-                            io.github.mitzacoder.kemiri.features.apps.RunningAppsChip(board.tasks, Modifier.padding(horizontal = 16.dp))
+                            io.github.mitzacoder.kemiri.features.apps.RunningAppsChip(context.board, Modifier.padding(horizontal = 16.dp))
                         }
                     } },
                 ) { padding ->
@@ -393,7 +417,7 @@ private fun HarnessNavigation(
                 val previousTask = (stack.getOrNull(stack.lastIndex - 1) as? Destination.Task)?.takeIf { it.chat == current.chat && it.taskId == current.fromTaskId }
                 screenState.SaveableStateProvider("task-sheet:" + current.screenStateKey() + ":" + current.taskId) {
                     // Dialog recreates its registry on return; keep the reading position outside it.
-                    TaskSheet(context, current.taskId, onDismiss = ::pop, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId, overlay = { InAppBannerHost(repository, openAlert, openAlertNeedsYou) })
+                    TaskSheet(context, current.taskId, onDismiss = ::pop, inWindow = phoneTask, bodyState = androidx.compose.foundation.lazy.rememberLazyListState(), previousTaskId = previousTask?.taskId, overlay = { InAppBannerHost(repository, openAlert, openAlertNeedsYou) })
                 }
             }
             if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)

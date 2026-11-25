@@ -94,23 +94,6 @@ fun modelLabel(model: ModelRef?, models: List<ModelInfo>): String {
     return models.firstOrNull { it.provider == model.provider && it.modelId == model.modelId }?.name ?: "${model.provider}/${model.modelId}"
 }
 
-/** A list the backend pushes whole (`workers.state`, `threads.state`), read on connect and replaced by each push. */
-@Composable
-internal fun <T> rememberPushedList(client: HarnessClient, key: Any, enabled: Boolean, pushed: (ProtocolEvent) -> List<T>?, read: suspend () -> List<T>): List<T> {
-    var items by remember(client, key) { mutableStateOf(emptyList<T>()) }
-    val ready = client.state.collectAsStateWithLifecycle().value.status == ConnectionStatus.Ready
-    LaunchedEffect(client, key, enabled, ready) {
-        if (!enabled || !ready) return@LaunchedEffect
-        var pushes = 0
-        launch(start = CoroutineStart.UNDISPATCHED) { client.events.collect { event -> pushed(event)?.let { pushes++; items = it } } }
-        val before = pushes
-        try { read().let { if (pushes == before) items = it } }
-        catch (error: CancellationException) { throw error }
-        catch (_: Exception) { /* The counts stay as they were; the panels show the error. */ }
-    }
-    return items
-}
-
 /**
  * The chat's title and the line under it (web `ProjectChat` / `WorkerTranscript` headers). Main: the project's name over
  * backend · coordinator model · running tool. A thread: a back arrow, its title (and status on a wide screen) over
@@ -130,12 +113,8 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
     val thread = threadOf(route.threadId) != MAIN_THREAD_ID
-    val workers = rememberPushedList(client, route.projectId, route.workerId != null && connection.supports("workers"),
-        pushed = { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.workers },
-        read = { client.request(WorkersListRequest(projectId = route.projectId)).workers })
-    val threads = rememberPushedList(client, route.projectId, route.workerId == null && connection.supports("threads"),
-        pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.threads },
-        read = { client.request(ThreadsListRequest(projectId = route.projectId, includeArchived = true)).threads })
+    val workers = projectWorkers(context, route.workerId != null && connection.supports("workers"))?.value?.workers.orEmpty()
+    val threads = projectThreads(context, route.workerId == null && connection.supports("threads"))?.value?.threads.orEmpty()
     val worker = route.workerId?.let { id -> workers.firstOrNull { it.id == id && threadOf(it.threadId) == threadOf(route.threadId) } }
     val threadSummary = if (thread) threads.firstOrNull { it.id == route.threadId } else null
     val coordinator = threads.firstOrNull { connection.supports("coordinators") && route.workerId == null &&
@@ -230,15 +209,19 @@ fun connectionAwayWord(status: ConnectionStatus): String? = when (status) {
 @Composable
 internal fun rememberTaskAttentionCount(context: ProjectScreenContext): Long {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val board by context.board.view.collectAsStateWithLifecycle()
     val threads = rememberCoordinatorThreads(context, connection.supports("task-coordinator") && connection.supports("coordinators"))
     val coordinator = coordinatorRoster(threads).find { it.id == coordinatorOfThread(context.route.threadId, threads) }
-    return when {
-        coordinator != null -> coordinatorBadges(coordinator).needsYou
-        connection.supports("task-state") && board.tasks.any { it.state != null } ->
-            io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(board.tasks, board.questions).toLong()
-        else -> board.openQuestionCount.toLong()
-    }
+    if (coordinator != null) return coordinatorBadges(coordinator).needsYou
+    val board = context.board
+    val taskState = connection.supports("task-state")
+    val count by remember(board, taskState) {
+        board.select { view ->
+            if (taskState && view.tasks.any { it.state != null })
+                io.github.mitzacoder.kemiri.features.tasks.board.needsYouCount(view.tasks, view.questions).toLong()
+            else view.openQuestionCount.toLong()
+        }
+    }.collectAsStateWithLifecycle(remember(board) { board.view.value.openQuestionCount.toLong() })
+    return count
 }
 
 @Composable
@@ -248,10 +231,8 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val client = backend.client
     val connection by client.state.collectAsStateWithLifecycle()
     val tabs = rememberPanelTabs(client)
-    val board by context.board.view.collectAsStateWithLifecycle()
-    val workers = rememberPushedList(client, route.projectId, route.workerId != null && connection.supports("workers"),
-        pushed = { (it as? WorkersStateEvent)?.takeIf { event -> event.projectId == route.projectId }?.workers },
-        read = { client.request(WorkersListRequest(projectId = route.projectId)).workers })
+    val board = context.board
+    val workers = projectWorkers(context, route.workerId != null && connection.supports("workers"))?.value?.workers.orEmpty()
     val mute = LocalProjectMute.current
     // Asked again on every connection: whether the bell shows depends on what the backend supports.
     val mutedFlow = remember(mute, backend, route.projectId, connection.hello) { mute?.muted(backend, route.projectId) }
@@ -260,7 +241,9 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
 
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
-    val derivedCounts = connection.supports("task-state") && board.tasks.any { it.state != null }
+    val hasTaskStates by remember(board) { board.select { it.tasks.any { task -> task.state != null } } }
+        .collectAsStateWithLifecycle(false)
+    val derivedCounts = connection.supports("task-state") && hasTaskStates
     val tasksName = if (connection.supports(HarnessFeature.TASK_REPORTS)) "Tasks" else "Board"
     // A worker's page offers what reads its transcript: its context and memory (web `WorkerTranscript`).
     val worker = route.workerId != null

@@ -26,16 +26,24 @@ data class BoardView(
 ) {
     val loaded: Boolean get() = board != null
     /** Live tasks and, when asked for, the archived ones. */
-    val tasks: List<BoardTask> get() {
+    val tasks: List<BoardTask> = run {
         val live = board?.tasks.orEmpty()
-        if (!showArchived) return live
+        if (!showArchived) return@run live
         val ids = live.mapTo(HashSet()) { it.id }
-        return live + archived.filterNot { it.id in ids }
+        live + archived.filterNot { it.id in ids }
     }
     val questions: List<BoardQuestion> get() = board?.questions.orEmpty()
     val openQuestionCount: Int get() = questions.count { it.status == "open" && it.waitingOn != "agent" }
-    fun task(id: String): BoardTask? = tasks.firstOrNull { it.id == id }
+    private val tasksById by lazy { tasks.associateBy { it.id } }
+    fun task(id: String): BoardTask? = tasksById[id]
     fun question(id: String): BoardQuestion? = questions.firstOrNull { it.id == id }
+}
+
+/** Full equality matters: live activity, digests and report metadata may change without a row revision. */
+internal fun reuseBoardTasks(previous: List<BoardTask>, incoming: List<BoardTask>): List<BoardTask> {
+    if (previous == incoming) return previous
+    val byId = previous.associateBy { it.id }
+    return incoming.map { task -> byId[task.id]?.takeIf { it == task } ?: task }
 }
 
 sealed interface SaveOutcome {
@@ -79,6 +87,9 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
 
     private val mutableView = MutableStateFlow(BoardView())
     val view: StateFlow<BoardView> = mutableView.asStateFlow()
+    fun <T> select(projection: (BoardView) -> T): Flow<T> =
+        view.map(projection).distinctUntilChanged().flowOn(Dispatchers.Default)
+    fun taskFlow(id: String): Flow<BoardTask?> = select { it.task(id) }
     private val mutableLinkedTask = MutableStateFlow<String?>(null)
     val linkedTask = mutableLinkedTask.asStateFlow()
     fun showWithLinked(taskId: String?) { mutableLinkedTask.value = taskId }
@@ -91,7 +102,8 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
             client.events.collect { event ->
                 if (event !is BoardStateEvent || event.projectId != projectId) return@collect
                 pushes++
-                mutableView.update { it.copy(board = supportedBoard(event.board), error = null) }
+                val incoming = supportedBoard(event.board)
+                mutableView.update { it.copy(board = incoming.copy(tasks = reuseBoardTasks(it.board?.tasks.orEmpty(), incoming.tasks)), error = null) }
                 if (view.value.showArchived) launch { readArchived() }
             }
         }
@@ -104,16 +116,16 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         }
     }
 
-    suspend fun load() {
-        if (!client.supports("board") || client.state.value.status != ConnectionStatus.Ready) return
+    suspend fun load(): Unit = withContext(Dispatchers.Default) {
+        if (!client.supports("board") || client.state.value.status != ConnectionStatus.Ready) return@withContext
         val before = pushes
         val generation = client.state.value.generation
         try {
             val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = view.value.showArchived.takeIf { it })).board.let(::supportedBoard)
             mutableView.update { current ->
-                val archived = if (current.showArchived) board.tasks.filter { it.archived } else current.archived
+                val archived = if (current.showArchived) reuseBoardTasks(current.archived, board.tasks.filter { it.archived }) else current.archived
                 if (before != pushes) current.copy(archived = archived, generation = generation)
-                else current.copy(board = board.copy(tasks = board.tasks.filterNot { it.archived }), archived = archived, error = null, generation = generation)
+                else current.copy(board = board.copy(tasks = reuseBoardTasks(current.board?.tasks.orEmpty(), board.tasks.filterNot { it.archived })), archived = archived, error = null, generation = generation)
             }
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { mutableView.update { it.copy(error = error.message ?: "Could not read the board") } }
@@ -166,7 +178,11 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         val position = taskIds.withIndex().associate { (index, id) -> id to index.toDouble() }
         mutableView.update { current ->
             val board = current.board ?: return@update current
-            current.copy(board = board.copy(tasks = board.tasks.map { it.copy(order = position[it.id] ?: (it.order + taskIds.size)) }.sortedBy { it.order }))
+            val ordered = board.tasks.map { task ->
+                val order = position[task.id] ?: (task.order + taskIds.size)
+                if (task.order == order) task else task.copy(order = order)
+            }.sortedBy { it.order }
+            current.copy(board = board.copy(tasks = ordered))
         }
         return try {
             client.request(BoardTasksReorderRequest(projectId = projectId, taskIds = taskIds))
@@ -204,10 +220,10 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         }
     }
 
-    private suspend fun readArchived() {
+    private suspend fun readArchived(): Unit = withContext(Dispatchers.Default) {
         try {
             val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = true)).board.let(::supportedBoard)
-            mutableView.update { it.copy(archived = board.tasks.filter { task -> task.archived }) }
+            mutableView.update { if (!it.showArchived) it else it.copy(archived = reuseBoardTasks(it.archived, board.tasks.filter { task -> task.archived })) }
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { mutableView.update { it.copy(error = error.message ?: "Could not read archived tasks") } }
     }
@@ -216,7 +232,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
 
     private fun upsertTask(task: BoardTask) = mutableView.update { current ->
         val board = current.board ?: return@update current
-        val tasks = if (board.tasks.any { it.id == task.id }) board.tasks.map { if (it.id == task.id) task else it } else board.tasks + task
+        val tasks = if (board.tasks.any { it.id == task.id }) board.tasks.map { if (it.id == task.id && it != task) task else it } else board.tasks + task
         current.copy(board = board.copy(tasks = tasks.sortedBy { it.order }))
     }
 }

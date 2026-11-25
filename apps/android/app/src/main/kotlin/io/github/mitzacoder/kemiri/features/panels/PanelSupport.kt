@@ -85,18 +85,23 @@ internal fun panelError(e: Exception): String = when ((e as? ClientException)?.c
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun <T> PanelBody(data: PanelData<T>, content: @Composable ColumnScope.(T) -> Unit) {
-    PullToRefreshBox(isRefreshing = data.loading, onRefresh = { data.refresh.trySend(Unit) }, modifier = Modifier.fillMaxSize()) {
+    PanelBody(data.value, data.error, data.loading, { data.refresh.trySend(Unit) }, content)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable internal fun <T> PanelBody(value: T?, error: String?, loading: Boolean, refresh: () -> Unit, content: @Composable ColumnScope.(T) -> Unit) {
+    PullToRefreshBox(isRefreshing = loading, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            data.error?.let {
+            error?.let {
                 Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        IconAction("Retry loading panel", Lucide.Clock) { data.refresh.trySend(Unit) }
+                        IconAction("Retry loading panel", Lucide.Clock) { refresh() }
                     }
                 }
             }
-            if (data.value == null && !data.loading && data.error == null) WorkbenchEmpty("Waiting for connection", "This panel will load when the backend reconnects.")
-            data.value?.let { content(it) }
+            if (value == null && !loading && error == null) WorkbenchEmpty("Waiting for connection", "This panel will load when the backend reconnects.")
+            value?.let { content(it) }
         }
     }
 }

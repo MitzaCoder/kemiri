@@ -43,6 +43,7 @@ internal data class TaskSheetState(
     val owner: TaskOwner,
     val now: Long,
     val fields: TaskDetailFields,
+    val report: ParsedTaskReport,
     val needsYou: TaskNeedsYou,
     val blockers: List<Blocker>,
     val decisions: List<BoardDecision>,
@@ -105,8 +106,8 @@ internal data class TaskSheetRecordState(
 internal fun rememberTaskSheetState(
     context: ProjectScreenContext,
     task: BoardTask,
-    view: BoardView,
-    deviceSettings: DeviceSettings,
+    view: TaskSheetBoard,
+    deviceSettings: TaskSheetPreferences,
     previousTaskId: String?,
     bodyState: LazyListState,
     onDismiss: () -> Unit,
@@ -120,15 +121,11 @@ internal fun rememberTaskSheetState(
     val board = context.board
     val digestSupported = connection.supports(HarnessFeature.REQUEST_DIGEST)
     val attentionSupported = connection.supports(HarnessFeature.REQUEST_ATTENTION)
-    val partPage = requestPartPage(task, view.tasks, digestSupported)
+    val partPage = requestPartPage(task, view.relatedTasks, digestSupported)
     val actions = taskPageActions(task, partPage)
     val partIds = task.partsDigest?.parts.takeIf { digestSupported }.orEmpty().map { it.id }.toSet()
-    val threads = if (connection.supports("threads") || connection.supports("coordinators")) panelData(context, "sheet-threads", { it is ThreadsStateEvent && it.projectId == project }) {
-        context.backend.client.request(ThreadsListRequest(projectId = project, includeArchived = true)).threads
-    }.value.orEmpty() else emptyList()
-    val workers = if (connection.supports("workers")) panelData(context, "sheet-workers", { it is WorkersStateEvent && it.projectId == project }) {
-        context.backend.client.request(WorkersListRequest(projectId = project)).workers
-    }.value.orEmpty() else emptyList()
+    val threads = projectThreads(context, connection.supports("threads") || connection.supports("coordinators"))?.value?.threads.orEmpty()
+    val workers = projectWorkers(context, connection.supports("workers"))?.value?.workers.orEmpty()
     val artifactFeed = if (connection.supports("artifacts")) panelData(context, "sheet-artifacts-$taskId/$digestSupported/${partIds.joinToString()}", {
         it is ArtifactsChangedEvent && it.projectId == project &&
             (it.artifact.taskId == taskId || it.artifact.taskId in partIds || it.artifact.laterTaskIds.orEmpty().any { id -> id == taskId || id in partIds })
@@ -185,18 +182,19 @@ internal fun rememberTaskSheetState(
             finally { feedbackBusy = false }
         }
     }
-    val decisions = decisionsFor(view.board?.decisions.orEmpty(), task.id)
-    val blockers = blockersOf(task, view.tasks).filterNot { it.settled }
+    val decisions = view.decisions
+    val blockers = blockersOf(task, view.relatedTasks).filterNot { it.settled }
+    val report = rememberParsedTaskReport(task.report)
     val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS),
-        attentionQuestionId = context.attentionQuestionId, failed = attentionSupported && task.state?.kind == "failed" && task.state.fromPartId == null)
+        attentionQuestionId = context.attentionQuestionId, failed = attentionSupported && task.state?.kind == "failed" && task.state.fromPartId == null, steps = report.steps)
         .let { if (actions.canClose) it else it.copy(review = false) }
     val delivery = timeline?.delivery?.takeIf { deliveryEnabled && it.commits.isNotEmpty() }
     val taskQuestions = view.questions.filter { it.taskId == task.id }
     val decided = if (deliveryEnabled) taskDecided(task.id, decisions, taskQuestions) else null
     val recordNow = if (deliveryEnabled && liveNow == null) taskRecordNow(task, activity, taskQuestions, delivery != null) else null
     val showNow = !deliveryEnabled && liveNow == null && showTaskNow(task, activity)
-    val nextPlacement = remember(task.report, needsYou.review) { reportNextPlacement(task.report, needsYou.review) }
-    val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS))
+    val nextPlacement = reportNextPlacement(task.report, needsYou.review, report.next)
+    val fields = taskDetailFields(task, connection.supports(HarnessFeature.TASK_FIELDS), report)
 
     val staleReport = taskReportIsStale(connection.supports("task-freshness"), task.report)
     val owner = taskOwner(task, threads)
@@ -228,8 +226,8 @@ internal fun rememberTaskSheetState(
     val coordinatorTitle = assigned?.let { id -> threads.find { it.id == id }?.title ?: if (id == MAIN_THREAD_ID) "General" else id }
     val reply = if (editing) null else rememberTaskReply(context, task, assigned?.takeUnless { it == MAIN_THREAD_ID }, coordinatorTitle ?: "General", replyFocus)
     return TaskSheetState(
-        context = context, task = task, tasks = view.tasks, archivedLinks = view.board?.archivedLinks.orEmpty(),
-        previousTaskId = previousTaskId, previousTaskTitle = view.task(previousTaskId.orEmpty())?.title,
+        context = context, task = task, tasks = view.relatedTasks, archivedLinks = view.archivedLinks,
+        previousTaskId = previousTaskId, previousTaskTitle = view.previousTaskTitle,
         bodyState = bodyState, designId = designId, onSelectDesign = onSelectDesign, onDismiss = onDismiss,
         threads = threads, coordinatorTitle = coordinatorTitle, coordinatorMessagesEnabled = connection.supports("coordinator-messages"),
         workers = workers, artifacts = artifactFeed?.value?.artifacts.orEmpty(),
@@ -240,7 +238,7 @@ internal fun rememberTaskSheetState(
         onUpdateArtifactTags = if (connection.supports(ARTIFACT_TAGS_FEATURE)) { artifact, tags ->
             context.backend.client.request(ArtifactsUpdateRequest(projectId = project, artifactId = artifact.id, tags = tags)).artifact
         } else null,
-        owner = owner, now = now, fields = fields, needsYou = needsYou, blockers = blockers, decisions = decisions,
+        owner = owner, now = now, fields = fields, report = report, needsYou = needsYou, blockers = blockers, decisions = decisions,
         questions = taskQuestions, activity = activity, liveNow = liveNow, liveNews = news, liveEnabled = liveEnabled,
         staleReport = staleReport, showNow = showNow, nextPlacement = nextPlacement, usage = taskUsage,
         record = TaskSheetRecordState(

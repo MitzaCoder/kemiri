@@ -147,18 +147,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     LaunchedEffect(watch, state.entries.lastOrNull()?.id) {
         state.entries.lastOrNull { it.kind == "pi.assistant" }?.let { context.repository.markSeen(context.backend.config.key, context.route.projectId, it.id) }
     }
-    var workers by remember(context.backend.client, projectId) { mutableStateOf<List<WorkerSummary>>(emptyList()) }
-    var workersLoaded by remember(context.backend.client, projectId) { mutableStateOf(false) }
-    var workersRevision by remember(context.backend.client, projectId) { mutableIntStateOf(0) }
-    LaunchedEffect(context.backend.client, projectId) {
-        context.backend.client.events.collect { event -> if(event is WorkersStateEvent && event.projectId == context.route.projectId) { workersRevision++; workers = event.workers; workersLoaded = true } }
-    }
-    LaunchedEffect(connection,context.backend.client, projectId) {
-        if(connection.status == ConnectionStatus.Ready && connection.supports("workers")) {
-            val revision = workersRevision
-            runCatching { context.backend.client.request(WorkersListRequest(projectId = context.route.projectId)).workers }.onSuccess { if(revision == workersRevision) { workers = it; workersLoaded = true } }
-        }
-    }
+    val workerList = projectWorkers(context, connection.supports("workers"))?.value
+    val workers = workerList?.workers.orEmpty()
+    val workersLoaded = workerList != null
     var scheduleTitles by remember(context.backend.client, projectId) { mutableStateOf<Map<String,String>>(emptyMap()) }
     LaunchedEffect(connection.status, projectId,(workers.any { it.scheduleId != null } || threads.any { it.scheduleId != null })) {
         // Scheduled jobs and workers share the catalog of display names.
@@ -171,12 +162,16 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val titlesBefore = remember(rows,workers) { workerTitlesBeforeSend(rows,workers) }
     val lineRows = remember(rows) { rows.map(::isTaskLineRow) }
     val taskLinks = LocalTaskLinks.current
-    val boardView by context.board.view.collectAsStateWithLifecycle()
+    val board = context.board
+    val initialQuestions = remember(board) { board.view.value.questions }
+    val questions by remember(board) { board.select { it.questions } }.collectAsStateWithLifecycle(initialQuestions)
     val onMain = context.route.workerId == null && sameThread(context.route.threadId,null)
     /** What the `#` picker offers; null hides it (a thread's chat, no board, a server without task reports). */
-    val taskChoicesSource = if(onMain && taskLinks != null) remember(boardView.tasks) { taskOptions(boardView.tasks) } else null
+    val taskChoicesSource = if (onMain && taskLinks != null) {
+        remember(board) { board.select { taskOptions(it.tasks) } }.collectAsStateWithLifecycle(emptyList()).value
+    } else null
     LaunchedEffect(context.route) {
-        ComposerQuotes.pending.collect { quote -> if(quote.route == context.route.copy(highlight = null)) { quotes = quotes + quote.text; openQuote = null } }
+        ComposerQuotes.collect(context.route) { quote -> quotes = quotes + quote; openQuote = null }
     }
     val busy = state.view?.docs?.get("pi.live").obj()?.get("run") != null
     // The run is on but no reply streams yet: the transcript ends in "Working…".
@@ -185,7 +180,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val orbs = if(wideReplies) remember(rows) { turnOrbs(rows) } else null
     val lastAvatar = orbs?.indexOfLast { it?.first == true } ?: -1
     val hasLiveAgentReply = rows.any { it.turn?.streaming == true } || state.view?.docs?.get("pi.live").obj()?.get("tools").objects().isNotEmpty()
-    val waitingForUser = agentWaitingForUser(boardView.questions,context.route.threadId,workers.find { it.id == context.route.workerId }?.taskId,context.route.workerId != null)
+    val waitingForUser = agentWaitingForUser(questions,context.route.threadId,workers.find { it.id == context.route.workerId }?.taskId,context.route.workerId != null)
     val runFailed = rows.lastOrNull()?.parts?.any { it.kind == "error" || it.status == "error" || it.text == "Stopped." } == true || state.view?.docs?.get("pi.live").obj()?.get("runFailure") != null
     var previouslyRunning by remember(context.route) { mutableStateOf(busy) }
     var completed by remember(context.route) { mutableStateOf(false) }
@@ -298,7 +293,9 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         val coordinatorId = context.route.threadId ?: io.github.mitzacoder.kemiri.protocol.MAIN_THREAD_ID
         val savedReplies = remember(savedAnswers, coordinatorId) { answersByReply(savedAnswers, coordinatorId) }
         val transcriptScope = TranscriptScope(context, workers, artifacts, threads, titlesBefore, scheduleTitles, messages, project?.workerModels, savedReplies)
-        val onQuote: ((String) -> Unit)? = if(context.route.workerId == null) ({ quote -> quotes = quotes + quote; openQuote = null }) else null
+        val latestQuote by rememberUpdatedState<(String) -> Unit>({ quote -> quotes = quotes + quote; openQuote = null })
+        val receiveQuote: (String) -> Unit = remember { { quote -> latestQuote(quote) } }
+        val onQuote = receiveQuote.takeIf { context.route.workerId == null }
         // Only the transcript owns the overlay: banners, question pin and composer stay outside it.
         Box(Modifier.weight(1f).fillMaxWidth()) {
         CompositionLocalProvider(LocalQuoteHandler provides onQuote) {

@@ -195,7 +195,7 @@ internal fun rememberChatDraft(context: ProjectScreenContext): ChatDraftState {
     }
     val client = context.backend.client
     val projectId = context.route.projectId
-    val ownId = context.repository.settings.collectAsStateWithLifecycle().value.deviceId
+    val ownId = context.repository.collectSettings { it.deviceId }.value
     val enabled = ready && context.route.workerId == null
     val scope = cache.scope
     val sync = remember(state, enabled, client, projectId, chatId, ownId) {

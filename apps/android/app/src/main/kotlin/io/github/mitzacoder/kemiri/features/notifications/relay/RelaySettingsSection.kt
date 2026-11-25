@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.notifications.relay
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import android.Manifest
 import android.os.SystemClock
 import androidx.activity.compose.LocalActivity
@@ -35,7 +36,7 @@ internal fun RelaySettingsSection(repository: HarnessRepository) {
     val session = remember(app, scope) { RelaySettingsSession(app, scope) }
     val view by session.view.collectAsStateWithLifecycle()
     DisposableEffect(session) { onDispose { session.abandon() } }
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val notifications by repository.collectSettings { it.notifications }
     var afterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
@@ -61,15 +62,15 @@ internal fun RelaySettingsSection(repository: HarnessRepository) {
                 Text(relayPrivacyDetails())
             },
             below = {
-                if (settings.notifications.relayRecoveryRequired) {
+                if (notifications.relayRecoveryRequired) {
                     Text("Relay notifications need a refresh. Turn them on again. Backend sign-in is unchanged.")
                 }
-                if (settings.notifications.relayEnabled) {
+                if (notifications.relayEnabled) {
                     TextButton(onClick = session::open) { Text("Relay account and phones") }
                 }
             },
         ) {
-            SettingsSwitch(settings.notifications.relayEnabled, { session.open() },
+            SettingsSwitch(notifications.relayEnabled, { session.open() },
                 "Phone notifications through the relay", enabled = session.unavailableReason == null)
         }
     }

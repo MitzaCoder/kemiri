@@ -55,8 +55,8 @@ internal fun ReportSection(
     context: ProjectScreenContext? = null,
     artifacts: List<Artifact> = emptyList(),
     sectionViewsSupported: Boolean = false,
+    content: ReportSectionContent = rememberReportSection(task.report, section),
 ) {
-    val content = remember(task.report, section) { readReportSection(task.report, section) }
     when (content) {
         is ReportSectionContent.Mirror -> ReportSectionBody(section, content.markdown)
         is ReportSectionContent.Blocks -> ReportProseStyle(section) {

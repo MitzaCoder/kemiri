@@ -79,7 +79,7 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
     val archiveSave = rememberSaveState(project.id)
     var confirming by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val deviceSettings by context.repository.settings.collectAsStateWithLifecycle()
+    val notifications by context.repository.collectSettings { it.notifications }
     SettingsSectionPage("General", "What this project is called and where it lives.", SettingsIcon.Folder) {
         SettingsGroup(title = "Project") {
             SettingsRow("Name", hint = "Shown in the drawer and the chat's header.", status = nameSave) {
@@ -99,7 +99,7 @@ internal fun ProjectGeneralSection(context: ProjectScreenContext, project: Proje
         SettingsGroup(title = "Notifications") {
             val backendKey = context.backend.config.key
             val mutes = LocalNotificationCenter.current?.activeMutes?.collectAsStateWithLifecycle()?.value
-                ?: deviceSettings.notifications.activeMutes(System.currentTimeMillis())
+                ?: notifications.activeMutes(System.currentTimeMillis())
             val mute = mutes.firstOrNull { it.backendKey == backendKey && it.projectId == project.id }
             SettingsRow("Mute on this device", hint = mute?.let { muteEndLabel(it.until) }) {
                 if (mute != null) TextButton(onClick = { scope.launch {

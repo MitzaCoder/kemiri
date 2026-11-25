@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.map
  * Where a project's tickets and pull requests point and what state they are in: the Android twin of the web's
  * `lib/ref-links.svelte.ts`, provided by [ProvideRefLinks].
  */
+@Stable
 interface RefLinks {
     /** The project's link settings; null on a backend without them. */
     val links: ProjectLinks?
@@ -76,12 +77,13 @@ val LocalRefLinks = compositionLocalOf<RefLinks?> { null }
 
 @Stable
 private class ProjectRefLinks(
-    override val links: ProjectLinks?,
-    private val statuses: Map<String, RefStatus>,
+    private val linkSettings: State<ProjectLinks?>,
+    private val statuses: State<Map<String, RefStatus>>,
     private val showCard: (ResolvedRef, String) -> Unit,
     private val openAddress: (String) -> Unit,
 ) : RefLinks {
-    override fun status(ref: String) = statuses[ref]
+    override val links get() = linkSettings.value
+    override fun status(ref: String) = statuses.value[ref]
     override fun tone(ref: String) = status(ref)?.let(::refStatusTone)
     // The backend's address is the canonical one (a bare #12 resolves to /issues/12, which GitHub forwards).
     override fun url(ref: String) = status(ref)?.url ?: refHref(ref, links)
@@ -126,7 +128,7 @@ fun ProvideRefLinks(context: ProjectScreenContext?, content: @Composable () -> U
     val latest by rememberUpdatedState(context)
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val connection by client.state.collectAsStateWithLifecycle()
-    val view by context.board.view.collectAsStateWithLifecycle()
+    val board = context.board
     val links = projects.firstOrNull { it.id == projectId }?.links?.links()
     val statusSupported = connection.supports(HarnessFeature.REF_STATUS)
 
@@ -135,7 +137,8 @@ fun ProvideRefLinks(context: ProjectScreenContext?, content: @Composable () -> U
         client.readRefStatus(projectId, refs)
     }) }
     val details = remember(client, projectId) { RefDetailsCache({ client.readRefDetails(projectId, it) }) }
-    val boardRefs = remember(view.tasks) { view.tasks.flatMap { it.refs } }
+    val boardRefs by remember(board) { board.select { view -> view.tasks.flatMap { it.refs }.distinct() } }
+        .collectAsStateWithLifecycle(emptyList())
     fun canRead() = client.state.value.let { it.status == ConnectionStatus.Ready && it.supports(HarnessFeature.REF_STATUS) }
     LaunchedEffect(store, boardRefs, statusSupported) {
         if (statusSupported && store.want(boardRefs)) { delay(RefStatusStore.SETTLE_MS); store.refresh() }
@@ -167,15 +170,19 @@ fun ProvideRefLinks(context: ProjectScreenContext?, content: @Composable () -> U
             }
         }
     }
-    val refLinks = remember(links, if (statusSupported) statuses else emptyMap(), handler, shownState) {
-        ProjectRefLinks(links, if (statusSupported) statuses else emptyMap(), { ref, href -> shownState.value = ShownCard(ref, href) }, handler::openUri)
+    val linkSettings = rememberUpdatedState(links)
+    val refStatuses = rememberUpdatedState(if (statusSupported) statuses else emptyMap())
+    val refLinks = remember(handler, shownState) {
+        ProjectRefLinks(linkSettings, refStatuses, { ref, href -> shownState.value = ShownCard(ref, href) }, handler::openUri)
     }
     val styles = linkStyles(Jarvis.colors.link)
     val linker = remember(links, styles) { RefTextLinker(links, styles) }
-    val linkers = LocalTextLinkers.current + linker
+    val parentLinkers = LocalTextLinkers.current
+    val linkers = remember(parentLinkers, linker) { parentLinkers + linker }
     CompositionLocalProvider(LocalRefLinks provides refLinks, LocalUriHandler provides handler, LocalTextLinkers provides linkers) {
         content()
         shown?.let { card ->
+            val view by board.view.collectAsStateWithLifecycle()
             RefCardSheet(
                 card = card,
                 links = links,
@@ -287,12 +294,13 @@ fun refLinkedText(text: String): AnnotatedString {
     val tasks = LocalTaskLinks.current
     val links = LocalRefLinks.current?.links
     val styles = linkStyles(Jarvis.colors.link)
-    return remember(text, links, tasks, styles) {
+    val taskIds = tasks?.taskIds.orEmpty()
+    return remember(text, links, tasks, taskIds, styles) {
         buildAnnotatedString {
             for (piece in splitRefMentions(text, links)) {
                 val href = piece.href
                 if (href == null) {
-                    val pieces = splitTaskMentions(piece.text) { tasks?.knows(it) == true }
+                    val pieces = splitTaskMentions(piece.text, known = taskIds::contains)
                     for (part in pieces) when (part) {
                         is TextPiece.Plain -> append(part.text)
                         is TextPiece.Task -> withLink(LinkAnnotation.Clickable("task:${part.taskId}", styles) { tasks?.preview(part.taskId) }) { append(part.taskId) }

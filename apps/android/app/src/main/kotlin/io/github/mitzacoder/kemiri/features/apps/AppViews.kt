@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.apps
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -75,7 +76,7 @@ internal fun TaskApps(taskId: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RunningAppsChip(tasks: List<BoardTask>, modifier: Modifier = Modifier) {
+internal fun RunningAppsChip(board: io.github.mitzacoder.kemiri.data.ProjectBoard, modifier: Modifier = Modifier) {
     val feed = LocalProjectApps.current ?: return
     val rows = visibleApps(feed.list?.apps.orEmpty())
     var open by rememberSaveable(feed.projectId) { mutableStateOf(false) }
@@ -83,6 +84,8 @@ internal fun RunningAppsChip(tasks: List<BoardTask>, modifier: Modifier = Modifi
     AssistChip(onClick = { open = true; scope.launch { feed.refresh() } }, label = { Text(appCountLabel(rows)) }, modifier = modifier,
         colors = AssistChipDefaults.assistChipColors(containerColor = Jarvis.colors.success.copy(alpha = .12f), labelColor = Jarvis.colors.success))
     if (!open) return
+    val taskTitles by remember(board) { board.select { it.tasks.associate { task -> task.id to task.title } } }
+        .collectAsStateWithLifecycle(emptyMap())
     ModalBottomSheet(onDismissRequest = { open = false }, containerColor = Jarvis.colors.bg) {
         val detected = feed.list?.detected.orEmpty()
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -99,7 +102,7 @@ internal fun RunningAppsChip(tasks: List<BoardTask>, modifier: Modifier = Modifi
             if (feed.list == null && feed.error == null) item { AppMeta("Loading apps…") }
             if (feed.list != null && rows.isEmpty() && detected.isEmpty()) item { AppMeta("No apps published in this project.") }
             items(rows, key = { it.appId }) { app ->
-                val task = app.taskId?.let { id -> listOfNotNull(id, tasks.find { it.id == id }?.title).joinToString(" ") } ?: "No task"
+                val task = app.taskId?.let { id -> listOfNotNull(id, taskTitles[id]).joinToString(" ") } ?: "No task"
                 val publisher = if (app.ownerPublished == true) "the owner" else with(app.publishedBy) { "$kind ${if (id == "main") "General" else id}" }
                 val detail = listOfNotNull(task, "published by $publisher", appAge(app.createdAt), "port ${app.port}".takeIf { app.state != "stopped" }).joinToString(" · ")
                 Surface(shape = RoundedCornerShape(12.dp), color = Jarvis.colors.surface2) {

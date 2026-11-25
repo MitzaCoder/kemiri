@@ -49,12 +49,10 @@ import kotlinx.coroutines.delay
  * and quieter reviews; backend groups retain Add and archives. Usage and Settings stay at the foot.
  */
 @Composable
-fun ProjectsDrawer(repository: HarnessRepository, current: Destination, navigate: (Destination) -> Unit, unknownBackend: String? = null, dismissUnknownBackend: () -> Unit = {}) {
-    ModalDrawerSheet {
-        Text("Projects", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp))
-        unknownBackend?.let { UnknownBackendNotice(it, navigate, dismissUnknownBackend) }
-        ProjectsNav(repository, current, navigate, rail = false)
-    }
+internal fun ColumnScope.ProjectsDrawer(repository: HarnessRepository, current: Destination, navigate: (Destination) -> Unit, unknownBackend: String? = null, dismissUnknownBackend: () -> Unit = {}) {
+    Text("Projects", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp))
+    unknownBackend?.let { UnknownBackendNotice(it, navigate, dismissUnknownBackend) }
+    ProjectsNav(repository, current, navigate, rail = false)
 }
 
 /**
@@ -125,7 +123,7 @@ private fun UnknownBackendNotice(backendId: String, navigate: (Destination) -> U
 @Composable
 private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Destination, navigate: (Destination) -> Unit, rail: Boolean) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
-    val settings by repository.settings.collectAsStateWithLifecycle()
+    val seenReplies by repository.collectSettings { it.seenReplies }
     val android = LocalContext.current
     val currentChat = current.chatRoute()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -176,14 +174,14 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
                     var showArchived by remember { mutableStateOf(false) }
                     val archived = allProjects.filter { it.archived == true }
                     projects.forEach { project ->
-                        val unread = (project.activity?.lastReplyEntryId ?: 0) > (settings.seenReplies[backend.config.key]?.get(project.id) ?: 0)
+                        val unread = (project.activity?.lastReplyEntryId ?: 0) > (seenReplies[backend.config.key]?.get(project.id) ?: 0)
                         val selected = currentChat?.backendKey == backend.config.key && currentChat.projectId == project.id
                         val open = { navigate(projectEntryRoute(android, backend, Destination.Chat(backend.config.key, project.id))) }
                         val board = backend.existingBoard(project.id)?.view?.collectAsStateWithLifecycle()?.value?.board
                         val jobRoute = currentChat?.takeIf { selected && io.github.mitzacoder.kemiri.features.chat.isBackgroundJobPage(it) }
-                        val openThreads = rememberPushedList(backend.client, project.id, jobRoute != null && connection.supports("threads"),
-                            pushed = { (it as? ThreadsStateEvent)?.takeIf { event -> event.projectId == project.id }?.threads },
-                            read = { backend.client.request(ThreadsListRequest(projectId = project.id, includeArchived = true)).threads })
+                        val openThreads = if (jobRoute != null && connection.supports("threads")) {
+                            backend.threads(project.id).snapshot.collectAsStateWithLifecycle().value.value?.threads.orEmpty()
+                        } else emptyList()
                         val openJob = if (openThreads.any { it.id == jobRoute?.threadId && it.kind == "coordinator" }) null else io.github.mitzacoder.kemiri.features.chat.openBackgroundJobLabel(jobRoute, openThreads)
                         if (rail) RailProject(backend.config.name, project, unread, selected, now, board, openJob, open)
                         else ProjectRow(project, unread, selected, now, board, openJob, open)

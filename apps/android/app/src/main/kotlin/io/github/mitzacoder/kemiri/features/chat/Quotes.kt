@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import io.github.mitzacoder.kemiri.navigation.Destination
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -179,10 +182,20 @@ private object QuoteMenuKey
 
 /**
  * Quotes taken outside the chat's own transcript (the task sheet's text) on their way to that chat's composer. The
- * sheet provides [LocalQuoteHandler] as `{ ComposerQuotes.send(context.route, it); close() }`; the chat under it takes them.
+ * sheet provides [LocalQuoteHandler] as `{ ComposerQuotes.send(context.route, it); close() }`; the chat takes them when it is composed, including after returning from the phone route.
  */
 object ComposerQuotes {
-    data class Quote(val route: io.github.mitzacoder.kemiri.navigation.Destination.Chat, val text: String)
-    val pending = kotlinx.coroutines.flow.MutableSharedFlow<Quote>(extraBufferCapacity = 8)
-    fun send(route: io.github.mitzacoder.kemiri.navigation.Destination.Chat, text: String) { pending.tryEmit(Quote(route.copy(highlight = null), text)) }
+    private val pending = kotlinx.coroutines.flow.MutableStateFlow<Map<Destination.Chat, List<String>>>(emptyMap())
+
+    fun send(route: Destination.Chat, text: String) {
+        val key = route.copy(highlight = null)
+        pending.update { it + (key to (it[key].orEmpty() + text)) }
+    }
+
+    suspend fun collect(route: Destination.Chat, receive: (String) -> Unit) {
+        val key = route.copy(highlight = null)
+        pending.collect { queued ->
+            if (key in queued) pending.getAndUpdate { it - key }[key].orEmpty().forEach(receive)
+        }
+    }
 }

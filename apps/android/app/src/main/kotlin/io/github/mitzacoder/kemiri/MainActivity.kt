@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri
 
+import io.github.mitzacoder.kemiri.data.collectSettings
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -15,7 +16,6 @@ import androidx.compose.runtime.*
 import io.github.mitzacoder.kemiri.features.chat.CodeWrapChoice
 import io.github.mitzacoder.kemiri.features.chat.LocalCodeWrap
 import kotlinx.coroutines.launch
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.ThemeMode
 import io.github.mitzacoder.kemiri.features.notifications.*
 import io.github.mitzacoder.kemiri.navigation.HarnessApp
@@ -55,8 +55,10 @@ class MainActivity : ComponentActivity() {
         val notifications = notifications
         val projectMute = CenterProjectMute(notifications)
         setContent {
-            val settings by repository.settings.collectAsStateWithLifecycle()
-            val dark = when (settings.mode) {
+            val theme by repository.collectSettings { it.palette to it.mode }
+            val (palette, mode) = theme
+            val wrapPreference by repository.collectSettings { it.codeWrap }
+            val dark = when (mode) {
                 ThemeMode.System -> isSystemInDarkTheme()
                 ThemeMode.Light -> false
                 ThemeMode.Dark -> true
@@ -66,9 +68,9 @@ class MainActivity : ComponentActivity() {
                     else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
-            HarnessTheme(settings.palette, settings.mode) {
+            HarnessTheme(palette, mode) {
                 val scope = rememberCoroutineScope()
-                val codeWrap = remember(settings.codeWrap) { CodeWrapChoice(settings.codeWrap) { stored -> scope.launch { repository.setCodeWrap(stored) } } }
+                val codeWrap = remember(wrapPreference) { CodeWrapChoice(wrapPreference) { stored -> scope.launch { repository.setCodeWrap(stored) } } }
                 CompositionLocalProvider(io.github.mitzacoder.kemiri.features.chat.LocalSharedFiles provides sharedFiles, LocalNotificationCenter provides notifications, LocalProjectMute provides projectMute, LocalCodeWrap provides codeWrap) {
                     if (mcpCallbackError) androidx.compose.material3.AlertDialog(
                         onDismissRequest = { mcpCallbackError = false },

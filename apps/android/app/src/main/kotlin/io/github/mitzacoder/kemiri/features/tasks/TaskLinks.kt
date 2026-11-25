@@ -10,21 +10,39 @@ import io.github.mitzacoder.kemiri.ui.components.TaskStatusBadge
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
+import io.github.mitzacoder.kemiri.data.ProjectBoard
 import io.github.mitzacoder.kemiri.protocol.BoardTask
 
 /**
  * What the chat's components need to name a task: whether it is on the board, its title and status (so a chip wears its
  * row's colour), and how to open its sheet. The Android twin of the web's `lib/task-links.svelte.ts`.
  */
+private data class TaskLinkLabel(val title: String, val status: String)
+
 @Stable
-class TaskLinks(private val tasks: Map<String, BoardTask>, private val previewer: ((String) -> Unit)? = null, private val opener: (String) -> Unit) {
-    fun knows(taskId: String): Boolean = taskId in tasks
-    /** Null for a task the board does not hold (or has not loaded). */
-    fun title(taskId: String): String? = tasks[taskId]?.title
-    fun status(taskId: String): String? = tasks[taskId]?.status
-    fun task(taskId: String): BoardTask? = tasks[taskId]
+class TaskLinks internal constructor(
+    private val board: ProjectBoard,
+    private val previewer: (String) -> Unit,
+    private val opener: (String) -> Unit,
+) {
+    private var labels by mutableStateOf<Map<String, TaskLinkLabel>>(emptyMap())
+    internal var taskIds by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    internal suspend fun collectIndex() {
+        board.select { view -> view.tasks.associate { it.id to TaskLinkLabel(it.title, it.status) } }.collect {
+            labels = it
+            taskIds = it.keys
+        }
+    }
+
+    fun knows(taskId: String): Boolean = taskId in taskIds
+    fun title(taskId: String): String? = labels[taskId]?.title
+    fun status(taskId: String): String? = labels[taskId]?.status
+    @Composable fun task(taskId: String): BoardTask? = remember(board, taskId) { board.taskFlow(taskId) }
+        .collectAsStateWithLifecycle(remember(board, taskId) { board.view.value.task(taskId) }).value
     fun open(taskId: String) = opener(taskId)
-    fun preview(taskId: String) = (previewer ?: opener)(taskId)
+    fun preview(taskId: String) = previewer(taskId)
 }
 
 /**
@@ -44,11 +62,12 @@ fun ProvideTaskLinks(context: ProjectScreenContext?, content: @Composable () -> 
     var previewTaskId by remember(context.route.backendKey, context.route.projectId) { mutableStateOf<String?>(null) }
     val latest by rememberUpdatedState(context)
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val view by context.board.view.collectAsStateWithLifecycle()
+    val board = context.board
     val supported = connection.supports(HarnessFeature.TASK_REPORTS)
-    val links = remember(supported, view.loaded, view.tasks) {
-        if (supported && view.loaded) TaskLinks(view.tasks.associateBy { it.id }, previewer = { previewTaskId = it }) { latest.openTask(it) } else null
-    }
+    val loaded by remember(board) { board.select { it.loaded } }.collectAsStateWithLifecycle(remember(board) { board.view.value.loaded })
+    val registry = remember(board) { TaskLinks(board, { previewTaskId = it }) { latest.openTask(it) } }
+    LaunchedEffect(registry, supported) { if (supported) registry.collectIndex() }
+    val links = registry.takeIf { supported && loaded }
     CompositionLocalProvider(LocalTaskLinks provides links, LocalPreviewTaskId provides previewTaskId, content = content)
     previewTaskId?.let { id ->
         val task = links?.task(id)

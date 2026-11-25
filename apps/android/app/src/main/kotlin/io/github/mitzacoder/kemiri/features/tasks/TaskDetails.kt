@@ -19,12 +19,12 @@ internal data class TaskNeedsYou(
     val show: Boolean get() = ownerQuestions.isNotEmpty() || review || blocked || showSteps || failed
 }
 
-internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean, attentionQuestionId: String? = null, failed: Boolean = false): TaskNeedsYou {
+internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean, attentionQuestionId: String? = null, failed: Boolean = false, steps: ReportSectionContent? = null): TaskNeedsYou {
     val (warnings, ordinary) = questions.filter { it.status == "open" && it.taskId == task.id }.partition(::isWarning)
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
     val working = task.state?.liveWorkSince != null
     val stepsEnabled = !working && stepsSupported && !isSettled(task.status)
-    val showSteps = stepsEnabled && readReportSection(task.report, ReportSectionKind.Steps).hasContent
+    val showSteps = stepsEnabled && (steps ?: readReportSection(task.report, ReportSectionKind.Steps)).hasContent
     return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, !working && task.status == "review",
         task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed, working)
 }
@@ -53,12 +53,12 @@ internal data class TaskDetailFields(
     val checks: List<BoardReportCheck> = emptyList(),
 )
 
-internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean): TaskDetailFields {
+internal fun taskDetailFields(task: BoardTask, taskFieldsEnabled: Boolean, report: ParsedTaskReport? = null): TaskDetailFields {
     if (!taskFieldsEnabled) return TaskDetailFields()
     return TaskDetailFields(
         goal = task.goal?.trim()?.takeIf { it.isNotEmpty() },
-        showSummary = readReportSection(task.report, ReportSectionKind.Summary).hasContent,
-        showNotDone = readReportSection(task.report, ReportSectionKind.NotDone).hasContent,
+        showSummary = (report?.summary ?: readReportSection(task.report, ReportSectionKind.Summary)).hasContent,
+        showNotDone = (report?.notDone ?: readReportSection(task.report, ReportSectionKind.NotDone)).hasContent,
         checks = task.report.checks.orEmpty(),
     )
 }

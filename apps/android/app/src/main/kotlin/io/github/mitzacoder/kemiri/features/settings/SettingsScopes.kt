@@ -53,12 +53,13 @@ internal fun rememberScopeComputers(sessions: List<BackendSession>): List<ScopeC
 internal class SettingsScopes(
     val computers: List<ScopeComputer>,
     private val projectContext: ProjectLocation?,
-    private val settings: DeviceSettings,
+    lastOpenedProject: ProjectLocation?,
+    lastUsedComputerKey: String?,
     private val navigator: SettingsNavigator,
     val projectMcpParent: Destination.ProjectSettings? = null,
 ) {
-    val project = resolveScopeProject(computers, projectContext, settings.lastOpenedProject)
-    val computer = resolveScopeComputer(computers, projectContext, settings.lastUsedComputerKey)
+    val project = resolveScopeProject(computers, projectContext, lastOpenedProject)
+    val computer = resolveScopeComputer(computers, projectContext, lastUsedComputerKey)
     val visitProject get() = computers.flatMap { it.projects }.firstOrNull { it.location == projectContext }
 
     fun select(scope: SettingsScope) {
