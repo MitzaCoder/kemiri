@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import type { Artifact } from '@kemiri/protocol';
 import { Text } from '@codemirror/state';
 import { codeLanguageForPath } from '../src/lib/code/languages.js';
@@ -29,10 +29,16 @@ describe('read-only code view', () => {
 			['ctx', '19', 'context'], ['del', '20', 'price = 10'], ['add', '20', 'price = 12'], ['gap', '', '⋯'], ['add', '40', '  added'],
 		]);
 		expect(diffRows('- 123 bottles\n+ 124 bottles', 'patch').map(row => row.text)).toEqual([' 123 bottles', ' 124 bottles']);
-		const marks = diffWordRanges(rows);
-		expect(marks).toEqual([[], [{ from: 8, to: 10 }], [{ from: 8, to: 10 }], [], []]);
-		expect(diffSegments(rows[2]!.text, [{ content: 'price = 1' }, { content: '2', htmlStyle: { '--shiki-light': '#123456' } }], marks[2]!)
-			.map(segment => [segment.text, segment.marked, segment.light])).toEqual([['price = ', false, undefined], ['1', true, undefined], ['2', true, '#123456']]);
+		// Assert the ranges, not whether jsdiff finishes within its wall-clock budget.
+		const diffClock = spyOn(Date, 'now').mockReturnValue(0);
+		try {
+			const marks = diffWordRanges(rows);
+			expect(marks).toEqual([[], [{ from: 8, to: 10 }], [{ from: 8, to: 10 }], [], []]);
+			expect(diffSegments(rows[2]!.text, [{ content: 'price = 1' }, { content: '2', htmlStyle: { '--shiki-light': '#123456' } }], marks[2]!)
+				.map(segment => [segment.text, segment.marked, segment.light])).toEqual([['price = ', false, undefined], ['1', true, undefined], ['2', true, '#123456']]);
+		} finally {
+			diffClock.mockRestore();
+		}
 	});
 
 	test('keeps patch headers and numbers each side independently', () => {

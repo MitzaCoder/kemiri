@@ -716,6 +716,8 @@ existing `artifact-versions` feature and two retained text versions. The library
 The browser loads CodeMirror only when showing source, opening a full tool-card view, or comparing retained text versions. The production build checks static
 imports for editor modules, including shared chunks. Language support is a fixed set of first-party and legacy modes,
 plus Svelte and Nix. Shiki stays on chat blocks and small edit-card diffs; jsdiff adds bounded word-level marks.
+If a row pair exceeds jsdiff's 8 ms time budget, it keeps the line-level marks without word-level marks.
+The word-range test fixes jsdiff's clock so it checks offsets independently of that time budget.
 
 Artifact Source and text retain the existing preview limits. CodeMirror and each comparison side are also capped at
 1 MiB and 20,000 lines; the app falls back to plain previews above those limits. Compare pins both signed reads to
