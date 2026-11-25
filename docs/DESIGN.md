@@ -5,11 +5,17 @@
 Collapsed task IDs use a small accent chip (option A): 6 px/dp corners,
 5 px/dp horizontal inset, 12 px/sp semibold monospace and an 18 px/sp line.
 Web list/sidebar/search/family rows, board cards, parent relations and graph
-nodes share it; Android list/search/family rows, board and graph nodes do too.
-List rows keep the ID alone on the right (T245 / D94), without an age above it.
-Needs you task rows use the same list component; project-level Needs you counts
-contain no task ID. IDs remain identity, never status, selection or a preview
-trigger. T206's task-navigation opt-out remains in force.
+nodes share it. Web list rows keep the ID alone on the right (T245 / D94).
+Android keeps the chip for relation links and graph nodes. In Android Tasks
+(T499 / D145), list, search and family rows and Board cards show the task ID
+and ticket or pull request labels as quiet monospace text beside the state.
+The title no longer reserves a badge column and can use up to three lines.
+The list shows two refs and Board cards show three, with a state dot where known
+and a count for the rest. Metadata wraps when needed. The task sheet still opens
+all refs. Needs you and coordinator scopes share the same list row, and
+project-level Needs you counts contain no task ID. IDs remain identity, never
+status, selection or a preview trigger. T206's task-navigation opt-out remains
+in force.
 
 Jarvis uses #4338ca text in light and #c7d2fe in dark, on a 12% accent tint.
 The accent is #6366f1 light / #818cf8 dark. Neutral stays achromatic. Web
@@ -3554,6 +3560,8 @@ is where they talk.
   waits), the title at medium weight in at most two lines with a one-line gist under it, and a narrow column with the
   time over the task ID. The group names the status, so a row says it only under "Needs you". Refs show as small chips
   under the gist (two, then "+N"); the sheet lists them all, links clickable. The chevron shows only on hover.
+  On Android (T499), titles span the row beside its status glyph and can use up to three lines. The task number
+  and refs sit beside the state as text. Open the task sheet to follow the links.
 - **Short titles, refs apart.** A task's title is a short, plain outcome ("Complete the example change"); its tickets and
   pull requests go in its `refs`, as full links (the coordinator looks a link up with `gh` or `acli` when it only
   knows the number). The board tool's description and the coordinator prompt say so; nothing in the code limits a
@@ -4125,8 +4133,8 @@ state. List rows have one leading theme-coloured glyph: warning triangle for Fai
 for Answer needed (also Clarifying, in its active tone), eye for Ready for review, pulsing dot for Working, pause for Paused,
 lock for task blockers, clock for outside waits, empty circle for Not started, check for Done
 and ban for Dropped. Colour is never the only distinction. The activity sentence has no second
-dot; no separate kind-label line or footer label. List titles are semibold, with unchanged
-line heights, line limits and padding; the ID chip alone stays on the right.
+state dot or separate kind label. List titles are semibold. Web keeps the ID chip on the right;
+Android puts the ID and refs on the activity line for list rows and Board cards (T499).
 The server emits optional `state.sentence` (a typed activity) for both clients. Its text names
 the first blocking question or task (plus “and N more”), says “Not started” (including a
 found-while follow-up and its source status), “Ready for review”, “Failed: reason”, or an

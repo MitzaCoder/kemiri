@@ -201,13 +201,9 @@ fun ProvideRefLinks(context: ProjectScreenContext?, content: @Composable () -> U
 
 private val chipShape = RoundedCornerShape(5.dp)
 
-/**
- * One ref as a small quiet chip (web `RefChip`): its key or number, a dot in its state's colour once read. A [compact]
- * chip (rows and board cards) is only as tall as the web's; its tap area still reaches past its edges, as Compose
- * widens a small target's touch area to the minimum touch size.
- */
+/** A ref chip on the task sheet before its live state is known. */
 @Composable
-fun RefChip(ref: String, modifier: Modifier = Modifier, compact: Boolean = false) {
+private fun RefChip(ref: String, modifier: Modifier = Modifier) {
     val links = LocalRefLinks.current
     val uri = LocalUriHandler.current
     val colors = Jarvis.colors
@@ -222,26 +218,15 @@ fun RefChip(ref: String, modifier: Modifier = Modifier, compact: Boolean = false
     }
     // The tap area reaches a little past the chip's edges, as on the web's touch screens.
     Box(modifier
-        .then(if (open != null) Modifier.clip(if (compact) chipShape else RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = open) else Modifier)
+        .then(if (open != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = open) else Modifier)
         .semantics { contentDescription = when { open == null -> description; target != null && cardRefOf(target) != null && links != null -> "$description, opens its card"; else -> "$description, opens in the browser" } }
-        .padding(vertical = if (compact) 0.dp else 4.dp)) {
+        .padding(vertical = 4.dp)) {
         Row(Modifier.clip(chipShape).background(colors.surface2.copy(alpha = .6f)).border(BorderStroke(1.dp, colors.borderStrong.copy(alpha = .65f)), chipShape)
             .padding(horizontal = 5.dp, vertical = 1.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             tone?.let { TaskStatusDot(it) }
             Text(label, style = textStyle(0.65625f, 1f / 0.65625f, mono = true), color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-    }
-}
-
-/** A task's refs as chips, the first [max] and then "+N" (rows 2, board cards 3, like the web). */
-@Composable
-fun RefChips(refs: List<String>, max: Int, modifier: Modifier = Modifier) {
-    if (refs.isEmpty()) return
-    val colors = Jarvis.colors
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        refs.take(max).forEach { RefChip(it, Modifier.widthIn(max = 144.dp), compact = true) }
-        if (refs.size > max) Text("+${refs.size - max}", style = textStyle(0.65625f, 1f / 0.65625f, mono = true), color = colors.fgSubtle)
     }
 }
 

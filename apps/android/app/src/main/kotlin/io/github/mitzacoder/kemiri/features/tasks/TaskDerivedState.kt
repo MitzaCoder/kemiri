@@ -43,10 +43,6 @@ internal fun taskStateLabel(status: String, state: BoardTaskState?, waitingNote:
 /** The primary state already describes work when it is Working. */
 internal fun BoardTaskState?.additionalRunningWork() = this?.runningWork?.takeIf { kind != "working" }
 
-/** Derived rows have one state sentence; only legacy rows need a separate label. */
-fun taskRowStateLabel(task: BoardTask, title: (String) -> String? = { null }): String? =
-    if (task.state != null) null else taskStateLabel(task, title)
-
 fun taskStateTone(task: BoardTask): TaskStatusTone = taskKindTone(task.state?.kind, taskStatusTone(task.status))
 
 internal fun taskKindTone(kind: String?, fallback: TaskStatusTone = TaskStatusTone.Todo): TaskStatusTone = when (kind) {

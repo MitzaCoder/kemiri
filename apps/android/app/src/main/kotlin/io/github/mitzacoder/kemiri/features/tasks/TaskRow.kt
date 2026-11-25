@@ -18,21 +18,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import io.github.mitzacoder.kemiri.protocol.BoardTaskBrief
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import io.github.mitzacoder.kemiri.features.refs.RefChips
+import io.github.mitzacoder.kemiri.features.refs.LocalRefLinks
+import io.github.mitzacoder.kemiri.features.refs.summarizeTaskRefs
+import io.github.mitzacoder.kemiri.protocol.BoardTask
+import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.LucideIcon
 import io.github.mitzacoder.kemiri.ui.components.TaskStatusDot
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
+import io.github.mitzacoder.kemiri.ui.theme.JetBrainsMono
 import io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 
 /**
  * One task in the Tasks list (web `TasksPanel.svelte` `taskRow`): its status dot (a ⚠ or ? under Needs you), the title
- * on up to two lines, the report line that matters for where it stands, its refs, and on the right the ID alone.
- * Only rows that need the user get a wash: the warning's colour for a warning, the accent for a question. The whole row
- * opens the task's sheet; the ref chips open their own cards.
+ * on up to three lines, and a status line with the ID and refs. Only rows that need the owner get a wash.
+ * The row opens the task sheet, where the refs can be opened.
  */
 @Composable
 internal fun TaskListRow(
@@ -45,7 +49,7 @@ internal fun TaskListRow(
     val colors = Jarvis.colors
     val task = row.task
     val searchHit = LocalTaskSearchHits.current[task.id]
-    val stateLabel = taskRowStateLabel(task) { taskLinks?.title(it) }
+    val stateLabel = taskStateLabel(task) { taskLinks?.title(it) }
     val needsYou = row.section == TaskSectionId.NeedsYou
     val warned = row.waiting.any(::isWarning)
     val runningWork = task.state.additionalRunningWork()
@@ -64,8 +68,7 @@ internal fun TaskListRow(
             .clickable(role = Role.Button, onClickLabel = "Open ${attention?.taskId ?: task.id}", onClick = onOpen)
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    "${task.id}: ${task.title}", attention?.text ?: activity?.let { activityDescription(it, now) } ?: taskStateLabel(task),
-                    runningWork?.let { activityDescription(it, now) },
+                    task.title,
                     task.parent?.takeIf { nested }?.let { "${if (requestView) "Part" else "Subtask"} of $it" },
                     if (partsSummary != null) partsSummary.takeUnless { it == activity?.text } else task.subtaskCount?.takeIf { it.total > 0 }?.let { "${it.done} of ${it.total} subtasks done" },
                 ).joinToString(". ")
@@ -89,7 +92,7 @@ internal fun TaskListRow(
             Text(buildAnnotatedString {
                 append(task.title)
                 searchHit?.ranges?.forEach { range -> addStyle(SpanStyle(background = colors.accent2.copy(alpha = .22f)), range.start, range.end) }
-            }, style = TaskType.rowTitle, color = if (row.section == TaskSectionId.Closed) colors.fgMuted else colors.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }, Modifier.clearAndSetSemantics {}, style = TaskType.rowTitle, color = if (row.section == TaskSectionId.Closed) colors.fgMuted else colors.fg, maxLines = 3, overflow = TextOverflow.Ellipsis)
             if (requestView && searchHit != null && task.parent != null) {
                 val requestId = task.requestId ?: task.parent
                 Text("Part of ${taskLinks?.title(requestId) ?: requestId}", style = TaskType.meta, color = colors.fgMuted,
@@ -97,39 +100,86 @@ internal fun TaskListRow(
             }
             if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val summary = if (!searchHit?.snippet.isNullOrEmpty()) "" else if (task.status == "waiting") waitingSummary(task, now) else gist
-            if (attention != null) {
-                Text(attention.text, style = TextStyles.taskSm, color = colors.fgMuted)
-            } else if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) {
-                if (!(linksEnabled || requestView) || !taskUsesPartsSentence(task)) TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { taskStateTone(task) })
-                if (linksEnabled || requestView) TaskFamilyMeta(family, nested, archived, "", onToggle, requestView = requestView)
-            }
-            else if (linksEnabled || requestView) TaskFamilyMeta(family, nested, archived, summary, onToggle, requestView = requestView)
-            else if (summary.isNotEmpty()) Text(
-                summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
-                maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
+            val showActivity = activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())
+            TaskRowStatus(
+                task, stateLabel,
+                activity = activity.takeIf { showActivity && (!(linksEnabled || requestView) || !taskUsesPartsSentence(task)) },
+                attention = attention,
+                extraWaiting = (row.waiting.size - 1).coerceAtLeast(0),
             )
-            runningWork?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
-            if ((stateLabel != null && (task.state != null || needsYou)) || row.waiting.size > 1 || task.refs.isNotEmpty()) {
-                FlowRow(
-                    Modifier.padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (stateLabel != null && (needsYou || task.state != null)) {
-                        val tone = colors.taskStatus(taskStateTone(task))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stateLabel, style = TaskType.meta.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = tone)
-                        }
-                    }
-                    if (row.waiting.size > 1) Text("+${row.waiting.size - 1} more", style = TaskType.meta, color = colors.fgSubtle)
-                    RefChips(task.refs, max = 2)
+            if (attention == null) {
+                if (linksEnabled || requestView) {
+                    TaskFamilyMeta(family, nested, archived, if (showActivity) "" else summary, onToggle, requestView = requestView)
+                } else if (!showActivity && summary.isNotEmpty()) {
+                    Text(summary, style = if (task.status == "waiting") TaskType.xs else TextStyles.taskSm, color = colors.fgMuted,
+                        maxLines = if (task.status == "waiting") Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            runningWork?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
         }
-        Column(Modifier.padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            TaskIdChip(task.id)
-        }
+    }
+}
+
+/** Quiet metadata. Wrap between items so a long state sentence doesn't hide the task ID or refs. */
+@Composable
+internal fun TaskRowStatus(
+    task: BoardTask,
+    stateLabel: String,
+    activity: BoardTaskActivity? = null,
+    attention: RequestAttention? = null,
+    extraWaiting: Int = 0,
+    maxRefs: Int = 2,
+    elapsed: String? = null,
+    elapsedDescription: String? = null,
+) {
+    val colors = Jarvis.colors
+    val links = LocalRefLinks.current
+    val refs = summarizeTaskRefs(task.refs, maxRefs, links?.links) { links?.status(it) }
+    val stateActivity = activity.takeIf { attention == null }
+    val status = attention?.text ?: stateActivity?.text ?: stateLabel
+    val now = if (stateActivity != null) rememberTaskMinuteNow() else 0L
+    val age = stateActivity?.let { activityAge(it, now) }.orEmpty()
+    val agePrefix = stateActivity?.agePrefix?.takeUnless { it == " · " }
+    val waiting = extraWaiting.takeIf { it > 0 }?.let { "$it more waiting" }
+    val moreRefs = refs.hiddenCount.takeIf { it > 0 }?.let { "$it more ${if (it == 1) "reference" else "references"}" }
+    val description = listOfNotNull(
+        stateActivity?.let { activityDescription(it, now) } ?: status,
+        task.id,
+        waiting,
+        *refs.visible.map { it.description }.toTypedArray(),
+        moreRefs,
+        elapsedDescription,
+    ).joinToString(". ")
+    FlowRow(
+        Modifier.clearAndSetSemantics { contentDescription = description },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(buildAnnotatedString {
+            append(status)
+            if (agePrefix != null && age.isNotEmpty()) {
+                withStyle(SpanStyle(color = colors.fgSubtle)) { append(agePrefix + age) }
+            }
+        }, style = TaskType.meta, color = colors.fgMuted,
+            maxLines = if (attention != null) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+        TaskStatusItem(task.id, mono = true)
+        refs.visible.forEach { TaskStatusItem(it.label, mono = true, tone = it.tone) }
+        if (moreRefs != null) TaskStatusItem("+${refs.hiddenCount}", mono = true)
+        if (waiting != null) TaskStatusItem(waiting)
+        if (agePrefix == null && age.isNotEmpty()) TaskStatusItem(age)
+        if (elapsed != null) TaskStatusItem(elapsed)
+    }
+}
+
+@Composable
+private fun TaskStatusItem(label: String, mono: Boolean = false, tone: TaskStatusTone? = null) {
+    val colors = Jarvis.colors
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("·", style = TaskType.meta, color = colors.fgMuted)
+        tone?.let { TaskStatusDot(it, Modifier.size(6.dp)) }
+        Text(label, Modifier.weight(1f, fill = false), style = TaskType.meta,
+            fontFamily = if (mono) JetBrainsMono else null, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -157,15 +207,16 @@ internal fun TaskParentHeaderRow(row: TaskRow, onOpen: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClickLabel = "Open parent ${task.id}", onClick = onOpen)
-            .semantics { contentDescription = "Parent ${task.id}: ${task.title}, $group" }
+            .semantics { contentDescription = "Parent: ${task.title}" }
             .padding(start = 12.dp, end = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         LucideGlyph(ParentBranch, size = 14.dp, tint = colors.fgSubtle)
-        Text(task.title, Modifier.weight(1f, fill = false).clearAndSetSemantics {}, style = TaskType.rowTitle, color = colors.fg,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("· $group", Modifier.clearAndSetSemantics {}, style = TaskType.meta, color = colors.fgMuted, maxLines = 1)
-        Box(Modifier.clearAndSetSemantics {}) { TaskIdChip(task.id) }
+        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+            Text(task.title, Modifier.clearAndSetSemantics {}, style = TaskType.rowTitle, color = colors.fg,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+            TaskRowStatus(task, group)
+        }
     }
 }
 
@@ -182,14 +233,14 @@ internal fun TaskPointerRow(family: TaskFamily, onOpen: () -> Unit, onJump: () -
         Row(
             Modifier.weight(1f).heightIn(min = 48.dp)
                 .clickable(role = Role.Button, onClickLabel = "Open ${task.id}", onClick = onOpen)
-                .semantics { contentDescription = "${task.id}: ${task.title}, $state" }
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
             LucideGlyph(taskStateGlyph(task.state?.kind), size = 14.dp, tint = tone)
-            Text(task.title, Modifier.weight(1f, fill = false).clearAndSetSemantics {}, style = TaskType.rowTitle,
-                color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("· $state", Modifier.clearAndSetSemantics {}, style = TaskType.meta, color = colors.fgMuted, maxLines = 1)
+            Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                Text(task.title, style = TaskType.rowTitle, color = colors.fg, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                TaskRowStatus(task, state)
+            }
         }
         Box(
             Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -223,10 +274,6 @@ internal fun TaskRowSkeleton(titleWidth: Float, gistWidth: Float) {
         Column(Modifier.weight(1f).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.fillMaxWidth(titleWidth).height(14.dp).background(shade, round))
             Box(Modifier.fillMaxWidth(gistWidth).height(12.dp).background(shade, round))
-        }
-        Column(Modifier.padding(top = 4.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(width = 36.dp, height = 10.dp).background(shade, round))
-            Box(Modifier.size(width = 20.dp, height = 10.dp).background(shade, round))
         }
     }
 }

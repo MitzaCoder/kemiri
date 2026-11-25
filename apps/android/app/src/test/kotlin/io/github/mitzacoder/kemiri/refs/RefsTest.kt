@@ -125,6 +125,20 @@ class RefsTest {
         assertEquals("#12", refLabel("https://github.com/acme/web/pull/12"))
     }
 
+    @Test fun taskRefTextKeepsLabelsAndStatesAndCountsHiddenRefs() {
+        val known = "https://github.com/acme/web/pull/12"
+        val refs = listOf(known, "https://acme.atlassian.net/browse/EX-1", "EX-2")
+        val list = summarizeTaskRefs(refs, 2, twoRepos) { if (it == known) pull("open", "failing") else null }
+        assertEquals(listOf("web#12", "EX-1"), list.visible.map { it.label })
+        assertEquals(TaskStatusTone.Blocked, list.visible.first().tone)
+        assertEquals("Pull request web#12: Open · checks failing", list.visible.first().description)
+        assertEquals("Ticket EX-1", list.visible.last().description)
+        assertNull(list.visible.last().tone)
+        assertEquals(1, list.hiddenCount)
+        assertEquals(0, summarizeTaskRefs(refs, 3, twoRepos) { null }.hiddenCount)
+        assertEquals(TaskRefSummary(emptyList(), 0), summarizeTaskRefs(emptyList(), 2, null) { null })
+    }
+
     @Test fun aStateInPlainWordsAndATasksColours() {
         assertEquals("Open · checks failing", refStatusWords(pull("open", "failing")))
         assertEquals("Draft · checks running", refStatusWords(pull("draft", "pending")))

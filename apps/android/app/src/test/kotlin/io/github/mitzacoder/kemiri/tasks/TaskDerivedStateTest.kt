@@ -102,11 +102,7 @@ class TaskDerivedStateTest {
     }
 
     @Test fun labelsTonesAndAgesDistinguishPausedBlockedAndQuestions() {
-        assertNull(taskRowStateLabel(derived("T9", "in_progress", "working")))
-        for (kind in listOf("failed", "answer_needed", "review", "paused", "blocked_by_task", "waiting_outside", "todo", "done", "dropped")) {
-            assertNull(kind, taskRowStateLabel(derived("T9", "todo", kind)))
-        }
-        assertEquals("Working", taskRowStateLabel(task("T9", "in_progress")))
+        assertEquals("Working", taskStateLabel(task("T9", "in_progress")))
         val paused = derived("T1", "in_progress", "paused")
         assertEquals("Paused", taskStateLabel(paused))
         assertEquals(TaskStatusTone.Paused, taskStateTone(paused))
@@ -127,7 +123,6 @@ class TaskDerivedStateTest {
             val unrelated = row.copy(activity = BoardTaskActivity("unknown", "Old activity", row.createdAt, emptyList()))
             assertEquals(kind, label, taskRowActivity(unrelated, true)?.text)
             assertEquals(row.state!!.since, taskRowActivity(unrelated, true)?.since)
-            assertNull(taskRowStateLabel(row))
         }
     }
 

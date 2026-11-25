@@ -9,7 +9,7 @@ import io.github.mitzacoder.kemiri.features.tasks.taskPartProgress
 import io.github.mitzacoder.kemiri.features.tasks.taskUsesPartsSentence
 import io.github.mitzacoder.kemiri.features.tasks.TaskRelationChips
 
-import io.github.mitzacoder.kemiri.features.tasks.TaskIdChip
+import io.github.mitzacoder.kemiri.features.tasks.TaskRowStatus
 import io.github.mitzacoder.kemiri.features.tasks.TaskIcons
 import io.github.mitzacoder.kemiri.features.tasks.taskReferenceHighlight
 import android.provider.Settings
@@ -34,12 +34,10 @@ import androidx.compose.ui.text.buildAnnotatedString
 import io.github.mitzacoder.kemiri.features.tasks.TaskSearchHit
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.github.mitzacoder.kemiri.features.refs.RefChips
 import io.github.mitzacoder.kemiri.features.tasks.isWarning
 import io.github.mitzacoder.kemiri.features.tasks.taskStateTone
-import io.github.mitzacoder.kemiri.features.tasks.taskRowStateLabel
+import io.github.mitzacoder.kemiri.features.tasks.taskStateLabel
 import io.github.mitzacoder.kemiri.features.tasks.needsTaskOwner
-import io.github.mitzacoder.kemiri.features.tasks.taskStatusWords
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.components.LucideIcon
@@ -103,12 +101,14 @@ internal fun TaskCard(
 ) {
     val colors = Jarvis.colors
     val task = card.task
-    val stateLabel = taskRowStateLabel(task) { id -> tasks.firstOrNull { it.id == id }?.title }
+    val stateLabel = taskStateLabel(task) { id -> tasks.firstOrNull { it.id == id }?.title }
     val needsYou = needsTaskOwner(task, card.waiting.size)
     val warned = card.waiting.any(::isWarning)
     val activity = io.github.mitzacoder.kemiri.features.tasks.taskRowActivity(task, io.github.mitzacoder.kemiri.features.tasks.LocalTaskActivityEnabled.current) { id -> tasks.firstOrNull { it.id == id }?.title }
     val gist = cardGist(card)
     val time = cardTime(card, now)
+    val showDetails = !requestView || !taskUsesPartsSentence(task) || !searchHit?.snippet.isNullOrEmpty()
+    val showActivity = activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())
     val closed = card.column == KanbanColumnId.Done
     val dropped = task.status == "dropped"
     val running = runningWorkers(task, workers)
@@ -151,10 +151,16 @@ internal fun TaskCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (attention != null) Text(attention.text, style = TextStyles.taskSm, color = colors.fgMuted)
-                else if (!requestView || !taskUsesPartsSentence(task) || !searchHit?.snippet.isNullOrEmpty()) {
-                    if (activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())) io.github.mitzacoder.kemiri.features.tasks.TaskActivityView(activity, maxLines = 2, inlineAge = true, stateTone = task.state?.let { tone })
-                    else if (task.status == "waiting") Text(io.github.mitzacoder.kemiri.features.tasks.waitingSummary(task), style = TextStyles.taskSm, color = colors.fgMuted)
+                TaskRowStatus(
+                    task, stateLabel,
+                    activity = activity.takeIf { showDetails && showActivity },
+                    attention = attention,
+                    extraWaiting = if (needsYou) (card.waiting.size - 1).coerceAtLeast(0) else 0,
+                    maxRefs = 3,
+                    elapsed = time.text, elapsedDescription = time.title,
+                )
+                if (attention == null && showDetails && !showActivity) {
+                    if (task.status == "waiting") Text(io.github.mitzacoder.kemiri.features.tasks.waitingSummary(task), style = TextStyles.taskSm, color = colors.fgMuted)
                     else if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else if (gist.isNotEmpty()) Text(gist, style = TextStyles.taskSm, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -165,27 +171,13 @@ internal fun TaskCard(
                         Text(progress.text, style = TaskType.meta, color = colors.fgSubtle)
                     }
                 }
-                if (needsYou && card.waiting.size > 1) Text("+${card.waiting.size - 1} more waiting", style = small, color = colors.fgSubtle)
                 if (linksEnabled) TaskRelationChips(task)
-                if (task.refs.isNotEmpty()) RefChips(task.refs, max = 3)
                 if (running.isNotEmpty() || blockers.isNotEmpty() || holder != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         running.forEach { worker -> Fact(BoardGlyphs.UserCog, colors.taskStatus(TaskStatusTone.Working), "Worker", worker.id, worker.title) }
                         if (blockers.isNotEmpty() && task.state?.kind != "blocked_by_task") Fact(BoardGlyphs.Link, colors.fgSubtle, "Waits for", blockers.joinToString { it.id }, blockers.joinToString { "${it.id} · ${it.title}" })
                         holder?.let { Fact(io.github.mitzacoder.kemiri.ui.components.Lucide.Layers, colors.fgSubtle, null, it, "A background job holds this task: $it") }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (stateLabel != null && (task.state != null || needsYou || dropped)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TaskStatusDot(tone)
-                            Text(stateLabel, style = textStyle(0.6875f, 1f / 0.6875f, weight = 500), color = colors.taskStatus(tone))
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Text(time.text, Modifier.semantics { contentDescription = time.title }, style = small, color = colors.fgSubtle, maxLines = 1)
-                    Text("·", style = small, color = colors.fgSubtle)
-                    TaskIdChip(task.id)
                 }
             }
         }

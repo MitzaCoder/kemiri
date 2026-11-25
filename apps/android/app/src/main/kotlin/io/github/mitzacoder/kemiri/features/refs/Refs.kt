@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.refs
 
+import io.github.mitzacoder.kemiri.features.tasks.refLabel
 import io.github.mitzacoder.kemiri.protocol.ProjectLinkSettings
 import io.github.mitzacoder.kemiri.protocol.ProjectLinks
 import io.github.mitzacoder.kemiri.protocol.RefStatus
@@ -279,4 +280,19 @@ fun refTooltip(ref: String, label: String, links: ProjectLinks?, status: RefStat
     val head = "$kind $label" + (status?.let { ": ${refStatusWords(it)}" } ?: "")
     val title = status?.title?.takeIf { it.isNotEmpty() }
     return listOfNotNull(head, title).joinToString("\n")
+}
+
+/** The refs shown as text in a task row. All refs can still be opened on the task sheet. */
+internal data class TaskRefSummary(val visible: List<TaskRefPreview>, val hiddenCount: Int)
+internal data class TaskRefPreview(val label: String, val tone: TaskStatusTone?, val description: String)
+
+internal fun summarizeTaskRefs(
+    refs: List<String>, max: Int, links: ProjectLinks?, statusOf: (String) -> RefStatus?,
+): TaskRefSummary {
+    val visible = refs.take(max).map { ref ->
+        val label = refLabel(ref, links)
+        val status = statusOf(ref)
+        TaskRefPreview(label, status?.let(::refStatusTone), refTooltip(ref, label, links, status).lineSequence().first())
+    }
+    return TaskRefSummary(visible, refs.size - visible.size)
 }
