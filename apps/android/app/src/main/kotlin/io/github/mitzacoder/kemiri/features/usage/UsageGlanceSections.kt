@@ -27,6 +27,7 @@ import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 internal fun GlanceHeading(label: String) {
@@ -295,7 +296,42 @@ private fun ProviderBreakdown(rows: List<SpendRow>, stats: List<Pair<BackendConf
 }
 
 @Composable
-internal fun WorthALook(stats: List<Pair<BackendConfig, CacheStats>>, loading: Boolean, modifier: Modifier) {
+private fun PromptBilledAgain(stats: List<Pair<BackendConfig, CacheStats>>, computerCount: Int) {
+    val reports = stats.map { it.second }
+    val healthReports = stats.mapNotNull { (computer, report) -> report.cacheHealth?.let { computer to it } }
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        UsageAmountRow("Prompt billed again", reports.sumOf { it.totals.missedCost },
+            note = "Estimated from inferred misses at API prices")
+        if (healthReports.isNotEmpty()) {
+            val cacheRead = reports.sumOf { it.totals.cacheReadTokens }
+            val promptTokens = cacheRead + reports.sumOf { it.totals.inputTokens + it.totals.cacheWriteTokens }
+            val share = if (reports.size == 1) healthReports.single().second.readShare
+                else promptTokens.takeIf { it > 0 }?.let { cacheRead.toDouble() / it }
+            val readShare = share?.let { "${(100 * it).roundToInt()}% of prompt tokens read from cache" } ?: "No prompt tokens"
+            val attempts = healthReports.sumOf { it.second.keepWarmAttempts }
+            val successes = healthReports.sumOf { it.second.keepWarmSuccesses }
+            val pings = if (attempts > 0) "$successes/$attempts keep-warm pings succeeded" else "No keep-warm pings"
+            val coverage = if (healthReports.size < computerCount) " · Ping coverage is partial" else ""
+            ValueNote("Cache health: $readShare · $pings$coverage")
+            healthReports.forEach { (computer, health) ->
+                val reasons = listOfNotNull("Low cache reads".takeIf { health.lowReadShare },
+                    "Miss cost rose sharply vs. the previous period".takeIf { health.missCostSpiked })
+                if (reasons.isNotEmpty()) {
+                    val name = if (computerCount > 1) "${computer.name}: " else ""
+                    val warning = Jarvis.colors.warning
+                    Row(Modifier.padding(top = 1.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Canvas(Modifier.padding(top = 5.dp).size(6.dp)) { drawCircle(warning) }
+                        Text(name + reasons.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun WorthALook(stats: List<Pair<BackendConfig, CacheStats>>, computerCount: Int, loading: Boolean, modifier: Modifier) {
     var showingDiagnosis by rememberSaveable { mutableStateOf(false) }
     val reports = stats.map { it.second }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -305,7 +341,7 @@ internal fun WorthALook(stats: List<Pair<BackendConfig, CacheStats>>, loading: B
         else {
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    UsageAmountRow("Prompt billed again", reports.sumOf { it.totals.missedCost }, note = "Estimated from inferred cache misses")
+                    PromptBilledAgain(stats, computerCount)
                     HorizontalDivider()
                     UsageAmountRow("Failed or stopped responses", reports.sumOf { it.usage?.failed?.cost ?: 0.0 }, note = "Only responses with reported usage")
                     HorizontalDivider()

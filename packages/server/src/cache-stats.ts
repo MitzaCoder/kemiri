@@ -7,6 +7,7 @@ import type {
 	CacheConversation,
 	CacheDay,
 	CacheGroup,
+	CacheHealth,
 	CacheMissDetail,
 	CacheStats,
 	CacheTotals,
@@ -17,9 +18,9 @@ import type {
 import { calculateCost, type Model, type Models, type Usage } from "@earendil-works/pi-ai";
 import { usageAnalysis } from "./usage-analysis.ts";
 import { recordedUsageRange, readRecordedUsage } from "./recorded-usage.ts";
-import type { TaskLink } from "./subscription-value.ts";
+import { valueMonth, type TaskLink } from "./subscription-value.ts";
 import type { ProjectStore } from "./projects.ts";
-import { REQUEST_LOG_KEEP_DAYS, type RequestLogStore, type RequestRow } from "./request-log-store.ts";
+import { isKeepWarmSuccess, REQUEST_LOG_KEEP_DAYS, type RequestLogStore, type RequestRow } from "./request-log-store.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -186,6 +187,7 @@ export type CacheStatsInput = {
 	projectNames: ReadonlyMap<string, string>;
 	models?: Pick<Models, "getModel">;
 	utcOffsetMinutes?: number;
+	previousMissedCost?: number | null;
 };
 
 export function cacheStats(input: CacheStatsInput): CacheStats {
@@ -302,6 +304,7 @@ export function cacheStats(input: CacheStatsInput): CacheStats {
 		keptDays: REQUEST_LOG_KEEP_DAYS,
 		liveSince: input.liveSince === null ? null : new Date(input.liveSince).toISOString(),
 		keepWarm,
+		...(input.previousMissedCost === undefined ? {} : { cacheHealth: cacheHealth(totals, refreshes, input.previousMissedCost) }),
 		totals: { ...totals, cost: totals.cost + keepWarm.cost },
 		byReason: groups(missed, (row) => row.missReason ?? "unexplained", missReasonLabel),
 		byProject: groups(input.rows, (row) => row.projectId, nameOf),
@@ -316,6 +319,35 @@ export function cacheStats(input: CacheStatsInput): CacheStats {
 		misses,
 		longCache: longCacheWhatIf(rows, input.models),
 	};
+}
+
+function cacheHealth(totals: CacheTotals, pings: readonly RequestRow[], previousMissedCost: number | null): CacheHealth {
+	const promptTokens = totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+	const readShare = promptTokens > 0 ? totals.cacheReadTokens / promptTokens : null;
+	return {
+		readShare,
+		// Avoid flagging a handful of cold starts or an empty log.
+		lowReadShare: promptTokens >= 100_000 && readShare !== null && readShare < 0.8,
+		missCostSpiked: previousMissedCost !== null && totals.missedCost >= 2 * previousMissedCost &&
+			totals.missedCost - previousMissedCost >= 1,
+		keepWarmAttempts: pings.length,
+		keepWarmSuccesses: pings.filter(isKeepWarmSuccess).length,
+	};
+}
+
+/** Compare equal elapsed time. Calendar periods start at the previous local day or month boundary. */
+function previousCachePeriod(options: { calendarToday?: boolean; month?: string; utcOffsetMinutes?: number },
+	from: number, to: number, now: number): { from: number; to: number } | null {
+	const elapsed = to - from;
+	let start = from - (options.calendarToday ? DAY_MS : elapsed);
+	if (options.month !== undefined) {
+		const utcOffsetMinutes = options.utcOffsetMinutes ?? 0;
+		const month = new Date(from + utcOffsetMinutes * 60_000 - 1).toISOString().slice(0, 7);
+		const previous = valueMonth({ month, utcOffsetMinutes }, now);
+		if (elapsed > previous.to - previous.from) return null;
+		start = previous.from;
+	}
+	return elapsed > 0 && start >= now - REQUEST_LOG_KEEP_DAYS * DAY_MS ? { from: start, to: start + elapsed } : null;
 }
 
 /** The range `days` back from `now`. */
@@ -334,6 +366,7 @@ export async function readCacheStats(options: {
 	calendarToday?: boolean;
 	month?: string;
 	recorded?: boolean;
+	cacheHealth?: boolean;
 	boardTasks?: (projectId: string) => Promise<readonly TaskLink[]>;
 	now?: number;
 }): Promise<CacheStats> {
@@ -342,7 +375,9 @@ export async function readCacheStats(options: {
 	const projects = await options.projects.list().catch(() => []);
 	const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 	const projectFilter = options.projectId === undefined ? {} : { projectId: options.projectId };
+	const previous = options.cacheHealth ? previousCachePeriod(options, from, to, now) : null;
 	const stats = cacheStats({
+		...(options.cacheHealth ? { previousMissedCost: previous ? options.store.missedPromptCost({ ...previous, ...projectFilter }) : null } : {}),
 		rows: options.store.rows({ from, to, ...projectFilter }),
 		from,
 		to,

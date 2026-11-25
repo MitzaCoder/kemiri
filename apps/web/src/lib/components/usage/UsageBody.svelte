@@ -96,8 +96,18 @@
 	const spendScale = $derived(Math.max(total, priceMarker));
 	const promptTokens = $derived(recorded.reduce((sum, { stats }) => sum + stats.totals.inputTokens + stats.totals.cacheReadTokens + stats.totals.cacheWriteTokens, 0));
 	const cacheRead = $derived(recorded.reduce((sum, { stats }) => sum + stats.totals.cacheReadTokens, 0));
+	const missedCost = $derived(recorded.reduce((sum, { stats }) => sum + stats.totals.missedCost, 0));
+	const cacheHealthReports = $derived(recorded.flatMap(({ computer, stats }) =>
+		stats.cacheHealth ? [{ computer, health: stats.cacheHealth }] : []));
+	const cacheReadShare = $derived(recorded.length === 1 && recorded[0].stats.cacheHealth
+		? recorded[0].stats.cacheHealth.readShare : promptTokens ? cacheRead / promptTokens : null);
+	const keepWarmAttempts = $derived(cacheHealthReports.reduce((sum, { health }) => sum + health.keepWarmAttempts, 0));
+	const keepWarmSuccesses = $derived(cacheHealthReports.reduce((sum, { health }) => sum + health.keepWarmSuccesses, 0));
+	const cacheWarnings = $derived(cacheHealthReports.flatMap(({ computer, health }) => {
+		const reasons = [health.lowReadShare ? 'Low cache reads' : '', health.missCostSpiked ? 'Miss cost rose sharply vs. the previous period' : ''].filter(Boolean);
+		return reasons.length ? [`${selectedBackends.length > 1 ? `${computer.name}: ` : ''}${reasons.join(' · ')}`] : [];
+	}));
 	const signals = $derived([
-		{ label: 'Prompt billed again', note: 'Estimated from inferred cache misses', cost: recorded.reduce((sum, { stats }) => sum + stats.totals.missedCost, 0) },
 		{ label: 'Failed or stopped responses', note: 'Only responses with reported usage', cost: recorded.reduce((sum, { stats }) => sum + (stats.usage?.failed.cost ?? 0), 0) },
 		{ label: 'Keep-warm', note: 'Scheduled cache refreshes', cost: recorded.reduce((sum, { stats }) => sum + (stats.keepWarm?.cost ?? 0), 0) },
 		{ label: 'Check-ins and retries', note: 'Requests themselves, not follow-up turns', cost: recorded.reduce((sum, { stats }) => sum + (stats.usage?.checkIns.cost ?? 0) + (stats.usage?.retries.cost ?? 0), 0) },
@@ -129,7 +139,8 @@
 		untrack(() => recordedReports.sync(scope, targets, revision, async computer => {
 			const supported = computer.supports('recorded-usage');
 			if (range.month && !supported) throw new Error('This computer does not report calendar-month usage yet.');
-			return computer.client.readCacheStats({ ...range, ...(supported ? { recorded: true } : {}) });
+			return computer.client.readCacheStats({ ...range, ...(supported ? { recorded: true } : {}),
+				...(computer.supports('cache-health') ? { cacheHealth: true } : {}) });
 		}));
 	});
 	$effect(() => {
@@ -318,9 +329,28 @@
 				<div class="section-heading"><h2 id="usage-look" tabindex="-1">Worth a look</h2><span class="text-xs text-muted-foreground">{periodLabel} · signals, not proof of waste</span></div>
 				{#if recorded.length}
 					<ul class="usage-card divide-y divide-(--chat-border)">
+						<li class="flex items-start gap-3 px-3 py-2.5 text-sm">
+							<div class="min-w-0 flex-1">
+								<p class="font-medium">Prompt billed again</p>
+								<p class="text-xs text-muted-foreground">Estimated from inferred misses at API prices</p>
+								{#if cacheHealthReports.length}
+									<p class="mt-1 text-xs text-muted-foreground"><span class="font-medium">Cache health:</span>
+										{cacheReadShare === null ? 'No prompt tokens' : `${Math.round(100 * cacheReadShare)}% of prompt tokens read from cache`}
+										· {keepWarmAttempts ? `${keepWarmSuccesses}/${keepWarmAttempts} keep-warm pings succeeded` : 'No keep-warm pings'}
+										{#if cacheHealthReports.length < selectedBackends.length} · Ping coverage is partial{/if}
+									</p>
+									{#each cacheWarnings as warning}
+										<p class="mt-1 flex items-baseline gap-1.5 text-xs font-medium">
+											<span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-(--chat-warning)"></span>{warning}
+										</p>
+									{/each}
+								{/if}
+							</div>
+							<strong class="shrink-0 tabular-nums">{usageMoney(missedCost)}</strong>
+						</li>
 						{#each signals as signal (signal.label)}<li class="flex items-center gap-3 px-3 py-2.5 text-sm"><span class="min-w-0 flex-1 font-medium">{signal.label}<small class="block font-normal text-muted-foreground sm:ml-2 sm:inline">{signal.note}</small></span><strong class="shrink-0 tabular-nums">{usageMoney(signal.cost)}</strong></li>{/each}
 					</ul>
-					{#if promptTokens > 0}<p class="mt-2 text-xs text-muted-foreground">{Math.round(100 * cacheRead / promptTokens)}% of prompt tokens were read from cache.</p>{/if}
+					{#if !cacheHealthReports.length && cacheReadShare !== null}<p class="mt-2 text-xs text-muted-foreground">{Math.round(100 * cacheReadShare)}% of prompt tokens were read from cache.</p>{/if}
 					<details class="usage-disclosure"><summary>Prompt-cache diagnosis</summary>
 						{#each recorded as { computer, stats } (computer.id)}<div class="mt-4 min-w-0"><h3 class="mb-2 font-semibold">{computer.name}</h3><CacheSection {stats} days={Math.max(1, stats.days.length)} /></div>{/each}
 					</details>

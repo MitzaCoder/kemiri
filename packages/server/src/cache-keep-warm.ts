@@ -5,7 +5,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { CacheWarmSchedule, type CacheWarmClock } from "./cache-warm-schedule.ts";
 import { refreshAnthropicCache, supportsCacheWarm, zeroOutputPayload, type CacheWarmPayload } from "./cache-warm-transport.ts";
 import { hasCatalogPrice } from "./request-billing.ts";
-import type { RequestBilling, RequestLogStore, RequestRow } from "./request-log-store.ts";
+import { isKeepWarmSuccess, type RequestBilling, type RequestLogStore, type RequestRow } from "./request-log-store.ts";
 
 type WarmProject = {
 	settings: () => { keepPromptCacheWarm: boolean; promptCacheWarmHours: number; archived?: boolean };
@@ -127,7 +127,7 @@ export class CoordinatorCacheWarm {
 				summary.cachedTokens += usage.cacheRead;
 				summary.cost += usage.cost.total;
 				const failed = stopReason === "error" || stopReason === "aborted";
-				const warm = !failed && usage.cacheRead > 0 && usage.cacheWrite === 0;
+				const warm = isKeepWarmSuccess({ ...usage, stopReason });
 				if (warm) { summary.refreshes += 1; summary.lastReadAt = at; }
 				else summary.stopped ??= failed ? "Cache refresh stopped: provider request failed" : usage.cacheRead <= 0 ? "Cache refresh stopped: no cache read" : "Cache refresh stopped: unexpected cache write";
 				const billing = await this.#billingFor(row.provider);

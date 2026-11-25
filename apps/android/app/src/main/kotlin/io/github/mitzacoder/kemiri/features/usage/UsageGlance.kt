@@ -21,8 +21,8 @@ internal enum class UsagePeriod(val label: String, val days: Long?) {
 internal data class UsageRange(val period: UsagePeriod, val month: String?, val utcOffsetMinutes: Long) {
     private val calendarToday get() = true.takeIf { period == UsagePeriod.Today }
 
-    fun overview() = CacheStatsRequest(month = month, days = period.days, calendarToday = calendarToday,
-        utcOffsetMinutes = utcOffsetMinutes, recorded = true)
+    fun overview(cacheHealth: Boolean = false) = CacheStatsRequest(month = month, days = period.days, calendarToday = calendarToday,
+        utcOffsetMinutes = utcOffsetMinutes, recorded = true, cacheHealth = true.takeIf { cacheHealth })
 
     fun detail(selection: UsageSelection) = UsageDetailRequest(month = month, days = period.days,
         calendarToday = calendarToday, utcOffsetMinutes = utcOffsetMinutes, selection = selection)

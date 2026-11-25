@@ -3258,7 +3258,17 @@ data class UsageDetailResponse(
 )
 
 @Serializable
+data class CacheHealth(
+    val `readShare`: Double?,
+    val `lowReadShare`: Boolean,
+    val `missCostSpiked`: Boolean,
+    val `keepWarmAttempts`: Long,
+    val `keepWarmSuccesses`: Long
+)
+
+@Serializable
 data class CacheStats(
+    val `cacheHealth`: CacheHealth? = null,
     val `usage`: CacheStatsUsage? = null,
     val `recorded`: RecordedUsage? = null,
     val `from`: String,
@@ -3329,6 +3339,7 @@ data class CacheStatsRequest(
     val `days`: Long? = null,
     val `calendarToday`: Boolean? = null,
     val `utcOffsetMinutes`: Long? = null,
+    val `cacheHealth`: Boolean? = null,
     val `recorded`: Boolean? = null,
     val `projectId`: String? = null
 )

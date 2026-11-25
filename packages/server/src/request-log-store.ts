@@ -66,6 +66,11 @@ export type InternalUsagePurpose = "compaction" | "memory_extraction" | "memory_
 
 export type RequestBilling = "subscription" | "plan_key" | "api_key" | "agent";
 
+/** An attempted refresh counts as successful only when it read cache without writing it. */
+export function isKeepWarmSuccess({ stopReason, cacheRead, cacheWrite }: Pick<RequestRow, "stopReason" | "cacheRead" | "cacheWrite">): boolean {
+	return stopReason !== null && stopReason !== "error" && stopReason !== "aborted" && cacheRead > 0 && cacheWrite === 0;
+}
+
 export type RequestRow = ConversationIdentity & {
 	billing?: RequestBilling | null;
 	periodId?: number | null;
@@ -771,6 +776,17 @@ export class RequestLogStore {
 						)
 						.all(query.from, query.to, query.projectId);
 		return rows.map(fromDb);
+	}
+
+	/** The same inferred miss cost that feeds cache stats, or null for an empty comparison window. */
+	missedPromptCost(query: { from: number; to: number; projectId?: string }): number | null {
+		const project = query.projectId === undefined ? [] : [query.projectId];
+		return this.#db.query<{ cost: number | null }, [number, number, ...string[]]>(`
+			SELECT SUM(CASE WHEN miss_tokens > 0 THEN miss_cost ELSE 0 END) AS cost
+			FROM requests
+			WHERE at >= ? AND at < ? AND source != 'keepWarm' AND prompt_tokens > 0
+			${project.length ? "AND project_id = ?" : ""}
+		`).get(query.from, query.to, ...project)?.cost ?? null;
 	}
 
     saveWarmSnapshot(projectId: string, conversationId: number, snapshot: unknown): void {

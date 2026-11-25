@@ -262,7 +262,17 @@ export const ApiKeySpendRateSchema = Type.Object({
 });
 export type ApiKeySpendRate = Static<typeof ApiKeySpendRateSchema>;
 
+export const CacheHealthSchema = Type.Object({
+	readShare: Type.Union([Type.Number({ minimum: 0, maximum: 1 }), Type.Null()], { description: "Fraction of prompt tokens read from cache, excluding keep-warm pings. Null without prompt tokens." }),
+	lowReadShare: Type.Boolean(),
+	missCostSpiked: Type.Boolean(),
+	keepWarmAttempts: Type.Integer({ minimum: 0 }),
+	keepWarmSuccesses: Type.Integer({ minimum: 0 }),
+});
+export type CacheHealth = Static<typeof CacheHealthSchema>;
+
 export const CacheStatsSchema = Type.Object({
+	cacheHealth: Type.Optional(CacheHealthSchema),
  usage: Type.Optional(UsageAnalysisSchema),
 	recorded: Type.Optional(RecordedUsageSchema),
 	from: Type.String({ description: "ISO 8601, the start of the range." }),
@@ -292,6 +302,7 @@ export const CacheStatsRequestSchema = Type.Object({
 	type: Type.Literal("cache.stats"),
 	id: RequestIdSchema,
 	...UsagePeriodFields,
+	cacheHealth: Type.Optional(Type.Boolean({ description: "Include cache health signals. Requires cache-health." })),
 	recorded: Type.Optional(Type.Boolean({ description: "Include durable roll-up groups. Implied by month. Requires recorded-usage." })),
 	projectId: Type.Optional(UsageKey),
 });

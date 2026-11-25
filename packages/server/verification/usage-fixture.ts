@@ -149,6 +149,8 @@ for (let project = 0; project < 2; project++)
 				},
 			);
 			store.insert(row);
+			// A quiet prior period gives the 30-day view a comparison without changing its totals.
+			if (index === 0) store.insert({ ...row, at: now - 31 * 86_400_000, missTokens: 0, missCost: 0, missReason: null });
 			if (index % 5 === 0 && kind === "main")
 				store.insert({
 					...row,
@@ -167,6 +169,15 @@ for (let project = 0; project < 2; project++)
 					missCost: 0,
 					missReason: null,
 				});
+			if (index === 15 && kind === "main") store.insert({
+				...row,
+				at: row.at + 2_000,
+				source: "keepWarm",
+				stopReason: "error",
+				input: 0, cacheRead: 0, cacheWrite: 0, output: 0, promptTokens: 0,
+				cost: 0, costInput: 0, costCacheRead: 0, costCacheWrite: 0, costOutput: 0,
+				missTokens: 0, missCost: 0, missReason: null,
+			});
 		}
 	}
 for (const purpose of ["compaction", "memory_extraction", "memory_maintenance"] as const) {

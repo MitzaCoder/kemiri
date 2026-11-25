@@ -859,6 +859,7 @@ export class ClientConnection {
 						store: this.#requestLog.store,
 						projects: this.#manager.store,
 						models: this.#manager.models,
+						cacheHealth: request.cacheHealth === true && this.#features.includes("cache-health"),
 						...(this.#features.includes("recorded-usage") ? {
 							...(request.month === undefined ? {} : { month: request.month }),
 							...(request.recorded === undefined ? {} : { recorded: request.recorded }),

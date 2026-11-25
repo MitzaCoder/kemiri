@@ -123,6 +123,28 @@ still applying schema changes, tool additions and removals immediately. It does 
 transcript is cold from the wall clock. An existing conversation can still have a warm cache after a long idle
 gap, for example from a refresh. Unset the flag to resume immediate description updates.
 
+## How to re-measure after rollout
+
+Record the rollout time. After a full week, compare seven full days before and after rollout on each backend.
+Use a read-only connection to the request log. The excerpt below groups verified mid-turn prompts with no recorded
+changes separately from the other requests. Compare prompt-token share and incremental API-priced miss cost,
+not uncached input alone. Check counts and model mix before attributing differences to the rollout.
+
+```sql
+SELECT provider, model, wake = 'continue' AND changes = '[]' AS unchanged_mid_turn,
+       COUNT(*) AS requests,
+       1.0 * SUM(cache_read) / NULLIF(SUM(prompt_tokens), 0) AS read_share,
+       SUM(CASE WHEN miss_tokens > 0 THEN miss_cost ELSE 0 END) AS missed_cost
+FROM requests
+WHERE source = 'live' AND at >= ? AND at < ?
+GROUP BY provider, model, unchanged_mid_turn;
+```
+
+For those same windows count `source = 'keepWarm'` as attempts, and as successes only rows with a known,
+non-error/non-aborted stop reason, positive `cache_read`, and zero `cache_write`. Inspect new misses by
+`miss_reason`, `idle_ms`, and `changes`; recheck the single-tool replacement separately using the steps above.
+Use those findings before deciding whether to extend keep-warm or use cached compaction summaries.
+
 ## Draft upstream issue for earendil-works/pi
 
 **Title: pi-durable re-sends every tool after a one-tool update to preserve registry order**

@@ -488,7 +488,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const projectFiles = (options.projectFiles ?? projectFilesEnabled()) ? new ProjectFiles() : undefined;
 	const features = (options.features ?? HARNESS_FEATURES).filter(
 		(feature) =>
-			((feature !== "cache-stats" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "recorded-usage" && feature !== "subscription-value" && feature !== "task-usage") ||
+			((feature !== "cache-stats" && feature !== "cache-health" && feature !== "cache-keep-warm" && feature !== "usage-breakdown" && feature !== "recorded-usage" && feature !== "subscription-value" && feature !== "task-usage") ||
 				requestLog !== undefined) &&
 			(feature !== "answers-work-and-tasks" || (options.features ?? HARNESS_FEATURES).includes("answers")) &&
 			(feature !== "usage-drain" || usageDrain !== undefined) &&

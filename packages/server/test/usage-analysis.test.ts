@@ -145,6 +145,69 @@ it("keeps analysis and reset mutations behind negotiated feature names", async (
 	expect(reset.type).toBe("error");
 });
 
+it("reports cache health only for opted-in clients on a supporting server", async () => {
+	for (const supported of [false, true]) {
+		const setup = await createSetup({ features: supported ? ["cache-stats", "cache-health"] : ["cache-stats"] });
+		const client = await TestClient.open(setup.server);
+		cleanups.push(() => client.close());
+		const hello = await client.hello();
+		if (hello.type !== "hello") throw new Error("No hello");
+		expect(hello.features?.includes("cache-health")).toBe(supported);
+		for (const cacheHealth of [undefined, true]) {
+			const reply = await client.request({ type: "cache.stats", cacheHealth });
+			if (reply.type !== "cache.stats") throw new Error("No cache stats");
+			if (supported && cacheHealth) expect(reply.stats.cacheHealth).toEqual({
+				readShare: null, lowReadShare: false, missCostSpiked: false, keepWarmAttempts: 0, keepWarmSuccesses: 0,
+			});
+			else expect(reply.stats.cacheHealth).toBeUndefined();
+		}
+	}
+});
+
+it("keeps pings out of prompt totals and infers success only from a read without a write or request failure", async () => {
+	const now = Date.parse("2026-03-04T15:00:00Z");
+	const day = 86_400_000;
+	const store = RequestLogStore.open(":memory:");
+	cleanups.push(() => store.close());
+	const stats = (projectId?: string) => readCacheStats({ store, projects: { list: async () => [] }, now, days: 1, cacheHealth: true, projectId });
+	store.insert(row({ at: now - day, input: 10_000, cacheRead: 75_000, cacheWrite: 15_000, promptTokens: 100_000,
+		missTokens: 5_000, missCost: 2, source: "backfill" }));
+	store.insert(row({ at: now - day - 1, missTokens: 1_000, missCost: 0.5 }));
+	store.insert(row({ at: now - 2 * day - 2, missTokens: 50_000, missCost: 10 }));
+	store.insert(row({ at: now - day - 2, projectId: "library", missTokens: 5_000, missCost: 5 }));
+	for (const [index, fields] of [
+		{}, { stopReason: "error" }, { stopReason: "aborted" }, { stopReason: null }, { cacheRead: 0 }, { cacheWrite: 1 },
+	].entries()) store.insert(row({ at: now - index, source: "keepWarm", input: 0, cacheRead: 100_000, cacheWrite: 0,
+		missTokens: 10_000, missCost: 99, ...fields }));
+	const garden = await stats("garden");
+	expect(garden.totals.missedCost).toBe(2);
+	expect(garden.cacheHealth).toEqual({
+		readShare: 0.75, lowReadShare: true, missCostSpiked: true, keepWarmAttempts: 6, keepWarmSuccesses: 1,
+	});
+	expect((await stats()).cacheHealth?.missCostSpiked).toBe(false); // The other project's prior misses count here.
+});
+
+it("compares the elapsed part of local calendar periods, not the end of an earlier day or month", async () => {
+	const store = RequestLogStore.open(":memory:");
+	cleanups.push(() => store.close());
+	const now = Date.parse("2026-04-02T02:00:00Z");
+	for (const [at, missCost] of [
+		["2026-04-02T00:00:00Z", 2], // Current day and month.
+		["2026-04-01T01:00:00Z", 0], // Previous day at the same local time.
+		["2026-03-31T02:00:00Z", 9], // Outside the previous day and the comparable part of March.
+		["2026-03-01T01:00:00Z", 0], // Previous month at the same local time.
+		["2026-04-01T03:00:00Z", 0], // Past the previous day's cutoff.
+	] as const) store.insert(row({ at: Date.parse(at), missTokens: missCost > 0 ? 400 : 0, missCost }));
+	const options = { store, projects: { list: async () => [] }, now, utcOffsetMinutes: 120, cacheHealth: true };
+	for (const period of [{ calendarToday: true }, { month: "2026-04" }]) {
+		const stats = await readCacheStats({ ...options, ...period });
+		expect(stats.cacheHealth?.lowReadShare).toBe(false); // Not enough prompt tokens to flag.
+		expect(stats.cacheHealth?.missCostSpiked).toBe(true);
+	}
+	expect((await readCacheStats({ ...options, days: 1 })).cacheHealth?.missCostSpiked).toBe(false);
+	expect((await readCacheStats({ ...options, days: 7 })).cacheHealth?.missCostSpiked).toBe(false); // No baseline rows.
+});
+
 it("calendarToday respects local midnight and excludes rows outside it", async () => {
 	const store = RequestLogStore.open(":memory:");
 	cleanups.push(() => store.close());

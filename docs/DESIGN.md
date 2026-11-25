@@ -2330,6 +2330,20 @@ Subscription and spend details open in bottom sheets. The subscription sheet ret
 current calendar month for plan comparison. Plan prices can be edited in AI accounts. Project breakdowns include work
 without a task; task rows can open the original task on its computer.
 
+**Cache health (T488).** A computer with a request log advertises `cache-health`. The optional `cache.stats`
+`cacheHealth: true` read returns the prompt-token read share, keep-warm success and attempt counts, and two
+warning flags. Older clients do not request or receive these fields. The share divides cached reads by uncached
+input, cache writes and cache reads combined, excluding pings. Pings only succeed when they read cache without a
+write or provider error/abort. An empty log has no share; zero attempts display as no pings, not a failure rate.
+
+Web and Android add these signals to Worth a look → Prompt billed again without a second miss-cost estimate.
+Both reuse the request log's incremental API-priced miss cost. The All tab pools tokens and counts, notes partial
+ping coverage, and names individual computers with warnings instead of letting their signals wash out in the total.
+A warning marks a share below 80% once at least 100,000 prompt tokens are recorded, or inferred miss cost at least
+twice the previous period and at least $1 higher. Rolling periods compare the immediately preceding interval.
+Today and This month compare the same elapsed time from the previous local calendar boundary using the supplied
+offset. The comparison is skipped when that interval cannot fit, is outside retention or has no prompt activity.
+
 Existing request rows already identify coordinator/worker/thread, schedule, board task and keep-warm. New recording
 adds an optional internal purpose for coordinator compaction, memory extraction and backend memory maintenance,
 observing their `completeSimple` calls without logging prompt content or affecting the call. Internal requests are

@@ -94,7 +94,7 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
         val ready = connection.status == ConnectionStatus.Ready
         val supportsRecorded = connection.supports(HarnessFeature.RECORDED_USAGE)
         val stats = observeUsageRead(supportsRecorded, ready, connection.generation, overviewQuery, refresh) {
-            backend.client.request(range.overview()).stats
+            backend.client.request(range.overview(connection.supports(HarnessFeature.CACHE_HEALTH))).stats
         }
         val monthly = observeUsageRead(needsMonth && connection.supports(HarnessFeature.SUBSCRIPTION_VALUE), ready,
             connection.generation, month to zone, refresh) {
@@ -168,7 +168,7 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
                             monthReadFailed = computers.any { it.monthly.error != null },
                             modifier = Modifier.onGloballyPositioned { sectionOffsets["Spend"] = it.positionInParent().y.roundToInt() },
                             openSpend = { row -> sheets = listOf(row.subscription?.let { UsageSheet.Subscription(it) } ?: UsageSheet.Spend(row, range, totalCost)) })
-                        WorthALook(stats, readingSpend, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
+                        WorthALook(stats, computers.size, readingSpend, Modifier.onGloballyPositioned { sectionOffsets["Worth a look"] = it.positionInParent().y.roundToInt() })
                     }
                 }
             }
