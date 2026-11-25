@@ -7694,7 +7694,9 @@ button or an error), and consent omits the Google name/photo point. A configured
 the debug-only fake Google switch counts as configured. Missing Google configuration never disables email sign-in.
 The flow is consent → the available sign-in method → phone check → on. Cancelling any unfinished step keeps relay off.
 Only the explicit in-memory phone check accepts challenges before the persisted switch becomes on; closing or leaving
-settings stops that receive authority. A server-issued challenge deadline is compared to its stored receipt exactly,
+settings stops that receive authority. During recovery, only the matching possession challenge may pass that gate.
+Both direct and encrypted notifications stay blocked until confirmation clears `relayRecoveryRequired`.
+A server-issued challenge deadline is compared to its stored receipt exactly,
 not rejected merely because the phone clock lags the relay by a fraction of a second. Foreground maintenance checks
 account status, handles terminal disable/deletion and sets `relayRecoveryRequired` without showing prompts elsewhere.
 Quota labels are fixed local words. Today's use shows only Your account today: N left and a local reset time;

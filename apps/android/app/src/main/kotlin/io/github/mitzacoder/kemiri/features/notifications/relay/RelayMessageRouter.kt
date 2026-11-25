@@ -22,12 +22,15 @@ class RelayMessageRouter(
     private val mutex = Mutex()
 
     /** Unknown or attacker-controlled messages are silently dropped and counted with fixed local reasons only. */
-    suspend fun receive(message: Map<String, String>) = mutex.withLock {
+    suspend fun receive(message: Map<String, String>, challengeOnly: Boolean = false) = mutex.withLock {
         if (!enabled()) {
+            if (challengeOnly) return@withLock
             val payload = parseNotificationPayload(message["payload"]) ?: return@withLock
             present(payload)
             return@withLock
         }
+        val encrypted = message["aiki"]
+        if (challengeOnly && encrypted == null) return@withLock
         try {
             val store = storage()
             val state = store.read()
@@ -35,7 +38,6 @@ class RelayMessageRouter(
                 storageLost()
                 return@withLock
             }
-            val encrypted = message["aiki"]
             if (encrypted == null) {
                 val payload = parseNotificationPayload(message["payload"]) ?: return@withLock
                 if (payload.backendKey in state.selectedBackends) {
@@ -51,6 +53,7 @@ class RelayMessageRouter(
                 if (!challenge(encrypted)) count(store, "challenge")
                 return@withLock
             }
+            if (challengeOnly) return@withLock
             val envelope = RelayCrypto.parseEnvelope(encrypted)
             var payloadJson: JsonObject? = null
             store.update { previous ->

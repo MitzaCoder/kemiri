@@ -188,6 +188,27 @@ class RelayMessageRouterTest {
         relay.foreground()
     }
 
+    @Test fun recoveryOnlyAcceptsTheChallengeDuringAnExplicitPhoneCheck() = runTest {
+        val f = Fixture()
+        val api = RelayFakeApi(f.time)
+        val relay = RelayNotifications({ NotificationSettings(relayRecoveryRequired = true) },
+            { f.store }, { api }, { error("backend registration before phone check") }, f.time, { f.shown.add(it) })
+        relay.checkPhone("fcm")
+        val challengeMessage = mapOf("aiki" to challenge(f.store.state, api.challengeId, f.time))
+        relay.finishPhoneCheck()
+        relay.receive(challengeMessage)
+        assertEquals(0, api.confirms)
+        relay.checkPhone("fcm")
+        relay.receive(mapOf("payload" to payload().toString()))
+        relay.receive(mapOf("aiki" to f.envelope()))
+        assertTrue(f.shown.isEmpty())
+        assertTrue(f.store.state.admissions.isEmpty())
+        relay.receive(challengeMessage)
+        assertEquals(1, api.confirms)
+        assertEquals("fcm", f.store.state.activeToken)
+        assertNull(f.store.state.enrollment)
+    }
+
     @Test fun invalidatedStoreDoesNotDowngradeCurrentMessage() = runTest {
         var lost = 0
         val store = RelayMemoryStore(RelayState(failure = RelayErrorCode.StorageUnavailable))

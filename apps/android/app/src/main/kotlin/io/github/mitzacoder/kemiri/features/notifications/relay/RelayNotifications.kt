@@ -64,8 +64,10 @@ class RelayNotifications(
 
     /** Shares the existing parser/presenter with direct FCM, including the complete no-relay path. */
     suspend fun receive(message: Map<String, String>) {
-        if (settings().relayRecoveryRequired) return
-        router.receive(message)
+        val recoveryRequired = settings().relayRecoveryRequired
+        if (recoveryRequired && !checkingPhone) return
+        // Recovery itself needs a possession challenge, but must not admit notifications before it succeeds.
+        router.receive(message, challengeOnly = recoveryRequired)
     }
 
     /** A relay-selected backend cannot be overwritten by today's direct-token registration sync. */
