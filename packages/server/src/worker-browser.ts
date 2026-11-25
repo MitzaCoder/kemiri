@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, lstat, realpath, rena
 import { tmpdir } from "node:os";
 import { join, dirname, basename, relative, isAbsolute } from "node:path";
 import { AgentBrowserInstaller } from "./agent-browser-install.ts";
-import { findBrowserExecutable, offerManagedAgentBrowser } from "./agent-browser.ts";
+import { findBrowserExecutable } from "./agent-browser.ts";
 import { childEnvironment } from "./child-environment.ts";
 import { serverSettings } from "./server-settings.ts";
 
@@ -83,9 +83,11 @@ export async function closeWorkerBrowser(browser: WorkerBrowser): Promise<void> 
 	}
 }
 
+type WorkerBrowserInstaller = Pick<AgentBrowserInstaller, "ensure"> & Partial<Pick<AgentBrowserInstaller, "findInstalled">>;
+
 export class WorkerBrowserService {
 	readonly ready: Promise<void>;
-	readonly #installer: Pick<AgentBrowserInstaller, "ensure">;
+	readonly #installer: WorkerBrowserInstaller;
 	readonly #closing = new Map<string, Promise<void>>();
 	readonly #proofWrites = new Map<string, Promise<void>>();
 	readonly #resumed = new Map<string, Promise<void>>();
@@ -93,11 +95,28 @@ export class WorkerBrowserService {
 	#verified: Exclude<WorkerBrowserAvailability, string> | undefined;
 	#ensuring: Promise<WorkerBrowserAvailability> | undefined;
 	readonly #preparing = new Map<string, Promise<{ browser: WorkerBrowser | string; key: string }>>();
-	constructor(readonly options: { dataDir: string; log: (message: string) => void; installer?: Pick<AgentBrowserInstaller, "ensure">;
-		findBrowser?: () => string | null; command?: () => string | undefined; allowedDomains?: string; offer?: (command: string) => void }) {
+	constructor(readonly options: { dataDir: string; log: (message: string) => void; installer?: WorkerBrowserInstaller;
+		findBrowser?: () => string | null; command?: () => string | undefined; allowedDomains?: string }) {
 		this.#installer = options.installer ?? new AgentBrowserInstaller({ dataDir: options.dataDir });
 		this.#root = join(options.dataDir, "tools", "browser-workers");
-		this.ready = this.#sweep().catch(error => options.log(`agent-browser startup cleanup: ${error}`));
+		this.ready = Promise.all([
+			this.#sweep().catch(error => options.log(`agent-browser startup cleanup: ${error}`)),
+			this.#discoverInstalledBrowser().catch(error => options.log(`agent-browser startup discovery: ${error}`)),
+		]).then(() => undefined);
+	}
+	/** Read the backend's verified availability without a filesystem probe or install. */
+	readonly availableCommand = (): string | null => this.#verified?.binary ?? null;
+	#findChromium(): string | null { return (this.options.findBrowser ?? findBrowserExecutable)(); }
+	#commandOverride(): string | undefined {
+		return (this.options.command ?? (() => serverSettings.KEMIRI_AGENT_BROWSER_COMMAND))()?.trim();
+	}
+	#resolveOverride(command: string): string | null { return Bun.which(command, { PATH: childEnvironment().PATH ?? "" }); }
+	async #discoverInstalledBrowser(): Promise<void> {
+		const chromium = this.#findChromium();
+		if (!chromium) return;
+		const override = this.#commandOverride();
+		const binary = override ? this.#resolveOverride(override) : await this.#installer.findInstalled?.();
+		if (binary) this.#verified = { binary, chromium };
 	}
 	#key(projectId: string, conversationId: number | string): string { return createHash("sha256").update(JSON.stringify([projectId, conversationId])).digest("hex"); }
 	async #read(key: string): Promise<WorkerBrowser | undefined> {
@@ -125,13 +144,13 @@ export class WorkerBrowserService {
 	}
 	async #ensureReady(): Promise<WorkerBrowserAvailability> {
 		await this.ready;
-		const chromium = (this.options.findBrowser ?? findBrowserExecutable)();
+		if (this.#verified) return this.#verified;
+		const chromium = this.#findChromium();
 		if (!chromium) return "no Chromium or Chrome found; install one or set KEMIRI_BROWSER_EXECUTABLE.";
 		try {
-			const override = (this.options.command ?? (() => serverSettings.KEMIRI_AGENT_BROWSER_COMMAND?.trim()))();
-			const binary = override ? Bun.which(override, { PATH: childEnvironment().PATH ?? "" }) : await this.#installer.ensure();
+			const override = this.#commandOverride();
+			const binary = override ? this.#resolveOverride(override) : await this.#installer.ensure();
 			if (!binary) throw new Error("KEMIRI_AGENT_BROWSER_COMMAND is not executable");
-			(this.options.offer ?? offerManagedAgentBrowser)(binary);
 			return this.#verified = { binary, chromium };
 		} catch (error) { return this.#setupFailure(error); }
 	}

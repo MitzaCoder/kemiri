@@ -28,7 +28,7 @@ env) env ;;
 esac
 `, { mode: 0o755 });
 	const logs: string[] = [];
-	const options = { dataDir: root, log: (message: string) => { logs.push(message); }, installer: { ensure: async () => binary }, findBrowser: () => "/opt/fixture/chromium", command: () => undefined, offer: () => {} };
+	const options = { dataDir: root, log: (message: string) => { logs.push(message); }, installer: { ensure: async () => binary }, findBrowser: () => "/opt/fixture/chromium", command: () => undefined };
 	return { root, binary, options, logs, service: new WorkerBrowserService(options) };
 }
 async function run(browser: WorkerBrowser, command: string): Promise<string> {
@@ -115,10 +115,12 @@ test("private launcher carries environment across shell calls; proof is an allow
 	}
 });
 
-test("explicit command bypasses install and allowed domains are carried unchanged", async () => {
+test("startup discovers the explicit command without an install and keeps allowed domains unchanged", async () => {
 	const fixture = await createFixture();
 	const service = new WorkerBrowserService({ ...fixture.options, command: () => fixture.binary, allowedDomains: "localhost,example.com", installer: { ensure: async () => { throw new Error("must not install"); } } });
 	try {
+		await service.ready;
+		expect(service.availableCommand()).toBe(fixture.binary);
 		const browser = await service.prepare("project", 1, await service.ensureReady());
 		if (typeof browser === "string") throw new Error(browser);
 		expect(await run(browser, "env")).toContain("AGENT_BROWSER_ALLOWED_DOMAINS=localhost,example.com");
@@ -272,12 +274,12 @@ test("ensureReady shares installation and caches verification; prepare only cons
 		expect(repeated).toEqual(browser);
 		expect(retried).toEqual(browser); // A retried commit may receive another conversation ID: no new kab dir.
 		expect(installs).toBe(1);
-		expect(discoveries).toBe(1);
+		expect(discoveries).toBe(2); // One startup check, one retry for the first install.
 		expect(await readdir(join(fixture.root, "tools/browser-workers"))).toHaveLength(1);
 		insideCommit = false;
 		expect(await service.ensureReady()).toBe(availability);
 		expect(installs).toBe(1);
-		expect(discoveries).toBe(1);
+		expect(discoveries).toBe(2);
 	} finally {
 		finish();
 		await service.cleanup("project", 21, true);

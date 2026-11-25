@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { agentBrowserPin } from "./agent-browser-pin.ts";
@@ -46,22 +47,42 @@ export class AgentBrowserInstaller {
 		if (!this.#pending) this.#pending = this.#ensure().finally(() => { this.#pending = undefined; });
 		return this.#pending;
 	}
-	async #ensure(): Promise<string> {
+	#installation() {
 		const pin: AgentBrowserPin = this.options.pin ?? agentBrowserPin;
 		const platform = this.options.platform ?? agentBrowserPlatform();
 		const entry = pin.platforms[platform];
 		if (!entry) throw new Error(`Unsupported agent-browser platform: ${platform}`);
 		if (!/^[\w.-]+$/.test(pin.version) || !/^[\w-]+$/.test(platform)) throw new Error("Invalid agent-browser pin path");
 		const root = join(this.options.dataDir, "tools", "agent-browser");
-		const directory = join(root, `${pin.version}-${platform}`);
+		const versionDir = `${pin.version}-${platform}`;
+		const directory = join(root, versionDir);
 		const binary = join(directory, "agent-browser");
+		return { entry, root, directory, binary, versionDir,
+			expectedMarker: { version: pin.version, platform, integrity: entry.integrity } };
+	}
+	async #matchesInstallMarker(directory: string, binary: string, expected: { version: string; platform: string; integrity: string }): Promise<boolean> {
 		try {
 			const marker = JSON.parse(await readFile(join(directory, "install.json"), "utf8"));
-			if (marker.version === pin.version && marker.platform === platform && marker.integrity === entry.integrity && marker.sha256 === sha256(await readFile(binary))) {
+			return marker.version === expected.version && marker.platform === expected.platform && marker.integrity === expected.integrity &&
+				marker.sha256 === sha256(await readFile(binary));
+		} catch { return false; }
+	}
+	/** Read-only startup discovery: never download, repair or remove an install here. */
+	async findInstalled(): Promise<string | null> {
+		try {
+			const { directory, binary, expectedMarker } = this.#installation();
+			await access(binary, constants.X_OK);
+			return await this.#matchesInstallMarker(directory, binary, expectedMarker) ? binary : null;
+		} catch { return null; }
+	}
+	async #ensure(): Promise<string> {
+		const { entry, root, directory, binary, versionDir, expectedMarker } = this.#installation();
+		if (await this.#matchesInstallMarker(directory, binary, expectedMarker)) {
+			try {
 				await chmod(binary, 0o755);
 				return binary;
-			}
-		} catch { /* Missing or invalid marker/binary: remove before attempting download. */ }
+			} catch { /* An unusable copy must be replaced before use. */ }
+		}
 		await rm(directory, { recursive: true, force: true });
 		await mkdir(root, { recursive: true, mode: 0o700 });
 		const staging = await mkdtemp(join(root, ".install-"));
@@ -74,9 +95,9 @@ export class AgentBrowserInstaller {
 			if (!entry.integrity.startsWith("sha512-") || expected.length !== digest.length || !timingSafeEqual(digest, expected)) throw new Error("agent-browser sha512 integrity mismatch");
 			const bytes = agentBrowserBinaryFromTarball(tarball);
 			await writeFile(join(staging, "agent-browser"), bytes, { mode: 0o755 });
-			await writeFile(join(staging, "install.json"), JSON.stringify({ version: pin.version, platform, integrity: entry.integrity, sha256: sha256(bytes) }), { mode: 0o600 });
+			await writeFile(join(staging, "install.json"), JSON.stringify({ ...expectedMarker, sha256: sha256(bytes) }), { mode: 0o600 });
 			await rename(staging, directory);
-			for (const name of await readdir(root)) if (name !== `${pin.version}-${platform}`) await rm(join(root, name), { recursive: true, force: true });
+			for (const name of await readdir(root)) if (name !== versionDir) await rm(join(root, name), { recursive: true, force: true });
 			return binary;
 		} finally {
 			await rm(staging, { recursive: true, force: true });

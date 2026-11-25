@@ -8,6 +8,8 @@ import { parseAgentBrowserMetadata } from "../../../scripts/pin-agent-browser.ts
 import { AgentBrowserInstaller, agentBrowserBinaryFromTarball, agentBrowserPlatform, type AgentBrowserPin } from "../src/agent-browser-install.ts";
 import { agentBrowserPin } from "../src/agent-browser-pin.ts";
 import { findBrowserExecutable } from "../src/agent-browser.ts";
+import { WorkerBrowserService } from "../src/worker-browser.ts";
+import { createSetup } from "./support.ts";
 
 function tarball(binary: string, name = "package/bin/agent-browser", type = "0"): Buffer {
 	const bytes = Buffer.from(binary);
@@ -58,6 +60,8 @@ test("managed install verifies, records, caches and coalesces concurrent downloa
 	const fixture = await registry();
 	try {
 		const installer = new AgentBrowserInstaller({ dataDir: fixture.root, pin: fixture.pin, platform: "test" });
+		expect(await installer.findInstalled()).toBeNull();
+		expect(fixture.downloads()).toBe(0);
 		const paths = await Promise.all(Array.from({ length: 12 }, () => installer.ensure()));
 		expect(new Set(paths).size).toBe(1);
 		expect(fixture.downloads()).toBe(1);
@@ -67,7 +71,11 @@ test("managed install verifies, records, caches and coalesces concurrent downloa
 		expect(marker).toEqual({ version: "0.43.0", platform: "test", integrity: fixture.pin.platforms.test!.integrity, sha256: createHash("sha256").update(await readFile(binary)).digest("hex") });
 		expect(await installer.ensure()).toBe(binary);
 		expect(fixture.downloads()).toBe(1);
+		expect(await installer.findInstalled()).toBe(binary);
 		await writeFile(binary, "corrupted");
+		expect(await installer.findInstalled()).toBeNull();
+		expect(await readFile(binary, "utf8")).toBe("corrupted");
+		expect(fixture.downloads()).toBe(1);
 		expect(await installer.ensure()).toBe(binary);
 		expect(fixture.downloads()).toBe(2);
 		expect(await readFile(binary, "utf8")).toContain("native-fixture");
@@ -82,6 +90,35 @@ test("managed install verifies, records, caches and coalesces concurrent downloa
 		await writeFile(markerPath, JSON.stringify(changed));
 		await installer.ensure();
 		expect(fixture.downloads()).toBe(4);
+	} finally { await fixture.dispose(); }
+});
+
+test("the built prompt keeps its skills list across a backend restart with an installed browser", async () => {
+	const fixture = await registry();
+	try {
+		const setup = await createSetup({ createBrowsers: dataDir => new WorkerBrowserService({
+			dataDir, log: () => {}, findBrowser: () => "/opt/fixture/chromium", command: () => undefined,
+			installer: new AgentBrowserInstaller({ dataDir, pin: fixture.pin, platform: "test" }),
+		}) });
+		const { id } = await setup.server.manager.add(setup.projectDir);
+		const browserSkill = "<name>agent-browser</name>";
+		const skillsSection = async () => {
+			const context = await setup.server.manager.context(id);
+			return context.systemPrompt.match(/<skills>[\s\S]*?<\/skills>/)?.[0];
+		};
+		expect(await skillsSection()).not.toContain(browserSkill);
+		expect(fixture.downloads()).toBe(0);
+		// First use can still install the pin. The next backend must discover it without a worker asking for it.
+		const availability = await setup.server.manager.browsers.ensureReady();
+		expect(typeof availability).toBe("object");
+		const before = await skillsSection();
+		expect(before).toContain(browserSkill);
+		expect(fixture.downloads()).toBe(1);
+
+		await setup.restart();
+		expect(await skillsSection()).toBe(before);
+		expect((await setup.server.manager.projectSkills(id)).some(skill => skill.name === "agent-browser")).toBe(true);
+		expect(fixture.downloads()).toBe(1);
 	} finally { await fixture.dispose(); }
 });
 

@@ -12,7 +12,7 @@ import { CoordinatorCacheWarm, type WarmRequest } from "./cache-keep-warm.ts";
  * - pi-durable's generation task runs a `beforeRequest` hook (this module's extension) with the conversation and task,
  *   right before it calls `Models.streamSimple` with the same message objects. The hook tags the last message; the
  *   wrapped `Models` finds the tag, so it knows the request is a turn of that conversation. Requests without a tag
- *   (compaction summaries, the memory agent) ask for no cache and are not logged.
+ *   are not logged as conversation turns. Internal requests use separate rows tagged by purpose.
  * - The wrapped `streamSimple` sees the messages (instructions as named sections, tool definitions, the transcript),
  *   the options (`cacheRetention`), the provider payload through `onPayload`, and the final message with its usage.
  * - Everything is worked out after the response, one request at a time, off the request's path: a failure is logged and

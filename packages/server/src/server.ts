@@ -6,7 +6,7 @@ import { BackendTailscale } from "./backend-tailscale.ts";
 import { AgentApps } from "./agent-apps.ts";
 import { ProjectFileWrites } from "./project-file-writes.ts";
 import { ProjectFiles, projectFilesEnabled } from "./project-files.ts";
-import type { WorkerBrowserService } from "./worker-browser.ts";
+import { WorkerBrowserService } from "./worker-browser.ts";
 import { UserSettingsStore } from "./user-settings.ts";
 import { ProjectSkillStore } from "./skills.ts";
 import { McpService } from "./mcp.ts";
@@ -323,6 +323,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	auth.onAudit = (event, identifier) => log(`auth: ${event} ${identifier} minute=${Math.floor(auth.now() / 60_000)}`);
 	await ensureDataDir(dataDir);
 
+	const browsers = options.browsers ?? new WorkerBrowserService({ dataDir, log });
 	const store = new ProjectStore(dataDir);
 	const credentials = options.credentials ?? new FileCredentialStore(join(dataDir, "credentials.json"));
 	const connections = new Set<ClientConnection>();
@@ -581,7 +582,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	// The server may run as a system service whose HOME is not the user's, so what its prompts read is worth saying at
 	// every start: the agent directory with its AGENTS.md and global skills, the harness's own config directory with the
 	// system prompt files it holds, and Claude Code's home with the skills it adds.
+	await browsers.ready;
 	const globalContext = loadAgentContext({ agentDir, configDir, claudeDir, cwd: dataDir,
+		agentBrowserCommand: browsers.availableCommand,
 		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }) });
 	const globalFile = globalContext.files.find((file) => file.scope === "global" && file.kind === "agents");
 	const globalPromptFiles = globalContext.files.filter((file) => file.kind !== "agents");
@@ -761,7 +764,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	const manager = new ProjectManager({
 		apps,
 		officialAgents,
-		browsers: options.browsers,
+		browsers,
 		userSettings,
 		mcp,
 		skills,
@@ -825,8 +828,6 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			for (const connection of connections) connection.notifyWorkers(projectId, workers, defaults);
 		},
 	});
-
-	await manager.browsers.ready;
 
 	// The backend's clock. It reads the persisted next runs, arms one timer for the soonest, and opens a project only when
 	// one of its schedules comes due; `start()` also catches up once on whatever was missed while the process was off.

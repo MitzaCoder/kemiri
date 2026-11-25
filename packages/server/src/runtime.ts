@@ -494,7 +494,8 @@ export class ProjectManager {
 	async projectSkills(projectId: string): Promise<ProjectSkill[]> {
 		const project = await this.store.require(projectId);
 		return this.skills.list(projectId, loadAgentContext({ agentDir: this.#agentDir, configDir: this.#configDir,
-			claudeDir: this.#claudeDir, cwd: project.path, ...(this.#homeDir === undefined ? {} : { homeDir: this.#homeDir }) }).skills);
+			claudeDir: this.#claudeDir, cwd: project.path, agentBrowserCommand: this.browsers.availableCommand,
+			...(this.#homeDir === undefined ? {} : { homeDir: this.#homeDir }) }).skills);
 	}
 
 	/** Resolves a project ID to its stored record. */
@@ -1316,6 +1317,7 @@ export class ProjectManager {
 			claudeDir: this.#claudeDir,
 			usage: runtime.usage,
 			skills: this.skills,
+			agentBrowserCommand: this.browsers.availableCommand,
 			role: runtime.role,
 			...(this.#homeDir === undefined ? {} : { homeDir: this.#homeDir }),
 		});
@@ -1400,6 +1402,7 @@ export class ProjectManager {
 				userName: () => this.#userSettings?.get().userName ?? "",
 				projectId: project.id,
 				skills: this.skills,
+				agentBrowserCommand: this.browsers.availableCommand,
 				role: id => role(id),
 				...(this.#homeDir === undefined ? {} : { homeDir: this.#homeDir }),
 				agentDir: this.#agentDir,

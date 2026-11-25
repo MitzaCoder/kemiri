@@ -2,9 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { childEnvironment } from "../src/child-environment.ts";
-import { createAgentBrowserCommandLookup } from "../src/agent-browser.ts";
-import { builtinSkillAvailable, builtinSkillFiles, builtinSkillsDirectory } from "../src/builtin-skills.ts";
+import { builtinSkillFiles, builtinSkillsDirectory } from "../src/builtin-skills.ts";
 import { loadAgentContext, renderSkills } from "../src/context.ts";
 import { parseFrontmatter } from "../src/frontmatter.ts";
 import { packagedResources } from "../src/packaged-resources.ts";
@@ -76,37 +74,4 @@ test("unavailable bundled browser does not gate personal or project overrides", 
 		expect(skill?.description).toBe("Project browser instructions.");
 		expect(skill?.hides).toEqual([]);
 	} finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-for (const initial of [null, "/opt/tools/agent-browser"]) {
-	test(`command discovery caches ${initial === null ? "misses" : "successes"} until server restart`, () => {
-		let calls = 0;
-		const lookup = createAgentBrowserCommandLookup(() => { calls++; return calls === 1 ? initial : "/changed"; });
-		expect(lookup()).toBe(initial);
-		expect(lookup()).toBe(initial);
-		expect(calls).toBe(1);
-		expect(builtinSkillAvailable("agent-browser", lookup)).toBe(initial !== null);
-		expect(builtinSkillAvailable("html-artifacts", () => { throw new Error("must stay unconditional"); })).toBe(true);
-	});
-}
-
-
-test("managed command availability turns on once and never changes across catalogue reads", async () => {
-	// Isolate process-global availability from other catalogue tests.
-	const module = new URL("../src/agent-browser.ts", import.meta.url).href;
-	const child = Bun.spawn([process.execPath, "-e", `
-		const { agentBrowserCommand, offerManagedAgentBrowser } = await import(${JSON.stringify(module)});
-		const commands = [agentBrowserCommand()];
-		offerManagedAgentBrowser("/opt/example/agent-browser");
-		commands.push(agentBrowserCommand());
-		offerManagedAgentBrowser("/opt/example/new-agent-browser");
-		commands.push(agentBrowserCommand());
-		console.log(JSON.stringify(commands));
-	`], { env: childEnvironment({ PATH: "" }), stdout: "pipe", stderr: "pipe" });
-	const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
-	try {
-		const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-		expect(code).toBe(0);
-		expect(JSON.parse(output)).toEqual([null, "/opt/example/agent-browser", "/opt/example/agent-browser"]);
-	} finally { clearTimeout(timer); }
 });

@@ -558,7 +558,7 @@ export function loadAgentContext(options: {
 	claudeDir: string;
 	cwd: string;
 	homeDir?: string;
-	/** Injectable binary discovery; defaults to the process-cached server lookup. */
+	/** The backend's verified browser command, if available. */
 	agentBrowserCommand?: () => string | null;
 	/** The conversation's model, whose notes are read too; none without one. */
 	model?: { provider: string; modelId: string } | undefined;
@@ -674,6 +674,7 @@ export function createAgentContextExtension(options: {
 	homeDir?: string;
 	projectId?: string;
 	skills?: ProjectSkillStore;
+	agentBrowserCommand?: () => string | null;
 	role?: (conversationId: number) => SkillRole | Promise<SkillRole>;
 }): Extension {
 	return defineExtension({
@@ -726,6 +727,7 @@ export function createAgentContextExtension(options: {
 export type ConversationContextSources = {
 	homeDir?: string;
 	skills?: ProjectSkillStore;
+	agentBrowserCommand?: () => string | null;
 	role?: (conversationId: number) => SkillRole | Promise<SkillRole>;
 	project: Project;
 	/** Null for the coordinator. */
@@ -871,6 +873,7 @@ export async function readConversationContext(sources: ConversationContextSource
 		claudeDir: sources.claudeDir,
 		cwd,
 		model: agent.model,
+		...(sources.agentBrowserCommand === undefined ? {} : { agentBrowserCommand: sources.agentBrowserCommand }),
 		...(sources.homeDir === undefined ? {} : { homeDir: sources.homeDir }),
 	});
 	const skills = sources.skills && sources.role

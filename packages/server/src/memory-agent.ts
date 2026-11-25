@@ -142,7 +142,8 @@ export async function runMemoryAgent(run: MemoryAgentRun): Promise<string> {
 			{ systemPrompt: run.systemPrompt, messages, tools: run.tools },
 			{
 				sessionId,
-				cacheRetention: "none",
+				// Seed the short cache on the first request so the following tool rounds can reuse its prefix.
+				cacheRetention: "short",
 				maxTokens: Math.min(MAX_ANSWER_TOKENS, model.maxTokens > 0 ? model.maxTokens : MAX_ANSWER_TOKENS),
 				...(run.thinkingLevel === undefined || run.thinkingLevel === null || run.thinkingLevel === "off"
 					? {}

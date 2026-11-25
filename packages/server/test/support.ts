@@ -34,6 +34,7 @@ export type TestSetup = {
 
 type TestSetupOptions = {
 	reusePortOnRestart?: boolean;
+	createBrowsers?: (dataDir: string) => WorkerBrowserService;
 	appListenerSource?: StartServerOptions["appListenerSource"];
 	appTailscale?: StartServerOptions["appTailscale"];
 	antigravityCommand?: string;
@@ -131,7 +132,7 @@ async function startTestSetup(root: string, options?: TestSetupOptions): Promise
 		startServer({
 			...(options?.appListenerSource === undefined ? {} : { appListenerSource: options.appListenerSource }),
 			...(options?.appTailscale === undefined ? {} : { appTailscale: options.appTailscale }),
-			browsers: new WorkerBrowserService({ dataDir, findBrowser: () => null, log: () => {} }),
+			browsers: options?.createBrowsers?.(dataDir) ?? new WorkerBrowserService({ dataDir, findBrowser: () => null, log: () => {} }),
 			dataDir,
 			...(options?.updates === undefined ? {} : { updates: options.updates }),
 			auth: options?.auth ?? { mode: "off" },

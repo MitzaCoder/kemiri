@@ -496,11 +496,12 @@ ref-based web UI checks, viewport/media emulation, screenshots and short recordi
 Both source releases and the binary builder's `builtinSkillFiles` enumeration ship the skill, not the native CLI.
 `builtinSkillAvailable` gates only this bundled fallback, before shadowing and role choices in `loadAgentContext`, so
 prompts and `skills.project.get` share availability. `html-artifacts` stays unconditional; personal/project overrides
-are not gated. `agentBrowserCommand()` starts absent unless an explicit executable override and browser are found;
-a successful managed install can enable it once for the process lifetime. It never toggles back off on later probes.
-The coordinator's lazy catalogue picks up that one addition on its next model request after the first successful
-worker spawn (and `skills.project.get` on its next read). Installation never happens during catalogue/prompt rendering.
-Restart after changing explicit settings. Ordinary PATH agent-browser installs do not replace the managed pin.
+are not gated. Before building any prompt, the backend checks for a browser and either an executable override or
+its already-installed, verified CLI pin. Startup never installs or repairs the CLI. An unchanged installation offers
+the same skill from the first prompt after a restart. If the CLI is not installed yet, a successful first-use install
+can add the skill to the next prompt and catalogue read. Availability is cached by the backend's worker browser
+service after success, without further checks on prompt renders. Restart after changing explicit settings. Ordinary
+PATH agent-browser installs do not replace the managed pin.
 
 ### Agent-served apps (T411, T412, T413, T420)
 
@@ -596,9 +597,12 @@ package name, tarball URL and sha512 SRI for Linux x64/arm64 glibc/musl and macO
 not resolve npm metadata or use Node/npm: it fetches the pinned native package directly, verifies the complete archive's
 sha512 **before** decompression, reads only the exact regular `package/bin/agent-browser` member in memory (never
 extracting archive paths or links), then atomically renames a private staging directory. The executable is mode 0755.
-A version/platform/integrity/binary-sha256 marker in `install.json` is checked on first use in each backend process.
-Missing or corrupt copies are removed before downloading; a successful verified binary path is cached for that process. Successful install removes other version/staging directories. The installation
-is `<data>/tools/agent-browser/<version>-<platform>/agent-browser`. `WorkerBrowserService.ensureReady()` performs discovery/install/verification outside durable transactions: both
+At startup the backend checks the executable bit and the version/platform/integrity/binary-sha256 marker in
+`install.json` for the current pin. If verification fails, the first worker that needs the CLI can repair or install
+it. Missing or corrupt copies are removed before downloading; a successful verified binary path is cached for that
+process. Successful install removes other version/staging directories. The installation is
+`<data>/tools/agent-browser/<version>-<platform>/agent-browser`. `WorkerBrowserService.ensureReady()` performs any
+remaining discovery/install/verification outside durable transactions: both
 `worker_spawn.execute` and scheduled firing await it before opening their creation commit. Concurrent callers share
 one in-flight readiness promise; success is cached for the process and failures retry on a later pre-commit call.
 Inside the commit, `prepare()` accepts only that settled binary/browser result (or its plain unavailable reason), never
@@ -2109,8 +2113,8 @@ feature) and get it pushed as `conversation.context.changed` while they watch th
   Shared agents skills follow Claude: `<homeDir>/.agents/skills/*/SKILL.md`, then
   `<cwd>/.agents/skills/*/SKILL.md` (home is injectable through the server/loader options).
   Built-in harness skills are last, as fallbacks; they have `origin: "builtin"` in the project catalogue.
-  `html-artifacts` is always offered; bundled `agent-browser` is offered only when the monotonic command lookup
-  finds its CLI (see HTML artifact design above). This applies to both the prompt and project skills catalogue.
+  `html-artifacts` is always offered; bundled `agent-browser` is offered only when the backend has verified browser
+  and CLI availability (see HTML artifact design above). This applies to both the prompt and project skills catalogue.
   Name and description come from the YAML frontmatter (the directory name when it has none). They are offered in the
   prompt like pi's `<available_skills>` — name, description, absolute path — and the model reads the file with its
   `read` tool when a task matches; `read` in the response says whether this conversation's transcript already did.
@@ -2156,7 +2160,7 @@ feature) and get it pushed as `conversation.context.changed` while they watch th
   (`usage.cacheWrite1h > 0`, what the "long" retention below asks for), five minutes when it wrote to the other, and
   the one before it when it wrote nothing; so a 20-minute gap under the one-hour cache is unexplained, not idle, in the
   transcript, the Info tab and the request log alike (`CacheMiss.cacheTtlMs` says which lifetime applied). Compaction
-  summaries and the memory agent ask for no cache and are not transcript entries, so they never count.
+  summaries and memory-agent rounds are not conversation transcript entries, so they never count there.
 - `usage.cacheMisses` (optional; a backend from before it omits it) totals them over every entry of the conversation,
   read incrementally with the compaction count, and counts the unexplained ones apart: those mean the start of the
   prompt changed between two requests, which the stable sections above are meant to prevent. The Info tab's usage block
@@ -2196,8 +2200,8 @@ older release therefore keeps working with its own log. Requests logged during a
   tool, so no prompt changes; workers and threads keep it) has a `beforeRequest` hook on pi-durable's generation task
   that tags the last message object with the project and conversation. The server's `Models` is wrapped (after the
   subscription usage wrapper): `streamSimple` finds the tag, copies the message list, chains an `onPayload` that keeps
-  the provider payload pi-ai built, and once the response ends queues the row. Untagged requests (compaction summaries,
-  the memory agent; they ask for no cache) are not logged. Rows are worked out one at a time after a `setTimeout(0)`;
+  the provider payload pi-ai built, and once the response ends queues the row. Requests without a conversation tag
+  are not logged as conversation turns. Internal requests can use separate purpose rows. Rows are worked out one at a time after a `setTimeout(0)`;
   any failure is logged (the first five, then every hundredth) and dropped, and a log that will not open leaves the
   server without it and without the `cache-stats` feature.
 - Mid-conversation tool updates record `update:tools` and the added, removed or replaced names (`tool+:`, `tool-:`,
@@ -2373,7 +2377,7 @@ The setting is a policy choice, not a guarantee of savings; provider behavior an
   workers and threads keep it) tags each turn's last message with its conversation's retention, read from the project
   at every request, and `PromptCacheRetention.applyTo` wraps `Models` outside the request log's wrapper, adding the
   retention to that request's options so the log records it (`retention`). A request that sets its own keeps it
-  (compaction summaries and the memory agent ask for "none"); untagged requests are left alone.
+  (compaction summaries ask for "none" and memory-agent rounds ask for "short"); untagged requests are left alone.
 - `ProjectSummary.longPromptCache` (absent on older servers, and the web app then hides the setting) and
   `projects.configure`'s `longPromptCache` (null restores the default); `project.json` files without it read as the
   default. Project settings has a "Prompt cache" card with one select, saved when picked; a change applies from the next
@@ -6381,8 +6385,9 @@ Android uses a free `HARNESS_ANDROID_DEVICE` emulator track, reverses the demo's
 address via the native backend form, then opens Memory → History; Project/Global switch failure/ok states.
 
 Every harness-internal model request carries a provider session ID, regardless of provider. Each memory-agent run
-(maintenance or extraction) and report-audit run uses a fresh opaque ID, shared by all rounds of that run. Compaction
-summaries use the conversation's persisted pi-durable `ProviderDoc` identity, just like normal conversation turns;
+(maintenance or extraction) and report-audit run uses a fresh opaque ID, shared by all rounds of that run. The memory
+agent asks for short prompt-cache retention on every tool round, including the first so it can seed the five-minute
+cache on Anthropic. Compaction summaries use the conversation's persisted pi-durable `ProviderDoc` identity, just like normal conversation turns;
 legacy conversations initialize that document before requesting a summary. IDs contain no paths or secrets.
 Cache refreshes retain the session ID from their captured conversation request options.
 
