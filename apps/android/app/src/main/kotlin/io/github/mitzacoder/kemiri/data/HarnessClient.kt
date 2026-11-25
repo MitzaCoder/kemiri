@@ -89,9 +89,17 @@ class HarnessClient(
 
     init {
         scope.launch {
+            var boardSocket: WebSocket? = null
+            var boardStreams = BoardStreams()
+            var boardRecoveries = ConcurrentHashMap.newKeySet<String>()
             for (message in incoming) {
                 val source = message.source
                 if (source !== socket) continue
+                if (source !== boardSocket) {
+                    boardSocket = source
+                    boardStreams = BoardStreams()
+                    boardRecoveries = ConcurrentHashMap.newKeySet()
+                }
                 try {
                     if (message is Incoming.Binary) {
                         // Terminal output. Frames of a terminal this socket does not have (any more) are dropped.
@@ -106,6 +114,14 @@ class HarnessClient(
                         if (type == "terminal.open") terminalOpens.remove(id)?.let { sink ->
                             raw["terminalId"]?.jsonPrimitive?.longOrNull?.let { terminalsById[it] = sink }
                         }
+                        if (type == "board.get" && raw["stream"] is JsonObject && pending.containsKey(id)) {
+                            val read = wireJson.decodeFromJsonElement(BoardGetResponse.serializer(), raw)
+                            read.stream?.let { position ->
+                                val snapshot = BoardStateEvent(projectId = position.projectId, board = read.board, sequence = position.sequence)
+                                boardStreams.accept(snapshot)
+                                mutableEvents.emit(snapshot)
+                            }
+                        }
                         pending.remove(id)?.complete(raw)
                     } else if (type == "terminal.closed") {
                         val event = wireJson.decodeFromJsonElement(TerminalClosedEvent.serializer(), raw)
@@ -117,7 +133,18 @@ class HarnessClient(
                             deviceAuth?.signedOut("This device was signed out")
                             source.close(4403, "auth_revoked")
                         }
-                        mutableEvents.emit(decodeProtocolEvent(raw, wireJson))
+                        when (val event = decodeProtocolEvent(raw, wireJson)) {
+                            is BoardStateEvent -> {
+                                boardStreams.accept(event)
+                                mutableEvents.emit(event)
+                            }
+                            is BoardDeltaEvent -> {
+                                val snapshot = boardStreams.apply(event)
+                                if (snapshot != null) mutableEvents.emit(snapshot)
+                                else recoverBoard(source, event.projectId, boardRecoveries)
+                            }
+                            else -> mutableEvents.emit(event)
+                        }
                     }
                 } catch (error: CancellationException) { throw error }
                 catch (error: Exception) {
@@ -168,7 +195,7 @@ class HarnessClient(
                     transportTimeout("WebSocket upgrade") { opened.await() }
                     val helloRequest = HelloRequest(
                         protocolVersion = 1,
-                        client = HelloRequestClient(name = "harness-android", version = "0.1.0", features = listOf(HarnessFeature.APPS, HarnessFeature.ANSWERS, HarnessFeature.ANSWERS_WORK_AND_TASKS, HarnessFeature.TASK_STEPS, HarnessFeature.TASK_STATUS_DETAILS, HarnessFeature.TASK_LIVE_WATCHER, "coordinator-messages", io.github.mitzacoder.kemiri.features.notifications.IN_APP_ALERTS_FEATURE, HarnessFeature.USAGE_PAUSE, HarnessFeature.REQUEST_ATTENTION, HarnessFeature.REQUEST_DIGEST)),
+                        client = HelloRequestClient(name = "harness-android", version = "0.1.0", features = listOf(HarnessFeature.APPS, HarnessFeature.ANSWERS, HarnessFeature.ANSWERS_WORK_AND_TASKS, HarnessFeature.TASK_STEPS, HarnessFeature.TASK_STATUS_DETAILS, HarnessFeature.BOARD_DELTA, HarnessFeature.TASK_LIVE_WATCHER, "coordinator-messages", io.github.mitzacoder.kemiri.features.notifications.IN_APP_ALERTS_FEATURE, HarnessFeature.USAGE_PAUSE, HarnessFeature.REQUEST_ATTENTION, HarnessFeature.REQUEST_DIGEST)),
                         auth = accessToken?.let { HelloRequestAuth(accessToken = it) },
                     )
                     val hello = exchange(helloRequest.id, wireJson.encodeToJsonElement(HelloRequest.serializer(), helloRequest).jsonObject, HelloResponse.serializer(), allowBeforeReady = true)
@@ -273,6 +300,27 @@ class HarnessClient(
         val lost = terminalsById.values.toList()
         terminalsById.clear()
         lost.forEach { it.onConnectionLost() }
+    }
+
+    /** The receiver installs and emits the snapshot before fulfilling this read. Do not decode it again here. */
+    internal suspend fun refreshLiveBoard(projectId: String) {
+        readLiveBoard(socket ?: throw ClientException("disconnected", "No socket"), projectId)
+    }
+
+    private suspend fun readLiveBoard(active: WebSocket, projectId: String) {
+        val request = BoardGetRequest(projectId = projectId)
+        exchangeOn(active, request.id, wireJson.encodeToJsonElement(BoardGetRequest.serializer(), request).jsonObject)
+    }
+
+    private fun recoverBoard(active: WebSocket, projectId: String, recoveries: MutableSet<String>) {
+        if (!recoveries.add(projectId)) return
+        scope.launch {
+            try {
+                readLiveBoard(active, projectId)
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { /* The next delta or reconnect retries. */ }
+            finally { recoveries.remove(projectId) }
+        }
     }
 
     private suspend fun exchangeOn(active: WebSocket, id: String, request: JsonObject, allowBeforeReady: Boolean = false): JsonObject {

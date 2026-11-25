@@ -15,7 +15,7 @@ import { OfficialAgentMcpBridge, type OfficialAgentMcpGrant } from "../src/offic
 import { BRIDGE_URL_ENV, BRIDGE_TOKEN_ENV, OFFICIAL_AGENT_MCP_COMMAND, bridgeCommand } from "../src/official-agents/mcp-bridge-command.ts";
 import { OfficialAgentSessions } from "../src/official-agents/provider.ts";
 import { FileCredentialStore } from "../src/credentials.ts";
-import type { AuthLogin } from "@kemiri/protocol";
+import type { AuthLogin, BoardDeltaEvent } from "@kemiri/protocol";
 import { resultsParagraphWarning, wrappedReportParagraph } from "./fixtures/report-paragraph.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
 
@@ -119,14 +119,47 @@ test("ACP-reported Neon input, cache reads and thought tokens reach the request 
 	} finally { await s.cleanup(); }
 });
 
-test("official-agent ACP tool updates and plan appear on a running task without a progress call", async () => {
+test("the two-second live tick sends only the changed trail to delta clients and a full board to older clients", async () => {
  const s = await workerSetup("LIVE_TASK HOLD_TURN");
+ const modern = await TestClient.open(s.setup.server);
  try {
-  await s.client.request({ type: "board.get", projectId: s.projectId });
+  const { runtime } = await s.setup.server.manager.open(s.projectId);
+  await runtime.harness.commit(async tx => {
+   const board = await openBoard(tx, runtime.conversation.id);
+   for (let index = 0; index < 120; index++) {
+    saveTask(board, { task: {
+     title: `Verify checkout scenario ${index + 1}`,
+     description: "Exercise checkout with a saved shipping address and a gift card balance. ".repeat(8),
+     acceptance: "The cart, confirmation email and order history agree on the remaining balance.",
+     status: "todo", blockedBy: [], blockedReason: null, writeScopes: [],
+    }, author: "coordinator", now: new Date().toISOString() });
+    board.tasks.at(-1)!.report.results = "Recorded the initial balance and checked the receipts from the synthetic checkout. ".repeat(9);
+   }
+  }, BACKGROUND_CONTEXT);
+  await modern.request({ type: "hello", protocolVersion: 1, client: { name: "test", version: "1", features: ["board-delta"] } });
+  const baseline = await modern.request({ type: "board.get", projectId: s.projectId });
+  if (baseline.type !== "board.get" || !baseline.stream) throw new Error("Expected a sequenced full board");
+  expect(baseline.board.tasks).toHaveLength(122);
+  const archived = await modern.request({ type: "board.get", projectId: s.projectId, includeArchived: true });
+  expect(archived.type === "board.get" && archived.stream).toBeUndefined();
+  const started = performance.now();
   await s.submit();
    const event = await s.client.waitFor(m => m.type === "board.state" && m.board.tasks.some(t =>
    t.id === "T1" && t.live?.pulse?.tool === "execute" && t.live.lines.some(line => line.kind === "auto")));
-  if (event.type !== "board.state") throw new Error("Expected the live board");
+  const delta = await modern.waitFor(m => m.type === "board.delta" && m.taskLive?.some(task => task.taskId === "T1" && task.pulse?.tool === "execute") === true);
+  if (event.type !== "board.state" || delta.type !== "board.delta") throw new Error("Expected both live tick formats");
+  expect(performance.now() - started).toBeGreaterThanOrEqual(1_900);
+  expect(event.sequence).toBeUndefined();
+  const sentDeltas = modern.messages.filter((m): m is BoardDeltaEvent => m.type === "board.delta" && m.sequence <= delta.sequence);
+  expect(sentDeltas.map(m => m.baseSequence)).toEqual(sentDeltas.map((_, index) => baseline.stream!.sequence + index));
+  const deltaBytes = Buffer.byteLength(JSON.stringify(delta));
+  const fullBytes = Buffer.byteLength(JSON.stringify(event));
+  console.log(`Board live tick UTF-8 bytes: delta ${deltaBytes}; legacy full ${fullBytes}`);
+  expect(deltaBytes).toBeLessThan(3_000);
+  expect(fullBytes).toBeGreaterThan(150_000);
+  const resync = await modern.request({ type: "board.get", projectId: s.projectId });
+  expect(resync.type === "board.get" && resync.stream?.sequence).toBeGreaterThan(delta.sequence);
+  expect(resync.type === "board.get" && resync.board.tasks).toHaveLength(122);
   const live = event.board.tasks.find(t => t.id === "T1")?.live;
   expect(live?.pulse?.label).toBe("Running a command");
   expect(live?.counters).toEqual({ steps: 12, filesChanged: 2, filesSaved: 0, checks: 0, commits: 0 });
@@ -145,7 +178,7 @@ test("official-agent ACP tool updates and plan appear on a running task without 
   expect(transcriptJson).not.toContain("synthetic raw command");
   expect(transcriptJson).not.toContain("synthetic diff text");
   expect(transcript.view?.entries.some(entry => String(entry.id) === auto?.evidence?.steps.find(step => step.description.includes("Editing a file"))?.entryId)).toBe(true);
- } finally { await s.cleanup(); }
+ } finally { modern.close(); await s.cleanup(); }
 }, 30_000);
 
 test("a taskless official worker keeps ACP plans in its thinking", async () => {

@@ -3782,7 +3782,8 @@ data class BoardQuestionAnswerRequest(
 data class BoardGetResponse(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.get",
     val `id`: String,
-    val `board`: Board
+    val `board`: Board,
+    val `stream`: BoardStreamPosition? = null
 )
 
 @Serializable
@@ -3810,8 +3811,98 @@ data class BoardQuestionAnswerResponse(
 data class BoardStateEvent(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.state",
     val `projectId`: String,
-    val `board`: Board
+    val `board`: Board,
+    val `sequence`: Long? = null,
+    val `liveOnly`: Boolean? = null
 ) : ProtocolEvent
+
+@Serializable
+data class BoardTaskLive(
+    val `lines`: List<BoardLiveLine>,
+    val `pulse`: BoardTaskLivePulse? = null,
+    val `counters`: BoardTaskLiveCounters? = null,
+    val `plan`: List<BoardLivePlanStep>? = null
+)
+
+@Serializable
+data class BoardTaskLivePulse(
+    val `label`: String,
+    val `tool`: String? = null,
+    val `since`: String
+)
+
+@Serializable
+data class BoardTaskLiveCounters(
+    val `steps`: Long,
+    val `filesChanged`: Long,
+    val `filesSaved`: Long,
+    val `commits`: Long,
+    val `checks`: Long
+)
+
+@Serializable
+data class BoardDeltaEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.delta",
+    val `projectId`: String,
+    val `baseSequence`: Long,
+    val `sequence`: Long,
+    val `tasks`: BoardTasksDelta? = null,
+    val `questions`: BoardQuestionsDelta? = null,
+    val `decisions`: BoardDecisionsDelta? = null,
+    val `archivedLinks`: BoardArchivedLinksDelta? = null,
+    val `taskLive`: List<BoardTaskLiveDelta>? = null,
+    val `updatedAt`: String?
+) : ProtocolEvent
+
+@Serializable
+data class BoardTasksDelta(
+    val `upsert`: List<BoardTask>? = null,
+    val `remove`: List<String>? = null,
+    val `order`: List<String>? = null
+)
+
+@Serializable
+data class BoardQuestionsDelta(
+    val `upsert`: List<BoardQuestion>? = null,
+    val `remove`: List<String>? = null,
+    val `order`: List<String>? = null
+)
+
+@Serializable
+data class BoardDecisionsDelta(
+    val `upsert`: List<BoardDecision>? = null,
+    val `remove`: List<String>? = null,
+    val `order`: List<String>? = null
+)
+
+@Serializable
+data class BoardArchivedLinksDelta(
+    val `upsert`: List<BoardTaskBrief>? = null,
+    val `remove`: List<String>? = null,
+    val `order`: List<String>? = null
+)
+
+@Serializable
+data class BoardLiveLinesDelta(
+    val `upsert`: List<BoardLiveLine>? = null,
+    val `remove`: List<String>? = null,
+    val `order`: List<String>? = null
+)
+
+@Serializable
+data class BoardTaskLiveDelta(
+    val `taskId`: String,
+    val `pulse`: BoardTaskLivePulse? = null,
+    val `counters`: BoardTaskLiveCounters? = null,
+    val `plan`: List<BoardLivePlanStep>? = null,
+    val `lines`: BoardLiveLinesDelta? = null
+)
+
+@Serializable
+data class BoardStreamPosition(
+    val `projectId`: String,
+    val `sequence`: Long
+)
 
 @Serializable
 data class BoardWriter(
@@ -3919,30 +4010,6 @@ data class BoardLiveLineEvidenceStepsItem(
 data class BoardLiveLineWrong(
     val `by`: String,
     val `at`: String
-)
-
-@Serializable
-data class BoardTaskLive(
-    val `lines`: List<BoardLiveLine>,
-    val `pulse`: BoardTaskLivePulse? = null,
-    val `counters`: BoardTaskLiveCounters? = null,
-    val `plan`: List<BoardLivePlanStep>? = null
-)
-
-@Serializable
-data class BoardTaskLivePulse(
-    val `label`: String,
-    val `tool`: String? = null,
-    val `since`: String
-)
-
-@Serializable
-data class BoardTaskLiveCounters(
-    val `steps`: Long,
-    val `filesChanged`: Long,
-    val `filesSaved`: Long,
-    val `commits`: Long,
-    val `checks`: Long
 )
 
 @Serializable
@@ -5487,6 +5554,7 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "subscriptions.usage.changed" -> json.decodeFromJsonElement(SubscriptionsUsageEvent.serializer(), raw)
     "usage-pause.changed" -> json.decodeFromJsonElement(UsagePauseEvent.serializer(), raw)
     "board.state" -> json.decodeFromJsonElement(BoardStateEvent.serializer(), raw)
+    "board.delta" -> json.decodeFromJsonElement(BoardDeltaEvent.serializer(), raw)
     "notifications.alert" -> json.decodeFromJsonElement(NotificationsAlertEvent.serializer(), raw)
     "notifications.resolved" -> json.decodeFromJsonElement(NotificationsResolvedEvent.serializer(), raw)
     "schedules.state" -> json.decodeFromJsonElement(SchedulesStateEvent.serializer(), raw)

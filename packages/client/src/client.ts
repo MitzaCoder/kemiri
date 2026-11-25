@@ -1,4 +1,5 @@
 import type { AppSettings, ProjectApp } from "@kemiri/protocol";
+import { applyBoardDelta } from "./board-delta.ts";
 import type { TaskWatcherSettings } from "@kemiri/protocol";
 import type { CoordinatorCompaction, UsageDrainMode, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
 /**
@@ -320,6 +321,8 @@ type Pending = {
 	timer: ReturnType<typeof setTimeout>;
 };
 
+type BoardUpdate = { projectId: string; board: Board; liveOnly?: boolean };
+
 export class HarnessClient {
 	readonly #userSettingsListeners = new Set<(settings: UserSettings) => void>();
 	onUserSettingsChanged(listener: (settings: UserSettings) => void): () => void {
@@ -355,7 +358,9 @@ export class HarnessClient {
 	readonly #serverStatusListeners = new Set<(status: ServerStatus) => void>();
 	readonly #memoryListeners = new Set<(event: MemoryChangedEvent) => void>();
 	readonly #scheduleListeners = new Set<(state: SchedulesSnapshot & { projectId: string }) => void>();
-	readonly #boardListeners = new Set<(state: { projectId: string; board: Board }) => void>();
+	readonly #boardListeners = new Set<(state: BoardUpdate) => void>();
+	readonly #boardStreams = new Map<string, { board: Board; sequence: number }>();
+	readonly #boardRecoveries = new Map<string, Promise<ServerMessage>>();
 	readonly #threadMessageListeners = new Set<(event: ThreadsMessageEvent) => void>();
 	readonly #threadListeners = new Set<(state: ThreadsSnapshot & { projectId: string }) => void>();
 	readonly #usagePauseListeners = new Set<(pauses: UsagePause[]) => void>();
@@ -500,10 +505,10 @@ export class HarnessClient {
 	}
 
 	/**
-	 * A project's board, pushed to every connection whenever it changes (`board.state`): without archived tasks, and
-	 * whole, so a consumer replaces what it holds. A listener filters with `boardStateIsFor`.
+	 * The complete live board after a push or a sequenced read, without archived tasks. The client resolves deltas
+	 * before notifying listeners, so a consumer can replace what it holds. Filter with `boardStateIsFor`.
 	 */
-	onBoardState(listener: (state: { projectId: string; board: Board }) => void): () => void {
+	onBoardState(listener: (state: BoardUpdate) => void): () => void {
 		this.#boardListeners.add(listener);
 		return () => this.#boardListeners.delete(listener);
 	}
@@ -617,6 +622,8 @@ export class HarnessClient {
 		this.#clearHeartbeat();
 		const socket = this.#socket;
 		this.#socket = undefined;
+		this.#boardStreams.clear();
+		this.#boardRecoveries.clear();
 		if (socket !== undefined) {
 			try {
 				socket.close(1000, "client closed");
@@ -1975,6 +1982,12 @@ export class HarnessClient {
 		});
 	}
 
+	#publishBoard(state: BoardUpdate): void {
+		for (const listener of this.#boardListeners) {
+			try { listener(state); } catch { /* A consumer must not break message handling. */ }
+		}
+	}
+
 	#receive(data: unknown): void {
 		if (typeof data !== "string") {
 			const bytes = binaryOf(data);
@@ -1997,6 +2010,11 @@ export class HarnessClient {
 			const pending = this.#pending.get(id);
 			if (pending !== undefined) {
 				this.#pending.delete(id);
+				if (message.type === "board.get" && message.stream) {
+					const { projectId, sequence } = message.stream;
+					this.#boardStreams.set(projectId, { board: message.board, sequence });
+					this.#publishBoard({ projectId, board: message.board });
+				}
 				pending.resolve(message);
 				return;
 			}
@@ -2078,13 +2096,32 @@ export class HarnessClient {
 				return;
 			}
 			case "board.state": {
-				for (const listener of this.#boardListeners) {
-					try {
-						listener({ projectId: message.projectId, board: message.board });
-					} catch {
-						// A consumer's listener must not break message handling.
+				const { projectId, board, sequence } = message;
+				if (sequence !== undefined) this.#boardStreams.set(projectId, { board, sequence });
+				else this.#boardStreams.delete(projectId);
+				this.#publishBoard({ projectId, board });
+				return;
+			}
+			case "board.delta": {
+				const { projectId, baseSequence, sequence } = message;
+				const before = this.#boardStreams.get(projectId);
+				const board = before && before.sequence === baseSequence && sequence === baseSequence + 1
+					? applyBoardDelta(before.board, message) : undefined;
+				if (!board) {
+					this.#boardStreams.delete(projectId);
+					if (this.#socket && !this.#boardRecoveries.has(projectId)) {
+						const recovery = this.#sendOn(this.#socket, { type: "board.get", projectId }, this.#requestTimeoutMs);
+						this.#boardRecoveries.set(projectId, recovery);
+						void recovery.catch(() => { /* The next delta or reconnect retries. */ }).finally(() => {
+							if (this.#boardRecoveries.get(projectId) === recovery) this.#boardRecoveries.delete(projectId);
+						});
 					}
+					return;
 				}
+				this.#boardStreams.set(projectId, { board, sequence });
+				const liveOnly = !!message.taskLive && !message.tasks && !message.questions && !message.decisions &&
+					!message.archivedLinks && board.updatedAt === before?.board.updatedAt;
+				this.#publishBoard({ projectId, board, ...(liveOnly ? { liveOnly } : {}) });
 				return;
 			}
 			case "memory.changed": {
@@ -2233,6 +2270,8 @@ export class HarnessClient {
 		if (this.#socket !== socket) return;
 		this.#clearHeartbeat();
 		this.#socket = undefined;
+		this.#boardStreams.clear();
+		this.#boardRecoveries.clear();
 		if (this.#readySince !== undefined && Date.now() - this.#readySince >= 60_000) this.#attempt = 0;
 		this.#readySince = undefined;
 		if ((event.code === 4401 || event.code === 4403) && !this.#prepareHello) {

@@ -69,7 +69,7 @@ sealed interface ClarifyOutcome {
 /**
  * One project's board, live, shared by every screen of a backend (tasks, chat links and pins, the board, header counts):
  * get it from [BackendSession.board] or [io.github.mitzacoder.kemiri.navigation.ProjectScreenContext.board], never read
- * `board.get` per screen. The server pushes the whole board on every change (`board.state`); `board.get` fills it in on
+ * `board.get` per screen. The transport reconstructs deltas as `board.state` events; `board.get` fills in the board on
  * connect and after a reconnect. A read that started before a push never overwrites it. Archived tasks are not pushed,
  * so they are read while shown. Saves and answers report a conflict as an outcome with the newer row read back. The web
  * twin is `apps/web/src/lib/board.svelte.ts`.
@@ -104,7 +104,7 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
                 pushes++
                 val incoming = supportedBoard(event.board)
                 mutableView.update { it.copy(board = incoming.copy(tasks = reuseBoardTasks(it.board?.tasks.orEmpty(), incoming.tasks)), error = null) }
-                if (view.value.showArchived) launch { readArchived() }
+                if (view.value.showArchived && event.liveOnly != true) launch { readArchived() }
             }
         }
         // A reconnect loses the pushes sent while away, so read the board again.
@@ -121,6 +121,12 @@ class ProjectBoard(private val client: HarnessClient, val projectId: String, pri
         val before = pushes
         val generation = client.state.value.generation
         try {
+            if (client.supports(HarnessFeature.BOARD_DELTA)) {
+                // The receiver emits the full snapshot in the same order as deltas.
+                client.refreshLiveBoard(projectId)
+                mutableView.update { it.copy(generation = generation) }
+                return@withContext
+            }
             val board = client.request(BoardGetRequest(projectId = projectId, includeArchived = view.value.showArchived.takeIf { it })).board.let(::supportedBoard)
             mutableView.update { current ->
                 val archived = if (current.showArchived) reuseBoardTasks(current.archived, board.tasks.filter { it.archived }) else current.archived

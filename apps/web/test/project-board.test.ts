@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createServer } from 'vite';
-import type { ClientState, HarnessClient } from '@kemiri/client';
-import type { Board, BoardTask } from '@kemiri/protocol';
+import { HarnessClient, type ClientState, type HarnessWebSocket } from '@kemiri/client';
+import type { Board, BoardDeltaEvent, BoardQuestion, BoardTask, ClientMessage, ServerMessage } from '@kemiri/protocol';
 import { taskSectionOf } from '../src/lib/tasks.ts';
 
 const at = '2026-11-01T10:00:00Z';
@@ -53,4 +53,67 @@ test('a board opened after hello uses the current capabilities on its first read
 			expect([board.stateEnabled, board.partsEnabled, board.activityEnabled, board.freshnessEnabled, board.clarifyEnabled]).toEqual([false, false, false, false, false]);
 		} finally { board.stop(); }
 	} finally { await vite.close(); }
+}, 20000);
+
+
+test('board deltas reconstruct the web store and a missing sequence requests a full live board', async () => {
+	const vite = await createServer({ root: import.meta.dir + '/..', server: { middlewareMode: true }, logLevel: 'error' });
+	const sent: ClientMessage[] = [];
+	const push = (message: ServerMessage) => socket.onmessage?.({ data: JSON.stringify(message) });
+	const socket: HarnessWebSocket = {
+		onopen: null, onmessage: null, onclose: null, onerror: null, close() {},
+		send(raw) {
+			const request = JSON.parse(String(raw)) as ClientMessage;
+			sent.push(request);
+			if (request.type === 'hello') push({ type: 'hello', id: request.id, protocolVersion: 1,
+				server: { name: 'stub', version: '1' }, features: ['board', 'board-delta', 'task-state', 'task-part-states'] });
+		},
+	};
+	const client = new HarnessClient({ url: 'ws://example.test/ws', clientFeatures: ['board-delta'], reconnect: false,
+		webSocketFactory: () => { queueMicrotask(() => socket.onopen?.()); return socket; } });
+	try {
+		const { ProjectBoard } = await vite.ssrLoadModule('/src/lib/board.svelte.ts');
+		client.connect();
+		await client.whenReady();
+		const projectId = 'bakery';
+		const store = new ProjectBoard(client, projectId);
+		try {
+			await Promise.resolve();
+			const before: Board = { tasks: [parent], questions: [], decisions: [], updatedAt: null };
+			const read = sent.find(request => request.type === 'board.get')!;
+			push({ type: 'board.get', id: read.id, board: before, stream: { projectId, sequence: 1 } });
+			const delta = (baseSequence: number, changes: Partial<BoardDeltaEvent>) => push({
+				type: 'board.delta', projectId, baseSequence, sequence: baseSequence + 1, updatedAt: at, ...changes,
+			});
+			const addedTask: BoardTask = { ...parent, id: 'T2', title: 'Bake the first batch', order: 0,
+				live: { lines: [], pulse: { label: 'Checking the oven', since: at } } };
+			const changedParent = { ...parent, title: 'Open the new bakery', revision: 2 };
+			const question: BoardQuestion = { id: 'Q1', revision: 1, text: 'Use sourdough?', options: [],
+				taskId: 'T2', status: 'open', answer: null, askedAt: at, answeredAt: null };
+			const previousDecision = { id: 'D1', text: 'Use the old register', taskId: null, why: null, at };
+			const decision = { ...previousDecision, id: 'D2', text: 'Use the new register' };
+			const archivedLink = { id: 'T3', title: 'Find an oven', status: 'done' as const, archived: true };
+			delta(1, { tasks: { upsert: [changedParent, addedTask], order: ['T2', 'T1'] },
+				questions: { upsert: [question] }, decisions: { upsert: [previousDecision] }, archivedLinks: { upsert: [archivedLink] } });
+			expect(store.board?.tasks.map((task: BoardTask) => task.id)).toEqual(['T2', 'T1']);
+			const answered: BoardQuestion = { ...question, revision: 2, status: 'answered', answer: 'Yes', answeredAt: at };
+			delta(2, { tasks: { remove: ['T1'] }, questions: { upsert: [answered] },
+				decisions: { upsert: [decision], remove: ['D1'] }, archivedLinks: { remove: ['T3'] } });
+			delta(3, { taskLive: [{ taskId: 'T2' }] }); // Clear a pulse without sending the task again.
+			const expected: Board = { tasks: [{ ...addedTask, live: { lines: [] } }], questions: [answered], decisions: [decision], updatedAt: at };
+			await Promise.resolve();
+			expect(store.board).toEqual(expected);
+
+			delta(5, { tasks: { remove: ['T2'] } });
+			delta(6, { questions: { remove: ['Q1'] } });
+			expect(store.board).toEqual(expected);
+			const reads = sent.filter(request => request.type === 'board.get');
+			expect(reads).toHaveLength(2);
+			expect(reads[1]).toMatchObject({ projectId });
+			expect(reads[1]?.includeArchived).toBeUndefined();
+			push({ type: 'board.get', id: reads[1]!.id, board: before, stream: { projectId, sequence: 8 } });
+			delta(8, { tasks: { upsert: [changedParent] } });
+			expect(store.board).toEqual({ ...before, tasks: [changedParent], updatedAt: at });
+		} finally { store.stop(); }
+	} finally { client.close(); await vite.close(); }
 }, 20000);

@@ -254,6 +254,58 @@ class ProtocolRegressionTest {
         }
     }
 
+    @Test fun projectBoardAppliesDeltasInWireOrderAndReadsAgainOnAGap() = runBlocking {
+        fun task(id: String, title: String = id, liveLines: String? = null) = """{"id":"$id","revision":1,"title":"$title","description":"","acceptance":null,"status":"todo","blockedBy":[],
+            "blockedReason":null,"writeScopes":[],"workerIds":[],"scheduleId":null,"order":1,"createdBy":"user","updatedBy":"user",
+            "createdAt":"a","updatedAt":"b","settledAt":null,"archived":false${liveLines?.let { """, "live":{"lines":[$it]}""" }.orEmpty()}}"""
+        fun board(tasks: String, updatedAt: String = "null") = """{"tasks":[$tasks],"questions":[],"decisions":[],"updatedAt":$updatedAt}"""
+        fun snapshot(board: String, sequence: Int) = """{"board":$board,"stream":{"projectId":"p","sequence":$sequence}}"""
+        val reads = AtomicInteger()
+        val line = """{"id":"L1","at":"b","kind":"fact","text":"Saved a receipt",
+            "actor":{"id":"w1","kind":"worker","name":"Worker","threadId":"main","conversationId":1,"runId":"2"}}"""
+        Stub(timeoutMs = 2_000, features = listOf("board", HarnessFeature.BOARD_DELTA), onRequest = { _, ws, request ->
+            if (request.type == "board.get" && reads.incrementAndGet() == 1) {
+                reply(ws, request, snapshot(board(task("T1")), 1))
+                // These can arrive before the coroutine waiting on board.get is resumed.
+                ws.send("""{"type":"board.delta","projectId":"p","baseSequence":1,"sequence":2,
+                    "tasks":{"upsert":[${task("T1", title = "Changed")},${task("T2", liveLines = line)}],"order":["T2","T1"]},"updatedAt":"b"}""")
+                ws.send("""{"type":"board.delta","projectId":"p","baseSequence":2,"sequence":3,
+                    "tasks":{"remove":["T1"]},"taskLive":[{"taskId":"T2","lines":{"remove":["L1"]}}],"updatedAt":"c"}""")
+            }
+        }).use { stub ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val projectBoard = ProjectBoard(stub.client, "p", scope)
+                stub.ready()
+                val hello = stub.awaitRequest("hello").getValue("client").jsonObject.getValue("features").jsonArray
+                assertTrue(JsonPrimitive(HarnessFeature.BOARD_DELTA) in hello)
+                val reconstructed = withTimeout(2_000) { projectBoard.view.first { it.board?.updatedAt == "c" } }.board
+                val expected = wireJson.decodeFromString(Board.serializer(), board(task("T2", liveLines = ""), "\"c\""))
+                assertEquals(expected, reconstructed)
+
+                val socket = stub.sockets.first()
+                socket.send("""{"type":"board.delta","projectId":"p","baseSequence":4,"sequence":5,"tasks":{"remove":["T2"]},"updatedAt":"missed"}""")
+                socket.send("""{"type":"board.delta","projectId":"p","baseSequence":5,"sequence":6,"updatedAt":"missed again"}""")
+                val recovery = withTimeout(2_000) {
+                    var request: JsonObject? = null
+                    while (request == null) {
+                        request = stub.requests.filter { it.second.type == "board.get" }.getOrNull(1)?.second
+                        if (request == null) delay(10)
+                    }
+                    request
+                }
+                assertEquals(expected, projectBoard.view.value.board)
+                assertEquals(JsonPrimitive("p"), recovery["projectId"])
+                assertNull(recovery["includeArchived"])
+                reply(socket, recovery, snapshot(board(task("T3")), 7))
+                socket.send("""{"type":"board.delta","projectId":"p","baseSequence":7,"sequence":8,"updatedAt":"recovered"}""")
+                val recovered = withTimeout(2_000) { projectBoard.view.first { it.board?.updatedAt == "recovered" } }.board
+                assertEquals(wireJson.decodeFromString(Board.serializer(), board(task("T3"), "\"recovered\"")), recovered)
+                assertEquals(2, reads.get())
+            } finally { scope.cancel() }
+        }
+    }
+
     @Test fun clearingAProjectSettingSendsAnExplicitNull() = runBlocking {
         Stub().use { stub ->
             stub.ready()

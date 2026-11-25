@@ -4388,6 +4388,22 @@ supply an explicit prose label instead.
 A project-local watch batches pulse updates on a two-second window, ignoring output
 and token changes that leave the activity unchanged. Web ticks the age locally.
 
+**Board deltas (T491).** When both peers advertise `board-delta` in hello, each connection
+keeps the last board sent for each project, after its other capability filters. The first
+push is a sequenced full `board.state`. A non-archived `board.get` also returns a full board
+and its stream position, on first load, after reconnect or on recovery. Archived reads do
+not change the live stream position. Older clients still receive unchanged full `board.state`
+pushes, and identical board views do not produce another update.
+
+`board.delta` carries the base and next sequence, independent of durable task revisions.
+It upserts and removes tasks, questions (including warnings), decisions and archived links
+by ID. Survivors keep their order, new rows append unless an explicit ID order is sent.
+A task whose trail alone changes sends live metadata and only the added, changed or removed
+trail lines. Web and Android apply updates in socket order to a wire snapshot before passing
+the complete board to existing consumers. They keep displaying the last good board on a gap
+and request one fresh live board per project at a time, ignoring deltas until a baseline is
+available again. Reconnect starts a new stream. A trail-only update does not reread archives.
+
 The same read-side cache scans new transcript entries for issued calls, successful
 distinct edit/write paths and successful direct VCS commands. It rebuilds from the
 current run's first entry, including nested codemode receipts when the parent result

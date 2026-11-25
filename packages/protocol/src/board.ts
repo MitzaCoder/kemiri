@@ -24,7 +24,7 @@
  * about a task become feedback entries on it with a state of their own. `board.task.timeline` lists everything that
  * happened to a task in time order. See DESIGN.md, "Task links and feedback".
  */
-import { type Static, Type } from "typebox";
+import { type Static, type TSchema, Type } from "typebox";
 import { ProjectIdSchema, RequestIdSchema } from "./common.ts";
 
 /** How the harness marks the board changes it posts to the coordinator: `[board]` followed by what changed. */
@@ -749,10 +749,17 @@ export type BoardReportStaleResponse = Static<typeof BoardReportStaleResponseSch
 
 // --- responses ---------------------------------------------------------------------------------------------------
 
+/** The position of a full live snapshot on this connection, never present on an archived read. */
+export const BoardStreamPositionSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	sequence: Type.Integer({ minimum: 1 }),
+});
+
 export const BoardGetResponseSchema = Type.Object({
 	type: Type.Literal("board.get"),
 	id: RequestIdSchema,
 	board: BoardSchema,
+	stream: Type.Optional(BoardStreamPositionSchema),
 });
 export type BoardGetResponse = Static<typeof BoardGetResponseSchema>;
 
@@ -821,5 +828,47 @@ export const BoardStateEventSchema = Type.Object({
 	type: Type.Literal("board.state"),
 	projectId: ProjectIdSchema,
 	board: BoardSchema,
+	sequence: Type.Optional(Type.Integer({ minimum: 1 })),
+	liveOnly: Type.Optional(Type.Boolean({ description: "An update that only changes the live trail or pulse, not archived data." })),
 });
 export type BoardStateEvent = Static<typeof BoardStateEventSchema>;
+
+/** Update rows by ID, keeping surviving rows in place and appending new rows in upsert order.
+ * When that implicit order differs from the board, `order` lists the final IDs. */
+function boardRowsDelta<T extends TSchema>(row: T) {
+	return Type.Object({
+		upsert: Type.Optional(Type.Array(row)),
+		remove: Type.Optional(Type.Array(Type.String())),
+		order: Type.Optional(Type.Array(Type.String())),
+	});
+}
+
+export const BoardTasksDeltaSchema = boardRowsDelta(BoardTaskSchema);
+export const BoardQuestionsDeltaSchema = boardRowsDelta(BoardQuestionSchema);
+export const BoardDecisionsDeltaSchema = boardRowsDelta(BoardDecisionSchema);
+export const BoardArchivedLinksDeltaSchema = boardRowsDelta(BoardTaskBriefSchema);
+export const BoardLiveLinesDeltaSchema = boardRowsDelta(BoardLiveLineSchema);
+
+/** Replace the live metadata (omission clears it), but patch the trail by line ID. */
+export const BoardTaskLiveDeltaSchema = Type.Object({
+	taskId: Type.String(),
+	pulse: BoardTaskLiveSchema.properties.pulse,
+	counters: BoardTaskLiveSchema.properties.counters,
+	plan: BoardTaskLiveSchema.properties.plan,
+	lines: Type.Optional(BoardLiveLinesDeltaSchema),
+});
+
+/** Applies only to the specified live snapshot on the same connection. On a gap, read board.get again. */
+export const BoardDeltaEventSchema = Type.Object({
+	type: Type.Literal("board.delta"),
+	projectId: ProjectIdSchema,
+	baseSequence: Type.Integer({ minimum: 1 }),
+	sequence: Type.Integer({ minimum: 2 }),
+	tasks: Type.Optional(BoardTasksDeltaSchema),
+	questions: Type.Optional(BoardQuestionsDeltaSchema),
+	decisions: Type.Optional(BoardDecisionsDeltaSchema),
+	archivedLinks: Type.Optional(BoardArchivedLinksDeltaSchema),
+	taskLive: Type.Optional(Type.Array(BoardTaskLiveDeltaSchema)),
+	updatedAt: BoardSchema.properties.updatedAt,
+});
+export type BoardDeltaEvent = Static<typeof BoardDeltaEventSchema>;

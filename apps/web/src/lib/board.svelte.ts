@@ -92,7 +92,7 @@ export class ProjectBoard {
 		this.#unsubscribeBoard = client.onBoardState((state) => {
 			if (this.#stopped || !boardStateIsFor(state, projectId)) return;
 			this.#apply(state.board);
-			if (this.showArchived) void this.#readArchived();
+			if (this.showArchived && !state.liveOnly) void this.#readArchived();
 		});
 		const loadWithCapabilities = (state: ClientState) => {
 			if (state.status !== "ready") return;
@@ -114,6 +114,11 @@ export class ProjectBoard {
 	async load(): Promise<void> {
 		if (this.#stopped || !this.#client.connected) return;
 		try {
+			// The live read is delivered through the same listener as deltas, in wire order.
+			if (this.#client.state.features?.includes("board-delta")) {
+				await this.#client.readBoard(this.projectId);
+				return;
+			}
 			const board = await this.#client.readBoard(this.projectId, { includeArchived: this.showArchived });
 			if (this.#stopped) return;
 			this.#apply(board);

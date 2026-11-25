@@ -1,5 +1,6 @@
 import { isOwnerQuestion, withWorkerProgress } from "./answers.ts";
 import type { AppSettings } from "@kemiri/protocol";
+import { boardChanges } from "./board-delta.ts";
 import type { NotificationsAlertEvent, NotificationsResolvedEvent, ThreadsMessageEvent } from "@kemiri/protocol";
 import { resolveCodeRoot } from "./code-root.ts";
 import type { ProjectFileWrites } from "./project-file-writes.ts";
@@ -251,6 +252,8 @@ export class ClientConnection {
 	#clientSupportsRequestAttention = false;
 	#clientSupportsRequestDigest = false;
 	#clientSupportsStatusDetails = false;
+	#clientSupportsBoardDelta = false;
+	readonly #boardStreams = new Map<string, { board: Board; sequence: number }>();
 	#clientSupportsAnswersWorkAndTasks = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
@@ -1189,8 +1192,15 @@ export class ClientConnection {
 					return;
 				}
 				case "board.get": {
+					const live = this.#clientSupportsBoardDelta && request.includeArchived !== true;
+					const before = this.#boardStreams.get(request.projectId);
 					const board = await this.#manager.board(request.projectId, request.includeArchived === true, this.#clientSupportsRequestAttention);
-					this.#respond({ type: "board.get", id: request.id, board });
+					const latest = this.#boardStreams.get(request.projectId);
+					this.#respond({ type: "board.get", id: request.id,
+						// A push sent during the read is already ordered ahead of the response.
+						board: live && latest && latest !== before ? latest.board : board,
+						...(live ? { stream: { projectId: request.projectId, sequence: (latest?.sequence ?? 0) + 1 } } : {}),
+					});
 					return;
 				}
 				case "board.report.stale": {
@@ -1800,6 +1810,7 @@ export class ClientConnection {
 		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
 		this.#clientSupportsAnswersWorkAndTasks = this.#features.includes("answers-work-and-tasks") && request.client?.features?.includes("answers-work-and-tasks") === true;
 		this.#clientSupportsRequestDigest = this.#features.includes("request-digest") && request.client?.features?.includes("request-digest") === true;
+		this.#clientSupportsBoardDelta = this.#features.includes("board-delta") && request.client?.features?.includes("board-delta") === true;
 		this.#clientSupportsStatusDetails = this.#features.includes("task-status-details") && request.client?.features?.includes("task-status-details") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
@@ -2076,7 +2087,23 @@ export class ClientConnection {
 				const { requestId: _, ...question } = message.question;
 				message = { ...message, question };
 			}
-			this.#io.send(withBoardTaskCapabilities(message, this.#clientSupportsTaskSteps, this.#clientSupportsRequestDigest, this.#clientSupportsStatusDetails));
+			message = withBoardTaskCapabilities(message, this.#clientSupportsTaskSteps, this.#clientSupportsRequestDigest, this.#clientSupportsStatusDetails);
+			if (message.type === "board.state" && this.#clientSupportsBoardDelta) {
+				const { projectId, board } = message;
+				const before = this.#boardStreams.get(projectId);
+				const sequence = (before?.sequence ?? 0) + 1;
+				if (before) {
+					const changes = boardChanges(before.board, board);
+					if (!changes) return;
+					message = { type: "board.delta", projectId, baseSequence: before.sequence, sequence, ...changes, updatedAt: board.updatedAt };
+				} else {
+					message = { ...message, sequence };
+				}
+				this.#boardStreams.set(projectId, { board, sequence });
+			} else if (message.type === "board.get" && message.stream) {
+				this.#boardStreams.set(message.stream.projectId, { sequence: message.stream.sequence, board: message.board });
+			}
+			this.#io.send(message);
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);
 			this.#io.close(1011, "send failed");
