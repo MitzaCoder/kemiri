@@ -5,7 +5,10 @@ import io.github.mitzacoder.kemiri.protocol.Artifact
 import io.github.mitzacoder.kemiri.protocol.ThreadSummary
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.protocol.ProjectActivityBackgroundJobs
+import io.github.mitzacoder.kemiri.features.panels.panelRelativeTime
+import java.text.BreakIterator
 import java.time.Instant
+import java.util.Locale
 
 data class BoardHandoff(val from: String, val taskId: String, val title: String)
 fun parseBoardHandoff(text: String): BoardHandoff? {
@@ -87,7 +90,7 @@ fun threadStateLine(thread: ThreadSummary,
     "paused" -> "Nothing is running. Send it a message to continue."
     "failed" -> listOfNotNull(thread.failure?.takeIf(String::isNotBlank), "Send a message to retry.").joinToString(" ")
     "finished" -> thread.summary?.lineSequence()?.map { it.trim().trimStart('#').trim() }?.firstOrNull { it.isNotEmpty() }.orEmpty()
-    "stopped" -> "Stopped " + io.github.mitzacoder.kemiri.features.panels.panelRelativeTime(thread.finishedAt ?: thread.updatedAt, Instant.ofEpochMilli(now))
+    "stopped" -> "Stopped " + panelRelativeTime(thread.finishedAt ?: thread.updatedAt, Instant.ofEpochMilli(now))
     else -> ""
 }
 fun threadStateRank(thread: ThreadSummary): Int = when(threadState(thread)) {
@@ -98,8 +101,39 @@ private fun threadEndTime(thread: ThreadSummary): Long =
 fun orderedBackgroundJobs(threads: List<ThreadSummary>) =
     threads.filter { !it.main && it.id != "main" }.sortedWith(compareBy<ThreadSummary> { threadStateRank(it) }
         .thenByDescending { if (threadStateRank(it) == 4) threadEndTime(it) else runCatching { Instant.parse(it.updatedAt).toEpochMilli() }.getOrDefault(0) })
+internal fun isFinishedBackgroundJob(thread: ThreadSummary): Boolean =
+    threadState(thread) in setOf("finished", "stopped")
+
 fun foldFinishedJob(thread: ThreadSummary, now: Long): Boolean =
-    threadState(thread) in setOf("finished", "stopped") && threadEndTime(thread) < now - 24 * 60 * 60 * 1000L
+    isFinishedBackgroundJob(thread) && threadEndTime(thread) < now - 24 * 60 * 60 * 1000L
+
+private val summaryHeading = Regex("^#{1,6}(?:\\s|$)")
+private val summaryListMarker = Regex("^(?:[-*+]|\\d+[.)])\\s+")
+
+/** The sheet is a preview, not a report reader. Skip Markdown headings and stop at the first sentence. */
+internal fun firstJobSummarySentence(summary: String?): String {
+    val lines = summary?.lineSequence()?.map(String::trim)
+        ?.dropWhile { it.isEmpty() || summaryHeading.containsMatchIn(it) }?.iterator() ?: return ""
+    if (!lines.hasNext()) return ""
+    val prose = buildString {
+        append(lines.next().replaceFirst(summaryListMarker, ""))
+        for (line in lines) {
+            if (line.isEmpty() || summaryHeading.containsMatchIn(line) || summaryListMarker.containsMatchIn(line)) break
+            append(' ').append(line)
+        }
+    }
+    val sentences = BreakIterator.getSentenceInstance(Locale.ROOT).apply { setText(prose) }
+    val end = sentences.next()
+    return if (end == BreakIterator.DONE) "" else prose.substring(0, end).trimEnd()
+}
+
+internal fun coordinatorJobPreview(thread: ThreadSummary, questions: List<BoardQuestion>): String =
+    firstJobSummarySentence(thread.summary).ifEmpty {
+        if (isFinishedBackgroundJob(thread)) "" else threadStateLine(thread, questions)
+    }
+
+internal fun coordinatorJobAge(thread: ThreadSummary, now: Long): String =
+    panelRelativeTime(thread.finishedAt?.takeIf { isFinishedBackgroundJob(thread) } ?: thread.updatedAt, Instant.ofEpochMilli(now))
 fun backgroundJobCounts(threads: List<ThreadSummary>): ProjectActivityBackgroundJobs {
     val jobs = threads.filter { !it.main && it.id != "main" && !it.archived && it.kind != "coordinator" }
     return ProjectActivityBackgroundJobs(

@@ -3079,6 +3079,22 @@ and active mutes put a status mark in the bar. Running apps is always reachable
 in More on apps-capable backends; its shortcut shows for live or pending apps
 when there is room. The transcript fades over 12 px at its top edge.
 
+**Android Coordinators sheet (T498 / D145).** The chat title opens a compact
+roster. The open coordinator is tinted and marked “You are here”, with Edit
+beside its area. Area text takes at most two lines. Edit opens the existing
+area editor and returns to the roster. The separate chat area row remains for
+now. The sheet keeps each coordinator's live jobs in state order. A job shows
+its title and state on one line and a short preview on the next. If it has a
+report, the preview uses its first sentence instead of printing the whole report.
+Finished and stopped jobs of any age stay behind a separate, initially closed
+“Finished N” row under each coordinator. Failures stay visible.
+
+The roster scrolls independently of its New, All tasks, All jobs and Manage
+footer. All jobs opens the existing Background jobs panel across coordinators,
+where full reports remain available. Other entries keep the panel scoped to the
+originating coordinator. The sheet keeps its existing maximum width on wider
+screens. Older backends still use the Main chat and background jobs switcher.
+
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins
 one FIFO queue entry per coordinator. A queued coordinator ends its turn and waits

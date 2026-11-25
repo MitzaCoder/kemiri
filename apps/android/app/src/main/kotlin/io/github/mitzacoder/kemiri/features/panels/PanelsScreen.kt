@@ -32,7 +32,7 @@ import io.github.mitzacoder.kemiri.features.tasks.questionTaskLabel
 import io.github.mitzacoder.kemiri.features.tasks.rememberTasksView
 
 @Composable
-fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.Info, modifier: Modifier = Modifier) {
+fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.Info, modifier: Modifier = Modifier, allJobs: Boolean = false) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     // Keep the last hello through reconnect: a temporary offline state must not close an editor.
     val tabs = rememberPanelTabs(context.backend.client).filter { it != PanelTab.Threads || context.route.workerId == null }.sortedBy { panelTabOrder.indexOf(it) }
@@ -44,7 +44,7 @@ fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.
             when (active) {
                 // The Tasks view (list or board) on a backend with task reports; older backends keep the old board.
                 PanelTab.Board -> if (tasksView) TasksTab(context, Modifier.weight(1f)) else BoardPanel(context)
-                PanelTab.Threads -> ThreadsPanel(context)
+                PanelTab.Threads -> ThreadsPanel(context, allJobs)
                 PanelTab.Info -> InfoPanel(context)
                 PanelTab.Memory -> MemoryPanel(context)
                 PanelTab.Artifacts -> ArtifactsPanel(context)
@@ -105,7 +105,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
  * Main's background jobs (web `BackgroundPanel.svelte`): what each does now, its workers, tasks and questions, who
  * started it and when, with Stop (behind a confirmation), Archive or Restore, and Open; archived ones behind a toggle.
  */
-@Composable internal fun ThreadsPanel(context: ProjectScreenContext) {
+@Composable internal fun ThreadsPanel(context: ProjectScreenContext, allJobs: Boolean) {
     var showArchived by rememberSaveable(context.route) { mutableStateOf(false) }
     var showFinished by rememberSaveable(context.route) { mutableStateOf(false) }
     val client = context.backend.client
@@ -131,13 +131,14 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
         }
     }
     Column {
-        Text("Big jobs Main chat handed off. They report back to Main chat; ask Main chat to start, steer or stop one.",
+        Text(if (allJobs) "Background jobs from every coordinator. Each job reports back to its coordinator."
+            else "Big jobs Main chat handed off. They report back to Main chat; ask Main chat to start, steer or stop one.",
             Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = colors.fgSubtle)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         PanelBody(data.value?.threads?.filter { showArchived || !it.archived }, data.error, data.loading, store::refresh) { threads ->
             val jobThreads = if (connection.supports("coordinators")) {
                 val owner = coordinatorOfThread(context.route.threadId, threads)
-                threads.filter { it.kind != "coordinator" && (it.parentThreadId ?: "main") == owner }
+                threads.filter { it.kind != "coordinator" && (allJobs || (it.parentThreadId ?: MAIN_THREAD_ID) == owner) }
             } else threads
             val ordered = io.github.mitzacoder.kemiri.features.chat.orderedBackgroundJobs(jobThreads)
             val live = ordered.filter { !it.archived }
@@ -147,7 +148,8 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
                     stop = { stopping = thread },
                     archive = { act(thread) { client.request(ThreadsArchiveRequest(projectId = project, threadId = thread.id, archived = !thread.archived)) } })
             }
-            if (live.isEmpty()) Text("Nothing runs in the background. Main chat starts a background job when a job is big enough, or a schedule does.",
+            if (live.isEmpty()) Text(if (allJobs) "No background jobs in this project."
+                else "Nothing runs in the background. Main chat starts a background job when a job is big enough, or a schedule does.",
                 style = MaterialTheme.typography.bodyMedium, color = colors.fgSubtle)
             val finished = live.filter { io.github.mitzacoder.kemiri.features.chat.foldFinishedJob(it, now) }
             live.filterNot { it in finished }.forEach { Row(it) }

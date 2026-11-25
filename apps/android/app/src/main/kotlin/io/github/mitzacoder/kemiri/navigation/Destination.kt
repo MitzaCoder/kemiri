@@ -30,7 +30,7 @@ sealed interface Destination {
         val highlight: ChatHighlight? = null,
     ) : Destination
     @Serializable data class Answers(val chat: Chat, val answerId: String? = null) : Destination
-    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Panel") data class Panel(val chat: Chat, val tab: PanelTab = PanelTab.Info) : Destination
+    @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Panel") data class Panel(val chat: Chat, val tab: PanelTab = PanelTab.Info, val allJobs: Boolean = false) : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Artifact") data class Artifact(val chat: Chat, val artifactId: String) : Destination
     /** A task's sheet over the chat it was opened from (the web's `?task=` on main's or a thread's page); back closes it. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Task") data class Task(val chat: Chat, val taskId: String, val fromTaskId: String? = null, val attentionQuestionId: String? = null) : Destination

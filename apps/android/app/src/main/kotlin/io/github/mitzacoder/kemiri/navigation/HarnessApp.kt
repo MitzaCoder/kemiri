@@ -251,6 +251,7 @@ private fun HarnessNavigation(
     val latestSelectProjectTab by rememberUpdatedState(selectProjectTab)
     val latestPanelContext by rememberUpdatedState(context)
     val latestPanelTab by rememberUpdatedState(panel?.tab ?: PanelTab.Info)
+    val latestAllJobs by rememberUpdatedState(panel?.allJobs == true)
     // Expansion belongs to the originating conversation and survives unrelated detours.
     val panelKey = panel?.screenStateKey()
     val panelExpanded = panelKey != null && panelKey in expandedPanels
@@ -269,7 +270,7 @@ private fun HarnessNavigation(
             latestPanelContext?.let { currentContext ->
                 panelState.SaveableStateProvider(currentContext.route.screenStateKey()) {
                     PanelSurface(
-                        currentContext, latestPanelTab, { latestClosePanel() }, panelModifier,
+                        currentContext, latestPanelTab, { latestClosePanel() }, panelModifier, allJobs = latestAllJobs,
                         expanded = latestPanelExpanded, toggleExpanded = if (panelExpandable) ({ latestToggleExpanded() }) else null,
                         projectTabs = if (latestPanelTab == PanelTab.Board && AnswersProjectTab.Tasks in latestPanelTabs) latestPanelTabs else emptyList(),
                         unreadAnswers = latestUnreadAnswers, taskAttention = latestTaskAttention, selectProjectTab = { latestSelectProjectTab(it) },
@@ -441,6 +442,7 @@ private fun PanelSurface(
     initialTab: PanelTab,
     close: () -> Unit,
     modifier: Modifier,
+    allJobs: Boolean = false,
     expanded: Boolean = false,
     toggleExpanded: (() -> Unit)? = null,
     projectTabs: List<AnswersProjectTab> = emptyList(),
@@ -463,7 +465,7 @@ private fun PanelSurface(
             }
         })
         if (projectTabs.isNotEmpty()) AnswersProjectTabRow(projectTabs, AnswersProjectTab.Tasks, unreadAnswers, taskAttention, selectProjectTab)
-    } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding)) }
+    } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding), allJobs = allJobs) }
 }
 
 @Composable private fun MissingBackend(modifier: Modifier) { Text("This backend was removed. Choose a project from the drawer.", modifier) }

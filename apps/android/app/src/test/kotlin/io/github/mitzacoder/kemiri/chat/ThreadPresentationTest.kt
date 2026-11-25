@@ -45,6 +45,14 @@ class ThreadPresentationTest {
         val message = json("""{"role":"user","timestamp":123,"content":"[thread poster finished] Done"}""")
         assertEquals(123L,transcript(listOf(EntryRecord(1,1,"pi.user",listOf(message))),null).single().parts.single().timestamp)
     }
+    @Test fun jobSheetPreviewStopsBeforeTheRestOfTheReport() {
+        assertEquals("The audit passed.", firstJobSummarySentence("The audit passed. The raw numbers and appendices follow."))
+        assertEquals("The sample weighed 2.5 kg.", firstJobSummarySentence("# Report\n\nThe sample\nweighed 2.5 kg. The full dataset is attached."))
+        assertEquals("No issues found", firstJobSummarySentence("- No issues found\n- More details on request"))
+        assertEquals("All checks passed", firstJobSummarySentence("All checks passed\n\nRaw log without punctuation"))
+        assertEquals("", firstJobSummarySentence("# Report\n\n"))
+        assertEquals("", firstJobSummarySentence(null))
+    }
     @Test fun compactControlsKeepExplicitVersusDefaultState() {
         assertEquals("Worker default",composerModelLabel(null,null,"Worker default"))
         assertEquals("Fast",composerModelLabel(ModelRef("p","m"),"Fast","Worker default"))

@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri
 
+import io.github.mitzacoder.kemiri.features.chat.isFinishedBackgroundJob
 import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.serialization.json.Json
@@ -26,6 +27,12 @@ class ConversationSwitcherTest {
         assertEquals(listOf("old"), choices.filter { it.folded }.map { it.id })
         assertEquals(listOf("main"), choices.filter { it.current }.map { it.id })
         assertEquals("You talk here. It hands big jobs to the background and reports back.", MAIN_CHAT_DESCRIPTION)
+    }
+    @Test fun coordinatorSheetFoldsRecentFinishedAndStoppedButKeepsFailuresVisible() {
+        assertTrue(isFinishedBackgroundJob(job("recent", "finished")))
+        assertTrue(isFinishedBackgroundJob(job("stopped", "stopped")))
+        assertFalse(isFinishedBackgroundJob(job("failed", "failed")))
+        assertFalse(isFinishedBackgroundJob(job("paused", "paused")))
     }
     @Test fun mainAndJobShowExactlyTheSameListExceptCurrentMarker() {
         val main = conversationChoices(jobs, null, now)
