@@ -5,7 +5,7 @@ import { Value } from "typebox/value";
 import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "@kemiri/protocol";
 import { BoardQuestionSchema, BoardQuestionClarifyRequestSchema } from "../../protocol/src/board.ts";
 import type { JsonObject } from "@earendil-works/pi-durable";
-import { askQuestion, boardView, buildTimeline, clarifyQuestion, coordinatorWriter, describeQuestion, emptyBoardState, endQuestionClarification, normalizeBoard, openBoard, openQuestionCount, replyQuestion, saveTask, settleQuestion, writeReport } from "../src/board.ts";
+import { askQuestion, boardView, buildTimeline, clarifyQuestion, coordinatorWriter, describeQuestion, emptyBoardState, endQuestionClarification, normalizeBoard, openBoard, openQuestionCount, recordFeedback, replyQuestion, saveTask, setFeedbackState, settleQuestion, writeReport } from "../src/board.ts";
 import { taskState, taskActivity, activityTracking } from "../src/task-activity.ts";
 import { boardAttention } from "../src/sidebar-attention.ts";
 import { boardQuestionNotification } from "../src/notifications.ts";
@@ -246,4 +246,69 @@ it("a failed clarification run returns the card to Needs you immediately, withou
  expect((await runtime.board.state()).questions[0]).toMatchObject({ status: "open", waitingOn: "user", noReplyYet: true });
  expect(openQuestionCount(await runtime.board.state())).toBe(1);
  expect(view.view!.entries.filter(e => entryText(e).startsWith("[board] Clarification reminder"))).toHaveLength(0);
+}, 20_000);
+
+
+it("checks the task's questions once per note and refuses to address it until the checks are settled", () => {
+ const state = fixture();
+ const history = { keys: [], snapshots: [] };
+ const legacy = askQuestion(state, { taskId: "T1", text: "Approve the tool?", options: [], now });
+ state.questions.find(q => q.id === legacy.id)!.mcpApproval = true;
+ const second = askQuestion(state, { taskId: "T1", text: "Is the old plan ready?", options: [], now });
+ const note = { taskId: "T1", text: "Try the new plan instead", images: 0, threadId: "area", key: "note", now: later };
+ const feedback = recordFeedback(state, history, note);
+ expect(recordFeedback(state, history, note).id).toBe(feedback.id);
+ expect(state.questions[0]).toMatchObject({ waitingOn: "agent", revision: 2, exchanges: [{ text: note.text, feedbackId: feedback.id }] });
+ expect(state.questions.find(q => q.id === legacy.id)).toMatchObject({ revision: 1 });
+ expect(state.clarificationReminders?.Q1).toMatchObject({ feedbackThreadId: "area", feedbackIds: [feedback.id] });
+ const address = () => setFeedbackState(state, history, { taskId: "T1", feedbackId: feedback.id, state: "addressed", note: "Tried it", by, now: later });
+ expect(address).toThrow("Q1 (r2), Q3 (r2)");
+ reply(state, { revisedText: "Try both plans?" });
+ expect(address).toThrow("Q3 (r2)");
+ settleQuestion(state, { questionId: second.id, expectedRevision: 2, answer: null, now: later, actor: "coordinator" });
+ expect(address().feedback.state).toBe("addressed");
+});
+
+it("sends the check with the feedback, hides its instructions from chat, and reuses the reminder", async () => {
+ const { test, client, projectId, runtime } = await start();
+ const modern = await TestClient.open(test.server); cleanups.push(async () => modern.close());
+ await modern.request({ type: "hello", protocolVersion: 1, client: { name: "test", version: "1", features: ["task-status-details"] } });
+ const task = await runtime.board.saveTask({ task: { title: "Synthetic task", description: "", acceptance: null, status: "in_progress", blockedBy: [], blockedReason: null, writeScopes: [] } }, "coordinator");
+ await runtime.harness.commit(async tx => {
+  const state = await openBoard(tx, runtime.conversation.id);
+  askQuestion(state, { taskId: task.id, threadId: "main", text: "Choose the plan?", options: [], now });
+  const actor = { id: "worker:fixture", kind: "worker", name: "fixture", threadId: "main", conversationId: 2, runId: "1" } as const;
+  activityTracking(state, task.id).sources[actor.id] = { actor, state: "running", since: now, phase: "testing the plan", title: task.title };
+ }, BACKGROUND_CONTEXT);
+ const before = await modern.request({ type: "board.get", projectId });
+ if (before.type !== "board.get") throw errorOf(before);
+ expect(before.board.tasks[0]?.state).toMatchObject({ kind: "answer_needed", runningWork: { text: "fixture is testing the plan" } });
+ let finish = () => {};
+ const pause = new Promise<void>(resolve => { finish = resolve; });
+ test.faux.setResponses([
+  async request => {
+   expect(JSON.stringify(request.messages)).toContain("Check Q1 (r2) asked");
+   expect(JSON.stringify(request.messages)).toContain("Choose the plan?");
+   await pause;
+   return fauxAssistantMessage("Forgot to settle the question.");
+  },
+  request => { expect(JSON.stringify(request.messages)).toContain("Clarification reminder for Q1 (r2)"); return fauxAssistantMessage("Forgot again."); },
+ ]);
+ const view = new ViewClient(client); await view.start(projectId);
+ try {
+  await client.request({ type: "conversation.submit", projectId, taskId: task.id, requestId: "note", content: "A new plan is ready." });
+  await view.waitForView(v => v.entries.some(entry => entryText(entry).includes("A new plan is ready.")));
+  expect(view.view!.entries.map(entryText).join("\n")).not.toContain("Check Q1 (r2) asked");
+  const checked = await modern.request({ type: "board.get", projectId });
+  const old = await client.request({ type: "board.get", projectId });
+  if (checked.type !== "board.get" || old.type !== "board.get") throw new Error("Expected two board views");
+  expect(checked.board.tasks[0]?.state).toMatchObject({ group: "in_progress", kind: "clarifying", checkingFeedbackId: "F1", runningWork: expect.any(Object) });
+  expect(checked.board.questions[0]?.exchanges?.[0]?.feedbackId).toBe("F1");
+  expect(old.board.tasks[0]?.state?.runningWork).toBeUndefined();
+  expect(old.board.tasks[0]?.state?.checkingFeedbackId).toBeUndefined();
+  expect(old.board.questions[0]).toMatchObject({ waitingOn: "agent", exchanges: [{ text: "A new plan is ready." }] });
+  expect(old.board.questions[0]?.exchanges?.[0]?.feedbackId).toBeUndefined();
+ } finally { finish(); }
+ await until(async () => (await runtime.board.state()).questions[0]?.noReplyYet === true);
+ expect((await runtime.board.state()).questions[0]).toMatchObject({ waitingOn: "user", noReplyYet: true });
 }, 20_000);

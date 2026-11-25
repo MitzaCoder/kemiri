@@ -21,3 +21,11 @@ export function askAgainText(question: BoardQuestion): string | undefined {
 export function questionNeedsAnswer(question: BoardQuestion): boolean {
 	return question.status === 'open' && question.waitingOn !== 'agent';
 }
+
+/** A coordinator reply to a note, rather than a reply to an ordinary Ask back. */
+export function questionNoteOutcome(question: BoardQuestion): 'question unchanged' | 'question revised' | undefined {
+	const exchanges = question.exchanges ?? [];
+	const reply = exchanges.at(-1);
+	if (question.status !== 'open' || question.waitingOn === 'agent' || !reply || reply.author.author === 'user' || !exchanges.at(-2)?.feedbackId) return undefined;
+	return reply.previousWording ? 'question revised' : 'question unchanged';
+}

@@ -42,10 +42,10 @@ export function withTask(url: Pick<URL, "pathname" | "search">, taskId: string |
 	return query.length === 0 ? url.pathname : `${url.pathname}?${query}`;
 }
 
-export function taskDisplayWords(task: BoardTask, tasks: readonly BoardTask[] = []): string {
-	return taskStateLabel(task, tasks) ?? taskStatusWords(task.status);
+export function taskDisplayWords(task: Pick<BoardTask, "status" | "state" | "waiting">, tasks: readonly Pick<BoardTask, "id" | "title">[] = []): string {
+	return task.state?.kind === "answer_needed" ? "Needs your answer" : taskStateLabel(task, tasks) ?? taskStatusWords(task.status);
 }
-export function taskDisplayToneClass(task: BoardTask): string {
+export function taskDisplayToneClass(task: Pick<BoardTask, "status" | "state">): string {
 	return taskStatusToneClass(taskStateStatus(task));
 }
 

@@ -4,10 +4,14 @@
  * `task-reports` feature) the chat shows no task links and every line still reads on its own.
  */
 import { getContext, setContext } from "svelte";
-import type { BoardTaskStatus } from "@kemiri/protocol";
+import type { BoardTask, BoardTaskStatus } from "@kemiri/protocol";
+import { taskStateStatus } from "./task-state.js";
 import { taskHref } from "./task-chat.ts";
 
+type LinkedTask = Pick<BoardTask, "id" | "title" | "status" | "state" | "waiting">;
+
 export type TaskLinks = {
+	task: (taskId: string) => LinkedTask | undefined;
 	/** The title of a task on the board; undefined for a task the board does not hold (or has not loaded). */
 	title: (taskId: string) => string | undefined;
 	/** The status of a task on the board, so its chip wears the same colour as its row. */
@@ -27,11 +31,13 @@ export function useTaskLinks(): () => TaskLinks | undefined {
 }
 
 export function boardTaskLinks(
-	tasks: () => readonly { id: string; title: string; status: BoardTaskStatus }[],
+	tasks: () => readonly LinkedTask[],
 ): TaskLinks {
+	const task = (taskId: string) => tasks().find(item => item.id === taskId);
 	return {
-		title: (taskId) => tasks().find((task) => task.id === taskId)?.title,
-		status: (taskId) => tasks().find((task) => task.id === taskId)?.status,
+		task,
+		title: (taskId) => task(taskId)?.title,
+		status: (taskId) => { const found = task(taskId); return found && taskStateStatus(found); },
 		href: taskHref,
 	};
 }

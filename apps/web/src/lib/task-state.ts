@@ -16,7 +16,7 @@ export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks
 		case 'steps_needed': return 'Your steps';
 		case 'review': return 'Ready for review';
 		case 'working': return 'Working';
-		case 'clarifying': return 'Clarifying';
+		case 'clarifying': return task.state.checkingFeedbackId ? 'Checking your note' : 'Clarifying';
 		case 'paused': return 'Paused';
 		case 'blocked_by_task': return `Blocked by ${task.state.refs.map(id => {
 			const title = tasks.find(task => task.id === id)?.title;
@@ -24,6 +24,7 @@ export function taskStateLabel(task: Pick<BoardTask, 'state' | 'waiting'>, tasks
 		}).join(', ')}`;
 		case 'waiting_outside': {
 			const note = task.waiting?.note;
+			if (!note && task.state.sentence) return task.state.sentence.text;
 			return note ? /^waiting for\b/i.test(note) ? note : `Waiting for ${note}` : 'Waiting';
 		}
 		case 'todo': return 'To do';

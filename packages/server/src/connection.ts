@@ -81,7 +81,7 @@ import type { ProjectManager } from "./runtime.ts";
 import { QueuedInputs, describeContent, queueClock, splitTaskReference } from "./queued-inputs.ts";
 import { ProviderOutageDoc } from "./provider-outage.ts";
 import { WatchWindow, resolveWindowBounds } from "./window.ts";
-import { OWNER_CHAT_ENTRY, wireEntry } from "./wire.ts";
+import { FEEDBACK_QUESTION_CHECK_PREFIX, OWNER_CHAT_ENTRY, wireEntry } from "./wire.ts";
 import type { TerminalAttachment, TerminalHost } from "./terminals.ts";
 
 import type { ReleaseUpdates } from "./release-updates.ts";
@@ -172,10 +172,21 @@ function withLegacyTaskKinds(task: BoardTask): BoardTask {
 	return state === task.state && subtaskStates === task.subtaskStates ? task : { ...task, state, subtaskStates };
 }
 
-function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolean, withRequestDigest: boolean): ServerMessage {
-	if (withTaskSteps && withRequestDigest) return message;
+function withoutStatusDetails<T extends { state?: unknown }>(task: T): Omit<T, "state"> {
+	const { state: _state, ...legacy } = task;
+	return legacy;
+}
+
+function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolean, withRequestDigest: boolean, withStatusDetails: boolean): ServerMessage {
+	if (withTaskSteps && withRequestDigest && withStatusDetails) return message;
+	const projectQuestion = (question: import("@kemiri/protocol").BoardQuestion) => !withStatusDetails && question.exchanges?.some(exchange => exchange.feedbackId)
+		? { ...question, exchanges: question.exchanges.map(({ feedbackId: _id, ...exchange }) => exchange) } : question;
 	const projectTask = (task: BoardTask) => {
 		if (!withTaskSteps) task = withLegacyTaskKinds(task);
+		if (!withStatusDetails && task.state && (task.state.runningWork || task.state.checkingFeedbackId)) {
+			const { runningWork: _work, checkingFeedbackId: _feedback, ...state } = task.state;
+			task = { ...task, state };
+		}
 		if (withRequestDigest || !task.partsDigest) return task;
 		const { partsDigest: _digest, derivedNotDone: _notDone, ...legacy } = task;
 		return legacy;
@@ -183,7 +194,16 @@ function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolea
 	switch (message.type) {
 		case "board.get":
 		case "board.state":
-			return { ...message, board: { ...message.board, tasks: message.board.tasks.map(projectTask) } };
+			return { ...message, board: { ...message.board, tasks: message.board.tasks.map(projectTask), questions: message.board.questions.map(projectQuestion) } };
+		case "board.question.answer":
+		case "board.question.clarify":
+			return { ...message, question: projectQuestion(message.question) };
+		case "board.task.history":
+			return withStatusDetails ? message : { ...message, snapshots: message.snapshots.map(withoutStatusDetails) };
+		case "artifacts.library":
+			return withStatusDetails ? message : { ...message, tasks: message.tasks.map(withoutStatusDetails) };
+		case "artifacts.trail":
+			return withStatusDetails ? message : { ...message, tasks: message.tasks.map(withoutStatusDetails) };
 		case "board.report.stale":
 		case "board.task.save":
 			return { ...message, task: projectTask(message.task) };
@@ -230,6 +250,7 @@ export class ClientConnection {
 	#clientSupportsTaskSteps = false;
 	#clientSupportsRequestAttention = false;
 	#clientSupportsRequestDigest = false;
+	#clientSupportsStatusDetails = false;
 	#clientSupportsAnswersWorkAndTasks = false;
  #clientSupportsTaskWatcher = false;
 	readonly #mcpOwner = crypto.randomUUID();
@@ -1444,7 +1465,7 @@ export class ClientConnection {
 						const names = splitFileMessage(describeContent(content).text).files.filter(file => request.fileIds!.includes(file.id)).map(file => file.name);
 						description.text = `Attached files: ${names.join(', ')}`;
 					}
-					const feedback =
+					const recorded =
 						taskId === undefined || !this.#features.includes("task-links")
 							? undefined
 							: await this.#manager.recordBoardFeedback(request.projectId, {
@@ -1453,6 +1474,15 @@ export class ClientConnection {
 									threadId: threadId ?? "main",
 									requestId: request.requestId,
 								});
+					const feedback = recorded?.feedback;
+					const referenced = taskId === undefined ? content : withTaskReference(content, taskId, feedback?.id);
+					const questionChecks = recorded?.questionChecks ?? [];
+					const coordinatorContent = questionChecks.length ? [
+						...(typeof referenced === "string" ? [{ type: "text" as const, text: referenced }] : referenced),
+						{ type: "text" as const, text: FEEDBACK_QUESTION_CHECK_PREFIX +
+							questionChecks.map(question => `Check ${question.id} (r${question.revision}) asked ${question.askedAt}: ${JSON.stringify(question.text.replace(/\s+/g, " ").slice(0, 200))}`).join("\n") +
+							"\nBefore marking the note handling or addressed, confirm with reply_question, revise with revisedText, or answer or withdraw with resolve_question. Reuse the existing question." },
+					] : referenced;
 					// The user typed into a finished or stopped background thread: it works again.
 					await this.#manager.reviveThread(request.projectId, threadId);
 					if (!this.#authorized(0, request.id)) return;
@@ -1461,10 +1491,7 @@ export class ClientConnection {
 						{
 							type: "input",
 							entry: { kind: OWNER_CHAT_ENTRY, ...(runtime.board.answers ? { data: { ownerQuestion: describeContent(ownerContent).text, ...(taskId === undefined ? {} : { taskId }), ...(feedback ? { feedbackId: feedback.id } : {}) } } : {}) },
-							content:
-								taskId === undefined
-									? content
-									: withTaskReference(content, taskId, feedback?.id),
+							content: coordinatorContent,
 							requestId: request.requestId,
 							...(request.whenBusy === undefined ? {} : { whenBusy: request.whenBusy }),
 						},
@@ -1773,6 +1800,7 @@ export class ClientConnection {
 		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
 		this.#clientSupportsAnswersWorkAndTasks = this.#features.includes("answers-work-and-tasks") && request.client?.features?.includes("answers-work-and-tasks") === true;
 		this.#clientSupportsRequestDigest = this.#features.includes("request-digest") && request.client?.features?.includes("request-digest") === true;
+		this.#clientSupportsStatusDetails = this.#features.includes("task-status-details") && request.client?.features?.includes("task-status-details") === true;
 		this.#clientSupportsTaskSteps = this.#features.includes("task-steps") && request.client?.features?.includes("task-steps") === true;
 		this.#clientSupportsApps = this.#features.includes("apps") && request.client?.features?.includes("apps") === true;
 		this.#clientSupportsInAppAlerts = this.#features.includes("in-app-alerts") && request.client?.features?.includes("in-app-alerts") === true;
@@ -2048,7 +2076,7 @@ export class ClientConnection {
 				const { requestId: _, ...question } = message.question;
 				message = { ...message, question };
 			}
-			this.#io.send(withBoardTaskCapabilities(message, this.#clientSupportsTaskSteps, this.#clientSupportsRequestDigest));
+			this.#io.send(withBoardTaskCapabilities(message, this.#clientSupportsTaskSteps, this.#clientSupportsRequestDigest, this.#clientSupportsStatusDetails));
 		} catch (error) {
 			this.#log(`send failed, closing connection: ${errorMessage(error)}`);
 			this.#io.close(1011, "send failed");

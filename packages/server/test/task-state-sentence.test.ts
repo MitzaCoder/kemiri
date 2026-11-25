@@ -23,7 +23,8 @@ it('names the first open blocker, its title and remaining count, without an age'
 });
 it('paused duration starts at the last quiet time, not the 15-minute pause threshold', () => {
  const t = task({ status: 'in_progress' });
- const state = taskState(t, [], [t], undefined, now);
+ const state = taskState(t, [], [t], { sources: {}, lastEndedAt: since }, now);
+ expect(taskState(t, [], [t], undefined, now)).toMatchObject({ kind: 'paused', since });
  expect(state.since).toBe('2026-01-01T12:15:00.000Z');
  expect(state.sentence).toMatchObject({ text: 'Paused', since, ageFormat: 'duration', agePrefix: ' · nothing has run on it for ' });
 });
@@ -41,7 +42,8 @@ it('clarifying uses the asking agent sentence, including while another run is li
  const q = { ...question('Q1', 'Paper boxes or tins?'), waitingOn: 'agent' as const, threadId: 'main' };
  expect(sentence(t, [t], [q])).toMatchObject({ text: 'Coordinator is clarifying Q1', ageFormat: 'duration' });
  const tracking: TaskActivityTracking = { sources: { run: { actor: { id: 'run', kind: 'worker', name: 'moss', threadId: 'main', conversationId: 1, runId: '1' }, state: 'running', title: t.title, since } } };
- expect(sentence(t, [t], [q], tracking).text).toBe('Coordinator is clarifying Q1');
+ expect(taskState(t, [q], [t], tracking, now)).toMatchObject({ kind: 'clarifying',
+  sentence: { text: 'Coordinator is clarifying Q1' }, runningWork: { text: 'moss is working' } });
 });
 it('todo and follow-ups have no age; review, waiting and closed keep one explicit state', () => {
  expect(sentence(task())).toMatchObject({ text: 'Not started', ageFormat: 'none' });

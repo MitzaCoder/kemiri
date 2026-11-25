@@ -34,6 +34,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { openFeedbackCount } from '#lib/task-relations.js';
+	import { taskDisplayWords } from '#lib/tasks.js';
 	import { acceptanceMarkdown, taskDetailState, taskNextPlacement } from '#lib/task-details.js';
 	import { waitingSummary } from '#lib/task-waiting.js';
 	import { formatMinutes } from '@kemiri/client';
@@ -148,7 +149,15 @@
 				<Button variant="ghost" size="icon-sm" class="size-11" aria-label={`Back to ${previousTask.id}`} onclick={model.goBack}><ArrowLeftIcon /></Button>
 			{/if}
 			<span class="shrink-0 whitespace-nowrap text-xs text-(--chat-fg-subtle)" class:font-mono={!partPage}>{partPage?.position ?? task.id}</span>
-			<TaskStatusMenu status={task.status} {task} {compact} label={partClosureLabel ?? taskDetailState(task.status, needsYou!, task.state?.kind)} disabled={closing || !model.canClose} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
+			<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+				<TaskStatusMenu status={task.status} {task} {compact} label={partClosureLabel ?? (task.state ? taskDisplayWords(task) : taskDetailState(task.status, needsYou!))} disabled={closing || !model.canClose} supportsWaiting={model.supportsWaiting} onpick={model.pickStatus} />
+				{#if task.state?.runningWork && task.state.kind !== 'working'}
+					{@const work = task.state.runningWork}
+					<span class="task-status-working inline-flex w-fit max-w-full items-center gap-2 rounded-lg border border-(--chat-border) bg-(--chat-surface-2) px-2 py-1 text-xs font-medium" data-running-work-chip>
+						<span class="task-status-dot" aria-hidden="true"></span>{work.actor ? `${work.actor.name} is working` : 'Work is running'}
+					</span>
+				{/if}
+			</div>
 			{#if compact}<span class="task-bar-title" aria-hidden="true">{titleScrolledAway ? task.title : ''}</span>{/if}
 			<div class="ml-auto flex shrink-0 items-center sm:gap-2">
 				{#if !compact && !editing}
@@ -159,6 +168,7 @@
 				<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.close} aria-label="Close the task page" title="Close the task page"><XIcon /></Button>
 			</div>
 		</div>
+
 		{#if !compact}{@render introduction()}{/if}
 	</header>
 
@@ -218,9 +228,16 @@
 									</section>
 							{/if}
 
-							{#if requestedId !== null && task.live && liveNow}
+							{#if needsYou?.questionsForAgent.length}
+								<section class="task-reading-section rounded-xl border border-dashed border-(--chat-border) bg-(--chat-surface)/50 p-3" aria-label="Questions waiting for the coordinator">
+									<h2 class="task-detail-heading">{task.state?.checkingFeedbackId ? 'Question being checked' : 'Waiting for an agent reply'}</h2>
+									{#each needsYou.questionsForAgent as question (question.id)}{@render questionCard(question)}{/each}
+								</section>
+							{/if}
+
+							{#if requestedId !== null && liveNow}
 								{#key JSON.stringify([backend.id, projectId, task.id])}
-									<TaskLive live={task.live} now={liveNow} backendId={backend.id} {projectId} taskId={task.id} {news} workers={model.projectWorkers} workerHref={model.workerTranscriptHref} />
+									<TaskLive live={task.live ?? { lines: [] }} now={liveNow} backendId={backend.id} {projectId} taskId={task.id} {news} workers={model.projectWorkers} workerHref={model.workerTranscriptHref} />
 								{/key}
 							{/if}
 
@@ -264,12 +281,6 @@
 								<section class="task-reading-section" aria-label="Next">
 									<h2 class="task-detail-heading">Next</h2>
 									<ReportSection {task} section="next" />
-								</section>
-							{/if}
-							{#if needsYou?.questionsForAgent.length}
-								<section class="task-reading-section" aria-label="Waiting for an agent reply">
-									<h2 class="task-detail-heading">Waiting for an agent reply</h2>
-									{#each needsYou.questionsForAgent as question (question.id)}{@render questionCard(question)}{/each}
 								</section>
 							{/if}
 

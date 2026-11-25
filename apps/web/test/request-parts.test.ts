@@ -35,7 +35,7 @@ test('Needs you counts the request once and links to the originating question or
 	expect(taskFamilyCount(section!, true)).toBe(1);
 	const [family] = taskFamilies(section!, { T1: true }, byPart(sections.flatMap(group => group.rows), request.id));
 	expect(family).toMatchObject({ row: { task: request }, children: [], canToggle: false, role: 'task' });
-	expect(requestAttentionLink(request, [question], href)).toEqual({ taskId: 'T2', href: '/project?task=T2#task-question-Q2', text: 'Paper boxes or tins?', partTitle: 'Choose the sample boxes' });
+	expect(requestAttentionLink(request, [question], href)).toEqual({ taskId: 'T2', href: '/project?task=T2#task-question-Q2', text: 'Paper boxes or tins?', questionId: 'Q2', partTitle: 'Choose the sample boxes' });
 	expect(requestAttentionLink({ ...request, state: { ...request.state!, kind: 'steps_needed', refs: [] } }, [], href)?.href).toBe('/project?task=T2#task-steps');
 	expect(requestAttentionLink({ ...request, state: { ...request.state!, kind: 'failed', refs: [] } }, [], href)?.href).toBe('/project?task=T2#task-needs-you');
 });

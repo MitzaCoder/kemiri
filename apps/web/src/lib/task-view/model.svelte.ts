@@ -173,8 +173,8 @@ export function createTaskViewModel(inputs: () => TaskViewInputs, getSheet: () =
 		},
 		workLogHref: (line, entryId) => liveNewsWorkLogHref(backend.id, projectId, workers, line, entryId),
 	} : undefined);
-	const liveNow = $derived(taskLiveEnabled && task?.live && task.state?.kind === 'working'
-		? task.state.sentence ?? activity : undefined);
+	const liveNow = $derived(task?.state?.runningWork ?? (taskLiveEnabled && task?.live && task.state?.kind === 'working'
+		? task.state.sentence ?? activity : undefined));
 	const supportsDelivery = $derived(backend.supports('task-delivery'));
 	const changesClient = $derived(backend.supports('project-changes') ? backend.client : undefined);
 	const supportsLinks = $derived(backend.supports('task-links'));

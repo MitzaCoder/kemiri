@@ -8,7 +8,7 @@
  * seeking. Publishing them anywhere else is up to the user's instructions.
  */
 import { type Static, Type } from "typebox";
-import { BoardFeedbackStateSchema, BoardTaskStatusSchema } from "./board.ts";
+import { BoardFeedbackStateSchema, BoardTaskStateSchema, BoardTaskStatusSchema } from "./board.ts";
 import { ProjectIdSchema, RequestIdSchema } from "./common.ts";
 
 export const ArtifactKindSchema = Type.Union(
@@ -154,7 +154,7 @@ export const ArtifactsTrailRequestSchema = Type.Object({
 export type ArtifactsTrailRequest = Static<typeof ArtifactsTrailRequestSchema>;
 
 /** What the library shows about a task beside its artifacts, even when the task is done and archived. */
-export const ArtifactTaskFactsSchema = Type.Object({
+const ArtifactTaskFactsFields = {
 	projectId: ProjectIdSchema,
 	id: Type.String({ minLength: 1, description: 'e.g. "T12".' }),
 	title: Type.String(),
@@ -162,16 +162,18 @@ export const ArtifactTaskFactsSchema = Type.Object({
 	archived: Type.Boolean(),
 	settledAt: Type.Union([Type.String(), Type.Null()], { description: "When it became done or dropped." }),
 	summary: Type.Optional(Type.String({ description: "The report's summary, when written." })),
-});
+};
+export const ArtifactTaskFactsSchema = Type.Object({ ...ArtifactTaskFactsFields, state: Type.Optional(BoardTaskStateSchema) });
 export type ArtifactTaskFacts = Static<typeof ArtifactTaskFactsSchema>;
 
 /** A task folder: the facts plus what the task decided, for "Comes from" and Discuss. */
 export const ArtifactTaskFolderSchema = Type.Object({
-	...ArtifactTaskFactsSchema.properties,
+	...ArtifactTaskFactsFields,
 	decisions: Type.Array(
 		Type.Object({ id: Type.String(), text: Type.String(), why: Type.Union([Type.String(), Type.Null()]), at: Type.String() }),
 		{ description: "The task's board decisions, newest first." },
 	),
+	state: Type.Optional(BoardTaskStateSchema),
 });
 export type ArtifactTaskFolder = Static<typeof ArtifactTaskFolderSchema>;
 

@@ -2173,7 +2173,8 @@ data class ArtifactTaskFacts(
     val `status`: String,
     val `archived`: Boolean,
     val `settledAt`: String?,
-    val `summary`: String? = null
+    val `summary`: String? = null,
+    val `state`: BoardTaskState? = null
 )
 
 @Serializable
@@ -2185,7 +2186,8 @@ data class ArtifactTaskFolder(
     val `archived`: Boolean,
     val `settledAt`: String?,
     val `summary`: String? = null,
-    val `decisions`: List<ArtifactTaskFolderDecisionsItem>
+    val `decisions`: List<ArtifactTaskFolderDecisionsItem>,
+    val `state`: BoardTaskState? = null
 )
 
 @Serializable
@@ -3638,6 +3640,7 @@ data class BoardQuestionExchange(
     val `author`: BoardWriter,
     val `text`: String,
     val `at`: String,
+    val `feedbackId`: String? = null,
     val `previousWording`: BoardQuestionExchangePreviousWording? = null,
     val `previousAnswer`: BoardQuestionExchangePreviousAnswer? = null
 )
@@ -3869,6 +3872,8 @@ data class BoardTaskState(
     val `since`: String,
     val `refs`: List<String>,
     val `sentence`: BoardTaskActivity? = null,
+    val `runningWork`: BoardTaskActivity? = null,
+    val `checkingFeedbackId`: String? = null,
     val `liveWorkSince`: String? = null,
     val `fromPartId`: String? = null,
     val `fromPartTitle`: String? = null
@@ -3997,6 +4002,7 @@ data class BoardTaskSnapshot(
     val `by`: BoardWriter,
     val `title`: String,
     val `status`: String,
+    val `state`: BoardTaskState? = null,
     val `waiting`: BoardTaskWaiting? = null,
     val `report`: BoardTaskSnapshotReport,
     val `goal`: String? = null,

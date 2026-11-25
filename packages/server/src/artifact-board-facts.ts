@@ -5,7 +5,7 @@ import type {
 	ArtifactsTrailResponse, ArtifactTaskFacts,
 } from "@kemiri/protocol";
 import { existsSync } from "node:fs";
-import { isArchivedAt, type BoardState, type TaskHistoryState } from "./board.ts";
+import { boardView, isArchivedAt, type BoardState, type TaskHistoryState } from "./board.ts";
 import { openStorageReadOnly } from "./request-backfill.ts";
 import { requestPartIds } from "./request-digest.ts";
 import { stateKind } from "./state-identity.ts";
@@ -39,13 +39,14 @@ export function artifactTaskIds(artifact: Artifact): string[] {
 function taskFacts(projectId: string, task: BoardState["tasks"][number], now: number): ArtifactTaskFacts {
 	return {
 		projectId, id: task.id, title: task.title, status: task.status,
+		...(task.state ? { state: task.state } : {}),
 		archived: task.archived === true || isArchivedAt(task, now), settledAt: task.settledAt ?? null,
 		...(task.report?.summary ? { summary: task.report.summary } : {}),
 	};
 }
 
-export function artifactBoardFacts(board: Pick<BoardState, "tasks"> | undefined, projectId: string, ids: ReadonlySet<string>, now: number): ArtifactTaskFacts[] {
-	return (board?.tasks ?? []).filter(task => ids.has(task.id)).map(task => taskFacts(projectId, task, now));
+export function artifactBoardFacts(board: Readonly<BoardState> | undefined, projectId: string, ids: ReadonlySet<string>, now: number): ArtifactTaskFacts[] {
+	return (board ? boardView(board, now, true, undefined, true).tasks : []).filter(task => ids.has(task.id)).map(task => taskFacts(projectId, task, now));
 }
 
 export function readArtifactBoardFacts(path: string, projectId: string, ids: readonly string[], now: number): Promise<ArtifactTaskFacts[]> {

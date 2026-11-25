@@ -49,7 +49,7 @@ describe('Needs you', () => {
 			state: { kind: 'answer_needed' as const, group: 'needs_you' as const, since: question.askedAt, refs: ['Q1'], liveWorkSince: question.askedAt } };
 		const needs = taskNeedsYou(working, [{ ...question, kind: 'warning' }], false, true);
 		expect(needs).toMatchObject({ review: false, hasSteps: false, show: true });
-		expect(taskDetailState(working.status, needs, 'answer_needed')).toBe('Working');
+		expect(taskDetailState(working.status, taskNeedsYou(working, [question], false, true), 'answer_needed')).toBe('Needs your answer');
 		expect(taskNeedsYou(working, [], false, true).show).toBe(false);
 		const quiet = taskNeedsYou(task('in_progress'), [{ ...question, kind: 'warning' }], false, true);
 		expect(taskDetailState('in_progress', quiet, 'paused')).toBe('Paused');

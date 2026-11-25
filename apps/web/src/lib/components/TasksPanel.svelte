@@ -4,6 +4,7 @@
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
+	import TaskActivityLine from './TaskActivityLine.svelte';
 	import { taskRowActivity } from '#lib/task-activity.js';
 	import CardMarkdown from './markdown/CardMarkdown.svelte';
 	import TaskSearchBox from './TaskSearchBox.svelte';
@@ -45,7 +46,7 @@
 	import { useRefLinks } from '#lib/ref-links.svelte.js';
 	import { relativeTime } from '#lib/relative-time.js';
 	import { answeredQuestions } from '#lib/board.js';
-	import { questionNeedsAnswer } from '#lib/question-clarify.js';
+	import { questionNeedsAnswer, questionNoteOutcome } from '#lib/question-clarify.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import {
 		isWarning,
@@ -313,6 +314,7 @@
 	{@const owner = taskCoordinatorInAllView(row.task, coordinatorView)}
 	{@const needsYou = row.section === 'needs_you'}
 	{@const attention = requestAttention && !searching && depth === 0 && !row.task.parent ? requestAttentionLink(row.task, board?.board?.questions ?? [], taskHref) : undefined}
+	{@const noteOutcome = row.waiting.map(questionNoteOutcome).find(Boolean)}
 	{#if family.role === 'parentHeader'}
 		<a class="task-row family-compact family-header flex items-center gap-2.5 px-3 text-xs text-(--chat-fg-subtle)"
 			data-parent-header={row.task.id} href={taskHref(row.task.id)} onclick={() => onopentask?.(row.task.id)}
@@ -366,13 +368,17 @@
 				{#if searching && searchHitById.get(row.task.id)?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHitById.get(row.task.id)?.snippet}</p>{/if}
 				{#if attention}
 					<p class="text-xs leading-4 text-(--chat-fg-muted)" data-request-attention>
-						{attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}
+						{row.task.state?.kind === 'answer_needed' && attention.questionId ? `Answer needed: ${attention.text}` : attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}
 					</p>
 				{:else}
 					<TaskFamilyMeta requestView={requestAttention} task={row.task} {tasks} archivedLinks={board?.archivedLinks} nested={depth > 0} {taskHref} onopen={onopentask}
 						activity={row.task.state || !searching || !searchHitById.get(row.task.id)?.snippet ? activity : undefined}
 						summary={searching && searchHitById.get(row.task.id)?.snippet ? '' : row.task.status === 'waiting' ? waitingSummary(row.task) : gist}
 						canToggle={family.canToggle} expanded={family.expanded} foldedCount={family.foldedCount} ontoggle={() => toggleFamily(row.task.id)} />
+				{/if}
+				{#if noteOutcome}<p class="text-xs text-(--chat-fg-muted)">Checked after your note · {noteOutcome}</p>{/if}
+				{#if row.task.state?.runningWork && row.task.state.kind !== 'working'}
+					<TaskActivityLine activity={row.task.state.runningWork} compact stateTone="task-status-working" />
 				{/if}
 				{#if (!row.task.state && needsYou) || row.waiting.length > 1 || refs.length > 0}
 					<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">
@@ -405,7 +411,7 @@
 		{:else if needsYou && !task.state}
 			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 		{:else}
-			<span class="task-status-dot" class:task-row-pulse={task.state ? task.state.kind === 'working' : task.status === 'in_progress'}></span>
+			<span class="task-status-dot" class:task-row-pulse={task.state ? !!task.state.liveWorkSince : task.status === 'in_progress'}></span>
 		{/if}
 	</span>
 {/snippet}

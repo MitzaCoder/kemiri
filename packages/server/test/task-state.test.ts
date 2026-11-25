@@ -5,8 +5,8 @@ import { HARNESS_FEATURES, LEGACY_HARNESS_FEATURES } from "../../protocol/src/pr
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
 import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
-import { BoardDoc, TaskHistoryDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, partDropReason, recordScheduledReport, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
-import { activityTracking, endActivitySource, taskState, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
+import { BoardDoc, TaskHistoryDoc, askQuestion, boardView, changeLink, claimTaskForThread, emptyBoardState, migrateTaskStates, moveTaskForWorker, openBoard, partDropReason, recordScheduledReport, saveTask, settleQuestion, unblockedBy, writeReport, HARNESS_WRITER, type BoardState } from "../src/board.ts";
+import { activityTracking, endActivitySource, taskState, pauseEpisode, TASK_PAUSED_MS, type TaskActivitySource } from "../src/task-activity.ts";
 import { boardAttention } from "../src/sidebar-attention.ts";
 import { topRequest } from "../src/request-attention.ts";
 import { createSetup, entryText, errorOf, TestClient, ViewClient } from "./support.ts";
@@ -104,13 +104,13 @@ it("open blockers precede review/waiting and bare blocked; dropped and done bloc
  s.tasks[0]!.status = "blocked"; expect(derive(s).kind).toBe("failed");
 });
 
-it("paused begins at exactly 15 minutes of quiet, max(status start, run end), without mutation", () => {
+it("paused begins at exactly 15 minutes after the last run, without mutation", () => {
  const s = emptyBoardState(); add(s, { status: "in_progress" }); source(s); const tracking = activityTracking(s, "T1"); endActivitySource(tracking, "run-1", at(30_000));
  const before = JSON.stringify(s);
- expect(derive(s, 30_000 + TASK_PAUSED_MS - 1).kind).toBe("working");
+ expect(derive(s, 30_000 + TASK_PAUSED_MS - 1)).toMatchObject({ kind: "working", sentence: { text: "Working · last run ended" } });
  expect(derive(s, 30_000 + TASK_PAUSED_MS)).toMatchObject({ group: "in_progress", kind: "paused", since: at(30_000 + TASK_PAUSED_MS), refs: [] });
  expect(JSON.stringify(s)).toBe(before);
- tracking.statusSince = at(60_000); expect(derive(s, TASK_PAUSED_MS + 30_000).kind).toBe("working");
+ tracking.statusSince = at(60_000); expect(derive(s, TASK_PAUSED_MS + 30_000).kind).toBe("paused");
 });
 
 it.each(["review", "waiting"] as const)("agent parent %s refuses unfinished direct parts with a way out", status => {
@@ -464,6 +464,11 @@ it.each(["in_progress", "review"] as const)("agent cannot add an open blocker wh
 it("shared expiry timer republishes paused at the boundary without polling writes", async () => {
  const { runtime, clock } = await integration();
  await runtime.board.saveTask({ task: input({ status: "in_progress" }) }, "user");
+ expect((await runtime.board.get()).tasks[0]?.state?.kind).toBe("paused");
+ await runtime.harness.commit(async tx => {
+  const state = await openBoard(tx, runtime.conversation.id);
+  source(state); endActivitySource(activityTracking(state, "T1"), "run-1", at());
+ }, BACKGROUND_CONTEXT);
  clock(TASK_PAUSED_MS - 30);
  const seen: string[] = [];
  const stop = await runtime.board.watch(board => { const kind = board.tasks[0]?.state?.kind; if (kind) seen.push(kind); }); cleanups.push(stop);
@@ -518,7 +523,7 @@ it("parent follows live direct and descendant work, but not idle grace or unknow
  activityTracking(s, "T5").sources.fern = { actor: { id: "fern", kind: "worker", name: "fern", threadId: "main", conversationId: 2, runId: "run" }, state: "running", since: at(2), title: "Photos" };
  const before = JSON.stringify(s);
  const board = boardView(s, START + 2 * TASK_PAUSED_MS, true);
- expect(board.tasks[0]!.state).toEqual({ group: "in_progress", kind: "working", since: at(2), liveWorkSince: at(2), refs: ["T3"], sentence: { kind: "working", text: "1 of 3 parts done · 1 working", since: at(2), refs: ["T3"], ageFormat: "none" } });
+ expect(board.tasks[0]!.state).toMatchObject({ group: "in_progress", kind: "working", since: at(2), liveWorkSince: at(2), refs: ["T3"], sentence: { kind: "working", text: "1 of 3 parts done · 1 working", since: at(2), refs: ["T3"], ageFormat: "none" } });
  expect(board.tasks[0]!.subtaskCount).toEqual({ done: 1, total: 3 });
  expect(board.tasks[0]!.subtaskStates).toEqual(["done", "working", "todo"]);
  expect(board.tasks[0]!.activity!.text).toBe("1 of 3 parts done · 1 working");
@@ -818,3 +823,36 @@ it.each([true, false])("task media gathers part proof only for a negotiated feat
   expect(part.type === "artifacts.list" && part.partProof).toBeUndefined();
  }
 }, 20_000);
+
+
+it("drops a queued pause notice if a required descendant starts before admission", async () => {
+ const { runtime, clock, client, projectId } = await integration();
+ for (const parent of [undefined, "T1", "T2"]) {
+  await runtime.board.saveTask({ task: input({ status: "in_progress", ...(parent ? { parent } : {}) }) }, "user");
+ }
+ const view = new ViewClient(client); await view.start(projectId);
+ clock(2 * TASK_PAUSED_MS);
+ const submit = runtime.threads.submitHarness.bind(runtime.threads);
+ const attempt = spyOn(runtime.threads, "submitHarness").mockImplementation(async (...args) => {
+  if (args[3].startsWith("board-paused:T1:")) await runtime.harness.commit(async tx => {
+   const state = await openBoard(tx, runtime.conversation.id);
+   const actor = { id: "run:fern", kind: "worker", name: "fern", threadId: "area", conversationId: 2, runId: "1" } as const;
+   activityTracking(state, "T3").sources[actor.id] = { actor, state: "running", since: at(2 * TASK_PAUSED_MS), title: "Required part" };
+  }, BACKGROUND_CONTEXT);
+  return submit(...args);
+ });
+ try {
+  await runtime.harness.commit(async tx => {
+   const state = await openBoard(tx, runtime.conversation.id);
+   const request = state.tasks[0]!;
+   state.pausedNotices = [{ taskId: request.id, owner: "main", episode: pauseEpisode(request, state.taskActivity?.T1) }];
+  }, BACKGROUND_CONTEXT);
+  await runtime.board.checkPaused();
+  expect(attempt.mock.calls.some(args => args[3].startsWith("board-paused:T1:"))).toBe(true);
+  expect((await runtime.board.get()).tasks[0]?.state).toMatchObject({ kind: "working", runningWork: { actor: { name: "fern" } } });
+  const durable = await runtime.board.state();
+  expect(durable.pausedNotices).toEqual([]);
+  expect(durable.taskActivity?.T1?.pauseNudgedEpisode).toBeUndefined();
+  expect(view.view?.entries.some(entry => entryText(entry).includes("T1 is in progress but nothing has run"))).toBe(false);
+ } finally { attempt.mockRestore(); }
+});

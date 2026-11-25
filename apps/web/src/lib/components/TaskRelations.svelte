@@ -79,7 +79,7 @@
 								<span class="min-w-0" class:line-through={item.status === 'dropped'}><TaskDetailText text={item.title || 'Not on the board'} focusable={false} /></span>
 								<span class="task-id-chip">{item.id}</span>
 								{#if item.archived}<span class="shrink-0 text-[0.6875rem] text-(--chat-fg-subtle)">archived</span>{/if}
-								{#if item.status !== 'unknown'}<TaskStatusBadge status={item.status} class="shrink-0" />{/if}
+								{#if item.status !== 'unknown'}<TaskStatusBadge status={item.status} state={item.state} waiting={item.waiting} class="shrink-0" />{/if}
 							</a>
 						</li>
 					{/each}

@@ -5,7 +5,7 @@
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import TaskStatusBadge from '#lib/components/TaskStatusBadge.svelte';
 	import { exactTime } from '#lib/relative-time.js';
-	import { hasChanges, REPORT_SECTIONS, taskChanges, type TaskState } from '#lib/tasks.js';
+	import { taskDisplayWords, REPORT_SECTIONS, taskChanges, type TaskState } from '#lib/tasks.js';
 	import type { BoardTask, BoardTaskSnapshot, BoardWriter } from '@kemiri/protocol';
 
 	let { task, snapshot, before, writerName }: {
@@ -18,8 +18,19 @@
 	let against = $state<'previous' | 'now'>('previous');
 	let view = $state<'changes' | 'as-it-was'>('changes');
 	const now = $derived<TaskState>({ title: task.title, status: task.status, report: task.report });
+	const earlier = $derived(against === 'now' ? snapshot : before);
+	const later = $derived(against === 'now' ? task : snapshot);
+	const statusChanged = $derived(earlier && statusDescription(earlier) !== statusDescription(later));
+	function statusDescription(row: BoardTask | BoardTaskSnapshot) {
+		return [taskDisplayWords(row), !!row.state?.runningWork].join('|');
+	}
 	const changes = $derived(against === 'now' ? taskChanges(snapshot, now) : taskChanges(before, snapshot));
 </script>
+
+{#snippet snapshotStatus(row: BoardTask | BoardTaskSnapshot)}
+	<TaskStatusBadge status={row.status} state={row.state} waiting={row.waiting} />
+	{#if row.state?.runningWork && row.state.kind !== 'working'}<span class="text-xs text-(--chat-fg-muted)">· Work running</span>{/if}
+{/snippet}
 
 <div class="flex flex-col gap-3" data-task-history>
 	<p class="text-xs text-(--chat-fg-muted)">{writerName(snapshot.by)} · {exactTime(snapshot.at)}</p>
@@ -54,7 +65,7 @@
 	</div>
 
 	{#if view === 'changes'}
-		{#if !hasChanges(changes)}
+		{#if !changes.title && !statusChanged && !changes.sections.length}
 			<p class="text-xs text-(--chat-fg-subtle)" data-no-changes>
 				{against === 'now' ? 'The task says the same as it did then.' : 'Nothing differs from the snapshot before.'}
 			</p>
@@ -66,12 +77,12 @@
 						<div class="text-(--chat-fg-subtle) line-through"><Markdown source={changes.title.from} /></div> → <Markdown source={changes.title.to} />
 					</div>
 				{/if}
-				{#if changes.status}
+				{#if statusChanged && earlier}
 					<p class="flex flex-wrap items-center gap-1.5 text-xs text-(--chat-fg-muted)">
 						<span class="font-semibold text-(--chat-fg)">Status</span>
-						<TaskStatusBadge status={changes.status.from} />
+						{@render snapshotStatus(earlier)}
 						→
-						<TaskStatusBadge status={changes.status.to} />
+						{@render snapshotStatus(later)}
 					</p>
 				{/if}
 				{#each changes.sections as section (section.key)}
@@ -114,7 +125,7 @@
 		<div class="flex flex-col gap-3 rounded-xl border border-(--chat-border) px-3 py-2.5" data-as-it-was>
 			<div class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] font-medium">
 				<Markdown source={snapshot.title} />
-				<TaskStatusBadge status={snapshot.status} />
+				{@render snapshotStatus(snapshot)}
 			</div>
 			{#each REPORT_SECTIONS as section (section.key)}
 				{#if section.key === 'now' ? snapshot.report.now.trim() : hasReportSection(snapshot.report, section.key)}

@@ -706,7 +706,7 @@ Would the owner need this again? Put it on the task first:
 - An answer to a task message → the full answer in the feedback note. Short status answers stay in the note only; longer answers also update the report.
 A chat reply is a line or two naming the task; it may repeat what is on the task. Never leave required facts only in chat or a file.
 
-A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Don't copy it to the description. Use the \`board\` action \`feedback\`: mark it handling when you act and addressed when done, with the answer or what addressed it.
+A message starting with "[task T12, feedback F3] " is feedback F3 on that task. Don't copy it to the description. Use the \`board\` action \`feedback\`: a note can answer, change or leave a question unchanged. Settle questions sent back by the note before marking it handling or addressed. When done, give the answer or say what addressed it. If you withdrew a question, name it and say why in the feedback note.
 
 A message starting with "[reports]" names stale sections or detail that is only in chat. Read the task with show_task. Rewrite only stale sections; file missing detail using the routes above, not in another chat reply. When you read a task earlier and write later, pass the eventSeq show_task gave you as coveredEventSeq, so anything that happened since stays marked.
 
@@ -794,7 +794,7 @@ export function coordinatorSection(project: Project, answers = false, answersWor
 	return directCoordinatorSection(project, answers, answersWorkAndTasks);
 }
 
-const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer it; if it came as task feedback, put the answer in the feedback note. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with artifactId to publish the next version. Keep: leave that part unchanged in a rewrite. If it came as task feedback, mark it handling when you act and addressed when done, naming the new version if you made one.
+const ARTIFACT_REVIEW_RULES = `A message starting Comments on "…" with an (artifact <id>~<n>, <file>) line reviews that artifact version (possibly after a task feedback prefix). Clarify: answer it; if it came as task feedback, put the answer in the feedback note. Change / Show differently / Cut: artifact_read that version, edit the copy, then artifact_save with artifactId to publish the next version. Keep: leave that part unchanged in a rewrite. If it came as task feedback, settle any questions sent back by the note, then mark it handling when you act and addressed when done. Name the new version if you made one.
 If an (artifact <id>~<n>, <file>) message is about a done task, answer plain questions in chat without a task. For a change, add a small follow-up with foundWhile pointing to the old task, have its worker save with artifact_save artifactId and the follow-up taskId, and say in chat what you did. If the owner asks to reopen the old task or only answer, follow that.`;
 
 /**

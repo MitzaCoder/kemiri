@@ -48,6 +48,8 @@ export function taskActivity(task: BoardTask, questions: readonly BoardQuestion[
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("question", `Waiting for your answer to ${blocking[0].id}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}${workers.length ? ` · ${workers.length} worker${workers.length === 1 ? "" : "s"} still running` : ""}`, blocking[0].askedAt, blocking.map(q => q.id), undefined, blocking.length);
  const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
+ const checking = clarifying.find(question => question.exchanges?.at(-1)?.feedbackId);
+ if (!closed && checking) return feedbackCheckActivity(checking);
  if (!closed && clarifying[0]) return make("working", `${clarifying[0].threadId && clarifying[0].threadId !== "main" ? clarifying[0].threadId : "Coordinator"} is clarifying ${clarifying[0].id}`, clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
  if (deploy?.state === "active" && tracking?.deployUnknownSince) return make("unknown", "Status unknown", tracking.deployUnknownSince, deploy.refs);
  if (deploy?.state === "active") return make("deploy", deploy.text, deploy.since, deploy.refs);
@@ -70,6 +72,10 @@ export function taskActivity(task: BoardTask, questions: readonly BoardQuestion[
  if (deploy?.state === "unknown" || sources.some(s => s.state === "unknown")) return make("unknown", "Status unknown", sources.find(s => s.state === "unknown")?.since ?? deploy?.since ?? since);
  if (task.status === "todo") return make("not_started", "Not started", task.createdAt);
  return make("idle", "Idle", tracking?.lastEndedAt ?? task.createdAt);
+}
+
+function feedbackCheckActivity(question: BoardQuestion): BoardTaskActivity {
+ return { kind: "working", text: `The coordinator is checking ${question.id} against your note`, since: question.exchanges!.at(-1)!.at, refs: [question.id], ageFormat: "duration" };
 }
 
 export function activityTracking(state: { taskActivity?: Record<string, TaskActivityTracking> }, taskId: string): TaskActivityTracking {
@@ -117,10 +123,18 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  const since = tracking?.statusSince ?? task.updatedAt;
  const closed = task.status === "done" || task.status === "dropped";
  const live = closed ? [] : Object.values(tracking?.sources ?? {}).filter(s => s.state === "running").sort((a, b) => a.since.localeCompare(b.since) || a.actor.id.localeCompare(b.actor.id));
- const deploy = !closed && tracking?.deploy?.state === "active" ? tracking.deploy : undefined;
+ const deploy = !closed && tracking?.deploy?.state === "active" && !tracking.deployUnknownSince ? tracking.deploy : undefined;
  const workingParts = closed ? [] : parts.filter(part => part.state.liveWorkSince);
  const liveWorkSince = [live[0]?.since, deploy?.since, ...workingParts.map(part => part.state.liveWorkSince)].filter((at): at is string => !!at).sort()[0];
- const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs, ...(liveWorkSince ? { liveWorkSince } : {}), sentence: taskStateSentence(kind, task, questions, tasks, tracking, now, at, refs) });
+ const latest = live.reduce<TaskActivitySource | undefined>((recent, source) => !recent || source.since > recent.since ? source : recent, undefined);
+ const runningWork: BoardTaskActivity | undefined = deploy ? { kind: "deploy", text: deploy.text, since: deploy.since, refs: deploy.refs }
+  : latest ? { kind: "working", text: `${latest.actor.name} is ${latest.phase || "working"}`, since: latest.since, refs: live.map(source => source.actor.id), actor: latest.actor }
+  : workingParts.find(part => part.state.runningWork)?.state.runningWork;
+ const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
+ const checking = clarifying.find(question => question.exchanges?.at(-1)?.feedbackId);
+ const make = (group: BoardTaskState["group"], kind: BoardTaskState["kind"], at = since, refs: string[] = []): BoardTaskState => ({ group, kind, since: at, refs, ...(liveWorkSince ? { liveWorkSince } : {}), ...(runningWork ? { runningWork } : {}),
+  ...(kind === "clarifying" && checking ? { checkingFeedbackId: checking.exchanges!.at(-1)!.feedbackId! } : {}),
+  sentence: kind === "working" && runningWork ? { ...runningWork, ageFormat: "duration" } : taskStateSentence(kind, task, questions, tasks, tracking, now, at, refs) });
  if (task.status === "done" || task.status === "dropped") return make("closed", task.status, task.settledAt ?? since);
  const activity = taskActivity(task, questions, tasks, tracking, now);
  const blockers = openTaskBlockers(task, tasks);
@@ -128,19 +142,23 @@ export function taskState(task: BoardTask, questions: readonly BoardQuestion[], 
  if (task.status === "blocked" && (task.blockedReason?.trim() || !blockers.length)) return make("needs_you", "failed");
  const blocking = blockingTaskQuestions(task, questions);
  if (blocking[0]) return make("needs_you", "answer_needed", blocking[0].askedAt, blocking.map(q => q.id));
+ if (checking || (liveWorkSince && clarifying[0])) {
+  const question = checking ?? clarifying[0]!;
+  return make("in_progress", "clarifying", question.exchanges?.at(-1)?.at ?? question.askedAt, clarifying.map(q => q.id));
+ }
  if (liveWorkSince) {
   return make("in_progress", "working", liveWorkSince, [...live.map(s => s.actor.id), ...(deploy?.refs ?? []), ...workingParts.map(part => part.id)]);
  }
  if (task.report?.steps?.trim()) return make("needs_you", "steps_needed", task.report.stepsWrittenAt ?? since);
- const clarifying = questions.filter(q => q.taskId === task.id && q.status === "open" && q.waitingOn === "agent");
  if (clarifying[0]) return make("in_progress", "clarifying", clarifying[0].exchanges?.at(-1)?.at ?? clarifying[0].askedAt, clarifying.map(q => q.id));
  if (blockers.length) return make("waiting", "blocked_by_task", since, blockers.map(t => t.id));
  if (task.status === "review") return make("needs_you", "review");
  if (task.status === "waiting") return make("waiting", "waiting_outside", task.waiting?.since ?? since);
  if (task.status === "in_progress") {
-  const quiet = taskQuietSince(task, tracking);
-  const paused = now - Date.parse(quiet) >= TASK_PAUSED_MS;
-  return make("in_progress", paused ? "paused" : "working", paused ? new Date(Date.parse(quiet) + TASK_PAUSED_MS).toISOString() : quiet);
+  const ended = tracking?.lastEndedAt;
+  const pausedAt = ended ? new Date(Date.parse(ended) + TASK_PAUSED_MS).toISOString() : undefined;
+  if (ended && pausedAt && now < Date.parse(pausedAt)) return make("in_progress", "working", ended);
+  return make("in_progress", "paused", pausedAt && pausedAt > since ? pausedAt : since);
  }
  return make("todo", "todo");
 }
@@ -160,16 +178,12 @@ function taskStateSentence(kind: BoardTaskState["kind"], task: BoardTask, questi
    return make("question", `Answer needed: ${short(blocking[0]?.text ?? "Answer the question")}${blocking.length > 1 ? ` and ${blocking.length - 1} more` : ""}`, "none");
   }
   case "steps_needed": return make("review", "Your steps", "none");
-  case "clarifying": return { ...activity, ageFormat: "duration" };
-  case "review": return make("review", "Ready for review");
-  case "working": {
-   if (activity.kind === "deploy") return { ...activity, ageFormat: "duration" };
-   if (activity.kind === "working" && activity.actor) {
-    const source = Object.values(tracking?.sources ?? {}).find(source => source.actor.id === activity.actor?.id);
-    return { ...activity, text: `${activity.actor.name} is ${source?.phase || "working"}`, ageFormat: "duration" };
-   }
-   return activity.kind === "working" ? { ...activity, ageFormat: "duration" } : make("working", "Working");
+  case "clarifying": {
+   const checking = questions.find(q => refs.includes(q.id) && q.exchanges?.at(-1)?.feedbackId);
+   return checking ? feedbackCheckActivity(checking) : { ...activity, ageFormat: "duration" };
   }
+  case "review": return make("review", "Ready for review");
+  case "working": return { kind: "working", text: "Working · last run ended", since, refs, agePrefix: " " };
   case "paused": return make("idle", "Paused", "duration", taskQuietSince(task, tracking), " · nothing has run on it for ");
   case "blocked_by_task": {
    const blockers = openTaskBlockers(task, tasks);

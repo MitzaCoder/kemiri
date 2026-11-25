@@ -120,7 +120,7 @@
 		{:else if needsYou && (!task.state || task.state.kind === 'answer_needed')}
 			<CircleHelpIcon class="size-3.5 text-(--accent-2)" />
 		{:else}
-			<span class="task-status-dot" class:task-card-pulse={(task.state ? task.state.kind === 'working' : task.status === 'in_progress') && !ghost}></span>
+			<span class="task-status-dot" class:task-card-pulse={(task.state ? !!task.state.liveWorkSince : task.status === 'in_progress') && !ghost}></span>
 		{/if}
 	</span>
 	<div class="flex min-w-0 flex-1 flex-col gap-1">
@@ -137,11 +137,14 @@
 		{#if task.waiting && !activity}<p class="text-xs text-(--chat-fg-subtle)">{waitingSummary(task)}</p>{/if}
 {#if searchHit?.snippet}<p class="truncate text-xs text-(--chat-fg-muted)">{searchHit.snippet}</p>{/if}
 {#if attention}
-			<p class="text-xs text-(--chat-fg-muted)">{attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}</p>
+			<p class="text-xs text-(--chat-fg-muted)">{task.state?.kind === 'answer_needed' && attention.questionId ? `Answer needed: ${attention.text}` : attention.text}{#if attention.partTitle}{` · asked while building “${attention.partTitle}”`}{/if}</p>
 		{:else if activity && (task.state || !searchHit?.snippet)}
 			<TaskActivityLine {activity} compact stateTone={task.state ? taskDisplayToneClass(task) : undefined} />
 {:else if !searchHit?.snippet && gist.length > 0 && task.status !== 'waiting'}
 			<p class="line-clamp-2 text-task-sm break-words text-(--chat-fg-muted)">{gist}</p>
+		{/if}
+		{#if task.state?.runningWork && task.state.kind !== 'working'}
+			<TaskActivityLine activity={task.state.runningWork} compact stateTone="task-status-working" />
 		{/if}
 		{#if needsYou && card.waiting.length > 1}
 			<p class="text-[0.6875rem] leading-4 text-(--chat-fg-subtle)">+{card.waiting.length - 1} more waiting</p>

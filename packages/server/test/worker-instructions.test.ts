@@ -32,7 +32,8 @@ describe("workerInstructions", () => {
 			expect(text).toContain("follow-up with foundWhile pointing to the old task");
 			expect(text).toContain("If the owner asks to reopen the old task or only answer, follow that.");
 			expect(text).toContain("Keep: leave that part unchanged");
-			expect(text).toContain("mark it handling when you act and addressed when done, naming the new version if you made one.");
+			expect(text).toContain("settle any questions sent back by the note, then mark it handling when you act and addressed when done.");
+			expect(text).toContain("Name the new version if you made one.");
 		}
 	});
 

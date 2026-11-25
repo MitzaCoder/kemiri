@@ -364,13 +364,13 @@
 			<div class="ref-card-in" class:ref-card-ready={place.ready}>
 				{#if shown.taskId !== undefined}
 					{@const title = taskLinks()?.title(shown.taskId)}
-					{@const status = taskLinks()?.status(shown.taskId)}
+					{@const task = taskLinks()?.task(shown.taskId)}
 					<div class="flex flex-col gap-3 p-4" data-task-preview>
 						<div class="flex items-center justify-between gap-3"><strong class="font-mono text-(--accent-2)">{shown.taskId}</strong><button type="button" aria-label="Close preview" onclick={() => close({ focusLink: true })}>×</button></div>
 						{#if title !== undefined}
 							<p class="font-semibold">{title}</p>
-							{#if status !== undefined}
-								<TaskStatusBadge {status} class="self-start" />
+							{#if task}
+								<TaskStatusBadge status={task.status} state={task.state} waiting={task.waiting} class="self-start" />
 							{/if}
 							<a class="text-sm font-medium text-(--accent-2) underline" href={taskLinks()?.href(shown.taskId)} onclick={() => close()}>Open task</a>
 						{:else}<p>Task not found.</p>{/if}

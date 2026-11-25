@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TaskStatusBadge from './TaskStatusBadge.svelte';
 	import { useCoordinatorTaskView } from '#lib/coordinator-task-view.js';
 	import { ownerThreadId } from '#lib/coordinators.js';
 	import { untrack } from 'svelte';
@@ -70,6 +71,7 @@
 	const dirty = $derived(draftIsDirty(draft, shown));
 	const differing = $derived(conflict?.newer === undefined ? [] : changedFields(draft, conflict.newer));
 	const live = $derived(taskId === undefined ? undefined : tasks.find((entry) => entry.id === taskId));
+	const current = $derived(live ?? shown);
 	const movedOn = $derived(conflict === undefined && live !== undefined && baseRevision !== undefined && live.revision !== baseRevision);
 
 	async function save(): Promise<void> {
@@ -183,8 +185,11 @@
 		<Textarea bind:value={draft.acceptance} rows={2} class="min-h-12 {field}" placeholder="Acceptance, optional" />
 	</label>
 
+	{#if current?.state}
+		<p class="flex items-center gap-2 text-xs"><span class={label}>Current state</span><TaskStatusBadge status={current.status} state={current.state} waiting={current.waiting} /></p>
+	{/if}
 	<label class="flex flex-col gap-1">
-		<span class={label}>Status</span>
+		<span class={label}>{current?.state ? 'Set board status' : 'Status'}</span>
 		<NativeSelect bind:value={draft.status} disabled={lockStatus} class="w-full" size="sm">
 			{#if draft.status === 'waiting'}<NativeSelectOption value="waiting">Waiting (edit from the status menu)</NativeSelectOption>{/if}
 			{#each TASK_STATUSES as status (status)}

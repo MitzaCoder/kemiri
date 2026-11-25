@@ -18,7 +18,7 @@ export function requestAttentionLink(task: BoardTask, questions: readonly BoardQ
 	const hash = state.kind === 'answer_needed' && state.refs.length ? `#task-question-${encodeURIComponent(question?.id ?? state.refs[0]!)}`
 		: state.kind === 'steps_needed' ? '#task-steps'
 		: state.kind === 'failed' ? '#task-needs-you' : '';
-	return { taskId, href: `${taskHref(taskId)}${hash}`, text, partTitle: state.fromPartTitle };
+	return { taskId, href: `${taskHref(taskId)}${hash}`, text, questionId: question?.id, partTitle: state.fromPartTitle };
 }
 
 export function requestPartRows(rows: readonly TaskRow[]) {

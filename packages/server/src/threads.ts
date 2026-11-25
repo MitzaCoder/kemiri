@@ -1550,12 +1550,14 @@ export class ThreadService {
 		return threadId === MAIN_THREAD_ID ? this.#mainSummary(state, this.now()) : this.summaryOf(updated!);
 	}
 
-	async submitHarness(conversation: Conversation, draft: SubmissionDraft, content: UserInput, requestId: string, context = BACKGROUND_CONTEXT) {
-		if (this.coordinators.placeOf(conversation.id)?.kind !== "coordinator" || this.coordinators.isMain(conversation.id)) {
-			return conversation.submit(draft, context);
-		}
-		const id = await this.#options.harness.commit(async tx =>
-			await this.coordinators.queueWhileHeld?.(tx, conversation.id, content, requestId) ? undefined : conversation.submit(tx, draft), context);
+	async submitHarness(conversation: Conversation, draft: SubmissionDraft, content: UserInput, requestId: string, context = BACKGROUND_CONTEXT, admit?: (tx: Tx) => Promise<boolean>) {
+		const canBeHeld = this.coordinators.placeOf(conversation.id)?.kind === "coordinator" && !this.coordinators.isMain(conversation.id);
+		if (!canBeHeld && !admit) return conversation.submit(draft, context);
+		const id = await this.#options.harness.commit(async tx => {
+			if (admit && !await admit(tx)) return undefined;
+			if (canBeHeld && await this.coordinators.queueWhileHeld?.(tx, conversation.id, content, requestId)) return undefined;
+			return conversation.submit(tx, draft);
+		}, context);
 		if (id === undefined) return undefined;
 		this.#options.harness.resume();
 		return this.#options.harness.submission(id, context);

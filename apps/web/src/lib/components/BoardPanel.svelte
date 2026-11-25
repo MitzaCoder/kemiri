@@ -235,7 +235,7 @@
 					{task.title}
 				</span>
 			</button>
-			<TaskStatusBadge status={task.status} class="shrink-0" />
+			<TaskStatusBadge status={task.status} state={task.state} waiting={task.waiting} class="shrink-0" />
 		</div>
 
 		<TaskRelationChips

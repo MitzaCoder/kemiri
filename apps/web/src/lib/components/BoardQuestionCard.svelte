@@ -15,7 +15,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Textarea } from '#lib/components/ui/textarea/index.js';
 	import type { AnswerOutcome, ClarifyOutcome } from '#lib/board.svelte.js';
-	import { askAgainText, canClarifyQuestion, highlightAskBack } from '#lib/question-clarify.js';
+	import { askAgainText, canClarifyQuestion, highlightAskBack, questionNoteOutcome } from '#lib/question-clarify.js';
 	import { shortWriterLabel } from '#lib/tasks.js';
 	import { questionAnswers } from '#lib/task-details.js';
 	import type { BoardQuestion } from '@kemiri/protocol';
@@ -68,6 +68,8 @@
 	const canClarify = $derived(canClarifyQuestion(question, onclarify !== undefined));
 	const waitingForAgent = $derived(question.status === 'open' && question.waitingOn === 'agent');
 	const exchanges = $derived(question.exchanges ?? []);
+	const noteOutcome = $derived(questionNoteOutcome(question));
+	const checkingNote = $derived(waitingForAgent && !!exchanges.at(-1)?.feedbackId);
 	const revisions = $derived(exchanges.filter(exchange => exchange.previousWording || exchange.previousAnswer));
 	let draftRevision = $state<number | undefined>(undefined);
 	let readingExpanded = $state(false);
@@ -213,8 +215,8 @@
 {#snippet exchangeRow(exchange: NonNullable<BoardQuestion['exchanges']>[number])}
 	<div class="min-w-0">
 		<p class="text-xs text-(--chat-fg-subtle)">
-			{exchange.author.author === 'user' ? 'You' : exchange.author.threadId === question.threadId ? askedBy ?? 'The coordinator' : shortWriterLabel(exchange.author)}
-			· <time datetime={exchange.at} title={new Date(exchange.at).toLocaleString()}>{new Date(exchange.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+			{exchange.feedbackId ? 'Your note' : exchange.author.author === 'user' ? 'You' : exchange.author.threadId === question.threadId ? askedBy ?? 'The coordinator' : shortWriterLabel(exchange.author)}
+			· <time datetime={exchange.at} title={new Date(exchange.at).toLocaleString()}>{new Date(exchange.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>{#if noteOutcome && exchange === exchanges.at(-1)} · {noteOutcome}{/if}
 		</p>
 		<CardMarkdown source={exchange.text} />
 	</div>
@@ -253,7 +255,7 @@
 	{/if}
 	{#if question.status === 'open'}
 		<div class="flex flex-wrap items-center gap-2 text-xs text-(--chat-fg-muted)" role="status">
-			{#if waitingForAgent}<span>Waiting for the agent</span>
+			{#if waitingForAgent && !checkingNote}<span>Waiting for the agent</span>
 			{:else if question.noReplyYet}
 				<span>No reply yet</span>
 				{#if canClarify && askAgainText(question)}
@@ -297,6 +299,7 @@
 					{/if}
 				{/if}
 			</p>
+			{#if checkingNote && !optionsOnly}<p class="my-1 rounded-md bg-(--accent-2)/10 px-2 py-1.5 text-xs text-(--chat-fg)">The coordinator is checking whether this question still fits your note. It comes back confirmed or changed, or closes if it no longer needs an answer.</p>{/if}
 			{#if strip && !optionsOnly}
 				<button type="button" class="block min-h-11 w-full truncate text-left text-xs underline-offset-2 hover:underline" onclick={() => readingExpanded = true} title="Read the full question">{markdownText(question.text)}</button>
 			{:else}<CardMarkdown source={question.text} />{/if}

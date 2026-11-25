@@ -4008,17 +4008,17 @@ First match wins, using the same blocking-question, run and deployment facts as 
    in_progress/working. `state.liveWorkSince` carries the earliest live work time independently of
    the attention kind. Descendant work propagates bottom-up, including through a part with an open
    question or failure. Working refs name the live runs or direct parts. Closed tasks, unknown
-   sources and idle grace do not contribute live work. The task page chip says Working when this
-   time is present, even if the Needs you section shows a question, warning or failure.
+   sources and idle grace do not contribute live work. A question waiting for the agent stays
+   `clarifying` beside live work; live work never replaces a blocking owner question.
 5. Non-empty Your steps with no live work → needs_you/steps_needed. Work hides, but never clears,
    these steps and the old review actions. The wire uses `steps_needed` only if both hello feature
    lists include `task-steps`; otherwise the state and part-kind array use `review` instead.
 6. Open question/warning waiting on the agent → in_progress/clarifying, refs question IDs.
 7. Open task blocker (neither done nor dropped) → waiting/blocked_by_task, refs blocker IDs.
 8. Stored review → needs_you/review. Stored waiting → waiting/waiting_outside.
-9. Stored in_progress without work → in_progress/working during a 15-minute grace, then
-   in_progress/paused, including on the task page. Quiet starts at the later of last run end and
-   stored status start. The pause starts 15 minutes after that; neither rewrites the stored status.
+9. Stored in_progress without live work → in_progress/working only during the 15 minutes after
+   a run ended. The row says when that run ended; it does not show a running indicator. A task with
+   no recent run is in_progress/paused, in the list and on the page. Neither rewrites the stored status.
 10. Stored todo → todo/todo.
 
 **Request attention (T457 / D135).** The server finds a part's request by following `parent` to the root,
@@ -4038,14 +4038,23 @@ states use the stored status start, waiting record or settlement timestamp. The 
 board tool shows stored status alongside live work and attention, e.g. `[in_progress · paused]` or
 `[review · working · answer_needed]`.
 The activity line remains available for extra detail, independent of this grouping contract.
+**Status details (T493).** Both peers advertise `task-status-details` to send `state.runningWork`,
+`state.checkingFeedbackId` and note references on question exchanges, plus derived state on new snapshots
+and Artifacts task facts. `runningWork` carries a run or deploy sentence independent of the main state.
+It follows required parts just like `liveWorkSince`, even when a part or request needs an answer.
+Web shows a second working chip and a row line beside the main need and shows Live whenever work runs.
+The reference preview, related tasks, snapshots, Artifacts and task editor read the same derived state.
+The edit form and status menu still change the stored status, not the derived state. Old snapshots keep
+what they recorded; they do not reconstruct a past state from present work facts.
 A shared delivery/pause expiry timer republishes at the boundary; no polling writes or
 per-second writes. One `[board]` follow-up nudges the owning coordinator (else main):
 “T12 is in progress but nothing has run on it for 15 minutes.” It suggests moving a finished request
-into review or marking a checked part done. Otherwise it suggests To do or asking the owner on the request.
+into review or marking a checked part done. Otherwise it suggests continuing the work or asking the owner.
 The durable outbox and episode-derived request ID deduplicate crash replay. The admitted/nudged episode survives
-restart; overdue pauses nudge once. Only a status change or new running work starts another
-episode; editing prose does not. A parent following live parts is not paused and receives no
-pause nudge; queued notices are revalidated against the same derived board before delivery.
+restart; overdue pauses nudge once. The nudge still waits 15 minutes from the later of status start and
+last run end. Editing prose does not start a new episode. A request with live required parts, including
+nested parts, is not paused and receives no pause nudge. Delivery revalidates and consumes the outbox
+against that same derived board in the transaction that admits the message.
 Inherited work does not reset the parent's own quiet clock or nudge episode: when it ends,
 its own quiet clock applies again. `BoardService.checkPaused()` supports injected clocks.
 
@@ -5325,7 +5334,15 @@ its own list, and a timeline; the description stays the original ask and the rep
   `led to T9`, `3 subtasks (2 done)`, `related T5`, `blocks T7` and `2 open feedback`; `show_task` adds the links with
   titles, the feedback entries (open first) and the latest 15 timeline entries.
 - **Coordinator prompt.** A "[task T12, feedback F3] " message is feedback, not for the description; mark it handling
-  when acting and addressed with evidence when done. Main and background-thread prompts both say: an unplanned task
+  when acting and addressed with evidence when done. A note can also answer, change or leave a question
+  unchanged. An ordinary open question on that task goes back to the coordinator, like Ask back, with
+  the note in its exchange. Approvals and warnings are unchanged. The coordinator receives the linked
+  question IDs, revisions and asked times alongside the note. The board refuses handling or addressed
+  while a question linked to that note still waits on the coordinator. The coordinator confirms or revises
+  with `reply_question`, or answers or withdraws with `resolve_question`; the ordinary one-reminder and
+  No reply yet fallback still apply. The owner can still answer while the coordinator checks. Starting
+  task work tells the coordinator about open owner questions without blocking that work.
+  Main and background-thread prompts both say: an unplanned task
   discovered while working on another gets `foundWhile`; a planned piece of a bigger task gets `parent` only, never
   the same-target `foundWhile`; a see-also gets `related`.
 - **Web.** Task sheet: a Related section grouped by kind (each link opens the task; closed and archived ones dimmed), the

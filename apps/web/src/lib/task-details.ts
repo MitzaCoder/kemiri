@@ -15,7 +15,7 @@ export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedRea
 }
 
 export function taskDetailState(status: BoardTask['status'], needsYou: ReturnType<typeof taskNeedsYou>, kind?: NonNullable<BoardTask['state']>['kind']): string {
-	if (needsYou.working || kind === 'working') return 'Working';
+	if (kind === 'working' || (kind === undefined && needsYou.working)) return 'Working';
 	if (kind === 'paused') return 'Paused';
 	if (kind === 'clarifying') return 'Clarifying';
 	if (kind === 'blocked_by_task') return 'Blocked by another task';

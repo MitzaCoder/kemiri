@@ -920,9 +920,9 @@ export class ProjectManager {
 	async recordBoardFeedback(
 		projectId: string,
 		input: { taskId: string; text: string; images: number; threadId: string; requestId: string },
-	): Promise<BoardFeedback> {
+	) {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.recordFeedback(input);
+		return runtime.board.recordFeedbackWithQuestionChecks(input);
 	}
 
 	/** Refuse a message about a task the board does not have, with `unknown_task`. */
@@ -1526,7 +1526,7 @@ export class ProjectManager {
 			...(this.#reportAudit ? { auditModels: this.#requestLog?.observeInternalModels(this.models, project.id, "report_audit") ?? this.models } : {}),
 			threadTitle: async id => threads.titleOf(id),
 			threadAvailable: async id => id === MAIN_THREAD_ID || (await threads.record(id))?.archived === false,
-			submitInput: (target, draft) => threads.submitHarness(target, draft, draft.content, draft.requestId),
+			submitInput: (target, draft, admit) => threads.submitHarness(target, draft, draft.content, draft.requestId, BACKGROUND_CONTEXT, admit),
 			threadIsLive: async (id) => {
 				if (id === "main") return true;
 				const record = await threads.record(id);

@@ -4,7 +4,7 @@
 	import { supportsArtifactLibrary } from '#lib/artifact-library.svelte.js';
 	import { libraryDate } from '#lib/artifact-library.js';
 	import { useArtifactFeed } from '#lib/artifacts.svelte.js';
-	import { taskStatusWords } from '#lib/tasks.js';
+	import { taskDisplayWords } from '#lib/tasks.js';
 	let { backend, projectId, artifactId, taskId, ontoggle }: { backend: BackendConnection; projectId: string; artifactId: string; taskId?: string; ontoggle: (id?: string) => void } = $props();
 	const feed = useArtifactFeed(() => ({ client: backend.client, projectId, filter: { artifactId } }));
 	let task = $state<ArtifactTaskFacts>();
@@ -40,7 +40,7 @@
 	<label class="flex cursor-pointer items-start gap-2 rounded-lg border border-dashed border-(--chat-border) px-2 py-1.5 text-xs text-(--chat-fg-muted)" data-discussion-folder>
 		<input type="checkbox" class="mt-0.5 size-4 shrink-0 accent-(--accent-2)" checked={taskId === home} onchange={event => ontoggle(event.currentTarget.checked ? home : undefined)} />
 		<span><strong class="block font-semibold text-(--chat-fg)">Bring its task folder</strong>
-			<span>Its task folder: {task?.title ?? home}{task ? `, ${taskStatusWords(task.status).toLowerCase()}${task.settledAt ? ` ${libraryDate(task.settledAt)}` : ''}` : ''}. It holds the task report{decisions === undefined ? '' : `, ${decisions} ${decisions === 1 ? 'decision' : 'decisions'}`}{comments === undefined ? '' : ` and ${comments} earlier ${comments === 1 ? 'comment' : 'comments'}`}.</span>
+			<span>Its task folder: {task?.title ?? home}{task ? `, ${taskDisplayWords(task).toLowerCase()}${task.settledAt ? ` ${libraryDate(task.settledAt)}` : ''}` : ''}. It holds the task report{decisions === undefined ? '' : `, ${decisions} ${decisions === 1 ? 'decision' : 'decisions'}`}{comments === undefined ? '' : ` and ${comments} earlier ${comments === 1 ? 'comment' : 'comments'}`}.</span>
 		</span>
 	</label>
 {/if}

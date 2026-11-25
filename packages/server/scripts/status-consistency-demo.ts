@@ -4,13 +4,14 @@
  *  T1 stored in_progress, a worker running, feedback being handled, and an older open deploy question (Working + Needs you);
  *  T2 stored todo after 21 minutes of work, an open question, and later feedback already addressed;
  *  T3 stored in_progress with Your steps and nothing running;
- *  T4 stored in_progress whose worker has just ended (Working with no work);
- *  T5 stored todo with feedback marked "handling" and nothing running.
+ *  T4 stored in_progress whose worker ended more than 15 minutes ago (Paused);
+ *  T5 stored todo with feedback marked "handling" and nothing running;
+ *  T6 a real question and a worker running at the same time.
  */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux';
 import { createSetup, TestClient } from '../test/support.ts';
-import { askQuestion, coordinatorWriter, openBoard, workerWriter, writeReportIn } from '../src/board.ts';
+import { askQuestion, replyQuestion, coordinatorWriter, openBoard, workerWriter, writeReportIn } from '../src/board.ts';
 import { WorkersDoc } from '../src/workers.ts';
 import { activityTracking, endActivitySource } from '../src/task-activity.ts';
 
@@ -19,7 +20,10 @@ const start = Date.now() - 45 * 60_000;
 let clock = start;
 const at = (minute: number) => { clock = start + minute * 60_000; return new Date(clock).toISOString(); };
 const setup = await createSetup({ allowedOrigins: origins, terminals: false, now: () => clock });
-setup.faux.setResponses(Array.from({ length: 40 }, () => fauxAssistantMessage('Synthetic demo ready.')));
+setup.faux.setResponses(Array.from({ length: 40 }, () => async request => {
+	if (JSON.stringify(request.messages.at(-1)).includes('recycled paper')) await Bun.sleep(15_000);
+	return fauxAssistantMessage('Synthetic demo ready.');
+}));
 const client = await TestClient.open(setup.server); await client.hello();
 const added = await client.request({ type: 'projects.add', path: setup.projectDir });
 if (added.type !== 'projects.add') throw new Error('Could not add the synthetic project');
@@ -61,6 +65,11 @@ const ask = (taskId: string, text: string, choices: { label: string; effect: str
 async function feedback(taskId: string, text: string, state: 'handling' | 'addressed', note: string) {
 	const entry = await runtime.board.recordFeedback({ taskId, text, images: 0, threadId: 'main', requestId: `demo-feedback-${++serial}` });
 	clock += 20_000;
+	const questions = (await runtime.board.get(true)).questions.filter(q => q.taskId === taskId && q.waitingOn === 'agent');
+	if (taskId === 'T1' && questions.length) return; // Keep the question waiting for the demo.
+	for (const question of questions) {
+		await runtime.board.commitFor(change => commit(change), (board, now) => replyQuestion(board, { questionId: question.id, expectedRevision: question.revision, text: note, by, now }), by, `demo-reply:${++serial}`);
+	}
 	await runtime.board.setFeedbackFor(change => commit(change), { taskId, feedbackId: entry.id, state, note }, by);
 }
 
@@ -108,7 +117,7 @@ const stall = await worker(t3.id, 'stall-alerts', t3.title, at(4), 'running');
 await stall.end(at(12));
 await report(t3.id, by, at(12), { sections: { steps: '1. Wake the stall tablet and connect it to the shop network.\n\n2. Open the app and check that a test alert arrives.', next: "Agents have nothing left to do; the owner's steps confirm delivery." } });
 
-// T4: stored in progress; its worker ended a moment ago and nothing runs.
+// T4: stored in progress; its last run is old enough to show Paused.
 at(6);
 const t4 = await task('Find why the till app stutters and plan a fix', 'Scrolling the order list stutters on the till.', 'A plan page names the causes and the fixes.', 'in_progress');
 const till = await worker(t4.id, 'till-study', t4.title, at(6), 'running');
@@ -119,9 +128,17 @@ const t5 = await task('Plan how the shop spots a fast gas drain', 'A plan for no
 at(15);
 await feedback(t5.id, 'Comments on the plan page: use the hourly reading, not the daily one.', 'handling', 'The comments arrived, so the build runs on its own task.');
 
-await till.end(at(43));
+at(39);
+const t6 = await task('Move the order sheet to the new printer', 'The new printer needs the order sheet template.', 'Print a test order.', 'in_progress');
+await worker(t6.id, 'printer-move', t6.title, at(40), 'running', 'setting up the new printer');
+await report(t6.id, workerWriter('main', 'printer-move'), at(41), { sections: { now: 'Setting up the new printer' }, planUpdate: { plan: [{ text: 'Install the printer driver', status: 'done' }, { text: 'Move the sheet template', status: 'doing' }, { text: 'Print a test order' }] }, addResult: 'The driver is installed on the till.' });
+await ask(t6.id, 'Should old order sheets be reprinted in the new format?', [
+	{ label: 'Only new orders', effect: 'Old sheets stay as they are.', recommended: true },
+	{ label: 'Reprint all', effect: 'About 300 sheets are printed again.' },
+]);
+await till.end(at(25));
 clock = start + 45 * 60_000;
-// The demo clock follows real time from here, so the short idle gap on T4 turns into Paused after 15 minutes.
+// Ages continue to tick from the seeded timeline.
 const offset = clock - Date.now();
 const live = setInterval(() => { clock = Date.now() + offset; }, 1000);
 const connection = JSON.stringify({ url: setup.server.url, projectId, pid: process.pid, root: setup.root });

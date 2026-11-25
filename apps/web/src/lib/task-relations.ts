@@ -23,6 +23,8 @@ export type LinkTarget = {
 	/** Empty when the board knows nothing of the task (it was never listed, or the board has not loaded). */
 	title: string;
 	status: BoardTaskStatus | "unknown";
+	state?: BoardTask["state"];
+	waiting?: BoardTask["waiting"];
 	archived: boolean;
 	/** Done, dropped or archived: the link stays, and the app shows it dimmed. */
 	closed: boolean;
@@ -42,7 +44,7 @@ export const LINK_LABELS: Record<LinkGroupKind, string> = {
 	related: "Related to",
 };
 
-type TaskLike = Pick<BoardTask, "id" | "title" | "status" | "archived">;
+type TaskLike = Pick<BoardTask, "id" | "title" | "status" | "archived" | "state" | "waiting">;
 
 /** A task a link names, from the board's tasks or, for an archived one, its `archivedLinks`. */
 export function linkTarget(id: string, tasks: readonly TaskLike[], archivedLinks: readonly BoardTaskBrief[] = []): LinkTarget {
@@ -52,6 +54,8 @@ export function linkTarget(id: string, tasks: readonly TaskLike[], archivedLinks
 		id,
 		title: found.title,
 		status: found.status,
+		...("state" in found && found.state ? { state: found.state } : {}),
+		...("waiting" in found && found.waiting ? { waiting: found.waiting } : {}),
 		archived: found.archived,
 		closed: found.archived || found.status === "done" || found.status === "dropped",
 	};
