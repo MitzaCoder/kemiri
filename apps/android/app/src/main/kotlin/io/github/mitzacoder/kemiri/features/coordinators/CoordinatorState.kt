@@ -1,6 +1,7 @@
 package io.github.mitzacoder.kemiri.features.coordinators
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -99,10 +100,27 @@ internal fun rememberCoordinatorMessages(context: ProjectScreenContext, enabled:
     return feed
 }
 
+private fun Destination.Chat.tasksScopePreferenceKey() = preferenceKey("all-tasks:${threadId ?: MAIN_THREAD_ID}")
+
 internal fun setAllCoordinators(android: Context, chat: Destination.Chat, all: Boolean) {
-    android.coordinatorPreferences().edit().putBoolean(chat.preferenceKey("all-tasks:${(chat.threadId ?: MAIN_THREAD_ID)}"), all).apply()
+    android.coordinatorPreferences().edit().putBoolean(chat.tasksScopePreferenceKey(), all).apply()
 }
 
-internal fun allCoordinators(android: Context, chat: Destination.Chat) = android.coordinatorPreferences().let { preferences ->
-    preferences.getBoolean(chat.preferenceKey("all-tasks:${(chat.threadId ?: MAIN_THREAD_ID)}"), preferences.getBoolean(chat.preferenceKey("all-tasks"), false))
+@Composable
+internal fun rememberAllCoordinators(android: Context, chat: Destination.Chat): Boolean {
+    val preferences = remember(android) { android.coordinatorPreferences() }
+    val key = chat.tasksScopePreferenceKey()
+    val projectKey = chat.preferenceKey("all-tasks")
+    fun readScope() = preferences.getBoolean(key, preferences.getBoolean(projectKey, false))
+    var all by remember(preferences, key) { mutableStateOf(readScope()) }
+    // The Coordinators sheet also writes this preference while Tasks is on screen.
+    DisposableEffect(preferences, key) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
+            if (changed == key || changed == projectKey) all = readScope()
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        all = readScope()
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return all
 }

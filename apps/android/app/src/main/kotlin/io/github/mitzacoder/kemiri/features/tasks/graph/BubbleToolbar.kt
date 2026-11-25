@@ -16,12 +16,11 @@ import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.GraphCounts
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 
 @Composable
-internal fun BubbleToolbar(viewSwitch: @Composable () -> Unit, counts: GraphCounts, mode: GraphMode, onMode: (GraphMode) -> Unit,
+internal fun BubbleToolbar(counts: GraphCounts, mode: GraphMode, onMode: (GraphMode) -> Unit,
     viewOpen: Boolean, onView: (Boolean) -> Unit, closed: Boolean, onClosed: () -> Unit, resting: Boolean, onResting: () -> Unit,
     allLinks: Boolean, onAllLinks: () -> Unit, legend: Boolean, onLegend: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-            viewSwitch()
             val modeShape = RoundedCornerShape(50)
             Row(Modifier.clip(modeShape).background(Jarvis.colors.surface).border(1.dp, Jarvis.colors.border, modeShape)
                 .padding(2.dp).semantics { contentDescription = "Task visibility" }) {
@@ -33,7 +32,7 @@ internal fun BubbleToolbar(viewSwitch: @Composable () -> Unit, counts: GraphCoun
                 }
             }
             Box {
-                TextButton(onClick = { onView(!viewOpen) }, modifier = Modifier.heightIn(min = 48.dp).semantics { stateDescription = if (viewOpen) "Expanded" else "Collapsed" }) { Text("View ▾", fontSize = 12.sp) }
+                TextButton(onClick = { onView(!viewOpen) }, modifier = Modifier.heightIn(min = 48.dp).semantics { stateDescription = if (viewOpen) "Expanded" else "Collapsed" }) { Text("Graph options ▾", fontSize = 12.sp) }
                 DropdownMenu(expanded = viewOpen, onDismissRequest = { onView(false) }) {
                     listOf(Triple("Closed tasks", closed, onClosed), Triple("Resting workers on the graph", resting, onResting),
                         Triple("All links", allLinks, onAllLinks), Triple("Legend", legend, onLegend)).forEach { (label, checked, toggle) ->
@@ -43,7 +42,7 @@ internal fun BubbleToolbar(viewSwitch: @Composable () -> Unit, counts: GraphCoun
                 }
             }
         }
-        Text("${counts.open} open · ${counts.working} working · ${counts.attention} need attention", color = Jarvis.colors.fgMuted,
+        Text("${counts.working} working · ${counts.attention} need attention", color = Jarvis.colors.fgMuted,
             fontSize = 11.sp, modifier = Modifier.padding(vertical = 6.dp))
     }
     HorizontalDivider(color = Jarvis.colors.border)

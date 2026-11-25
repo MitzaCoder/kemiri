@@ -32,6 +32,7 @@ import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.features.answers.*
 import io.github.mitzacoder.kemiri.features.panels.PanelsScreen
+import io.github.mitzacoder.kemiri.features.coordinators.coordinatorForChat
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.features.notifications.HandleAppLink
 import io.github.mitzacoder.kemiri.features.notifications.PendingAppLink
@@ -211,12 +212,30 @@ private fun HarnessNavigation(
     val answersRoute = current as? Destination.Answers
     val answerId = answersRoute?.answerId
     val connection = backend?.client?.state?.collectAsStateWithLifecycle()?.value
-    val projectTabs = connection?.let { answersProjectTabs(it, chat?.workerId) }.orEmpty()
+    val answerTabs = connection?.let { answersProjectTabs(it, chat?.workerId) }.orEmpty()
+    // Report-capable phones get Chat and Tasks even when their backend does not advertise Answers.
+    val projectTabs = if (phoneWidth && chat != null && chat.workerId == null && answerTabs.isEmpty() &&
+        connection?.supports("board") == true && connection.supports(HarnessFeature.TASK_REPORTS)) {
+        listOf(AnswersProjectTab.Chat, AnswersProjectTab.Tasks)
+    } else answerTabs
+    val phoneTasksTab = phoneWidth && current is Destination.Panel && current.tab == PanelTab.Board && AnswersProjectTab.Tasks in projectTabs
+    val coordinatorThreads = if (phoneTasksTab && context != null) projectThreads(context, connection?.supports("threads") == true)?.value?.threads.orEmpty() else emptyList()
+    val headerContext = if (phoneTasksTab && context != null) context.copy(navigate = { next ->
+        when {
+            next is Destination.Chat && next.backendKey == context.route.backendKey && next.projectId == context.route.projectId &&
+                next.highlight == null && coordinatorForChat(next, coordinatorThreads) != null -> {
+                // Back from Tasks must return to the coordinator whose tasks are now on screen.
+                updateBackStack { previous -> previous.back().push(next).push(Destination.Panel(next, PanelTab.Board)) }
+            }
+            next is Destination.Panel && next.tab != PanelTab.Board -> updateBackStack { it.push(next) }
+            else -> navigate(next)
+        }
+    }) else context
     // Recent notices can outlive a server rollback. Keep their original chat target in the stack.
     LaunchedEffect(answersRoute, connection?.hello, projectTabs) {
-        if (answersRoute != null && connection?.hello != null && projectTabs.isEmpty()) pop()
+        if (answersRoute != null && connection?.hello != null && AnswersProjectTab.Answers !in projectTabs) pop()
     }
-    val catalogue = if (projectTabs.isNotEmpty() && chat != null) backend!!.answers(chat.projectId) else null
+    val catalogue = if (AnswersProjectTab.Answers in projectTabs && chat != null) backend!!.answers(chat.projectId) else null
     val answerCatalogue = catalogue?.catalogue?.collectAsStateWithLifecycle()?.value
     val unreadAnswers = hasUnreadAnswers(answerCatalogue?.answers.orEmpty())
     val taskAttention = if (!phoneTask && context != null && chat?.workerId == null) rememberTaskAttentionCount(context) else 0L
@@ -250,6 +269,7 @@ private fun HarnessNavigation(
     val latestTaskAttention by rememberUpdatedState(taskAttention)
     val latestSelectProjectTab by rememberUpdatedState(selectProjectTab)
     val latestPanelContext by rememberUpdatedState(context)
+    val latestPhoneTasksTab by rememberUpdatedState(phoneTasksTab)
     val latestPanelTab by rememberUpdatedState(panel?.tab ?: PanelTab.Info)
     val latestAllJobs by rememberUpdatedState(panel?.allJobs == true)
     // Expansion belongs to the originating conversation and survives unrelated detours.
@@ -274,6 +294,7 @@ private fun HarnessNavigation(
                         expanded = latestPanelExpanded, toggleExpanded = if (panelExpandable) ({ latestToggleExpanded() }) else null,
                         projectTabs = if (latestPanelTab == PanelTab.Board && AnswersProjectTab.Tasks in latestPanelTabs) latestPanelTabs else emptyList(),
                         unreadAnswers = latestUnreadAnswers, taskAttention = latestTaskAttention, selectProjectTab = { latestSelectProjectTab(it) },
+                        projectTab = latestPhoneTasksTab,
                     )
                 }
             }
@@ -312,7 +333,7 @@ private fun HarnessNavigation(
         // Task and ref links reach the chat, the panels and the task sheet, which all sit inside.
         ProvideTaskLinks(context) { ProvideRefLinks(context) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-            val sideBySide = panel != null && maxWidth >= 840.dp && context != null
+            val sideBySide = panel != null && !phoneTasksTab && maxWidth >= 840.dp && context != null
             val visibleContext = context?.copy(activePanel = if (sideBySide) resolvedPanelTab(panel.tab, tabs) else null)
             // The Tasks board takes the full width over the chat, not the side panel's.
             val boardWide = sideBySide && (showsTasksBoard(visibleContext!!, visibleContext.activePanel) ||
@@ -334,7 +355,7 @@ private fun HarnessNavigation(
                             title = {
                                 if (answerId != null) Text("Answers")
                                 else if (current.isSettings()) Text("Settings")
-                                else if (context != null) ProjectHeaderTitle(context, chatWidth)
+                                else if (headerContext != null) ProjectHeaderTitle(headerContext, chatWidth)
                                 else Text(when (current) {
                                     Destination.Usage -> "Usage"
                                     Destination.ArtifactLibrary -> "Artifacts"
@@ -348,17 +369,23 @@ private fun HarnessNavigation(
                             actions = {
                                 if (resolvedBack() != null && !projectHeader && answerId == null) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
                                 if (current.isSettings()) JarvisIconButton(Lucide.X, "Close settings", onClick = settingsNavigator.close)
-                                if (context != null && projectHeader) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel, questions = taskAttention)
+                                if (headerContext != null && projectHeader) ProjectHeaderActions(headerContext, panel, chatWidth, ::pop,
+                                    tasksInTabs = AnswersProjectTab.Tasks in projectTabs && (current !is Destination.Panel || phoneTasksTab), questions = taskAttention)
                             },
                         )
-                        if (projectTabs.isNotEmpty() && (current is Destination.Chat || (answersRoute != null && answerId == null))) {
-                            AnswersProjectTabRow(projectTabs, if (answersRoute != null) AnswersProjectTab.Answers else AnswersProjectTab.Chat,
-                                unreadAnswers, taskAttention, selectProjectTab)
+                        if (projectTabs.isNotEmpty() && (phoneTasksTab || current is Destination.Chat || (answersRoute != null && answerId == null))) {
+                            val selectedTab = when {
+                                phoneTasksTab -> AnswersProjectTab.Tasks
+                                answersRoute != null -> AnswersProjectTab.Answers
+                                else -> AnswersProjectTab.Chat
+                            }
+                            AnswersProjectTabRow(projectTabs, selectedTab, unreadAnswers, taskAttention, selectProjectTab)
                         }
                     } },
                 ) { padding ->
                     val modifier = if (current is Destination.ArtifactStudio) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(padding)
                     if (!loaded) Box(modifier) { CircularProgressIndicator() }
+                    else if (phoneTasksTab && context != null) panelBody(modifier.consumeWindowInsets(padding))
                     else screenState.SaveableStateProvider(
                         // Switching chats changes the coordinator state, not the project screen.
                         if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task))
@@ -374,7 +401,7 @@ private fun HarnessNavigation(
                             is Destination.ProjectSettings -> if (context != null) ProjectSettingsScreen(context, current.section, current.scheduleId, settingsNavigator, requireNotNull(settingsScopes), modifier, current.unavailableSection, current.advancedGroup) else MissingProjectSettings(settingsNavigator, requireNotNull(settingsScopes), modifier)
                             is Destination.Chat, is Destination.Panel, is Destination.Task -> if (context != null) ChatScreen(visibleContext!!, modifier) else MissingBackend(modifier)
                             is Destination.Answers -> if (context == null) MissingBackend(modifier)
-                                else if (projectTabs.isEmpty()) Box(modifier) { CircularProgressIndicator() }
+                                else if (AnswersProjectTab.Answers !in projectTabs) Box(modifier) { CircularProgressIndicator() }
                                 else if (current.answerId == null) AnswersTab(context, { navigate(current.copy(answerId = it)) }, modifier)
                                 else AnswerPage(context, current.answerId, openAnswerList, modifier.consumeWindowInsets(padding))
                             is Destination.Artifact -> if (context != null) ArtifactScreen(context, current.artifactId, modifier, onBack = ::pop, onFullHeightChange = { htmlArtifactViewport = it }, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
@@ -392,7 +419,7 @@ private fun HarnessNavigation(
                 }
             }
             if (panelWide) Surface(Modifier.fillMaxSize()) { panelBody(Modifier.fillMaxSize()) }
-            if (panel != null && !sideBySide && context != null) {
+            if (panel != null && !phoneTasksTab && !sideBySide && context != null) {
                 // Fullscreen phone sheet: explicit opening only, back/dismiss returns to the same chat/watch.
                 Dialog(onDismissRequest = { resolvedBack()?.invoke() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
                     val view = LocalView.current
@@ -420,7 +447,7 @@ private fun HarnessNavigation(
                 }
             }
             if (context != null) io.github.mitzacoder.kemiri.features.tasks.CloseTaskPartsDialog(context.board)
-            if (current !is Destination.Task && (panel == null || sideBySide) && drawer.isClosed) {
+            if (current !is Destination.Task && (panel == null || sideBySide || phoneTasksTab) && drawer.isClosed) {
                 InAppBannerHost(repository, openAlert, openAlertNeedsYou)
             }
         }
@@ -447,9 +474,10 @@ private fun PanelSurface(
     unreadAnswers: Boolean = false,
     taskAttention: Long = 0,
     selectProjectTab: (AnswersProjectTab) -> Unit = {},
+    projectTab: Boolean = false,
 ) {
     val title = io.github.mitzacoder.kemiri.features.panels.panelTabLabel(initialTab, rememberTasksView(context.backend.client))
-    Scaffold(modifier.semantics { contentDescription = title }, topBar = { Column {
+    Scaffold(modifier.semantics { contentDescription = title }, topBar = { if (!projectTab) Column {
         TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = {
             JarvisIconButton(Lucide.X, "Close panels", onClick = close)
         }, actions = {
@@ -463,7 +491,7 @@ private fun PanelSurface(
             }
         })
         if (projectTabs.isNotEmpty()) AnswersProjectTabRow(projectTabs, AnswersProjectTab.Tasks, unreadAnswers, taskAttention, selectProjectTab)
-    } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding), allJobs = allJobs) }
+    } }) { padding -> PanelsScreen(context, initialTab, Modifier.fillMaxSize().padding(padding), allJobs = allJobs, projectTab = projectTab) }
 }
 
 @Composable private fun MissingBackend(modifier: Modifier) { Text("This backend was removed. Choose a project from the drawer.", modifier) }

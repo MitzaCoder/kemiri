@@ -58,6 +58,7 @@ import io.github.mitzacoder.kemiri.features.tasks.looseQuestions
 import io.github.mitzacoder.kemiri.features.tasks.requestRows
 import io.github.mitzacoder.kemiri.features.tasks.requestAttention
 import io.github.mitzacoder.kemiri.features.tasks.taskIdOrder
+import io.github.mitzacoder.kemiri.features.tasks.TaskSearchState
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -118,17 +119,15 @@ private val GLIDE_EASING = CubicBezierEasing(0.22f, 0.8f, 0.24f, 1f)
  * else as a message about the task to Main chat). When an agent moves a task, its card glides to its new column unless
  * animations are off. Narrower than [ONE_COLUMN_BELOW], one column shows at a time.
  *
- * [looseQuestion] draws a question or warning that names no task, which the board shows above the columns;
- * [addTask] draws the new-task editor (null hides "Add task").
+ * [looseQuestion] draws a question or warning that names no task, above the columns.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TaskBoard(
+internal fun TaskBoard(
     context: ProjectScreenContext,
+    search: TaskSearchState,
     modifier: Modifier = Modifier,
-    viewSwitch: @Composable () -> Unit = {},
     looseQuestion: @Composable (BoardQuestion) -> Unit,
-    addTask: (@Composable (close: () -> Unit) -> Unit)? = null,
 ) {
     val board = context.board
     val view by board.view.collectAsStateWithLifecycle()
@@ -150,7 +149,6 @@ fun TaskBoard(
     val now = rememberTaskMinuteNow()
     var onlyNeedsYou by rememberSaveable(project) { mutableStateOf(false) }
     var doneExpanded by rememberSaveable(project) { mutableStateOf(false) }
-    var adding by rememberSaveable(project) { mutableStateOf(false) }
     /** Moves sent and not answered yet: the card shows in its new column at once. */
     val pending = remember { mutableStateMapOf<String, String>() }
     var notice by remember { mutableStateOf<Notice?>(null) }
@@ -160,7 +158,6 @@ fun TaskBoard(
     val coordinatorScope = LocalCoordinatorTaskScope.current
     val tasks = withPending(coordinatorScope?.tasks(view.tasks) ?: view.tasks)
     val filtered = io.github.mitzacoder.kemiri.features.tasks.filteredTasks(context, tasks)
-    val search = io.github.mitzacoder.kemiri.features.tasks.taskSearchState(context)
     val searchHits = io.github.mitzacoder.kemiri.features.tasks.taskSearchHits(context, search, tasks,
         if (search.query.isNotBlank()) filtered.map { it.id }.toSet() else emptySet()).associateBy { it.id }
     val matchingRequests = if (requestsOnly) tasks.filter { it.id in searchHits }.mapNotNull { it.requestId ?: it.parent }.toSet() else emptySet()
@@ -402,7 +399,6 @@ fun TaskBoard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 itemVerticalAlignment = Alignment.CenterVertically,
             ) {
-                viewSwitch()
                 if (needsYou > 0 || onlyNeedsYou) NeedsYouToggle(needsYou, onlyNeedsYou) { onlyNeedsYou = !onlyNeedsYou }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { scope.launch { board.setShowArchived(!view.showArchived) } }, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 40.dp).semantics { selected = view.showArchived }) {
@@ -410,13 +406,7 @@ fun TaskBoard(
                     Spacer(Modifier.width(6.dp))
                     Text(if (view.showArchived) "Hide archived" + if (archivedShown > 0) " ($archivedShown)" else "" else "Show archived", style = textStyle(0.75f, 1.4f, weight = 500), color = colors.fgMuted)
                 }
-                if (addTask != null) TextButton(onClick = { adding = true }, contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 40.dp)) {
-                    LucideGlyph(Lucide.Plus, size = 14.dp, tint = colors.fg)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Add task", style = textStyle(0.75f, 1.4f, weight = 500), color = colors.fg)
-                }
             }
-            io.github.mitzacoder.kemiri.features.tasks.TaskFilters(context)
             if (search.query.isNotBlank() && searchHits.isEmpty()) Text("No tasks match your search.", style = textStyle(0.8125f, 1.4f), color = colors.fgMuted)
             view.error?.let { error ->
                 Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(10.dp), color = colors.danger.fade(10f), contentColor = colors.danger) {
@@ -536,7 +526,6 @@ fun TaskBoard(
             }
         }
     }
-    if (adding && addTask != null) addTask { adding = false }
 }
 
 /** A copy of a card flying from its old column to its new one; the duration grows with the distance, like the web's. */

@@ -3132,6 +3132,25 @@ opens the project's Storage cleanup when supported. It has no dismissal and
 clears only when the backend no longer reports a low disk. Settings and the
 strip's accessibility description retain the detailed warning.
 
+**Android Tasks tab and toolbar (T502 / D145).** On phones, Tasks takes the place
+of the chat body under the same project bar and tabs. The title still opens the
+coordinator picker, and switching coordinators there keeps Tasks selected. Chat
+or system Back returns to that coordinator's conversation. Report-capable phones
+without Answers show just Chat and Tasks. Wider screens keep their existing
+panel placement, with Board and Graph given room to expand.
+
+List, Board and Graph share a fixed toolbar: the scope chip, the scoped open
+count, Search, the current view icon, and Add task. The scope menu chooses
+This coordinator or All coordinators and, in All, can include or hide individual
+coordinators. The landing-turn line still shows below the toolbar when relevant.
+Search replaces the toolbar in place; its query is shared by all three views and
+saved per project. Closing Search clears it. After the keyboard closes, Back
+collapses an empty search or returns to Chat with the nonempty query retained.
+List keeps separate scroll positions for grouped tasks and search results. The
+panel saves view state across tab switches and task details, and each view keeps
+its own state when another view is selected. Board and Graph retain their
+view-specific controls below the shared toolbar.
+
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins
 one FIFO queue entry per coordinator. A queued coordinator ends its turn and waits

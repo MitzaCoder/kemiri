@@ -13,7 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.request
+import io.github.mitzacoder.kemiri.features.tasks.TaskSearchState
 import io.github.mitzacoder.kemiri.features.tasks.rememberTaskMinuteNow
+import io.github.mitzacoder.kemiri.features.tasks.taskSearchHits
 import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.*
 import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphFoldGroups
 import io.github.mitzacoder.kemiri.features.tasks.graph.bubble.graphFoldExpansion
@@ -27,7 +29,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, viewSwitch: @Composable () -> Unit, onLeave: () -> Unit) {
+internal fun TaskGraph(context: ProjectScreenContext, search: TaskSearchState, modifier: Modifier = Modifier, onLeave: (() -> Unit)?) {
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val backend = context.backend.config.key
@@ -52,8 +54,12 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     var showLegend by rememberSaveable(key) { mutableStateOf(false) }
     var viewOpen by remember { mutableStateOf(false) }
     var expandedFolds by rememberSaveable(key) { mutableStateOf(emptySet<GraphFoldKind>()) }
-    val graph = remember(scopedTasks, scopedQuestions, workers, threads, showClosed, showResting) {
-        buildTaskGraph(scopedTasks, scopedQuestions, workers, threads, showClosed, showResting)
+    val searching = search.query.isNotBlank()
+    val hits = taskSearchHits(context, search, scopedTasks, if (searching) scopedTasks.map { it.id }.toSet() else emptySet())
+    val matchedIds = hits.map { it.id }.toSet()
+    val graphTasks = if (searching) scopedTasks.filter { it.id in matchedIds } else scopedTasks
+    val graph = remember(graphTasks, scopedQuestions, workers, threads, showClosed, showResting) {
+        buildTaskGraph(graphTasks, scopedQuestions, workers, threads, showClosed, showResting)
     }
     val folds = remember(graph, view.questions) { graphFoldGroups(graph, view.questions) }
     val shown = remember(graph, folds, mode, expandedFolds, showResting) { liveTaskGraph(graph, folds, mode, expandedFolds, showResting) }
@@ -81,20 +87,24 @@ fun TaskGraph(context: ProjectScreenContext, modifier: Modifier = Modifier, view
     fun openWorker(selection: String) {
         workerSelection = selection; sheetOpen = false; restingOpen = false
     }
-    NestedBackHandler(enabled = context.taskOrigin == null, depth = 50, parentLabel = "Graph") {
+    val graphNavigation = GraphNavigation(sheet = sheetOpen, selected = selectedId, worker = workerSelection)
+    val previousGraphState = graphNavigateBack(graphNavigation)
+    NestedBackHandler(enabled = context.taskOrigin == null && (viewOpen || restingOpen || previousGraphState != null || onLeave != null),
+        depth = 50, parentLabel = "Graph") {
         when {
             viewOpen -> viewOpen = false
             restingOpen -> restingOpen = false
             else -> {
-                val next = graphNavigateBack(GraphNavigation(sheet = sheetOpen, selected = selectedId, worker = workerSelection))
-                if (next == null) onLeave() else { sheetOpen = next.sheet; selectedId = next.selected; workerSelection = next.worker }
+                if (previousGraphState == null) onLeave?.invoke()
+                else { sheetOpen = previousGraphState.sheet; selectedId = previousGraphState.selected; workerSelection = previousGraphState.worker }
             }
         }
     }
     Column(modifier.fillMaxSize()) {
-        BubbleToolbar(viewSwitch, counts, mode, { next -> scope.launch { context.repository.setProjectGraphMode(backend, project, next) } },
+        BubbleToolbar(counts, mode, { next -> scope.launch { context.repository.setProjectGraphMode(backend, project, next) } },
             viewOpen, { viewOpen = it }, showClosed, { showClosed = !showClosed }, showResting, { showResting = !showResting },
             allLinks, { allLinks = !allLinks }, showLegend, { showLegend = !showLegend })
+        if (searching && matchedIds.isEmpty()) Text("No tasks match your search.", style = MaterialTheme.typography.bodySmall)
         view.error?.let { Text(it, modifier = Modifier.padding(12.dp)) }
         BubbleCanvas(canvas, graph, shown, folds, mode, expandedFolds, { kind ->
             expandedFolds = if (kind in expandedFolds) graphFoldExpansion(graph, folds, expandedFolds, closing = kind)

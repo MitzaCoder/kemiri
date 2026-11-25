@@ -2,7 +2,6 @@ package io.github.mitzacoder.kemiri.features.coordinators
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -16,6 +15,9 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.SaveOutcome
@@ -24,6 +26,8 @@ import io.github.mitzacoder.kemiri.features.panels.boardStatusLabel
 import io.github.mitzacoder.kemiri.features.panels.input
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.*
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.launch
 
@@ -31,7 +35,11 @@ internal val LocalCoordinatorTaskScope = staticCompositionLocalOf<CoordinatorTas
 internal val LocalCoordinatorBoardTasks = staticCompositionLocalOf<List<BoardTask>> { emptyList() }
 internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> { null }
 
-@Composable internal fun CoordinatorTaskScopeLayout(context: ProjectScreenContext, modifier: Modifier, content: @Composable () -> Unit) {
+@Composable
+internal fun WithCoordinatorTaskScope(
+    context: ProjectScreenContext,
+    content: @Composable (scopeChip: (@Composable (Modifier) -> Unit)?, landingLine: @Composable () -> Unit) -> Unit,
+) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val enabled = connection.supports("task-coordinator")
     val threads = rememberCoordinatorThreads(context, connection.supports("coordinators") && enabled)
@@ -39,27 +47,66 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
     val board by context.board.view.collectAsStateWithLifecycle()
     val android = LocalContext.current
     val chat = context.route
-    var all by remember(chat.backendKey, chat.projectId, chat.threadId) { mutableStateOf(allCoordinators(android, chat)) }
+    val all = rememberAllCoordinators(android, chat)
     var hidden by rememberSaveable(chat.backendKey, chat.projectId, chat.threadId) { mutableStateOf(emptyList<String>()) }
-    fun selectAll(value: Boolean) { all = value; setAllCoordinators(android, chat, value) }
-    val selector = if (enabled) CoordinatorTaskScope(threads, (if (threads.isEmpty()) chat.threadId ?: MAIN_THREAD_ID else coordinatorOfThread(chat.threadId, threads)).takeUnless { all }, hidden.toSet()) else null
-    Column(modifier) {
-        if (selector != null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(!all, { selectAll(false) }, { Text("This coordinator", maxLines = 2) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp))
-                FilterChip(all, { selectAll(true) }, { Text("All coordinators", maxLines = 2) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp))
+    fun selectAll(value: Boolean) = setAllCoordinators(android, chat, value)
+    val coordinatorId = if (threads.isEmpty()) chat.threadId ?: MAIN_THREAD_ID else coordinatorOfThread(chat.threadId, threads)
+    val selector = if (enabled) CoordinatorTaskScope(threads, coordinatorId.takeUnless { all }, hidden.toSet()) else null
+    CompositionLocalProvider(LocalCoordinatorTaskScope provides selector, LocalCoordinatorBoardTasks provides board.tasks,
+        LocalShowAllCoordinators provides { selectAll(true) }, LocalLandingTurn provides landing) {
+        content(if (selector == null) null else { modifier ->
+            CoordinatorScopeChip(selector, coordinatorId, all, ::selectAll, { id ->
+                hidden = if (id in hidden) hidden - id else hidden + id
+            }, modifier)
+        }, { if (all) landing?.turn?.let { LandingTurnLine(it) } })
+    }
+}
+
+@Composable
+private fun CoordinatorScopeChip(
+    scope: CoordinatorTaskScope,
+    coordinatorId: String,
+    all: Boolean,
+    selectAll: (Boolean) -> Unit,
+    toggleCoordinator: (String) -> Unit,
+    modifier: Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val coordinator = scope.roster.find { it.id == coordinatorId }
+    Box(modifier) {
+        FilterChip(
+            selected = true,
+            onClick = { expanded = true },
+            label = { Text(if (all) "All coordinators" else "This coordinator", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            leadingIcon = if (all || coordinator == null) null else { { CoordinatorMark(coordinator) } },
+            trailingIcon = { LucideGlyph(Lucide.ChevronDown, size = 14.dp) },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            listOf(false, true).forEach { choice ->
+                DropdownMenuItem(text = {
+                    Column {
+                        Text(if (choice) "All coordinators" else "This coordinator")
+                        if (!choice && coordinator != null) Text(coordinator.title, style = MaterialTheme.typography.bodySmall, color = Jarvis.colors.fgMuted)
+                    }
+                }, leadingIcon = { RadioButton(selected = all == choice, onClick = null) },
+                    modifier = Modifier.semantics { selected = all == choice },
+                    onClick = { selectAll(choice); expanded = false })
             }
-            if (all && selector.roster.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                selector.roster.forEach { thread ->
-                    FilterChip(thread.id !in hidden, { hidden = if (thread.id in hidden) hidden - thread.id else hidden + thread.id },
-                        { Text(thread.title, maxLines = 1) }, modifier = Modifier.heightIn(min = 48.dp), leadingIcon = { CoordinatorMark(thread) })
+            if (all && scope.roster.size > 1) {
+                HorizontalDivider()
+                scope.roster.forEach { thread ->
+                    val included = thread.id !in scope.hidden
+                    DropdownMenuItem(
+                        text = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CoordinatorMark(thread)
+                            Text(thread.title)
+                        } },
+                        leadingIcon = { Checkbox(checked = included, onCheckedChange = null) },
+                        modifier = Modifier.semantics { selected = included },
+                        onClick = { toggleCoordinator(thread.id) },
+                    )
                 }
             }
-        }
-        if (all) landing?.turn?.let { LandingTurnLine(it) }
-        Box(Modifier.weight(1f)) {
-            CompositionLocalProvider(LocalCoordinatorTaskScope provides selector, LocalCoordinatorBoardTasks provides board.tasks,
-                LocalShowAllCoordinators provides { selectAll(true) }, LocalLandingTurn provides landing) { content() }
         }
     }
 }

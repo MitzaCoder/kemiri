@@ -1,11 +1,25 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import io.github.mitzacoder.kemiri.ui.components.Lucide
+import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
+import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import io.github.mitzacoder.kemiri.data.readTaskTimeline
@@ -78,9 +92,34 @@ internal fun taskSearchHits(context: ProjectScreenContext, state: TaskSearchStat
 }
 
 @Composable
-internal fun TaskSearchBox(state: TaskSearchState) {
-    OutlinedTextField(state.query, state::change, label = { Text("Search tasks") }, singleLine = true,
-        modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
-            if (event.key == Key.Escape && event.type == KeyEventType.KeyDown) { state.change(""); true } else false
-        }, trailingIcon = { if (state.query.isNotEmpty()) TextButton(onClick = { state.change("") }) { Text("Clear") } })
+internal fun TaskSearchBox(state: TaskSearchState, requestFocus: Boolean, onFocused: () -> Unit, onClose: () -> Unit) {
+    val requester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val colors = Jarvis.colors
+    val style = MaterialTheme.typography.bodyMedium
+    fun close() { keyboard?.hide(); onClose() }
+    LaunchedEffect(requestFocus) {
+        if (requestFocus) {
+            requester.requestFocus()
+            keyboard?.show()
+            onFocused()
+        }
+    }
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).background(colors.surface2, RoundedCornerShape(10.dp)),
+        verticalAlignment = Alignment.CenterVertically) {
+        LucideGlyph(Lucide.Search, modifier = Modifier.padding(horizontal = 12.dp), tint = colors.fgMuted)
+        BasicTextField(state.query, state::change,
+            modifier = Modifier.weight(1f).focusRequester(requester).semantics { contentDescription = "Search tasks" }
+                .onPreviewKeyEvent { event ->
+                    if (event.key == Key.Escape && event.type == KeyEventType.KeyDown) { close(); true } else false
+                },
+            textStyle = style.copy(color = colors.fg), cursorBrush = SolidColor(colors.fg), singleLine = true,
+            decorationBox = { input ->
+                Box(Modifier.padding(vertical = 8.dp)) {
+                    if (state.query.isEmpty()) Text("Search tasks", style = style, color = colors.fgMuted)
+                    input()
+                }
+            })
+        IconButton(onClick = ::close, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.X, contentDescription = "Close task search") }
+    }
 }

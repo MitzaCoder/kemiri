@@ -32,7 +32,7 @@ import io.github.mitzacoder.kemiri.features.tasks.questionTaskLabel
 import io.github.mitzacoder.kemiri.features.tasks.rememberTasksView
 
 @Composable
-fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.Info, modifier: Modifier = Modifier, allJobs: Boolean = false) {
+fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.Info, modifier: Modifier = Modifier, allJobs: Boolean = false, projectTab: Boolean = false) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     // Keep the last hello through reconnect: a temporary offline state must not close an editor.
     val tabs = rememberPanelTabs(context.backend.client).filter { it != PanelTab.Threads || context.route.workerId == null }.sortedBy { panelTabOrder.indexOf(it) }
@@ -43,7 +43,7 @@ fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.
         key(context.backend.client, context.route, active) {
             when (active) {
                 // The Tasks view (list or board) on a backend with task reports; older backends keep the old board.
-                PanelTab.Board -> if (tasksView) TasksTab(context, Modifier.weight(1f)) else BoardPanel(context)
+                PanelTab.Board -> if (tasksView) TasksTab(context, Modifier.weight(1f), projectTab) else BoardPanel(context)
                 PanelTab.Threads -> ThreadsPanel(context, allJobs)
                 PanelTab.Info -> InfoPanel(context)
                 PanelTab.Memory -> MemoryPanel(context)
@@ -54,34 +54,31 @@ fun PanelsScreen(context: ProjectScreenContext, initialTab: PanelTab = PanelTab.
     }
 }
 
-/**
- * The Tasks tab: the Tasks list or the board behind the List | Board switch. The board shows loose questions with the
- * list's question card and adds tasks with the list's editor.
- */
+/** List, Board and Graph share the scope and task editor. */
 @Composable
-private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
+private fun TasksTab(context: ProjectScreenContext, modifier: Modifier, projectTab: Boolean) {
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    val project = context.route.projectId
     val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
-    CoordinatorTaskScopeLayout(context, modifier) {
-    TasksView(
-        context, Modifier.fillMaxSize(),
-        looseQuestion = { question ->
-            QuestionCard(
-                context, question,
-                askedBy = questionAskedBy(question, threads),
-                taskLabel = questionTaskLabel(question, view::task),
-                onOpenTask = question.taskId?.let { id -> { context.openTask(id) } },
-            )
-        },
-        addTask = { close ->
-            Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                // The panel's own margin, which the editor expects around it.
-                Surface(Modifier.fillMaxSize()) { TaskEditor(context, task = null, tasks = view.tasks, onBack = close, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) }
-            }
-        },
-    ) { start -> TasksPanel(context, toolbarStart = start) }
+    WithCoordinatorTaskScope(context) { scopeChip, landingLine ->
+        TasksView(
+            context, modifier.fillMaxWidth(), scopeChip, landingLine, projectTab,
+            looseQuestion = { question ->
+                QuestionCard(
+                    context, question,
+                    askedBy = questionAskedBy(question, threads),
+                    taskLabel = questionTaskLabel(question, view::task),
+                    onOpenTask = question.taskId?.let { id -> { context.openTask(id) } },
+                )
+            },
+            addTask = { close ->
+                Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                    Surface(Modifier.fillMaxSize()) {
+                        TaskEditor(context, task = null, tasks = view.tasks, onBack = close, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp))
+                    }
+                }
+            },
+        )
     }
 }
 

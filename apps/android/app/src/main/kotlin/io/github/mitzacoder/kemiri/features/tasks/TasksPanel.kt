@@ -55,10 +55,10 @@ import kotlin.math.roundToInt
  * The project's tasks, the body of the panels' Tasks tab on a `task-reports` backend (web `TasksPanel.svelte`): every
  * task grouped by what it needs from the user (needs you, ready for review, blocked, working, to do, recently closed). A
  * row opens the task's sheet; the questions and warnings that name no task are answered right here. Decisions and
- * answered questions fold at the bottom. [toolbarStart] sits at the start of the toolbar (the board's List | Board switch).
+ * answered questions fold at the bottom.
  */
 @Composable
-fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, toolbarStart: (@Composable () -> Unit)? = null) {
+internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, modifier: Modifier = Modifier) {
     val colors = Jarvis.colors
     val board = context.board
     val view by board.view.collectAsStateWithLifecycle()
@@ -68,27 +68,23 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val expansion by context.repository.collectSettings(backendKey, project) { it.familyExpansion(backendKey, project) }
     val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
     val stateKey = "${context.backend.config.key}/$project"
-    var adding by rememberSaveable(stateKey) { mutableStateOf(false) }
     // Sections the user opened or folded against their default.
     var sectionExpansion by rememberSaveable(stateKey) { mutableStateOf(mapOf<String, Boolean>()) }
     var answeredOpen by rememberSaveable(stateKey) { mutableStateOf(false) }
     var decisionsOpen by rememberSaveable(stateKey) { mutableStateOf(false) }
-    val list = rememberLazyListState()
+    val taskList = rememberLazyListState()
+    val searchResultsList = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
     val now = rememberTaskMinuteNow()
 
-    if (adding) {
-        TaskEditor(context, task = null, tasks = view.tasks, onBack = { adding = false }, modifier = modifier.fillMaxSize())
-        return
-    }
     val loadedBoard = view.board
     val coordinatorScope = LocalCoordinatorTaskScope.current
     val tasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
     val questions = coordinatorScope?.questions(view.questions) ?: view.questions
     val sections = if (loadedBoard == null) emptyList() else taskSections(filteredTasks(context, tasks), questions, includeArchived = view.showArchived)
-    val search = taskSearchState(context)
     val searching = search.query.isNotBlank()
+    val list = if (searching) searchResultsList else taskList
     val eligible = if (searching) sections.flatMap { it.rows }.filter { !isSettled(it.task.status) || sectionExpansion[TaskSectionId.Closed.name] == true }.map { it.task.id }.toSet() else emptySet()
     val searchHits = taskSearchHits(context, search, tasks, eligible)
     val searchRows = sections.flatMap { it.rows }.associateBy { it.task.id }
@@ -104,8 +100,8 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val failures = coordinatorScope?.roster.orEmpty().filter { coordinatorScope?.includes(it.id) == true }
         .flatMap { it.attentionFailures.orEmpty() }.filter { it.taskId !in failedTaskIds }
     val empty = view.loaded && tasks.isEmpty() && loose.isEmpty() && failures.isEmpty()
-    // Toolbar and filters, any error or empty message, then loose questions before the first section.
-    val needsYouIndex = familySections.indexOf(needsYouSection) + 2 +
+    // Error or empty messages and loose questions precede the first section.
+    val needsYouIndex = familySections.indexOf(needsYouSection) +
         (if (view.error != null) 1 else 0) + (if (!view.loaded || empty) 1 else 0) + looseGroups.size
     var jumpToTask by remember(stateKey) { mutableStateOf<String?>(null) }
     var highlightedTask by remember(stateKey) { mutableStateOf<String?>(null) }
@@ -142,7 +138,6 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
     val decisions = loadedBoard?.decisions.orEmpty()
     val requestRows = requestRows(tasks, requestsOnly)
     val archivedShown = if (view.showArchived) requestRows.count { it.archived } else 0
-    val openCount = requestRows.count { !it.archived && !isSettled(it.status) }
 
     LazyColumn(modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         view.error?.let { error ->
@@ -150,26 +145,6 @@ fun TasksPanel(context: ProjectScreenContext, modifier: Modifier = Modifier, too
                 Text(error, Modifier.fillMaxWidth().background(colors.danger.copy(alpha = .1f), RoundedCornerShape(10.dp)).padding(10.dp), style = TaskType.xs, color = colors.danger)
             }
         }
-        item(key = "toolbar") {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                toolbarStart?.invoke()
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(Modifier.weight(1f)) {
-                    when {
-                        !view.loaded -> Box(Modifier.size(width = 56.dp, height = 12.dp).background(colors.surface2, RoundedCornerShape(4.dp)))
-                        empty -> Text("Nothing here yet.", style = TaskType.xs, color = colors.fgSubtle)
-                        else -> Text("$openCount open", style = TaskType.xs, color = colors.fgSubtle)
-                    }
-                }
-                TextButton(onClick = { adding = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    LucideGlyph(Lucide.Plus, size = 14.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add task", style = TaskType.xs)
-                }
-                }
-            }
-        }
-        item(key = "task-filters") { TaskFilters(context) }
         if (!view.loaded) {
             item(key = "skeleton") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

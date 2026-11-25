@@ -1,61 +1,126 @@
 package io.github.mitzacoder.kemiri.features.tasks.board
 
-import io.github.mitzacoder.kemiri.data.collectSettings
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.HarnessFeature
-import io.github.mitzacoder.kemiri.features.panels.BoardQuestionEditor
-import io.github.mitzacoder.kemiri.features.panels.TaskDraft
-import io.github.mitzacoder.kemiri.features.panels.TaskEditor
+import io.github.mitzacoder.kemiri.data.collectSettings
+import io.github.mitzacoder.kemiri.features.coordinators.LocalCoordinatorTaskScope
+import io.github.mitzacoder.kemiri.features.tasks.*
+import io.github.mitzacoder.kemiri.features.tasks.graph.TaskGraph
+import io.github.mitzacoder.kemiri.navigation.NestedBackHandler
 import io.github.mitzacoder.kemiri.navigation.PanelTab
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
-import io.github.mitzacoder.kemiri.protocol.BoardTaskInput
-import io.github.mitzacoder.kemiri.ui.components.Lucide
-import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
+import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-import io.github.mitzacoder.kemiri.ui.theme.fade
-import io.github.mitzacoder.kemiri.ui.theme.textStyle
 import kotlinx.coroutines.launch
 
-/**
- * List, Board or Graph, remembered per backend/project. The legacy global choice remains the fallback.
- * [list] draws the Tasks list with the switch
- * it is given at the start of its toolbar. [looseQuestion] and [addTask] go to the board ([TaskBoard]).
- */
+/** List, Board and Graph share the toolbar and search query, but keep their own scroll and folds. */
 @Composable
-fun TasksView(
+internal fun TasksView(
     context: ProjectScreenContext,
-    modifier: Modifier = Modifier,
-    looseQuestion: @Composable (BoardQuestion) -> Unit = { BoardQuestionEditor(context, it) },
-    addTask: (@Composable (close: () -> Unit) -> Unit)? = { close -> NewTaskEditor(context, close) },
-    list: @Composable (toolbarStart: @Composable () -> Unit) -> Unit,
+    modifier: Modifier,
+    scopeChip: (@Composable (Modifier) -> Unit)?,
+    landingLine: @Composable () -> Unit,
+    projectTab: Boolean,
+    looseQuestion: @Composable (BoardQuestion) -> Unit,
+    addTask: @Composable (close: () -> Unit) -> Unit,
 ) {
     val mode by rememberTasksViewMode(context)
     val scope = rememberCoroutineScope()
-    val switch: @Composable () -> Unit = { TasksViewSwitch(mode) { scope.launch { context.repository.setProjectTasksView(context.backend.config.key, context.route.projectId, it.stored) } } }
+    val backend = context.backend.config.key
+    val project = context.route.projectId
+    fun selectView(next: TasksViewMode) { scope.launch { context.repository.setProjectTasksView(backend, project, next.stored) } }
+    val search = taskSearchState(context)
+    var searchOpened by rememberSaveable { mutableStateOf(false) }
+    var focusSearch by remember { mutableStateOf(false) }
+    val searching = searchOpened || search.query.isNotBlank()
+    fun closeSearch() { search.change(""); searchOpened = false; focusSearch = false }
+    // The keyboard gets Back first. An empty search is transient; a query survives going back to Chat.
+    NestedBackHandler(enabled = searching && search.query.isBlank(), depth = 60, onBack = ::closeSearch)
+    var adding by rememberSaveable { mutableStateOf(false) }
+    val savedViews = rememberSaveableStateHolder()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
-    androidx.compose.runtime.CompositionLocalProvider(io.github.mitzacoder.kemiri.features.tasks.LocalTaskActivityEnabled provides connection.supports("task-activity")) {
-    when (mode) {
-        TasksViewMode.Board -> TaskBoard(context, modifier, switch, looseQuestion, addTask)
-        TasksViewMode.Graph -> io.github.mitzacoder.kemiri.features.tasks.graph.TaskGraph(context, modifier, switch, onLeave = {
-            scope.launch { context.repository.setProjectTasksView(context.backend.config.key, context.route.projectId, "list") }
-        })
-        TasksViewMode.List -> Column(modifier) { list(switch) }
+    val view by context.board.view.collectAsStateWithLifecycle()
+    val coordinatorScope = LocalCoordinatorTaskScope.current
+    val scopedTasks = coordinatorScope?.tasks(view.tasks) ?: view.tasks
+    val openCount = requestRows(scopedTasks, connection.supports(HarnessFeature.REQUEST_ATTENTION)).count { !it.archived && !isSettled(it.status) }
+    CompositionLocalProvider(LocalTaskActivityEnabled provides connection.supports("task-activity")) {
+        Column(modifier) {
+            if (searching) TaskSearchBox(search, focusSearch, onFocused = { focusSearch = false }, onClose = ::closeSearch)
+            else TasksToolbar(scopeChip, openCount.takeIf { view.loaded }, mode, ::selectView, onSearch = {
+                searchOpened = true; focusSearch = true
+            }, onAdd = { adding = true })
+            HorizontalDivider(color = Jarvis.colors.border)
+            landingLine()
+            if (mode != TasksViewMode.Graph) LinkedTaskFilter(context)
+            Box(Modifier.weight(1f)) {
+                savedViews.SaveableStateProvider(mode.name) {
+                    when (mode) {
+                        TasksViewMode.List -> TasksPanel(context, search)
+                        TasksViewMode.Board -> TaskBoard(context, search, looseQuestion = looseQuestion)
+                        TasksViewMode.Graph -> TaskGraph(context, search, onLeave = if (projectTab) null else ({ selectView(TasksViewMode.List) }))
+                    }
+                }
+            }
+        }
+        if (adding) addTask { adding = false }
     }
+}
+
+@Composable
+private fun TasksToolbar(
+    scopeChip: (@Composable (Modifier) -> Unit)?,
+    openCount: Int?,
+    mode: TasksViewMode,
+    selectView: (TasksViewMode) -> Unit,
+    onSearch: () -> Unit,
+    onAdd: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Measure the count first; the scope label can ellipsize at narrow widths or large text sizes.
+            scopeChip?.invoke(Modifier.weight(1f, fill = false))
+            if (openCount != null) Text("$openCount open", Modifier.widthIn(max = 90.dp), style = TaskType.xs,
+                color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.Search, contentDescription = "Search tasks") }
+        TasksViewMenu(mode, selectView)
+        IconButton(onClick = onAdd, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.Plus, contentDescription = "Add task", tint = Jarvis.colors.accent2) }
+    }
+}
+
+private val TasksViewMode.icon: LucideIcon get() = when (this) {
+    TasksViewMode.List -> BoardGlyphs.List
+    TasksViewMode.Board -> Lucide.Kanban
+    TasksViewMode.Graph -> Lucide.Network
+}
+
+@Composable
+private fun TasksViewMenu(mode: TasksViewMode, onChange: (TasksViewMode) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(48.dp)) {
+            LucideGlyph(mode.icon, contentDescription = "Task view: ${mode.name}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            TasksViewMode.entries.forEach { option ->
+                DropdownMenuItem(text = { Text(option.name) }, leadingIcon = { LucideGlyph(option.icon) },
+                    trailingIcon = if (mode == option) ({ LucideGlyph(Lucide.Check) }) else null,
+                    modifier = Modifier.semantics { selected = mode == option },
+                    onClick = { expanded = false; onChange(option) })
+            }
+        }
     }
 }
 
@@ -68,45 +133,6 @@ fun showsTasksBoard(context: ProjectScreenContext, tab: PanelTab?): Boolean {
     val mode by rememberTasksViewMode(context)
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     return tab == PanelTab.Board && connection.supports(HarnessFeature.TASK_REPORTS) && mode != TasksViewMode.List
-}
-
-/** Three 48dp choices, wrapping instead of clipping with large system text. */
-@Composable
-fun TasksViewSwitch(mode: TasksViewMode, onChange: (TasksViewMode) -> Unit) {
-    val colors = Jarvis.colors
-    FlowRow(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(colors.surface2.fade(70f)).padding(3.dp).semantics { contentDescription = "Show the tasks as" },
-        horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        listOf(TasksViewMode.List to BoardGlyphs.List, TasksViewMode.Board to Lucide.Kanban, TasksViewMode.Graph to Lucide.Network).forEach { (entry, icon) ->
-            val selected = mode == entry
-            val label = entry.name
-            Row(
-                Modifier
-                    .then(if (selected) Modifier.shadow(1.dp, RoundedCornerShape(7.dp)) else Modifier)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (selected) colors.bg else colors.bg.fade(0f))
-                    .selectable(selected, role = Role.Tab) { onChange(entry) }
-                    .heightIn(min = 48.dp)
-                    .padding(horizontal = if (mode == TasksViewMode.Graph) 6.dp else 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (mode == TasksViewMode.Graph) 4.dp else 6.dp),
-            ) {
-                LucideGlyph(icon, size = 14.dp, tint = if (selected) colors.fg else colors.fgMuted)
-                Text(label, style = textStyle(0.75f, 1.4f, weight = 600), color = if (selected) colors.fg else colors.fgMuted)
-            }
-        }
-    }
-}
-
-/** The board's "Add task": the panel's task editor on a new to-do task. */
-@Composable
-internal fun NewTaskEditor(context: ProjectScreenContext, close: () -> Unit) {
-    val view by context.board.view.collectAsStateWithLifecycle()
-    val draft = remember {
-        TaskDraft(null, null, BoardTaskInput(title = "", description = "", acceptance = null, refs = null, status = "todo", blockedBy = emptyList(), blockedReason = null, writeScopes = emptyList()))
-    }
-    TaskEditor(context, draft, view.tasks, close = close, saved = close)
 }
 
 @Composable
