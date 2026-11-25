@@ -1278,6 +1278,7 @@ export class WorkerService {
 
 	readonly #options: WorkerServiceOptions;
 	#reportAdmission: Promise<unknown> = Promise.resolve();
+	readonly #workspaceOperations = new Map<string, { done: Promise<unknown>; release?: { coordinatorId: number; cancel: AbortController } }>();
 	readonly #workerListListeners = new Set<() => void>();
 
 	readonly #coordinators: Coordinators;
@@ -2304,20 +2305,35 @@ export class WorkerService {
 		return root;
 	}
 
+	workspaceOperationPending(path: string): boolean {
+		return this.#workspaceOperations.has(path);
+	}
+
+	/** Don't let storage or a new worker with the same name take a checkout during release. */
+	async withWorkspaceOperation<T>(path: string, work: () => Promise<T>, release?: { coordinatorId: number; cancel: AbortController }): Promise<T> {
+		if (this.workspaceOperationPending(path)) throw new WorkerError("This workspace is busy. Try again after the current workspace operation finishes.");
+		const done = Promise.resolve().then(work);
+		this.#workspaceOperations.set(path, { done, release });
+		try { return await done; }
+		finally { this.#workspaceOperations.delete(path); }
+	}
+
 	/** Create the worker's jj workspace in its thread's directory (main's by default) and return its path. Idempotent. */
 	async createWorkspace(workerId: string, place: CoordinatorPlace = this.#mainPlace()): Promise<string> {
-		const repo = await this.repository();
 		const path = workspacePath(place.workspacesDir, workerId);
-		// jj creates the destination but not the directory above it, and the data directory is ours to make.
-		await mkdir(place.workspacesDir, { recursive: true, mode: 0o700 });
-		try {
-			await ensureJjWorkspace({ repo, name: this.workspaceName(workerId, place), path });
-			await this.#options.taskChanges?.rememberWorkspace(path);
-		} catch (error) {
-			if (error instanceof JjError) throw new WorkerError(error.message);
-			throw error;
-		}
-		return path;
+		return this.withWorkspaceOperation(path, async () => {
+			const repo = await this.repository();
+			// jj creates the destination but not the directory above it, and the data directory is ours to make.
+			await mkdir(place.workspacesDir, { recursive: true, mode: 0o700 });
+			try {
+				await ensureJjWorkspace({ repo, name: this.workspaceName(workerId, place), path });
+				await this.#options.taskChanges?.rememberWorkspace(path);
+			} catch (error) {
+				if (error instanceof JjError) throw new WorkerError(error.message);
+				throw error;
+			}
+			return path;
+		});
 	}
 
 	/** Stop only the durable worker conversation recorded in the drain snapshot, never a reused name. */
@@ -2343,23 +2359,52 @@ export class WorkerService {
 		}, BACKGROUND_CONTEXT);
 	}
 
-	async recordWorkspaceChanges(path: string, record: WorkerRecord, threadId: string): Promise<void> {
-		if (record.isolation !== "workspace") return;
-		await this.#options.taskChanges?.recordWorkspace(path, record.taskId && !record.workspaceReused ? [record.taskId] : [], {
-			threadId, conversationId: record.conversationId, ...(record.spawnedByCallId ? { runId: record.spawnedByCallId } : {}),
+	/** Cleanup is best effort after the durable release. A failed attempt leaves the checkout available to Storage. */
+	releaseWorkspace(path: string, record: WorkerRecord, remove: boolean, place: CoordinatorPlace = this.#mainPlace()): void {
+		const cancel = new AbortController();
+		const signal = AbortSignal.any([cancel.signal, AbortSignal.timeout(10_000)]);
+		void this.withWorkspaceOperation(path, async () => {
+			await this.recordWorkspaceChanges(path, record, place.threadId, signal);
+			if (!remove) return;
+			await this.removeWorkspace(record.id, path, place, signal);
+			await this.harness.commit(async tx => {
+				const current = (await tx.doc(WorkersDoc, place.conversationId as ConversationId)).workers[record.id];
+				if (current?.conversationId === record.conversationId && current.status === "done") current.workspacePath = null;
+			}, BACKGROUND_CONTEXT);
+		}, { coordinatorId: place.conversationId, cancel }).catch(error => {
+			this.log(`worker ${record.id}: workspace cleanup did not complete: ${errorMessage(error)}`);
 		});
 	}
 
-	async workspaceRemoved(path: string): Promise<void> {
-		await this.#options.taskChanges?.forgetWorkspace(path);
+	cancelWorkspaceCleanups(coordinatorId: number): void {
+		for (const { release } of this.#workspaceOperations.values()) {
+			if (release?.coordinatorId === coordinatorId) release.cancel.abort(new Error("Workspace cleanup canceled by Stop"));
+		}
 	}
 
-	async removeWorkspace(workerId: string, path: string, place: CoordinatorPlace = this.#mainPlace()): Promise<void> {
-		const repo = await jjRoot(this.project.path);
+	async stopWorkspaceCleanups(): Promise<void> {
+		const pending = [...this.#workspaceOperations.values()].filter(operation => operation.release);
+		for (const { release } of pending) release?.cancel.abort(new Error("Workspace cleanup canceled by shutdown"));
+		await Promise.allSettled(pending.map(({ done }) => done));
+	}
+
+	async recordWorkspaceChanges(path: string, record: WorkerRecord, threadId: string, signal?: AbortSignal): Promise<void> {
+		if (record.isolation !== "workspace") return;
+		await this.#options.taskChanges?.recordWorkspace(path, record.taskId && !record.workspaceReused ? [record.taskId] : [], {
+			threadId, conversationId: record.conversationId, ...(record.spawnedByCallId ? { runId: record.spawnedByCallId } : {}),
+		}, signal);
+	}
+
+	async workspaceRemoved(path: string, signal?: AbortSignal): Promise<void> {
+		await this.#options.taskChanges?.forgetWorkspace(path, signal);
+	}
+
+	async removeWorkspace(workerId: string, path: string, place: CoordinatorPlace = this.#mainPlace(), signal?: AbortSignal): Promise<void> {
+		const repo = await jjRoot(this.project.path, signal);
 		if (repo === undefined) throw new WorkerError(`Not a jj repository anymore: ${this.project.path}`);
 		try {
-			await removeJjWorkspace({ repo, name: this.workspaceName(workerId, place), path });
-			await this.workspaceRemoved(path);
+			await removeJjWorkspace({ repo, name: this.workspaceName(workerId, place), path, signal });
+			await this.workspaceRemoved(path, signal);
 		} catch (error) {
 			if (error instanceof JjError) throw new WorkerError(error.message);
 			throw error;
@@ -2757,7 +2802,7 @@ function createWorkerExtension(service: WorkerService): Extension {
 		callers: ["model"],
 		description:
 			"Release a worker: first abort its running answer and tools and withdraw queued messages, then drop it from the active list. " +
-			"This removes its jj workspace (unless `removeWorkspace: false`). Its conversation stays for history.",
+			"Its jj workspace is cleaned up in the background (unless `removeWorkspace: false`). Its conversation stays for history.",
 		parameters: Type.Object({
 			id: Type.String({ minLength: 1, description: "The worker's ID." }),
 			removeWorkspace: Type.Optional(
@@ -2792,7 +2837,6 @@ function createWorkerExtension(service: WorkerService): Extension {
 					current.status = "done";
 					current.updatedAt = new Date().toISOString();
 					await syncWorkerActivity(tx, service, current, api.conversationId);
-					if (remove && current.isolation === "workspace") current.workspacePath = null;
 					// Release withdraws even an input set to survive an ordinary abort. Passive writes stay for history.
 					for (const item of inbox.items) {
 						if (item.mode !== "write") tx.settleSubmission(item.id, { status: "unanswered", reason: "aborted" });
@@ -2804,20 +2848,11 @@ function createWorkerExtension(service: WorkerService): Extension {
 			});
 			if (!didRelease) return toolText(`Worker "${args.id}" is already forgotten.`);
 			void service.cleanupBrowser(record.conversationId, true);
-			if (path !== null) await service.recordWorkspaceChanges(path, record, service.coordinators.placeOf(api.conversationId)?.threadId ?? "main");
-			let cleanup = "";
-			if (remove && record.isolation === "workspace" && path !== null) {
-				try {
-					await service.removeWorkspace(args.id, path, service.placeOf(api.conversationId));
-					cleanup = ` Its workspace ${path} is removed.`;
-				} catch (error) {
-					cleanup = ` Its workspace ${path} could not be removed: ${
-						error instanceof WorkerError ? error.message : errorMessage(error)
-					}`;
-					service.log(`worker ${args.id}: workspace cleanup failed: ${cleanup}`);
-				}
-			}
 			await api.details({ workerId: args.id, conversationId: record.conversationId }, context);
+			context.abortSignal?.throwIfAborted();
+			const hasWorkspace = record.isolation === "workspace" && path !== null;
+			if (hasWorkspace) service.releaseWorkspace(path, record, remove, service.placeOf(api.conversationId));
+			const cleanup = hasWorkspace && remove ? " Its workspace is being cleaned up in the background." : "";
 			return toolText(`Forgot worker "${args.id}".${cleanup}`, {
 				details: { workerId: args.id, conversationId: record.conversationId },
 			});

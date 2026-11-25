@@ -6,21 +6,22 @@ import { childEnvironment } from "./child-environment.ts";
 import { execFile } from "node:child_process";
 import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { afterQueuedOperation } from "./queued-operation.ts";
 
 // Parallel worker tools may mutate the same Git-backed jj repository. jj's packed-ref
 // export can race even when the workspace names differ; keep our mutations in order.
 const workspaceMutations = new Map<string, Promise<unknown>>();
 
-async function serializeWorkspaceMutation<T>(repo: string, work: () => Promise<T>): Promise<T> {
+function serializeWorkspaceMutation<T>(repo: string, work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
 	const previous = workspaceMutations.get(repo) ?? Promise.resolve();
-	const result = previous.then(work);
+	const result = afterQueuedOperation(previous, work, signal);
 	const settled = result.catch(() => undefined);
-	workspaceMutations.set(repo, settled);
-	try {
-		return await result;
-	} finally {
-		if (workspaceMutations.get(repo) === settled) workspaceMutations.delete(repo);
-	}
+	const tail = previous.then(() => settled);
+	workspaceMutations.set(repo, tail);
+	void tail.then(() => {
+		if (workspaceMutations.get(repo) === tail) workspaceMutations.delete(repo);
+	});
+	return result;
 }
 
 export class JjError extends Error {
@@ -30,13 +31,15 @@ export class JjError extends Error {
 	}
 }
 
-function run(args: readonly string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+function run(args: readonly string[], cwd: string, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+	signal?.throwIfAborted();
 	return new Promise((resolve, reject) => {
 		execFile(
 			"jj",
 			["--no-pager", "--color=never", ...args],
-			{ cwd, env: childEnvironment(), timeout: 60_000, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" },
+			{ cwd, env: childEnvironment(), timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal },
 			(error, stdout, stderr) => {
+				if (signal?.aborted) return reject(signal.reason);
 				if (error === null) {
 					resolve({ stdout, stderr });
 					return;
@@ -61,9 +64,9 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** The repository's root, or undefined when `path` is not inside a jj repository. */
-export async function jjRoot(path: string): Promise<string | undefined> {
+export async function jjRoot(path: string, signal?: AbortSignal): Promise<string | undefined> {
 	try {
-		const { stdout } = await run(["root"], path);
+		const { stdout } = await run(["root", "--ignore-working-copy"], path, signal);
 		return stdout.trim().length > 0 ? stdout.trim() : undefined;
 	} catch (error) {
 		if (error instanceof JjError) return undefined;
@@ -157,17 +160,29 @@ export async function keepJjWorkspaceCurrent(options: {
 }
 
 /** Forget the workspace in the repository and delete its directory. Missing pieces are fine. */
-export async function removeJjWorkspace(options: { repo: string; name: string; path: string }): Promise<void> {
-	return serializeWorkspaceMutation(options.repo, () => removeWorkspace(options));
-}
-
-async function removeWorkspace(options: { repo: string; name: string; path: string }): Promise<void> {
-	const { repo, name, path } = options;
-	const listed = await run(["workspace", "list"], repo).catch(() => undefined);
-	const registered =
-		listed !== undefined && listed.stdout.split("\n").some((line) => line.startsWith(`${name}:`));
-	if (registered) await run(["workspace", "forget", name], repo);
-	await rm(path, { recursive: true, force: true });
+export async function removeJjWorkspace(options: { repo: string; name: string; path: string; signal?: AbortSignal }): Promise<void> {
+	const { repo, name, path, signal } = options;
+	return serializeWorkspaceMutation(repo, async () => {
+		const listed = await run(["workspace", "list", "--ignore-working-copy"], repo, signal);
+		const registered = listed.stdout.split("\n").some((line) => line.startsWith(`${name}:`));
+		if (registered) await run(["workspace", "forget", "--ignore-working-copy", name], repo, signal);
+		if (signal) {
+			// fs.rm does not support cancellation. Wait for the child to exit before allowing path reuse.
+			signal.throwIfAborted();
+			const child = Bun.spawn(["rm", "-rf", "--", path], { env: childEnvironment(), stdout: "ignore", stderr: "ignore" });
+			const cancel = () => child.kill("SIGKILL");
+			signal.addEventListener("abort", cancel, { once: true });
+			try {
+				const code = await child.exited;
+				signal.throwIfAborted();
+				if (code !== 0) throw new Error(`Could not delete workspace directory (rm exited with ${code})`);
+			} finally {
+				signal.removeEventListener("abort", cancel);
+			}
+		} else {
+			await rm(path, { recursive: true, force: true });
+		}
+	}, signal);
 }
 
 /** The default directory of a project's worker workspaces, kept out of the repository. */

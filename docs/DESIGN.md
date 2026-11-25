@@ -2478,7 +2478,10 @@ Status: backend, protocol, client and web UI done (milestone 2).
   one-line worker answer `Nothing new.`, are passive writes: kept in the coordinator transcript without a turn or push.
   Workers use that line only for an already-covered queued request with no new result, warning or question. Coordinators
   end without a chat reply for already-handled or unchanged reports, just as for uneventful check-ins.
-- `worker_forget` aborts the running answer and tools and withdraws queued inputs before marking the worker done.
+- `worker_forget` aborts the worker's running answer and tools and withdraws its queued inputs before marking it done.
+  Workspace attribution and removal run outside the coordinator turn, so that turn can finish and take waiting inputs.
+  Conversation Stop can cancel the coordinator's pending workspace cleanups. Stop still deliberately withdraws that
+  conversation's waiting messages as described under Queued inputs; cleanup alone does not withdraw them.
   Reporter admission is serialized with abort and release, so pending reporters cannot deliver another run in between.
   Passive writes stay for history. `worker_stop` also aborts any work left running on a worker released by an older
   backend, without reviving it. Late output from old runs is recorded only, keeps done status, and cannot change the
@@ -2538,7 +2541,8 @@ Status: backend, protocol, client and web UI done (milestone 2).
   coordinator's `@` so it sees the current checkout. Workspace isolation needs a jj repository; without one the tool
   fails with a message that says to use `shared`. Managed workspace creation, reuse and removal serialize
   the full list/check/mutate sequence per repository to avoid concurrent jj packed-ref exports. Different
-  repositories have independent queues; a failed operation releases later work.
+  repositories have independent queues; a failed operation releases later work. Storage and workspace creation cannot
+  take the same path while a release is cleaning it. The worker's path is cleared only after removal succeeds.
 - Workspace facts (T198 / D85): isolated workers' instructions name the resolved starting revision and explain that
   VCS-ignored files (dependencies, build outputs, local config) are not copied. The worker decides what setup its project
   needs; there is no technology detection or automatic setup command. Shared workers get none of these new claims.
@@ -2565,8 +2569,11 @@ Status: backend, protocol, client and web UI done (milestone 2).
   context, not fabricated user transcript entries. A later generation may try again. Shared workers and coordinators
   are not probed. No UI/protocol changes or project-specific setup are involved.
 - Merge: the worker commits in its workspace and puts the change ID in its report; the coordinator rebases or squashes
-  that change into the project's working copy and hands conflicts to a new worker. `worker_forget` removes the
-  workspace once the work is merged.
+  that change into the project's working copy and hands conflicts to a new worker. Once the work is merged,
+  `worker_forget` releases the worker after it stops and requests workspace removal. Cleanup has a ten-second budget
+  including queue waits. Stop, shutdown, or that deadline cancels pending work and child processes. Failed or
+  interrupted cleanup is logged, not replayed on restart, and any remaining directory can be inspected through Storage.
+  Forgetting a workspace does not abandon its jj commits.
 - Model: the one named in `worker_spawn` or on the schedule, else the first available entry in the project's
   ordered `workerModels`. A composer pick changes the first entry, not a separate override. With no available
   model, the tool explains what to set. There are no built-in worker defaults.
@@ -3656,12 +3663,15 @@ Neither is a claim about pushed or deployed code. Non-Git-backed jj adapters, pu
 remain later work; remote refs may be explicitly selected but are not labelled as pushes. Deployment feeds
 are a separate opt-in observer described below.
 
-An isolated workspace captures its initial parent before the worker runs. Before forget (even if the
-workspace is kept) or storage cleanup, committed base→tip membership is recorded, excluding the current
-working-copy commit. Single-task workers get fallback provenance; retitled/reused, shared or multi-task
-work requires trailers. Missing historical bases never guess. Explicit invalid IDs cannot fall back.
-Bases live outside the checkout and have a private `.jj` marker to handle directory reuse; cleanup removes
-the cursor, not attributed changes. All worker provenance is durable before destructive cleanup.
+An isolated workspace captures its initial parent before the worker runs. After forget (even if the workspace is
+kept), and before deleting its directory, committed base→tip membership is recorded, excluding the current
+working-copy commit. Storage uses the same attribution read before deleting a worker's checkout. Single-task
+workers get fallback provenance; retitled/reused, shared or multi-task work requires trailers. Missing historical
+bases never guess. Explicit invalid IDs cannot fall back. A single Git log reads messages for up to 512 commits
+and one jj revset reads their change IDs, without a subprocess per commit. Rebasing onto unrelated ancestry can
+make this range large even if the worker wrote little. If the limit or deadline is exceeded during attribution,
+no partial batch is recorded and deletion does not start. Bases live outside the checkout and have a private
+`.jj` marker to handle directory reuse; cleanup removes the cursor, not attributed changes.
 
 Each attributed ref move stores one structured fact: ID, repo/ref, previous/tip, task IDs, landed commits,
 unreachable commits, declared reversions and timestamp. An outbox retries after crashes. The observer's

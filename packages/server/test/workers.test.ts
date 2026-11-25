@@ -9,7 +9,7 @@ import { OWNER_CHAT_ENTRY } from "../src/wire.ts";
 import { openBoard, saveTask } from "../src/board.ts";
 import type { ConversationView, ModelRef, WorkerModel, WorkersListResponse } from "@kemiri/protocol";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { SetTimer } from "@earendil-works/pi-durable";
 import { createSetup, entryText, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
@@ -519,7 +519,118 @@ describe("workers", () => {
 	});
 });
 
+async function workspaceReleaseFixture(importHistory?: (repo: string) => Promise<void>, afterForget?: () => Promise<void>) {
+	const logs: string[] = [];
+	const test = await setup({ log: message => logs.push(message) });
+	const client = await connect(test.server);
+	await greet(client);
+	const repo = join(test.root, "repo");
+	await mkdir(repo);
+	if (importHistory) await importHistory(repo);
+	else expect((await run(["jj", "git", "init"], repo)).code).toBe(0);
+	const projectId = await addProject(client, repo);
+	await configure(client, projectId);
+	const { runtime } = await test.server.manager.open(projectId);
+	const view = new ViewClient(client);
+	await view.start(projectId);
+	const route = async (request: TranscriptContext) => {
+		const { role, text } = lastMessage(request);
+		if (role === "toolResult" && text.includes("Forgot worker")) {
+			await afterForget?.();
+			return fauxAssistantMessage("Release answered.");
+		}
+		if (text === "Forget the reader.") return fauxAssistantMessage([fauxToolCall("worker_forget", { id: "reader" })], { stopReason: "toolUse" });
+		if (text === "Follow-up during cleanup.") return fauxAssistantMessage("Follow-up answered.");
+		return scripted({ delegate: { text: "Start the reader.", call: { id: "reader", task: BRIEF, isolation: "workspace" } } }, request);
+	};
+	test.faux.setResponses(Array.from({ length: 60 }, () => route));
+	const start = async (requestId: string) => {
+		await client.request({ type: "conversation.submit", projectId, requestId, content: "Start the reader." });
+		await until(async () => (await listWorkers(client, projectId)).workers[0]?.status === "idle");
+		await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+		return (await listWorkers(client, projectId)).workers[0]!.workspacePath!;
+	};
+	return { test, client, repo, projectId, runtime, view, logs, start };
+}
+
+async function importLongHistory(repo: string): Promise<void> {
+	expect((await run(["git", "init", "-b", "main"], repo)).code).toBe(0);
+	const commits = Array.from({ length: 4_200 }, (_, index) => {
+		const subject = `Synthetic commit ${index}`;
+		return `commit refs/heads/main\ncommitter Fixture <fixture@example.invalid> ${1_700_000_000 + index} +0000\ndata ${subject.length}\n${subject}\n\n`;
+	}).join("");
+	const child = Bun.spawn(["git", "fast-import", "--quiet"], {
+		cwd: repo, stdin: new Blob([commits]), stdout: "ignore", stderr: "pipe",
+	});
+	const stderr = await new Response(child.stderr).text();
+	if (await child.exited !== 0) throw new Error(stderr);
+	expect((await run(["jj", "git", "init", "--colocate"], repo)).code).toBe(0);
+}
+
 describe("worker isolation", () => {
+	workerTest("releases within two seconds in a 4,200-commit repository, even after a rebase widens the recorded range", async () => {
+		const { client, repo, projectId, runtime, logs, view, start } = await workspaceReleaseFixture(importLongHistory);
+		const workspace = await start("first-worker");
+		expect((await run(["jj", "commit", "-m", "Feature commit"], workspace)).code).toBe(0);
+		const forget = async (requestId: string, previousAnswers: number) => {
+			const startedAt = performance.now();
+			await client.request({ type: "conversation.submit", projectId, requestId, content: "Forget the reader." });
+			await until(async () => view.view?.entries.filter(entry => entryText(entry) === "Release answered.").length === previousAnswers + 1, 2_000);
+			expect(performance.now() - startedAt).toBeLessThan(2_000);
+		};
+		await forget("first-release", 0);
+		await until(async () => (await listWorkers(client, projectId)).workers[0]?.workspacePath === null, 2_000);
+		expect(await readdir(workspace).catch(() => undefined)).toBeUndefined();
+
+		// Starting at the old end and moving to main makes base..tip include unrelated history.
+		const oldest = (await run(["git", "rev-list", "--max-parents=0", "main"], repo)).stdout.trim();
+		expect((await run(["jj", "new", oldest], repo)).code).toBe(0);
+		const rebased = await start("rebased-worker");
+		expect((await run(["jj", "rebase", "-s", "@", "-d", "main"], rebased)).code).toBe(0);
+		await forget("rebased-release", 1);
+		await until(async () => !runtime.workers.workspaceOperationPending(rebased), 2_000);
+		expect(logs.join("\n")).toContain("Workspace attribution range exceeds 512 commits; no partial attribution was recorded");
+		expect((await listWorkers(client, projectId)).workers[0]).toMatchObject({ status: "done", workspacePath: rebased });
+		expect((await run(["jj", "workspace", "list"], repo)).stdout).toContain("harness-reader");
+	});
+
+	workerTest("answers queued inputs while cleanup is paused and Stop kills the cleanup child", async () => {
+		const forgetReply = Promise.withResolvers<void>();
+		const { test, client, repo, projectId, runtime, view, start, logs } = await workspaceReleaseFixture(undefined, () => forgetReply.promise);
+		const workspace = await start("worker");
+		const binaries = join(test.root, "test-bin");
+		await mkdir(binaries);
+		const pidPath = join(test.root, "cleanup.pid");
+		const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
+		await writeFile(join(binaries, "jj"), `#!/bin/sh\nif [ "$*" = "--ignore-working-copy log --no-graph -r @- -T commit_id" ]; then\n  printf '%s\\n' "$$" > ${quote(pidPath)}\n  exec ${quote(Bun.which("sleep")!)} 15\nfi\nexec ${quote(Bun.which("jj")!)} "$@"\n`, { mode: 0o700 });
+		const previousPath = process.env.PATH;
+		process.env.PATH = `${binaries}${delimiter}${previousPath ?? ""}`;
+		try {
+			await client.request({ type: "conversation.submit", projectId, requestId: "release", content: "Forget the reader." });
+			await until(() => Bun.file(pidPath).exists(), 2_000);
+			const pid = Number(await readFile(pidPath, "utf8"));
+			expect(pid).toBeGreaterThan(1);
+			const queued = await client.request({ type: "conversation.submit", projectId, requestId: "follow-up", content: "Follow-up during cleanup.", whenBusy: "followUp" });
+			expect(queued).toMatchObject({ type: "conversation.submit", status: "queued" });
+			forgetReply.resolve();
+			await until(async () => view.view?.entries.some(entry => entryText(entry) === "Follow-up answered.") === true, 2_000);
+			expect(runtime.workers.workspaceOperationPending(workspace)).toBe(true);
+			expect(process.kill(pid, 0)).toBe(true);
+
+			const stoppedAt = performance.now();
+			expect(await client.request({ type: "conversation.abort", projectId })).toMatchObject({ type: "conversation.abort" });
+			await until(async () => !runtime.workers.workspaceOperationPending(workspace), 2_000);
+			expect(performance.now() - stoppedAt).toBeLessThan(2_000);
+			expect(() => process.kill(pid, 0)).toThrow();
+			expect(logs.join("\n")).toContain("Workspace cleanup canceled by Stop");
+			expect((await run(["jj", "workspace", "list"], repo)).stdout).toContain("harness-reader");
+			expect(await readdir(workspace)).toContain(".jj");
+		} finally {
+			forgetReply.resolve();
+			if (previousPath === undefined) delete process.env.PATH;
+			else process.env.PATH = previousPath;
+		}
+	});
 	workerTest("gives a worker its own jj workspace in the data directory and removes it on request", async () => {
 		const test = await setup();
 		const client = await connect(test.server);
@@ -646,7 +757,8 @@ describe("worker isolation", () => {
 		const forgotten = await view.waitForView((value) =>
 			value.entries.some((entry) => entry.kind === "pi.tool-result" && entryText(entry).includes("Forgot worker")),
 		);
-		expect(toolResults(forgotten).map(entryText).join("\n")).toContain("workspace");
+		expect(toolResults(forgotten).map(entryText).join("\n")).toContain("cleaned up in the background");
+		await until(async () => (await listWorkers(client, projectId)).workers[0]?.workspacePath === null);
 		expect(await readdir(workspace).catch(() => undefined)).toBeUndefined();
 		expect((await run(["jj", "workspace", "list"], repo)).stdout).not.toContain("harness-reader");
 		const done = (await listWorkers(client, projectId)).workers[0]!;

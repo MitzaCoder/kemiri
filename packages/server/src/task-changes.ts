@@ -5,6 +5,9 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { childEnvironment } from "./child-environment.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { afterQueuedOperation } from "./queued-operation.ts";
+
+const WORKSPACE_COMMIT_LIMIT = 512;
 
 export const TASK_CHANGES_FILE = "task-changes.json";
 export type AttributionSource = "trailer" | "worker-declaration" | "workspace" | "manual";
@@ -55,7 +58,8 @@ export class VcsCommandError extends Error {
 
 /** Keep byte limits, argument-only execution and timeout policy shared by observation and review. */
 export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string, maxBuffer = 8 * 1024 * 1024,
-	keepOutputPrefix = false, io?: { stdin?: string; gitIndexFile?: string; acceptExitCode?: number }): Promise<{ stdout: Buffer; truncated: boolean }> {
+	keepOutputPrefix = false, io?: { stdin?: string; gitIndexFile?: string; acceptExitCode?: number; signal?: AbortSignal }): Promise<{ stdout: Buffer; truncated: boolean }> {
+	io?.signal?.throwIfAborted();
 	const env = childEnvironment();
 	if (binary === "git") {
 		// A host-level index, gitdir, namespace, config injection or object directory must not retarget a project read.
@@ -66,8 +70,9 @@ export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string,
 	}
 	return new Promise((accept, reject) => {
 		const child = execFile(binary, args, {
-			cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer",
+			cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer", signal: io?.signal,
 		}, (error, stdout) => {
+			if (io?.signal?.aborted) return reject(io.signal.reason);
 			// Do not forward stderr or execFile's command/error text from Git.
 			if (!error || (io?.acceptExitCode !== undefined && error.code === io.acceptExitCode)) return accept({ stdout, truncated: false });
 			if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
@@ -82,8 +87,8 @@ export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string,
 	});
 }
 
-async function command(binary: "git" | "jj", args: string[], cwd: string): Promise<string> {
-	return (await runVcsCommand(binary, args, cwd)).stdout.toString("utf8").trimEnd();
+async function command(binary: "git" | "jj", args: string[], cwd: string, signal?: AbortSignal): Promise<string> {
+	return (await runVcsCommand(binary, args, cwd, undefined, false, { signal })).stdout.toString("utf8").trimEnd();
 }
 
 export async function gitIntegrationTip(readGit: (args: string[]) => Promise<string>, configured: string | null | undefined) {
@@ -110,12 +115,13 @@ export function taskTrailers(message: string): string[] {
 }
 
 /** Git worktrees, colocated jj and jj's Git-backed non-colocated workspaces all use Git objects. */
-export async function gitRepository(path: string, projectRootOnly = false): Promise<string | undefined> {
+export async function gitRepository(path: string, projectRootOnly = false, signal?: AbortSignal): Promise<string | undefined> {
 	const preserveCommandFailure = (error: unknown) => {
+		signal?.throwIfAborted();
 		if (projectRootOnly && error instanceof VcsCommandError && error.exitCode !== 128) throw error;
 	};
 	try {
-		const { stdout } = await runVcsCommand("git", ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-prefix"], path);
+		const { stdout } = await runVcsCommand("git", ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-prefix"], path, undefined, false, { signal });
 		const output = stdout.toString("utf8").slice(0, -1); // one LF terminates each field
 		const separator = output.lastIndexOf("\n");
 		if (!projectRootOnly || output.slice(separator + 1) === "") return await realpath(output.slice(0, separator));
@@ -138,7 +144,7 @@ export async function gitRepository(path: string, projectRootOnly = false): Prom
 			} finally { await file.close(); }
 		} else if (!entry.isDirectory()) return undefined;
 		const git = await realpath(join(repo, "store", "git"));
-		await command("git", [`--git-dir=${git}`, "rev-parse", "--git-dir"], path);
+		await command("git", [`--git-dir=${git}`, "rev-parse", "--git-dir"], path, signal);
 		return git;
 	} catch (error) { preserveCommandFailure(error); return undefined; }
 }
@@ -169,9 +175,12 @@ export class TaskChangeObserver {
 		if (stored && (stored.version !== 1 || stored.projectId !== this.#options.projectId)) throw new Error("Task change ledger scope/version mismatch");
 		return stored ?? { version: 1, projectId: this.#options.projectId, repositories: {} };
 	}
-	#serialize<T>(work: () => Promise<T>): Promise<T> {
-		const next = this.#queue.then(work);
-		this.#queue = next.catch(() => undefined);
+	#serialize<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+		const previous = this.#queue;
+		const next = afterQueuedOperation(previous, work, signal);
+		// Canceling a waiter must not let later ledger writes overtake the preceding one.
+		const settled = next.catch(() => undefined);
+		this.#queue = previous.then(() => settled);
 		return next;
 	}
 	#git(repo: string, args: string[]): Promise<string> { return command("git", [`--git-dir=${repo}`, ...args], this.#options.path); }
@@ -368,9 +377,42 @@ export class TaskChangeObserver {
 		await writeJsonFile(this.#options.file, ledger);
 	}); }
 
+	/** Read messages and jj identities in batches. A rewrite of the base can make even an idle workspace's range huge. */
+	async #workspaceCommits(repo: string, base: string, tip: string, signal: AbortSignal): Promise<{ hash: string; message: string; changeId?: string }[]> {
+		if (base === tip) return [];
+		const records = await command("git", [
+			`--git-dir=${repo}`, "log", "--reverse", `--max-count=${WORKSPACE_COMMIT_LIMIT + 1}`,
+			"--no-show-signature", "--no-notes", "--no-patch", "--no-decorate", "--no-color",
+			"-z", "--format=%H%x00%B", `${base}..${tip}`, "--",
+		], this.#options.path, signal);
+		if (!records) return [];
+		const fields = records.split("\0");
+		if (fields.pop() !== "" || fields.length % 2 !== 0) throw new Error("Invalid workspace commit metadata");
+		if (fields.length / 2 > WORKSPACE_COMMIT_LIMIT) {
+			throw new Error(`Workspace attribution range exceeds ${WORKSPACE_COMMIT_LIMIT} commits; no partial attribution was recorded`);
+		}
+		const commits: { hash: string; message: string; changeId?: string }[] = [];
+		for (let index = 0; index < fields.length; index += 2) {
+			const hash = fields[index]!;
+			if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(hash)) throw new Error("Invalid workspace commit hash");
+			commits.push({ hash, message: fields[index + 1]! });
+		}
+		// Use the exact Git range, without forcing jj to import unrelated Git objects.
+		const revset = commits.map(({ hash }) => `present(${hash})`).join(" | ");
+		const ids = await command("jj", [
+			"--ignore-working-copy", "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ " " ++ change_id ++ "\\n"',
+		], this.#options.path, signal);
+		const changeIds = new Map(ids.split("\n").map(line => line.split(" ") as [string, string]));
+		for (const commit of commits) {
+			const changeId = changeIds.get(commit.hash);
+			if (changeId && /^[k-z]{32}$/.test(changeId)) commit.changeId = changeId;
+		}
+		return commits;
+	}
+
 	/** Persist committed base→tip membership BEFORE forgetting/deleting a workspace. Missing bases never guess. */
-	recordWorkspace(path: string, taskIds: readonly string[], context: ChangeContext = {}): Promise<void> { return this.#serialize(async () => {
-		const repo = await gitRepository(this.#options.path);
+	recordWorkspace(path: string, taskIds: readonly string[], context: ChangeContext = {}, signal = AbortSignal.timeout(10_000)): Promise<void> { return this.#serialize(async () => {
+		const repo = await gitRepository(this.#options.path, false, signal);
 		if (!repo) return;
 		const ledger = await this.#ledger();
 		const state = ledger.repositories[repo];
@@ -379,9 +421,8 @@ export class TaskChangeObserver {
 		const known = await this.#options.taskIds();
 		const fallback = taskIds.length === 1 ? this.#valid(taskIds, known) : [];
 		// Exclude @ itself: uncommitted/snapshotted edits are not completed worker commits.
-		const tip = await command("jj", ["--ignore-working-copy", "log", "--no-graph", "-r", "@-", "-T", "commit_id"], path);
-		for (const hash of await this.#range(repo, workspace.base, tip)) {
-			const commit = await this.#commit(repo, hash);
+		const tip = await command("jj", ["--ignore-working-copy", "log", "--no-graph", "-r", "@-", "-T", "commit_id"], path, signal);
+		for (const commit of await this.#workspaceCommits(repo, workspace.base, tip, signal)) {
 			const declared = taskTrailers(commit.message);
 			const explicit = this.#valid(declared, known);
 			// Invalid explicit declarations must not silently become fallback attribution.
@@ -389,15 +430,17 @@ export class TaskChangeObserver {
 		}
 		workspace.taskId = fallback[0];
 		workspace.context = context;
+		signal.throwIfAborted();
 		await writeJsonFile(this.#options.file, ledger);
-	}); }
+	}, signal); }
 
 	/** Cleanup completed: a later worker reusing the same directory must capture a new base. */
-	forgetWorkspace(path: string): Promise<void> { return this.#serialize(async () => {
+	forgetWorkspace(path: string, signal?: AbortSignal): Promise<void> { return this.#serialize(async () => {
 		const ledger = await this.#ledger();
 		for (const state of Object.values(ledger.repositories)) delete state.workspaces[path];
+		signal?.throwIfAborted();
 		await writeJsonFile(this.#options.file, ledger);
-	}); }
+	}, signal); }
 
 	/** Explicit declarations/corrections are trusted server-side APIs, but still verify repo objects and board IDs. */
 	declareChanges(hashes: readonly string[], taskIds: readonly string[], source: "worker-declaration" | "manual", context: ChangeContext = {}): Promise<void> { return this.#serialize(async () => {

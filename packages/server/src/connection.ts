@@ -1562,6 +1562,7 @@ export class ClientConnection {
 				}
 				case "conversation.abort": {
 					const { conversation, runtime } = await this.#manager.conversation(request.projectId, request.threadId);
+					runtime.workers.cancelWorkspaceCleanups(conversation.id);
 					await conversation.abort(BACKGROUND_CONTEXT, request.background === true ? { background: true } : undefined);
 					await runtime.threads.dropLandingTurn(request.threadId ?? "main");
 					this.#respond({ type: "conversation.abort", id: request.id });

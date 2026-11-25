@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { DiskStatus, ModelRef } from "@kemiri/protocol";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,7 +132,10 @@ describe("project storage", () => {
 			return workers.length === 2 && workers.every((worker) => worker.status === "idle");
 		});
 		await client.request({ type: "conversation.submit", projectId, requestId: "r2", content: "Forget one." });
-		await until(async () => (await listWorkers()).some((worker) => worker.id === "finished" && worker.status === "done"));
+		const { runtime } = await test.server.manager.open(projectId);
+		await runtime.conversation.waitForIdle(BACKGROUND_CONTEXT);
+		await until(async () => (await listWorkers()).some((worker) => worker.id === "finished" && worker.status === "done" &&
+			worker.workspacePath !== null && !runtime.workers.workspaceOperationPending(worker.workspacePath)));
 
 		// A folder no worker claims, old enough not to be one being created right now.
 		const workspaces = join(test.dataDir, "projects", projectId, "workspaces");

@@ -1339,6 +1339,7 @@ export class ProjectManager {
 			await entry.stopWorkersWatch?.().catch(() => undefined);
 			await entry.stopBoardWatch?.().catch(() => undefined);
 			await entry.stopThreads?.().catch(() => undefined);
+			await runtime.workers.stopWorkspaceCleanups();
 			await entry.stopTaskChanges?.().catch(() => undefined);
 			await runtime.board.stop().catch(() => undefined);
 			await runtime.activity.stop().catch(() => undefined);

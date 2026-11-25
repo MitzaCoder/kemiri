@@ -38,7 +38,7 @@ type Candidate = {
 	/** How to remove it: the jj workspace to forget, if any, and the record to update. */
 	jjName: string | null;
 	threadId: string;
-	worker: { conversationId: number; workerId: string } | null;
+	worker: { conversationId: number; workerId: string; workerConversationId: number } | null;
 };
 
 async function directories(path: string): Promise<Dirent[]> {
@@ -195,10 +195,15 @@ export class ProjectStorage {
 	}
 
 	async #remove(candidate: Candidate): Promise<void> {
+		return this.#options.workers.withWorkspaceOperation(candidate.path, () => this.#removeWorkspace(candidate));
+	}
+
+	async #removeWorkspace(candidate: Candidate): Promise<void> {
 		const worker = candidate.worker;
 		if (worker !== null) {
 			const record = (await this.#options.workers.state(BACKGROUND_CONTEXT, worker.conversationId)).workers[worker.workerId];
-			if (record) await this.#options.workers.recordWorkspaceChanges(candidate.path, record, candidate.threadId);
+			if (record?.conversationId !== worker.workerConversationId || record.status === "running") throw new Error("Its worker changed since cleanup was requested.");
+			await this.#options.workers.recordWorkspaceChanges(candidate.path, record, candidate.threadId);
 		}
 		const repo = candidate.jjName === null ? undefined : await jjRoot(this.#options.projectPath());
 		if (repo !== undefined && candidate.jjName !== null) {
@@ -243,7 +248,8 @@ export class ProjectStorage {
 				);
 				const modified = await stat(path).then((info) => info.mtimeMs).catch(() => now);
 				let reason: string | null = null;
-				if (record?.status === "running") reason = "Its worker is running.";
+				if (this.#options.workers.workspaceOperationPending(path)) reason = "Its workspace is busy.";
+				else if (record?.status === "running") reason = "Its worker is running.";
 				else if (record === undefined && now - modified < ORPHAN_GRACE_MS) reason = "It was just created.";
 				else if (record !== undefined && record.status !== "done" && !isFinishedThread(input.thread)) {
 					reason = "Its worker is not forgotten yet: the coordinator may still merge its work.";
@@ -258,7 +264,7 @@ export class ProjectStorage {
 					updatedAt: record?.updatedAt ?? new Date(modified).toISOString(),
 					jjName: `${input.prefix}${entry.name}`,
 					threadId: input.threadId,
-					worker: record === undefined || input.conversationId === null ? null : { conversationId: input.conversationId, workerId: record.id },
+					worker: record === undefined || input.conversationId === null ? null : { conversationId: input.conversationId, workerId: record.id, workerConversationId: record.conversationId },
 				});
 			}
 		};
