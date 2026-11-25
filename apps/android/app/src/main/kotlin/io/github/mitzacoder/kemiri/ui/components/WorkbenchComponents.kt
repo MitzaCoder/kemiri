@@ -7,7 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.*
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -88,8 +88,8 @@ fun workbenchStatus(status: String, domain: String = "task"): WorkbenchStatus = 
         Row(Modifier.padding(horizontal = 8.dp).heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (status == "running" && value.icon != null) {
                 val transition = rememberInfiniteTransition(label = "working status")
-                val rotation by transition.animateFloat(0f, 360f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "working indicator")
-                LucideGlyph(value.icon, modifier = Modifier.rotate(rotation), size = 12.dp)
+                val rotation = transition.animateFloat(0f, 360f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "working indicator")
+                LucideGlyph(value.icon, modifier = Modifier.graphicsLayer { rotationZ = rotation.value }, size = 12.dp)
             } else value.icon?.let { LucideGlyph(it, size = 12.dp) }
             Text(value.label, style = textStyle(0.75f, 1f / 0.75f, weight = 500), maxLines = 1)
         }
@@ -116,10 +116,11 @@ fun workbenchStatus(status: String, domain: String = "task"): WorkbenchStatus = 
     val color = Jarvis.colors.taskStatus(tone)
     val halo = if (pulse) {
         val transition = rememberInfiniteTransition(label = "task status pulse")
-        transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "task status halo").value
-    } else 0f
+        transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "task status halo")
+    } else null
     val dot = modifier.size(7.dp).drawBehind {
-        if (halo > 0f) drawCircle(color.copy(alpha = .45f * (1f - halo)), radius = size.minDimension / 2 + 3.5.dp.toPx() * halo)
+        val progress = halo?.value ?: 0f
+        if (progress > 0f) drawCircle(color.copy(alpha = .45f * (1f - progress)), radius = size.minDimension / 2 + 3.5.dp.toPx() * progress)
     }
     if (tone == TaskStatusTone.Todo) Box(dot.border(1.5.dp, color, CircleShape))
     else Box(dot.background(color, CircleShape))

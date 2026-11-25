@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import io.github.mitzacoder.kemiri.protocol.AnswerWork
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -39,13 +40,13 @@ internal fun AnswerWorkGlyph(indicator: AnswerWorkIndicator, modifier: Modifier 
     when (indicator) {
         AnswerWorkIndicator.Problem -> LucideGlyph(Lucide.CircleAlert, modifier, size = 16.dp, tint = answerWorkColor(indicator))
         AnswerWorkIndicator.Pulse, AnswerWorkIndicator.Waiting -> {
-            val alpha = if (indicator == AnswerWorkIndicator.Pulse) {
+            val opacity = if (indicator == AnswerWorkIndicator.Pulse) {
                 rememberInfiniteTransition(label = "Working errand").animateFloat(
                     1f, .35f, infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "Working dot opacity",
-                ).value
-            } else 1f
+                )
+            } else null
             Box(modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(8.dp).background(Jarvis.colors.accent2.copy(alpha = alpha), CircleShape))
+                Box(Modifier.size(8.dp).graphicsLayer { alpha = opacity?.value ?: 1f }.background(Jarvis.colors.accent2, CircleShape))
             }
         }
     }

@@ -12,7 +12,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -31,7 +38,6 @@ import io.github.mitzacoder.kemiri.protocol.WorkerModel
 import io.github.mitzacoder.kemiri.protocol.WorkerSummary
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 
 private val pretty = Json { prettyPrint = true }
@@ -148,12 +154,17 @@ private const val ORB_MIN_WIDTH_DP = 640
     if(!animate) { Text(text,modifier,style = style,color = colors.fgSubtle); return }
     val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
     // The web's band moves across a 200%-wide gradient in 2 s.
-    val shift by transition.animateFloat(1f,-1f,androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2000,easing = androidx.compose.animation.core.LinearEasing)),label = "shimmer band")
-    var width by remember { mutableFloatStateOf(1f) }
-    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
-        0f to colors.fgSubtle,.35f to colors.fgSubtle,.5f to colors.fg,.65f to colors.fgSubtle,1f to colors.fgSubtle,
-        start = androidx.compose.ui.geometry.Offset(width * shift,0f),end = androidx.compose.ui.geometry.Offset(width * (shift + 2f),0f))
-    Text(text,modifier.onSizeChanged { width = it.width.toFloat() },style = style.copy(brush = brush))
+    val shift = transition.animateFloat(1f,-1f,androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2000,easing = androidx.compose.animation.core.LinearEasing)),label = "shimmer band")
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    Text(text, modifier.drawWithCache {
+        val stops = arrayOf(0f to colors.fgSubtle, .35f to colors.fgSubtle, .5f to colors.fg,
+            .65f to colors.fgSubtle, 1f to colors.fgSubtle)
+        onDrawBehind {
+            val result = layout ?: return@onDrawBehind
+            val offset = size.width * shift.value
+            drawText(result, Brush.linearGradient(*stops, start = Offset(offset, 0f), end = Offset(offset + size.width * 2f, 0f)), alpha = 1f)
+        }
+    }, style = style, color = androidx.compose.ui.graphics.Color.Transparent, onTextLayout = { layout = it })
 }
 
 @Composable fun TranscriptRow(row: ChatRow, scope: TranscriptScope, streaming: Boolean = false, orb: TurnOrb? = null, motion: io.github.mitzacoder.kemiri.ui.components.AgentMotion = if(orb?.active == true) io.github.mitzacoder.kemiri.ui.components.AgentMotion.Working else io.github.mitzacoder.kemiri.ui.components.AgentMotion.Idle) {
@@ -177,7 +188,12 @@ private const val ORB_MIN_WIDTH_DP = 640
             first.kind == "tool" -> ToolCallCard(first,scope)
             first.kind == "compaction" -> CompactionMarker(first,scope.context)
             first.kind == "image" -> Box(Modifier.fillMaxWidth(),contentAlignment = Alignment.CenterEnd) {
-                AsyncImage(model = remember(first.text) { runCatching { Base64.decode(first.text,Base64.DEFAULT) }.getOrNull() },contentDescription = "Attached image",modifier = Modifier.fillMaxWidth(.85f).heightIn(max = 320.dp).clip(RoundedCornerShape(16.dp)))
+                val image = key(first.text) {
+                    produceState<ByteArray?>(null) {
+                        value = withContext(Dispatchers.Default) { runCatching { Base64.decode(first.text, Base64.DEFAULT) }.getOrNull() }
+                    }.value
+                }
+                AsyncImage(model = image,contentDescription = "Attached image",modifier = Modifier.fillMaxWidth(.85f).heightIn(max = 320.dp).clip(RoundedCornerShape(16.dp)))
             }
             first.kind == "user" -> UserMessage(first, scope.context, scope.artifacts)
             else -> TaskMentions(streaming,source = first.text) { RichMarkdown(first.text,Modifier.fillMaxWidth()) }
@@ -312,11 +328,7 @@ private fun stepIcon(part: ChatPart): LucideIcon = when {
         Column(Modifier.weight(1f)) {
             Text(part.text,style = MaterialTheme.typography.bodyMedium,color = tone)
             part.tries?.let { tries ->
-                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-                LaunchedEffect(part.retryAt) {
-                    now = System.currentTimeMillis()
-                    while (now < (part.retryAt ?: 0L)) { delay(1_000); now = System.currentTimeMillis() }
-                }
+                val now = rememberAppTime(1_000, active = part.retryAt != null)
                 val seconds = ((part.retryAt ?: now) - now + 999) / 1_000
                 val retry = if (seconds > 0) "Retrying in $seconds s" else "Trying again"
                 Text("$retry ($tries ${if (tries == 1) "try" else "tries"} so far).", style = MaterialTheme.typography.bodySmall, color = tone)

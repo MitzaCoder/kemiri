@@ -30,13 +30,9 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The wall clock, ticking every [periodMs] while shown, for "deployed 5 min ago" and friends. */
+/** A shared foreground clock for coarse relative-time labels. */
 @Composable
-fun rememberNow(periodMs: Long = 30_000): Long {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(periodMs) { while (true) { delay(periodMs); now = System.currentTimeMillis() } }
-    return now
-}
+fun rememberNow(periodMs: Long = 30_000): Long = io.github.mitzacoder.kemiri.ui.rememberAppTime(periodMs)
 
 /** A tinted notice: the web's `Banner` in its error, warning and plain tones. */
 @Composable

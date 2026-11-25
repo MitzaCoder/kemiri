@@ -16,7 +16,6 @@ import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.features.status.ToneBanner
 import io.github.mitzacoder.kemiri.features.status.BannerTone
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -36,7 +35,7 @@ internal fun DevicesPage(repository: HarnessRepository, backend: BackendSession)
     var revoking by remember { mutableStateOf<AuthDevice?>(null) }
     var renaming by remember { mutableStateOf<AuthDevice?>(null) }
     var rename by remember { mutableStateOf("") }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val now = io.github.mitzacoder.kemiri.ui.rememberAppTime(1_000, active = grant != null)
     val backendId = auth?.backendId
     val authenticated = backendId != null && connection.status == ConnectionStatus.Ready && connection.hello?.auth?.sessionId != null
     suspend fun refresh() {
@@ -54,7 +53,6 @@ internal fun DevicesPage(repository: HarnessRepository, backend: BackendSession)
     } }
     LaunchedEffect(backend, authenticated) { try { refresh() } catch (failure: Exception) { error = failure.message } }
     LaunchedEffect(backend, authenticated) { backend.client.events.collect { if (it is AuthDevicesChangedEvent) try { refresh() } catch (failure: Exception) { error = failure.message } } }
-    LaunchedEffect(grant) { if (grant != null) while (true) { now = System.currentTimeMillis(); delay(1000) } }
     SettingsSectionPage(ComputerSection.Devices) {
         auth?.notice?.let { notice -> ToneBanner(BannerTone.Warning) {
             Text(auth.comparisonCode?.let { "$notice · code $it" } ?: notice)

@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import androidx.compose.ui.platform.LocalContext
 
 import io.github.mitzacoder.kemiri.features.coordinators.*
@@ -41,7 +42,6 @@ import io.github.mitzacoder.kemiri.features.status.visibleReleaseUpdate
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-import kotlinx.coroutines.delay
 
 /**
  * The projects drawer, the twin of the web's `ProjectsSidebar` below its wide width: projects grouped by backend, each
@@ -126,8 +126,7 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
     val seenReplies by repository.collectSettings { it.seenReplies }
     val android = LocalContext.current
     val currentChat = current.chatRoute()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(15_000)
     var adding by remember { mutableStateOf<BackendSession?>(null) }
     val attentionProjects = sessions.map { backend ->
         val projects by backend.projects.collectAsStateWithLifecycle()

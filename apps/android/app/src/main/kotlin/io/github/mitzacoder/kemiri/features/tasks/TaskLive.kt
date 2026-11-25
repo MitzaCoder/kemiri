@@ -46,7 +46,6 @@ import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
-import kotlinx.coroutines.delay
 import java.time.Instant
 
 private const val LIVE_SEEN_PREFERENCES = "aiki.task-live-seen.v1"
@@ -159,14 +158,8 @@ internal fun TaskLive(
 @Composable
 private fun LivePulse(pulse: BoardTaskLivePulse, shown: Boolean) {
     val colors = Jarvis.colors
-    val elapsed by produceState(pulseElapsed(pulse.since, Instant.now()), pulse.since, shown) {
-        if (shown) {
-            while (true) {
-                value = pulseElapsed(pulse.since, Instant.now())
-                delay(1000)
-            }
-        }
-    }
+    val now = io.github.mitzacoder.kemiri.ui.rememberAppTime(1000, active = shown)
+    val elapsed = pulseElapsed(pulse.since, Instant.ofEpochMilli(now))
     Row(
         Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = livePulseDescription(pulse, elapsed) },
         horizontalArrangement = Arrangement.spacedBy(6.dp),

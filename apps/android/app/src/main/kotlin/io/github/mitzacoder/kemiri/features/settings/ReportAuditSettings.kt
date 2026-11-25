@@ -8,7 +8,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.BackendSession
 import io.github.mitzacoder.kemiri.protocol.*
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -88,7 +87,7 @@ private fun ProjectModelModeSettings(backend: BackendSession, project: ProjectSu
             GroupNote(taskWatcherStatusWords(latest, project.taskWatcherStatus),
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, center = false)
         } else {
-            val now by produceState(System.currentTimeMillis()) { while (true) { delay(30_000); value = System.currentTimeMillis() } }
+            val now = io.github.mitzacoder.kemiri.ui.rememberAppTime()
             val status = project.reportAuditStatus
             GroupNote(reportAuditModel(status?.effectiveModel, models, providers) + " · " +
                 reportAuditUsage(status?.tokensUsed ?: 0, latest.dailyTokens) + "\n" +

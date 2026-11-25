@@ -39,10 +39,32 @@ required; see `licenses/RELINKING.md`, not a blanket compliance claim.
 
 ## Install and run
 
+### Private phone updates
+
+Build the configured **privateOptimized** variant, not the public release or the
+emulator APK. It is non-debuggable, runs R8 and the resource shrinker, and bundles a
+Baseline Profile for launch, task details and chat. Keep the same ignored private
+Android properties and the build wrapper's default `ANDROID_USER_HOME` as the
+existing private debug installation. The variant reuses the wrapper's local debug
+signing config; it never signs with the public key.
+
 ```sh
-adb install -r apps/android/app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n io.github.mitzacoder.aiki/io.github.mitzacoder.kemiri.MainActivity
+apps/android/scripts/build.sh :app:assemblePrivateOptimized
+APK=apps/android/app/build/outputs/apk/privateOptimized/app-privateOptimized.apk
 ```
+
+Before replacing an installation, select the intended device and pull its existing
+base APK (`adb -s "$ANDROID_SERIAL" shell pm path "$ANDROID_APP_ID"`). Run
+`apksigner verify --print-certs` on both the pulled APK and `$APK`. Proceed only when
+the full signer SHA-256 matches the expected installation key and both APKs use the
+same application ID. Use `adb -s "$ANDROID_SERIAL" install -r "$APK"`; never uninstall
+or clear app data to bypass an identity or version error. Use the configured isolated
+ADB server where required. After first launch, ProfileInstaller publishes the profile
+for ART; sideloaded builds may not be compiled against it until Android runs dexopt.
+
+### Debug and emulator
+
+`assembleDebug` remains the developer/test build. Use it with an isolated emulator.
 
 On this host use the isolated emulator wrapper, never default adb:
 

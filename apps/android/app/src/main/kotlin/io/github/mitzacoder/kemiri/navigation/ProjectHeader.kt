@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.navigation
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.foundation.clickable
@@ -31,7 +32,6 @@ import io.github.mitzacoder.kemiri.ui.components.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -110,8 +110,7 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val connection by client.state.collectAsStateWithLifecycle()
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
     val project = projects.firstOrNull { it.id == route.projectId }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(15_000)
     val thread = threadOf(route.threadId) != MAIN_THREAD_ID
     val workers = projectWorkers(context, route.workerId != null && connection.supports("workers"))?.value?.workers.orEmpty()
     val threads = projectThreads(context, route.workerId == null && connection.supports("threads"))?.value?.threads.orEmpty()

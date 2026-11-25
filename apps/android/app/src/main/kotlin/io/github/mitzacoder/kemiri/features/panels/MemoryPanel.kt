@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
@@ -69,8 +70,7 @@ internal fun memoryEventMatches(event: MemoryChangedEvent, project: String) = ev
     var undoError by remember { mutableStateOf<Pair<String, String>?>(null) }
     var maintenanceStarting by remember { mutableStateOf(false) }
     var maintenanceError by remember { mutableStateOf<String?>(null) }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(60_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(60_000)
     val project = context.route.projectId
     val client = context.backend.client
     val connection by client.state.collectAsStateWithLifecycle()

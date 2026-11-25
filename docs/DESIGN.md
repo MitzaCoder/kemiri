@@ -3048,6 +3048,19 @@ isolated web and emulator comparisons.
 with areas, four waiting questions, one published app, a terminal with
 `DEMO_TERMINALS=1` and a turn that stays working with `DEMO_WORKING=1`.
 
+**Optimised private Android build (T492).** The non-debuggable `privateOptimized`
+build type inherits the release relay implementation, keeps the private application
+ID and signs with the same local configuration as debug. R8 and resource shrinking
+apply only to this variant. Its startup, task and chat Baseline Profile ships with
+ProfileInstaller. The public signing path and debug emulator workflow are unchanged.
+See the private phone installation recipe in the Android README.
+
+Android's relative-time labels share one foreground clock with per-label cadence.
+Status, task and working animations read their changing values in drawing or layer
+updates rather than composition. Chat attachments decode Base64 off the UI thread.
+Coil keeps image thumbnails in memory by backend, project and artifact version,
+never by expiring URL. Disk caching remains disabled for signed thumbnails.
+
 **One-bar web chat header (T478).** The 56 px bar is the only navigation row
 above a coordinator transcript. The title opens the roster (a bottom sheet
 on phones) with coordinator state, counts, area text, Edit on the open

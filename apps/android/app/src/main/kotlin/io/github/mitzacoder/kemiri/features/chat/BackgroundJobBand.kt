@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import io.github.mitzacoder.kemiri.data.supports
 import io.github.mitzacoder.kemiri.features.coordinators.CoordinatorEditor
 import androidx.compose.foundation.background
@@ -22,7 +23,6 @@ import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import java.time.Instant
-import kotlinx.coroutines.delay
 
 internal const val JOB_COMPOSER_NOTE = "The main chat does not see what you write here, only the job's report."
 internal fun isBackgroundJobPage(route: Destination.Chat) = route.workerId == null && !sameThread(route.threadId, null)
@@ -51,8 +51,7 @@ internal fun backgroundJobQuestions(questions: List<BoardQuestion>, threadId: St
 
 @Composable
 internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSummary, projectName: String, scheduleName: String?, parentTitle: String = "Main chat") {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(15_000)
     val text = backgroundJobBandText(thread, now, scheduleName, parentTitle)
     val board by context.board.view.collectAsStateWithLifecycle()
     val waiting = backgroundJobQuestions(board.questions, thread.id)

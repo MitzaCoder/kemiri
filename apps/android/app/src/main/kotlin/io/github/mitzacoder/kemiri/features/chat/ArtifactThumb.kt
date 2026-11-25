@@ -97,6 +97,10 @@ internal object VideoPosters {
     }
 }
 
+/** A renewed URL does not change the pixels. IDs are scoped to the backend and project. */
+internal fun artifactThumbnailMemoryKey(backend: String, project: String, versionAddress: String): String =
+    "artifact-thumb:" + listOf(backend, project, versionAddress).joinToString("") { "${it.length}:$it" }
+
 /**
  * A small picture of an artifact (web `ArtifactThumb.svelte`): the image itself, a video's first frame with a play mark,
  * or the kind's icon on a background tinted by its kind; a video's or audio's length in the corner. It asks for its URL
@@ -146,8 +150,12 @@ internal fun ArtifactThumb(
         catch (_: Exception) { /* The kind's icon stays; a reconnect or a new composition tries again. */ }
     }
     val android = LocalContext.current
-    val request = remember(android, url) {
-        url?.let { ImageRequest.Builder(android).data(it).diskCachePolicy(CachePolicy.DISABLED).memoryCachePolicy(CachePolicy.DISABLED).build() }
+    val request = remember(android, url, backend, artifact.projectId, contentId) {
+        url?.let { ImageRequest.Builder(android).data(it)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .memoryCacheKey(artifactThumbnailMemoryKey(backend, artifact.projectId, contentId))
+            .build() }
     }
     val tint = artifactKindColor(artifact.kind)
     val base = tint.copy(alpha = .08f).compositeOver(Jarvis.colors.surface2)

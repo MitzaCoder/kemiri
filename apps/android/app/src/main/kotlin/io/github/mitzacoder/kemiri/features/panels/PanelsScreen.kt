@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.foundation.layout.*
@@ -86,8 +87,7 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier) {
 
 /** Relative times in a panel move on while it is open. */
 @Composable private fun rememberPanelNow(): Long {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(30_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(30_000)
     return now
 }
 

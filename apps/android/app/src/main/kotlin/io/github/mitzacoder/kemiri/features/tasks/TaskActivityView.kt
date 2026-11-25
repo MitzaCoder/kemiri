@@ -14,24 +14,13 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.protocol.BoardTaskActivity
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
 
 internal val LocalTaskActivityEnabled = compositionLocalOf { false }
 
-// One clock for all visible activity lines; no server reads or per-row timer jobs.
-private val activityMinutes = flow {
-    while (true) {
-        emit(System.currentTimeMillis())
-        delay(60_000)
-    }
-}.stateIn(CoroutineScope(SupervisorJob() + Dispatchers.Default), SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
-
 @Composable
-internal fun rememberTaskMinuteNow(): Long = activityMinutes.collectAsStateWithLifecycle().value
+internal fun rememberTaskMinuteNow(): Long = io.github.mitzacoder.kemiri.ui.rememberAppTime(60_000)
 
 @Composable
 internal fun TaskActivityView(activity: BoardTaskActivity, maxLines: Int = Int.MAX_VALUE, inlineAge: Boolean = false, stateTone: io.github.mitzacoder.kemiri.ui.theme.TaskStatusTone? = null) {

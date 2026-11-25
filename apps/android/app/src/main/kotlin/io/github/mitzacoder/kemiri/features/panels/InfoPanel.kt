@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.panels
 
+import io.github.mitzacoder.kemiri.ui.rememberAppTime
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -55,8 +56,7 @@ import io.github.mitzacoder.kemiri.protocol.*
     val scope = rememberCoroutineScope()
     var missDetail by rememberSaveable(draftKey) { mutableStateOf(false) }
     // Relative times ("last 5 min ago") move on while the panel is open.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); now = System.currentTimeMillis() } }
+    val now = rememberAppTime(60_000)
     PanelBody(data) { info ->
         info.usage?.let { usage ->
             val view = contextUsageView(usage, now)

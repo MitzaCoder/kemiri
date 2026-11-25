@@ -133,7 +133,18 @@ android {
             buildConfigField("boolean", "RELAY_FAKE_FCM", privateBuildProperty(
                 "harness.relayFakeFcm", "HARNESS_RELAY_FAKE_FCM", "false").toBoolean().toString())
         }
+        create("privateOptimized") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Reuse the local debug installation identity, never the public release signing key.
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "private-optimized.pro")
+        }
     }
+    sourceSets.getByName("privateOptimized").kotlin.srcDir("src/release/kotlin")
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -207,7 +218,15 @@ tasks.register("checkNeutralRelease") {
     }
 }
 
+val checkPrivateOptimizedIdentity = tasks.register("checkPrivateOptimizedIdentity") {
+    val hasPrivateId = installedApplicationId != "io.github.mitzacoder.aiki"
+    inputs.property("hasPrivateApplicationId", hasPrivateId)
+    doLast { check(hasPrivateId) { "The private optimised build needs a configured private application ID." } }
+}
+tasks.matching { it.name == "prePrivateOptimizedBuild" }.configureEach { dependsOn(checkPrivateOptimizedIdentity) }
+
 dependencies {
+    add("privateOptimizedImplementation", "androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("com.google.android.gms:play-services-oss-licenses:17.5.3")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
