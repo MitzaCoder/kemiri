@@ -9,6 +9,13 @@ internal fun coordinatorRoster(threads: List<ThreadSummary>) = threads
     .filter { !it.archived && (it.main || it.kind == "coordinator") }
     .sortedWith(compareByDescending<ThreadSummary> { it.main }.thenBy { it.order ?: 0 }.thenBy { it.id })
 
+internal fun coordinatorForChat(route: Destination.Chat, threads: List<ThreadSummary>): ThreadSummary? =
+    if (route.workerId != null) null
+    else threads.find { it.id == (route.threadId ?: MAIN_THREAD_ID) && (it.main || it.kind == "coordinator") }
+
+internal fun otherCoordinatorsNeedingAttention(threads: List<ThreadSummary>, openCoordinatorId: String): Long =
+    coordinatorRoster(threads).count { it.id != openCoordinatorId && coordinatorBadges(it).needsYou > 0 }.toLong()
+
 internal fun coordinatorOfThread(id: String?, threads: List<ThreadSummary>): String {
     val thread = threads.find { it.id == id }
     return if (thread?.kind == "coordinator") thread.id else thread?.parentThreadId ?: MAIN_THREAD_ID

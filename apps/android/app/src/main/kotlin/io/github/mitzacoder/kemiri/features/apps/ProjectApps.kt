@@ -16,6 +16,8 @@ internal const val APP_LINK_WARNING = "Anyone on your tailnet can open these lin
 internal fun visibleApps(apps: List<ProjectApp>, taskId: String? = null) =
     apps.filter { it.state != "unpublished" && (taskId == null || it.taskId == taskId) }
 
+internal fun activeAppCount(apps: List<ProjectApp>): Int = apps.count { it.state == "live" || it.state == "pending" }
+
 internal fun appCountLabel(apps: List<ProjectApp>): String {
     val live = apps.count { it.state == "live" }
     val pending = apps.count { it.state == "pending" }

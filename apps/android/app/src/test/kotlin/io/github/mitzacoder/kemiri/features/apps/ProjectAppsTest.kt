@@ -11,13 +11,15 @@ class ProjectAppsTest {
         path = "/", url = "http://oven.example.test:5173/", state = "live", taskId = "T1",
         publishedBy = AppPublisher("main", "coordinator", "main", 1), createdAt = "2026-01-02T00:00:00Z", mode = "template")
 
-    @Test fun onlyPublishedRowsAreVisibleAndOnlyLiveAppsCount() {
+    @Test fun onlyLiveAndPendingAppsExposeAHeaderShortcut() {
         val stopped = live.copy(appId = "stopped", state = "stopped")
         val pending = live.copy(appId = "pending", taskId = "T2", state = "pending")
         val rows = listOf(live, stopped, pending, live.copy(state = "unpublished"))
         assertEquals(listOf(live, stopped, pending), visibleApps(rows))
         assertEquals(listOf(live, stopped), visibleApps(rows, "T1"))
         assertEquals("1 app running · 1 pending", appCountLabel(rows))
+        assertEquals(2, activeAppCount(rows))
+        assertEquals(0, activeAppCount(listOf(stopped, live.copy(state = "unpublished"))))
     }
 
     @Test fun stoppedAndPendingAppsCannotOpenHistoricalLinks() {

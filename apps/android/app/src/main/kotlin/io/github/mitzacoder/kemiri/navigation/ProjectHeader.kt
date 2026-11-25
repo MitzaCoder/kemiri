@@ -1,6 +1,10 @@
 package io.github.mitzacoder.kemiri.navigation
 
 import io.github.mitzacoder.kemiri.ui.rememberAppTime
+import io.github.mitzacoder.kemiri.features.apps.LocalProjectApps
+import io.github.mitzacoder.kemiri.features.apps.RunningAppsSheet
+import io.github.mitzacoder.kemiri.features.apps.activeAppCount
+import io.github.mitzacoder.kemiri.features.apps.appCountLabel
 import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.foundation.clickable
@@ -62,7 +66,8 @@ private data class HeaderAction(
     val label: String,
     val icon: LucideIcon,
     val count: String? = null,
-    val workingCount: String? = null,
+    val detail: String? = null,
+    val overflowOnly: Boolean = false,
     val needsYouBadge: Boolean = false,
     /** Tasks stays in the row on a phone. */
     val primary: Boolean = false,
@@ -95,10 +100,8 @@ fun modelLabel(model: ModelRef?, models: List<ModelInfo>): String {
 }
 
 /**
- * The chat's title and the line under it (web `ProjectChat` / `WorkerTranscript` headers). Main: the project's name over
- * backend · coordinator model · running tool. A thread: a back arrow, its title (and status on a wide screen) over
- * "Background job of project · model · what it does now". A worker: a back arrow, its title over "id · project".
- * The line ends in amber with the connection's state while it is not connected.
+ * Coordinator chats show the project over the name. The name opens the roster, and its amber count is for other
+ * coordinators only. Background jobs and worker transcripts still show their own title and have a Back button.
  */
 @Composable
 fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
@@ -116,8 +119,8 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val threads = projectThreads(context, route.workerId == null && connection.supports("threads"))?.value?.threads.orEmpty()
     val worker = route.workerId?.let { id -> workers.firstOrNull { it.id == id && threadOf(it.threadId) == threadOf(route.threadId) } }
     val threadSummary = if (thread) threads.firstOrNull { it.id == route.threadId } else null
-    val coordinator = threads.firstOrNull { connection.supports("coordinators") && route.workerId == null &&
-        it.id == threadOf(route.threadId) && (it.main || it.kind == "coordinator") }
+    val coordinator = if (connection.supports("coordinators")) coordinatorForChat(route, threads) else null
+    val otherAttention = coordinator?.let { otherCoordinatorsNeedingAttention(threads, it.id) } ?: 0
     val title = when {
         coordinator != null -> coordinator.title
         route.workerId != null -> worker?.title?.ifBlank { null } ?: route.workerId
@@ -153,20 +156,24 @@ fun ProjectHeaderTitle(context: ProjectScreenContext, width: Dp) {
     val background = project?.activity?.backgroundJobs ?: io.github.mitzacoder.kemiri.features.chat.backgroundJobCounts(threads)
     if (switcher && canSwitch) ConversationSwitcher(context, threads, now, onCoordinatorPage = { coordinatorPage = it }) { switcher = false }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (route.workerId != null || thread) {
+        if (route.workerId != null || (thread && coordinator == null)) {
             val back = if (context.goBack != null) "Back" else if (route.workerId != null && thread) "Back to the background job" else "Back to Main chat"
             IconButton(onClick = { context.goBack?.invoke() ?: context.navigate(if (route.workerId != null) route.copy(workerId = null) else route.copy(threadId = null, workerId = null)) },
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = back }) { LucideGlyph(Lucide.ArrowLeft, size = 18.dp) }
         }
         Column(Modifier.weight(1f, fill = false).then(if (canSwitch) Modifier.heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClickLabel = "Switch conversation") { switcher = true }
-            .semantics(mergeDescendants = true) { stateDescription = "${background.needsYou} needs you, ${background.working} working" }
-            else Modifier)) {
+            .semantics(mergeDescendants = true) {
+                if (coordinator == null) stateDescription = "${background.needsYou} needs you, ${background.working} working"
+                else if (otherAttention > 0) stateDescription = if (otherAttention == 1L) "1 other coordinator needs attention"
+                    else "$otherAttention other coordinators need attention"
+            } else Modifier)) {
             if (coordinator != null) Text(project?.name ?: "Project", style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (coordinator != null) CoordinatorMark(coordinator)
                 Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (canSwitch) LucideGlyph(Lucide.ChevronDown, size = 16.dp)
+                questionBadgeText(otherAttention)?.let { HeaderBadge(it, attention = true) }
             }
             if (canSwitch && coordinator == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (threadSummary != null) StatusBadge(io.github.mitzacoder.kemiri.features.chat.threadState(threadSummary), domain = "thread")
@@ -238,6 +245,20 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val muted = mutedFlow?.collectAsStateWithLifecycle()?.value
     val scope = rememberCoroutineScope()
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
+    val apps = LocalProjectApps.current
+    val appRows = apps?.list?.apps
+    val activeApps = activeAppCount(appRows.orEmpty())
+    val appsAvailable = connection.supports(HarnessFeature.APPS)
+    val appsDetail = when {
+        !appsAvailable -> null
+        connection.status != ConnectionStatus.Ready -> "Offline"
+        apps?.error != null -> "Unavailable"
+        appRows == null -> "Loading…"
+        activeApps == 0 -> "None"
+        else -> appCountLabel(appRows)
+    }
+    var showApps by rememberSaveable(backend.config.key, route.projectId) { mutableStateOf(false) }
+    if (showApps && appsAvailable) RunningAppsSheet(board, apps, dismiss = { showApps = false })
 
     fun toggle(tab: PanelTab) { if (panel?.tab == tab) close() else context.navigate(Destination.Panel(route, tab)) }
     val hasTaskStates by remember(board) { board.select { it.tasks.any { task -> task.state != null } } }
@@ -259,10 +280,13 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
             add(HeaderAction("files", "Browse files in this checkout", "Files", Lucide.FileText) {
                 context.navigate(Destination.Files(route, root = checkout, taskId = context.taskOrigin))
             })
-            if ((worker || route.threadId != null) && connection.supports("project-changes-working") && connection.supports("project-changes")) {
-                val title = checkoutWorker?.title?.takeIf { it.isNotBlank() }?.let { "Workspace · $it" }
-                    ?: if (route.threadId != null) "Background job checkout" else "Project folder"
-                add(HeaderAction("working-changes", "Uncommitted changes", "Uncommitted changes", Lucide.Code) {
+            if (connection.supports("project-changes-working") && connection.supports("project-changes")) {
+                val title = when (checkout) {
+                    is CodeRootWorker -> "Workspace · ${checkoutWorker?.title?.ifBlank { checkoutWorker.id } ?: checkout.workerId}"
+                    is CodeRootThread -> "Conversation checkout"
+                    else -> "Project folder"
+                }
+                add(HeaderAction("working-changes", "Changes", "Changes", Lucide.Code, overflowOnly = true) {
                     context.navigate(Destination.WorkingChanges(route, checkout, title, taskId = checkoutWorker?.taskId))
                 })
             }
@@ -273,6 +297,8 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
             add(HeaderAction("terminal", if (worker && workspace != null) "Open a terminal in this worker's workspace" else if (worker) "Open a terminal in the project folder" else "A terminal on this backend, in the project folder",
                 "Terminal", Lucide.Terminal) { context.navigate(Destination.Terminal(backend.config.key, route.projectId, route.workerId)) })
         }
+        if (appsDetail != null) add(HeaderAction("apps", "Running apps · $appsDetail", "Running apps", Lucide.Layers,
+            detail = appsDetail, overflowOnly = true) { showApps = true })
         if (mute != null && muted != null && !worker) add(HeaderAction("mute", if (muted) "Unmute notifications for this project" else "Mute notifications for this project",
             if (muted) "Unmute notifications" else "Mute notifications", if (muted) StatusGlyphs.BellOff else StatusGlyphs.Bell, pressed = muted) {
             scope.launch { mute.toggle(backend, route.projectId) }
@@ -285,11 +311,21 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
     val tone = connectionTone(connection.status)
     if (inline) {
         // The mute bell and the gear stay icons at every width, as on the web.
-        actions.forEach { HeaderButton(it, showLabel = it.id !in setOf("mute", "settings") && (labelled || (primaryLabelled && it.primary))) }
+        actions.filterNot { it.overflowOnly }.forEach {
+            HeaderButton(it, showLabel = it.id !in setOf("mute", "settings") && (labelled || (primaryLabelled && it.primary)))
+        }
         Box(Modifier.padding(horizontal = 4.dp)) { ConnectionBadge(connection.status, connection.attempt) }
-        return
+    } else actions.filter { it.primary }.forEach { HeaderButton(it, showLabel = false) }
+    if (activeApps > 0) {
+        val colors = Jarvis.colors
+        IconButton(onClick = { showApps = true }, modifier = Modifier.semantics { contentDescription = "Open running apps · $appsDetail" }) {
+            BadgedBox(badge = {
+                Badge(containerColor = colors.success, contentColor = colors.surface) {
+                    Text(questionBadgeText(activeApps.toLong()).orEmpty())
+                }
+            }) { LucideGlyph(Lucide.Layers, size = 18.dp, tint = colors.success) }
+        }
     }
-    actions.filter { it.primary }.forEach { HeaderButton(it, showLabel = false) }
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menu = true }, modifier = Modifier.semantics { contentDescription = "More actions" + if (tone != ConnectionTone.Ok) ", ${connection.status.name.lowercase()}" else "" }) {
@@ -300,13 +336,16 @@ fun RowScope.ProjectHeaderActions(context: ProjectScreenContext, panel: Destinat
         }
         DropdownMenu(menu, { menu = false }) {
             val palette = headerPanelPalette(Jarvis.colors.dark, Jarvis.colors.neutral)
-            actions.filterNot { it.primary }.forEach { action ->
+            actions.filter { if (inline) it.overflowOnly else !it.primary }.forEach { action ->
                 val panelSelected = action.pressed && action.id != "mute"
                 DropdownMenuItem(
                     text = { Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(action.label)
                         action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it, action.needsYouBadge) }
-            action.workingCount?.let { Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
+                        action.detail?.let {
+                            Spacer(Modifier.width(8.dp))
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted)
+                        }
                     } },
                     leadingIcon = { LucideGlyph(action.icon, size = 18.dp) },
                     trailingIcon = if (action.pressed && action.id != "mute") ({ LucideGlyph(Lucide.Check, size = 16.dp) }) else null,
@@ -348,7 +387,6 @@ private fun HeaderButton(action: HeaderAction, showLabel: Boolean) {
     val badge: @Composable BoxScope.() -> Unit = {
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             action.count?.let { HeaderBadge(it, action.needsYouBadge) }
-            action.workingCount?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.fgMuted) }
         }
     }
     if (showLabel) {
@@ -358,7 +396,6 @@ private fun HeaderButton(action: HeaderAction, showLabel: Boolean) {
             Spacer(Modifier.width(6.dp))
             Text(action.label)
             action.count?.let { Spacer(Modifier.width(6.dp)); HeaderBadge(it, action.needsYouBadge) }
-            action.workingCount?.let { Spacer(Modifier.width(6.dp)); Text(it, style = MaterialTheme.typography.labelSmall, color = Jarvis.colors.fgMuted) }
         }
     } else {
         IconButton(onClick = action.onClick, modifier = Modifier.semantics { contentDescription = action.name; selected = action.pressed },

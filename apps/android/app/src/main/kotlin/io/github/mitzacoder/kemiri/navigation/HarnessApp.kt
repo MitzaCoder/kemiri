@@ -325,9 +325,12 @@ private fun HarnessNavigation(
                 Scaffold(
                     modifier = Modifier.weight(1f),
                     topBar = { Column {
+                        val projectHeader = current is Destination.Chat || current is Destination.Panel || current is Destination.Task ||
+                            (answersRoute != null && answerId == null)
                         // The terminal screen draws its own header: Sessions, the connection and the tabs belong to it.
                         if (terminal == null && !htmlArtifactViewport && current !is Destination.ArtifactStudio && !codeView) TopAppBar(
-                            expandedHeight = if (context != null) 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 64.dp,
+                            expandedHeight = (if (projectHeader && context != null) 56.dp else 64.dp) *
+                                (if (context != null) LocalDensity.current.fontScale.coerceAtLeast(1f) else 1f),
                             title = {
                                 if (answerId != null) Text("Answers")
                                 else if (current.isSettings()) Text("Settings")
@@ -343,19 +346,14 @@ private fun HarnessNavigation(
                                 else if (!wide) JarvisIconButton(Lucide.Menu, "Open projects", onClick = { scope.launch { drawer.open() } })
                             },
                             actions = {
-                                val chatRoute = current is Destination.Chat || current is Destination.Panel || current is Destination.Task ||
-                                    (answersRoute != null && answerId == null)
-                                if (resolvedBack() != null && !chatRoute && answerId == null) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
+                                if (resolvedBack() != null && !projectHeader && answerId == null) JarvisIconButton(Lucide.ArrowLeft, "Back", onClick = { resolvedBack()?.invoke() })
                                 if (current.isSettings()) JarvisIconButton(Lucide.X, "Close settings", onClick = settingsNavigator.close)
-                                if (context != null && chatRoute) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel, questions = taskAttention)
+                                if (context != null && projectHeader) ProjectHeaderActions(context, panel, chatWidth, ::pop, tasksInTabs = projectTabs.isNotEmpty() && current !is Destination.Panel, questions = taskAttention)
                             },
                         )
                         if (projectTabs.isNotEmpty() && (current is Destination.Chat || (answersRoute != null && answerId == null))) {
                             AnswersProjectTabRow(projectTabs, if (answersRoute != null) AnswersProjectTab.Answers else AnswersProjectTab.Chat,
                                 unreadAnswers, taskAttention, selectProjectTab)
-                        }
-                        if (context != null && (current is Destination.Chat || current is Destination.Panel || current is Destination.Task)) {
-                            io.github.mitzacoder.kemiri.features.apps.RunningAppsChip(context.board, Modifier.padding(horizontal = 16.dp))
                         }
                     } },
                 ) { padding ->

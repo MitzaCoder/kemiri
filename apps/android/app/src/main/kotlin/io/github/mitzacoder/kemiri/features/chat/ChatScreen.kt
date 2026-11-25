@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -64,8 +63,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val projectId = context.route.projectId
     val threads = rememberCoordinatorThreads(context, connection.supports("threads"))
-    val coordinator = threads.firstOrNull { connection.supports("coordinators") && context.route.workerId == null &&
-        it.id == (context.route.threadId ?: "main") && (it.main || it.kind == "coordinator") }
+    val coordinator = if (connection.supports("coordinators")) coordinatorForChat(context.route, threads) else null
     val messages = rememberCoordinatorMessages(context, connection.supports("coordinator-messages"), loadHistory = true).messages
     val (chat, rows) = rememberCoordinatorChat(context, coordinator != null && !coordinator.archived, messages, connection.supports("memory-notes"))
     val watch = chat.watch
@@ -275,14 +273,10 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
             activeWorker?.let { WorkerFacts(it,models,Modifier.padding(horizontal = 16.dp,vertical = 4.dp)) }
             ChatBanners()
         }
-        var creatingCoordinator by rememberSaveable(context.target) { mutableStateOf(false) }
-        if (context.route.workerId == null) CoordinatorChipRow(context, roster, context.route.threadId ?: "main") { creatingCoordinator = true }
-        if (creatingCoordinator) CoordinatorEditor(context, null, dismiss = { creatingCoordinator = false })
-        if (coordinator != null) CoordinatorArea(context, coordinator)
         if (coordinator == null && isBackgroundJobPage(context.route)) activeThread?.let {
             BackgroundJobBand(context, it, project?.name ?: "project", it.scheduleId?.let(scheduleTitles::get), roster.find { row -> row.id == (it.parentThreadId ?: "main") }?.title ?: "Main chat")
         }
-        if (context.route.workerId == null) {
+        if (context.route.workerId == null && coordinator == null) {
             val outsideWorkerCount = countWorkersOutsideModels(workers.filter { sameThread(it.threadId, context.route.threadId) }, project?.workerModels)
             if (outsideWorkerCount > 0) Text("$outsideWorkerCount on other models", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

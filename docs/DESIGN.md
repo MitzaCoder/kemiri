@@ -3082,8 +3082,8 @@ when there is room. The transcript fades over 12 px at its top edge.
 **Android Coordinators sheet (T498 / D145).** The chat title opens a compact
 roster. The open coordinator is tinted and marked “You are here”, with Edit
 beside its area. Area text takes at most two lines. Edit opens the existing
-area editor and returns to the roster. The separate chat area row remains for
-now. The sheet keeps each coordinator's live jobs in state order. A job shows
+area editor and returns to the roster. The sheet keeps each coordinator's
+live jobs in state order. A job shows
 its title and state on one line and a short preview on the next. If it has a
 report, the preview uses its first sentence instead of printing the whole report.
 Finished and stopped jobs of any age stay behind a separate, initially closed
@@ -3094,6 +3094,23 @@ footer. All jobs opens the existing Background jobs panel across coordinators,
 where full reports remain available. Other entries keep the panel scoped to the
 originating coordinator. The sheet keeps its existing maximum width on wider
 screens. Older backends still use the Main chat and background jobs switcher.
+
+**Android slim chat header (T500 / D145).** The project bar is 56 dp at the
+standard text size and grows with system text. On coordinator chats it shows
+the project above the avatar and name. The name opens Coordinators, the only
+switcher. Its amber badge counts other active coordinators with attention, not
+the number of items or the open coordinator. The Tasks tab keeps the open
+coordinator's attention count. Peer coordinator chats use system Back with no
+arrow in the bar. Background jobs and worker transcripts retain their arrow.
+
+The tabs stay below the bar. There is no coordinator chip row or area row on
+phones or tablets. New, Manage and Edit area live in the Coordinators sheet.
+The full area is also in conversation Info. The roster's facts line shows any
+workers on non-project models. More holds Changes for the current checkout and
+Running apps on an apps-capable backend, even when none run. A green shortcut
+shares that apps sheet only while an app is live or waiting for Allow. Wide
+screens keep their labelled actions as space permits. The composer and the disk
+warning are unchanged.
 
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins

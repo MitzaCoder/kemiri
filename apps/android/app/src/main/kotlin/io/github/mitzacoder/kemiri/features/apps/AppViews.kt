@@ -76,18 +76,13 @@ internal fun TaskApps(taskId: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RunningAppsChip(board: io.github.mitzacoder.kemiri.data.ProjectBoard, modifier: Modifier = Modifier) {
-    val feed = LocalProjectApps.current ?: return
-    val rows = visibleApps(feed.list?.apps.orEmpty())
-    var open by rememberSaveable(feed.projectId) { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AssistChip(onClick = { open = true; scope.launch { feed.refresh() } }, label = { Text(appCountLabel(rows)) }, modifier = modifier,
-        colors = AssistChipDefaults.assistChipColors(containerColor = Jarvis.colors.success.copy(alpha = .12f), labelColor = Jarvis.colors.success))
-    if (!open) return
+internal fun RunningAppsSheet(board: io.github.mitzacoder.kemiri.data.ProjectBoard, feed: ProjectAppsFeed?, dismiss: () -> Unit) {
+    val rows = visibleApps(feed?.list?.apps.orEmpty())
+    LaunchedEffect(feed) { feed?.refresh() }
     val taskTitles by remember(board) { board.select { it.tasks.associate { task -> task.id to task.title } } }
         .collectAsStateWithLifecycle(emptyMap())
-    ModalBottomSheet(onDismissRequest = { open = false }, containerColor = Jarvis.colors.bg) {
-        val detected = feed.list?.detected.orEmpty()
+    ModalBottomSheet(onDismissRequest = dismiss, containerColor = Jarvis.colors.bg) {
+        val detected = feed?.list?.detected.orEmpty()
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -97,6 +92,10 @@ internal fun RunningAppsChip(board: io.github.mitzacoder.kemiri.data.ProjectBoar
             item { AppWarning() }
             if (rows.any { it.state == "pending" }) item {
                 AppMeta("Allow publishes that app and lets agents publish future apps in this project.")
+            }
+            if (feed == null) {
+                item { AppMeta("Offline · reconnect to see running apps.") }
+                return@LazyColumn
             }
             feed.error?.let { problem -> item { Text(problem, color = Jarvis.colors.danger) } }
             if (feed.list == null && feed.error == null) item { AppMeta("Loading apps…") }

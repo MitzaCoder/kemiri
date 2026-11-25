@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import io.github.mitzacoder.kemiri.features.chat.HarnessMarkdown
+import io.github.mitzacoder.kemiri.features.coordinators.coordinatorForChat
+import io.github.mitzacoder.kemiri.features.coordinators.rememberCoordinatorThreads
 import io.github.mitzacoder.kemiri.features.status.StatusGlyphs
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import kotlinx.coroutines.launch
@@ -38,6 +40,8 @@ import io.github.mitzacoder.kemiri.protocol.*
     }
     val draftKey = boardDraftKey(context.backend.config.key, route.projectId, "info", "${route.threadId}/${route.workerId}")
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val threads = rememberCoordinatorThreads(context, route.workerId == null && connection.supports("coordinators"))
+    val coordinator = coordinatorForChat(route, threads)
     var skillFilter by rememberSaveable(draftKey) { mutableStateOf("") }
     var toolFilter by rememberSaveable(draftKey) { mutableStateOf("") }
     var instructions by rememberSaveable(draftKey) { mutableStateOf("") }
@@ -58,6 +62,11 @@ import io.github.mitzacoder.kemiri.protocol.*
     // Relative times ("last 5 min ago") move on while the panel is open.
     val now = rememberAppTime(60_000)
     PanelBody(data) { info ->
+        coordinator?.let {
+            PanelCard("COORDINATOR AREA") {
+                Text(it.area?.takeIf(String::isNotBlank) ?: "No area set", color = Jarvis.colors.fgMuted)
+            }
+        }
         info.usage?.let { usage ->
             val view = contextUsageView(usage, now)
             PanelCard("CONTEXT USAGE", header = {

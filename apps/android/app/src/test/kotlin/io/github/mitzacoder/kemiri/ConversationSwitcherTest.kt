@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri
 
 import io.github.mitzacoder.kemiri.features.chat.isFinishedBackgroundJob
+import io.github.mitzacoder.kemiri.features.coordinators.coordinatorForChat
+import io.github.mitzacoder.kemiri.features.coordinators.otherCoordinatorsNeedingAttention
 import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.serialization.json.Json
@@ -61,6 +63,24 @@ class ConversationSwitcherTest {
     }
     @Test fun choiceDropsOneShotHighlight() {
         assertNull(conversationChoiceDestination(Destination.Chat("b", "p", highlight = ChatHighlight.Entry(1)), "working")!!.highlight)
+    }
+    @Test fun titleDistinguishesPeerCoordinatorsFromJobsAndWorkers() {
+        val route = Destination.Chat("backend", "project")
+        val general = job("main", "paused").copy(main = true)
+        val peer = job("orders", "paused").copy(kind = "coordinator")
+        val threads = listOf(general, peer, job("background", "working"))
+        assertEquals(general, coordinatorForChat(route, threads))
+        assertEquals(peer, coordinatorForChat(route.copy(threadId = peer.id), threads))
+        assertNull(coordinatorForChat(route.copy(threadId = "background"), threads))
+        assertNull(coordinatorForChat(route.copy(workerId = "worker"), threads))
+    }
+    @Test fun titleBadgeCountsOtherCoordinatorsNotTheirItems() {
+        val general = job("main", "needs_you").copy(main = true, openQuestions = 3)
+        val peer = job("orders", "needs_you").copy(kind = "coordinator", openQuestions = 2)
+        val archived = peer.copy(id = "old", archived = true)
+        val background = job("background", "needs_you").copy(openQuestions = 4)
+        assertEquals(1L, otherCoordinatorsNeedingAttention(listOf(general, peer, archived, background), general.id))
+        assertEquals(0L, otherCoordinatorsNeedingAttention(listOf(general, archived, background), general.id))
     }
     @Test fun headerWiringKeepsCountsInTitleAndRemovesBackgroundAction() {
         val source = File("src/main/kotlin/io/github/mitzacoder/kemiri/navigation/ProjectHeader.kt").readText()

@@ -52,7 +52,9 @@ internal fun AnswersProjectTabRow(
             }, text = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tab.name)
-                    if (count != null) Badge { Text(if (count > 99) "99+" else count.toString()) }
+                    if (count != null) Badge(containerColor = Jarvis.colors.warning, contentColor = Jarvis.colors.surface) {
+                        Text(if (count > 99) "99+" else count.toString())
+                    }
                     if (dot) Box(Modifier.size(7.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
             })

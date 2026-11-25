@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.projectWorkers
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -100,6 +101,13 @@ private fun ConversationChoiceRow(choice: ConversationChoice, line: String, choo
 private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<ThreadSummary>, now: Long, openPage: (String) -> Unit, dismiss: () -> Unit) {
     val roster = coordinatorRoster(threads)
     val board by context.board.view.collectAsStateWithLifecycle()
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val projects by context.backend.projects.collectAsStateWithLifecycle()
+    val projectModels = projects.find { it.id == context.route.projectId }?.workerModels
+    val workers = projectWorkers(context, connection.supports("workers"))?.value?.workers.orEmpty()
+    val outsideModelCounts = remember(workers, projectModels) {
+        workers.groupBy { it.threadId ?: MAIN_THREAD_ID }.mapValues { (_, rows) -> countWorkersOutsideModels(rows, projectModels) }
+    }
     val settings = LocalContext.current
     val openId = context.route.threadId ?: MAIN_THREAD_ID
     var expandedFinished by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -127,7 +135,8 @@ private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<Thr
                     val isOpen = coordinator.id == openId
                     item(key = coordinator.id) {
                         val badges = coordinatorBadges(coordinator, if (isOpen) Long.MAX_VALUE else coordinatorSeen(context.route, coordinator.id))
-                        CoordinatorSheetRow(coordinator, badges, isOpen, editArea = if (isOpen) ({ editingArea = true }) else null) { choose(coordinator.id) }
+                        CoordinatorSheetRow(coordinator, badges, isOpen, outsideModelCounts[coordinator.id] ?: 0,
+                            editArea = if (isOpen) ({ editingArea = true }) else null) { choose(coordinator.id) }
                     }
                     val (finished, live) = jobsByCoordinator[coordinator.id].orEmpty().partition(::isFinishedBackgroundJob)
                     items(live, key = { it.id }) { job ->
@@ -173,9 +182,9 @@ private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<Thr
 }
 
 @Composable
-private fun CoordinatorSheetRow(coordinator: ThreadSummary, badges: CoordinatorBadges, isOpen: Boolean, editArea: (() -> Unit)?, choose: () -> Unit) {
+private fun CoordinatorSheetRow(coordinator: ThreadSummary, badges: CoordinatorBadges, isOpen: Boolean, outsideModelCount: Int, editArea: (() -> Unit)?, choose: () -> Unit) {
     val colors = Jarvis.colors
-    val detail = listOfNotNull(coordinator.failure ?: coordinator.current,
+    val detail = listOfNotNull("$outsideModelCount on other models".takeIf { outsideModelCount > 0 }, coordinator.failure ?: coordinator.current,
         "${coordinator.runningWorkers} working".takeIf { coordinator.runningWorkers > 0 },
         "${coordinator.openQuestions} waiting for an answer".takeIf { coordinator.openQuestions > 0 },
         coordinator.openTasks?.let { "$it open tasks" }).joinToString(" · ")
