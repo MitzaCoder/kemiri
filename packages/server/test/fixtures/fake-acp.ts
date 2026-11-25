@@ -74,9 +74,10 @@ async function callMcp(exercise: boolean) {
 	const client = new McpClient({ name: "fake-acp", version: "1", requestTimeoutMs: 5000 });
 	try {
 		await client.connect(new StdioTransport({ ...server, cwd: process.cwd(), inheritEnv: false, env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])) }));
-		const tools = (await client.listTools()).map(tool => tool.name).sort();
-		record({ event: "mcp-tools", tools });
+		const tools = await client.listTools();
+		record({ event: "mcp-tools", tools: tools.map(tool => tool.name).sort() });
 		if (!exercise) return;
+		record({ event: "mcp-tool-schemas", tools: tools.map(({ name, inputSchema }) => ({ name, inputSchema })) });
 		const call = async (label: string, name: string, args: Record<string, unknown>) => {
 			const result = await client.callTool(name, args);
 			record({ event: "mcp-call", label, failed: Boolean(result.isError), content: result.content });

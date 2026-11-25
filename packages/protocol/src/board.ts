@@ -88,7 +88,11 @@ export type BoardReportSection = Static<typeof BoardReportSectionSchema>;
 export const REPORT_BLOCK_SECTIONS = ["summary", "results", "notDone", "next", "steps"] as const;
 export type ReportBlockSection = (typeof REPORT_BLOCK_SECTIONS)[number];
 
-const singleLine = (description: string) => Type.String({ pattern: "^(?=.*\\S)[^\\r\\n\\u2028\\u2029]+$", description });
+// Keep this JSON Schema pattern valid in Go's RE2 (Antigravity) as well as JavaScript.
+// Use literal Unicode characters in the pattern and spell out JS whitespace: RE2's \s is ASCII-only.
+const lineBreaks = "\\r\\n\u2028\u2029";
+const singleLineWhitespace = "\\t\\v\\f \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff";
+const singleLine = (description: string) => Type.String({ pattern: `^[${singleLineWhitespace}]*[^${singleLineWhitespace}${lineBreaks}][^${lineBreaks}]*$`, description });
 const reportProse = singleLine("Short prose with optional inline emphasis, code or safe links.");
 const reportTitle = singleLine("A short plain-text heading.");
 const reportBlock = <K extends string, P extends Record<string, import("typebox").TSchema>>(kind: K, fields: P) =>

@@ -9,6 +9,7 @@ import {
 	ClientMessageSchema,
 	PROTOCOL_SCHEMAS,
 	PROTOCOL_VERSION,
+	ResultBlockSchema,
 	ServerEventSchema,
 	ServerMessageSchema,
 	THINKING_LEVELS,
@@ -17,6 +18,19 @@ import {
 import { Value } from "typebox/value";
 
 describe("protocol schemas", () => {
+	it("requires nonblank single-line Results text, including Unicode whitespace", () => {
+		const accepts = (text: string) => Value.Check(ResultBlockSchema, { kind: "outcome", text });
+		for (const text of ["é", "\u3000 结果\t\u00a0", "a\vb"]) expect(accepts(text)).toBe(true);
+		for (const text of ["", " \t", "\v", "\u00a0", "\u1680", "\u2003", "\u202f", "\u205f", "\u3000", "\ufeff"]) {
+			expect(accepts(text)).toBe(false);
+		}
+		for (const lineBreak of ["\r", "\n", "\u2028", "\u2029"]) {
+			expect(accepts(lineBreak)).toBe(false);
+			expect(accepts(`a${lineBreak}b`)).toBe(false);
+			expect(accepts(`a${lineBreak}`)).toBe(false);
+		}
+	});
+
 	it("accepts a complete hello, watch and submit exchange", () => {
 		const hello = { type: "hello", id: "1", protocolVersion: PROTOCOL_VERSION };
 		expect(Value.Check(ClientMessageSchema, hello)).toBe(true);

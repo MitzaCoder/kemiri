@@ -2660,8 +2660,12 @@ Each bearer is kept in memory and bound to one agent process, project, worker co
 Process exit, stop, forget, idle teardown and shutdown revoke it. Reassigning the worker closes the old process and
 reloads its native session with a fresh bearer for the new task.
 
-The only tools are `task_progress` for a task-bound worker and `artifact_save` for any worker. Progress uses the
-native worker schema and report writer, including the same activity trail and, with `task-live`, `plan` and `tick`.
+The scoped tools are `task_progress` for a task-bound worker, `artifact_save` for any worker and the app tools
+when enabled. Progress uses the native worker schema and report writer, including the same activity trail and,
+with `task-live`, `plan` and `tick`. Antigravity compiles advertised regex patterns with Go's RE2 at startup.
+The shared report block schema uses patterns that work in both RE2 and JavaScript, retaining nonblank,
+single-line validation without a bridge-only rewrite. The stdio bridge test walks patterns in every advertised
+input schema and checks for incompatible syntax such as lookarounds, backreferences and `\u` escapes.
 Saves infer the task from the capability (or keep conversation scope when unassigned), reuse native tags and versioning, and only copy regular files whose
 resolved paths stay within the worker's workspace or its own proof folder. No IDs for selecting another scope and
 no board-wide actions, memory, codemode, shell or credentials are exposed by this bridge.

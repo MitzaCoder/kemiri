@@ -307,6 +307,21 @@ function observeBridgeGrant() {
 	return spyOn(OfficialAgentMcpBridge.prototype, "grant");
 }
 
+function incompatibleSchemaPatterns(schema: unknown, path: string): { path: string; pattern: string }[] {
+	if (typeof schema !== "object" || schema === null) return [];
+	return Object.entries(schema).flatMap(([key, value]) => {
+		const memberPath = `${path}/${key}`;
+		if (key !== "pattern" || typeof value !== "string") return incompatibleSchemaPatterns(value, memberPath);
+		// Compile with JS and reject common RE2-incompatible tokens without a Go test dependency.
+		// Tokenize escapes first so a literal backslash cannot be mistaken for a backreference.
+		const tokens = value.match(/\\[\s\S]|\(\?(?:[=!]|<[=!])/g) ?? [];
+		const incompatible = { path: memberPath, pattern: value };
+		if (tokens.some(token => token.startsWith("(?") || /\\[1-9cku]/.test(token))) return [incompatible];
+		try { new RegExp(value, "u"); } catch { return [incompatible]; }
+		return [];
+	});
+}
+
 test("official workers can update only their own task and retain only files inside the workspace", async () => {
 	const s = await workerSetup("EXERCISE_MCP", { isolated: true });
 	const grants = observeBridgeGrant();
@@ -314,7 +329,11 @@ test("official workers can update only their own task and retain only files insi
 		await s.submit();
 		await s.view.waitForView(v => v.entries.some(entry => entryText(entry).includes("[worker official reported]")));
 		const events = await fixtureEvents(s.setup.dataDir);
-		expect(events).toContainEqual({ event: "mcp-tools", tools: ["app_list", "app_publish", "app_start", "app_stop", "app_unpublish", "artifact_save", "task_progress"] });
+		const expectedTools = ["app_list", "app_publish", "app_start", "app_stop", "app_unpublish", "artifact_save", "task_progress"];
+		expect(events).toContainEqual({ event: "mcp-tools", tools: expectedTools });
+		const schemas = events.find(event => event.event === "mcp-tool-schemas")?.tools as { name: string; inputSchema: unknown }[] | undefined;
+		expect(schemas?.map(tool => tool.name).sort()).toEqual(expectedTools);
+		expect(schemas?.flatMap(tool => incompatibleSchemaPatterns(tool.inputSchema, tool.name))).toEqual([]);
 		const calls = Object.fromEntries(events.filter(e => e.event === "mcp-call").map(e => [e.label, e]));
 		for (const label of ["spoof-progress", "unlisted", "outside", "symlink", "spoof-artifact"]) expect(calls[label]?.failed).toBe(true);
 		for (const label of ["outside", "symlink"]) expect(calls[label]?.content[0].text).toContain("must resolve inside");
