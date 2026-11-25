@@ -19,7 +19,6 @@ import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ChatFileStore } from "./chat-files.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 import { chooseAuditModel, emptyAuditRecord, auditDay, type ReportAuditRecord } from "./report-audit.ts";
-import { createHash } from "node:crypto";
 /**
  * One Harness per project, opened lazily on first use and kept open. The root conversation is the project's coordinator
  * and runs pi-durable's CodingTools with the project directory as cwd. Workers the coordinator delegates to are child
@@ -1671,6 +1670,7 @@ export class ProjectManager {
 			...(this.#notifications === undefined ? {} : { notifications: this.#notifications }),
 			now: () => this.#clock(),
 			onChange: () => pushThreads(),
+			onFinished: conversationId => this.#requestLog?.warming.invalidate(project.id, "Thread finished", conversationId),
 			onMessage: this.#onThreadsMessage,
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
@@ -1794,20 +1794,12 @@ export class ProjectManager {
 		if (this.#requestLog !== undefined) {
             this.#requestLog.warming.register(project.id, {
                 settings: () => entry.project,
-                prefixRevision: async id => {
-                    const threadId = coordinators.threadIdOf(id) ?? MAIN_THREAD_ID;
-                    const target = coordinators.isMain(id) ? conversation : await threads.conversation(threadId);
-                    const context = await readConversationContext({ project: entry.project, workerId: null, threadId, conversation: target,
-                        harness, registry, agentDir: this.#agentDir, configDir: this.#configDir, claudeDir: this.#claudeDir,
-                        skills: this.skills, role, ...(this.#homeDir === undefined ? {} : { homeDir: this.#homeDir }) });
-                    return createHash("sha256").update(JSON.stringify([context.systemPrompt, context.tools])).digest("hex");
-                },
                 conversation: async id => {
                     if (coordinators.isMain(id)) return conversation;
                     const threadId = coordinators.threadIdOf(id);
                     if (threadId === undefined) return undefined;
                     const record = await threads.record(threadId);
-                    if (!record || record.archived || record.held) return undefined;
+                    if (!record || record.archived || record.held || (record.status !== "running" && record.status !== "idle")) return undefined;
                     return threads.conversation(threadId);
                 },
             });

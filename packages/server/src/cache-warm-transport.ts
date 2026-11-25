@@ -17,6 +17,8 @@ export function supportsCacheWarm(model: Pick<Model<string>, "provider" | "api">
 	return model.provider === "anthropic" && model.api === "anthropic-messages";
 }
 export function zeroOutputPayload(payload: CacheWarmPayload): CacheWarmPayload | undefined {
+	// Old saved snapshots may contain only a thread continuation, which is not a replayable request.
+	if ((payload.thread as { type?: string } | undefined)?.type === "continue") return undefined;
 	const thinking = payload.thinking as { type?: string } | undefined;
 	const choice = payload.tool_choice as { type?: string } | undefined;
 	if (thinking?.type === "enabled" || choice?.type === "any" || choice?.type === "tool" ||

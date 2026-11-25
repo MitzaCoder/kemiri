@@ -70,7 +70,7 @@ function stableMessage(message: unknown): unknown {
 }
 
 /** The fingerprint of the messages pi-durable sends; `payload` adds the provider payload when pi-ai showed it. */
-export function fingerprintRequest(messages: readonly unknown[], payload?: unknown): PromptFingerprint {
+export function fingerprintRequest(messages: readonly unknown[], payload?: unknown, anthropicMessages = false): PromptFingerprint {
 	const [first, ...rest] = messages;
 	const leading = isRecord(first) && first.role === "system" ? (first as MessageLike) : undefined;
 	const sections: Record<string, string> = {};
@@ -95,7 +95,7 @@ export function fingerprintRequest(messages: readonly unknown[], payload?: unkno
 		tools,
 		messages: later.map((message) => hashJson(stableMessage(message))),
 	};
-	const wire = payload === undefined ? undefined : fingerprintPayload(payload);
+	const wire = payload === undefined ? undefined : fingerprintPayload(payload, anthropicMessages);
 	if (wire !== undefined) fingerprint.wire = wire;
 	return fingerprint;
 }
@@ -113,14 +113,20 @@ function withoutCacheMarkers(value: unknown): unknown {
 }
 
 /** The provider payload's top-level parts; undefined when it is not a JSON object (a provider SDK's own type). */
-export function fingerprintPayload(payload: unknown): Record<string, string | string[]> | undefined {
+export function fingerprintPayload(payload: unknown, anthropicMessages = false): Record<string, string | string[]> | undefined {
 	if (!isRecord(payload)) return undefined;
 	const parts: Record<string, string | string[]> = {};
 	try {
 		for (const [key, value] of Object.entries(payload)) {
 			if (value === undefined) continue;
 			const clean = withoutCacheMarkers(value);
-			parts[key] = Array.isArray(clean) ? clean.map(hashJson) : hashJson(clean);
+			// Adding the last-message breakpoint wraps a string in a text block. After the breakpoint
+			// moves, Anthropic treats the string and that block as the same prefix.
+			const normalized = anthropicMessages && key === "messages" && Array.isArray(clean)
+				? clean.map(message => isRecord(message) && typeof message.content === "string"
+					? { ...message, content: [{ type: "text", text: message.content }] } : message)
+				: clean;
+			parts[key] = Array.isArray(normalized) ? normalized.map(hashJson) : hashJson(normalized);
 		}
 	} catch {
 		return undefined;

@@ -2,6 +2,7 @@ import { matchesModelScope } from "./limit-ledger.ts";
 import { stateKind } from "./state-identity.ts";
 import { cacheWarmAuthFingerprint, cacheWarmHeaders, supportsCacheWarm } from "./cache-warm-transport.ts";
 import { CoordinatorCacheWarm, type WarmRequest } from "./cache-keep-warm.ts";
+import type { CacheWarmClock } from "./cache-warm-schedule.ts";
 /**
  * The request log: one row per model request of every conversation (main, threads, workers), with its tokens and cost,
  * the prompt cache miss it paid for (the protocol's `CacheMissTracker` rules), what woke the agent, the cache retention,
@@ -195,7 +196,7 @@ export class ConversationRequests {
 	}
 }
 
-type RequestTag = { projectId: string; conversationId: number; identity: ConversationIdentity; prefixRevision?: string };
+type RequestTag = { projectId: string; conversationId: number; identity: ConversationIdentity };
 
 type PendingRequest = {
 	recorded?: () => void;
@@ -260,6 +261,7 @@ export type RequestLogOptions = {
 	billingFor?: (provider: string) => Promise<RequestBilling | null>;
 	log?: (message: string) => void;
 	now?: () => number;
+	warmClock?: CacheWarmClock;
 	/** The cache-read price per token of a model, for a request that read nothing. */
 	cacheReadPerToken?: (provider: string, model: string) => number | undefined;
 };
@@ -296,7 +298,7 @@ export class RequestLog {
 			try { return await options.billingFor?.(provider) ?? null; }
 			catch { return null; } // A failed credential lookup must not lose the usage row.
 		};
-		this.warming = new CoordinatorCacheWarm(options.store, undefined, this.#billingFor);
+		this.warming = new CoordinatorCacheWarm(options.store, options.warmClock, this.#billingFor);
 		this.#now = options.now ?? Date.now;
 		this.#cacheReadPerToken = options.cacheReadPerToken;
 	}
@@ -349,10 +351,7 @@ export class RequestLog {
 								this.warming.invalidate(projectId, "Conversation resumed", conversationId);
 								// Capture attribution before the request, not when the write queue reaches it.
 								const identity = await this.#identity(projectId, conversationId);
-								const tag = { projectId, conversationId, identity };
-								this.#tags.set(last, tag);
-								const prefixRevision = await this.warming.prefixRevision(projectId, conversationId);
-								if (prefixRevision !== undefined) this.#tags.set(last, { ...tag, prefixRevision });
+								this.#tags.set(last, { projectId, conversationId, identity });
 							}
 						} catch {
 							// Never in the way of the request.
@@ -392,28 +391,31 @@ export class RequestLog {
 				let payload: unknown;
 				let authFingerprint: string | undefined;
 				let cacheHeaders: Record<string, string> | undefined;
-				const contextSnapshot = structuredClone(context) as WarmRequest["context"];
+				const sentModel = model as WarmRequest["model"];
+				const canKeepWarm = supportsCacheWarm(sentModel);
 				const transport = (options?.fetch as typeof fetch | undefined) ?? globalThis.fetch;
-				const captureFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-					const request = new Request(input instanceof Request ? input.clone() : input, init);
-					if (supportsCacheWarm(model as WarmRequest["model"])) {
-						payload = JSON.parse(await request.clone().text());
-						authFingerprint = cacheWarmAuthFingerprint(request.headers);
-						cacheHeaders = cacheWarmHeaders(request.headers);
-					}
+				const captureFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+					const { headers } = new Request(input instanceof Request ? input.clone() : input, init);
+					authFingerprint = cacheWarmAuthFingerprint(headers);
+					cacheHeaders = cacheWarmHeaders(headers);
 					return transport(input, init);
 				}) as typeof fetch;
 				const given = options?.onPayload as ((payload: unknown, model: unknown) => unknown) | undefined;
 				const observed = {
 					...options,
-					fetch: captureFetch,
+					...(canKeepWarm ? { fetch: captureFetch } : {}),
 					onPayload: async (body: unknown, bodyModel: unknown) => {
 						const replaced = await given?.(body, bodyModel);
-						payload = replaced ?? body;
+						const sentBody = replaced ?? body;
+						if (canKeepWarm && isRecord(sentBody)) {
+							// Thread preparation trims the prefix after this hook. The SDK moves betas to a header,
+							// which captureFetch records separately from the body.
+							const { betas: _betas, ...fullBody } = sentBody;
+							payload = JSON.parse(JSON.stringify(fullBody));
+						} else payload = sentBody;
 						return replaced;
 					},
 				};
-				const sentModel = model as WarmRequest["model"];
 				const start = { provider: sentModel.provider, at: this.#now(), run: {
 					...tag.identity, projectId: tag.projectId, conversationId: tag.conversationId, model: sentModel.id, requests: 1, apiValue: 0,
 				} };
@@ -424,11 +426,12 @@ export class RequestLog {
 				catch (error) { recorded(); throw error; }
 				const retention = typeof options?.cacheRetention === "string" ? options.cacheRetention : "short";
 				const by = tag;
+				// Maintenance replaces pi-ai's entire body, so it does not need a second copy of the transcript.
 				try {
 					if (!stream.result) recorded();
 					void stream
 						.result?.()
-						.then((message) => this.#enqueue({ recorded, tag: by, messages: sent, payload, message: message as AssistantLike, retention, warm: { models, ...(by.prefixRevision === undefined ? {} : { prefixRevision: by.prefixRevision }), model: model as WarmRequest["model"], context: contextSnapshot, ...(authFingerprint === undefined ? {} : { authFingerprint }), ...(cacheHeaders === undefined ? {} : { cacheHeaders }), options: { ...options } as WarmRequest["options"] } }))
+						.then((message) => this.#enqueue({ recorded, tag: by, messages: sent, payload, message: message as AssistantLike, retention, warm: { models, model: sentModel, context: { messages: [] }, ...(authFingerprint === undefined ? {} : { authFingerprint }), ...(cacheHeaders === undefined ? {} : { cacheHeaders }), options: { ...options } as WarmRequest["options"] } }))
 						.catch(recorded);
 				} catch {
 					recorded();
@@ -568,7 +571,7 @@ export class RequestLog {
 		const { projectId, conversationId, identity } = request.tag;
 		await this.#backfills.get(projectId);
 		const live = this.#conversation(projectId, conversationId, identity);
-		const fingerprint = fingerprintRequest(request.messages, request.payload);
+		const fingerprint = fingerprintRequest(request.messages, request.payload, supportsCacheWarm(request.warm.model));
 		const previous = live.fingerprint;
 		const tail = requestTail(request.messages);
 		const restarted = previous !== undefined && startsOver(previous, fingerprint);

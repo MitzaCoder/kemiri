@@ -8,7 +8,11 @@ import { CacheWarmSchedule, cacheWarmInterval, type CacheWarmClock } from "../sr
 import { refreshAnthropicCache, supportsCacheWarm, zeroOutputPayload } from "../src/cache-warm-transport.ts";
 import { cacheStats, longCacheWhatIf, wakeGroups } from "../src/cache-stats.ts";
 import { RequestLogStore, type RequestRow } from "../src/request-log-store.ts";
-import type { Model, Models } from "@earendil-works/pi-ai";
+import { RequestLog } from "../src/request-log.ts";
+import type { Context, Model, Models } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { Type } from "typebox";
+import { createSetup, TestClient } from "./support.ts";
 
 class Clock implements CacheWarmClock {
 	at = 0; timers = new Map<number, { at: number; callback: () => void }>(); sequence = 0;
@@ -62,7 +66,7 @@ it("never pings Codex or an API/provider mismatch; refuses incompatible zero-out
 	expect(supportsCacheWarm({ provider: "openai-codex", api: "openai-codex-responses" })).toBe(false);
 	expect(supportsCacheWarm({ provider: "anthropic", api: "openai-responses" })).toBe(false);
 	expect(supportsCacheWarm({ provider: "other", api: "anthropic-messages" })).toBe(false);
-	for (const payload of [{ thinking: { type: "enabled" } }, { tool_choice: { type: "any" } }, { output_config: { format: {} } }]) expect(zeroOutputPayload(payload)).toBeUndefined();
+	for (const payload of [{ thread: { type: "continue" }, messages: [] }, { thinking: { type: "enabled" } }, { tool_choice: { type: "any" } }, { output_config: { format: {} } }]) expect(zeroOutputPayload(payload)).toBeUndefined();
 });
 
 it("keeps refresh spend separate from requests, misses, wakes and what-if", () => {
@@ -126,12 +130,12 @@ it("the coordinator watch stops real scheduling on turn, compaction, reset, mode
 
 it("restores a still-live schedule from its private snapshot, without a startup burst or changing the idle cap", async () => {
     const clock = new Clock(); const store = RequestLogStore.open(":memory:");
-    let prefix = "same-system-and-tools"; let sent = 0;
+    const entries = [{ id: 2, kind: "pi.assistant" }]; let sent = 0;
     const model = { id: "test", provider: "anthropic", api: "anthropic-messages" } as Model<string>;
     const models = { getModel: () => model, streamSimple: () => ({ result: async () => { sent++; return { usage: { input: 0, output: 0, cacheRead: 100, cacheWrite: 0,
         cost: { input: 0, output: 0, cacheRead: .04, cacheWrite: 0, total: .04 } }, stopReason: "length" }; } }) } as unknown as Models;
-    const project = { settings: () => ({ keepPromptCacheWarm: true, promptCacheWarmHours: 8 }), prefixRevision: async () => prefix,
-        conversation: async () => ({ watch: async () => ({ value: { conversation: { id: 1 }, entries: [{ id: 2, kind: "pi.assistant" }], docs: { "pi.agent": {}, "pi.live": {} } },
+    const project = { settings: () => ({ keepPromptCacheWarm: true, promptCacheWarmHours: 8 }),
+        conversation: async () => ({ watch: async () => ({ value: { conversation: { id: 1 }, entries, docs: { "pi.agent": {}, "pi.live": {} } },
             start: () => {}, stop: async () => {}, closed: new Promise(() => {}) }) } as unknown as Conversation) };
     const first = new CoordinatorCacheWarm(store, clock); first.useModels(models); first.register("p", project);
     await first.real({ models, model, row: { projectId: "p", conversationId: 1, kind: "main", provider: "anthropic", model: "test", at: 0,
@@ -139,6 +143,10 @@ it("restores a still-live schedule from its private snapshot, without a startup 
     await clock.advance(3_000_000); for (let n=0;n<10;n++) await Promise.resolve(); expect(sent).toBe(1);
     first.unregister("p", true);
     expect(store.warmSnapshots("p")).toHaveLength(1);
+    // A snapshot from before the fix tracked the next rendered prompt separately. That rendering can change
+    // across a restart without changing any of the retained conversation entries.
+    const saved = store.warmSnapshots("p")[0] as object;
+    store.saveWarmSnapshot("p", 1, { ...saved, prefixRevision: "old-system-and-tools" });
     await clock.advance(3_200_000);
     const restarted = new CoordinatorCacheWarm(store, clock); restarted.useModels(models); restarted.register("p", project);
     await restarted.restore("p"); expect(sent).toBe(1);
@@ -147,7 +155,7 @@ it("restores a still-live schedule from its private snapshot, without a startup 
     expect(store.warmStretches("p",1)).toHaveLength(1);
     expect(store.warmStretches("p",1)[0]?.refreshes).toBe(2);
     restarted.unregister("p", true);
-    prefix = "edited-AGENTS";
+    entries.push({ id: 3, kind: "pi.compaction" });
     const changed = new CoordinatorCacheWarm(store, clock); changed.useModels(models); changed.register("p", project);
     await changed.restore("p"); await clock.advance(4_000_000); expect(sent).toBe(2); expect(store.warmSnapshots("p")).toHaveLength(0);
     changed.close(); store.close();
@@ -205,4 +213,125 @@ it.each(["api_key", "oauth"] as const)("adapts the real pi-ai Anthropic %s auth/
         maxRetries: 0,
     }).result();
     expect(continued).toEqual({ type: "continue", previous_message_id: "fake-real" });
+});
+
+
+it.each(["read", "write", "error"] as const)("replays the full Anthropic continuation prefix and logs a ping with a cache %s outcome", async outcome => {
+	const clock = new Clock();
+	clock.at = Date.now();
+	const store = RequestLogStore.open(":memory:");
+	const log = new RequestLog({ store, warmClock: clock });
+	try {
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "fake-test-only" }));
+		const models = log.observeModels(createHarnessModels({ credentials }));
+		const model = models.getModels("anthropic")[0]!;
+		const extension = log.extension("p", async () => ({ kind: "main", threadId: "main", workerId: null, taskId: null, scheduleId: null }));
+		const beforeRequest = (extension.hooks?.[0] as { handlers: { beforeRequest: (request: Context, api: { conversationId: number }) => Promise<void> } }).handlers.beforeRequest;
+		const view = { docs: {}, entries: [{ kind: "pi.assistant", id: 2 }] };
+		log.warming.register("p", { settings: () => ({ keepPromptCacheWarm: true, promptCacheWarmHours: 8 }),
+			conversation: async () => ({ watch: async () => ({ value: view, start: () => {}, stop: async () => {}, closed: new Promise(() => {}) }) }) as unknown as Conversation });
+		const wireBodies: Record<string, unknown>[] = [];
+		const fullBodies: Record<string, unknown>[] = [];
+		const event = (type: string, payload: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`;
+		const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			const body = await new Request(input, init).json() as Record<string, unknown>;
+			wireBodies.push(body);
+			if (body.max_tokens === 0) {
+				if (outcome === "error") return Response.json({ error: { type: "invalid_request_error", message: "Fixture rejection" } }, { status: 400 });
+				return Response.json({ id: "ping", model: model.id, stop_reason: "max_tokens",
+					usage: { input_tokens: 2, output_tokens: 0, cache_read_input_tokens: 180, cache_creation_input_tokens: outcome === "write" ? 20 : 0 } });
+			}
+			const usage = { input_tokens: 2, output_tokens: 0, cache_read_input_tokens: 100, cache_creation_input_tokens: 100, cache_creation: { ephemeral_1h_input_tokens: 100 } };
+			return new Response(event("message_start", { message: { id: `real-${wireBodies.length}`, model: model.id, role: "assistant", content: [], usage } }) +
+				event("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 0 } }) + event("message_stop", {}),
+				{ headers: { "content-type": "text/event-stream" } });
+		}) as typeof globalThis.fetch;
+		const options = { sessionId: `keep-warm-continue-${outcome}`, cacheRetention: "long" as const, reasoning: "low" as const, maxRetries: 0, fetch,
+			onPayload: (body: unknown) => {
+				const { betas, ...fullBody } = body as Record<string, unknown>;
+				const sent = { ...fullBody, max_tokens: 2048 };
+				fullBodies.push(structuredClone(sent));
+				return { ...sent, betas };
+			} };
+		const context: Context = { systemPrompt: "Stable fixture instructions", tools: [{ name: "lookup", description: "Look up a fixture", parameters: Type.Object({}) }],
+			messages: [{ role: "user", content: "First input", timestamp: 1 }] };
+		await beforeRequest(context, { conversationId: 1 });
+		const first = await models.streamSimple(model, context, options).result();
+		expect(first.stopReason).toBe("stop");
+		await log.flush();
+		const continued: Context = { ...context, messages: [...context.messages, first, { role: "user", content: "Next input", timestamp: 2 }] };
+		await beforeRequest(continued, { conversationId: 1 });
+		const second = await models.streamSimple(model, continued, options).result();
+		expect(second.stopReason).toBe("stop");
+		await log.flush();
+		expect(wireBodies[0]).toEqual({ ...fullBodies[0], thread: { type: "create" } });
+		expect(wireBodies[1]?.thread).toEqual({ type: "continue", previous_message_id: "real-1" });
+		expect(wireBodies[1]?.system).toBeUndefined();
+		expect(wireBodies[1]?.tools).toBeUndefined();
+		expect(wireBodies[1]?.messages).toEqual((fullBodies[1]?.messages as unknown[]).slice(1));
+		expect(store.rows({ from: 0, to: Date.now() + 1 })[1]?.changes).toEqual([]);
+		await clock.advance(3_010_000);
+		await Bun.sleep(0);
+		expect(wireBodies).toHaveLength(3);
+		expect(wireBodies[2]).toEqual({ ...fullBodies[1], max_tokens: 0, stream: false });
+		expect(JSON.stringify(wireBodies[2])).toContain('"cache_control":{"type":"ephemeral","ttl":"1h"}');
+		const rows = store.rows({ from: 0, to: clock.at + 1 });
+		expect(rows.map(row => row.source)).toEqual(["live", "live", "keepWarm"]);
+		expect(rows[2]).toMatchObject({ cacheRead: outcome === "error" ? 0 : 180, cacheWrite: outcome === "write" ? 20 : 0,
+			stopReason: outcome === "error" ? "error" : "length", missTokens: 0 });
+		expect(store.warmStretches("p", 1)[0]).toMatchObject({ attempts: 1, refreshes: outcome === "read" ? 1 : 0 });
+	} finally {
+		await log.close();
+	}
+});
+
+it("disarms when a background job finishes and refuses to arm or restore it after that", async () => {
+	const test = await createSetup({ log: () => {} });
+	const client = await TestClient.open(test.server);
+	try {
+		await client.hello();
+		const added = await client.request({ type: "projects.add", path: test.projectDir });
+		if (added.type !== "projects.add") throw new Error("Fixture project was not added");
+		const projectId = added.project.id;
+		const fauxModel = { provider: "faux", modelId: "faux-1" };
+		const configured = await client.request({ type: "projects.configure", projectId, coordinatorModel: fauxModel, workerModels: [fauxModel] });
+		expect(configured.type).toBe("projects.configure");
+		const { runtime } = await test.server.manager.open(projectId);
+		test.faux.setResponses(Array.from({ length: 8 }, () => () => fauxAssistantMessage("Checked the fixture.")));
+		const task = await runtime.board.saveTask({ task: { title: "Check fixture", description: "", acceptance: null,
+			status: "todo", blockedBy: [], blockedReason: null, writeScopes: [] } }, "user");
+		const started = await runtime.threads.start({ title: "Fixture job", brief: "Check the fixture.", model: null,
+			thinkingLevel: null, onFinish: "record", startedBy: "main", scheduleId: null, taskId: task.id, key: "fixture-job" });
+		if (!started.ok) throw new Error(started.message);
+		for (let tries = 0; tries < 100; tries++) {
+			const record = await runtime.threads.record(started.record.id);
+			if (record?.status === "failed") throw new Error(record.failure ?? "Fixture job failed");
+			if (record?.status === "idle") break;
+			await Bun.sleep(10);
+		}
+		expect((await runtime.threads.record(started.record.id))?.status).toBe("idle");
+		const log = test.server.requestLog!;
+		await log.flush();
+		const model = { id: "fixture", provider: "anthropic", api: "anthropic-messages" } as Model<string>;
+		const models = { getModel: () => model } as unknown as Models;
+		const request = { models, model, context: { messages: [] }, options: {}, payload: { messages: [] }, row: {
+			projectId, conversationId: started.record.conversationId, kind: "thread", provider: model.provider, model: model.id,
+			at: Date.now(), stopReason: "stop", cacheRead: 0, cacheWrite: 100, cacheWrite1h: 100 } as RequestRow };
+		await log.warming.real(request);
+		const snapshots = log.store.warmSnapshots(projectId);
+		expect(snapshots).toHaveLength(1);
+		await runtime.threads.finish(started.record, "Fixture checked.", "finish-fixture-job");
+		expect(log.store.warmSnapshots(projectId)).toHaveLength(0);
+		// A final response still in the log queue cannot start another stretch.
+		await log.warming.real(request);
+		expect(log.store.warmSnapshots(projectId)).toHaveLength(0);
+		log.store.saveWarmSnapshot(projectId, request.row.conversationId, snapshots[0]);
+		log.warming.useModels(models);
+		await log.warming.restore(projectId);
+		expect(log.store.warmSnapshots(projectId)).toHaveLength(0);
+	} finally {
+		client.close();
+		await test.cleanup();
+	}
 });

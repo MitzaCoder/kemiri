@@ -1,5 +1,5 @@
 import type { CacheWarmStretch } from "@kemiri/protocol";
-import type { Context, Model, Models, ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { Context, Model, Models, ModelsSimpleStreamOptions, Usage } from "@earendil-works/pi-ai";
 import type { Conversation } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { CacheWarmSchedule, type CacheWarmClock } from "./cache-warm-schedule.ts";
@@ -10,16 +10,14 @@ import type { RequestBilling, RequestLogStore, RequestRow } from "./request-log-
 type WarmProject = {
 	settings: () => { keepPromptCacheWarm: boolean; promptCacheWarmHours: number; archived?: boolean };
 	conversation: (id: number) => Promise<Conversation | undefined>;
-	prefixRevision?: (id: number) => Promise<string>;
 };
 type Armed = { schedule: CacheWarmSchedule; stopWatch: () => Promise<void>; preserveSnapshot: boolean };
 type WarmSnapshot = {
-    request: Omit<WarmRequest, "models">; summary: CacheWarmStretch; agent: string; head?: number;
-    prefixRevision?: string; ttlMs: number;
+    request: Omit<WarmRequest, "models">; summary: CacheWarmStretch; agent: string; head?: number; ttlMs: number;
 };
 export type WarmRequest = {
 	row: RequestRow; model: Model<string>; context: Context; options: ModelsSimpleStreamOptions;
-	payload: unknown; models: Models; authFingerprint?: string; prefixRevision?: string; cacheHeaders?: Record<string, string>;
+	payload: unknown; models: Models; authFingerprint?: string; cacheHeaders?: Record<string, string>;
 };
 /** Owns only private request snapshots and timers. Durable history belongs to the request log. */
 export class CoordinatorCacheWarm {
@@ -37,11 +35,6 @@ export class CoordinatorCacheWarm {
 		this.#clock = clock;
 		this.#billingFor = billingFor;
 	}
-    async prefixRevision(projectId: string, conversationId: number): Promise<string | undefined> {
-        const project = this.#projects.get(projectId);
-        if (!project?.settings().keepPromptCacheWarm || await project.conversation(conversationId) === undefined) return undefined;
-        return project.prefixRevision?.(conversationId);
-    }
 	useModels(models: Models): void { this.#models = models; }
 	skipWhileUsagePaused(isPaused: (provider: string) => boolean): void { this.#isUsagePaused = isPaused; }
 	async restore(projectId: string): Promise<void> {
@@ -91,9 +84,9 @@ export class CoordinatorCacheWarm {
 		let view = watch.value;
 		const initialAgent = JSON.stringify(view.docs["pi.agent"]);
 		const initialHead = view.entries.filter(entry => ["pi.compaction", "pi.reset", "pi.system"].includes(entry.kind)).at(-1)?.id;
-		const prefixRevision = await project.prefixRevision?.(row.conversationId);
-		if (request.prefixRevision !== undefined && request.prefixRevision !== prefixRevision) { await watch.stop(); return; }
-		if (restored !== undefined && (restored.agent !== initialAgent || restored.head !== initialHead || restored.prefixRevision !== prefixRevision)) {
+		// Only the committed conversation prefix matters. Rendered prompt updates are appended on the next turn,
+		// which invalidates this snapshot before sending a request.
+		if (restored !== undefined && (restored.agent !== initialAgent || restored.head !== initialHead)) {
 			if (restored.summary.attempts > 0) this.#store.saveWarmStretch(row.projectId, row.conversationId, { ...restored.summary, stopped: "Prompt or model changed while offline" });
 			await watch.stop(); return;
 		}
@@ -112,7 +105,7 @@ export class CoordinatorCacheWarm {
         const persist = () => this.#store.saveWarmSnapshot(row.projectId, row.conversationId, {
             request: { row, model: snapshotModel, context: request.context, options, payload, ...(request.authFingerprint === undefined ? {} : { authFingerprint: request.authFingerprint }), ...(request.cacheHeaders === undefined ? {} : { cacheHeaders: request.cacheHeaders }) },
             summary, agent: initialAgent, ...(initialHead === undefined ? {} : { head: Number(initialHead) }),
-            ...(prefixRevision === undefined ? {} : { prefixRevision }), ttlMs,
+            ttlMs,
         } satisfies WarmSnapshot);
 		const schedule = new CacheWarmSchedule({ ...(this.#clock === undefined ? {} : { clock: this.#clock }), realAt: row.at, ttlMs, ...(restored === undefined ? {} : { touchAt: summary.lastReadAt ?? row.at, resumeDelayMs: 30_000 + Math.floor(Math.random() * 30_000) }),
 			hours: project.settings().promptCacheWarmHours,
@@ -121,26 +114,29 @@ export class CoordinatorCacheWarm {
 				if (this.#isUsagePaused(row.provider)) { schedule.stop("Subscription requests paused"); return false; }
 				if (!valid() || !idle()) { schedule.stop("Conversation changed"); return false; }
 				persist(); // Preflight the log before spending; a broken log disarms maintenance.
-				if (await project.prefixRevision?.(row.conversationId) !== prefixRevision) { schedule.stop("System prompt or tools changed"); return false; }
+				if (await project.conversation(row.conversationId) === undefined) { schedule.stop("Conversation unavailable"); return false; }
 				if (!valid() || !idle() || signal.aborted) return false;
 				const at = this.#clock?.now() ?? Date.now();
 				const response = await refreshAnthropicCache({ models: request.models, model: request.model, context: request.context,
-					requestOptions: request.options, payload, ...(request.authFingerprint === undefined ? {} : { authFingerprint: request.authFingerprint }), ...(request.cacheHeaders === undefined ? {} : { cacheHeaders: request.cacheHeaders }), signal, admit: () => valid() && idle() && !this.#isUsagePaused(row.provider) });
-				const usage = response.usage;
+					requestOptions: request.options, payload, ...(request.authFingerprint === undefined ? {} : { authFingerprint: request.authFingerprint }), ...(request.cacheHeaders === undefined ? {} : { cacheHeaders: request.cacheHeaders }), signal, admit: () => valid() && idle() && !this.#isUsagePaused(row.provider) }).catch(() => undefined);
+				const stopReason = response?.stopReason ?? "error";
+				const usage: Usage = response?.usage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+					cost: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
 				summary.attempts += 1;
 				summary.lastAt = at;
 				summary.cachedTokens += usage.cacheRead;
 				summary.cost += usage.cost.total;
-				const warm = response.stopReason !== "error" && response.stopReason !== "aborted" && usage.cacheRead > 0 && usage.cacheWrite === 0;
+				const failed = stopReason === "error" || stopReason === "aborted";
+				const warm = !failed && usage.cacheRead > 0 && usage.cacheWrite === 0;
 				if (warm) { summary.refreshes += 1; summary.lastReadAt = at; }
-				else summary.stopped = response.stopReason === "error" || response.stopReason === "aborted" ? "Cache refresh stopped: provider request failed" : usage.cacheRead <= 0 ? "Cache refresh stopped: no cache read" : "Cache refresh stopped: unexpected cache write";
+				else summary.stopped ??= failed ? "Cache refresh stopped: provider request failed" : usage.cacheRead <= 0 ? "Cache refresh stopped: no cache read" : "Cache refresh stopped: unexpected cache write";
 				const billing = await this.#billingFor(row.provider);
 				const periodId = billing === "subscription" || billing === "plan_key" ? this.#store.ledger.bindingPeriodId(row.provider, at) : null;
 				this.#store.recordWarm({ ...row, at, billing, periodId, priced: hasCatalogPrice(request.model), input: usage.input, output: usage.output, cacheRead: usage.cacheRead,
 					cacheWrite: usage.cacheWrite, cacheWrite1h: usage.cacheWrite1h ?? null, cost: usage.cost.total,
 					costInput: usage.cost.input, costOutput: usage.cost.output, costCacheRead: usage.cost.cacheRead, costCacheWrite: usage.cost.cacheWrite,
 					promptTokens: usage.input + usage.cacheRead + usage.cacheWrite, source: "keepWarm", wake: null, changes: null,
-					missTokens: 0, missCost: 0, missReason: null, idleMs: at - row.at, stopReason: response.stopReason,
+					missTokens: 0, missCost: 0, missReason: null, idleMs: at - row.at, stopReason,
 					durationMs: (this.#clock?.now() ?? Date.now()) - at }, summary);
 				if (warm && valid()) persist();
 				return warm;

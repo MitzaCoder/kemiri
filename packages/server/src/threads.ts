@@ -430,6 +430,7 @@ export type ThreadServiceOptions = {
 	now(): number;
 	/** Called whenever the list (without archived threads) may have changed; the caller compares and pushes. */
 	onChange?: () => void;
+	onFinished?: (conversationId: number) => void;
 	onMessage?: (event: ThreadsMessageEvent) => void;
 	log(message: string): void;
 };
@@ -1840,6 +1841,7 @@ export class ThreadService {
 			current.failure = null;
 			current.finishedAt = now;
 		});
+		this.#options.onFinished?.(record.conversationId);
 		await this.#post(record, `[thread ${record.id} finished]\n${summary}`, `thread-finished:${record.id}:${callId}`);
 		await this.#options.board.releaseThread(record.id, `finished:${record.id}:${callId}`, record.taskId);
 		const project = this.project;

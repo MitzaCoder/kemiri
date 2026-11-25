@@ -2200,8 +2200,11 @@ older release therefore keeps working with its own log. Requests logged during a
   tool, so no prompt changes; workers and threads keep it) has a `beforeRequest` hook on pi-durable's generation task
   that tags the last message object with the project and conversation. The server's `Models` is wrapped (after the
   subscription usage wrapper): `streamSimple` finds the tag, copies the message list, chains an `onPayload` that keeps
-  the provider payload pi-ai built, and once the response ends queues the row. Requests without a conversation tag
-  are not logged as conversation turns. Internal requests can use separate purpose rows. Rows are worked out one at a time after a `setTimeout(0)`;
+  the provider payload pi-ai built, and once the response ends queues the row. For Anthropic, fingerprinting uses
+  the full payload before message-thread preparation, not the shortened HTTP continuation. It treats an unmarked
+  string and the same text in a cache-marked block as the same prefix. Requests without a conversation tag are not
+  logged as conversation turns. Internal requests can use separate purpose rows. Rows are worked out one at a time
+  after a `setTimeout(0)`;
   any failure is logged (the first five, then every hundredth) and dropped, and a log that will not open leaves the
   server without it and without the `cache-stats` feature.
 - Mid-conversation tool updates record `update:tools` and the added, removed or replaced names (`tool+:`, `tool-:`,
@@ -2390,16 +2393,22 @@ real request out of band. Project settings `keepPromptCacheWarm` and `promptCach
 old files default to true and 8 hours (choices 1/2/4/8). This is separate from `longPromptCache`. Unsupported providers
 remain inactive. The hint is “Uses cached-input tokens while idle. Claude only.”
 
-The isolated transport adapter reuses the exact final Anthropic request body, changing only `stream: false` and
-`max_tokens: 0`. The provider still builds authentication and headers. System, tools, thinking, tool choice and cache
-breakpoints stay unchanged; no synthetic user message or transcript entry is made. Unsupported zero-output shapes
-are not refreshed. Usage and equivalent cost are recorded with source `keepWarm`, never as ordinary requests/misses.
+The request log captures the full Anthropic body from pi-ai's payload hook before it prepares a message thread.
+The isolated transport replays that body without `thread`, setting `stream: false` and `max_tokens: 0`.
+Pi-ai still builds authentication and headers. System, tools, the complete message prefix, thinking, tool choice
+and cache breakpoints stay unchanged. No synthetic user message or transcript entry is made. Unsupported
+zero-output shapes and old snapshots containing only a continuation are not replayed. Each attempted ping has a
+`keepWarm` request-log row with its outcome, cache read and write tokens and equivalent cost. Pings do not count as
+ordinary requests or misses.
 Timers use the previous actual cache-write TTL (50 minutes for 1 hour, 4 minutes for 5 minutes), stop at the selected
 idle cap measured from the last real request, and never catch up an expired cache. Turns, compaction/reset, model or
-prompt changes, disable, close, errors and cold reads invalidate maintenance. Restart restores private request snapshots for opened coordinator conversations only. Credentials and callbacks are never
-persisted. The current model/agent, context head, rendered system/tools revision, account/header fingerprint, actual TTL
-and idle cap must still match. Overdue-but-live schedules wait a staggered 30–60 seconds; expired snapshots are dropped,
-never replayed to rebuild a cold cache. Closed historic projects are not awakened.
+committed prompt changes, disable, close, errors and cold reads invalidate maintenance. Finishing a background job
+cancels its timer and deletes its snapshot. Finished, stopped, failed, held or archived threads cannot arm or restore.
+Restart restores private request snapshots for opened coordinator conversations only. Credentials and callbacks are
+never persisted. The current agent, committed context head, account/header fingerprint, actual TTL and idle cap must
+still match. A change to rendered instructions or tools alone does not invalidate the retained prefix: the next real
+turn appends the update and takes over. Overdue-but-live schedules wait a staggered 30–60 seconds. Expired snapshots
+are dropped, never replayed to rebuild a cold cache. Closed historic projects are not awakened.
 
 Clients derive one quiet UI-only summary per idle stretch from request-log records, anchored to a real response.
 No pings means no line. Refresh updates do not scroll, notify, or mark a conversation busy. Detail includes time span,
