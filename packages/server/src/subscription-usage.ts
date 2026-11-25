@@ -28,6 +28,7 @@ import { readJsonFile, writeJsonFile } from "./fs-json.ts";
 import { ANTIGRAVITY_PROVIDER } from "./official-agents/antigravity.ts";
 
 export const SUBSCRIPTION_USAGE_FILE = "subscription-usage.json";
+const SUBSCRIPTION_USAGE_CACHE_VERSION = 1; // The unversioned cache could contain Antigravity placeholders as measurements.
 export const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
 export const CHATGPT_BACKEND_BASE_URL = "https://chatgpt.com/backend-api";
 /** pi-ai's `opencode-go` base URL minus `/v1`; `/v1/usage` answers there and on the older `/zen/go`. */
@@ -669,13 +670,13 @@ export class SubscriptionUsageService {
 	#load(): Promise<void> {
 		this.#loaded ??= (async () => {
 			try {
-				const value = (await readJsonFile(this.file)) as { subscriptions?: unknown } | undefined;
-				const list = Array.isArray(value?.subscriptions) ? value.subscriptions : [];
+				const cache = (await readJsonFile(this.file)) as { version?: number; subscriptions?: unknown } | undefined;
+				const list = Array.isArray(cache?.subscriptions) ? cache.subscriptions : [];
 				for (const value of list) {
 					if (!Value.Check(SubscriptionUsageSchema, value)) continue;
 					const usage = value as SubscriptionUsage;
 					if (this.#states.has(usage.providerId)) continue;
-					this.#states.set(usage.providerId, this.#newState(usage));
+					this.#states.set(usage.providerId, this.#newState(cache?.version === undefined ? discardUnverifiedAntigravityWindows(usage) : usage));
 				}
 			} catch (error) {
 				this.#log(`subscription usage: ${this.file} is unreadable, starting empty: ${errorMessage(error)}`);
@@ -692,10 +693,19 @@ export class SubscriptionUsageService {
 		this.#writeChain = this.#writeChain
 			.then(() => {
 				this.#writeQueued = false;
-				return writeJsonFile(this.file, { subscriptions: this.#list() });
+				return writeJsonFile(this.file, { version: SUBSCRIPTION_USAGE_CACHE_VERSION, subscriptions: this.#list() });
 			})
 			.catch((error: unknown) => this.#log(`subscription usage: writing ${this.file} failed: ${errorMessage(error)}`));
 	}
+}
+
+function discardUnverifiedAntigravityWindows(usage: SubscriptionUsage): SubscriptionUsage {
+	if (usage.providerId !== ANTIGRAVITY_PROVIDER) return usage;
+	// The old cache did not distinguish a sliding placeholder from a measured zero without a reset.
+	const windows = usage.windows.filter(window => window.usedPercent !== 0 || window.resetsAt !== null);
+	if (windows.length === usage.windows.length) return usage;
+	if (windows.length > 0) return { ...usage, windows };
+	return { ...usage, windows, source: "none", updatedAt: null, error: usage.error ?? "The saved Antigravity quota could not be verified. Refresh to check again." };
 }
 
 /** What a push compares: the numbers and status, not when they were read or the samples that follow from them. */

@@ -267,7 +267,7 @@
 					{:else if !limits.length}<p class="empty-copy">No subscription limits to show.</p>{/if}
 				</div>
 				{#each liveUsageSources.filter(source => source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">Could not read limits on {source.backend.name}: {source.error}</p>{/each}
-				{#each subscriptions.filter(subscription => subscription.reading.error || !subscription.windows.length) as subscription (subscription.key)}<p class="mt-2 text-xs text-muted-foreground"><button class="underline underline-offset-4" type="button" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>{subscription.reading.label}</button> · {computerNames(subscription.members.map(member => member.computer))}: {subscription.reading.error ?? 'No limit readings yet.'}</p>{/each}
+				{#each subscriptions.filter(subscription => subscription.reading.error || !subscription.windows.length) as subscription (subscription.key)}<p class="mt-2 text-xs text-muted-foreground"><button class="underline underline-offset-4" type="button" onclick={() => openSheet({ kind: 'subscription', key: subscription.key })}>{subscription.reading.label}</button> · {computerNames(subscription.members.map(member => member.computer))}: {subscription.reading.error ? `Usage unavailable — ${subscription.reading.error}` : 'No limit readings yet.'}</p>{/each}
 				{#each liveUsageSources.filter(source => source.loaded && !source.subscriptions.length && !source.error) as source (source.backend.id)}<p class="mt-2 text-xs text-muted-foreground">No subscriptions on {source.backend.name}. <a class="underline underline-offset-4" href={backendSettingsHref(source.backend.id, 'accounts')}>Open Accounts</a></p>{/each}
 			</section>
 

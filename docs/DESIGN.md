@@ -2751,10 +2751,14 @@ removal. Request failures retain the last reading and show only a fixed diagnost
 
 Read the enabled, measured buckets in a successful zero-turn `usage` command report. Convert remaining fraction
 into used percent, keep the provider's bucket ID and shared model group, and use the reported UTC reset if it is
-in the future. An untouched bucket's moving full-window placeholder is not a scheduled reset. The report carries
-no verified plan label, account identity or catalog price. The Overview shows the quota gauges and real reset times;
-the Value ledger records scoped pools without treating one as a plan-wide binding window. This is quota visibility,
-not Google approval of consumer delegation. See [source and policy evidence](research/antigravity-quota.md).
+in the future. The pinned CLI can return success before quota loads. A bare 100%-remaining bucket with a moving
+full-window reset carries neither a measured balance nor a schedule. Omit these buckets from partial reports;
+when none are measured, report usage unavailable rather than adding zero samples. The usage cache is versioned so
+unverified zero-without-reset windows saved by older backends are not presented as measurements after upgrading.
+This does not rewrite the historical limit ledger. Usage on web and Android shows the failure reason and marks
+any retained readings as last readings, not live quota. The report carries no verified plan label, account identity
+or catalog price. The Value ledger records scoped pools without treating one as a plan-wide binding window. This is
+quota visibility, not Google approval of consumer delegation. See [source and policy evidence](research/antigravity-quota.md).
 
 **Web presentation:** `apps/web/src/lib/official-agents.ts` holds the pure rules, tested in `official-agents.test.ts`.
 Accounts and API keys marks a provider with `officialAgent` with an "Official agent" chip (also in Add a provider) and

@@ -74,6 +74,18 @@ There was no signed-in probe of the local account and no request using its crede
 A filename-only trace of the isolated pin showed print mode reads `~/.gemini/antigravity-cli/antigravity-oauth-token`;
 `GEMINI_HOME` did not redirect it to the ACP directory. The backend gives print mode a disposable HOME and an alias
 for the managed native app directory, so atomic credential refresh stays with Google's CLI. Neither a token
-inspection nor a token transfer into the backend's HTTP client is needed. The fake-agent integration proves the
-profile routing, a native atomic file replacement through the alias, the protocol readings and scoped ledger entries.
-A real signed-in run through Kemiri is still to be checked after deployment.
+inspection nor a token transfer into the backend's HTTP client is needed. The fake-agent integration proves the profile routing, a native atomic file replacement through the alias,
+the protocol readings and scoped ledger entries.
+
+## Signed-in print-mode check (T483, 25 November 2026)
+
+A disposable copy of the native profile was enough to run the pinned 1.5.12 command without changing the managed
+profile or opening its credential in Kemiri. The process exited 0 with `SUCCESS`, `num_turns: 0`, and the existing
+`remaining_fraction` and UTC `reset_time` fields. Both model pools returned `1` and a reset exactly one window
+in the future for both durations. The native log showed print-mode sign-in completing, the slash command running,
+and a background refresh cancelled on exit. That output did not provide a verified balance or actual reset.
+Copying the existing cache, forcing ACP file storage, or testing without `--sandbox` did not change the placeholders.
+
+Kemiri distinguishes that result from a measured zero with an actual reset. It skips placeholder buckets and sends
+an unavailable reason when no measured bucket remains. It keeps the last trustworthy reading without appending a new
+sample. No private endpoint or alternate authentication route is used to fill the missing data.

@@ -69,6 +69,7 @@ export function limitForecastText(forecast: UsageWindowForecast | undefined, now
 
 export function limitForecasts(limit: GlanceLimit, now: number) {
 	return limit.subscription.members.flatMap(({ computer, subscription }) => {
+		if (subscription.error) return [];
 		const forecast = subscription.windows.find(window => window.id === limit.window.id && window.resetsAt === limit.window.resetsAt)?.forecast;
 		const text = limitForecastText(forecast, now);
 		return forecast && text ? [{ computer, text, spenders: forecast.spenders }] : [];
@@ -80,7 +81,8 @@ export function rankedLimits(subscriptions: readonly GlanceSubscription[], now: 
 	return subscriptions.flatMap(subscription => subscription.windows.map(window => {
 		const pace = windowPace(window, now);
 		const measured = window.usedPercent !== null;
-		const stale = isStale(subscription.reading.updatedAt, now) || (pace.resetsAt !== null && now >= pace.resetsAt);
+		const reading = subscription.members.find(member => member.subscription.windows.includes(window))?.subscription ?? subscription.reading;
+		const stale = reading.error !== null || isStale(reading.updatedAt, now) || (pace.resetsAt !== null && now >= pace.resetsAt);
 		const status = !measured || stale ? 'unknown' : window.usedPercent! >= 90 ? 'near'
 			: pace.kind === 'ahead' && !pace.early ? 'hot' : 'room';
 		return { key: JSON.stringify([subscription.key, window.id]), subscription, window, pace, status, stale } as const;

@@ -22,6 +22,7 @@ export function parseAntigravityQuota(report: unknown, now: number): UsageReadin
 	const groups = record(command?.data)?.groups;
 	if (envelope?.status !== "SUCCESS" || envelope.num_turns !== 0 || command?.name !== "usage" || !Array.isArray(groups)) throw quotaReportError();
 	const windows = new Map<string, WindowReading>();
+	let hasPlaceholder = false;
 	for (const entry of groups) {
 		const group = record(entry);
 		if (typeof group?.name !== "string" || !group.name.trim() || group.name.length > 120 || /[\x00-\x1f\x7f]/.test(group.name) || !Array.isArray(group.buckets)) continue;
@@ -32,19 +33,26 @@ export function parseAntigravityQuota(report: unknown, now: number): UsageReadin
 			const remaining = bucket.remaining_fraction;
 			if (windowMinutes === null || typeof remaining !== "number" || !Number.isFinite(remaining) || remaining < 0 || remaining > 1) continue;
 			const reset = typeof bucket.reset_time === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(bucket.reset_time) ? Date.parse(bucket.reset_time) : NaN;
-			// The untouched bucket's sliding placeholder is not a scheduled reset.
-			const untouched = remaining === 1 && !bucket.description && Math.abs(reset - now - windowMinutes * 60_000) <= 60_000;
+			// agy can return SUCCESS before quota loads. Full remaining quota plus a
+			// sliding full-window reset is not evidence of a balance or a schedule.
+			if (remaining === 1 && !bucket.description && Math.abs(reset - now - windowMinutes * 60_000) <= 60_000) {
+				hasPlaceholder = true;
+				continue;
+			}
 			if (windows.has(bucket.id)) throw quotaReportError();
 			const scope = group.name.trim();
 			windows.set(bucket.id, {
 				id: bucket.id, scope, label: `${scope} · ${windowMinutes === 300 ? "5-hour" : "Weekly"}`,
 				usedPercent: Math.round((1 - remaining) * 1e8) / 1e6,
-				resetsAt: Number.isFinite(reset) && reset > now && !untouched ? new Date(reset).toISOString() : null,
+				resetsAt: Number.isFinite(reset) && reset > now ? new Date(reset).toISOString() : null,
 				windowMinutes,
 			});
 		}
 	}
-	if (windows.size === 0) throw quotaReportError();
+	if (windows.size === 0) {
+		if (hasPlaceholder) throw new OfficialAgentAuthError("Antigravity returned default limits instead of measured quota. Try refreshing or check /usage in the Antigravity CLI.");
+		throw quotaReportError();
+	}
 	return { source: "usage_api", windows: [...windows.values()] };
 }
 

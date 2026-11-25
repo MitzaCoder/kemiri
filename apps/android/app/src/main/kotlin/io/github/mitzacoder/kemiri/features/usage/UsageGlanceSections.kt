@@ -88,6 +88,9 @@ internal fun LimitsSection(limits: List<GlanceLimit>, subscriptions: List<Glance
         }
         ValueNote(if (bySubscription) "Subscription windows grouped by plan" else "Closest first")
         if (limits.isEmpty()) ValueNote("No subscription windows to show.")
+        subscriptions.flatMap { it.members }.forEach { (computer, reading) ->
+            reading.error?.let { ValueNote("${reading.label} · ${computer.name}: Usage unavailable — $it") }
+        }
         if (bySubscription) {
             subscriptions.forEach { subscription ->
                 key(subscription.identity) {

@@ -80,7 +80,8 @@ internal fun rankedLimits(subscriptions: List<GlanceSubscription>, now: Double):
     subscription.windows.map { window ->
         val pace = windowPace(window, now)
         val reading = subscription.members.first { member -> member.reading.windows.any { it.id == window.id } }.reading
-        val stale = parseTime(reading.updatedAt)?.let { now - it > 15 * 60_000 } == true || pace.resetsAt?.let { now >= it } == true
+        val stale = reading.error != null || parseTime(reading.updatedAt)?.let { now - it > 15 * 60_000 } == true ||
+            pace.resetsAt?.let { now >= it } == true
         val status = when {
             window.usedPercent == null || stale -> LimitStatus.Unknown
             window.usedPercent >= 90 -> LimitStatus.Near
@@ -94,6 +95,7 @@ internal fun rankedLimits(subscriptions: List<GlanceSubscription>, now: Double):
 internal data class ComputerLimitForecast(val computer: BackendConfig, val text: String, val spenders: List<UsageDrainSpender>)
 
 internal fun limitForecasts(limit: GlanceLimit, now: Double): List<ComputerLimitForecast> = limit.subscription.members.mapNotNull { member ->
+    if (member.reading.error != null) return@mapNotNull null
     val forecast = member.reading.windows.firstOrNull { it.id == limit.window.id && it.resetsAt == limit.window.resetsAt }?.forecast ?: return@mapNotNull null
     val text = limitForecastText(forecast, now) ?: return@mapNotNull null
     ComputerLimitForecast(member.computer, text, forecast.spenders)

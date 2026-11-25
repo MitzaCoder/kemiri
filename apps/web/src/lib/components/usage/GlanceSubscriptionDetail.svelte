@@ -42,6 +42,7 @@
 {#if subscription.reading.account}<p class="mt-1 break-words text-xs text-muted-foreground">{subscription.reading.account}</p>{/if}
 <section class="mt-4 space-y-2">
 	<h3 class="font-semibold">Limits</h3>
+	{#if subscription.reading.error}<p class="text-muted-foreground">Usage unavailable — {subscription.reading.error}</p>{/if}
 	{#if limits.length}
 		<div class="subscription-limits"><ul class="grid gap-2">
 			{#each limits as limit (limit.key)}<GlanceLimitCard {limit} {now} grouped open={openedLimit === limit.key} toggle={() => openedLimit = openedLimit === limit.key ? undefined : limit.key} />{/each}

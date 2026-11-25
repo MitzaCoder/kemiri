@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseAntigravityQuota, readAntigravityQuota } from "../src/official-agents/antigravity-quota.ts";
+import { SUBSCRIPTION_USAGE_FILE } from "../src/subscription-usage.ts";
 import { createSetup, TestClient } from "./support.ts";
 
 const hour = 3_600_000;
@@ -15,6 +16,15 @@ const fakeReport = (reset: string) => ({ status: "SUCCESS", num_turns: 0, comman
 		] },
 		{ name: "Claude and GPT models", buckets: [{ id: "3p-weekly", window: "weekly", remaining_fraction: 0, reset_time: reset }] },
 	] },
+} });
+
+const placeholderReport = (now: number) => ({ status: "SUCCESS", num_turns: 0, command: {
+	name: "usage", data: { description: "Model quotas", groups: ["Gemini Models", "Claude and GPT models"].map((name, index) => ({
+		name, description: "Shared model quota", buckets: ["weekly", "5h"].map(window => ({
+			id: `${index === 0 ? "gemini" : "3p"}-${window}`, name: window, window,
+			remaining_fraction: 1, reset_time: new Date(now + (window === "weekly" ? 168 : 5) * hour).toISOString(),
+		})),
+	})) },
 } });
 
 const fakeAgy = (reset: string) => `#!/bin/sh
@@ -59,11 +69,21 @@ test("quota parser only accepts no-turn reports and measured, enabled buckets", 
 		{ id: "gemini-weekly", label: "Gemini Models · Weekly", scope: "Gemini Models", windowMinutes: 10080, usedPercent: 37.5, resetsAt: reset },
 		{ id: "gemini-5h", label: "Gemini Models · 5-hour", scope: "Gemini Models", windowMinutes: 300, usedPercent: 50, resetsAt: reset },
 		{ id: "3p-weekly", label: "Claude and GPT models · Weekly", scope: "Claude and GPT models", windowMinutes: 10080, usedPercent: 100, resetsAt: reset },
-		{ id: "unused-5h", label: "Claude and GPT models · 5-hour", scope: "Claude and GPT models", windowMinutes: 300, usedPercent: 0, resetsAt: null },
 	]);
 	for (const unexpected of [{ ...report, num_turns: 1 }, { ...report, command: { name: "model" } }, { ...report, command: { name: "usage", data: { groups: [] } } }]) {
 		expect(() => parseAntigravityQuota(unexpected, now)).toThrow("readable quota report");
 	}
+});
+
+test("current CLI placeholders are not quota, but a measured zero and its actual reset are valid", () => {
+	const now = Date.UTC(2030, 0, 1);
+	const report = placeholderReport(now);
+	expect(() => parseAntigravityQuota(report, now + 2_000)).toThrow("default limits instead of measured quota");
+	const reset = new Date(now + 2 * hour).toISOString();
+	report.command.data.groups[1]!.buckets[1]!.reset_time = reset;
+	expect(parseAntigravityQuota(report, now + 2_000).windows).toEqual([
+		{ id: "3p-5h", label: "Claude and GPT models · 5-hour", scope: "Claude and GPT models", windowMinutes: 300, usedPercent: 0, resetsAt: reset },
+	]);
 });
 
 test("wrong version cannot run the usage command and failures do not return stdout or stderr", async () => {
@@ -90,8 +110,20 @@ test("usage reads the managed subscription through agy and records scoped window
 			const nativeProfile = "a5fa596b-1b47-4188-b098-3191fe2f787f";
 			const credentialPath = await profile(join(setup.dataDir, "official-agents", "antigravity", `subscription-${nativeProfile}`));
 			await setup.credentials.modify("antigravity", async () => ({ type: "oauth", access: "", refresh: "", expires: Number.MAX_SAFE_INTEGER, nativeProfile }));
+			const samples = [{ at: new Date().toISOString(), usedPercent: 0 }];
+			await Bun.write(join(setup.dataDir, SUBSCRIPTION_USAGE_FILE), JSON.stringify({ subscriptions: [{
+				providerId: "antigravity", label: "Antigravity", source: "usage_api", plan: null, account: null, error: null, updatedAt: samples[0]!.at,
+				windows: [{ id: "gemini-weekly", label: "Gemini Models · Weekly", windowMinutes: 10_080, usedPercent: 0, resetsAt: null, samples }],
+			}] }));
 			client = await TestClient.open(setup.server);
 			await client.hello();
+			const cached = await client.request({ type: "subscriptions.usage" });
+			expect(cached).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ windows: [], error: expect.stringContaining("could not be verified") }] });
+			const defaultCommand = `#!/bin/sh\n[ "$1" = --version ] && { printf '1.5.12\\n'; exit; }; printf '%s\\n' '${JSON.stringify(placeholderReport(Date.now()))}'\n`;
+			await fixture(root, defaultCommand);
+			const unmeasured = await client.request({ type: "subscriptions.usage", refresh: true });
+			expect(unmeasured).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ windows: [], error: expect.stringContaining("default limits") }] });
+			await fixture(root, fakeAgy(reset));
 			const limits = await client.request({ type: "subscriptions.usage", refresh: true });
 			expect(limits).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ providerId: "antigravity", error: null, windows: [
 				{ id: "gemini-weekly", usedPercent: 37.5, resetsAt: reset }, { id: "gemini-5h" }, { id: "3p-weekly" },
@@ -102,6 +134,11 @@ test("usage reads the managed subscription through agy and records scoped window
 				{ windowId: "3p-weekly", scope: "Claude and GPT models", binding: false },
 				{ windowId: "gemini-weekly", scope: "Gemini Models", binding: false },
 				{ windowId: "gemini-5h", scope: "Gemini Models", binding: false },
+			] }] });
+			await fixture(root, defaultCommand);
+			const unmeasuredAgain = await client.request({ type: "subscriptions.usage", refresh: true });
+			expect(unmeasuredAgain).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ error: expect.stringContaining("default limits"), windows: [
+				{ usedPercent: 37.5, resetsAt: reset, samples: [{ usedPercent: 37.5 }] }, {}, {},
 			] }] });
 			await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '1.5.12\\n'; exit; }; printf 'invalid_grant: synthetic-token' >&2; exit 1\n`);
 			const failed = await client.request({ type: "subscriptions.usage", refresh: true });

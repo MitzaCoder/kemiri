@@ -64,6 +64,16 @@ class UsageGlanceTest {
         assertEquals(listOf("fourth", "room"), quietLimits(ranked, nowMillis).map { it.window.id })
     }
 
+    @Test fun `a failed provider refresh marks the last measurement stale`() {
+        val forecast = UsageWindowForecast(minutesLeft = 10.0, minutesToReset = 30.0, validUntil = now.plusSeconds(300).toString(), spenders = emptyList())
+        val failed = subscription(null, now, window("week", 96.0).copy(forecast = forecast)).copy(error = "No measured quota")
+        val limit = rankedLimits(mergeSubscriptions(listOf(ComputerSubscription(studio, failed))), nowMillis).single()
+        assertTrue(limit.stale)
+        assertEquals(LimitStatus.Unknown, limit.status)
+        assertEquals(96.0, limit.window.usedPercent!!, 0.0)
+        assertTrue(limitForecasts(limit, nowMillis).isEmpty())
+    }
+
     @Test fun `project and task identities do not cross computers but models and callers aggregate`() {
         val reports = listOf(studio to spend(20.0), workshop to spend(30.0))
         assertEquals(listOf(30.0, 20.0), spendRows(reports, SpendDimension.Projects).map { it.cost })

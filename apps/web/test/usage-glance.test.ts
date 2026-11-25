@@ -38,6 +38,14 @@ test('shared limit forecasts only use matching reset periods and keep local spen
 	]);
 });
 
+test('a failed provider read keeps the last figure without presenting it as live', () => {
+	const forecast = { minutesLeft: 10, minutesToReset: 60, validUntil: new Date(now + 60_000).toISOString(), spenders: [] };
+	const failed = subscription({ error: 'No measured quota', windows: [{ ...subscription().windows[0]!, forecast }] });
+	const [limit] = rankedLimits(mergeSubscriptions([{ computer: studio, subscription: failed }]), now);
+	expect(limit).toMatchObject({ stale: true, status: 'unknown', window: { usedPercent: 96 } });
+	expect(limitForecasts(limit!, now)).toEqual([]);
+});
+
 test('only API-key rows show the rolling hour and only when every report supports it', () => {
 	const group = { ...sumUsage([]), key: JSON.stringify(['example', 'api_key']), cost: 5 };
 	const reports = [studio, workshop].map((computer, index) => ({ computer, stats: {
