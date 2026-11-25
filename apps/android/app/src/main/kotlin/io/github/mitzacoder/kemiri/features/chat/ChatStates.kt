@@ -45,6 +45,10 @@ internal fun composerHint(canChat: Boolean, ready: Boolean, thread: Boolean, bus
     else -> "Message Main chat…"
 }
 
+/** Stop replaces an empty Send, but a steerable message, an upload or a retry still needs its own action. */
+internal fun showChatSend(busy: Boolean, hasMessageContent: Boolean, sendingOrRetrying: Boolean): Boolean =
+    !busy || hasMessageContent || sendingOrRetrying
+
 /** The banner above the composer while the transcript is not live; null while it is. */
 internal fun transcriptBanner(status: WatchStatus, error: String?, worker: Boolean): String? {
     val what = if (worker) "the worker's transcript" else "the transcript"

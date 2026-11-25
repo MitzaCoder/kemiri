@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import io.github.mitzacoder.kemiri.ui.components.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
@@ -56,7 +57,7 @@ import io.github.mitzacoder.kemiri.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val artifacts = rememberTranscriptArtifacts(context)
@@ -71,6 +72,15 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     val scope = chat.scope
     val android = LocalContext.current
     val chatDraft = chat.draft
+    var composerFocused by remember(context.target) { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val imeVisible = WindowInsets.isImeVisible
+    var composerImeWasVisible by remember(context.target) { mutableStateOf(false) }
+    LaunchedEffect(context.target, imeVisible) {
+        // Back can hide the software keyboard without clearing field focus. Let an empty composer rest again.
+        if (composerImeWasVisible && !imeVisible && composerFocused && chatDraft.textState.text.isEmpty()) focusManager.clearFocus()
+        composerImeWasVisible = imeVisible
+    }
     val reviewFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(chatDraft, chatDraft.reviewFocus) {
         if (chatDraft.reviewFocus) { reviewFocus.requestFocus(); chatDraft.reviewFocus = false }
@@ -383,9 +393,12 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 else { if(value.text != chatDraft.textState.text.toString()) notificationCenter?.interacted(); syncTrigger(value) }
             }
             val userEdits = remember { InputTransformation { onUserEdit(this) } }
+            val showComposerControls = composerFocused || chatDraft.textState.text.isNotEmpty()
+            val hasMessageContent = draft.isNotBlank() || images.isNotEmpty() || quotes.isNotEmpty() || files.isNotEmpty()
             MessageComposer(
                 textState = chatDraft.textState,
-                hint = if (coordinator != null && ready && chatAllowed && !busy) "Message ${coordinator.title}…" else composerHint(chatAllowed,ready,thread,busy),
+                hint = if (coordinator != null && ready && chatAllowed) "${if (busy) "Steer" else "Message"} ${coordinator.title}…"
+                    else composerHint(chatAllowed, ready, thread, busy),
                 images = images,
                 onRemoveImage = chatDraft::removeImage,
                 attaching = attaching,
@@ -393,10 +406,20 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 attachLabel = if (connection.supports("chat-files-v1")) "Attach files" else "Attach images",
                 onAttach = if (connection.supports("chat-files-v1")) ({ filePicker.launch(arrayOf("*/*")) }) else intake.pick,
                 sendLabel = if(submitting) "Sending" else if(pending != null) "Retry" else if(busy) "Steer" else "Send",
-                sendEnabled = (draft.isNotBlank() || images.isNotEmpty() || quotes.isNotEmpty() || files.isNotEmpty()) && !submitting && !attaching && !chatDraft.imageLoading && retryMatches && ready && chatAllowed,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                sendEnabled = hasMessageContent && !submitting && !attaching && !chatDraft.imageLoading && retryMatches && ready && chatAllowed,
+                showSend = showChatSend(busy, hasMessageContent, submitting || pending != null),
+                onStop = if (busy) ({ scope.launch {
+                    try { context.backend.client.request(ConversationAbortRequest(projectId = context.route.projectId, threadId = context.route.threadId)) }
+                    catch (e: CancellationException) { throw e }
+                    catch (failure: Exception) { error = failure.message }
+                } }) else null,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).glassComposerFrame().padding(horizontal = 4.dp),
                 inputTransformation = userEdits,
-                fieldModifier = Modifier.focusRequester(reviewFocus).contentReceiver(intake.receiver).onFocusChanged { focus -> chatDraft.focused = focus.isFocused; if(!focus.isFocused) chatDraft.sync?.flush() }.onPreviewKeyEvent { event ->
+                fieldModifier = Modifier.focusRequester(reviewFocus).contentReceiver(intake.receiver).onFocusChanged { focus ->
+                    composerFocused = focus.isFocused
+                    chatDraft.focused = focus.isFocused
+                    if (!focus.isFocused) chatDraft.sync?.flush()
+                }.onPreviewKeyEvent { event ->
                     // Backspace on an empty message takes off the task, then the last quote.
                     if(event.type != KeyEventType.KeyDown || event.key != Key.Backspace || draft.isNotEmpty()) false
                     else if(taskId != null) { taskId = null; true }
@@ -431,14 +454,13 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                     }
                 },
                 afterInput = { chatDraft.origin?.let { DraftOriginHint(it) } },
+                controlsModifier = if (showComposerControls) Modifier.padding(start = 6.dp, end = 6.dp, bottom = 4.dp) else Modifier,
                 controls = {
-                    ComposerSettings(context,threadModelNote = activeThread?.model?.let { "Runs on ${modelLabel(it,models)}" },modifier = Modifier.weight(1f)) { workerDefaults = it }
-                    if(taskChoicesSource != null && discussion == null) TaskPickerButton(active = attached != null || pickerOpen) { if(pickerOpen) closePicker() else pickerListOpen = true }
-                    if (busy) JarvisIconButton(Lucide.Square, "Stop coordinator", onClick = { scope.launch {
-                        try { context.backend.client.request(ConversationAbortRequest(projectId = context.route.projectId, threadId = context.route.threadId)) }
-                        catch(e: CancellationException) { throw e }
-                        catch (failure: Exception) { error = failure.message }
-                    } })
+                    ComposerSettings(context, threadModelNote = activeThread?.model?.let { "Runs on ${modelLabel(it, models)}" },
+                        modifier = Modifier.weight(1f), visible = showComposerControls) { workerDefaults = it }
+                    if (showComposerControls && taskChoicesSource != null && discussion == null) {
+                        TaskPickerButton(active = attached != null || pickerOpen) { if (pickerOpen) closePicker() else pickerListOpen = true }
+                    }
                 },
                 onSend = send@{
                     val message = draft

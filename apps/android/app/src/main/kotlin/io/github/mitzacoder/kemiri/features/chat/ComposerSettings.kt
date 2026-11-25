@@ -20,7 +20,7 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
     if(effort == null) add("coordinatorThinkingLevel")
 }
 
-@Composable internal fun ComposerSettings(context: ProjectScreenContext, modifier: Modifier = Modifier, threadModelNote: String? = null, onWorkerDefaults: (WorkerDefaults) -> Unit = {}) {
+@Composable internal fun ComposerSettings(context: ProjectScreenContext, modifier: Modifier = Modifier, threadModelNote: String? = null, visible: Boolean = true, onWorkerDefaults: (WorkerDefaults) -> Unit = {}) {
     val models by context.backend.models.collectAsStateWithLifecycle()
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
@@ -87,6 +87,8 @@ internal fun coordinatorResetFields(model: ModelRef?, effort: String?) = buildSe
             finally { savingWorker = false }
         }
     }
+    // Defaults and saves stay alive while the picker row is hidden. An attachment-only send can still use them.
+    if (!visible) return
     val providers = context.backend.modelCatalog.collectAsStateWithLifecycle().value?.providers.orEmpty()
     Column(modifier) {
         // A thread runs on its own model: the composer names it instead of offering pickers (web `modelNote`).

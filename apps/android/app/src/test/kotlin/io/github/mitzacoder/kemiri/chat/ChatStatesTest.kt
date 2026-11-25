@@ -25,6 +25,13 @@ class ChatStatesTest {
         assertTrue(isWorking(json("""{"run":{"id":"r"},"tools":[{"callId":"c","name":"bash","status":"running"}]}"""),worker = true))
     }
 
+    @Test fun stopReplacesSendOnlyForAnEmptyBusyComposer() {
+        assertTrue(showChatSend(busy = false, hasMessageContent = false, sendingOrRetrying = false))
+        assertFalse(showChatSend(busy = true, hasMessageContent = false, sendingOrRetrying = false))
+        assertTrue(showChatSend(busy = true, hasMessageContent = true, sendingOrRetrying = false))
+        assertTrue(showChatSend(busy = true, hasMessageContent = false, sendingOrRetrying = true))
+    }
+
     @Test fun composerHintFollowsTheWeb() {
         assertEquals("Choose a Main chat model first",composerHint(canChat = false,ready = true,thread = false,busy = false))
         assertEquals("Reconnecting…",composerHint(canChat = true,ready = false,thread = false,busy = true))

@@ -112,6 +112,15 @@ class ServerStatusTest {
             diskWarning(status(disks = listOf(data.copy(freeBytes = 1_000_000_000, low = true), data.copy(label = "Home", freeBytes = 500_000_000, low = true)))))
     }
 
+    @Test fun chatStripSummarizesOnlyTheLowDisks() {
+        val data = DiskStatus(label = "Data", path = "/var/lib", freeBytes = 11_000_000_000, totalBytes = 512_000_000_000, low = true)
+        val home = data.copy(label = "Home", low = false)
+        assertEquals("Data disk is low · 11 GB free", diskStripLabel(status(disks = listOf(data, home))))
+        assertEquals("2 disks are low", diskStripLabel(status(disks = listOf(data, home.copy(low = true)))))
+        assertNull(diskStripLabel(status(disks = listOf(data.copy(low = false), home))))
+        assertNull(diskStripLabel(null))
+    }
+
     @Test fun bytesReadInDecimalUnits() {
         assertEquals("512 B", formatBytes(512))
         assertEquals("1.5 KB", formatBytes(1500))

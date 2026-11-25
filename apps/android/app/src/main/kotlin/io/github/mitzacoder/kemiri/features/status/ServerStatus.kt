@@ -173,7 +173,16 @@ fun diskView(disk: DiskStatus): DiskView {
         if (share.isEmpty()) disk.path else "${disk.path} · $share")
 }
 
-/** The short warning while a disk is low: which filesystems and what will go wrong. The harness warns, never blocks. */
+internal fun diskStripLabel(status: ServerStatus?): String? {
+    val low = lowDisks(status)
+    return when (low.size) {
+        0 -> null
+        1 -> with(low.single()) { "$label disk is low · ${formatBytes(freeBytes)} free" }
+        else -> "${low.size} disks are low"
+    }
+}
+
+/** The detailed warning: which filesystems are low and what can go wrong. The harness warns, never blocks. */
 fun diskWarning(status: ServerStatus?): String? {
     val low = lowDisks(status)
     if (low.isEmpty()) return null

@@ -137,16 +137,23 @@ fun DeployBanner(repository: HarnessRepository, backend: BackendSession, modifie
     }
 }
 
-/** A small warning above the composer while the backend says a disk is low; [openStorage] leads to the cleanup. */
+/** The entire strip opens Storage when cleanup is available. Only a healthy status can clear it. */
 @Composable
-fun DiskBanner(backend: BackendSession, openStorage: (() -> Unit)?, modifier: Modifier = Modifier) {
+private fun DiskWarningStrip(backend: BackendSession, openStorage: (() -> Unit)?) {
     val status by backend.serverStatus.status.collectAsStateWithLifecycle()
-    val warning = diskWarning(status) ?: return
-    ToneBanner(BannerTone.Warning, modifier) {
-        Text(warning, style = MaterialTheme.typography.bodySmall)
-        openStorage?.let { open ->
-            Text("Clean up finished workspaces", Modifier.clickable(role = Role.Button, onClick = open).padding(vertical = 4.dp),
-                style = MaterialTheme.typography.labelMedium, color = Jarvis.colors.link, fontWeight = FontWeight.SemiBold)
+    val label = diskStripLabel(status) ?: return
+    val colors = Jarvis.colors
+    val cleanupAction = if (openStorage != null) Modifier.clickable(role = Role.Button, onClickLabel = "Open storage cleanup", onClick = openStorage) else Modifier
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = colors.warning.copy(alpha = .10f),
+        border = BorderStroke(1.dp, colors.warning.copy(alpha = .35f))) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 38.dp).then(cleanupAction)
+            .semantics { diskWarning(status)?.let { contentDescription = it } }.padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            LucideGlyph(Lucide.CircleAlert, size = 16.dp, tint = colors.warning)
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = colors.fg,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (openStorage != null) Text("Clean up", style = MaterialTheme.typography.labelMedium, color = colors.link,
+                fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
@@ -166,7 +173,7 @@ fun ChatServerBanners(context: ProjectScreenContext, modifier: Modifier = Modifi
         io.github.mitzacoder.kemiri.features.usage.UsagePauseBanners(context)
         if (hasStatus) {
             DeployBanner(context.repository, backend)
-            DiskBanner(backend, openStorage)
+            DiskWarningStrip(backend, openStorage)
         }
     }
 }

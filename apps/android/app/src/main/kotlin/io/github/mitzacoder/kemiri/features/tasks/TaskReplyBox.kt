@@ -158,8 +158,6 @@ internal fun TaskReplyBox(reply: TaskReplyState, onDismiss: () -> Unit, inputMax
         MessageComposer(
             textState = reply.text,
             hint = reply.hint,
-            hintMaxLines = 1,
-            compact = true,
             images = reply.images,
             onRemoveImage = reply.onRemoveImage,
             attaching = reply.attaching,

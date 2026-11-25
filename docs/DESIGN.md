@@ -3115,8 +3115,22 @@ The full area is also in conversation Info. The roster's facts line shows any
 workers on non-project models. More holds Changes for the current checkout and
 Running apps on an apps-capable backend, even when none run. A green shortcut
 shares that apps sheet only while an app is live or waiting for Allow. Wide
-screens keep their labelled actions as space permits. The composer and the disk
-warning are unchanged.
+screens keep their labelled actions as space permits.
+
+**Android compact composer and disk strip (T501 / D145).** Chat uses the task
+reply box's inline layout: Attach, the message and Send sit in one 48 dp row
+when empty. The same multiline editor grows up to five lines without swapping
+out its input session. Focusing the editor or adding text shows the model,
+thinking, worker and task controls where available. Dismissing the keyboard
+returns an empty field to rest, and a draft keeps its controls. Draft sync,
+attachments, quotes, voice input and paste keep their existing paths. While a
+turn runs, Stop replaces empty Send. A draft with sendable content shows Stop
+and Steer together, and retry stays reachable.
+
+The low-disk warning is a one-line strip above the composer. The whole strip
+opens the project's Storage cleanup when supported. It has no dismissal and
+clears only when the backend no longer reports a low disk. Settings and the
+strip's accessibility description retain the detailed warning.
 
 **Landing turn (T399 / D85).** General and area coordinators use `project_turn` to
 inspect, take or release one project-wide token. `take` grants a free turn or joins

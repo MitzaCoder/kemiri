@@ -38,20 +38,23 @@ fun ChatBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.()
  * Glass-like native fallback, NOT a backdrop blur: opaque enough to keep text legible,
  * with a translucent surface gradient, fine highlight and soft elevation. No Haze
  * dependency/source registration is required. Neutral never inherits violet bgElev.
- * Caller owns IME/navigation insets and outer spacing; content gets 12 dp padding.
+ * Caller owns IME/navigation insets and padding on either side of the frame.
  */
 @Composable
-fun GlassComposerSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+internal fun Modifier.glassComposerFrame(): Modifier {
     val colors = Jarvis.colors
     val shape = RoundedCornerShape(24.dp)
-    Column(modifier
-        .shadow(8.dp, shape, ambientColor = if (colors.neutral) Color.Black else colors.shadow,
-            spotColor = if (colors.neutral) Color.Black else colors.shadow)
+    return shadow(8.dp, shape, ambientColor = if (colors.neutral) Color.Black else colors.shadow,
+        spotColor = if (colors.neutral) Color.Black else colors.shadow)
         .clip(shape)
         .background(colors.bg.copy(alpha = .96f))
         .background(Brush.verticalGradient(listOf(colors.surface2.copy(alpha = .45f), colors.surface.copy(alpha = .25f))))
         .border(1.dp, colors.borderStrong.copy(alpha = .7f), shape)
-        .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
+
+@Composable
+fun GlassComposerSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.glassComposerFrame().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
 }
 
 /** A compact visual control with a full 48 dp accessible target. */
