@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { antigravityPin } from "../src/antigravity-pin.ts";
 import { parseAntigravityQuota, readAntigravityQuota } from "../src/official-agents/antigravity-quota.ts";
 import { SUBSCRIPTION_USAGE_FILE } from "../src/subscription-usage.ts";
 import { createSetup, TestClient } from "./support.ts";
@@ -30,7 +31,7 @@ const placeholderReport = (now: number) => ({ status: "SUCCESS", num_turns: 0, c
 const fakeAgy = (reset: string) => `#!/bin/sh
 if [ "$1" = --version ]; then
   test ! -e "$HOME/.gemini/antigravity-cli" || exit 4
-  printf '1.5.12\\n'; exit 0
+  printf '${antigravityPin.version}\\n'; exit 0
 fi
 [ "$3 $4 $5 $6 $7" = '--sandbox --print /usage --output-format json' ] || exit 4
 [ "$AGY_CLI_DISABLE_AUTO_UPDATE" = true ] && [ "$SSH_TTY" = /dev/null ] || exit 4
@@ -86,16 +87,34 @@ test("current CLI placeholders are not quota, but a measured zero and its actual
 	]);
 });
 
+test("a partial Antigravity report keeps both measured windows and omits the placeholder pool", () => {
+	const now = Date.UTC(2030, 0, 1);
+	const report = placeholderReport(now);
+	const weeklyReset = new Date(now + 120 * hour).toISOString();
+	const fiveHourReset = new Date(now + 3 * hour).toISOString();
+	const measuredPool = report.command.data.groups[0]!;
+	measuredPool.buckets = measuredPool.buckets.map(bucket => ({
+		...bucket,
+		remaining_fraction: bucket.window === "weekly" ? 0.75 : 0.25,
+		reset_time: bucket.window === "weekly" ? weeklyReset : fiveHourReset,
+		description: "Measured model quota",
+	}));
+	expect(parseAntigravityQuota(report, now).windows).toEqual([
+		{ id: "gemini-weekly", label: "Gemini Models · Weekly", scope: "Gemini Models", windowMinutes: 10080, usedPercent: 25, resetsAt: weeklyReset },
+		{ id: "gemini-5h", label: "Gemini Models · 5-hour", scope: "Gemini Models", windowMinutes: 300, usedPercent: 75, resetsAt: fiveHourReset },
+	]);
+});
+
 test("wrong version cannot run the usage command and failures do not return stdout or stderr", async () => {
 	const root = await mkdtemp(join(tmpdir(), "fake-agy-"));
 	try {
 		await profile(root);
 		const command = await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '1.1.0\\n'; exit; }; touch '${join(root, "ran-usage")}'\n`);
 		const { signal } = new AbortController();
-		await expect(readAntigravityQuota(command, "1.5.12", root, signal)).rejects.toThrow("pinned agy version");
+		await expect(readAntigravityQuota(command, antigravityPin.version, root, signal)).rejects.toThrow("pinned agy version");
 		expect(await Bun.file(join(root, "ran-usage")).exists()).toBe(false);
-		await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '1.5.12\\n'; exit; }; printf 'synthetic-token'; printf 'invalid_grant: synthetic-token' >&2; exit 1\n`);
-		await expect(readAntigravityQuota(command, "1.5.12", root, signal)).rejects.toThrow(/^Antigravity could not use its saved Google sign-in\. Check the login in Accounts and API keys\.$/);
+		await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '${antigravityPin.version}\\n'; exit; }; printf 'synthetic-token'; printf 'invalid_grant: synthetic-token' >&2; exit 1\n`);
+		await expect(readAntigravityQuota(command, antigravityPin.version, root, signal)).rejects.toThrow(/^Antigravity could not use its saved Google sign-in\. Check the login in Accounts and API keys\.$/);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -119,7 +138,7 @@ test("usage reads the managed subscription through agy and records scoped window
 			await client.hello();
 			const cached = await client.request({ type: "subscriptions.usage" });
 			expect(cached).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ windows: [], error: expect.stringContaining("could not be verified") }] });
-			const defaultCommand = `#!/bin/sh\n[ "$1" = --version ] && { printf '1.5.12\\n'; exit; }; printf '%s\\n' '${JSON.stringify(placeholderReport(Date.now()))}'\n`;
+			const defaultCommand = `#!/bin/sh\n[ "$1" = --version ] && { printf '${antigravityPin.version}\\n'; exit; }; printf '%s\\n' '${JSON.stringify(placeholderReport(Date.now()))}'\n`;
 			await fixture(root, defaultCommand);
 			const unmeasured = await client.request({ type: "subscriptions.usage", refresh: true });
 			expect(unmeasured).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ windows: [], error: expect.stringContaining("default limits") }] });
@@ -140,7 +159,7 @@ test("usage reads the managed subscription through agy and records scoped window
 			expect(unmeasuredAgain).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ error: expect.stringContaining("default limits"), windows: [
 				{ usedPercent: 37.5, resetsAt: reset, samples: [{ usedPercent: 37.5 }] }, {}, {},
 			] }] });
-			await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '1.5.12\\n'; exit; }; printf 'invalid_grant: synthetic-token' >&2; exit 1\n`);
+			await fixture(root, `#!/bin/sh\n[ "$1" = --version ] && { printf '${antigravityPin.version}\\n'; exit; }; printf 'invalid_grant: synthetic-token' >&2; exit 1\n`);
 			const failed = await client.request({ type: "subscriptions.usage", refresh: true });
 			expect(failed).toMatchObject({ type: "subscriptions.usage", subscriptions: [{ error: expect.stringContaining("saved Google sign-in"), windows: [{ usedPercent: 37.5 }, {}, {}] }] });
 			expect(JSON.stringify(failed)).not.toContain("synthetic-token");

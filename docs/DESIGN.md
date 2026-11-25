@@ -2670,7 +2670,7 @@ Saves infer the task from the capability (or keep conversation scope when unassi
 resolved paths stay within the worker's workspace or its own proof folder. No IDs for selecting another scope and
 no board-wide actions, memory, codemode, shell or credentials are exposed by this bridge.
 
-Pinned agy 1.5.12 starts an ACP-supplied stdio MCP server under `--sandbox`. In an isolated profile with a synthetic
+Pinned agy 1.5.17 starts an ACP-supplied stdio MCP server under `--sandbox`. In an isolated profile with a synthetic
 key, both `session/new` and `session/load` reached `tools/list` through the scoped loopback bridge. A completely
 signed-out session returns `Authentication required` before loading MCP. The profile `config/mcp_config.json` also
 works, but Kemiri keeps the per-session ACP grant rather than placing task capabilities in a shared profile. The
@@ -2713,9 +2713,9 @@ audits and memory jobs refuse it. Cache keep-warm already admits only native Ant
 Disable pi-durable compaction for these workers: the ACP agent manages its own context and must never receive a
 Kemiri summary prompt. Ungated calls, including internal model jobs without a worker generation tag, are rejected.
 
-**Install and sign-in:** install Antigravity 1.5.12 on first use from the Google platform pin. Check SHA-512 before
+**Install and sign-in:** install Antigravity 1.5.17 on first use from the Google platform pin. Check SHA-512 before
 extracting just the regular executable, then publish a private staging directory by atomic rename. The verified
-Antigravity tar has a 384 MiB unpacked limit. The Linux x64 tar in this pin exceeded the shared extractor's 256 MiB
+Antigravity tar has a 384 MiB unpacked limit. The Linux x64 tar for 1.5.12 exceeded the shared extractor's 256 MiB
 agent-browser limit and failed before agy could print a link (T332). Use
 `bun scripts/pin-antigravity.ts <version>` against Google's release manifests to advance the pin.
 `KEMIRI_ANTIGRAVITY_COMMAND` substitutes a trusted executable. The profile lives under the backend's data directory.
@@ -2746,8 +2746,10 @@ the Kemiri credential. The signed-out probe verifies the code prompt, not persis
 Only after the version check, alias its `.gemini/antigravity-cli` directory to the selected Kemiri profile's
 `antigravity-acp` directory. This lets agy use and refresh its own native login in place, including atomic writes;
 Kemiri checks the token file's type but never opens, copies or sends it. The read cannot launch browser sign-in,
-install or update agy, or use a Gemini API key. Switching accounts cancels and drains the read before profile
-removal. Request failures retain the last reading and show only a fixed diagnostic, not output from agy.
+install or update agy, or use a Gemini API key. After a pin update the first worker launch or sign-in installs
+that version; a quota refresh on its own does not install it. Switching accounts cancels and drains the read
+before profile removal. Request failures retain the last reading and show only a fixed diagnostic, not output
+from agy.
 
 Read the enabled, measured buckets in a successful zero-turn `usage` command report. Convert remaining fraction
 into used percent, keep the provider's bucket ID and shared model group, and use the reported UTC reset if it is
@@ -2763,7 +2765,7 @@ quota visibility, not Google approval of consumer delegation. See [source and po
 **Web presentation:** `apps/web/src/lib/official-agents.ts` holds the pure rules, tested in `official-agents.test.ts`.
 Accounts and API keys marks a provider with `officialAgent` with an "Official agent" chip (also in Add a provider) and
 drops the backend's "(official agent)" name suffix. Its panel shows the login in use from `authType` ("Google
-subscription", "Gemini API key" or "Not signed in"), the agent version ("agy 1.5.12", or "Installs agy 1.5.12 on first
+subscription", "Gemini API key" or "Not signed in"), the agent version ("agy 1.5.17", or "Installs agy 1.5.17 on first
 use" while `installedVersion` is null) and `subscriptionWarning` as a warning banner. The banner shows whenever the
 subscription is in use and beside the subscription sign-in before anyone signs in, so it stays above the sign-in
 button while an API key is stored. The sign-in flow itself is the generic one. Every picker that chooses a model for
@@ -2771,7 +2773,7 @@ Kemiri's own loop hides `workerOnly` models: the composer's coordinator model, C
 maintenance, report audit and a background-job schedule (a schedule that runs a worker still lists them). The worker
 pickers (composer worker picker and its project rows, Workers settings) keep them with an "Official agent" hint.
 
-**Signed-out Linux x64 probe:** the pinned archive verified against Google's manifest. `agy acp` negotiated ACP 1.
+**Signed-out Linux x64 probe (1.5.12):** the archive verified against Google's manifest. `agy acp` negotiated ACP 1.
 It advertised `loadSession`, session load/resume/list/close and additional directories, logout, image prompts and
 embedded context but not audio. It did not advertise `mcpCapabilities` (neither HTTP nor SSE). It listed personal
 Google OAuth, Gemini Enterprise OAuth, Gemini API key and Gemini Enterprise Agent Platform as auth methods.
@@ -2784,8 +2786,8 @@ agent profile at launch and remove it at teardown, without putting the bearer in
 fallback is not enabled speculatively; it needs the trial to confirm the native config and sandbox behavior.
 
 **Android (T310):** Accounts and API keys marks an official agent in Ready to use and Add a provider. Its panel names the
-login in use (Google subscription, Gemini API key, Not signed in) and the agent version ("agy 1.5.12", or "Installs agy
-1.5.12 on first use"). The server's `subscriptionWarning` shows as a warning card while the subscription is in use, even
+login in use (Google subscription, Gemini API key, Not signed in) and the agent version ("agy 1.5.17", or "Installs agy
+1.5.17 on first use"). The server's `subscriptionWarning` shows as a warning card while the subscription is in use, even
 with the row closed, and above the subscription sign-in button before signing in. The sign-in flow is unchanged.
 `ModelInfo.workerOnly` models are left out of every non-worker picker: the composer's Main chat model chip, Project →
 Coordinator, memory maintenance, the report-audit model and a schedule that starts a background job. Worker pickers (the

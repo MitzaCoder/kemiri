@@ -79,7 +79,7 @@ the protocol readings and scoped ledger entries.
 
 ## Signed-in print-mode check (T483, 25 November 2026)
 
-A disposable copy of the native profile was enough to run the pinned 1.5.12 command without changing the managed
+In the first signed-in check, a disposable copy of the native profile was enough to run the 1.5.12 command without changing the managed
 profile or opening its credential in Kemiri. The process exited 0 with `SUCCESS`, `num_turns: 0`, and the existing
 `remaining_fraction` and UTC `reset_time` fields. Both model pools returned `1` and a reset exactly one window
 in the future for both durations. The native log showed print-mode sign-in completing, the slash command running,
@@ -89,3 +89,28 @@ Copying the existing cache, forcing ACP file storage, or testing without `--sand
 Kemiri distinguishes that result from a measured zero with an actual reset. It skips placeholder buckets and sends
 an unavailable reason when no measured bucket remains. It keeps the last trustworthy reading without appending a new
 sample. No private endpoint or alternate authentication route is used to fill the missing data.
+
+## Side-by-side release check (T483, 25 November 2026)
+
+Google published [1.5.17](https://github.com/google-antigravity/antigravity-cli/releases/tag/1.5.17) in
+all six updater manifests. Kemiri's installer checked both Linux x64 archives against SHA-512 before
+extracting them. Each version got a separate disposable HOME with an opaque copy of the same native
+sign-in file, no cached quota and auto-update disabled. Both ran the same standalone `/usage` JSON
+read under `--sandbox`. The managed sign-in and install were not changed, and the copies were removed.
+
+Both versions exited 0 with `SUCCESS`, `num_turns: 0` and `command.name: usage`. Each report had two
+model groups with a weekly and a five-hour bucket. This table rounds the fractions and strips account
+details, pool names and absolute reset times.
+
+| CLI | Measured pool | Other pool |
+| --- | --- | --- |
+| 1.5.12 | About 90% weekly and 60% five-hour remaining, with descriptions and UTC resets short of the full windows | Both buckets fully remaining, no descriptions, resets one full window from the read |
+| 1.5.17 | About 90% weekly and 60% five-hour remaining, with descriptions and UTC resets short of the full windows | Both buckets fully remaining, no descriptions, resets one full window from the read |
+
+The upgrade did not restore quota: 1.5.12 also supplied two measured windows in the repeat check.
+Neither release exposed measured quota for the other pool on this account. The JSON shape is unchanged.
+A synthetic regression test checks that Kemiri keeps both measured windows and drops the placeholder pool.
+
+Kemiri pins 1.5.17 using the six official manifest entries. On Linux x64 the real binary negotiated ACP 1,
+opened and reloaded a session, and reached Kemiri's stdio MCP `tools/list` under `--sandbox`. That smoke
+check used a synthetic API-key profile and made no model request.
