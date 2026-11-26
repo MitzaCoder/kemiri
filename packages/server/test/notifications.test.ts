@@ -38,6 +38,7 @@ import {
 	resolveVapidSubject,
 	vapidKeysWork,
 } from "../src/notifications.ts";
+import { askQuestion, HARNESS_WRITER } from "../src/board.ts";
 import { fakeOAuthProvider } from "./fake-oauth-provider.ts";
 import { createSetup, errorOf, TestClient, ViewClient, type TestSetup } from "./support.ts";
 
@@ -1015,6 +1016,34 @@ describe("events", () => {
 		expect(payload).toMatchObject({ proofArtifactId: `${first.id}~1`, taskId: task.id });
 		expect(JSON.stringify(payload)).not.toContain("https://");
 	});
+
+ it("drops a held Later question and sends its low-priority return in quiet hours", async () => {
+  let now = Date.parse("2026-11-10T12:00:59Z");
+  const { test, push } = await setupWithPush({ now: () => now });
+  const client = await connect(test.server);
+  await client.request({ type: "hello", protocolVersion: 1, client: { name: "test", version: "0", features: ["attention-later", "in-app-alerts"] } });
+  const projectId = await addProject(client, test.projectDir);
+  await configureCoordinator(client, projectId);
+  const device = await registerDevice(client, push, { preferences: preferences({ kinds: ["board_question", "later_back"],
+   quietHours: { start: "12:01", end: "23:00", timezone: "UTC", allowFailures: false } }) });
+  await client.request({ type: "notifications.presence", deviceId: device.deviceId, visible: true, projectId });
+  const { runtime } = await test.server.manager.open(projectId);
+  const question = await runtime.board.commitFor(change => runtime.harness.commit(change, BACKGROUND_CONTEXT), state =>
+   askQuestion(state, { taskId: null, text: "Which address should the sample use?", now: new Date(now).toISOString(), options: [] }), HARNESS_WRITER, "test-later-hold");
+  runtime.board.noticeQuestion(question);
+  await until(() => test.server.notifications.heldCount === 1);
+  const untilAt = now + 2_000;
+  const set = await client.request({ type: "board.later.set", projectId, target: { questionId: question.id }, expectedRevision: question.revision, until: new Date(untilAt).toISOString() });
+  expect(set.type).toBe("board.later.set");
+  expect(test.server.notifications.heldCount).toBe(0);
+  now = untilAt;
+  await runtime.board.checkWaiting();
+  await until(() => push.ofKind("later_back").length === 1);
+  expect(push.ofKind("board_question")).toHaveLength(0);
+  expect(push.ofKind("later_back")[0]).toMatchObject({ headers: { urgency: "low" }, payload: { projectId } });
+  const event = await client.waitFor(message => message.type === "notifications.alert" && message.alert.kind === "later_back");
+  expect(event).toMatchObject({ sound: false, alert: { level: "inbox" } });
+ });
 
 	it("a part checked by its coordinator sends no review alert or board wake, while owner closes and reopens still wake", async () => {
 		const { test, push } = await setupWithPush({ boardEditDebounceMs: 60_000 });

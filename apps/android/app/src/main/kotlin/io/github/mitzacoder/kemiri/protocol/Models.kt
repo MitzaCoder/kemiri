@@ -1225,7 +1225,9 @@ data class ProjectAttention(
     val `stepsTaskId`: String? = null,
     val `failedCoordinators`: Long? = null,
     val `failedCoordinatorId`: String? = null,
-    val `failedTaskIds`: List<String>? = null
+    val `failedTaskIds`: List<String>? = null,
+    val `laterItems`: Long? = null,
+    val `nextLaterAt`: String? = null
 )
 
 @Serializable
@@ -3884,7 +3886,8 @@ data class BoardTask(
     val `updatedAt`: String,
     val `settledAt`: String?,
     val `archived`: Boolean,
-    val `goal`: String? = null
+    val `goal`: String? = null,
+    val `later`: BoardLater? = null
 )
 
 @Serializable
@@ -3955,6 +3958,41 @@ data class BoardQuestionExchangePreviousAnswer(
 )
 
 @Serializable
+data class BoardLater(
+    val `until`: String,
+    val `since`: String,
+    val `times`: Long,
+    @kotlinx.serialization.EncodeDefault val `by`: String = "user",
+    val `whenLast`: Boolean? = null
+)
+
+@Serializable
+data class BoardLaterSetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.later.set",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `target`: JsonElement,
+    val `expectedRevision`: Long,
+    val `until`: String?,
+    val `whenLast`: Boolean? = null,
+    val `workDay`: BoardLaterSetRequestWorkDay? = null
+)
+
+@Serializable
+data class BoardLaterSetRequestWorkDay(
+    val `start`: String,
+    val `timeZone`: String
+)
+
+@Serializable
+data class BoardLaterSetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "board.later.set",
+    val `id`: String,
+    val `revision`: Long,
+    val `later`: BoardLater?
+)
+
+@Serializable
 data class BoardQuestionClarifyRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "board.question.clarify",
     val `id`: String = java.util.UUID.randomUUID().toString(),
@@ -3994,7 +4032,9 @@ data class BoardQuestion(
     val `answer`: String?,
     val `askedAt`: String,
     val `answeredAt`: String?,
-    val `choices`: List<BoardQuestionChoice>? = null
+    val `choices`: List<BoardQuestionChoice>? = null,
+    val `later`: BoardLater? = null,
+    val `postponed`: Boolean? = null
 )
 
 @Serializable
@@ -4262,7 +4302,8 @@ data class BoardTaskState(
     val `checkingFeedbackId`: String? = null,
     val `liveWorkSince`: String? = null,
     val `fromPartId`: String? = null,
-    val `fromPartTitle`: String? = null
+    val `fromPartTitle`: String? = null,
+    val `later`: BoardLater? = null
 )
 
 @Serializable

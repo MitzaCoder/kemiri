@@ -12,7 +12,8 @@ class NotificationPresetsTest {
         val kindNames = Regex("\"([a-z_]+)\"")
         fun names(text: String) = kindNames.findAll(text).map { it.groupValues[1] }.toSet()
         fun protocolList(name: String) = names(protocol.substringAfter("export const $name:").substringAfter("= [").substringBefore("];"))
-        val all = names(protocol.substringAfter("export const NotificationKindSchema = Type.Union(").substringBefore("],"))
+        // Android has not opted into attention-later yet.
+        val all = names(protocol.substringAfter("export const NotificationKindSchema = Type.Union(").substringBefore("],")) - "later_back"
         val failures = protocolList("NOTIFICATION_FAILURE_KINDS")
         assertEquals(protocolList("DEFAULT_NOTIFICATION_KINDS"), NotificationPreset.Important.kinds?.toSet())
         assertEquals(failures + setOf("login_prompt", "board_question", "task_review", "task_steps"), NotificationPreset.Needed.kinds?.toSet())

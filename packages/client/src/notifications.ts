@@ -158,7 +158,7 @@ export function parseNotificationPayload(raw: string | null | undefined): Notifi
 	const record = parsed as Record<string, unknown>;
 	const kind = record.kind;
 	const knownKind =
-		kind === "test" || (typeof kind === "string" && (NOTIFICATION_KINDS as readonly string[]).includes(kind));
+		kind === "test" || kind === "later_back" || (typeof kind === "string" && (NOTIFICATION_KINDS as readonly string[]).includes(kind));
 	if (!knownKind) return null;
 	if (typeof record.title !== "string" || record.title.length === 0) return null;
 	if (typeof record.body !== "string") return null;

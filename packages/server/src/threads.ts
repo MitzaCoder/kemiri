@@ -1,3 +1,4 @@
+import { laterUntilText, questionLater } from "./attention-later.ts";
 import { LANDING_TURN_GRANT_ENTRY, LANDING_TURN_NUDGE_KEY, LANDING_TURN_NUDGE_MS, LandingTurnDoc, type LandingTurnRequest } from "./landing-turn.ts";
 import { THREAD_MESSAGE_ENTRY, THREAD_MESSAGE_LIMIT, ThreadMessagesDoc } from "./thread-messages.ts";
 import { enqueueCoordinatorNotes, noteField, removeCoordinatorNote, type PendingCoordinatorNote } from "./coordinator-notes.ts";
@@ -555,6 +556,8 @@ export class ThreadService {
 	/** Every thread's workers, from the worker watch. */
 	#workers: WorkerSummary[] = [];
 	#board: Board | undefined;
+ #beforeLaterBoard: Board | undefined;
+ #legacyLaterFailures = new Map<string, ThreadSummary["attentionFailures"]>();
 	#failureTasks: Board["tasks"] = [];
 	#storage: { removeThread(threadId: string): Promise<void> } | undefined;
 	/** Status changes are serialized, so two watch callbacks never race on one thread. */
@@ -738,9 +741,14 @@ export class ThreadService {
 		const summaries = [main, ...records.map(record => this.summaryOf(record, now))];
 		const failureEntryId = this.#options.mainActivity().failureEntryId;
 		const failureThreads = [...summaries.slice(1).map((thread, index) => ({ ...thread,
-			updatedAt: records[index]?.failureEntryId === undefined ? thread.updatedAt : String(records[index].failureEntryId),
+			occurredAt: thread.updatedAt,
+   updatedAt: records[index]?.failureEntryId === undefined ? thread.updatedAt : String(records[index].failureEntryId),
 		})), ...(failureEntryId === undefined ? [] : [{ ...main, updatedAt: String(failureEntryId) }])];
-		const failures = actionableFailures(this.#failureTasks, this.#workers, failureThreads, state.acknowledgedFailures);
+		const failures = actionableFailures(this.#board?.tasks ?? [], this.#workers, failureThreads, state.acknowledgedFailures, true);
+  const legacyFailures = actionableFailures(this.#failureTasks, this.#workers, failureThreads, state.acknowledgedFailures);
+  const legacyRows = failureAttentionRows(legacyFailures);
+  this.#legacyLaterFailures = new Map(summaries.map(thread => [thread.id, (thread.kind === "job" ? legacyFailures.filter(row => row.failure.threadId === thread.id) :
+   legacyRows.filter(row => row.coordinatorId === thread.id)).map(row => row.failure)]));
 		const rows = failureAttentionRows(failures);
 		const threads = summaries.filter(thread => includeArchived || !thread.archived).map(thread => {
 			const attentionFailures = (thread.kind === "job"
@@ -748,7 +756,7 @@ export class ThreadService {
 				: rows.filter(row => row.coordinatorId === thread.id)).map(row => row.failure);
 			return { ...thread, attentionFailures, attention: { ...thread.attention!, failed: attentionFailures.length } };
 		});
-		return { threads, failures, projectFailures: projectFailureAttention(this.#workers, failures) };
+		return { threads, failures, projectFailures: projectFailureAttention(this.#workers, failures), legacyProjectFailures: projectFailureAttention(this.#workers, legacyFailures) };
 	}
 
 	async acknowledgeFailure(failureId: string): Promise<void> {
@@ -841,11 +849,11 @@ export class ThreadService {
 		};
 	}
 
-	#summaryFields(id: string, kind: ThreadKind, activity: ProjectActivity | undefined) {
+	#summaryFields(id: string, kind: ThreadKind, activity: ProjectActivity | undefined, board = this.#board) {
 		const belongs = (threadId: string | null | undefined) => kind === "job"
 			? threadId === id : this.coordinators.coordinatorId(threadId) === id;
-		const tasks = (this.#board?.tasks ?? []).filter(task => belongs(task.ownerThreadId));
-		const attention = boardAttention({ tasks, questions: (this.#board?.questions ?? []).filter(q => belongs(q.threadId)) });
+		const tasks = (board?.tasks ?? []).filter(task => belongs(task.ownerThreadId));
+		const attention = boardAttention({ tasks, questions: (board?.questions ?? []).filter(q => belongs(q.threadId)) });
 		return {
 			kind,
 			lastReplyAt: activity?.lastReplyAt ?? null,
@@ -867,15 +875,19 @@ export class ThreadService {
 	}
 
 	/** The board questions a thread asked that are still open, read from the board itself. */
-	async openQuestionIds(threadId: string): Promise<string[]> {
-		return (await this.#options.board.state()).questions
+	async openQuestionIds(threadId: string, includeLaterTime = false): Promise<string[]> {
+  const state = await this.#options.board.state();
+		return state.questions
 			.filter((question) => question.status === "open" && (question.threadId ?? MAIN_THREAD_ID) === threadId)
-			.map((question) => question.id);
+			.map(question => {
+    const later = includeLaterTime && questionLater(state, question);
+    return later ? `${question.id} (${laterUntilText(later)})` : question.id;
+   });
 	}
 
-	#openQuestions(threadId: string): number {
-		return (this.#board?.questions ?? []).filter(
-			(question) => question.status === "open" && question.waitingOn !== "agent" && (question.threadId ?? MAIN_THREAD_ID) === threadId,
+	#openQuestions(threadId: string, board = this.#board): number {
+		return (board?.questions ?? []).filter(
+			(question) => !question.postponed && question.status === "open" && question.waitingOn !== "agent" && (question.threadId ?? MAIN_THREAD_ID) === threadId,
 		).length;
 	}
 
@@ -891,11 +903,21 @@ export class ThreadService {
 	}
 
 	/** The board changed: owned tasks and open questions are part of every summary. */
-	boardChanged(board: Board, legacyBoard: Board = board): void {
+	boardChanged(board: Board, legacyBoard: Board = board, beforeLater: Board = board): void {
+  this.#beforeLaterBoard = beforeLater;
 		this.#board = board;
 		this.#failureTasks = legacyBoard.tasks;
 		this.#changed();
 	}
+
+ legacyLaterThread(thread: ThreadSummary): ThreadSummary {
+  if (!this.#beforeLaterBoard || this.#beforeLaterBoard === this.#board) return thread;
+  const openQuestions = this.#openQuestions(thread.id, this.#beforeLaterBoard);
+  const attentionFailures = this.#legacyLaterFailures.get(thread.id) ?? thread.attentionFailures;
+  const { attention } = this.#summaryFields(thread.id, thread.kind ?? "job", undefined, this.#beforeLaterBoard);
+  return { ...thread, openQuestions, state: threadState({ ...thread, openQuestions }),
+   ...(attentionFailures ? { attentionFailures } : {}), attention: { ...attention, failed: attentionFailures?.length ?? 0 } };
+ }
 
 	/** Main's activity changed: it is main's status in the list. */
 	mainChanged(): void {
@@ -2397,7 +2419,7 @@ function createThreadFinishExtension(service: ThreadService): Extension {
 				);
 			}
 			// A weaker model reads "wait for the answer" as "finish"; the answer would then wake a thread that said it was done.
-			const asked = record.status === "done" ? [] : await service.openQuestionIds(threadId);
+			const asked = record.status === "done" ? [] : await service.openQuestionIds(threadId, true);
 			if (asked.length > 0) {
 				return toolText(
 					`Your question ${asked.join(", ")} is still open. To wait for the answer, end your turn: it arrives as a message and you go on from there. If you no longer need it, withdraw it with the board tool (resolve_question without an answer), then finish.`,

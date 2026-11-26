@@ -781,7 +781,7 @@ export function notificationBlocked(
 	if (event.projectId != null && (preferences.mutedProjects.includes(event.projectId) ||
 		preferences.projectMutes?.some(mute => mute.projectId === event.projectId && notificationMuteActive(mute, muteAt)))) return "muted";
 	const quiet = preferences.quietHours;
-	if (quiet !== null && inQuietHours(quiet, options.at)) {
+	if (event.kind !== "later_back" && quiet !== null && inQuietHours(quiet, options.at)) {
 		const failure = NOTIFICATION_FAILURE_KINDS.includes(event.kind);
 		if (!(quiet.allowFailures && failure)) return "quiet";
 	}
@@ -1704,7 +1704,7 @@ export class Notifier {
 			await this.#publishAlertEvent(inApp, () => inApp.alert(alert, this.#now()));
 			if (inApp.store.wasHandled(alert.key)) return { skipped: "filtered", deliveries: [] };
 		}
-		if (this.presence.anyVisible() && this.#wanted(event, at)) {
+		if (event.kind !== "later_back" && this.presence.anyVisible() && this.#wanted(event, at)) {
 			this.#hold({ id: crypto.randomUUID(), ...(this.relay ? { eventId: newRelayId() } : {}),
 				event, at: at.toISOString(), dueAt: at.getTime() + this.#holdMs });
 			return { skipped: "held", deliveries: [] };
@@ -1976,7 +1976,7 @@ export class Notifier {
 						privateKey: this.#vapid.privateKey,
 					},
 					TTL: quiet ? RESOLVED_PUSH_TTL_MS / 1000 : this.#ttlSeconds,
-					...(quiet ? { urgency: "low" as const } : payload.kind !== "test" && payload.kind !== "resolved" && NOTIFICATION_FAILURE_KINDS.includes(payload.kind)
+					...(quiet || payload.kind === "later_back" ? { urgency: "low" as const } : payload.kind !== "test" && payload.kind !== "resolved" && NOTIFICATION_FAILURE_KINDS.includes(payload.kind)
 						? { urgency: "high" as const } : {}),
 					...(quiet ? {} : { topic: pushTopic(payload.tag) }),
 				},
@@ -2018,7 +2018,7 @@ export class Notifier {
 				(!device.sessionId || this.#sessionActive?.(device.sessionId) === true),
 			data: { payload: JSON.stringify(payload) },
 			ttlSeconds: quiet ? RESOLVED_PUSH_TTL_MS / 1000 : this.#ttlSeconds,
-			...(quiet ? { priority: "normal" as const } : {}),
+			...(quiet || payload.kind === "later_back" ? { priority: "normal" as const } : {}),
 		});
 		return await this.#record(device, payload, at, result, result.unregistered);
 	}

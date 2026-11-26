@@ -1,4 +1,4 @@
-import type { AppSettings, Overview, ProjectApp } from "@kemiri/protocol";
+import type { AppSettings, BoardLaterSetRequest, BoardLaterSetResponse, Overview, ProjectApp } from "@kemiri/protocol";
 import { applyBoardDelta } from "./board-delta.ts";
 import type { TaskWatcherSettings } from "@kemiri/protocol";
 import type { CoordinatorCompaction, UsageDrainMode, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
@@ -1036,6 +1036,7 @@ export class HarnessClient {
 			preferences: {
 				...registration.preferences,
 				kinds: registration.preferences.kinds.filter(kind => {
+					if (kind === "later_back") return this.#clientFeatures.includes("attention-later") && this.#state.features?.includes("attention-later");
 					if (kind === "usage_limit_reached") return this.#state.features?.includes("usage-pause");
 					if (kind === "usage_drain_warning" || kind === "usage_drain_paused") return this.#state.features?.includes("usage-drain");
 					return true;
@@ -1202,6 +1203,11 @@ export class HarnessClient {
 	 * Answer an open question read at `expectedRevision`. `board_conflict` when it was answered or withdrawn since. The
 	 * answer reaches the coordinator like a message.
 	 */
+ /** Set or clear Later; callers opt in to attention-later after implementing its view. */
+ async setBoardLater(projectId: string, later: Omit<BoardLaterSetRequest, "type" | "id" | "projectId">): Promise<BoardLaterSetResponse> {
+  return this.#call<BoardLaterSetResponse>({ type: "board.later.set", projectId, ...later });
+ }
+
 	async answerBoardQuestion(
 		projectId: string,
 		questionId: string,

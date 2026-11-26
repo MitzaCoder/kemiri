@@ -1,3 +1,4 @@
+import { taskLater } from "./attention-later.ts";
 import { reportSectionFacts } from "./report-blocks.ts";
 export { reportSectionFacts };
 /** Deterministic report coverage and durable nudge admission. No model calls or timeline writes. */
@@ -127,7 +128,7 @@ function invalidateReportSections(state: BoardState, task: BoardTask, fact: Task
 		section.stale = true;
 		const reasons = [...new Set([...section.reasons, reason])];
 		section.reasons = reasons.length <= 3 ? reasons : [...reasons.slice(0, 2), reason];
-		if (task.parent != null || fact.nudge === false || tracking.suppressed[name] === section.version) continue;
+		if (task.parent != null || task.later || fact.nudge === false || tracking.suppressed[name] === section.version) continue;
 		tracking.pending ??= { burst: task.eventSeq ?? 0, first: Date.parse(fact.at), last: Date.parse(fact.at), sections: {} };
 		tracking.pending.last = Date.parse(fact.at);
 		tracking.pending.sections[name] = section.version;
@@ -177,7 +178,7 @@ export function sweepReportAge(state: BoardState, now: number, ageMs = REPORT_AG
 	if (now - state.lastReportSweep < sweepMs) return;
 	state.lastReportSweep = now;
 	for (const task of state.tasks) {
-		if (task.parent != null || !["in_progress", "review", "waiting"].includes(task.status)) continue;
+		if (task.parent != null || task.later || !["in_progress", "review", "waiting"].includes(task.status)) continue;
 		initializeTaskFreshness(state, task);
 		const activity = state.reportTracking![task.id]!.activityAt;
 		if (activity === null) continue;
@@ -214,6 +215,11 @@ export function reportDueAt(pending: PendingReport, trailingMs = REPORT_TRAILING
 }
 
 /** Freeze each short batch before delivery. Replay uses identical content and admission key. Overflow stays pending. */
+export function reportBatchTouchesLater(state: Readonly<BoardState>, batch: ReportOutbox): boolean {
+ const subjects = batch.chatDetail ? /^\[reports\] (T\d+(?:, T\d+)*)(?: \([^)]*\))?: only in chat:/.exec(batch.content)?.[1]?.split(", ") : undefined;
+ return state.tasks.some(task => (batch.admissions.some(item => item.taskId === task.id) || subjects?.includes(task.id)) && taskLater(state, task));
+}
+
 export function prepareReportNudges(state: BoardState, now: number, ownerOf: (task: BoardTask) => string, options: {
  trailingMs?: number | undefined; maxBurstMs?: number | undefined; maxTokens?: number | undefined;
 } = {}): void {
@@ -224,7 +230,7 @@ export function prepareReportNudges(state: BoardState, now: number, ownerOf: (ta
  const partIds = new Set(state.tasks.filter(task => task.parent != null).map(task => task.id));
  // Cancel old admissions for parts. Request entries in mixed batches stay pending and can be readmitted.
  const kept = state.reportOutbox.filter(batch => {
-  if (batch.admissions.some(item => partIds.has(item.taskId))) return false;
+  if (reportBatchTouchesLater(state, batch) || batch.admissions.some(item => partIds.has(item.taskId))) return false;
   // Older chat-detail batches had no admissions. The subject list is frozen in their heading.
   const subjects = batch.chatDetail ? /^\[reports\] (T\d+(?:, T\d+)*)(?: \([^)]*\))?: only in chat:/.exec(batch.content)?.[1] : undefined;
   return subjects === undefined || subjects.split(", ").some(id => !partIds.has(id));
@@ -240,7 +246,7 @@ export function prepareReportNudges(state: BoardState, now: number, ownerOf: (ta
    if (pending !== undefined) delete tracking!.pending;
    continue;
   }
-  if (pending === undefined || state.reportInFlight?.[ownerOf(task)] !== undefined || admitted.has(`${task.id}:${pending.burst}`) || reportDueAt(pending, options.trailingMs, options.maxBurstMs) > now) continue;
+  if (task.later || pending === undefined || state.reportInFlight?.[ownerOf(task)] !== undefined || admitted.has(`${task.id}:${pending.burst}`) || reportDueAt(pending, options.trailingMs, options.maxBurstMs) > now) continue;
   const sections = REPORT_SECTIONS.filter((name) => pending.sections[name] === task.report.freshness?.[name].version && task.report.freshness![name].stale);
   if (sections.length === 0) { delete tracking!.pending; continue; }
   const owner = ownerOf(task);

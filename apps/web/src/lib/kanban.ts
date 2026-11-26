@@ -68,7 +68,7 @@ export function columnOfStatus(status: BoardTaskStatus): KanbanColumnId {
 }
 
 export function columnOfTask(task: BoardTask, derived = false): KanbanColumnId {
-	if (task.state) return task.state.group;
+	if (task.state && task.state.group !== "later") return task.state.group;
 	const legacy = columnOfStatus(task.status);
 	return derived ? ({ working: 'in_progress', review: 'needs_you', blocked: 'needs_you', done: 'closed' } as Partial<Record<KanbanColumnId, KanbanColumnId>>)[legacy] ?? legacy : legacy;
 }

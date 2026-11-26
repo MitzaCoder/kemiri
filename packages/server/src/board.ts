@@ -1,4 +1,5 @@
 import { linkOverviewHistory, OverviewRecordsDoc, recordOverviewStatus, recordOverviewStepsWait, type OverviewRecords } from "./overview-records.ts";
+import { enqueueCoordinatorNotes, type PendingCoordinatorNote } from "./coordinator-notes.ts";
 import { AnswerStore, answerMatchesQuery, isOwnerQuestion, ownerQuestion, shouldFileAnswer, taskDescriptionFromAnswer, type OwnerQuestion } from "./answers.ts";
 import { finalAnswerText } from "./activity.ts";
 import { DRAIN_CHOICES } from "./usage-drain-investigation.ts";
@@ -19,7 +20,7 @@ import { activityTracking, taskActivity, endActivitySource, type TaskActivityTra
 import type { Models } from "@earendil-works/pi-ai";
 import { DEFAULT_REPORT_AUDIT } from "@kemiri/protocol";
 import { ReportAuditService, type ReportAuditRecord } from "./report-audit.ts";
-import { initializeTaskFreshness, coverReportSection, reportSectionFacts, noteTaskFact, markReportStale, prepareReportNudges, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
+import { initializeTaskFreshness, coverReportSection, reportSectionFacts, noteTaskFact, markReportStale, prepareReportNudges, reportBatchTouchesLater, acknowledgeReportNudge, reportDueAt, sweepReportAge, substantiveTaskMentions, reportChatUserTasks, isReportHarnessInput, chatDetailTaskMentions, REPORT_SECTIONS, REPORT_SWEEP_MS, type ReportSection, type TaskFact, type TaskReportTracking, type ReportOutbox } from "./task-freshness.ts";
 import { stateKind } from "./state-identity.ts";
 import { CHAT_POINTER_WARNING, pointsAtChat } from "./task-chat-pointer.ts";
 import { reportTextWarnings, taskTextWarnings } from "./task-text-style.ts";
@@ -82,6 +83,8 @@ import { type Static, Type } from "typebox";
 import type { Coordinators } from "./coordinators.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import { compareBoardTaskOrder, digestPart, droppedPartLines, orderedDescendantIds, partProgress } from "./request-digest.ts";
+import type { BoardLaterSetRequest, BoardLaterSetResponse } from "@kemiri/protocol";
+import { attentionTaskOpen, coversLaterFailure, laterFailureKey, laterQuestionAllowed, laterTaskRequest, laterUntilText, normalizeLater, ownerQuestionOpen, questionLater, taskLater, validateLaterDeadline } from "./attention-later.ts";
 import { requestAttention, topRequest } from "./request-attention.ts";
 import { type Notifier, boardQuestionNotification, projectDeployProblemNotification, taskReviewNotification, taskStepsNotification } from "./notifications.ts";
 import type { OutsideModelApproval } from "./outside-model-approvals.ts";
@@ -171,6 +174,9 @@ export type BoardState = {
 	counters: { task: number; question: number; decision: number; /** Absent on boards written before feedback. */ feedback?: number };
 	updatedAt: string | null;
 	/** Durable return notices, removed only after delivery; request IDs make replay harmless. */
+ laterTimes?: Record<string, number>;
+ laterUrgent?: Record<string, string[]>;
+ laterReturns?: { key: string; at?: string; rows: string[] }[];
 	waitingReturns?: { task: BoardTask; note: string }[];
 	/**
 	 * The harness's own changes already applied, by the request ID they derive from (the spawn's tool call, the report's
@@ -247,6 +253,7 @@ export function normalizeBoard<T extends BoardState>(state: T): T {
 		task.related ??= [];
 		initializeTaskFreshness(state, task);
 	}
+ normalizeLater(state);
  return state;
 }
 
@@ -1274,8 +1281,11 @@ export function sweepArchive(state: BoardState, now: number): boolean {
 }
 
 /** The board as the protocol shows it: by order, archived tasks only when asked for, questions open first. */
-export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId = mainCoordinator, withRequestAttention = false, withRequestDigest = false): Board {
-	return boardViews(state, now, includeArchived, coordinatorId, withRequestAttention, withRequestDigest).board;
+export function boardView(state: Readonly<BoardState>, now: number, includeArchived: boolean, coordinatorId = mainCoordinator, withRequestAttention = false, withRequestDigest = false, withLater = false): Board {
+ const projection = withLater && !state.taskStateEnabled && (state.tasks.some(task => task.later) || state.questions.some(question => question.later))
+  ? { ...state, taskStateEnabled: true } : state;
+ const { board, legacyBoard } = boardViews(projection, now, includeArchived, coordinatorId, withRequestAttention, withRequestDigest);
+ return withLater ? projectLaterBoard(board, legacyBoard, state, now) : board;
 }
 
 const mainCoordinator = (_owner: string | null | undefined): string => "main";
@@ -1410,6 +1420,117 @@ function boardViews(state: Readonly<BoardState>, now: number, includeArchived: b
 	return { board, legacyBoard };
 }
 
+/** Keep owner attention separate from status and live work. Project only for clients that can read Later. */
+function projectLaterBoard(board: Board, ownBoard: Board, state: Readonly<BoardState>, now: number): Board {
+ if (!state.tasks.some(task => task.later) && !state.questions.some(question => question.later)) return board;
+ const questions = board.questions.map(question => questionLater(state, question) ? { ...question, postponed: true as const } : question);
+ const visibleQuestions = questions.filter(question => !question.postponed);
+ const ownTasks = ownBoard.tasks.map(task => {
+  const later = taskLater(state, task);
+  if (!later || !attentionTaskOpen(task) || !task.state) return task;
+  const need = task.state;
+  if (need.kind === "failed" && !coversLaterFailure(state, task)) return task;
+  if (need.kind === "answer_needed" && need.refs.some(id => visibleQuestions.some(question => question.id === id))) {
+   // Rebuild the sentence and refs without exposing a postponed question as the top ask.
+   const visible = taskState(task, visibleQuestions, state.tasks, state.taskActivity?.[task.id], now);
+   return { ...task, state: { ...visible, liveWorkSince: need.liveWorkSince, runningWork: need.runningWork } };
+  }
+  if (task.parent != null && need.group !== "needs_you" && need.kind !== "paused") return task;
+  const hidden = { ...need, group: "later" as const, later };
+  if (need.kind === "paused") {
+   hidden.kind = "waiting_outside";
+   hidden.sentence = { kind: "waiting", text: laterUntilText(later), since: later.since, refs: [], ageFormat: "none" };
+  }
+  return { ...task, state: hidden };
+ });
+ const projectedById = new Map(ownTasks.map(task => [task.id, task]));
+ const { needsByRequest } = requestAttention(ownTasks, visibleQuestions);
+ const parts = (ids: readonly string[]) => ids.map(id => projectedById.get(id)).filter(task => task?.status !== "dropped");
+ const kind = (task: BoardTask | undefined) => task?.state?.group === "later" ? "waiting_outside" : task?.state?.kind ?? "todo";
+ return { ...board, questions, tasks: board.tasks.map(task => {
+  const own = projectedById.get(task.id)?.state;
+  const later = taskLater(state, task);
+  // A new urgent need stays visible while ordinary asks remain postponed.
+  const visible = task.parent == null ? needsByRequest.get(task.id) : undefined;
+  const shown = visible ? { ...visible.state, liveWorkSince: own?.liveWorkSince, runningWork: own?.runningWork,
+   ...(visible.task.id === task.id ? {} : { fromPartId: visible.task.id, fromPartTitle: visible.task.title }) } :
+   later && task.parent == null && own?.group === "later" && task.state?.group === "needs_you"
+    ? { ...task.state, group: "later" as const, later } : own;
+  const stateForTask = later ? shown : task.state;
+  const subtaskStates = task.subtaskStates?.map((previous, index) => {
+   const part = parts(task.subtasks ?? [])[index];
+   return part?.state ? kind(part) : previous;
+  });
+  const partsDigest = task.partsDigest && (() => {
+   const allParts = task.partsDigest!.parts.map(part => {
+    const projected = projectedById.get(part.id);
+    return projected?.state ? { ...part, state: kind(projected) } : part;
+   });
+   return { ...task.partsDigest, parts: allParts, ...partProgress(allParts.filter(part => part.parentId === task.id).map(part => part.state)) };
+  })();
+  const laterActivity = stateForTask?.group === "later" && task.activity?.kind === "idle" ? stateForTask.sentence : undefined;
+  return { ...task, ...(laterActivity ? { activity: laterActivity, report: { ...task.report, now: laterActivity.text } } : {}), ...(stateForTask ? { state: stateForTask } : {}), ...(subtaskStates ? { subtaskStates } : {}), ...(partsDigest ? { partsDigest } : {}) };
+ }) };
+}
+
+function laterNeeds(state: Readonly<BoardState>, board: Board, task: BoardTask) {
+ const scope = board.tasks.filter(part => laterTaskRequest(board, part)?.id === task.id);
+ const ids = new Set(scope.map(part => part.id));
+ const questions = state.questions.filter(question => question.taskId != null && ids.has(question.taskId) && ownerQuestionOpen(question) && laterQuestionAllowed(question));
+ const urgent = [...questions.filter(question => question.kind === "warning").map(question => `${question.id}@${question.revision}`),
+  ...scope.filter(part => part.state?.kind === "failed").map(laterFailureKey)];
+ const needed = questions.length > 0 || scope.some(part => part.state?.kind === "failed" || (!task.state?.liveWorkSince && part.state?.kind === "steps_needed")) ||
+  (task.state ? task.state.kind === "review" : task.status === "review");
+ return { urgent, needed };
+}
+
+export function setBoardLater(state: BoardState, input: Omit<BoardLaterSetRequest, "id" | "type" | "projectId">, now: number): Omit<BoardLaterSetResponse, "id" | "type"> {
+ const { target, expectedRevision, until, whenLast } = input;
+ const byTask = "taskId" in target;
+ if (byTask && "questionId" in target) throw new ServerError("bad_request", "Choose one Later target.");
+ const id = byTask ? target.taskId : target.questionId;
+ const row = byTask ? state.tasks.find(task => task.id === id) : state.questions.find(question => question.id === id);
+ if (!row) throw new ServerError("not_found", `No ${byTask ? "task" : "question"} ${id}.`);
+ if (row.revision !== expectedRevision) throw conflict(byTask ? "task" : "question", id, row.revision, expectedRevision);
+ if (("parent" in row && row.parent != null) || ("taskId" in row && row.taskId != null)) throw new ServerError("bad_request", "Put the whole request aside, not one of its parts or questions.");
+ const since = new Date(now).toISOString();
+ if (until === null && !whenLast) {
+  if (row.later) {
+   delete row.later;
+   if (state.laterUrgent) delete state.laterUrgent[id];
+   row.revision++;
+   state.updatedAt = since;
+  }
+  return { revision: row.revision, later: null };
+ }
+ if (!byTask && whenLast) throw new ServerError("bad_request", "Last thing left applies only to requests.");
+ const raw = boardView({ ...state, taskStateEnabled: true }, now, true);
+ const task = byTask ? raw.tasks.find(task => task.id === id) : undefined;
+ const need = task ? laterNeeds(state, raw, task) : undefined;
+ const question = "taskId" in row ? row : undefined;
+ if (task ? !attentionTaskOpen(task) || !need?.needed : !question || !ownerQuestionOpen(question) || !laterQuestionAllowed(question)) {
+  throw new ServerError("bad_request", "Only an open request or taskless question that needs the owner can go to Later.");
+ }
+ const deadline = validateLaterDeadline(input, now, question?.kind === "warning" || !!need?.urgent.length);
+ state.laterTimes ??= {};
+ const times = (state.laterTimes[id] ?? row.later?.times ?? 0) + 1;
+ state.laterTimes[id] = times;
+ if (need?.urgent.length) {
+  state.laterUrgent ??= {};
+  state.laterUrgent[id] = need.urgent;
+ }
+ else if (state.laterUrgent) delete state.laterUrgent[id];
+ row.later = { until: deadline, since, by: "user", times, ...(whenLast ? { whenLast } : {}) };
+ row.revision++;
+ state.updatedAt = since;
+ if (byTask) {
+  const tracking = state.reportTracking?.[id];
+  if (tracking) delete tracking.pending;
+  if (state.reportOutbox) state.reportOutbox = state.reportOutbox.filter(batch => !reportBatchTouchesLater(state, batch));
+ }
+ return { revision: row.revision, later: plain(row.later) };
+}
+
 /** Compute question context on reads or notices, never store it with the question. */
 function requestForPart(taskId: string | null, tasks: readonly BoardTask[]): BoardTask | undefined {
 	if (taskId == null) return undefined;
@@ -1422,8 +1543,8 @@ function partRequestTitle(task: BoardTask, tasks: readonly BoardTask[]): string 
 	return task.parent == null ? undefined : requestForPart(task.id, tasks)?.title;
 }
 
-export function openQuestionCount(state: Readonly<BoardState> | undefined): number {
-	return state === undefined ? 0 : state.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent").length;
+export function openQuestionCount(state: Readonly<BoardState> | undefined, withLater = false): number {
+	return state === undefined ? 0 : state.questions.filter((question) => ownerQuestionOpen(question) && (!withLater || !questionLater(state, question))).length;
 }
 
 function compareIds(left: string, right: string): number {
@@ -1874,6 +1995,7 @@ export function settleQuestion(
 		}
 	}
 	delete question.waitingOn;
+ delete question.later;
  delete question.noReplyYet;
  if (state.clarificationReminders) delete state.clarificationReminders[question.id];
  question.status = input.answer === null ? "withdrawn" : "answered";
@@ -2358,7 +2480,7 @@ function clip(text: string, limit: number): string {
 export function describeTask(task: BoardTask): string {
 	const taskState = task.state;
 	const derivedKind = taskState?.kind === "blocked_by_task" ? `blocked by ${taskState.refs.join(", ")}` : taskState?.kind;
-	const status = [task.status, ...(taskState?.liveWorkSince && taskState.kind !== "working" ? ["working"] : []), ...(derivedKind ? [derivedKind] : [])].join(" · ");
+	const status = [task.status, ...(taskState?.liveWorkSince && taskState.kind !== "working" ? ["working"] : []), ...(derivedKind ? [derivedKind] : []), ...((task.later ?? taskState?.later) ? [laterUntilText((task.later ?? taskState?.later)!)] : [])].join(" · ");
 	const parts = [`${task.id} r${task.revision} [${status}] ${task.title}${task.archived ? " (archived)" : ""}`];
 	if ((task.refs ?? []).length > 0) parts.push(`refs ${task.refs.join(",")}`);
 	if ((task.parent ?? null) !== null) parts.push(`↳${task.parent}`);
@@ -2396,9 +2518,9 @@ function describeChoices(choices: readonly BoardQuestionChoice[]): string {
 	return choices.map(({ label, effect, recommended }) => `${label}${recommended ? " (recommended)" : ""}${effect ? ` — ${effect}` : ""}`).join(" / ");
 }
 
-export function describeQuestion(question: BoardQuestion): string {
+export function describeQuestion(question: BoardQuestion, later = question.later): string {
 	const asker = question.threadId === undefined || question.threadId === "main" ? "" : ` from ${question.threadId}`;
-	const label = question.kind === "warning" ? " warning" : "";
+	const label = (question.kind === "warning" ? " warning" : "") + (later ? ` (owner: ${laterUntilText(later)})` : "");
 	const head = `${question.id} r${question.revision}${label} [${question.status}]${question.taskId === null ? "" : ` (${question.taskId})`}${asker} ${question.text}`;
 	const options = question.choices?.length ? ` choices: ${describeChoices(question.choices)}`
 		: question.status === "open" && question.options.length ? ` options: ${question.options.join(" / ")}` : "";
@@ -2481,7 +2603,7 @@ export function describeTaskInFull(task: BoardTask, board: Board, snapshots: rea
 		);
 	}
 	const questions = board.questions.filter((question) => question.taskId === task.id);
-	lines.push(questions.length === 0 ? "Questions and warnings: none" : `Questions and warnings:\n${questions.map(describeQuestion).join("\n")}`);
+	lines.push(questions.length === 0 ? "Questions and warnings: none" : `Questions and warnings:\n${questions.map(question => describeQuestion(question, question.postponed ? question.later ?? board.tasks.find(task => task.id === (question.requestId ?? question.taskId))?.later : undefined)).join("\n")}`);
 	const decisions = board.decisions.filter((decision) => decision.taskId === task.id);
 	lines.push(decisions.length === 0 ? "Decisions: none" : `Decisions:\n${decisions.map(decisionLine).join("\n")}`);
 	lines.push(`Workers: ${task.workerIds.length === 0 ? "none" : task.workerIds.join(", ")}`);
@@ -2513,7 +2635,7 @@ export function describeBoard(board: Board): string {
 	const sections: string[] = [];
 	sections.push(board.tasks.length === 0 ? "Tasks: none" : `Tasks:\n${board.tasks.map(describeTask).join("\n")}`);
 	sections.push(
-		board.questions.length === 0 ? "Questions: none" : `Questions:\n${board.questions.map(describeQuestion).join("\n")}`,
+		board.questions.length === 0 ? "Questions: none" : `Questions:\n${board.questions.map(question => describeQuestion(question, question.postponed ? question.later ?? board.tasks.find(task => task.id === (question.requestId ?? question.taskId))?.later : undefined)).join("\n")}`,
 	);
 	if (board.decisions.length > 0) {
 		const lines = board.decisions
@@ -2544,7 +2666,7 @@ export function summaryBoardView(
 	state: Readonly<BoardState> | undefined,
 	options: { now: number; since: number | null; budgetTokens?: number },
 ): string {
-	const board = boardView(state ?? emptyBoardState(), options.now, false);
+	const board = boardView(state ?? emptyBoardState(), options.now, false, mainCoordinator, true, false, true);
 	const active = board.tasks.filter((task) => task.status === "in_progress" || task.status === "review" || task.status === "waiting" || task.status === "blocked");
 	const questions = board.questions.filter((question) => question.status === "open");
 	const todo = board.tasks
@@ -2565,7 +2687,7 @@ export function summaryBoardView(
 		sections.push(
 			active.length === 0 ? "Active tasks: none" : `Active tasks:\n${active.map((task) => withNowLine(task, describeTask(task))).join("\n")}`,
 		);
-		sections.push(questions.length === 0 ? "Open questions: none" : `Open questions:\n${questions.map(describeQuestion).join("\n")}`);
+		sections.push(questions.length === 0 ? "Open questions: none" : `Open questions:\n${questions.map(question => describeQuestion(question, question.postponed ? question.later ?? board.tasks.find(task => task.id === (question.requestId ?? question.taskId))?.later : undefined)).join("\n")}`);
 		if (todo.length > 0) {
 			const more = todo.length - todoShown;
 			const lines = todo.slice(0, todoShown).map((task) => withNowLine(task, taskLine(task)));
@@ -3131,7 +3253,7 @@ export class BoardService {
 	}
 
 	/** The board; a task whose 7 days passed is archived in storage on the way. */
-	async get(includeArchived = false, withRequestAttention = true): Promise<Board> {
+	async get(includeArchived = false, withRequestAttention = true, withLater = true): Promise<Board> {
 		const state = await this.state();
 		const now = this.#options.now();
 		if (state.tasks.some((task) => !task.archived && isArchivedAt(task, now))) {
@@ -3139,18 +3261,18 @@ export class BoardService {
 				sweepArchive(doc, now);
 			});
 		}
-		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false);
+		const board = boardView(state, now, includeArchived, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false, withLater);
   return this.#liveWatch?.project(board, state) ?? board;
 	}
 
  /** The current board (including archived rows) and the compact table. Neither read opens a history. */
- async overviewInputs(now: number) {
+ async overviewInputs(now: number, withLater: boolean) {
   const [stored, records] = await Promise.all([
    this.#options.harness.snapshot(BoardDoc, this.#mainId, BACKGROUND_CONTEXT),
    this.#options.harness.snapshot(OverviewRecordsDoc, this.#mainId, BACKGROUND_CONTEXT),
   ]);
   const state = stored ?? emptyBoardState();
-  const board = boardView(state, now, true, owner => this.coordinatorId(owner), true, true);
+  const board = boardView(state, now, true, owner => this.coordinatorId(owner), true, true, withLater);
   this.#liveWatch?.project(board, state);
   return { board, state, ...(records ? { records } : {}) };
  }
@@ -3173,6 +3295,7 @@ export class BoardService {
  const ownersBefore = new Map(state.tasks.map(task => [task.id, task.ownerThreadId]));
 		const now = this.#iso();
 		const result = await change(state, now);
+  normalizeLater(state);
   if (!options?.skipPartRepair) repairTaskParts(state, now);
 		if (this.#options.notifications && by.author === "coordinator") {
 			const reviewed = state.tasks.filter(task => task.parent == null && task.status === "review" && before.get(task.id) !== "review");
@@ -3260,7 +3383,7 @@ export class BoardService {
 				? () => inferCoordinatorTaskFocusIn(tx, this.#mainId, conversation.id, input.by.threadId ?? "main", input.taskId, at, threadTitle)
 				: undefined);
 			if (!state || before === task.report.steps?.trim()) return { task, sendWithoutTurn: false };
-			if (!hasOpenTaskSteps(task)) {
+			if (taskLater(state, task) || !hasOpenTaskSteps(task)) {
 				if (state.taskStepsNotices) delete state.taskStepsNotices[task.id];
 				return { task, sendWithoutTurn: false };
 			}
@@ -3288,7 +3411,7 @@ export class BoardService {
 			const ready = (turn?: TaskNoticeTurn) => turn?.conversationId === conversationId && !sameTaskNoticeTurn(turn, activeTurn);
 			const notices = Object.entries(current.taskStepsNotices ?? {}).filter(([, notice]) => ready(notice.turn)).map(([taskId, notice]) => {
 				const task = current.tasks.find(row => row.id === taskId);
-				const eligible = task && hasOpenTaskSteps(task) && (task.parent != null || !sameTaskNoticeTurn(notice.turn, current.taskReviewNoticeTurns?.[taskId]));
+				const eligible = task && !taskLater(current, task) && hasOpenTaskSteps(task) && (task.parent != null || !sameTaskNoticeTurn(notice.turn, current.taskReviewNoticeTurns?.[taskId]));
 				return { taskId, version: notice.version, ...(eligible ? {
 					task: { title: task.title, revision: task.revision, ownerThreadId: task.ownerThreadId, requestTitle: partRequestTitle(task, current.tasks) },
 				} : {}) };
@@ -3459,7 +3582,7 @@ export class BoardService {
 	async saveTask(
 		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
 		author: BoardAuthor,
-		withRequestAttention = true,
+		withRequestAttention = true, withLater = true,
 	): Promise<BoardTask> {
 		const now = this.#iso();
 		const writer = author === "user" ? USER_WRITER : author === "harness" ? HARNESS_WRITER : coordinatorWriter("main");
@@ -3488,7 +3611,7 @@ export class BoardService {
 		await this.noticeUnblocked(change.after, unblocked);
   const state = await this.state();
   for (const edit of other) await this.noticeUnblocked(edit.after, unblockedBy(state, edit));
-		return (await this.get(true, withRequestAttention)).tasks.find(task => task.id === change.after.id)!;
+		return (await this.get(true, withRequestAttention, withLater)).tasks.find(task => task.id === change.after.id)!;
 	}
 
 	/**
@@ -3709,13 +3832,70 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		return request ? { ...question, requestId: request.id } : question;
 	}
 
+ async setLater(input: BoardLaterSetRequest): Promise<Omit<BoardLaterSetResponse, "id" | "type">> {
+  const result = await this.#options.harness.commit(tx => this.#change(tx, USER_WRITER, undefined, async state => {
+   const result = setBoardLater(state, input, this.#options.now());
+   const target = input.target;
+   const id = "taskId" in target ? target.taskId : target.questionId;
+   if (result.later) {
+    const threadId = "taskId" in target ? state.tasks.find(task => task.id === id)?.ownerThreadId : state.questions.find(question => question.id === id)?.threadId;
+    const owner = this.coordinatorId(threadId);
+    const recipient = this.#options.coordinators?.placeOfThread(owner)?.conversationId ?? this.#mainId;
+    await enqueueCoordinatorNotes(tx, recipient as ConversationId, [{ channel: "board", key: `${id}:${result.later.times}`, line: `The owner put ${id} aside: ${laterUntilText(result.later)}.` }]);
+    for (const task of state.tasks) if (taskLater(state, task) && state.taskStepsNotices) delete state.taskStepsNotices[task.id];
+    if (state.waitingReturns?.some(entry => taskLater(state, entry.task))) state.waitingReturns = state.waitingReturns.filter(entry => !taskLater(state, entry.task));
+   }
+   return result;
+  }), BACKGROUND_CONTEXT);
+  const state = await this.state();
+  if (result.later) await this.#clearLaterAlerts(state);
+  this.#armWaiting(state);
+  return result;
+ }
+
+ async laterQuestionText(question: BoardQuestion): Promise<string | undefined> {
+  const later = questionLater(await this.state(), question);
+  return later && laterUntilText(later);
+ }
+
+ async laterNoteCurrent(tx: Tx, note: PendingCoordinatorNote): Promise<boolean> {
+  const [id, times] = note.key.split(":");
+  const state = await openBoard(tx, this.#mainId);
+  const later = state.tasks.find(task => task.id === id)?.later ?? state.questions.find(question => question.id === id)?.later;
+  return later !== undefined && String(later.times) === times;
+ }
+
+ #clearLaterAlerts(state: Readonly<BoardState>): Promise<void> | undefined {
+  const projectId = this.#options.project().id;
+  if (!state.tasks.some(task => task.later) && !state.questions.some(question => question.later)) return;
+  return this.#options.notifications?.resolveAlerts(alert => {
+   if (alert.projectId !== projectId) return false;
+   if (alert.kind === "board_question") {
+    const question = state.questions.find(question => question.id === alert.questionId);
+    return question !== undefined && !!questionLater(state, question);
+   }
+   const task = state.tasks.find(task => task.id === alert.taskId);
+   if (!task) return false;
+   const later = taskLater(state, task);
+   if (alert.kind === "task_review" || alert.kind === "task_steps") return !!later;
+   if (!later || !["worker_failed", "thread_failed", "coordinator_failed", "schedule_problem", "deploy_problem"].includes(alert.kind)) return false;
+   const relative = Date.parse(alert.at) - Date.parse(later.since);
+   if (relative !== 0) return relative < 0;
+   // With coarse clocks a new failure may share the timestamp of the postponement.
+   const own = taskState(task, state.questions, state.tasks, state.taskActivity?.[task.id], Date.parse(alert.at));
+   return own.kind === "failed" && coversLaterFailure(state, { ...task, state: own });
+  });
+ }
+
 	/** Tell the user's devices once about a question or warning a coordinator asked. */
 	noticeQuestion(question: BoardQuestion): void {
 		const project = this.#options.project();
 		if (!this.#options.notifications) return;
 		const coordinatorId = this.coordinatorId(question.threadId);
-		void Promise.all([this.#options.threadTitle?.(coordinatorId), question.taskId == null ? undefined : this.state()]).then(([title, state]) => {
-			const part = state?.tasks.find(task => task.id === question.taskId);
+		void Promise.all([this.#options.threadTitle?.(coordinatorId), this.state()]).then(([title, state]) => {
+			const current = state.questions.find(row => row.id === question.id);
+   if (!current || current.revision !== question.revision || !ownerQuestionOpen(current) || questionLater(state, current)) return;
+   const part = state.tasks.find(task => task.id === question.taskId);
 			const requestTitle = part && state ? partRequestTitle(part, state.tasks) : undefined;
 			this.#options.notifications?.notify(boardQuestionNotification({
 				projectId: project.id,
@@ -3764,7 +3944,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		const project = this.#options.project();
 		if (!this.#options.notifications) return;
 		const coordinatorId = this.coordinatorId(change.after.ownerThreadId);
-		void Promise.all([this.#options.threadTitle?.(coordinatorId), this.#reviewProofArtifactId(change.after)]).then(([title, proofArtifactId]) => this.#options.notifications?.notify(
+		void Promise.all([this.#options.threadTitle?.(coordinatorId), this.#reviewProofArtifactId(change.after)]).then(async ([title, proofArtifactId]) => {
+   const state = await this.state();
+   const task = state.tasks.find(task => task.id === change.after.id);
+   if (task && taskLater(state, task)) return;
+   this.#options.notifications?.notify(
 			taskReviewNotification({
 				projectId: project.id,
 				projectName: project.name,
@@ -3775,7 +3959,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				...(proofArtifactId ? { proofArtifactId } : {}),
 				...(change.after.ownerThreadId === null || change.after.ownerThreadId === undefined ? {} : { threadId: change.after.ownerThreadId }),
 			}),
-		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
+		); }).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
 	}
 
  #threadRunStates(state: BoardState): Map<string, string> {
@@ -3916,7 +4100,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  }
 
 	/** Push the board without archived tasks whenever the document changes. Resolves to a stop function. */
-	async watch(onChange: (board: Board, openQuestions: number, legacyBoard: Board) => void, onHiddenChange?: () => void): Promise<() => Promise<void>> {
+	async watch(onChange: (board: Board, openQuestions: number, legacyBoard: Board, beforeLater: Board, pendingLaterAt: string | null) => void, onHiddenChange?: () => void): Promise<() => Promise<void>> {
 		const watch = await this.#options.harness.watchDoc(BoardDoc, this.coordinator.id, BACKGROUND_CONTEXT);
 		if (watch === undefined) return async () => undefined;
 		const stops: (() => Promise<void>)[] = [];
@@ -3936,20 +4120,25 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   let previouslyPublishedState: Readonly<BoardState> | null = boardState;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
-			const { board, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false, this.#options.requestDigest !== false);
+			const { board: beforeLater, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false, this.#options.requestDigest !== false);
+   const board = !state.taskStateEnabled && (state.tasks.some(task => task.later) || state.questions.some(question => question.later))
+    ? boardView(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false, this.#options.requestDigest !== false, true)
+    : projectLaterBoard(beforeLater, legacyBoard, state, this.#options.now());
    if (state.taskLiveEnabled && this.#liveWatch) {
     if (!liveOnly) this.#liveWatch.sync(state);
     this.#liveWatch.project(board, state);
    }
-			const encoded = JSON.stringify(board);
+			const pendingLaterAt = state.laterReturns?.length ? state.laterReturns[0]?.at ?? state.updatedAt : null;
+   const encoded = JSON.stringify([board, pendingLaterAt]);
 			const legacyEncoded = legacyBoard === board ? encoded : JSON.stringify(legacyBoard);
 			if (encoded !== current || legacyEncoded !== legacyCurrent) {
     current = encoded;
     legacyCurrent = legacyEncoded;
-    onChange(board, openQuestionCount(state), legacyBoard);
+    onChange(board, openQuestionCount(state, true), legacyBoard, beforeLater, pendingLaterAt ?? null);
    } else if (!liveOnly && value !== previouslyPublishedState) onHiddenChange?.();
    previouslyPublishedState = value;
    if (liveOnly) return;
+   void this.#clearLaterAlerts(state);
    const projectId = this.#options.project().id;
    this.#options.notifications?.resolveAlerts(alert => {
     if (alert.projectId !== projectId) return false;
@@ -4089,9 +4278,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 	#armWaiting(state: Readonly<BoardState>): void {
 		if (this.#waitingTimer !== undefined) clearTimeout(this.#waitingTimer);
 		if (this.#stopped) return;
-		const due = state.tasks.flatMap((task) => task.status === "waiting" && task.waiting?.until !== undefined ? [Date.parse(task.waiting.until)] : []);
-		if (due.length === 0 && (state.waitingReturns?.length ?? 0) === 0) return;
-		const delay = (state.waitingReturns?.length ?? 0) > 0 ? 1000 : Math.max(0, Math.min(60_000, Math.min(...due) - this.#options.now()));
+		const due = state.tasks.flatMap(task => [task.status === "waiting" ? task.waiting?.until : undefined, task.later?.until])
+   .concat(state.questions.map(question => question.later?.until)).flatMap(at => at ? [Date.parse(at)] : []).filter(Number.isFinite);
+  if (this.#laterDue(state, this.#options.now(), true)) due.push(this.#options.now());
+		if (due.length === 0 && (state.waitingReturns?.length ?? 0) === 0 && !state.laterReturns?.length) return;
+		const delay = (state.waitingReturns?.length || state.laterReturns?.length) ? 1000 : Math.max(0, Math.min(60_000, Math.min(...due) - this.#options.now()));
 		this.#waitingTimer = setTimeout(() => {
 			this.#waitingTimer = undefined;
 			void this.checkWaiting().catch((error) => this.#options.log(`board: waiting return failed: ${errorMessage(error)}`));
@@ -4120,7 +4311,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  async #nudgePaused(): Promise<void> {
   const state = await this.state();
   if (!state.taskStateEnabled) return;
-  const nudgable = (board: Readonly<BoardState>, task: BoardTask) => task.state?.kind === "paused" &&
+  const nudgable = (board: Readonly<BoardState>, task: BoardTask) => task.state?.kind === "paused" && !taskLater(board, task) &&
    this.#options.now() - Date.parse(taskQuietSince(task, board.taskActivity?.[task.id])) >= TASK_PAUSED_MS;
   const paused = boardView(state, this.#options.now(), true).tasks.filter(task => nudgable(state, task));
   if (!paused.length && !state.pausedNotices?.length) return;
@@ -4168,23 +4359,63 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   }
  }
 
+ #laterDue(state: Readonly<BoardState>, now: number, onlyWhenLast = false): boolean {
+  if (!onlyWhenLast && [...state.tasks, ...state.questions].some(row => row.later && Date.parse(row.later.until) <= now)) return true;
+  if (!state.tasks.some(task => task.later?.whenLast)) return false;
+  return boardView({ ...state, taskStateEnabled: true }, now, true).tasks.some(task => task.later?.whenLast && !task.state?.liveWorkSince);
+ }
+
+ #returnLater(state: BoardState, now: number): void {
+  const at = new Date(now).toISOString();
+  const raw = boardView({ ...state, taskStateEnabled: true }, now, true);
+  const returned: { id: string; revision: number; title: string }[] = [];
+  for (const row of [...state.tasks, ...state.questions]) {
+   const later = row.later;
+   if (!later) continue;
+   const task = raw.tasks.find(task => task.id === row.id);
+   if (Date.parse(later.until) > now && (!later.whenLast || !task || task.state?.liveWorkSince)) continue;
+   const needed = task ? laterNeeds(state, raw, task).needed : "text" in row && ownerQuestionOpen(row);
+   delete row.later;
+   if (state.laterUrgent) delete state.laterUrgent[row.id];
+   row.revision++;
+   state.updatedAt = at;
+   if (needed) returned.push({ id: row.id, revision: row.revision, title: "title" in row ? row.title : row.text });
+  }
+  if (!returned.length) return;
+  const key = createHash("sha256").update(JSON.stringify(returned.map(({ id, revision }) => [id, revision]))).digest("hex");
+  state.laterReturns ??= [];
+  state.laterReturns.push({ key, at, rows: returned.map(({ title }) => title.replace(/\s+/g, " ").slice(0, 100)) });
+ }
+
 	async #returnWaiting(): Promise<void> {
 		const state = await this.state();
 		const now = this.#options.now();
-		if (state.tasks.some((task) => task.status === "waiting" && task.waiting?.until !== undefined && Date.parse(task.waiting.until) <= now)) {
+		if (this.#laterDue(state, now) || state.tasks.some((task) => task.status === "waiting" && task.waiting?.until !== undefined && Date.parse(task.waiting.until) <= now)) {
 			await this.#commit(HARNESS_WRITER, (doc) => {
 				for (const task of doc.tasks) {
 					if (task.status !== "waiting" || task.waiting?.until === undefined || Date.parse(task.waiting.until) > now) continue;
 					const note = task.waiting.note;
 					touchByHarness(doc, task, task.parent && task.waiting.by === "coordinator" ? "in_progress" : "review", new Date(now).toISOString());
-					doc.waitingReturns ??= [];
-					doc.waitingReturns.push({ task: plain(task), note });
+					if (!taskLater(doc, task)) {
+      doc.waitingReturns ??= [];
+      doc.waitingReturns.push({ task: plain(task), note });
+     }
 				}
+    if (this.#laterDue(doc, now)) this.#returnLater(doc, now);
 			});
 		}
-		for (const returned of (await this.state()).waitingReturns ?? []) {
+  const latest = await this.state();
+  const project = this.#options.project();
+  for (const batch of latest.laterReturns ?? []) {
+   await this.#options.notifications?.queue({ kind: "later_back", projectId: project.id, projectName: project.name,
+    key: `later-back:${project.id}:${batch.key}`, title: `${batch.rows.length} ${batch.rows.length === 1 ? "thing is" : "things are"} back from Later`,
+    body: batch.rows.join(" · "),
+   });
+   await this.#commit(HARNESS_WRITER, doc => { doc.laterReturns = (doc.laterReturns ?? []).filter(entry => entry.key !== batch.key); });
+  }
+		for (const returned of latest.waitingReturns ?? []) {
 			const { task, note } = returned;
-			const project = this.#options.project();
+   if (taskLater(await this.state(), task)) continue;
 			if (task.parent == null && task.status === "review") await this.#options.notifications?.deliver({
 				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, proofArtifactId: await this.#reviewProofArtifactId(task), ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
 				body: `${task.id} is back for review: waiting for ${note}`,
@@ -4194,8 +4425,8 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    const content = task.status === "review"
     ? `${task.id} is back for review: waiting for ${note}. Its check-again date has passed; check the external dependency with the user.`
     : `${task.id} is back in progress. Its check-again date for ${note} has passed. Check the dependency and ask the owner on the request if needed.`;
-			await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${content}`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` });
-			await this.#woke(target);
+			const submitted = await this.#submitInput(conversation, { type: "input", content: `${BOARD_PREFIX} ${content}`, whenBusy: "followUp", requestId: `board-waiting:${task.id}@${task.revision}` }, async tx => !taskLater(await openBoard(tx, this.#mainId), task));
+   if (submitted) await this.#woke(target);
 			await this.#commit(HARNESS_WRITER, (doc) => {
 				doc.waitingReturns = (doc.waitingReturns ?? []).filter((entry) => entry.task.id !== task.id || entry.task.revision !== task.revision);
 			});
@@ -4209,11 +4440,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   await this.#commit(HARNESS_WRITER, (state) => noteTaskFact(state, taskId, fact));
  }
 
- async markReportStale(taskId: string, sections?: readonly ReportSection[], reason?: string, withRequestAttention = true): Promise<BoardTask> {
+ async markReportStale(taskId: string, sections?: readonly ReportSection[], reason?: string, withRequestAttention = true, withLater = true): Promise<BoardTask> {
   await this.requireTask(taskId);
   return this.#commit(USER_WRITER, (state) => {
    markReportStale(state, taskId, sections, reason, this.#iso(), "user");
-   return plain(boardView(state, this.#options.now(), true, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false).tasks.find(task => task.id === taskId)!);
+   return plain(boardView(state, this.#options.now(), true, owner => this.coordinatorId(owner), withRequestAttention && this.#options.requestAttention !== false, this.#options.requestDigest !== false, withLater).tasks.find(task => task.id === taskId)!);
   });
  }
 
@@ -4277,12 +4508,13 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    flagged = missing !== undefined;
    if (missing && this.#options.project().chatDetailNudges !== false && !this.#options.project().archived) {
     const label = missingChatDetailLabel(missing);
-    const active = tasks.filter(task => task.parent == null && !isSettled(task));
+    const active = tasks.filter(task => task.parent == null && !isSettled(task) && !task.later);
     for (const task of active) noteTaskFact(state, task.id, {
      actor: "harness", kind: "chat", nudge: false, reason: `only in chat: ${label}`,
      sections: missing.prose && !missing.steps && !missing.code && !missing.command ? ["results"] : ["next"], at: this.#iso(),
     });
-    if (!tasks.length || active.length) {
+    const postponedTasklessAsk = unscopedQuestions.length > 0 && unscopedQuestions.every(id => state.questions.some(question => question.id === id && questionLater(state, question)));
+    if ((!tasks.length && !postponedTasklessAsk) || active.length) {
      const subject = active.map(task => task.id).join(", ");
      const feedbackIds = scoped.filter(scope => active.some(task => task.id === scope.taskId)).map(scope => scope.feedbackId).filter(Boolean);
      const where = "Put manual steps and commands in Your steps; findings in Results; answers to task feedback in its feedback note";
@@ -4324,7 +4556,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    for (const source of sources) for (const id of substantiveTaskMentions(source.text, valid)) {
     const userAt = userTasks.get(id);
     const task = state.tasks.find(task => task.id === id)!;
-    if (userAt === undefined || task.parent != null || written.has(id) || mentioned.has(id) || isSettled(task)) continue;
+    if (userAt === undefined || task.parent != null || task.later || written.has(id) || mentioned.has(id) || isSettled(task)) continue;
     // A queued user message can have been answered by a report write in the preceding turn.
     const sections = REPORT_SECTIONS.filter(name => {
      const writtenAt = task.report.freshness?.[name].writtenAt;
@@ -4348,7 +4580,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   const due = Object.entries(state.reportTracking ?? {}).flatMap(([id, tracking]) => {
    const task = state.tasks.find((candidate) => candidate.id === id);
    const owner = this.#reportOwners.get(id) ?? task?.ownerThreadId ?? "main";
-   return task?.parent != null || tracking.pending === undefined || state.reportInFlight?.[owner] !== undefined ? [] : [reportDueAt(tracking.pending, timings?.trailingMs, timings?.maxBurstMs)];
+   return task?.parent != null || !!task?.later || tracking.pending === undefined || state.reportInFlight?.[owner] !== undefined ? [] : [reportDueAt(tracking.pending, timings?.trailingMs, timings?.maxBurstMs)];
   });
   due.push((state.lastReportSweep ?? this.#options.now()) + (timings?.sweepMs ?? REPORT_SWEEP_MS));
   const delay = state.reportOutbox?.some(batch => state.reportInFlight?.[batch.owner] === undefined) ? 10 : Math.max(10, Math.min(...due) - this.#options.now());
@@ -4396,7 +4628,11 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
    if (busyOwners.has(batch.owner)) continue;
    busyOwners.add(batch.owner);
    const conversation = await this.#conversationOf(batch.owner);
-   const submission = await this.#submitInput(conversation, { type: "input", content: batch.content, whenBusy: "followUp", requestId: batch.key });
+   const submission = await this.#submitInput(conversation, { type: "input", content: batch.content, whenBusy: "followUp", requestId: batch.key }, async tx => {
+    const doc = await openBoard(tx, this.#mainId);
+    return doc.reportOutbox?.some(entry => entry.key === batch.key) === true && !reportBatchTouchesLater(doc, batch);
+   });
+   if (!submission) continue;
    await this.#woke(batch.owner);
    await this.#commit(HARNESS_WRITER, (state) => acknowledgeReportNudge(state, batch.key, submission?.id));
   }
@@ -4787,6 +5023,8 @@ function createBoardExtension(service: BoardService): Extension {
 								details: { questionId: question.id },
 							});
 						}
+						const later = await service.laterQuestionText(question);
+      if (later) return toolText(`Filed ${question.id} under Later (${later}); the owner put this request aside.${warnings}`, { details: { questionId: question.id } });
 						return toolText(`Asked ${question.id}. The user's answer arrives as a [board] message.${warnings}`, {
 							details: { questionId: question.id },
 						});
@@ -4800,7 +5038,8 @@ function createBoardExtension(service: BoardService): Extension {
                             reopen: input.action === "reopen_question", by: writer, now,
                         }), writer, callKey);
                         service.noticeQuestion(question);
-                        return toolText(`Replied on ${question.id} (r${question.revision}); waiting for the owner.`, { details: { questionId: question.id } });
+                        const later = await service.laterQuestionText(question);
+                        return toolText(`Replied on ${question.id} (r${question.revision}); ${later ? `filed under Later (${later})` : "waiting for the owner"}.`, { details: { questionId: question.id } });
                     }
 					case "resolve_question": {
 						const id = need(input.id, input.action, "id");

@@ -5,6 +5,7 @@ import { agentTime, duration, firstWorkAt, requestWorkClock, statusSpans, time, 
 import { collectOverviewCalibration, overviewReplayRequest, summarizeOverviewReplay, type OverviewReplayRequest } from "./overview-estimate-replay.ts";
 import { overviewCalibrationMiss, OverviewEstimator, overviewQuantile as quantile, summarizeOverviewEstimates, type SavedOverviewEstimate, type ScoredOverviewEstimate } from "./overview-estimates.ts";
 import { topRequest } from "./request-attention.ts";
+import { questionLater, taskLater } from "./attention-later.ts";
 
 export const OVERVIEW_DAY_MS = 86_400_000;
 export function overviewWeekStart(now: number): number { return Math.floor(now / OVERVIEW_DAY_MS) * OVERVIEW_DAY_MS - 6 * OVERVIEW_DAY_MS; }
@@ -26,12 +27,12 @@ export type OverviewUsage = {
 
 type OverviewSource = {
  firstEstimates?: Map<string, SavedOverviewEstimate>;
- board: Board; state: Readonly<BoardState>; records?: Readonly<OverviewRecords>;
+ board: Board; state: Readonly<BoardState>; withLater?: boolean; records?: Readonly<OverviewRecords>;
  scope: Overview["scope"]; now: number; coordinatorOf(owner?: string | null): string;
  threads?: readonly ThreadSummary[]; schedules?: readonly Schedule[]; usage?: OverviewUsage;
 };
 
-export function buildCoordinatorOverview({ board, state, records, scope, now, coordinatorOf, threads = [], schedules = [], usage, firstEstimates }: OverviewSource): Omit<Overview, "id"> {
+export function buildCoordinatorOverview({ board, state, withLater = false, records, scope, now, coordinatorOf, threads = [], schedules = [], usage, firstEstimates }: OverviewSource): Omit<Overview, "id"> {
  const { coordinatorId } = scope;
  const selected = (id: string) => coordinatorId === null || coordinatorId === id;
  const byId = new Map(board.tasks.map(task => [task.id, task]));
@@ -76,7 +77,7 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
   task === root || task.id === part.id || isWithin(task, part.id, byId)
   || part.blockedBy.includes(task.id)
  )).length;
- for (const question of state.questions.filter(awaitingOwner)) {
+ for (const question of state.questions.filter(question => awaitingOwner(question) && (!withLater || !questionLater(state, question)))) {
   const task = question.taskId ? byId.get(question.taskId) : undefined;
   const root = questionRequest(question);
   const exchange = question.exchanges?.at(-1);
@@ -86,6 +87,7 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
    holdsParts: root && task && blocking(question) && !settled(root) ? holdsParts(task, root) : 0 });
  }
  for (const root of open) {
+  if (withLater && taskLater(state, root)) continue;
   if (root.status === "review") waiting.push({ kind: "review", taskId: root.id, requestId: root.id, since: since(root, "review"), holdsParts: directParts(root).filter(part => !settled(part)).length });
   if (runningByRequest.get(root.id)) continue;
   for (const task of [root, ...(families.get(root.id) ?? [])]) {

@@ -44,7 +44,7 @@ export function requestAttention(tasks: readonly BoardTask[], questions: readonl
 
 function taskNeed(task: BoardTask, questions: readonly BoardQuestion[], includeSteps: boolean): RequestNeed | undefined {
 	const state = task.state;
-	if (!closed(task) && !task.archived) {
+	if (!closed(task) && !task.archived && state?.group !== "later") {
 		if (state?.kind === "failed") return { rank: 5, task, state };
 		if (state?.kind === "answer_needed") return { rank: 4, task, state };
 		if (includeSteps && state?.kind === "steps_needed") return { rank: 3, task, state };
@@ -59,7 +59,7 @@ function taskNeed(task: BoardTask, questions: readonly BoardQuestion[], includeS
 		const text = `${first.kind === "warning" ? "Warning" : "Answer needed"}: ${first.text.replace(/\s+/g, " ").trim().slice(0, 160)}${needed.length > 1 ? ` and ${needed.length - 1} more` : ""}`;
 		return { rank: blocking.length ? 4 : 2, task, state: { kind: "answer_needed", group: "needs_you", since, refs, sentence: { kind: "question", since, refs, text, ageFormat: "none" } } };
 	}
-	if (task.parent == null && (state ? state.kind === "review" : task.status === "review")) {
+	if (task.parent == null && (state ? state.group !== "later" && state.kind === "review" : task.status === "review")) {
 		return { rank: 1, task, state: state ?? { kind: "review", group: "needs_you", since: task.updatedAt, refs: [] } };
 	}
 	return undefined;

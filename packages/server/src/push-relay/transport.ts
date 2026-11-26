@@ -221,7 +221,7 @@ export class PushRelayTransport {
 				backendId: route.context.backendId, sessionId: route.context.sessionId, sequence,
 				createdAt: Date.parse(at), expiresAt, eventId, payload,
 			});
-			const body = relaySendBody(envelope, quiet ? "normal" : undefined);
+			const body = relaySendBody(envelope, quiet || payload.kind === "later_back" ? "normal" : undefined);
 			const messageId = JSON.parse(envelope).m as string;
 			const entry: RelaySendEntry = { routeId: route.context.routeId, messageId, body,
 				event: { kind: event.kind, projectId: event.projectId }, expiresAt, attempts: 0, dueAt: now,

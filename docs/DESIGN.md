@@ -4134,6 +4134,25 @@ has `fromPartId` and `fromPartTitle`. Only the projection changes; questions sta
 board document changes shape. `show_task` on a part names its request. Older clients keep their previous task
 rows and states while receiving request-level sidebar summaries and the quieter notice rules.
 
+**Later (T517, server stage).** Later puts aside a whole request, including its required parts and ordinary new
+asks, or one taskless question. Failures and warnings already on the request may be put aside only until the
+next local work-day start. A new warning or failed source still appears and alerts without bringing old asks back.
+Run approvals, sign-in and project mutes are unchanged. Only the authenticated owner can write Later via
+`board.later.set`: `{ target: { taskId } | { questionId }, expectedRevision, until, whenLast?, workDay? }`.
+Use an ISO instant, `null` to bring it back now, or `null` with `whenLast: true` for a request that should return
+when no work on it or its parts is live, with a 30-day fallback. The reply returns `{ revision, later }`.
+The server caps every delay at 30 days. For a warning or failure it validates the next local morning using the
+existing per-device setting (`workDay: { start, timeZone }`, default 08:00 UTC when absent), including DST.
+
+The optional durable `later` record has `{ until, since, times, by: "user", whenLast? }`. Read normalization
+removes invalid records and records no longer on a root or open taskless question. Status, age, blocking and
+live work are independent. On capable boards `state.group: "later"` keeps the underlying `kind` and the return
+record; open covered questions carry `postponed: true`. Parts no longer contribute postponed needs to progress
+counts. Project attention exposes `laterItems` and `nextLaterAt`, and the other attention counts omit Later.
+Board, thread, project and coordinator overview summaries retain their former attention on clients that do not advertise
+`attention-later` in hello. Those clients do not receive Later data or the new notification kind. No UI
+opts in during the server stage.
+
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator
 board tool shows stored status alongside live work and attention, e.g. `[in_progress · paused]` or
@@ -4306,6 +4325,10 @@ If an older release loses the marker, a previously upgraded part is already done
   on a part returns it to in progress instead. The server persists pending returns and sends the owning coordinator
   a deduplicated `[board]` follow-up. Only a request returning to review sends `task_review` through Notifier
   (with its 15-second hold). Undated waits do not wake up.
+- The same timer clears due Later records and admits one `later_back` notice per project for each return batch.
+  A durable batch can resume after restart, with a stable dedupe key and a persisted deadline for closed projects.
+  If a dated wait ends within Later, its status still changes, but the ordinary review notice and coordinator
+  wake are skipped. A manual bring-back or a resolved ask does not send a return notice.
 - Lists place a collapsed `Waiting · N` group immediately after Review; rows show the note, elapsed waiting time
   and optional return date. The kanban has a Waiting column after Review, including the legacy board panel.
 - The task header metadata includes “Waiting for … · since … · back on …” (T62; previously the Dashboard summary). Its header replaces Done/Drop/Reopen
@@ -4648,6 +4671,12 @@ and addressed feedback. All meaningful facts still bump eventSeq/eventsSince, in
 and suppressed nudges. Causes preserve the first important reasons and latest cause.
 No individual tool/progress/poll is a fact. Legacy dates are approximate from the shared report timestamp,
 coverage unknown: normalization itself neither creates a fact nor queues a nudge.
+
+Later is not a stage move or report fact. A postponed request does not count as Paused and admits no automatic
+pause, report-freshness, chat-detail or audit nudge. A durable `[board]` note reaches the owning coordinator only
+with its next model request; if the item is already back the note is discarded. Agents see the return time in
+board output. One generic prompt sentence tells coordinators and workers not to re-ask, remind or move the
+postponed task while other work continues.
 
 At turn end the **only-in-chat check** (T279 / D102) runs only when a client chat input started the
 coordinator run. The durable input kind records that provenance and still appears as `pi.user` to
@@ -8068,6 +8097,11 @@ setting, restart and retry steps; the raw error remains a small secondary detail
   and say “asked while building <part title>”. The push and in-app alert use the same event and link to the
   original part or question. Checking off a part does not wake its coordinator with a board edit notice. An
   owner close or reopen still does, and notices about newly unblocked work are unchanged.
+- **Later uses alert settlement.** Postponing resolves matching open alerts and drops held pushes using the
+  same path as answering. New ordinary questions, steps and review notices stay quiet while covered. Returned
+  attention gets an inbox-only `later_back` alert with no sound and one low-priority push to opted-in devices,
+  even in quiet hours. Project and backend mutes still apply to push. Warnings and failures that break through
+  use their ordinary transport and priority.
 - **No duplicate notifications.** Events carry a dedupe key (`reply:<project>:<entry>`, `deploy:<commit>:<attempt>`,
   `schedule:<project>:<schedule>:<due time>:<outcome>`, `compaction:<project>:<task>`, …) and the keys are persisted,
   so a restart that replays a watch, re-reads a deploy status or resumes a reporter notifies nothing twice. The

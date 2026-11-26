@@ -3,6 +3,7 @@ import { ProjectAttentionSchema, type ProjectAttention, type Board, type WorkerS
 import { Value } from "typebox/value";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { taskLater } from "./attention-later.ts";
 import { requestAttention } from "./request-attention.ts";
 
 export const EMPTY_ATTENTION: ProjectAttention = {
@@ -12,16 +13,16 @@ export const EMPTY_ATTENTION: ProjectAttention = {
 	stepsTasks: 0, stepsTaskId: null,
 };
 
-export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<ProjectAttention, "questions" | "warnings" | "reviewTasks" | "waitingTasks" | "nextReturnAt" | "questionTaskId" | "warningTaskId" | "reviewTaskId" | "stepsTasks" | "stepsTaskId"> {
-	const questions = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind !== "warning");
-	const warnings = board.questions.filter((question) => question.status === "open" && question.waitingOn !== "agent" && question.kind === "warning");
+export function boardAttention(board: Pick<Board, "questions" | "tasks">, withLater = [...board.tasks, ...board.questions].some(row => row.later !== undefined)): Pick<ProjectAttention, "questions" | "warnings" | "reviewTasks" | "waitingTasks" | "nextReturnAt" | "questionTaskId" | "warningTaskId" | "reviewTaskId" | "stepsTasks" | "stepsTaskId" | "laterItems" | "nextLaterAt"> {
+	const questions = board.questions.filter((question) => !question.postponed && question.status === "open" && question.waitingOn !== "agent" && question.kind !== "warning");
+	const warnings = board.questions.filter((question) => !question.postponed && question.status === "open" && question.waitingOn !== "agent" && question.kind === "warning");
 	// Count each request once, but link to the part with the steps. Use the same priority even
 	// when the optional request state is not on the board view.
-	const { needsByRequest } = requestAttention(board.tasks, board.questions);
+	const { needsByRequest } = requestAttention(board.tasks, board.questions.filter(question => !question.postponed));
 	const steps: string[] = [];
 	const reviews: string[] = [];
 	for (const task of board.tasks) {
-		if (task.archived || task.parent != null) continue;
+		if (task.archived || task.parent != null || task.state?.group === "later") continue;
 		const need = needsByRequest.get(task.id);
 		const state = task.state?.fromPartId ? task.state : need?.state;
 		if (state?.kind === "steps_needed") steps.push(state.fromPartId ?? need?.task.id ?? task.id);
@@ -30,7 +31,9 @@ export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<
 	const waiting = board.tasks.filter((task) => task.status === "waiting" && !task.state?.liveWorkSince);
 	const dates = waiting.flatMap((task) => task.waiting?.until && Number.isFinite(Date.parse(task.waiting.until)) ? [task.waiting.until] : []);
 	dates.sort((left, right) => Date.parse(left) - Date.parse(right));
+ const laterDates = [...board.tasks, ...board.questions].flatMap(row => row.later ? [row.later.until] : []).sort();
 	return {
+  ...(withLater ? { laterItems: laterDates.length, nextLaterAt: laterDates[0] ?? null } : {}),
 		questions: questions.length, warnings: warnings.length, reviewTasks: reviews.length, waitingTasks: waiting.length,
 		nextReturnAt: dates[0] ?? null, questionTaskId: questions[0]?.taskId ?? null,
 		warningTaskId: warnings[0]?.taskId ?? null, reviewTaskId: reviews[0] ?? null,
@@ -38,13 +41,14 @@ export function boardAttention(board: Pick<Board, "questions" | "tasks">): Pick<
 	};
 }
 
-type FailureThread = Pick<ThreadSummary, "id" | "title" | "conversationId" | "status" | "updatedAt" | "archived" | "kind" | "taskId" | "parentThreadId">;
+type FailureThread = { occurredAt?: string } & Pick<ThreadSummary, "id" | "title" | "conversationId" | "status" | "updatedAt" | "archived" | "kind" | "taskId" | "parentThreadId">;
 export type FailureAttention = { failure: AttentionFailure; sourceKey: string; coordinatorId: string; failedTaskRow: boolean };
 
 /** The same incident records feed the coordinator list, sidebar and Tasks panel. */
 export function actionableFailures(
 	tasks: readonly Board["tasks"][number][], workers: readonly WorkerSummary[], threads: readonly FailureThread[],
 	acknowledged: Readonly<Record<string, string>> = {},
+ withLater = false,
 ): FailureAttention[] {
 	const taskById = new Map(tasks.map(task => [task.id, task]));
 	const threadById = new Map(threads.map(thread => [thread.id, thread]));
@@ -54,12 +58,14 @@ export function actionableFailures(
 		const coordinator = thread?.kind === "coordinator" ? thread.id : thread?.parentThreadId ?? MAIN_THREAD_ID;
 		return threadById.get(coordinator)?.archived ? MAIN_THREAD_ID : coordinator;
 	};
-	function add(kind: AttentionFailure["kind"], source: Pick<WorkerSummary, "id" | "title" | "taskId" | "updatedAt" | "conversationId">, threadId: string) {
+	function add(kind: AttentionFailure["kind"], source: Pick<WorkerSummary, "id" | "title" | "taskId" | "updatedAt" | "conversationId">, threadId: string, occurredAt = source.updatedAt) {
 		const task = source.taskId == null ? undefined : taskById.get(source.taskId);
 		if (source.taskId != null && (!task || task.archived || task.status === "done" || task.status === "dropped")) return;
 		const sourceKey = JSON.stringify([kind, threadId, source.id]);
 		const id = JSON.stringify([sourceKey, source.conversationId, source.updatedAt]);
 		if (acknowledged[sourceKey] === id) return;
+  const later = withLater && task && taskLater({ tasks: [...tasks] }, task);
+  if (later && Date.parse(occurredAt) <= Date.parse(later.since) && task.state?.group === "later") return;
 		const failedTaskRow = task?.state?.kind === "failed";
 		failures.push({ sourceKey, failedTaskRow,
 			coordinatorId: failedTaskRow ? coordinatorOf(task.ownerThreadId ?? MAIN_THREAD_ID) : coordinatorOf(threadId),
@@ -71,7 +77,7 @@ export function actionableFailures(
 		if (worker.status === "failed") add("worker", worker, worker.threadId ?? MAIN_THREAD_ID);
 	}
 	for (const thread of threads) {
-		if (!thread.archived && thread.status === "failed") add(thread.kind === "coordinator" ? "coordinator" : "job", thread, thread.id);
+		if (!thread.archived && thread.status === "failed") add(thread.kind === "coordinator" ? "coordinator" : "job", thread, thread.id, thread.occurredAt);
 	}
 	return failures;
 }
@@ -103,7 +109,9 @@ export function projectFailureAttention(workers: readonly Pick<WorkerSummary, "s
 
 /** Small independent file: lists can read it without starting a Harness; writes serialize per project. */
 export class ProjectAttentionStore {
-	readonly #cache = new Map<string, ProjectAttention | undefined>();
+	readonly #pendingLater = new Map<string, string>();
+ readonly #legacy = new Map<string, ProjectAttention>();
+ readonly #cache = new Map<string, ProjectAttention | undefined>();
 	readonly #writes = new Map<string, Promise<void>>();
 	constructor(readonly projectDir: (id: string) => string, readonly onError: (error: unknown) => void = () => undefined) {}
 	async read(id: string): Promise<ProjectAttention | undefined> {
@@ -112,7 +120,9 @@ export class ProjectAttentionStore {
 		try {
 			const stored = await readJsonFile(join(this.projectDir(id), "attention.json"));
 			if (Value.Check(ProjectAttentionSchema, stored) && "requestAttentionCounts" in stored && stored.requestAttentionCounts === true) {
-				const { requestAttentionCounts: _, ...summary } = stored;
+				const { requestAttentionCounts: _, legacyLaterAttention, pendingLaterAt, ...summary } = stored as ProjectAttention & { requestAttentionCounts: true; legacyLaterAttention?: unknown; pendingLaterAt?: unknown };
+    if (typeof pendingLaterAt === "string" && Number.isFinite(Date.parse(pendingLaterAt))) this.#pendingLater.set(id, pendingLaterAt);
+    if (Value.Check(ProjectAttentionSchema, legacyLaterAttention)) this.#legacy.set(id, { ...legacyLaterAttention, runningWorkers: 0 });
 				attention = { ...summary, runningWorkers: 0 };
 			}
 		} catch { /* Missing/corrupt summaries fall back to activity, not a broken project list. */ }
@@ -120,13 +130,22 @@ export class ProjectAttentionStore {
 		if (!this.#cache.has(id)) this.#cache.set(id, attention);
 		return this.#cache.get(id);
 	}
-	update(id: string, patch: Partial<ProjectAttention>): boolean {
+	legacy(id: string): ProjectAttention | undefined { return this.#legacy.get(id); }
+ pendingLaterAt(id: string): string | undefined { return this.#pendingLater.get(id); }
+ update(id: string, patch: Partial<ProjectAttention>, legacyPatch?: Partial<ProjectAttention>, pendingLaterAt?: string | null): boolean {
 		const previous = this.#cache.get(id);
 		const next = { ...(previous ?? EMPTY_ATTENTION), ...patch };
-		if (JSON.stringify(previous) === JSON.stringify(next)) return false;
+		const previousLegacy = this.#legacy.get(id);
+  const previousPending = this.#pendingLater.get(id);
+  const pending = pendingLaterAt === undefined ? previousPending : pendingLaterAt;
+  if (pending) this.#pendingLater.set(id, pending); else this.#pendingLater.delete(id);
+  const legacyLaterAttention = next.laterItems || next.nextLaterAt ? { ...(previousLegacy ?? previous ?? EMPTY_ATTENTION), ...legacyPatch } : undefined;
+  if (legacyLaterAttention) this.#legacy.set(id, legacyLaterAttention);
+  else this.#legacy.delete(id);
+  if (JSON.stringify(previous) === JSON.stringify(next) && JSON.stringify(previousLegacy) === JSON.stringify(legacyLaterAttention) && previousPending === (pending ?? undefined)) return false;
 		this.#cache.set(id, next);
 		const write = (this.#writes.get(id) ?? Promise.resolve()).catch(() => undefined)
-			.then(() => writeJsonFile(join(this.projectDir(id), "attention.json"), { ...next, requestAttentionCounts: true }, 0o600))
+			.then(() => writeJsonFile(join(this.projectDir(id), "attention.json"), { ...next, requestAttentionCounts: true, ...(legacyLaterAttention ? { legacyLaterAttention } : {}), ...(pending ? { pendingLaterAt: pending } : {}) }, 0o600))
 			.catch(this.onError);
 		this.#writes.set(id, write);
 		return true;

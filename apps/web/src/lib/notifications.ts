@@ -52,7 +52,7 @@ export type NotificationKindInfo = {
 };
 
 /** The kinds in the protocol's order, each with the words this app uses for it. */
-export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICATION_KINDS.map((kind) => {
+export const NOTIFICATION_KIND_INFO: readonly NotificationKindInfo[] = NOTIFICATION_KINDS.filter(kind => kind !== "later_back").map((kind) => {
 	switch (kind) {
 		case "reply":
 			return {

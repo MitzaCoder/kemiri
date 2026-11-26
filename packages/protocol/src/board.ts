@@ -286,9 +286,16 @@ export const BoardTaskActivitySchema = Type.Object({
 });
 export type BoardTaskActivity = Static<typeof BoardTaskActivitySchema>;
 
+/** The owner’s postponement, independent of board status and question settlement. */
+export const BoardLaterSchema = Type.Object({
+ until: Type.String(), since: Type.String(), times: Type.Integer({ minimum: 1 }),
+ by: Type.Literal("user"), whenLast: Type.Optional(Type.Literal(true)),
+});
+export type BoardLater = Static<typeof BoardLaterSchema>;
+
 /** task-state: derived at emission, never persisted on the task. */
 export const BoardTaskStateSchema = Type.Object({
- group: Type.Union([Type.Literal("needs_you"), Type.Literal("in_progress"), Type.Literal("waiting"), Type.Literal("todo"), Type.Literal("closed")]),
+ group: Type.Union([Type.Literal("needs_you"), Type.Literal("later"), Type.Literal("in_progress"), Type.Literal("waiting"), Type.Literal("todo"), Type.Literal("closed")]),
  kind: Type.Union([Type.Literal("failed"), Type.Literal("answer_needed"), Type.Literal("steps_needed"), Type.Literal("clarifying"), Type.Literal("review"), Type.Literal("working"), Type.Literal("paused"), Type.Literal("blocked_by_task"), Type.Literal("waiting_outside"), Type.Literal("todo"), Type.Literal("done"), Type.Literal("dropped")]),
  since: Type.String(),
  refs: Type.Array(Type.String()),
@@ -298,6 +305,7 @@ export const BoardTaskStateSchema = Type.Object({
  liveWorkSince: Type.Optional(Type.String({ description: "Start of live work on this task or a required descendant, independent of owner attention." })),
  fromPartId: Type.Optional(Type.String({ description: "request-attention: the part that raised this request's state." })),
  fromPartTitle: Type.Optional(Type.String({ description: "request-attention: title of the part that raised this state." })),
+ later: Type.Optional(BoardLaterSchema),
 });
 export type BoardTaskState = Static<typeof BoardTaskStateSchema>;
 
@@ -453,6 +461,7 @@ export const BoardTaskSchema = Type.Object({
 	settledAt: Type.Union([Type.String(), Type.Null()], { description: "When it became done or dropped." }),
 	archived: Type.Boolean(),
 	goal: BoardTaskGoalSchema,
+	later: Type.Optional(BoardLaterSchema),
 });
 export type BoardTask = Static<typeof BoardTaskSchema>;
 
@@ -502,6 +511,8 @@ export const BoardQuestionSchema = Type.Object({
 	askedAt: Type.String(),
 	answeredAt: Type.Union([Type.String(), Type.Null()]),
 	choices: BoardQuestionChoicesSchema,
+ later: Type.Optional(BoardLaterSchema),
+ postponed: Type.Optional(Type.Literal(true, { description: "Derived: this question is currently covered by Later." })),
 });
 export type BoardQuestion = Static<typeof BoardQuestionSchema>;
 
@@ -667,6 +678,21 @@ export const BoardTasksReorderRequestSchema = Type.Object({
 export type BoardTasksReorderRequest = Static<typeof BoardTasksReorderRequestSchema>;
 
 /** question-clarify: ask back without settling a question or warning. */
+export const BoardLaterSetRequestSchema = Type.Object({
+ type: Type.Literal("board.later.set"), id: RequestIdSchema, projectId: ProjectIdSchema,
+ target: Type.Union([Type.Object({ taskId: Type.String({ minLength: 1 }) }), Type.Object({ questionId: Type.String({ minLength: 1 }) })]),
+ expectedRevision: Revision,
+ until: Type.Union([Type.String({ maxLength: 40 }), Type.Null()]),
+ whenLast: Type.Optional(Type.Literal(true)),
+ workDay: Type.Optional(Type.Object({ start: Type.String({ pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }), timeZone: Type.String({ minLength: 1, maxLength: 100 }) })),
+});
+export type BoardLaterSetRequest = Static<typeof BoardLaterSetRequestSchema>;
+export const BoardLaterSetResponseSchema = Type.Object({
+ type: Type.Literal("board.later.set"), id: RequestIdSchema, revision: Revision,
+ later: Type.Union([BoardLaterSchema, Type.Null()]),
+});
+export type BoardLaterSetResponse = Static<typeof BoardLaterSetResponseSchema>;
+
 export const BoardQuestionClarifyRequestSchema = Type.Object({
  type: Type.Literal("board.question.clarify"), id: RequestIdSchema, projectId: ProjectIdSchema,
  questionId: Type.String({ minLength: 1 }), expectedRevision: Revision, text: Type.String({ minLength: 1 }),

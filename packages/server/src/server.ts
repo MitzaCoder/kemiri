@@ -835,8 +835,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		onOverviewBoardChange: (projectId) => {
 			for (const connection of connections) connection.notifyOverview(projectId);
 		},
-		onBoardState: (projectId, board, legacyBoard) => {
-			for (const connection of connections) connection.notifyBoard(projectId, board, legacyBoard);
+		onBoardState: (projectId, board, legacyBoard, beforeLater) => {
+			for (const connection of connections) connection.notifyBoard(projectId, board, legacyBoard, beforeLater);
 		},
 		onThreadsMessage: event => {
 			for (const connection of connections) connection.notifyThreadMessage(event);

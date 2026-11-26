@@ -42,14 +42,16 @@ export const NotificationKindSchema = Type.Union(
 		Type.Literal("disk_low"),
 		Type.Literal("task_review"),
 		Type.Literal("task_steps"),
+		Type.Literal("later_back"),
 	],
 	{
 		description:
-			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a backend or project deploy failed or rolled back. login_prompt: a provider login waits for an answer. usage_limit_reached: a subscription reached its limit and work is waiting. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low. task_review: a task is ready for review. task_steps: a task has new manual steps for the owner.",
+			"reply: the coordinator finished an answer. worker_report / worker_failed: a worker reported or failed. schedule_done: a scheduled run finished; schedule_problem: one failed or was skipped. deploy_problem: a backend or project deploy failed or rolled back. login_prompt: a provider login waits for an answer. usage_limit_reached: a subscription reached its limit and work is waiting. compaction_failed, maintenance_failed: background work failed. board_question: a thread asked the user a question on the board. thread_finished / thread_failed: a background thread finished or failed. coordinator_failed: a coordinator turn failed. work_finished: a project went quiet (nothing running) after a stretch of work; replaces per-reply and per-report noise during long runs. disk_low: a backend\'s disk is running low. task_review: a task is ready for review. task_steps: a task has new manual steps for the owner. later_back: postponed attention returned, grouped by project.",
 	},
 );
 export type NotificationKind = Static<typeof NotificationKindSchema>;
-export const NOTIFICATION_KINDS: readonly NotificationKind[] = NotificationKindSchema.anyOf.map(kind => kind.const);
+/** Kinds exposed by the shared device presets. Later is opt-in on the wire until its clients ship. */
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = NotificationKindSchema.anyOf.map(kind => kind.const).filter(kind => kind !== "later_back");
 
 /** The kinds that count as failures, which quiet hours may still let through. */
 export const NOTIFICATION_FAILURE_KINDS: readonly NotificationKind[] = [

@@ -47,7 +47,7 @@ export function auditEvidence(state: BoardState, task: BoardTask): AuditCoverage
 	])).digest("hex") };
 }
 export function auditEligible(state: BoardState, task: BoardTask): boolean {
-	if (state.taskFreshnessEnabled === false || task.parent != null || task.archived || !["in_progress", "review", "waiting"].includes(task.status)) return false;
+	if (state.taskFreshnessEnabled === false || task.parent != null || task.later || task.archived || !["in_progress", "review", "waiting"].includes(task.status)) return false;
 	const tracking = state.reportTracking?.[task.id];
 	if (tracking?.pending || REPORT_SECTIONS.some(s => tracking?.suppressed[s] === task.report.freshness?.[s].version && tracking?.suppressed[s] !== undefined)) return false;
 	if (state.reportOutbox?.some(batch => batch.admissions.some(a => a.taskId === task.id))) return false;
@@ -189,7 +189,7 @@ export class ReportAuditService {
 				for (const verdict of verdicts) {
 					const before = tasks.find(t => t.id === verdict.task)!;
 					const current = doc.tasks.find(t => t.id === verdict.task);
-					if (!current || current.parent != null || current.archived || !["in_progress", "review", "waiting"].includes(current.status) || current.report.freshness?.[verdict.section].version !== before.report.freshness?.[verdict.section].version) continue;
+					if (!current || current.parent != null || current.later || current.archived || !["in_progress", "review", "waiting"].includes(current.status) || current.report.freshness?.[verdict.section].version !== before.report.freshness?.[verdict.section].version) continue;
 					markReportStale(doc, verdict.task, [verdict.section], `audit: ${verdict.reason}`, new Date(o.now()).toISOString());
 				}
 				// Our own stale marks are not new evidence for another audit.

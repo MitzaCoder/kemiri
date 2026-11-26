@@ -1,4 +1,5 @@
 import type { Overview } from "@kemiri/protocol";
+import { withoutLaterBoard } from "./attention-later.ts";
 import { isOwnerQuestion, withWorkerProgress } from "./answers.ts";
 import type { AppSettings } from "@kemiri/protocol";
 import { boardChanges } from "./board-delta.ts";
@@ -42,6 +43,7 @@ import {
 	type WorkerDefaults,
 	type WorkerSummary,
 	type Board,
+ type NotificationPreferences,
 	type BoardTask,
 	type ThreadSummary,
 	type LandingTurn,
@@ -272,6 +274,7 @@ export class ClientConnection {
 	#clientSupportsThreadMessages = false;
 	#clientSupportsTaskSteps = false;
 	#clientSupportsRequestAttention = false;
+ #clientSupportsAttentionLater = false;
 	#clientSupportsRequestDigest = false;
 	#clientSupportsStatusDetails = false;
 	#clientSupportsBoardDelta = false;
@@ -357,8 +360,8 @@ export class ClientConnection {
 	}
 
 	/** Push a project's board (without archived tasks) when it changes. */
-	notifyBoard(projectId: string, board: Board, legacyBoard: Board): void {
-		this.#respond({ type: "board.state", projectId, board: this.#clientSupportsRequestAttention ? board : legacyBoard });
+	notifyBoard(projectId: string, board: Board, legacyBoard: Board, beforeLater = board): void {
+		this.#respond({ type: "board.state", projectId, board: this.#clientSupportsAttentionLater ? board : this.#clientSupportsRequestAttention ? beforeLater : legacyBoard });
 		this.notifyOverview(projectId);
 	}
 
@@ -373,7 +376,7 @@ export class ClientConnection {
    try {
     while (subscription.dirty && this.#overviewSubscriptions.get(projectId) === subscription) {
      subscription.dirty = false;
-     const overview = await this.#manager.coordinatorOverview(projectId, subscription.coordinatorId);
+     const overview = await this.#manager.coordinatorOverview(projectId, subscription.coordinatorId, this.#clientSupportsAttentionLater);
      if (this.#overviewSubscriptions.get(projectId) !== subscription) return;
      const fingerprint = overviewFingerprint(overview);
      if (fingerprint !== subscription.last) {
@@ -389,7 +392,7 @@ export class ClientConnection {
 
 	/** Push a project's threads (without archived ones) when any changes. */
 	notifyThreads(projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn): void {
-		this.#respond({ type: "threads.state", projectId, threads, ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
+		this.#respond({ type: "threads.state", projectId, threads: threads.map(thread => this.#threadForClient(projectId, thread)), ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
 	}
 
 	notifyThreadMessage(event: ThreadsMessageEvent): void {
@@ -731,13 +734,13 @@ export class ClientConnection {
 					const relay = this.#notifications.relay!;
 					if (request.type === "notifications.registerRelay") {
 						const { type: _type, id: _id, ...input } = request;
-						const answer = await relay.register(sessionId, input);
+						const answer = await relay.register(sessionId, { ...input, preferences: this.#notificationPreferences(input.preferences) });
 						this.#respond({ type: request.type, id: request.id, ...answer });
 					} else if (request.type === "notifications.confirmRelay") {
 						const device = await this.#notifications.confirmRelay(sessionId, request);
 						this.#respond({ type: request.type, id: request.id, device });
 					} else {
-						const status = await relay.sync(sessionId, request);
+						const status = await relay.sync(sessionId, request.preferences ? { ...request, preferences: this.#notificationPreferences(request.preferences) } : request);
 						this.#respond({ type: request.type, id: request.id, relay: status, serverTime: relay.serverTime() });
 					}
 					return;
@@ -761,7 +764,7 @@ export class ClientConnection {
 						backendKey: request.backendKey,
 						subscription: request.subscription,
 						allowLegacyRegistration: !this.#deviceAuth?.identity && this.#deviceAuth?.store.mode !== "required",
-						preferences: request.preferences,
+						preferences: this.#notificationPreferences(request.preferences),
 					});
 					this.#respond({ type: "notifications.register", id: request.id, device });
 					return;
@@ -774,7 +777,7 @@ export class ClientConnection {
 						backendKey: request.backendKey,
 						fcmToken: request.token,
 						allowLegacyRegistration: !this.#deviceAuth?.identity && this.#deviceAuth?.store.mode !== "required",
-						preferences: request.preferences,
+						preferences: this.#notificationPreferences(request.preferences),
 					});
 					this.#respond({ type: "notifications.registerFcm", id: request.id, device });
 					return;
@@ -1202,7 +1205,7 @@ export class ClientConnection {
 				}
 				case "threads.list": {
 					const { threads, landingTurn } = await this.#manager.threadSnapshot(request.projectId, request.includeArchived === true);
-					this.#respond({ type: "threads.list", id: request.id, threads, ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
+					this.#respond({ type: "threads.list", id: request.id, threads: threads.map(thread => this.#threadForClient(request.projectId, thread)), ...(this.#features.includes("landing-turn") ? { landingTurn } : {}) });
 					return;
 				}
 				case "threads.acknowledgeFailure": {
@@ -1212,7 +1215,7 @@ export class ClientConnection {
 				}
 				case "threads.stop": {
 					const thread = await this.#manager.stopThread(request.projectId, request.threadId);
-					this.#respond({ type: "threads.stop", id: request.id, thread });
+					this.#respond({ type: "threads.stop", id: request.id, thread: this.#threadForClient(request.projectId, thread) });
 					return;
 				}
 				case "projects.storage": {
@@ -1229,7 +1232,7 @@ export class ClientConnection {
 					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					const thread = await runtime.threads.create(request, `owner:${request.operationId ?? crypto.randomUUID()}`);
-					this.#respond({ type: request.type, id: request.id, thread });
+					this.#respond({ type: request.type, id: request.id, thread: this.#threadForClient(request.projectId, thread) });
 					return;
 				}
 				case "threads.update": {
@@ -1237,19 +1240,19 @@ export class ClientConnection {
 						(request.workerModel !== undefined && !this.#features.includes("thread-model-settings"))) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					const thread = await runtime.threads.update(request.threadId, request);
-					this.#respond({ type: request.type, id: request.id, thread });
+					this.#respond({ type: request.type, id: request.id, thread: this.#threadForClient(request.projectId, thread) });
 					return;
 				}
 				case "threads.hold": {
 					if (!this.#features.includes("coordinators")) return this.#unknownRequest(request);
 					const { runtime } = await this.#manager.open(request.projectId);
 					const thread = await runtime.threads.hold(request.threadId, request.held, request.operationId ?? crypto.randomUUID());
-					this.#respond({ type: request.type, id: request.id, thread });
+					this.#respond({ type: request.type, id: request.id, thread: this.#threadForClient(request.projectId, thread) });
 					return;
 				}
 				case "threads.archive": {
 					const thread = await this.#manager.archiveThread(request.projectId, request.threadId, request.archived, this.#features.includes("coordinators") ? request.moveTasksTo : undefined, request.operationId, this.#features.includes("coordinator-schedules") ? request.schedules : undefined);
-					this.#respond({ type: "threads.archive", id: request.id, thread });
+					this.#respond({ type: "threads.archive", id: request.id, thread: this.#threadForClient(request.projectId, thread) });
 					return;
 				}
     case "overview.get": {
@@ -1259,7 +1262,7 @@ export class ClientConnection {
      if (request.subscribe === true) this.#overviewSubscriptions.set(projectId, subscription);
      else if (request.subscribe === false) this.#overviewSubscriptions.delete(projectId);
      try {
-      const overview = await this.#manager.coordinatorOverview(projectId, coordinatorId);
+      const overview = await this.#manager.coordinatorOverview(projectId, coordinatorId, this.#clientSupportsAttentionLater);
       subscription.last = overviewFingerprint(overview);
       this.#respond({ ...overview, id: request.id });
      } catch (error) {
@@ -1269,10 +1272,20 @@ export class ClientConnection {
      if (subscription.dirty && this.#overviewSubscriptions.get(projectId) === subscription) this.notifyOverview(projectId);
      return;
     }
+
+				case "board.later.set": {
+     if (!this.#clientSupportsAttentionLater) return this.#unknownRequest(request);
+     const project = await this.#manager.requireProject(request.projectId);
+     if (project.archived) throw new ServerError("bad_request", "An archived project cannot change Later.");
+     const { runtime } = await this.#manager.open(project.id);
+     const result = await runtime.board.setLater(request);
+     this.#respond({ type: request.type, id: request.id, ...result });
+     return;
+    }
 				case "board.get": {
 					const live = this.#clientSupportsBoardDelta && request.includeArchived !== true;
 					const before = this.#boardStreams.get(request.projectId);
-					const board = await this.#manager.board(request.projectId, request.includeArchived === true, this.#clientSupportsRequestAttention);
+					const board = await this.#manager.board(request.projectId, request.includeArchived === true, this.#clientSupportsRequestAttention, this.#clientSupportsAttentionLater);
 					const latest = this.#boardStreams.get(request.projectId);
 					this.#respond({ type: "board.get", id: request.id,
 						// A push sent during the read is already ordered ahead of the response.
@@ -1283,7 +1296,7 @@ export class ClientConnection {
 				}
 				case "board.report.stale": {
 					if (!this.#features.includes("task-freshness")) return this.#unknownRequest(request);
-					const task = await this.#manager.markBoardReportStale(request.projectId, { taskId: request.taskId, sections: request.sections, reason: request.reason }, this.#clientSupportsRequestAttention);
+					const task = await this.#manager.markBoardReportStale(request.projectId, { taskId: request.taskId, sections: request.sections, reason: request.reason }, this.#clientSupportsRequestAttention, this.#clientSupportsAttentionLater);
 					this.#respond({ type: "board.report.stale", id: request.id, task });
 					return;
 				}
@@ -1380,7 +1393,7 @@ export class ClientConnection {
 						task: request.task,
       openParts: request.openParts,
 						note: request.note,
-					}, this.#clientSupportsRequestAttention);
+					}, this.#clientSupportsRequestAttention, this.#clientSupportsAttentionLater);
 					this.#respond({ type: "board.task.save", id: request.id, task });
 					return;
 				}
@@ -1886,7 +1899,8 @@ export class ClientConnection {
 		}
   this.#clientSupportsTaskWatcher = this.#features.includes("task-live") && this.#features.includes("task-live-watcher") && request.client?.features?.includes("task-live-watcher") === true;
 		this.#clientSupportsThreadMessages = this.#features.includes("coordinator-messages") && request.client?.features?.includes("coordinator-messages") === true;
-		this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
+		this.#clientSupportsAttentionLater = this.#features.includes("attention-later") && request.client?.features?.includes("attention-later") === true;
+  this.#clientSupportsRequestAttention = this.#features.includes("request-attention") && request.client?.features?.includes("request-attention") === true;
 		this.#clientSupportsAnswersWorkAndTasks = this.#features.includes("answers-work-and-tasks") && request.client?.features?.includes("answers-work-and-tasks") === true;
 		this.#clientSupportsRequestDigest = this.#features.includes("request-digest") && request.client?.features?.includes("request-digest") === true;
 		this.#clientSupportsBoardDelta = this.#features.includes("board-delta") && request.client?.features?.includes("board-delta") === true;
@@ -2145,6 +2159,14 @@ export class ClientConnection {
 		this.#error(id, "internal", "Internal server error");
 	}
 
+ #notificationPreferences(preferences: NotificationPreferences): NotificationPreferences {
+  return this.#clientSupportsAttentionLater ? preferences : { ...preferences, kinds: preferences.kinds.filter(kind => kind !== "later_back") };
+ }
+
+ #threadForClient(projectId: string, thread: ThreadSummary): ThreadSummary {
+  return this.#clientSupportsAttentionLater ? thread : this.#manager.legacyLaterThread(projectId, thread);
+ }
+
 	#respond(message: ServerMessage): void {
 		if (message.type !== "error" && this.#deviceAuth?.identity) {
 			try {
@@ -2155,6 +2177,29 @@ export class ClientConnection {
 		}
 		if (this.#closed) return;
 		try {
+   if (message.type === "notifications.alert" && message.alert.kind === "later_back") {
+    if (!this.#clientSupportsAttentionLater) return;
+    message = { ...message, sound: false };
+   }
+   if (!this.#clientSupportsAttentionLater) {
+    const legacyProject = (project: ProjectSummary) => this.#manager.legacyLaterProject(project);
+    switch (message.type) {
+     case "projects.list": message = { ...message, projects: message.projects.map(legacyProject) }; break;
+     case "projects.add": case "projects.configure": case "project.state": message = { ...message, project: legacyProject(message.project) }; break;
+     case "board.state": case "board.get": message = { ...message, board: withoutLaterBoard(message.board) }; break;
+     case "board.question.answer": case "board.question.clarify": {
+      const { later: _, postponed: _postponed, ...question } = message.question;
+      message = { ...message, question }; break;
+     }
+     case "board.task.save": case "board.report.stale": {
+      const { later: _, ...task } = message.task;
+      message = { ...message, task }; break;
+     }
+     case "notifications.recent":
+      message = { ...message, events: message.events.filter(entry => entry.type !== "alert" || entry.alert.kind !== "later_back") };
+      break;
+    }
+   }
    if (!this.#clientSupportsTaskWatcher) {
     const legacy = ({ taskWatcher: _watcher, taskWatcherStatus: _status, ...project }: ProjectSummary) => project;
     switch (message.type) {

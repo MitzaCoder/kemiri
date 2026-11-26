@@ -34,7 +34,7 @@ import type { ProviderOutageModels } from "./provider-outage.ts";
 import type { UsagePauseModels } from "./usage-pause-models.ts";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Conversation, ConversationView, Harness, Registry } from "@earendil-works/pi-durable";
-import { Harness as HarnessImpl, LiveDoc, createRegistry } from "@earendil-works/pi-durable";
+import { Harness as HarnessImpl, LiveDoc, createRegistry, defineExtension, section } from "@earendil-works/pi-durable";
 import { AgentExecutionEnv } from "./agent-execution-env.ts";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { packagedResources } from "./packaged-resources.ts";
@@ -129,6 +129,7 @@ import { ToolCallDrain } from "./drain.ts";
 import { WorkerService } from "./workers.ts";
 import { TaskDeployObserver } from "./task-deploys.ts";
 import { TaskChangeObserver, TASK_CHANGES_FILE } from "./task-changes.ts";
+import { LATER_INSTRUCTION } from "./attention-later.ts";
 import { ProjectAttentionStore, boardAttention, EMPTY_ATTENTION } from "./sidebar-attention.ts";
 import type { ConversationIdentity, RequestLog } from "./request-log.ts";
 import { join } from "node:path";
@@ -256,7 +257,7 @@ export type ProjectManagerOptions = {
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
 	coordinatorOverview?: boolean;
 	onOverviewBoardChange?: (projectId: string) => void;
-	onBoardState?: (projectId: string, board: Board, legacyBoard: Board) => void;
+	onBoardState?: (projectId: string, board: Board, legacyBoard: Board, beforeLater: Board) => void;
 	answersWorkAndTasks?: boolean;
 	onAnswersChanged?: (projectId: string, answerId: string, deleted?: true) => void;
 	/** Called whenever a project's threads change (without archived ones), so connections can push `threads.state`. */
@@ -727,6 +728,18 @@ export class ProjectManager {
 		return { threads: await runtime.threads.list(includeArchived), landingTurn: await runtime.threads.landingTurn() };
 	}
 
+ legacyLaterThread(projectId: string, thread: ThreadSummary): ThreadSummary {
+  return this.#runtimes.get(projectId)?.runtime?.threads.legacyLaterThread(thread) ?? thread;
+ }
+
+ legacyLaterProject(project: ProjectSummary): ProjectSummary {
+  const legacy = this.#attentionStore.legacy(project.id);
+  const source = legacy ?? project.attention;
+  if (!source) return project;
+  const { laterItems: _, nextLaterAt: _next, ...attention } = source;
+  return { ...project, attention, ...(legacy && project.activity ? { activity: { ...project.activity, openQuestions: legacy.questions + legacy.warnings } } : {}) };
+ }
+
 	async threadMessages(request: ThreadsMessagesRequest) {
 		const { runtime } = await this.open(request.projectId);
 		return runtime.threads.messages(request);
@@ -883,29 +896,29 @@ export class ProjectManager {
 	}
 
 	/** The project's board; archived tasks only when asked for. */
-	async board(projectId: string, includeArchived: boolean, withRequestAttention = true): Promise<Board> {
+	async board(projectId: string, includeArchived: boolean, withRequestAttention = true, withLater = true): Promise<Board> {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.get(includeArchived, withRequestAttention);
+		return runtime.board.get(includeArchived, withRequestAttention, withLater);
 	}
 
- async coordinatorOverview(projectId: string, coordinatorId: string | null) {
+ async coordinatorOverview(projectId: string, coordinatorId: string | null, withLater = false) {
   const { runtime } = await this.open(projectId);
   if (coordinatorId !== null && coordinatorId !== MAIN_THREAD_ID && (await runtime.threads.record(coordinatorId))?.kind !== "coordinator") {
    throw new ServerError("unknown_thread", `No coordinator "${coordinatorId}" in this project`, { threadId: coordinatorId });
   }
   const now = this.#clock();
   const coordinatorOf = (owner?: string | null) => runtime.board.coordinatorId(owner);
-  const [inputs, threads, schedules] = await Promise.all([runtime.board.overviewInputs(now), runtime.threads.list(true), this.#schedules.list(projectId)]);
+  const [inputs, threads, schedules] = await Promise.all([runtime.board.overviewInputs(now, withLater), runtime.threads.list(true), this.#schedules.list(projectId)]);
   const usage = this.#requestLog?.store.overviewUsage(projectId, overviewWeekStart(now), now, coordinatorOf, threads.filter(thread => thread.kind === "coordinator").map(thread => thread.id));
   const firstEstimates = new Map<string, SavedOverviewEstimate>();
-  const overview = buildCoordinatorOverview({ ...inputs, scope: { projectId, coordinatorId }, now, coordinatorOf, threads, schedules, firstEstimates, ...(usage && { usage }) });
+  const overview = buildCoordinatorOverview({ ...inputs, withLater, scope: { projectId, coordinatorId }, now, coordinatorOf, threads, schedules, firstEstimates, ...(usage && { usage }) });
   if (firstEstimates.size) await runtime.harness.commit(tx => rememberOverviewEstimates(tx, runtime.conversation.id, firstEstimates), BACKGROUND_CONTEXT);
   return overview;
  }
 
-	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }, withRequestAttention = true) {
+	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }, withRequestAttention = true, withLater = true) {
 		const { runtime } = await this.open(projectId);
-		return runtime.board.markReportStale(input.taskId, input.sections, input.reason, withRequestAttention);
+		return runtime.board.markReportStale(input.taskId, input.sections, input.reason, withRequestAttention, withLater);
 	}
 
 	/** A board task's snapshots, oldest first; `unknown_task` when the board has no such task. */
@@ -958,10 +971,10 @@ export class ProjectManager {
 	async saveBoardTask(
 		projectId: string,
 		input: { taskId?: string | undefined; expectedRevision?: number | undefined; task: BoardTaskInput; ownerThreadId?: string | null | undefined; openParts?: "close" | "follow_up" | undefined; note?: string | undefined },
-		withRequestAttention = true,
+		withRequestAttention = true, withLater = true,
 	): Promise<BoardTask> {
 		const { runtime } = await this.conversation(projectId);
-		return runtime.board.saveTask(input, "user", withRequestAttention);
+		return runtime.board.saveTask(input, "user", withRequestAttention, withLater);
 	}
 
 	async reorderBoardTasks(projectId: string, taskIds: readonly string[]): Promise<void> {
@@ -1753,10 +1766,11 @@ export class ProjectManager {
 			now: () => this.#clock(),
 			log: (message) => this.#log(`project ${project.id}: ${message}`),
 		});
-		registry.install(coordinatorNotesExtension(harness, coordinators, (tx, conversationId) => threads.isHeld(tx, conversationId)));
+		registry.install(coordinatorNotesExtension(harness, coordinators, (tx, conversationId) => threads.isHeld(tx, conversationId), (tx, note) => board.laterNoteCurrent(tx, note)));
 		registry.install(compaction.extension);
 		registry.install(history.extension);
 		registry.install(board.extension);
+  registry.install(defineExtension({ name: "attention-later-guidance", sections: [section("attention-later", () => LATER_INSTRUCTION)] }));
 		registry.install(workers.extension);
 		registry.install(schedules.extension);
 		registry.install(threads.startExtension);
@@ -1934,13 +1948,14 @@ export class ProjectManager {
 		entry.stopWorkFinished = () => work.stop();
 
 		await this.#attentionStore.read(project.id);
-		const updateAttention = (patch: Parameters<ProjectAttentionStore["update"]>[1]) => {
-			if (this.#attentionStore.update(project.id, patch)) void this.#emitProject(project.id);
+		const updateAttention = (patch: Partial<import("@kemiri/protocol").ProjectAttention>, legacyPatch?: Partial<import("@kemiri/protocol").ProjectAttention>, pendingLaterAt?: string | null) => {
+			if (this.#attentionStore.update(project.id, patch, legacyPatch, pendingLaterAt)) void this.#emitProject(project.id);
 		};
-		updateAttention(boardAttention(await board.state()));
+		const initialBoard = await board.get();
+  updateAttention(boardAttention(initialBoard, true), boardAttention(await board.get(false, true, false), false));
 		const initialActivity = await this.#activityFor(project.id, entry);
 		const runningWorkers = (await workers.list(MAIN_THREAD_ID)).workers.filter((worker) => worker.status === "running").length;
-		const openQuestions = openQuestionCount(await board.state());
+		const openQuestions = openQuestionCount(await board.state(), true);
 		const backgroundThreads = await threads.backgroundCount();
 		const activity = new ProjectActivityService({
 			conversation,
@@ -2005,11 +2020,11 @@ export class ProjectManager {
 			queueMicrotask(() => {
 				threadsQueued = false;
 				void (async () => {
-					const { threads: list, projectFailures } = await threads.attentionSnapshot();
+					const { threads: list, projectFailures, legacyProjectFailures } = await threads.attentionSnapshot();
 					void reconcileApps();
 					activity.setBackgroundThreads(await threads.backgroundCount());
  activity.setBackgroundJobs(backgroundJobCounts(list));
-					updateAttention(projectFailures);
+					updateAttention(projectFailures, legacyProjectFailures);
 					work.update({ runningThreads: list.filter((thread) => thread.kind === "job" && thread.parentThreadId === MAIN_THREAD_ID && thread.status === "running").length });
 					const landingTurn = await threads.landingTurn();
 					const encoded = JSON.stringify({ list, landingTurn });
@@ -2068,12 +2083,12 @@ export class ProjectManager {
 				return async () => undefined;
 			});
 		entry.stopBoardWatch = await board
-			.watch((view, openQuestions, legacyBoard) => {
+			.watch((view, openQuestions, legacyBoard, beforeLater, pendingLaterAt) => {
 				void reconcileApps();
-				this.#emitBoard(project.id, view, legacyBoard);
+				this.#emitBoard(project.id, view, legacyBoard, beforeLater);
 				activity.setOpenQuestions(openQuestions);
-				updateAttention(boardAttention(view));
-				threads.boardChanged(view, legacyBoard);
+				updateAttention(boardAttention(view, true), boardAttention(beforeLater, false), pendingLaterAt);
+				threads.boardChanged(view, legacyBoard, beforeLater);
 			}, () => this.#onOverviewBoardChange?.(project.id))
 			.catch((error: unknown) => {
 				this.#log(`project ${project.id}: board watch failed: ${errorMessage(error)}`);
@@ -2145,7 +2160,7 @@ export class ProjectManager {
 		const entry = this.#runtimes.get(project.id);
 		const activity = await this.#activityFor(project.id, entry);
 		const attention = await this.#attentionStore.read(project.id);
-		this.#armAttentionReturn(project, attention?.nextReturnAt);
+		this.#armAttentionReturn(project, [attention?.nextReturnAt, attention?.nextLaterAt, this.#attentionStore.pendingLaterAt(project.id)].filter((at): at is string => !!at).sort()[0]);
 		const repository = await this.#repositoryAt(project.path);
 		return {
 			...projectSummary(project, entry, activity, this.#linkSettings(project)),
@@ -2248,10 +2263,10 @@ export class ProjectManager {
 		}
 	}
 
-	#emitBoard(projectId: string, board: Board, legacyBoard: Board): void {
+	#emitBoard(projectId: string, board: Board, legacyBoard: Board, beforeLater: Board): void {
 		if (this.#onBoardState === undefined) return;
 		try {
-			this.#onBoardState(projectId, board, legacyBoard);
+			this.#onBoardState(projectId, board, legacyBoard, beforeLater);
 		} catch (error) {
 			this.#log(`project ${projectId}: board state listener failed: ${errorMessage(error)}`);
 		}

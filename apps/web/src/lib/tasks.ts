@@ -278,7 +278,7 @@ function settledTime(task: BoardTask): number {
 
 /** Where a task belongs: closed ones are history, then anything waiting on the user, then its status. */
 export function taskSectionOf(task: Pick<BoardTask, "status" | "state">, waiting: number): TaskSectionId {
-	if (task.state) return task.state.group;
+	if (task.state && task.state.group !== "later") return task.state.group;
 	if (isSettled(task.status)) return "closed";
 	if (task.status === "waiting") return "waiting";
 	if (waiting > 0) return "needs_you";

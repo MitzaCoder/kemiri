@@ -368,7 +368,7 @@ describe("notification payload to URL", () => {
 		expect(notificationRenotify("test")).toBe(false);
 	});
 
-	it("knows every kind the protocol declares", () => {
+	it("preserves the current device preset choices before clients opt into Later", () => {
 		const declared: NotificationKind[] = [
 			"reply",
 			"worker_report",
@@ -412,6 +412,13 @@ describe("a pushed payload", () => {
 	it("reads a payload the protocol allows", () => {
 		expect(parseNotificationPayload(JSON.stringify(payload))).toEqual(payload);
 	});
+
+ it("reads a grouped Later return and routes it to its project", () => {
+  const returned: NotificationPayload = { ...payload, kind: "later_back", workerId: null };
+  expect(parseNotificationPayload(JSON.stringify(returned))).toEqual(returned);
+  expect(notificationUrl(returned)).toBe("/b/harness-pc/projects/project-1");
+  expect(notificationRenotify("later_back")).toBe(false);
+ });
 
 	it("keeps the task a payload names", () => {
 		const withTask = { ...payload, kind: "task_review" as const, taskId: "T12" };
