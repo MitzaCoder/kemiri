@@ -1,3 +1,5 @@
+import { rememberOverviewEstimates } from "./overview-records.ts";
+import type { SavedOverviewEstimate } from "./overview-estimates.ts";
 import { buildCoordinatorOverview, overviewWeekStart } from "./coordinator-overview.ts";
 import { usagePauseTool, type UsageDrainInvestigation } from "./usage-drain-investigation.ts";
 import { createAppExtension, type ActiveApps } from "./app-tools.ts";
@@ -895,7 +897,10 @@ export class ProjectManager {
   const coordinatorOf = (owner?: string | null) => runtime.board.coordinatorId(owner);
   const [inputs, threads, schedules] = await Promise.all([runtime.board.overviewInputs(now), runtime.threads.list(true), this.#schedules.list(projectId)]);
   const usage = this.#requestLog?.store.overviewUsage(projectId, overviewWeekStart(now), now, coordinatorOf, threads.filter(thread => thread.kind === "coordinator").map(thread => thread.id));
-  return buildCoordinatorOverview({ ...inputs, scope: { projectId, coordinatorId }, now, coordinatorOf, threads, schedules, ...(usage && { usage }) });
+  const firstEstimates = new Map<string, SavedOverviewEstimate>();
+  const overview = buildCoordinatorOverview({ ...inputs, scope: { projectId, coordinatorId }, now, coordinatorOf, threads, schedules, firstEstimates, ...(usage && { usage }) });
+  if (firstEstimates.size) await runtime.harness.commit(tx => rememberOverviewEstimates(tx, runtime.conversation.id, firstEstimates), BACKGROUND_CONTEXT);
+  return overview;
  }
 
 	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }, withRequestAttention = true) {

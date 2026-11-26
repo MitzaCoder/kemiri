@@ -1,4 +1,4 @@
-import { OverviewGetRequestSchema, OverviewGetResponseSchema, OverviewEventSchema } from "./overview.ts";
+import { OverviewGetRequestSchema, OverviewGetResponseSchema, OverviewEventSchema, OverviewTimeLeftSchema } from "./overview.ts";
 export * from "./overview.ts";
 export * from "./apps.ts";
 import {
@@ -1685,6 +1685,7 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	RefsDetailsRequest: RefsDetailsRequestSchema,
 	RefsDetailsResponse: RefsDetailsResponseSchema,
 	OverviewGetResponse: OverviewGetResponseSchema,
+	OverviewTimeLeft: OverviewTimeLeftSchema,
 	OverviewEvent: OverviewEventSchema,
 	OverviewGetRequest: OverviewGetRequestSchema,
 	BoardTaskStatus: BoardTaskStatusSchema,

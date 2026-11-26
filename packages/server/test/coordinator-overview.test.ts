@@ -25,7 +25,7 @@ test("scopes the live counts and separates overlapping worker time and owner wai
  expect(Value.Check(OverviewEventSchema, overview)).toBe(true);
  expect(overview.counts).toEqual({ open: 1, running: 1, waitingOnOwner: 1, oldestWaitSince: at(2) });
  expect(overview.waiting).toEqual([{ kind: "question", taskId: checkout.id, requestId: baking.id, questionId: "Q2", since: at(2), holdsParts: 1 }]);
- expect(overview.inFlight).toEqual([{ requestId: baking.id, parts: { done: 0, total: 2, working: 1, needsOwner: 1 }, planStep: { taskId: design.id, number: 2, total: 3, text: "Review gift card" }, heldUp: false, runningSince: at(3), firstWorkAt: at(4) }]);
+ expect(overview.inFlight).toEqual([{ requestId: baking.id, parts: { done: 0, total: 2, working: 1, needsOwner: 1 }, planStep: { taskId: design.id, number: 2, total: 3, text: "Review gift card" }, heldUp: false, runningSince: at(3), firstWorkAt: at(4), left: { kind: "none", reason: "not_enough_history" } }]);
  expect(overview.week).toMatchObject({ requests: 1, parts: 1, sentBack: 1, reopened: 0, startToDoneMs: 6 * HOUR, split: { agentsMs: 2.5 * HOUR, waitingMs: 2.5 * HOUR, otherMs: HOUR } });
  expect(overview.more.heldUpTodayMs).toBe(2.5 * HOUR);
  expect(overview.estimateInputs.completed).toEqual([{ requestId: finished.id, coordinatorId: "bakery", firstWorkAt: at(8), readyAt: at(4), doneAt: at(2), parts: 1, agentMs: 3 * HOUR }]);

@@ -3590,7 +3590,8 @@ data class OverviewGetResponseInFlightItem(
     val `planStep`: OverviewGetResponseInFlightItemPlanStep? = null,
     val `runningSince`: String? = null,
     val `firstWorkAt`: String? = null,
-    val `heldUp`: Boolean
+    val `heldUp`: Boolean,
+    val `left`: OverviewTimeLeft? = null
 )
 
 @Serializable
@@ -3608,6 +3609,64 @@ data class OverviewGetResponseInFlightItemPlanStep(
     val `total`: Long,
     val `text`: String
 )
+
+@Serializable(with = OverviewTimeLeftSerializer::class)
+sealed interface OverviewTimeLeft { val `kind`: String }
+
+/** A OverviewTimeLeft variant this build does not know, kept as it came. */
+data class UnknownOverviewTimeLeft(override val raw: JsonObject) : OverviewTimeLeft, UnknownVariant {
+    override val `kind`: String get() = raw["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
+}
+
+object OverviewTimeLeftSerializer : UnionSerializer<OverviewTimeLeft>("OverviewTimeLeft", "kind", mapOf(
+    "range" to OverviewTimeLeftRange.serializer(),
+    "usual" to OverviewTimeLeftUsual.serializer(),
+    "stopped" to OverviewTimeLeftStopped.serializer(),
+    "none" to OverviewTimeLeftNone.serializer(),
+), { it.`kind` }, ::UnknownOverviewTimeLeft)
+
+@Serializable
+data class OverviewTimeLeftRange(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "range",
+    val `minutes`: Double,
+    val `low`: Double,
+    val `high`: Double,
+    val `basis`: String,
+    val `overrunInMs`: Double? = null,
+    val `overrun`: Boolean? = null
+) : OverviewTimeLeft
+
+@Serializable
+data class OverviewTimeLeftUsual(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "usual",
+    val `low`: Double,
+    val `high`: Double,
+    val `basis`: String,
+    val `runningSince`: String,
+    val `longerInMs`: Double,
+    val `longer`: Boolean
+) : OverviewTimeLeft
+
+@Serializable
+data class OverviewTimeLeftStopped(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "stopped",
+    val `reason`: String,
+    val `then`: OverviewTimeLeftStoppedThen? = null
+) : OverviewTimeLeft
+
+@Serializable
+data class OverviewTimeLeftStoppedThen(
+    val `minutes`: Double,
+    val `low`: Double,
+    val `high`: Double,
+    val `basis`: String
+)
+
+@Serializable
+data class OverviewTimeLeftNone(
+    @kotlinx.serialization.EncodeDefault override val `kind`: String = "none",
+    val `reason`: String
+) : OverviewTimeLeft
 
 @Serializable
 data class OverviewGetResponseWeek(
@@ -3653,6 +3712,7 @@ data class OverviewGetResponseWeekTaskUsage(
 @Serializable
 data class OverviewGetResponseMore(
     val `heldUpTodayMs`: Double,
+    val `estimates`: OverviewGetResponseMoreEstimates? = null,
     val `statusTimes`: List<OverviewGetResponseMoreStatusTimesItem>,
     val `runs`: OverviewGetResponseMoreRuns,
     val `questions`: OverviewGetResponseMoreQuestions,
@@ -3662,6 +3722,12 @@ data class OverviewGetResponseMore(
     val `runningJobs`: List<String>,
     val `nextSchedule`: OverviewGetResponseMoreNextSchedule? = null,
     val `deploys`: OverviewGetResponseMoreDeploys? = null
+)
+
+@Serializable
+data class OverviewGetResponseMoreEstimates(
+    val `held`: Long,
+    val `scored`: Long
 )
 
 @Serializable

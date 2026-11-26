@@ -8,6 +8,7 @@
 	import type { Board, Overview, ThreadSummary } from '@kemiri/protocol';
 	import { activityMinute } from '#lib/activity-minute.js';
 	import { overviewAge, overviewFlightRows, overviewOpeningLine, overviewTime, overviewWaitHref, overviewWaitingRows, plural } from '#lib/coordinator-overview.js';
+	import { overviewEstimateText } from '#lib/overview-time-left.js';
 	import { readCoordinatorPreference, saveCoordinatorPreference } from '#lib/coordinators.js';
 	import { taskPartProgress } from '#lib/task-parts.js';
 	import { taskDisplayWords } from '#lib/tasks.js';
@@ -31,7 +32,8 @@
 	const questions = $derived(new Map(board?.questions.filter(question => question.status === 'open').map(question => [question.id, question])));
 	const now = $derived(Math.max($activityMinute, Date.parse(snapshot?.asOf ?? '') || 0));
 	const waiting = $derived(overviewWaitingRows(snapshot?.waiting ?? []));
-	const flying = $derived(overviewFlightRows(snapshot?.inFlight ?? [], board));
+	const elapsedSinceSnapshot = $derived(Math.max(0, now - (Date.parse(snapshot?.asOf ?? '') || now)));
+	const flying = $derived(overviewFlightRows(snapshot?.inFlight ?? [], board, elapsedSinceSnapshot));
 	const dayMax = $derived(Math.max(1, ...(snapshot?.week.perDay.map(day => day.requests) ?? [])));
 	const waitIcons = { question: CircleHelpIcon, warning: TriangleAlertIcon, review: CircleCheckIcon, steps: ListChecksIcon };
 	const weekdays = new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' });
@@ -102,7 +104,8 @@
 								{#each flying as row (row.requestId)}
 									{@const task = tasks.get(row.requestId)}
 									{@const sentence = task?.state?.sentence}
-									<li class="flight-row">
+									{@const estimate = row.left ? overviewEstimateText(row.left, elapsedSinceSnapshot) : undefined}
+									<li class="flight-row" class:has-estimate={!!estimate}>
 										<div class="min-w-0">
 											<a class="row-link" href={taskHref(row.requestId)}>{task?.title ?? row.requestId}</a>
 											{#if task && row.parts?.total}<div class="line-meta flex flex-wrap items-center gap-x-2"><TaskPartsProgress {task} /></div>{/if}
@@ -110,11 +113,18 @@
 											{:else if !sentence && task}<p class="line-meta">{taskDisplayWords(task)}</p>{/if}
 											{#if row.planStep}<p class="line-meta">Step {row.planStep.number} of {row.planStep.total}: {row.planStep.text}</p>{/if}
 										</div>
-										<!-- Stage 3 supplies the optional agent-work estimate alongside this row, not a finish date. -->
+										{#if estimate}
+											<div class="flight-estimate" class:stopped={row.left?.kind === 'stopped'} title={estimate.basis}>
+												<p class="estimate-heading">{estimate.heading}</p>
+												<p class="line-meta">{estimate.detail}</p>
+												{#if row.left && 'basis' in row.left && row.left.basis === 'project'}<span class="sr-only">{estimate.basis}</span>{/if}
+											</div>
+										{/if}
 									</li>
 								{/each}
 							</ul>
 						{:else}<p class="empty">No open requests.</p>{/if}
+						{#if flying.some(row => row.left)}<p class="panel-note">Estimates count agent work, not time waiting on you.</p>{/if}
 					</section>
 				</div>
 			{/if}
@@ -152,6 +162,7 @@
 			<details class="summary-panel more-panel" open={moreOpen} ontoggle={rememberFold}>
 				<summary><ChevronRightIcon class="fold-chevron size-4" aria-hidden="true" /> More numbers</summary>
 				<dl>
+					{#if snapshot.more.estimates}<div><dt>How the estimates did</dt><dd>The first range held for {snapshot.more.estimates.held} of {plural(snapshot.more.estimates.scored, 'finished request')}.</dd></div>{/if}
 					{#if snapshot.more.reviews}<div><dt>Reviews</dt><dd>Three in four ended within {overviewTime(snapshot.more.reviews.p75Ms)} in the last 30 days.</dd></div>{/if}
 					<div><dt>Questions</dt><dd>{snapshot.more.questions.asked} asked and {snapshot.more.questions.answered} answered in the last 30 days.{#if snapshot.more.questions.answerTime} Three in four answers came within {overviewTime(snapshot.more.questions.answerTime.p75Ms)}.{/if}</dd></div>
 					<div><dt>Worker runs</dt><dd>{snapshot.more.runs.started} started, {snapshot.more.runs.failed} failed, and {snapshot.more.runs.stopped} stopped.{#if snapshot.more.runs.medianMs !== undefined} A typical run took {overviewTime(snapshot.more.runs.medianMs)}.{/if}{#if snapshot.more.runs.tasksWithMultipleRuns} {plural(snapshot.more.runs.tasksWithMultipleRuns, 'task')} had more than one run.{/if}</dd></div>
@@ -182,6 +193,14 @@
 	.wait-mark { display: inline-grid; place-items: center; width: 1.65rem; height: 1.65rem; margin-top: .1rem; flex: 0 0 auto; border-radius: .45rem; color: var(--chat-warning); background: color-mix(in srgb, var(--chat-warning) 10%, transparent); }
 	.row-link { display: block; color: var(--chat-fg); font-size: .875rem; font-weight: 620; line-height: 1.4; overflow-wrap: anywhere; }
 	.row-link:hover, .coordinator-link:hover, .usage-link:hover { text-decoration: underline; text-underline-offset: .16em; }
+	.flight-row.has-estimate { display: grid; gap: .4rem .85rem; }
+	.flight-estimate { color: var(--chat-fg-muted); }
+	.estimate-heading { font-size: .8rem; font-weight: 650; line-height: 1.35; }
+	.flight-estimate.stopped .estimate-heading { color: var(--chat-warning); }
+	@container overview (min-width: 46rem) {
+		.flight-row.has-estimate { grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 32%); }
+		.flight-estimate { text-align: right; }
+	}
 	.line-meta { margin-top: .19rem; }
 	.panel-note { border-top: 1px solid var(--chat-border); }
 	.panel-note, .table-note, .empty { padding: .7rem .9rem; }

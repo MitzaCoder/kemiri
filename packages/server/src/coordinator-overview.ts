@@ -1,62 +1,19 @@
-import type { Board, BoardQuestion, BoardTask, Overview, Schedule, ThreadSummary } from "@kemiri/protocol";
+import type { Board, BoardQuestion, BoardTask, Overview, OverviewTimeLeft, Schedule, ThreadSummary } from "@kemiri/protocol";
 import type { BoardState } from "./board.ts";
-import type { OverviewRecords, OverviewRun, OverviewStatus } from "./overview-records.ts";
+import type { OverviewRecords, OverviewRun } from "./overview-records.ts";
+import { agentTime, duration, firstWorkAt, requestWorkClock, statusSpans, time, timeSplit, union } from "./overview-clock.ts";
+import { OverviewEstimator, overviewQuantile as quantile, summarizeOverviewEstimates, type SavedOverviewEstimate, type ScoredOverviewEstimate } from "./overview-estimates.ts";
 import { topRequest } from "./request-attention.ts";
 
 export const OVERVIEW_DAY_MS = 86_400_000;
 export function overviewWeekStart(now: number): number { return Math.floor(now / OVERVIEW_DAY_MS) * OVERVIEW_DAY_MS - 6 * OVERVIEW_DAY_MS; }
 const iso = (ms: number) => new Date(ms).toISOString();
-const time = (at?: string | null) => at == null ? NaN : Date.parse(at);
 const settled = (task: BoardTask) => task.status === "done" || task.status === "dropped";
 const blocking = (question: BoardQuestion) => question.blocksWork ?? question.kind !== "warning";
 const awaitingOwner = (question: BoardQuestion) => question.status === "open" && question.waitingOn !== "agent";
 
-function quantile(values: readonly number[], fraction: number): number {
- const ordered = [...values].sort((a, b) => a - b);
- const index = (ordered.length - 1) * fraction;
- const low = Math.floor(index);
- return ordered[low]! + (ordered[Math.ceil(index)]! - ordered[low]!) * (index - low);
-}
 function durationSample(values: number[]) {
  return values.length ? { count: values.length, medianMs: quantile(values, .5), p75Ms: quantile(values, .75) } : undefined;
-}
-
-type Span = [number, number];
-function union(spans: Span[], from: number, to: number): Span[] {
- const clipped = spans.map(([a, b]): Span => [Math.max(a, from), Math.min(b, to)])
-  .filter(([a, b]) => b > a).sort(([a], [b]) => a - b);
- const merged: Span[] = [];
- for (const [a, b] of clipped) {
-  const last = merged.at(-1);
-  if (last && last[1] >= a) last[1] = Math.max(last[1], b);
-  else merged.push([a, b]);
- }
- return merged;
-}
-const duration = (spans: Span[]) => spans.reduce((sum, [a, b]) => sum + b - a, 0);
-function timeSplit(work: Span[], waits: Span[], from: number, to: number) {
- const agentsMs = duration(union(work, from, to));
- const waitingMs = duration(union([...work, ...waits], from, to)) - agentsMs;
- return { agentsMs, waitingMs, otherMs: Math.max(0, to - from - agentsMs - waitingMs) };
-}
-
-function questionWaits(question: BoardQuestion, returnedAt: readonly string[], now: number): Span[] {
- let since = time(question.askedAt);
- const spans: Span[] = [];
- const transitions = [...(question.exchanges ?? []).map(exchange => ({ at: exchange.at, waitingOnOwner: exchange.author.author !== "user", previousAnswerAt: exchange.previousAnswer?.at })),
-  ...returnedAt.map(at => ({ at, waitingOnOwner: true, previousAnswerAt: undefined }))].sort((a, b) => a.at.localeCompare(b.at));
- for (const transition of transitions) {
-  if (transition.previousAnswerAt) spans.push([since, time(transition.previousAnswerAt)]);
-  else if (!transition.waitingOnOwner) spans.push([since, time(transition.at)]);
-  since = transition.waitingOnOwner ? time(transition.at) : NaN;
- }
- // An agent reply restarts the owner's clock; an open clarification is on the agent, not the owner.
- if (question.waitingOn !== "agent") spans.push([since, question.status === "open" ? now : time(question.answeredAt)]);
- return spans;
-}
-
-function statusSpans(statuses: OverviewStatus[], status: BoardTask["status"], now: number): Span[] {
- return statuses.flatMap((entry, index) => entry.status === status ? [[time(entry.at), time(statuses[index + 1]?.at) || now] as Span] : []);
 }
 
 export type OverviewUsage = {
@@ -67,12 +24,13 @@ export type OverviewUsage = {
 };
 
 type OverviewSource = {
+ firstEstimates?: Map<string, SavedOverviewEstimate>;
  board: Board; state: Readonly<BoardState>; records?: Readonly<OverviewRecords>;
  scope: Overview["scope"]; now: number; coordinatorOf(owner?: string | null): string;
  threads?: readonly ThreadSummary[]; schedules?: readonly Schedule[]; usage?: OverviewUsage;
 };
 
-export function buildCoordinatorOverview({ board, state, records, scope, now, coordinatorOf, threads = [], schedules = [], usage }: OverviewSource): Omit<Overview, "id"> {
+export function buildCoordinatorOverview({ board, state, records, scope, now, coordinatorOf, threads = [], schedules = [], usage, firstEstimates }: OverviewSource): Omit<Overview, "id"> {
  const { coordinatorId } = scope;
  const selected = (id: string) => coordinatorId === null || coordinatorId === id;
  const byId = new Map(board.tasks.map(task => [task.id, task]));
@@ -143,16 +101,16 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
   waitingOnOwner: waits.length, ...(waits[0] ? { oldestWaitSince: waits[0].since } : {}),
  });
  const heldRequests = new Set(waitsForScope.filter(item => item.requestId && (!item.questionId || blocking(questionById.get(item.questionId)!))).map(item => item.requestId));
- const inFlight = openForScope.map(task => {
+ const inFlight: Overview["inFlight"] = openForScope.map(task => {
   const parts = task.partsDigest;
   const runSince = runningByRequest.get(task.id);
   const activePlan = runSince ? [task, ...(families.get(task.id) ?? [])].find(part => part.state?.liveWorkSince && part.live?.plan?.some(step => step.status === "doing")) : undefined;
   const plan = activePlan?.live?.plan;
   const step = plan?.findIndex(step => step.status === "doing") ?? -1;
-  const firstWorkAt = statuses(task).find(move => move.status === "in_progress")?.at;
+  const firstWork = statuses(task).find(move => move.status === "in_progress")?.at;
   return { requestId: task.id, ...(parts ? { parts: { done: parts.done, total: parts.total, working: parts.working, needsOwner: parts.needsOwner } } : {}),
    ...(activePlan && plan && step >= 0 ? { planStep: { taskId: activePlan.id, number: step + 1, total: plan.length, text: plan[step]!.text } } : {}),
-   ...(runSince ? { runningSince: runSince } : {}), ...(firstWorkAt ? { firstWorkAt } : {}), heldUp: !runSince && heldRequests.has(task.id),
+   ...(runSince ? { runningSince: runSince } : {}), ...(firstWork ? { firstWorkAt: firstWork } : {}), heldUp: !runSince && heldRequests.has(task.id),
   };
  });
  const startOfWeek = overviewWeekStart(now);
@@ -178,37 +136,69 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
   if (earliest > from) break;
   weeks.push(closed.filter(close => close.counted && selected(close.owner) && close.task.parent == null && close.at >= from && close.at < from + 7 * OVERVIEW_DAY_MS).length);
  }
- const workAndWait = (task: BoardTask) => {
-  const work: Span[] = [];
-  for (const member of [task, ...(families.get(task.id) ?? [])]) {
-   for (const run of Object.values(rows[member.id]?.runs ?? {})) work.push([time(run.at), time(run.endAt)]);
-   for (const source of Object.values(state.taskActivity?.[member.id]?.sources ?? {})) if (source.state === "running" && !settled(member)) {
-    work.push([time(source.since), now]);
-   }
-  }
-  const waits = [...statusSpans(statuses(task), "review", now), ...(questionsByRequest.get(task.id) ?? []).filter(blocking).flatMap(question => questionWaits(question, state.questionWaitReturns?.[question.id] ?? [], now))];
-  return { work, waits };
- };
+ const workAndWait = (task: BoardTask) => requestWorkClock(state, rows, task, families.get(task.id) ?? [], questionsByRequest.get(task.id) ?? [], now);
  const weekSplits: { total: number; split: Overview["week"]["split"] }[] = [];
  const completed: Overview["estimateInputs"]["completed"] = [];
+ const scoredEstimates: ScoredOverviewEstimate[] = [];
  let heldUpTodayMs = 0;
  for (const task of requests) {
   const done = task.status === "done" ? time(task.settledAt) : NaN;
-  const { work, waits } = workAndWait(task);
+  const clock = workAndWait(task);
+  const { work, waits } = clock;
   if (selected(owner(task))) heldUpTodayMs += timeSplit(work, waits, startOfToday, settled(task) ? Math.min(now, time(task.settledAt)) : now).waitingMs;
   if (!Number.isFinite(done) || done > now) continue;
   const moves = statuses(task);
-  const firstWork = Math.min(time(moves.find(move => move.status === "in_progress")?.at) || Infinity, ...work.map(([at]) => at).filter(Number.isFinite));
+  const firstWork = firstWorkAt(moves, clock);
   if (!Number.isFinite(firstWork) || firstWork >= done) continue;
   const ready = moves.find(move => move.status === "review" && time(move.at) >= firstWork && time(move.at) <= done);
   if (ready && ownerClosedRequests.has(task.id)) {
    const readyAt = time(ready.at);
-   const agentMs = readyAt - firstWork - timeSplit(work, waits, firstWork, readyAt).waitingMs;
+   const agentMs = agentTime(clock, firstWork, readyAt);
    completed.push({ requestId: task.id, coordinatorId: owner(task), firstWorkAt: iso(firstWork), readyAt: ready.at, doneAt: iso(done),
     parts: ready.parts ?? directParts(task).filter(part => time(part.createdAt) <= readyAt).length, agentMs });
+   const estimate = rows[task.id]?.firstEstimate;
+   if (estimate && time(estimate.at) >= firstWork && time(estimate.at) < readyAt) {
+    scoredEstimates.push({ coordinatorId: owner(task), doneAt: iso(done), actualMs: agentTime(clock, time(estimate.at), readyAt), estimate });
+   }
   }
   if (recentRequestIds.has(task.id)) weekSplits.push({ total: done - firstWork, split: timeSplit(work, waits, firstWork, done) });
  }
+ const estimator = new OverviewEstimator(completed, scoredEstimates, now);
+ const estimates = summarizeOverviewEstimates(scoredEstimates.filter(score => selected(score.coordinatorId)));
+ function timeLeft(task: BoardTask, flight: Overview["inFlight"][number]): OverviewTimeLeft {
+  if (task.status === "review") return { kind: "stopped", reason: "review" };
+  const parts = directParts(task);
+  const partsLeft = parts.filter(part => part.status !== "done").length;
+  const moves = statuses(task);
+  const reviewed = moves.some(move => move.status === "review" || move.status === "done");
+  const clock = workAndWait(task);
+  const startedAt = firstWorkAt(moves, clock);
+  const startsOnBoard = task.status !== "todo" && Number.isFinite(startedAt) && startedAt <= now;
+  if (flight.heldUp) {
+   const stopped = { kind: "stopped", reason: "owner_wait" } as const;
+   if (!startsOnBoard || !partsLeft || reviewed) return stopped;
+   const estimate = estimator.partsLeft(owner(task), partsLeft);
+   if ("reason" in estimate) return stopped;
+   const { kind: _kind, ...range } = estimate.range;
+   return { ...stopped, then: range };
+  }
+  if (reviewed) return { kind: "none", reason: "already_reviewed" };
+  if (task.status === "waiting" || task.state?.kind === "blocked_by_task") return { kind: "none", reason: "outside_wait" };
+  if (!startsOnBoard) return { kind: "none", reason: "not_started" };
+  if (!parts.length) {
+   if (!flight.runningSince) return { kind: "none", reason: "no_parts" };
+   return estimator.usualDuration(owner(task), flight.runningSince, agentTime(clock, startedAt, now)) ?? { kind: "none", reason: "not_enough_history" };
+  }
+  if (!partsLeft) return { kind: "none", reason: "all_parts_done" };
+  const first = rows[task.id]?.firstEstimate;
+  const estimate = estimator.partsLeft(owner(task), partsLeft);
+  if ("reason" in estimate) return { kind: "none", reason: estimate.reason };
+  const range = estimate.range;
+  if (!first) firstEstimates?.set(task.id, { at: iso(now), baselineMs: estimate.baselineMs, minutes: range.minutes, low: range.low, high: range.high });
+  const overrunInMs = first ? Math.max(0, first.high * 60_000 - agentTime(clock, time(first.at), now)) : range.high * 60_000;
+  return { ...range, overrunInMs, overrun: overrunInMs === 0 };
+ }
+ for (const flight of inFlight) flight.left = timeLeft(byId.get(flight.requestId)!, flight);
  // Use the observed request nearest the middle, not three unrelated medians that can't add up.
  weekSplits.sort((a,b) => a.total - b.total);
  const typicalRequest = weekSplits[Math.floor((weekSplits.length - 1) / 2)];
@@ -261,7 +251,7 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
    ...(taskUsage ? { taskUsage } : {}), ...(coordinatorUsage ? { coordinatorUsage } : {}),
    ...(requestValues.length ? { usualRequestValue: quantile(requestValues, .5) } : {}),
   },
-  more: { heldUpTodayMs, statusTimes,
+  more: { heldUpTodayMs, statusTimes, ...(estimates ? { estimates } : {}),
    runs: { started: runs.length, failed: runs.filter(run => run.outcome === "failed").length, stopped: runs.filter(run => run.outcome === "stopped").length,
     tasksWithMultipleRuns: runsByTask.filter(taskRuns => taskRuns.length > 1).length, workerMs, ...(lengths.length ? { medianMs: quantile(lengths, .5) } : {}) },
    questions: { asked: scopedQuestions.filter(question => time(question.askedAt) >= startOfMonth && time(question.askedAt) <= now).length, answered: answers.length, ...(answerTime ? { answerTime } : {}) },

@@ -216,11 +216,22 @@ function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolea
 
 type OverviewSubscription = { coordinatorId: string | null; last?: string; busy: boolean; dirty: boolean };
 
-function overviewFingerprint({ asOf: _at, more, ...overview }: Overview): string {
+function overviewFingerprint({ asOf: _at, more, inFlight, ...overview }: Overview): string {
  // Tick elapsed time on the device. Unrelated board events do not republish a scope just because time passed.
  const { heldUpTodayMs: _waited, runs, ...facts } = more;
  const { workerMs: _elapsed, ...runFacts } = runs;
- return JSON.stringify({ ...overview, more: { ...facts, runs: runFacts } });
+ const flights = inFlight.map(row => {
+  if (row.left?.kind === "range") {
+   const { overrunInMs: _remaining, ...left } = row.left;
+   return { ...row, left };
+  }
+  if (row.left?.kind === "usual") {
+   const { longerInMs: _remaining, ...left } = row.left;
+   return { ...row, left };
+  }
+  return row;
+ });
+ return JSON.stringify({ ...overview, inFlight: flights, more: { ...facts, runs: runFacts } });
 }
 
 export class ClientConnection {

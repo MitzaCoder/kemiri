@@ -11,6 +11,23 @@ const durationSample = Type.Object({ count, medianMs: milliseconds, p75Ms: milli
 const countRange = Type.Object({ low: Type.Number(), high: Type.Number() });
 const usage = Type.Object({ apiValue: Type.Number(), unpricedRequests: count });
 
+const estimateBasis = Type.Union([Type.Literal("coordinator"), Type.Literal("project")]);
+const estimateRange = { minutes: Type.Number({ minimum: 0 }), low: Type.Number({ minimum: 0 }), high: Type.Number({ minimum: 0 }), basis: estimateBasis };
+export const OverviewTimeLeftSchema = Type.Union([
+ Type.Object({ kind: Type.Literal("range"), ...estimateRange,
+  overrunInMs: Type.Optional(milliseconds), overrun: Type.Optional(Type.Boolean()),
+ }),
+ Type.Object({ kind: Type.Literal("usual"), low: estimateRange.low, high: estimateRange.high, basis: estimateBasis,
+  runningSince: Type.String(), longerInMs: milliseconds, longer: Type.Boolean(),
+ }),
+ Type.Object({ kind: Type.Literal("stopped"), reason: Type.Union([Type.Literal("owner_wait"), Type.Literal("review")]), then: Type.Optional(Type.Object(estimateRange)) }),
+ Type.Object({ kind: Type.Literal("none"), reason: Type.Union([
+  Type.Literal("not_started"), Type.Literal("no_parts"), Type.Literal("not_enough_history"),
+  Type.Literal("outside_wait"), Type.Literal("wide_range"), Type.Literal("all_parts_done"), Type.Literal("already_reviewed"),
+ ]) }),
+]);
+export type OverviewTimeLeft = Static<typeof OverviewTimeLeftSchema>;
+
 export const OverviewGetRequestSchema = Type.Object({ type: Type.Literal("overview.get"), id: RequestIdSchema,
  ...scope.properties, subscribe: Type.Optional(Type.Boolean()),
 });
@@ -30,6 +47,7 @@ export const OverviewEventSchema = Type.Object({
   planStep: Type.Optional(Type.Object({ taskId: Type.String(), number: count, total: count, text: Type.String() })),
   runningSince: Type.Optional(Type.String()), firstWorkAt: Type.Optional(Type.String()),
   heldUp: Type.Boolean(),
+  left: Type.Optional(OverviewTimeLeftSchema),
  })),
  week: Type.Object({
   requests: count, parts: count, perDay: Type.Array(Type.Object({ day: Type.String(), requests: count, parts: count }), { minItems: 7, maxItems: 7 }),
@@ -40,6 +58,7 @@ export const OverviewEventSchema = Type.Object({
  }),
  more: Type.Object({
   heldUpTodayMs: milliseconds,
+  estimates: Type.Optional(Type.Object({ held: count, scored: count })),
   statusTimes: Type.Array(Type.Object({ status: BoardTaskStatusSchema, medianMs: milliseconds })),
   runs: Type.Object({ started: count, failed: count, stopped: count, tasksWithMultipleRuns: count, workerMs: milliseconds, medianMs: Type.Optional(milliseconds) }),
   questions: Type.Object({ asked: count, answered: count, answerTime: Type.Optional(durationSample) }),
@@ -50,7 +69,7 @@ export const OverviewEventSchema = Type.Object({
   nextSchedule: Type.Optional(Type.Object({ scheduleId: Type.String(), at: Type.String() })),
   deploys: Type.Optional(Type.Object({ landed: count, failed: count, rolledBack: count })),
  }),
- // Finished episodes for stage 3, not a forecast. Project samples are also sent in a narrow scope for fallback.
+ // Measured finished episodes. A narrow scope also includes project samples so derivations can share the same basis.
  estimateInputs: Type.Object({
   completed: Type.Array(Type.Object({ requestId: Type.String(), coordinatorId: Type.String(), firstWorkAt: Type.String(), readyAt: Type.String(), doneAt: Type.String(), parts: count, agentMs: milliseconds })),
  }),

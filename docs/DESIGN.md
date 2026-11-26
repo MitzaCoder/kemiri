@@ -4901,8 +4901,11 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 Overview follows Tasks' existing coordinator scope. A coordinator view leads with one sentence, then Waiting on you,
 In flight and Last 7 days. Waiting rows sort by age and link to the question, review or Steps on the task. In flight
 uses the board's task titles, state sentences and parts bars, and adds the current worker plan step when available.
-Failures and pauses come first. The week uses the server's UTC day buckets and measured time split. More numbers is
-closed until opened, with the fold remembered on the device. There is no time-left number yet.
+Failures and pauses come first, then requests that passed their first estimated range. Each estimate shows a rough
+amount of agent work with a range beneath it. Blocking owner waits show Stopped; missing or unusable estimates say
+why. Neither line shows a finish date. The week uses the server's UTC day buckets and measured time split. More
+numbers is closed until opened, with the fold remembered on the device. It shows the recorded first-range hit rate
+once an estimated request finishes.
 
 All coordinators shows each coordinator's open, waiting and finished counts, a project total and project-level
 weekly figures. A coordinator row opens its scoped Overview. The conversation roster adds one short facts line per
@@ -6702,9 +6705,8 @@ adds coordinator summaries. The snapshot joins request and question IDs to the b
 oldest waits and the direct parts held, in-flight parts and plan steps, seven UTC day buckets and usual-week bounds,
 plus review, run, check, job, schedule and deploy facts. Closing counts use the recorded actor. Historical waiting
 unions blocking question and review intervals and removes intervals with recorded work on the request or any part.
-The typical time split uses one observed request and adds up. Estimate inputs include measured time from first work
-to first review, less unopposed owner waits, and include the project sample for fallback. The estimate itself is not
-made here. If the request log is available, retained usage supplies worker and job catalogue value by task, with
+The typical time split uses one observed request and adds up. Estimate inputs measure from first work to first review,
+less unopposed owner waits. If the request log is available, retained usage supplies worker and job catalogue value by task, with
 coordinator chat separate. Recent raw request rows supply errors and aborts. Missing historical facts are not
 reverse-engineered from the current state.
 
@@ -6712,6 +6714,24 @@ A subscribed socket receives the same snapshot without a request ID after releva
 subscription replaces the previous scope for that project on the socket; an explicit `subscribe: false` removes it.
 No new poll or timer updates ages. Neither the read nor the publication opens any task history. The synthetic bakery
 seed runs in isolated scratch directories (`bun packages/server/scripts/seed-coordinator-overview.ts`).
+
+**Agent time left (T514).** The optional `inFlight.left` fields are range, usual duration, stopped, or no estimate.
+Direct unfinished, non-dropped parts count toward the range. Multiply them by the median agent time per part from
+finished multi-part requests. Use the coordinator's own sample if it has eight eligible requests, or the project's
+sample if it has eight. Queueing and other unexplained time stay on this clock. A blocking question, review or
+recorded owner-step interval stops it only when no work is running. Historic steps without dates are not invented.
+A running request with no parts gets a usual-duration comparison instead of a countdown. Not-started requests,
+external waits, ranges wider than tenfold and thin samples do not get a countdown.
+
+Until eight past estimates can be scored, the range uses the 10th and 90th percentiles of measured time per part.
+After that, use the median and 10th/90th percentiles of the past actual-to-uncorrected-estimate ratios. The first
+issued range, its baseline and its time are saved once in the compact roll-up. Once the request is done, compare
+that range with the actual agent time remaining to first review, not any later review round. The optional
+`more.estimates` counts those first ranges and their hits. No backfill invents previously issued estimates. Device
+minutes only detect overruns; the estimate changes with board publications, not a timer. The offline replay
+(`bun packages/server/scripts/backtest-coordinator-overview.ts <copied-session.sqlite>`) reads the copy without
+writing, places samples every 20 minutes, and trains only on requests already done at each sample. It uses the
+retained history and current task links, so later reparenting is not reconstructed.
 
 Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts`. Implemented in
 `packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts`.

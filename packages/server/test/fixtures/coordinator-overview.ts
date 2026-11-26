@@ -64,14 +64,14 @@ export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z
   move(search, "review", .4, "coordinator");
   add("Order tracking page", 4, "bakery");
   add("Publish the holiday banner", 2, null);
-  const finishRequest = (title: string, hoursAgo: number, ownerThreadId: string | null, parts: number) => {
-   const request = add(title, hoursAgo + 5, ownerThreadId);
-   move(request, "in_progress", hoursAgo + 4, "coordinator");
+  const finishRequest = (title: string, hoursAgo: number, ownerThreadId: string | null, parts: number, agentHours = 3) => {
+   const request = add(title, hoursAgo + agentHours + 2, ownerThreadId);
+   move(request, "in_progress", hoursAgo + agentHours + 1, "coordinator");
    for (let index = 0; index < parts; index++) {
-    const part = add(`${["Draft", "Check", "Publish"][index]}: ${title}`, hoursAgo + 3.5, ownerThreadId, { parent: request.id });
-    move(part, "in_progress", hoursAgo + 3, "coordinator");
-    run(part, `part-${index}`, hoursAgo + 3, hoursAgo + 1.5);
-    move(part, "done", hoursAgo + 1.5, "coordinator");
+    const part = add(`${["Draft", "Check", "Publish"][index]}: ${title}`, hoursAgo + 1 + .85 * agentHours, ownerThreadId, { parent: request.id });
+    move(part, "in_progress", hoursAgo + 1 + .67 * agentHours, "coordinator");
+    run(part, `part-${index}`, hoursAgo + 1 + .67 * agentHours, hoursAgo + 1 + .15 * agentHours);
+    move(part, "done", hoursAgo + 1 + .15 * agentHours, "coordinator");
    }
    move(request, "review", hoursAgo + 1, "coordinator");
    move(request, "done", hoursAgo, "user");
@@ -84,6 +84,12 @@ export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z
   finishRequest("Add opening hours to the footer", 98, null, 1);
   finishRequest("Group recipes by bread type", 125, "bakery", 2);
   finishRequest("Publish the winter hours notice", 130, null, 1);
+  finishRequest("Update pickup instructions for market days", 180, "bakery", 2, 1);
+  finishRequest("Add substitutions to the recipe cards", 194, "bakery", 3, 2);
+  finishRequest("Group the morning pastries", 202, "bakery", 2, 1.5);
+  finishRequest("Update the returns page", 218, "bakery", 2, 1.25);
+  finishRequest("Add a receipt option for large orders", 235, "bakery", 2, 1.75);
+  records.tasks[finished.id]!.firstEstimate = { at: at(8), baselineMs: 3 * HOUR, minutes: 180, low: 120, high: 240 };
  }
  return { now, at, state, records, finished, labels, baking, checkout, design, general, waiting };
 }

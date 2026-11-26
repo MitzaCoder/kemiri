@@ -1,4 +1,4 @@
-import { linkOverviewHistory, OverviewRecordsDoc, recordOverviewStatus, type OverviewRecords } from "./overview-records.ts";
+import { linkOverviewHistory, OverviewRecordsDoc, recordOverviewStatus, recordOverviewStepsWait, type OverviewRecords } from "./overview-records.ts";
 import { AnswerStore, answerMatchesQuery, isOwnerQuestion, ownerQuestion, shouldFileAnswer, taskDescriptionFromAnswer, type OwnerQuestion } from "./answers.ts";
 import { finalAnswerText } from "./activity.ts";
 import { DRAIN_CHOICES } from "./usage-drain-investigation.ts";
@@ -706,8 +706,12 @@ export async function writeReportIn(
 		noteTaskFact(state, input.taskId, { actor: input.by.author, writer: input.by, kind: "milestone", reason: input.milestone, at, sections: unchanged });
 		if (write.coveredEventSeq === before) write.coveredEventSeq += 1; // A writer authored this fact, but cannot cover an earlier unseen gap.
 	}
+	const hadSteps = !!task.report.steps?.trim();
+	const previousStepsAt = task.report.stepsWrittenAt;
 	const previousFailures = plain(task.report.checks?.filter(check => check.result === "failed") ?? []);
 	const written = applyReportWrite(state, task, write, prepared, key);
+	const hasSteps = !!task.report.steps?.trim();
+	if (hadSteps !== hasSteps && !isSettled(task)) await recordOverviewStepsWait(tx, mainId, task.id, at, hasSteps, previousStepsAt);
 	if (input.sections.checks !== undefined || input.mergeChecks?.length) {
 		const failures = [...previousFailures, ...((input.sections.checks ?? input.mergeChecks) ?? [])
 			.filter(check => check.result === "failed").map(check => ({ ...check, at: check.at ?? at }))];

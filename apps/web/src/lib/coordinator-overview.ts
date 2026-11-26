@@ -1,4 +1,5 @@
 import type { Board, Overview } from '@kemiri/protocol';
+import { overviewEstimateOverrun } from './overview-time-left.js';
 
 export function overviewTime(ms: number): string {
 	const minutes = Math.max(0, Math.floor(ms / 60_000));
@@ -24,13 +25,13 @@ export function overviewRosterLine(counts: Overview['counts'] | undefined): stri
 	return `${plural(counts.open, 'request')} open · ${counts.waitingOnOwner} ${counts.waitingOnOwner === 1 ? 'waits' : 'wait'} on you`;
 }
 
-export function overviewFlightRows(rows: Overview['inFlight'], board: Board | undefined) {
+export function overviewFlightRows(rows: Overview['inFlight'], board: Board | undefined, elapsedMs = 0) {
 	const tasks = new Map(board?.tasks.map(task => [task.id, task]));
-	const rank = (id: string) => {
-		const kind = tasks.get(id)?.state?.kind;
-		return kind === 'failed' ? 0 : kind === 'paused' ? 1 : 2;
+	const rank = (row: Overview['inFlight'][number]) => {
+		const kind = tasks.get(row.requestId)?.state?.kind;
+		return kind === 'failed' ? 0 : kind === 'paused' ? 1 : overviewEstimateOverrun(row.left, elapsedMs) ? 2 : 3;
 	};
-	return [...rows].sort((a, b) => rank(a.requestId) - rank(b.requestId));
+	return [...rows].sort((a, b) => rank(a) - rank(b));
 }
 
 export function overviewWaitingRows(rows: Overview['waiting']) {
