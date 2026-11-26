@@ -420,6 +420,10 @@ suspend fun HarnessClient.request(value: RefsDetailsRequest, explicitNulls: Set<
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(RefsDetailsRequest.serializer(), value).jsonObject, explicitNulls), RefsDetailsResponse.serializer()
 )
 
+suspend fun HarnessClient.request(value: OverviewGetRequest, explicitNulls: Set<String> = emptySet()): OverviewGetResponse = exchange(
+    value.id, withExplicitNulls(wireJson.encodeToJsonElement(OverviewGetRequest.serializer(), value).jsonObject, explicitNulls), OverviewGetResponse.serializer()
+)
+
 suspend fun HarnessClient.request(value: BoardQuestionClarifyRequest, explicitNulls: Set<String> = emptySet()): BoardQuestionClarifyResponse = exchange(
     value.id, withExplicitNulls(wireJson.encodeToJsonElement(BoardQuestionClarifyRequest.serializer(), value).jsonObject, explicitNulls), BoardQuestionClarifyResponse.serializer()
 )

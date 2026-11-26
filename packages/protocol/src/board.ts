@@ -337,6 +337,7 @@ export const BoardLivePlanStatusSchema = Type.Union([Type.Literal("todo"), Type.
 export const BoardLivePlanStepSchema = Type.Object({
  text: Type.String({ minLength: 1, maxLength: LIVE_PLAN_STEP_MAX_CHARS }),
  status: BoardLivePlanStatusSchema,
+ doneAt: Type.Optional(Type.String({ description: "When the step first became done; absent on older plans." })),
 });
 export type BoardLivePlanStep = Static<typeof BoardLivePlanStepSchema>;
 

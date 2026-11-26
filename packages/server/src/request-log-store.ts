@@ -1,3 +1,4 @@
+import type { OverviewUsage } from "./coordinator-overview.ts";
 import type { CacheWarmStretch } from "@kemiri/protocol";
 /**
  * The request log's database: one row per model request of every project on this backend, kept `REQUEST_LOG_KEEP_DAYS`
@@ -761,6 +762,39 @@ export class RequestLogStore {
 			AND task_id IN (SELECT value FROM json_each(?)) AND role NOT IN ('coordinator', 'keep_warm')
 			GROUP BY task_id, worker_id, thread_id, provider, model, billing, period_id
 		`).all(projectId, JSON.stringify(taskIds));
+	}
+
+	/** Use the retained roll-up for catalogue value, and only the recent raw log for errors. */
+	overviewUsage(projectId: string, from: number, now: number, coordinatorOf: (threadId: string | null) => string, coordinatorThreads: readonly string[]): OverviewUsage {
+		const firstDay = new Date(from).toISOString().slice(0, 10);
+		const lastDay = new Date(now).toISOString().slice(0, 10);
+		type Usage = { id: string; apiValue: number; unpricedRequests: number };
+		const taskUsage = (week: boolean) => new Map(this.#db.query<Usage, [string, string, ...string[]]>(`
+			SELECT task_id AS id, SUM(cost) AS apiValue, SUM(unpriced_requests) AS unpricedRequests
+			FROM usage_rollup WHERE project_id = ? AND task_id IS NOT NULL AND (role IN ('worker', 'scheduled') OR (role = 'thread' AND thread_id NOT IN (SELECT value FROM json_each(?))))
+			${week ? "AND day BETWEEN ? AND ?" : ""} GROUP BY task_id
+		`).all(projectId, JSON.stringify(coordinatorThreads), ...(week ? [firstDay, lastDay] : [])).map(({ id, ...amount }) => [id, amount]));
+		const weekByCoordinator = new Map<string, Omit<Usage, "id">>();
+		for (const amount of this.#db.query<Omit<Usage, "id"> & { threadId: string | null }, [string, string, string, string]>(`
+			SELECT thread_id AS threadId, SUM(cost) AS apiValue, SUM(unpriced_requests) AS unpricedRequests
+			FROM usage_rollup WHERE project_id = ? AND (role = 'coordinator' OR (role = 'thread' AND thread_id IN (SELECT value FROM json_each(?))))
+			AND day BETWEEN ? AND ? GROUP BY thread_id
+		`).all(projectId, JSON.stringify(coordinatorThreads), firstDay, lastDay)) {
+			const id = coordinatorOf(amount.threadId);
+			const previous = weekByCoordinator.get(id);
+			weekByCoordinator.set(id, { apiValue: (previous?.apiValue ?? 0) + amount.apiValue, unpricedRequests: (previous?.unpricedRequests ?? 0) + amount.unpricedRequests });
+		}
+		const modelRequestsByCoordinator = new Map<string, { errors: number; aborted: number }>();
+		for (const row of this.#db.query<{ threadId: string | null; errors: number; aborted: number }, [number, number, string]>(`
+			SELECT thread_id AS threadId, SUM(stop_reason = 'error') AS errors, SUM(stop_reason = 'aborted') AS aborted
+			FROM requests WHERE at >= ? AND at <= ? AND project_id = ? AND stop_reason IN ('error','aborted')
+			AND conversation_kind IN ('main','thread','worker') GROUP BY thread_id
+		`).all(from, now, projectId)) {
+			const id = coordinatorOf(row.threadId);
+			const previous = modelRequestsByCoordinator.get(id);
+			modelRequestsByCoordinator.set(id, { errors: (previous?.errors ?? 0) + row.errors, aborted: (previous?.aborted ?? 0) + row.aborted });
+		}
+		return { weekByTask: taskUsage(true), lifetimeByTask: taskUsage(false), weekByCoordinator, modelRequestsByCoordinator };
 	}
 
 	/** Rows in `[from, to)`, oldest first; one project's when `projectId` is given. */

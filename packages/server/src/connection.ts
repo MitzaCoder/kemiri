@@ -1,3 +1,4 @@
+import type { Overview } from "@kemiri/protocol";
 import { isOwnerQuestion, withWorkerProgress } from "./answers.ts";
 import type { AppSettings } from "@kemiri/protocol";
 import { boardChanges } from "./board-delta.ts";
@@ -213,7 +214,17 @@ function withBoardTaskCapabilities(message: ServerMessage, withTaskSteps: boolea
 	}
 }
 
+type OverviewSubscription = { coordinatorId: string | null; last?: string; busy: boolean; dirty: boolean };
+
+function overviewFingerprint({ asOf: _at, more, ...overview }: Overview): string {
+ // Tick elapsed time on the device. Unrelated board events do not republish a scope just because time passed.
+ const { heldUpTodayMs: _waited, runs, ...facts } = more;
+ const { workerMs: _elapsed, ...runFacts } = runs;
+ return JSON.stringify({ ...overview, more: { ...facts, runs: runFacts } });
+}
+
 export class ClientConnection {
+ readonly #overviewSubscriptions = new Map<string, OverviewSubscription>();
 	readonly #userSettings: UserSettingsStore | undefined;
 	notifyUserSettings(settings: UserSettings): void {
 		this.#respond({ type: "user.settings.changed", settings });
@@ -337,7 +348,33 @@ export class ClientConnection {
 	/** Push a project's board (without archived tasks) when it changes. */
 	notifyBoard(projectId: string, board: Board, legacyBoard: Board): void {
 		this.#respond({ type: "board.state", projectId, board: this.#clientSupportsRequestAttention ? board : legacyBoard });
+		this.notifyOverview(projectId);
 	}
+
+ /** Reuse board publications; coalesce changes that arrive while a snapshot is being built. */
+ notifyOverview(projectId: string): void {
+  const subscription = this.#overviewSubscriptions.get(projectId);
+  if (!subscription || this.#closed) return;
+  subscription.dirty = true;
+  if (subscription.busy) return;
+  subscription.busy = true;
+  void (async () => {
+   try {
+    while (subscription.dirty && this.#overviewSubscriptions.get(projectId) === subscription) {
+     subscription.dirty = false;
+     const overview = await this.#manager.coordinatorOverview(projectId, subscription.coordinatorId);
+     if (this.#overviewSubscriptions.get(projectId) !== subscription) return;
+     const fingerprint = overviewFingerprint(overview);
+     if (fingerprint !== subscription.last) {
+      subscription.last = fingerprint;
+      this.#respond(overview);
+     }
+    }
+   } catch (error) {
+    this.#log(`overview publication: ${errorMessage(error)}`);
+   } finally { subscription.busy = false; }
+  })();
+ }
 
 	/** Push a project's threads (without archived ones) when any changes. */
 	notifyThreads(projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn): void {
@@ -440,6 +477,7 @@ export class ClientConnection {
 	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#overviewSubscriptions.clear();
 		this.#notifications.presence.remove(this);
 		const watches = [...this.#watches.values()];
 		this.#watches.clear();
@@ -1203,6 +1241,23 @@ export class ClientConnection {
 					this.#respond({ type: "threads.archive", id: request.id, thread });
 					return;
 				}
+    case "overview.get": {
+     if (!this.#features.includes("coordinator-overview")) return this.#unknownRequest(request);
+     const { projectId, coordinatorId } = request;
+     const subscription: OverviewSubscription = { coordinatorId, busy: true, dirty: false };
+     if (request.subscribe === true) this.#overviewSubscriptions.set(projectId, subscription);
+     else if (request.subscribe === false) this.#overviewSubscriptions.delete(projectId);
+     try {
+      const overview = await this.#manager.coordinatorOverview(projectId, coordinatorId);
+      subscription.last = overviewFingerprint(overview);
+      this.#respond({ ...overview, id: request.id });
+     } catch (error) {
+      if (this.#overviewSubscriptions.get(projectId) === subscription) this.#overviewSubscriptions.delete(projectId);
+      throw error;
+     } finally { subscription.busy = false; }
+     if (subscription.dirty && this.#overviewSubscriptions.get(projectId) === subscription) this.notifyOverview(projectId);
+     return;
+    }
 				case "board.get": {
 					const live = this.#clientSupportsBoardDelta && request.includeArchived !== true;
 					const before = this.#boardStreams.get(request.projectId);

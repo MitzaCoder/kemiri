@@ -17,28 +17,34 @@ export type LivePlanUpdate = {
 
 const normalizeStepText = (text: string) => text.replace(/\s+/g, " ").trim();
 
-export function updateLivePlan(previous: readonly BoardLivePlanStep[] | undefined, { plan, tick }: LivePlanUpdate): BoardLivePlanStep[] {
+export function updateLivePlan(previous: readonly BoardLivePlanStep[] | undefined, { plan, tick }: LivePlanUpdate, at?: string): BoardLivePlanStep[] {
  if (plan !== undefined && !Value.Check(LivePlanInputSchema, plan)) {
   throw new ServerError("bad_request", `A plan needs ${LIVE_PLAN_MIN_STEPS} to ${LIVE_PLAN_MAX_STEPS} steps with nonblank text up to ${LIVE_PLAN_STEP_MAX_CHARS} characters and optional todo, doing or done status.`);
  }
  if (tick !== undefined && !Value.Check(LivePlanTickSchema, tick)) {
   throw new ServerError("bad_request", "Tick needs distinct 1-based plan step numbers.");
  }
- const previousByText = new Map<string, BoardLivePlanStep["status"][]>();
+ const previousByText = new Map<string, BoardLivePlanStep[]>();
  for (const step of previous ?? []) {
   const key = normalizeStepText(step.text).toLowerCase();
   const statuses = previousByText.get(key) ?? [];
-  statuses.push(step.status);
+  statuses.push(step);
   previousByText.set(key, statuses);
  }
- const next = plan?.map(({ text, status }) => {
+ const next: BoardLivePlanStep[] | undefined = plan?.map(({ text, status }) => {
   const clean = normalizeStepText(text);
-  const previousStatus = previousByText.get(clean.toLowerCase())?.shift();
-  return { text: clean, status: status ?? previousStatus ?? "todo" };
+  const prior = previousByText.get(clean.toLowerCase())?.shift();
+  const nextStatus = status ?? prior?.status ?? "todo";
+  const doneAt = nextStatus === "done" ? (prior?.status === "done" ? prior.doneAt : at) : undefined;
+  return { text: clean, status: nextStatus, ...(doneAt ? { doneAt } : {}) };
  }) ?? previous?.map(step => ({ ...step }));
  if (!next) throw new ServerError("bad_request", "Write a plan before ticking its steps.");
  if (tick?.some(number => number > next.length)) throw new ServerError("bad_request", `Tick numbers must be between 1 and ${next.length}.`);
- for (const number of tick ?? []) next[number - 1]!.status = "done";
+ for (const number of tick ?? []) {
+  const step = next[number - 1]!;
+  if (step.status !== "done" && at) step.doneAt = at;
+  step.status = "done";
+ }
  // An explicit doing step outranks an inherited doing step. Keep one in plan order.
  const explicitDoing = plan?.findIndex((step, index) => step.status === "doing" && next[index]?.status === "doing") ?? -1;
  const doing = explicitDoing >= 0 ? explicitDoing : next.findIndex(step => step.status === "doing");

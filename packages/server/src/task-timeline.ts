@@ -1,3 +1,4 @@
+import { recordOverviewFact } from "./overview-records.ts";
 import { liveCounterLabels, livePlanProgress } from "@kemiri/protocol";
 import { createHash } from "node:crypto";
 import type { BoardTaskLive, BoardTask, BoardTimelineEntry, BoardTimelineFact, BoardTimelineGroup, BoardTimelineGroupKind, BoardTimelineKind } from "@kemiri/protocol";
@@ -23,6 +24,7 @@ export function upsertTimelineFact(history: TaskHistoryState, task: BoardTask, i
  if (entries.length > 500) entries.splice(0, entries.length - 500);
  task.timelineRevision = Math.max(task.timelineRevision ?? 0, history.revision ?? 0) + 1;
  history.revision = task.timelineRevision;
+ recordOverviewFact(history, task.id, { ...input, at: previous?.at ?? input.at });
  return true;
 }
 
@@ -31,7 +33,7 @@ function fact(taskId: string, source: string, entry: BoardTimelineEntry, group: 
 }
 
 /** Legacy worker IDs are names, scoped by writer thread and the episode's starting row. */
-function foldLegacyEvents(taskId: string, events: readonly BoardTimelineEntry[], curated: readonly BoardTimelineFact[]): BoardTimelineFact[] {
+export function foldLegacyEvents(taskId: string, events: readonly BoardTimelineEntry[], curated: readonly BoardTimelineFact[]): BoardTimelineFact[] {
  const entries: BoardTimelineFact[] = [];
  const workers = new Map<string, BoardTimelineFact>();
  for (const event of events) {

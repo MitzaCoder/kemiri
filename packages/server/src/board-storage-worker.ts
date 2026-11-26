@@ -5,8 +5,11 @@ import { maintainBoardStorage, type BoardMaintenance } from "./board-checkpoint.
 import { readArtifactBoardFacts, readArtifactTrail, readRequestPartIds } from "./artifact-board-facts.ts";
 import { readStoredAttention } from "./sidebar-attention-migration.ts";
 
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+
 export type BoardStorageRequest = { path: string } & (
-	| { type: "maintenance" }
+	| { type: "maintenance"; overview?: boolean }
 	| { type: "attention"; now: number; activity?: ProjectActivity }
 	| { type: "request-parts"; taskId: string }
 	| { type: "artifact-tasks"; projectId: string; taskIds: readonly string[]; now: number }
@@ -23,7 +26,14 @@ export type BoardStorageResults = {
 
 async function dispatch(request: BoardStorageRequest): Promise<BoardStorageResults[BoardStorageRequest["type"]]> {
 	switch (request.type) {
-		case "maintenance": return maintainBoardStorage(request.path);
+		case "maintenance": {
+			const maintained = await maintainBoardStorage(request.path);
+			if (request.overview) {
+				const storage = await openNodeSqliteStorage(request.path);
+				try { await (await import("./overview-records.ts")).backfillOverviewRecords(storage); } finally { await storage.close(BACKGROUND_CONTEXT); }
+			}
+			return maintained;
+		}
 		case "attention": return readStoredAttention(request.path, request.now, request.activity);
 		case "request-parts": return readRequestPartIds(request.path, request.taskId);
 		case "artifact-tasks": return readArtifactBoardFacts(request.path, request.projectId, request.taskIds, request.now);

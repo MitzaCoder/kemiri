@@ -1,3 +1,4 @@
+import { recordOverviewLegacyWorker } from "./overview-records.ts";
 import { PROVIDER_UNREACHABLE } from "./provider-outage.ts";
 import type { AgentApps } from "./agent-apps.ts";
 import type { ActiveApps } from "./app-tools.ts";
@@ -530,6 +531,7 @@ function createWorkerReporter(service: WorkerService): Task<ReporterInput, Repor
 										key,
 									) && !recordsRun) noteTaskFact(board, task.id, { actor: "worker", kind: "worker_report", reason: "worker reported; work advanced", at: now });
 								}
+								if (!board.taskActivityEnabled) recordOverviewLegacyWorker(history, task.id);
 							}
 						}
 						// A stop that arrived while the answer was in flight wins over the answer.
@@ -2188,6 +2190,7 @@ export class WorkerService {
 						ref: input.id,
 						by: HARNESS_WRITER,
 					});
+					if (!board.taskActivityEnabled) recordOverviewLegacyWorker(history, task.id);
 				}
 			}
 		}

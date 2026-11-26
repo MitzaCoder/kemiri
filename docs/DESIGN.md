@@ -1693,7 +1693,8 @@ still show past failures even when those failures no longer count toward attenti
 - User-mode backend units may be supplied locally; system units remain managed by the host's configuration.
   `README.md` documents setup and the local files. New installations must configure browser origins explicitly.
 - Protocol features are additive; a client hides unsupported capabilities rather than assuming every backend updates
-  at the same time. Native build origins and app-link hosts are generated from private build properties.
+  at the same time. `coordinator-overview` opts into `overview.get`; it is not part of the legacy feature fallback.
+  Native build origins and app-link hosts are generated from private build properties.
 
 ## Tools
 
@@ -6670,6 +6671,30 @@ release reads the same board. The runtime waits for its project’s check before
 left as unused pages. The worker first checks free space for SQLite’s temporary copy and journal. If SQLite cannot
 compact, the smaller replay is still durable and a later open or server start can retry. The startup sweep never
 opens a Harness or resumes agents.
+
+**Coordinator overview records (T511/T512).** The project's SQLite session keeps a compact task-keyed roll-up in
+its own latest-only durable document, with a bounded patch tail. Status changes, the part total at review and close,
+and run and deploy facts are recorded in the board transaction. Current ownership, direct parts done and total, and
+question spells come from the board. History keeps failed check attempts separately from the latest check per name,
+and completed run-plan steps can carry their tick time. Older facts without times stay unknown. Existing document
+versions are unchanged. The startup board-storage worker fills the roll-up from retained history in 32-task commits;
+each saved page is a resume point. This runs before opening that project for writes and never resumes agent work.
+
+`overview.get { projectId, coordinatorId, subscribe? }` returns an `overview` snapshot. `null` means the project and
+adds coordinator summaries. The snapshot joins request and question IDs to the board, with open and running counts,
+oldest waits and the direct parts held, in-flight parts and plan steps, seven UTC day buckets and usual-week bounds,
+plus review, run, check, job, schedule and deploy facts. Closing counts use the recorded actor. Historical waiting
+unions blocking question and review intervals and removes intervals with recorded work on the request or any part.
+The typical time split uses one observed request and adds up. Estimate inputs include measured time from first work
+to first review, less unopposed owner waits, and include the project sample for fallback. The estimate itself is not
+made here. If the request log is available, retained usage supplies worker and job catalogue value by task, with
+coordinator chat separate. Recent raw request rows supply errors and aborts. Missing historical facts are not
+reverse-engineered from the current state.
+
+A subscribed socket receives the same snapshot without a request ID after relevant board publications. The latest
+subscription replaces the previous scope for that project on the socket; an explicit `subscribe: false` removes it.
+No new poll or timer updates ages. Neither the read nor the publication opens any task history. The synthetic bakery
+seed runs in isolated scratch directories (`bun packages/server/scripts/seed-coordinator-overview.ts`).
 
 Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts`. Implemented in
 `packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts`.

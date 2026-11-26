@@ -18,7 +18,7 @@ export function recordLiveReport(state: BoardState, taskId: string, by: BoardWri
   if (!state.taskLiveEnabled || key === undefined || by.author !== "worker" || !source) {
    throw new ServerError("bad_request", "Only a worker on a running task with Live enabled can update its run plan.");
   }
-  const plan = updateLivePlan(source.livePlan, planUpdate);
+  const plan = updateLivePlan(source.livePlan, planUpdate, at);
   if (JSON.stringify(plan) !== JSON.stringify(source.livePlan)) source.livePlan = plan;
  }
  if (!tracking || !source) return;

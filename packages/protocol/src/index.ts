@@ -1,3 +1,5 @@
+import { OverviewGetRequestSchema, OverviewGetResponseSchema, OverviewEventSchema } from "./overview.ts";
+export * from "./overview.ts";
 export * from "./apps.ts";
 import {
 	AppAddressesSchema,
@@ -1033,6 +1035,7 @@ export const ClientMessageSchema = Type.Union([
 	NotificationsRecentRequestSchema,
 	NotificationsShownRequestSchema,
 	BoardGetRequestSchema,
+	OverviewGetRequestSchema,
 	BoardTaskSaveRequestSchema,
 	BoardTasksReorderRequestSchema,
 	BoardQuestionAnswerRequestSchema,
@@ -1194,6 +1197,7 @@ export const ResponseSchema = Type.Union([
 	NotificationsRecentResponseSchema,
 	NotificationsShownResponseSchema,
 	BoardGetResponseSchema,
+	OverviewGetResponseSchema,
 	BoardTaskSaveResponseSchema,
 	BoardTasksReorderResponseSchema,
 	BoardQuestionAnswerResponseSchema,
@@ -1259,6 +1263,7 @@ export const ResponseSchema = Type.Union([
 export type Response = Static<typeof ResponseSchema>;
 
 export const ServerEventSchema = Type.Union([
+	OverviewEventSchema,
 	AnswersChangedEventSchema,
  UserSettingsChangedEventSchema,
  SkillsProjectChangedEventSchema,
@@ -1679,6 +1684,9 @@ export const PROTOCOL_SCHEMAS: Readonly<Record<string, TSchema>> = {
 	RefDetails: RefDetailsSchema,
 	RefsDetailsRequest: RefsDetailsRequestSchema,
 	RefsDetailsResponse: RefsDetailsResponseSchema,
+	OverviewGetResponse: OverviewGetResponseSchema,
+	OverviewEvent: OverviewEventSchema,
+	OverviewGetRequest: OverviewGetRequestSchema,
 	BoardTaskStatus: BoardTaskStatusSchema,
 	BoardAuthor: BoardAuthorSchema,
 	BoardTask: BoardTaskSchema,

@@ -3545,6 +3545,234 @@ data class RefDetailsJiraParent(
 )
 
 @Serializable
+data class OverviewGetResponse(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "overview",
+    val `asOf`: String,
+    val `scope`: OverviewGetResponseScope,
+    val `counts`: OverviewGetResponseCounts,
+    val `waiting`: List<OverviewGetResponseWaitingItem>,
+    val `inFlight`: List<OverviewGetResponseInFlightItem>,
+    val `week`: OverviewGetResponseWeek,
+    val `more`: OverviewGetResponseMore,
+    val `estimateInputs`: OverviewGetResponseEstimateInputs,
+    val `coordinators`: List<OverviewGetResponseCoordinatorsItem>? = null,
+    val `id`: String
+)
+
+@Serializable
+data class OverviewGetResponseScope(
+    val `projectId`: String,
+    val `coordinatorId`: String?
+)
+
+@Serializable
+data class OverviewGetResponseCounts(
+    val `open`: Long,
+    val `running`: Long,
+    val `waitingOnOwner`: Long,
+    val `oldestWaitSince`: String? = null
+)
+
+@Serializable
+data class OverviewGetResponseWaitingItem(
+    val `kind`: String,
+    val `taskId`: String?,
+    val `requestId`: String?,
+    val `questionId`: String? = null,
+    val `since`: String,
+    val `holdsParts`: Long
+)
+
+@Serializable
+data class OverviewGetResponseInFlightItem(
+    val `requestId`: String,
+    val `parts`: OverviewGetResponseInFlightItemParts? = null,
+    val `planStep`: OverviewGetResponseInFlightItemPlanStep? = null,
+    val `runningSince`: String? = null,
+    val `firstWorkAt`: String? = null,
+    val `heldUp`: Boolean
+)
+
+@Serializable
+data class OverviewGetResponseInFlightItemParts(
+    val `done`: Long,
+    val `total`: Long,
+    val `working`: Long,
+    val `needsOwner`: Long
+)
+
+@Serializable
+data class OverviewGetResponseInFlightItemPlanStep(
+    val `taskId`: String,
+    val `number`: Long,
+    val `total`: Long,
+    val `text`: String
+)
+
+@Serializable
+data class OverviewGetResponseWeek(
+    val `requests`: Long,
+    val `parts`: Long,
+    val `perDay`: List<OverviewGetResponseWeekPerDayItem>,
+    val `usualWeek`: OverviewGetResponseWeekUsualWeek? = null,
+    val `startToDoneMs`: Double? = null,
+    val `split`: OverviewGetResponseWeekSplit? = null,
+    val `sentBack`: Long,
+    val `reopened`: Long,
+    val `taskUsage`: OverviewGetResponseWeekTaskUsage? = null,
+    val `coordinatorUsage`: OverviewGetResponseWeekTaskUsage? = null,
+    val `usualRequestValue`: Double? = null
+)
+
+@Serializable
+data class OverviewGetResponseWeekPerDayItem(
+    val `day`: String,
+    val `requests`: Long,
+    val `parts`: Long
+)
+
+@Serializable
+data class OverviewGetResponseWeekUsualWeek(
+    val `low`: Double,
+    val `high`: Double
+)
+
+@Serializable
+data class OverviewGetResponseWeekSplit(
+    val `agentsMs`: Double,
+    val `waitingMs`: Double,
+    val `otherMs`: Double
+)
+
+@Serializable
+data class OverviewGetResponseWeekTaskUsage(
+    val `apiValue`: Double,
+    val `unpricedRequests`: Long
+)
+
+@Serializable
+data class OverviewGetResponseMore(
+    val `heldUpTodayMs`: Double,
+    val `statusTimes`: List<OverviewGetResponseMoreStatusTimesItem>,
+    val `runs`: OverviewGetResponseMoreRuns,
+    val `questions`: OverviewGetResponseMoreQuestions,
+    val `reviews`: OverviewGetResponseMoreQuestionsAnswerTime? = null,
+    val `checks`: OverviewGetResponseMoreChecks,
+    val `modelRequests`: OverviewGetResponseMoreModelRequests? = null,
+    val `runningJobs`: List<String>,
+    val `nextSchedule`: OverviewGetResponseMoreNextSchedule? = null,
+    val `deploys`: OverviewGetResponseMoreDeploys? = null
+)
+
+@Serializable
+data class OverviewGetResponseMoreStatusTimesItem(
+    val `status`: String,
+    val `medianMs`: Double
+)
+
+@Serializable
+data class OverviewGetResponseMoreRuns(
+    val `started`: Long,
+    val `failed`: Long,
+    val `stopped`: Long,
+    val `tasksWithMultipleRuns`: Long,
+    val `workerMs`: Double,
+    val `medianMs`: Double? = null
+)
+
+@Serializable
+data class OverviewGetResponseMoreQuestions(
+    val `asked`: Long,
+    val `answered`: Long,
+    val `answerTime`: OverviewGetResponseMoreQuestionsAnswerTime? = null
+)
+
+@Serializable
+data class OverviewGetResponseMoreQuestionsAnswerTime(
+    val `count`: Long,
+    val `medianMs`: Double,
+    val `p75Ms`: Double
+)
+
+@Serializable
+data class OverviewGetResponseMoreChecks(
+    val `passed`: Long,
+    val `failed`: Long
+)
+
+@Serializable
+data class OverviewGetResponseMoreModelRequests(
+    val `errors`: Long,
+    val `aborted`: Long
+)
+
+@Serializable
+data class OverviewGetResponseMoreNextSchedule(
+    val `scheduleId`: String,
+    val `at`: String
+)
+
+@Serializable
+data class OverviewGetResponseMoreDeploys(
+    val `landed`: Long,
+    val `failed`: Long,
+    val `rolledBack`: Long
+)
+
+@Serializable
+data class OverviewGetResponseEstimateInputs(
+    val `completed`: List<OverviewGetResponseEstimateInputsCompletedItem>
+)
+
+@Serializable
+data class OverviewGetResponseEstimateInputsCompletedItem(
+    val `requestId`: String,
+    val `coordinatorId`: String,
+    val `firstWorkAt`: String,
+    val `readyAt`: String,
+    val `doneAt`: String,
+    val `parts`: Long,
+    val `agentMs`: Double
+)
+
+@Serializable
+data class OverviewGetResponseCoordinatorsItem(
+    val `coordinatorId`: String,
+    val `counts`: OverviewGetResponseCounts,
+    val `week`: OverviewGetResponseCoordinatorsItemWeek
+)
+
+@Serializable
+data class OverviewGetResponseCoordinatorsItemWeek(
+    val `requests`: Long,
+    val `parts`: Long,
+    val `taskUsage`: OverviewGetResponseWeekTaskUsage? = null
+)
+
+@Serializable
+data class OverviewEvent(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "overview",
+    val `asOf`: String,
+    val `scope`: OverviewGetResponseScope,
+    val `counts`: OverviewGetResponseCounts,
+    val `waiting`: List<OverviewGetResponseWaitingItem>,
+    val `inFlight`: List<OverviewGetResponseInFlightItem>,
+    val `week`: OverviewGetResponseWeek,
+    val `more`: OverviewGetResponseMore,
+    val `estimateInputs`: OverviewGetResponseEstimateInputs,
+    val `coordinators`: List<OverviewGetResponseCoordinatorsItem>? = null
+) : ProtocolEvent
+
+@Serializable
+data class OverviewGetRequest(
+    @kotlinx.serialization.EncodeDefault val `type`: String = "overview.get",
+    val `id`: String = java.util.UUID.randomUUID().toString(),
+    val `projectId`: String,
+    val `coordinatorId`: String?,
+    val `subscribe`: Boolean? = null
+)
+
+@Serializable
 data class BoardTask(
     val `partsDigest`: PartsDigest? = null,
     val `derivedNotDone`: List<BoardTaskDerivedNotDoneItem>? = null,
@@ -4015,7 +4243,8 @@ data class BoardLiveLineWrong(
 @Serializable
 data class BoardLivePlanStep(
     val `text`: String,
-    val `status`: String
+    val `status`: String,
+    val `doneAt`: String? = null
 )
 
 @Serializable
@@ -5603,6 +5832,7 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
     "threads.message" -> json.decodeFromJsonElement(ThreadsMessageEvent.serializer(), raw)
     "subscriptions.usage.changed" -> json.decodeFromJsonElement(SubscriptionsUsageEvent.serializer(), raw)
     "usage-pause.changed" -> json.decodeFromJsonElement(UsagePauseEvent.serializer(), raw)
+    "overview" -> json.decodeFromJsonElement(OverviewEvent.serializer(), raw)
     "board.state" -> json.decodeFromJsonElement(BoardStateEvent.serializer(), raw)
     "board.delta" -> json.decodeFromJsonElement(BoardDeltaEvent.serializer(), raw)
     "notifications.alert" -> json.decodeFromJsonElement(NotificationsAlertEvent.serializer(), raw)

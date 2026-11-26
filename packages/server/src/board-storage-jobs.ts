@@ -10,12 +10,12 @@ export class BoardStorageJobs {
 	#tail: Promise<unknown> = Promise.resolve();
 	#closed = false;
 
-	maintain(path: string): Promise<BoardMaintenance | undefined> {
+	maintain(path: string, overview = false): Promise<BoardMaintenance | undefined> {
 		const pending = this.#maintenance.get(path);
 		if (pending) return pending;
 		const job = (async () => {
 			if (!(await Bun.file(path).exists())) return;
-			return this.run({ type: "maintenance", path });
+			return this.run({ type: "maintenance", path, overview });
 		})();
 		this.#maintenance.set(path, job);
 		void job.then(result => {

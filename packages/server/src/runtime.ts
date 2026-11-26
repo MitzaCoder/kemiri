@@ -1,3 +1,4 @@
+import { buildCoordinatorOverview, overviewWeekStart } from "./coordinator-overview.ts";
 import { usagePauseTool, type UsageDrainInvestigation } from "./usage-drain-investigation.ts";
 import { createAppExtension, type ActiveApps } from "./app-tools.ts";
 import type { AgentApps } from "./agent-apps.ts";
@@ -251,6 +252,8 @@ export type ProjectManagerOptions = {
 	/** Called whenever a project's worker list changes, so connections can push `workers.state`. */
 	onWorkersState?: (projectId: string, workers: WorkerSummary[], defaults: WorkerDefaults) => void;
 	/** Called whenever a project's board changes (without archived tasks), so connections can push `board.state`. */
+	coordinatorOverview?: boolean;
+	onOverviewBoardChange?: (projectId: string) => void;
 	onBoardState?: (projectId: string, board: Board, legacyBoard: Board) => void;
 	answersWorkAndTasks?: boolean;
 	onAnswersChanged?: (projectId: string, answerId: string, deleted?: true) => void;
@@ -360,6 +363,8 @@ export class ProjectManager {
 	readonly #repositoryByPath = new Map<string, Promise<boolean>>();
 	readonly #onProjectState: ((summary: ProjectSummary) => void) | undefined;
 	readonly #onArchivedChange: ((projectId: string, archived: boolean) => void) | undefined;
+	readonly #coordinatorOverview: boolean;
+	readonly #onOverviewBoardChange: ProjectManagerOptions["onOverviewBoardChange"];
 	readonly #onBoardState: ProjectManagerOptions["onBoardState"];
 	readonly #onThreadsMessage: ProjectManagerOptions["onThreadsMessage"];
 	readonly #onThreadsState: ((projectId: string, threads: ThreadSummary[], landingTurn: LandingTurn) => void) | undefined;
@@ -440,6 +445,8 @@ export class ProjectManager {
 		this.#onArchivedChange = options.onArchivedChange;
 		this.#onWorkersState = options.onWorkersState;
 		this.#onBoardState = options.onBoardState;
+		this.#onOverviewBoardChange = options.onOverviewBoardChange;
+		this.#coordinatorOverview = options.coordinatorOverview === true;
 		this.#onThreadsState = options.onThreadsState;
 		this.#onThreadsMessage = options.onThreadsMessage;
 		this.#boardEditDebounceMs = options.boardEditDebounceMs;
@@ -549,7 +556,7 @@ export class ProjectManager {
 	}
 
 	async #maintainBoard(projectId: string): Promise<void> {
-		const result = await this.#boardStorage.maintain(this.store.sessionPath(projectId));
+		const result = await this.#boardStorage.maintain(this.store.sessionPath(projectId), this.#coordinatorOverview);
 		if (result?.removedDeltas || result?.reclaimedBytes) {
 			this.#log(`project ${projectId}: board checkpoint removed ${result.removedDeltas} deltas and reclaimed ${result.reclaimedBytes} bytes`);
 		}
@@ -878,6 +885,18 @@ export class ProjectManager {
 		const { runtime } = await this.open(projectId);
 		return runtime.board.get(includeArchived, withRequestAttention);
 	}
+
+ async coordinatorOverview(projectId: string, coordinatorId: string | null) {
+  const { runtime } = await this.open(projectId);
+  if (coordinatorId !== null && coordinatorId !== MAIN_THREAD_ID && (await runtime.threads.record(coordinatorId))?.kind !== "coordinator") {
+   throw new ServerError("unknown_thread", `No coordinator "${coordinatorId}" in this project`, { threadId: coordinatorId });
+  }
+  const now = this.#clock();
+  const coordinatorOf = (owner?: string | null) => runtime.board.coordinatorId(owner);
+  const [inputs, threads, schedules] = await Promise.all([runtime.board.overviewInputs(now), runtime.threads.list(true), this.#schedules.list(projectId)]);
+  const usage = this.#requestLog?.store.overviewUsage(projectId, overviewWeekStart(now), now, coordinatorOf, threads.filter(thread => thread.kind === "coordinator").map(thread => thread.id));
+  return buildCoordinatorOverview({ ...inputs, scope: { projectId, coordinatorId }, now, coordinatorOf, threads, schedules, ...(usage && { usage }) });
+ }
 
 	async markBoardReportStale(projectId: string, input: { taskId: string; sections?: readonly ("results" | "next")[] | undefined; reason?: string | undefined }, withRequestAttention = true) {
 		const { runtime } = await this.open(projectId);
@@ -2050,7 +2069,7 @@ export class ProjectManager {
 				activity.setOpenQuestions(openQuestions);
 				updateAttention(boardAttention(view));
 				threads.boardChanged(view, legacyBoard);
-			})
+			}, () => this.#onOverviewBoardChange?.(project.id))
 			.catch((error: unknown) => {
 				this.#log(`project ${project.id}: board watch failed: ${errorMessage(error)}`);
 				return async () => undefined;

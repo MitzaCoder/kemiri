@@ -1,3 +1,4 @@
+import { linkOverviewHistory, OverviewRecordsDoc, recordOverviewStatus, type OverviewRecords } from "./overview-records.ts";
 import { AnswerStore, answerMatchesQuery, isOwnerQuestion, ownerQuestion, shouldFileAnswer, taskDescriptionFromAnswer, type OwnerQuestion } from "./answers.ts";
 import { finalAnswerText } from "./activity.ts";
 import { DRAIN_CHOICES } from "./usage-drain-investigation.ts";
@@ -161,6 +162,8 @@ export type BoardState = {
 	reportAudit?: ReportAuditRecord;
 	tasks: BoardTask[];
 	questions: BoardQuestion[];
+	/** When a clarification was returned without a reply, absent on older boards. */
+	questionWaitReturns?: Record<string, string[]>;
 	outsideModelApprovals?: Record<string, OutsideModelApproval>;
  clarificationReminders?: Record<string, { revision: number; reminded: boolean; pending?: boolean; feedbackIds?: string[]; feedbackThreadId?: string }>;
 	decisions: BoardDecision[];
@@ -260,6 +263,8 @@ export type TaskHistoryState = {
 	feedback?: BoardFeedback[];
 	/** Request IDs of messages already recorded as feedback, with the entry each made, so a re-sent message adds none. */
 	feedbackKeys?: { key: string; id: string }[];
+	/** Failed checks are retained even if the current report replaces or clears them. */
+	failedChecks?: import("@kemiri/protocol").BoardReportCheck[];
 	/** Bumped on every change of the above, snapshots included; the task carries it as `timelineRevision`. */
 	revision?: number;
 };
@@ -306,8 +311,10 @@ export async function openBoard(tx: Tx, mainId: ConversationId): Promise<BoardSt
  * Open a task's history in a commit. Open it before the commit's first table write (a created task, conversation or
  * submission) when a snapshot may follow.
  */
-export function openTaskHistory(tx: Tx, mainId: ConversationId, taskId: string): Promise<TaskHistoryState> {
-	return tx.doc(TaskHistoryDoc, mainId, taskId, null) as Promise<TaskHistoryState>;
+export async function openTaskHistory(tx: Tx, mainId: ConversationId, taskId: string): Promise<TaskHistoryState> {
+	const history = await tx.doc(TaskHistoryDoc, mainId, taskId, null) as TaskHistoryState;
+	const records = await tx.doc(OverviewRecordsDoc, mainId) as OverviewRecords;
+	return linkOverviewHistory(history, records);
 }
 
 /**
@@ -448,9 +455,17 @@ export async function snapshotStatusChanges(
 	input: { by: BoardWriter; at: string; key?: string | undefined; statusLabels?: ReadonlyMap<string, string> | undefined },
 ): Promise<void> {
 	let projected: Map<string, BoardTask> | undefined;
+	let overview: OverviewRecords | undefined;
 	for (const task of state.tasks) {
 		const was = before.get(task.id);
-		if ((was === undefined && task.waiting === undefined) || was === task.status) continue;
+		if (was === task.status) continue;
+		overview ??= await tx.doc(OverviewRecordsDoc, mainId) as OverviewRecords;
+		const closed = state.taskClosures?.[task.id];
+		const by = closed?.at === input.at ? closed.by : task.updatedBy === "harness" ? "harness" : input.by.author;
+		const parts = task.parent == null && (task.status === "review" || task.status === "done")
+			? state.tasks.filter(part => part.parent === task.id && part.status !== "dropped").length : undefined;
+		recordOverviewStatus(overview, task, input.at, by, parts);
+		if (was === undefined && task.waiting === undefined) continue;
 		const history = await openTaskHistory(tx, mainId, task.id);
 		const reason = task.status === "dropped" ? partDropReason(state, task.id) : undefined;
 		addSnapshot(history, task, {
@@ -691,7 +706,19 @@ export async function writeReportIn(
 		noteTaskFact(state, input.taskId, { actor: input.by.author, writer: input.by, kind: "milestone", reason: input.milestone, at, sections: unchanged });
 		if (write.coveredEventSeq === before) write.coveredEventSeq += 1; // A writer authored this fact, but cannot cover an earlier unseen gap.
 	}
+	const previousFailures = plain(task.report.checks?.filter(check => check.result === "failed") ?? []);
 	const written = applyReportWrite(state, task, write, prepared, key);
+	if (input.sections.checks !== undefined || input.mergeChecks?.length) {
+		const failures = [...previousFailures, ...((input.sections.checks ?? input.mergeChecks) ?? [])
+			.filter(check => check.result === "failed").map(check => ({ ...check, at: check.at ?? at }))];
+		if (failures.length) {
+			const history = await openTaskHistory(tx, mainId, task.id);
+			for (const check of failures) {
+				history.failedChecks ??= [];
+				if (!history.failedChecks.some(old => old.name === check.name && old.at === check.at)) history.failedChecks.push(plain(check));
+			}
+		}
+	}
 	const label = input.milestone?.trim() ?? "";
 	if (label === "") return written;
 	return snapshotMilestone(tx, mainId, state, { taskId: input.taskId, label, by: input.by, at, key });
@@ -1935,6 +1962,9 @@ export function endQuestionClarification(state: BoardState, input: { questionId:
  if (!input.failed && !reminder.reminded) { reminder.reminded = true; reminder.pending = true; return "remind"; }
  question.waitingOn = "user";
  question.noReplyYet = true;
+ state.questionWaitReturns ??= {};
+ state.questionWaitReturns[question.id] ??= [];
+ state.questionWaitReturns[question.id]!.push(input.now);
  delete state.clarificationReminders[question.id];
  advanceQuestionRevision(state, question, input.now);
  return "returned";
@@ -3109,6 +3139,18 @@ export class BoardService {
   return this.#liveWatch?.project(board, state) ?? board;
 	}
 
+ /** The current board (including archived rows) and the compact table. Neither read opens a history. */
+ async overviewInputs(now: number) {
+  const [stored, records] = await Promise.all([
+   this.#options.harness.snapshot(BoardDoc, this.#mainId, BACKGROUND_CONTEXT),
+   this.#options.harness.snapshot(OverviewRecordsDoc, this.#mainId, BACKGROUND_CONTEXT),
+  ]);
+  const state = stored ?? emptyBoardState();
+  const board = boardView(state, now, true, owner => this.coordinatorId(owner), true, true);
+  this.#liveWatch?.project(board, state);
+  return { board, state, ...(records ? { records } : {}) };
+ }
+
 	get #mainId(): ConversationId {
 		return this.coordinator.id as ConversationId;
 	}
@@ -3870,7 +3912,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
  }
 
 	/** Push the board without archived tasks whenever the document changes. Resolves to a stop function. */
-	async watch(onChange: (board: Board, openQuestions: number, legacyBoard: Board) => void): Promise<() => Promise<void>> {
+	async watch(onChange: (board: Board, openQuestions: number, legacyBoard: Board) => void, onHiddenChange?: () => void): Promise<() => Promise<void>> {
 		const watch = await this.#options.harness.watchDoc(BoardDoc, this.coordinator.id, BACKGROUND_CONTEXT);
 		if (watch === undefined) return async () => undefined;
 		const stops: (() => Promise<void>)[] = [];
@@ -3887,6 +3929,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
   let legacyCurrent = "";
   let watcherStatus = "";
 		let boardState = watch.value;
+  let previouslyPublishedState: Readonly<BoardState> | null = boardState;
   const publish = (value: BoardState | Readonly<BoardState> | null, liveOnly = false): void => {
 			const state = (value ?? emptyBoardState()) as BoardState;
 			const { board, legacyBoard } = boardViews(state, this.#options.now(), false, owner => this.coordinatorId(owner), this.#options.requestAttention !== false, this.#options.requestDigest !== false);
@@ -3900,7 +3943,8 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
     current = encoded;
     legacyCurrent = legacyEncoded;
     onChange(board, openQuestionCount(state), legacyBoard);
-   }
+   } else if (!liveOnly && value !== previouslyPublishedState) onHiddenChange?.();
+   previouslyPublishedState = value;
    if (liveOnly) return;
    const projectId = this.#options.project().id;
    this.#options.notifications?.resolveAlerts(alert => {

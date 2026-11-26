@@ -790,6 +790,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		mcp,
 		skills,
 		...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+		coordinatorOverview: features.includes("coordinator-overview"),
 		taskFreshness: features.includes("task-freshness"),
   taskActivity: features.includes("task-activity"),
   taskState: features.includes("task-state"),
@@ -830,6 +831,9 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		},
 		onProjectState: (summary) => {
 			for (const connection of connections) connection.notifyProject(summary);
+		},
+		onOverviewBoardChange: (projectId) => {
+			for (const connection of connections) connection.notifyOverview(projectId);
 		},
 		onBoardState: (projectId, board, legacyBoard) => {
 			for (const connection of connections) connection.notifyBoard(projectId, board, legacyBoard);
