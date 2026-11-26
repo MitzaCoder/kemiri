@@ -6,7 +6,7 @@ import { BoardDoc, boardView } from "../src/board.ts";
 import { buildCoordinatorOverview } from "../src/coordinator-overview.ts";
 import { agentTime } from "../src/overview-clock.ts";
 import { replayOverviewEstimates, type OverviewReplayRequest } from "../src/overview-estimate-replay.ts";
-import { OverviewEstimator, type FinishedEstimateSample, type ScoredOverviewEstimate } from "../src/overview-estimates.ts";
+import { overviewCalibrationMiss, OverviewEstimator, type FinishedEstimateSample, type ScoredOverviewEstimate } from "../src/overview-estimates.ts";
 import { OverviewRecordsDoc, rememberOverviewEstimates } from "../src/overview-records.ts";
 import { bakeryCoordinatorOf, bakeryOverviewFixture, withBakeryLiveWork } from "./fixtures/coordinator-overview.ts";
 import { createSetup } from "./support.ts";
@@ -24,22 +24,29 @@ test("time per part uses an eight-request coordinator sample before falling back
  const history = [40, 50, 50, 60, 60, 70, 80, 90].map((minutes, index) => sample(index, "bakery", minutes));
  const asOf = start + 15 * 24 * HOUR;
  const model = new OverviewEstimator(history, [], asOf);
- expect(model.partsLeft("bakery", 2)).toEqual({ baselineMs: HOUR, range: { kind: "range", basis: "coordinator", minutes: 60, low: 45, high: 90 } });
+ expect(model.partsLeft("bakery", 2)).toEqual({ baselineMs: HOUR, range: { kind: "range", basis: "coordinator", minutes: 60, low: 40, high: 90 } });
  expect(model.partsLeft("fresh", 2)).toMatchObject({ range: { basis: "project" } });
  expect(new OverviewEstimator(history.slice(1), [], asOf).partsLeft("bakery", 2)).toEqual({ reason: "not_enough_history" });
  const future = iso(asOf + HOUR);
  expect(new OverviewEstimator([...history.slice(0, -1), { ...history[7]!, doneAt: future }], [], asOf).partsLeft("bakery", 2)).toEqual({ reason: "not_enough_history" });
 });
 
-test("past error ratios scale the median and range, and an unusably wide range is withheld", () => {
+test("earlier ratios calibrate the median and tails, and wide ranges are capped", () => {
  const history = Array.from({ length: 8 }, (_, index) => sample(index, "bakery", 60));
- const scores: ScoredOverviewEstimate[] = history.map(row => ({ coordinatorId: "bakery", doneAt: row.doneAt, actualMs: 90 * MINUTE,
+ const scores: ScoredOverviewEstimate[] = history.map(row => ({ requestId: row.requestId, coordinatorId: "bakery", doneAt: row.doneAt, actualMs: 90 * MINUTE,
   estimate: { at: row.firstWorkAt, baselineMs: HOUR, minutes: 60, low: 45, high: 75 },
  }));
  const asOf = start + 12 * 24 * HOUR;
- expect(new OverviewEstimator(history, scores, asOf).partsLeft("bakery", 2)).toEqual({ baselineMs: HOUR, range: { kind: "range", basis: "coordinator", minutes: 90, low: 90, high: 90 } });
+ expect(new OverviewEstimator(history, scores.map(overviewCalibrationMiss), asOf).partsLeft("bakery", 2)).toEqual({ baselineMs: HOUR, range: { kind: "range", basis: "coordinator", minutes: 90, low: 60, high: 90 } });
  const broad = scores.map((row, index) => ({ ...row, actualMs: index < 4 ? 5 * MINUTE : 5 * HOUR }));
- expect(new OverviewEstimator(history, broad, asOf).partsLeft("bakery", 2)).toEqual({ reason: "wide_range" });
+ const capped = new OverviewEstimator(history, broad.map(overviewCalibrationMiss), asOf).partsLeft("bakery", 2);
+ if ("reason" in capped) throw new Error("Expected a capped range, not a refusal");
+ expect(capped.range.high / capped.range.low).toBeLessThanOrEqual(4);
+ expect(capped.range.minutes).toBeGreaterThanOrEqual(capped.range.low);
+ expect(capped.range.minutes).toBeLessThanOrEqual(capped.range.high);
+ expect(new OverviewEstimator(history, scores.map(overviewCalibrationMiss), asOf).partsLeft("new-coordinator", 2)).toMatchObject({ range: { basis: "project", minutes: 90 } });
+ const futureMisses = scores.map(score => ({ ...overviewCalibrationMiss(score), doneAt: iso(asOf + HOUR) }));
+ expect(new OverviewEstimator(history, futureMisses, asOf).partsLeft("bakery", 2)).toMatchObject({ range: { basis: "coordinator", minutes: 60 } });
  const noParts = history.map(row => ({ ...row, parts: 0 }));
  expect(new OverviewEstimator(noParts, [], asOf).usualDuration("bakery", iso(asOf), 65 * MINUTE)).toMatchObject({ kind: "usual", low: 60, high: 60, longer: true });
 });
@@ -51,7 +58,7 @@ test("replay uses the first issued range without training on the target, and exc
  const lastStart = Date.parse(requests[9]!.sample.firstWorkAt);
  requests[9]!.clock.waits.push([lastStart, lastStart + 20 * MINUTE]);
  const replay = replayOverviewEstimates(requests);
- expect(replay.firstEstimates).toEqual({ scored: 2, held: 1, withinFactorTwo: 2, medianAbsoluteMissMinutes: 10 });
+ expect(replay.firstEstimates).toEqual({ scored: 2, held: 1, withinFactorTwo: 2, medianAbsoluteMissMinutes: 10, medianWidth: 1, maxWidth: 1 });
  expect(replay.stopped).toBe(1);
  expect(agentTime({ work: [[40, 50]], waits: [[10, 60], [20, 70]] }, 0, 100)).toBe(50);
 });
@@ -66,6 +73,7 @@ test("Overview serves range, Stopped, and No estimate without using a finish dat
  expect(estimate.inFlight.some(row => row.left?.kind === "stopped" && row.left.then)).toBe(true);
  expect(estimate.inFlight.some(row => row.left?.kind === "none" && row.left.reason === "not_started")).toBe(true);
  expect(estimate.more.estimates).toEqual({ held: 1, scored: 1 });
+ expect(estimate.more.estimateReplay?.scored).toBeGreaterThan(0);
 });
 
 test("the server persists a first range once when it issues the overview", async () => {

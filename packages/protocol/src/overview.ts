@@ -59,6 +59,7 @@ export const OverviewEventSchema = Type.Object({
  more: Type.Object({
   heldUpTodayMs: milliseconds,
   estimates: Type.Optional(Type.Object({ held: count, scored: count })),
+  estimateReplay: Type.Optional(Type.Object({ held: count, scored: count })),
   statusTimes: Type.Array(Type.Object({ status: BoardTaskStatusSchema, medianMs: milliseconds })),
   runs: Type.Object({ started: count, failed: count, stopped: count, tasksWithMultipleRuns: count, workerMs: milliseconds, medianMs: Type.Optional(milliseconds) }),
   questions: Type.Object({ asked: count, answered: count, answerTime: Type.Optional(durationSample) }),

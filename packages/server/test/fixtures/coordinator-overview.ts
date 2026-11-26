@@ -89,6 +89,7 @@ export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z
   finishRequest("Group the morning pastries", 202, "bakery", 2, 1.5);
   finishRequest("Update the returns page", 218, "bakery", 2, 1.25);
   finishRequest("Add a receipt option for large orders", 235, "bakery", 2, 1.75);
+  finishRequest("Add the large-order collection card", 246, "bakery", 3, 2.25);
   records.tasks[finished.id]!.firstEstimate = { at: at(8), baselineMs: 3 * HOUR, minutes: 180, low: 120, high: 240 };
  }
  return { now, at, state, records, finished, labels, baking, checkout, design, general, waiting };

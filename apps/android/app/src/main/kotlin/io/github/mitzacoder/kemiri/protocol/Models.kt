@@ -3713,6 +3713,7 @@ data class OverviewGetResponseWeekTaskUsage(
 data class OverviewGetResponseMore(
     val `heldUpTodayMs`: Double,
     val `estimates`: OverviewGetResponseMoreEstimates? = null,
+    val `estimateReplay`: OverviewGetResponseMoreEstimates? = null,
     val `statusTimes`: List<OverviewGetResponseMoreStatusTimesItem>,
     val `runs`: OverviewGetResponseMoreRuns,
     val `questions`: OverviewGetResponseMoreQuestions,

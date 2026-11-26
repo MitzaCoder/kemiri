@@ -6721,17 +6721,23 @@ finished multi-part requests. Use the coordinator's own sample if it has eight e
 sample if it has eight. Queueing and other unexplained time stay on this clock. A blocking question, review or
 recorded owner-step interval stops it only when no work is running. Historic steps without dates are not invented.
 A running request with no parts gets a usual-duration comparison instead of a countdown. Not-started requests,
-external waits, ranges wider than tenfold and thin samples do not get a countdown.
+external waits and thin pace samples do not get a countdown.
 
-Until eight past estimates can be scored, the range uses the 10th and 90th percentiles of measured time per part.
-After that, use the median and 10th/90th percentiles of the past actual-to-uncorrected-estimate ratios. The first
-issued range, its baseline and its time are saved once in the compact roll-up. Once the request is done, compare
-that range with the actual agent time remaining to first review, not any later review round. The optional
-`more.estimates` counts those first ranges and their hits. No backfill invents previously issued estimates. Device
-minutes only detect overruns; the estimate changes with board publications, not a timer. The offline replay
-(`bun packages/server/scripts/backtest-coordinator-overview.ts <copied-session.sqlite>`) reads the copy without
-writing, places samples every 20 minutes, and trains only on requests already done at each sample. It uses the
-retained history and current task links, so later reparenting is not reconstructed.
+Calibration replays the first eligible 20-minute sample for each finished multi-part request from the compact facts.
+Each baseline uses only requests already done at that sample. It learns the ratio of actual remaining agent time to
+that uncorrected baseline. A genuinely issued first estimate replaces its request's replay observation once scored.
+Use at least five earlier ratios from the coordinator or fall back to the project. Until then use measured time per
+part. The median ratio corrects the amount. The bounds use empirical 10th and 90th percentiles, with two interior pace
+anchors to steady thin samples. If the tails do not fit within fourfold, keep the band around the median that covers
+the most earlier observations. The fourfold cap applies after rounding, too.
+
+The first issued range, its baseline and its time are saved once. Once the request is done, `more.estimates` compares
+that first range with actual agent time remaining to first review, not a later round. `more.estimateReplay` reports the
+walk-forward first-range score separately. No backfill invents previously issued estimates. Device minutes only detect
+overruns; the estimate changes with board publications, not a timer. The offline replay
+(`bun packages/server/scripts/backtest-coordinator-overview.ts <copied-session.sqlite>`) reads the copy without writing,
+reports first-range and checkpoint coverage and width, and accepts `--uncapped` for an offline comparison. Retained
+history and current task links cannot reconstruct later reparenting.
 
 Decided with the user on 2026-11-04; contract in `packages/protocol/src/board.ts`. Implemented in
 `packages/server/src/board.ts`, with the harness's moves in `workers.ts` and `schedules.ts`.

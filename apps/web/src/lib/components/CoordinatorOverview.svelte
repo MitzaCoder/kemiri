@@ -162,7 +162,12 @@
 			<details class="summary-panel more-panel" open={moreOpen} ontoggle={rememberFold}>
 				<summary><ChevronRightIcon class="fold-chevron size-4" aria-hidden="true" /> More numbers</summary>
 				<dl>
-					{#if snapshot.more.estimates}<div><dt>How the estimates did</dt><dd>The first range held for {snapshot.more.estimates.held} of {plural(snapshot.more.estimates.scored, 'finished request')}.</dd></div>{/if}
+					{#if snapshot.more.estimates || snapshot.more.estimateReplay}
+						<div><dt>How the estimates did</dt>
+							{#if snapshot.more.estimates}<dd>The first range held for {snapshot.more.estimates.held} of {plural(snapshot.more.estimates.scored, 'finished request')}.</dd>{/if}
+							{#if snapshot.more.estimateReplay}<dd>In the historical replay, the first range held for {snapshot.more.estimateReplay.held} of {plural(snapshot.more.estimateReplay.scored, 'request')}.</dd>{/if}
+						</div>
+					{/if}
 					{#if snapshot.more.reviews}<div><dt>Reviews</dt><dd>Three in four ended within {overviewTime(snapshot.more.reviews.p75Ms)} in the last 30 days.</dd></div>{/if}
 					<div><dt>Questions</dt><dd>{snapshot.more.questions.asked} asked and {snapshot.more.questions.answered} answered in the last 30 days.{#if snapshot.more.questions.answerTime} Three in four answers came within {overviewTime(snapshot.more.questions.answerTime.p75Ms)}.{/if}</dd></div>
 					<div><dt>Worker runs</dt><dd>{snapshot.more.runs.started} started, {snapshot.more.runs.failed} failed, and {snapshot.more.runs.stopped} stopped.{#if snapshot.more.runs.medianMs !== undefined} A typical run took {overviewTime(snapshot.more.runs.medianMs)}.{/if}{#if snapshot.more.runs.tasksWithMultipleRuns} {plural(snapshot.more.runs.tasksWithMultipleRuns, 'task')} had more than one run.{/if}</dd></div>

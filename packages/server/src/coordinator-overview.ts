@@ -2,7 +2,8 @@ import type { Board, BoardQuestion, BoardTask, Overview, OverviewTimeLeft, Sched
 import type { BoardState } from "./board.ts";
 import type { OverviewRecords, OverviewRun } from "./overview-records.ts";
 import { agentTime, duration, firstWorkAt, requestWorkClock, statusSpans, time, timeSplit, union } from "./overview-clock.ts";
-import { OverviewEstimator, overviewQuantile as quantile, summarizeOverviewEstimates, type SavedOverviewEstimate, type ScoredOverviewEstimate } from "./overview-estimates.ts";
+import { collectOverviewCalibration, overviewReplayRequest, summarizeOverviewReplay, type OverviewReplayRequest } from "./overview-estimate-replay.ts";
+import { overviewCalibrationMiss, OverviewEstimator, overviewQuantile as quantile, summarizeOverviewEstimates, type SavedOverviewEstimate, type ScoredOverviewEstimate } from "./overview-estimates.ts";
 import { topRequest } from "./request-attention.ts";
 
 export const OVERVIEW_DAY_MS = 86_400_000;
@@ -140,6 +141,7 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
  const weekSplits: { total: number; split: Overview["week"]["split"] }[] = [];
  const completed: Overview["estimateInputs"]["completed"] = [];
  const scoredEstimates: ScoredOverviewEstimate[] = [];
+ const replayRequests: OverviewReplayRequest[] = [];
  let heldUpTodayMs = 0;
  for (const task of requests) {
   const done = task.status === "done" ? time(task.settledAt) : NaN;
@@ -154,16 +156,22 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
   if (ready && ownerClosedRequests.has(task.id)) {
    const readyAt = time(ready.at);
    const agentMs = agentTime(clock, firstWork, readyAt);
-   completed.push({ requestId: task.id, coordinatorId: owner(task), firstWorkAt: iso(firstWork), readyAt: ready.at, doneAt: iso(done),
-    parts: ready.parts ?? directParts(task).filter(part => time(part.createdAt) <= readyAt).length, agentMs });
+   const sample = { requestId: task.id, coordinatorId: owner(task), firstWorkAt: iso(firstWork), readyAt: ready.at, doneAt: iso(done),
+    parts: ready.parts ?? directParts(task).filter(part => time(part.createdAt) <= readyAt).length, agentMs };
+   completed.push(sample);
+   replayRequests.push(overviewReplayRequest(sample, task, families.get(task.id) ?? [], rows, clock));
    const estimate = rows[task.id]?.firstEstimate;
    if (estimate && time(estimate.at) >= firstWork && time(estimate.at) < readyAt) {
-    scoredEstimates.push({ coordinatorId: owner(task), doneAt: iso(done), actualMs: agentTime(clock, time(estimate.at), readyAt), estimate });
+    scoredEstimates.push({ requestId: task.id, coordinatorId: owner(task), doneAt: iso(done), actualMs: agentTime(clock, time(estimate.at), readyAt), estimate });
    }
   }
   if (recentRequestIds.has(task.id)) weekSplits.push({ total: done - firstWork, split: timeSplit(work, waits, firstWork, done) });
  }
- const estimator = new OverviewEstimator(completed, scoredEstimates, now);
+ const replay = collectOverviewCalibration(replayRequests);
+ const recordedRequestIds = new Set(scoredEstimates.map(score => score.requestId));
+ const misses = [...replay.misses.filter(miss => !recordedRequestIds.has(miss.requestId)), ...scoredEstimates.map(overviewCalibrationMiss)];
+ const estimator = new OverviewEstimator(completed, misses, now);
+ const replayScore = summarizeOverviewReplay(replay.first.filter(point => selected(point.coordinatorId)));
  const estimates = summarizeOverviewEstimates(scoredEstimates.filter(score => selected(score.coordinatorId)));
  function timeLeft(task: BoardTask, flight: Overview["inFlight"][number]): OverviewTimeLeft {
   if (task.status === "review") return { kind: "stopped", reason: "review" };
@@ -251,7 +259,7 @@ export function buildCoordinatorOverview({ board, state, records, scope, now, co
    ...(taskUsage ? { taskUsage } : {}), ...(coordinatorUsage ? { coordinatorUsage } : {}),
    ...(requestValues.length ? { usualRequestValue: quantile(requestValues, .5) } : {}),
   },
-  more: { heldUpTodayMs, statusTimes, ...(estimates ? { estimates } : {}),
+  more: { heldUpTodayMs, statusTimes, ...(estimates ? { estimates } : {}), ...(replayScore.scored ? { estimateReplay: { held: replayScore.held, scored: replayScore.scored } } : {}),
    runs: { started: runs.length, failed: runs.filter(run => run.outcome === "failed").length, stopped: runs.filter(run => run.outcome === "stopped").length,
     tasksWithMultipleRuns: runsByTask.filter(taskRuns => taskRuns.length > 1).length, workerMs, ...(lengths.length ? { medianMs: quantile(lengths, .5) } : {}) },
    questions: { asked: scopedQuestions.filter(question => time(question.askedAt) >= startOfMonth && time(question.askedAt) <= now).length, answered: answers.length, ...(answerTime ? { answerTime } : {}) },
