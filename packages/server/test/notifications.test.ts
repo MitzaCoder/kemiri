@@ -986,6 +986,36 @@ describe("events", () => {
 		}
 	}, 20_000);
 
+	it("attaches the first eligible Results proof version to a review and sends no picture URL", async () => {
+		const { test, push } = await setupWithPush();
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await configureCoordinator(client, projectId);
+		await registerDevice(client, push, { preferences: preferences({ kinds: ["task_review"] }) });
+		const { runtime } = await test.server.manager.open(projectId);
+		const task = await runtime.board.saveTask({ task: { title: "Check the proof", description: "", acceptance: null,
+			status: "in_progress", blockedBy: [], blockedReason: null, writeScopes: [] } }, "coordinator");
+		const save = async (name: string, continueArtifactId?: string) => {
+			const sourcePath = `${test.projectDir}/${name}`;
+			await Bun.write(sourcePath, "synthetic artifact contents");
+			return await test.server.artifacts.save({ projectId, taskId: task.id, sourcePath, threadId: "main", workerId: null,
+				...(continueArtifactId ? { continueArtifactId } : {}) });
+		};
+		const log = await save("check.txt");
+		const first = await save("desktop.png");
+		await save("desktop.png", first.id);
+		await save("mobile.png");
+		runtime.board.noticeReview({ before: task, after: { ...task, status: "review", report: { ...task.report, blocks: {
+			results: [{ kind: "proof", artifactRef: { artifactId: log.id }, text: "The trace." },
+				{ kind: "proof", artifactRef: { artifactId: first.id, version: 1 }, text: "The first screenshot." }],
+		} } } });
+		await until(() => push.ofKind("task_review").length === 1);
+		const payload = push.ofKind("task_review")[0]?.payload;
+		expect(payload).toMatchObject({ proofArtifactId: `${first.id}~1`, taskId: task.id });
+		expect(JSON.stringify(payload)).not.toContain("https://");
+	});
+
 	it("a part checked by its coordinator sends no review alert or board wake, while owner closes and reopens still wake", async () => {
 		const { test, push } = await setupWithPush({ boardEditDebounceMs: 60_000 });
 		const client = await connect(test.server); await client.hello();

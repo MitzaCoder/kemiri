@@ -9,7 +9,7 @@ import { readAccountInventory, removeInstallation } from "./installations";
 import { manageRoute } from "./routes";
 import { readSendStatus, sendNotification } from "./send";
 import type { CoreRequest, CoreResponse, Dependencies, RelayResponseBody } from "./ports";
-import { RelayError, requireCondition } from "./validation";
+import { RelayError, parseObject, requireCondition } from "./validation";
 export type { AuthPort, CoreRequest, CoreResponse, Dependencies, FcmMessage, FcmResult } from "./ports";
 /** Build the HTTP-independent router; all state and external effects are supplied through explicit ports. */
 export function createRelay(deps: Dependencies) {
@@ -41,6 +41,11 @@ export function createRelay(deps: Dependencies) {
 				throw new RelayError(400, "invalid_request");
 			}
 			requireCondition(input !== null && typeof input === "object" && !Array.isArray(input));
+			// Static transport metadata: no route, identity, database request, or send reservation.
+			if (path === "capabilities") {
+				parseObject(input, []);
+				return { status: 204, headers: { ...headers, "X-Kemiri-Relay-Quiet-Clears": "1" } };
+			}
 			const deletion = ["delete", "routes/delete", "installations/delete", "accounts/delete"].includes(path);
 			if (!deletion)
 				requestReservation = await reserveRequest(

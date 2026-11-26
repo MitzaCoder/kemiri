@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import io.github.mitzacoder.kemiri.data.DeviceAuth
 import io.github.mitzacoder.kemiri.data.DeviceAuthStore
 import io.github.mitzacoder.kemiri.data.DeviceStore
 import io.github.mitzacoder.kemiri.data.HarnessRepository
@@ -15,7 +16,16 @@ import io.github.mitzacoder.kemiri.features.notifications.PushActionBinding
 
 class HarnessApplication : Application() {
     private val authStore by lazy { DeviceAuthStore(this) }
-    val repository by lazy { HarnessRepository(DeviceStore(this), authStore) }
+    private val authControllers = java.util.concurrent.ConcurrentHashMap<String, DeviceAuth>()
+    private val repositoryDelegate = lazy { HarnessRepository(DeviceStore(this), authStore, ::deviceAuthFor) }
+    val repository by repositoryDelegate
+
+    internal fun deviceAuthFor(origin: String): DeviceAuth = authControllers.computeIfAbsent(origin) {
+        DeviceAuth(it, authStore, beforeSignOut = { if (repositoryDelegate.isInitialized()) repository.notificationCleanup(it) })
+    }
+
+    internal fun notificationClient(backendKey: String) =
+        if (repositoryDelegate.isInitialized()) repository.session(backendKey)?.client else null
     internal val pendingPushActions by lazy { PendingPushActions(this) }
 
     internal suspend fun notificationActionBinding(backendKey: String): PushActionBinding? {

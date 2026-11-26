@@ -31,11 +31,15 @@ export function fakeRelay() {
 	const deleteReplies: FakeRelayReply[] = [];
 	const accepted = new Set<string>();
 	let held: Array<() => void> = [];
+	let quietClears = true;
 	const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(request) {
 		const path = new URL(request.url).pathname;
 		const body = await request.text();
 		requests.push({ path, body, authorization: request.headers.get("authorization"),
 			contentType: request.headers.get("content-type") });
+		if (path === "/v1/capabilities") return quietClears
+			? new Response(null, { status: 204, headers: { "X-Kemiri-Relay-Quiet-Clears": "1" } })
+			: Response.json({ error: "not_found" }, { status: 404 });
 		const reply = (path === "/v1/delete" ? deleteReplies : replies).shift() ??
 			(path === "/v1/delete" ? { status: 204 } : { status: 200, state: "accepted" });
 		if (reply.timeout) await new Promise<void>((resolve) => held.push(resolve));
@@ -50,7 +54,7 @@ export function fakeRelay() {
 				...(reply.redirect ? { Location: reply.redirect } : {}) } });
 	} });
 	authCleanup(async () => { for (const release of held) release(); held = []; await server.stop(true); });
-	return { endpoint: `http://127.0.0.1:${server.port}/v1/`, requests, replies, deleteReplies, accepted,
+	return { advertiseQuietClears(supported: boolean) { quietClears = supported; }, endpoint: `http://127.0.0.1:${server.port}/v1/`, requests, replies, deleteReplies, accepted,
 		sends: () => requests.filter((r) => r.path === "/v1/send"),
 		deletes: () => requests.filter((r) => r.path === "/v1/delete") };
 }

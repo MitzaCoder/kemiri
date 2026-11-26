@@ -61,7 +61,7 @@ internal fun AppPresence.handlesPush(payload: NotificationPayload): Boolean {
 }
 
 private fun NotificationPayload.routingIdentity() = copy(title = hiddenNotificationTitle(this), body = "", message = null,
-    projectName = null, computerName = null, coordinatorName = null, taskTitle = null, question = question?.copy(choices = null))
+    projectName = null, computerName = null, coordinatorName = null, taskTitle = null, proofArtifactId = null, question = question?.copy(choices = null))
 
 internal fun notificationOpenIntent(context: Context, identity: String, payload: NotificationPayload) =
     Intent(context, MainActivity::class.java)
@@ -97,9 +97,13 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload,
     val center = app?.notificationsIfStarted
     val silent = restoringTag != null || center?.silentPush(payload) == true
     val stored = DeviceStore(context).load()
-    val backendName = resolveBackend(payload.backendKey, stored.backends)?.name ?: payload.computerName
+    val backend = resolveBackend(payload.backendKey, stored.backends)
+    val backendName = backend?.name ?: payload.computerName
     val projectName = payload.projectName ?: center?.notificationProjectName(payload) ?: legacyNotificationProjectName(payload)
-    val showDetails = stored.inAppAlerts.showMessageText
+    val showPicture = stored.inAppAlerts.showMessageText && payload.kind == "task_review" && payload.proofArtifactId != null &&
+        !pushWasResolved(context, payload, System.currentTimeMillis()) && center?.presence?.value?.handlesPush(payload) != true
+    val picture = if (showPicture && app != null && backend != null && backend.key == payload.backendKey) ReviewPictures.load(app, backend, payload) else null
+    val showDetails = stored.inAppAlerts.showMessageText && (picture == null || DeviceStore(context).load().inAppAlerts.showMessageText)
     val now = Instant.now()
     val time = (notificationTime(payload.at) ?: now).toEpochMilli()
     val timeout = pushTimeout(payload, now)
@@ -134,7 +138,8 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload,
                 if (timeout != null) setTimeoutAfter(timeout)
                 if (conversation != null) showConversation(context, conversation, payload, text, time, previous)
                 else {
-                    setStyle(NotificationCompat.BigTextStyle().bigText(text.body))
+                    if (showDetails && picture != null) setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).setSummaryText(text.body))
+                    else setStyle(NotificationCompat.BigTextStyle().bigText(text.body))
                     if (showDetails) notificationBadge(context, payload.kind, projectName, payload.projectId)?.let { setLargeIcon(it) }
                 }
                 extras.putString(EXTRA_PUSH_IDENTITY, wireJson.encodeToString(NotificationPayload.serializer(), route.routingIdentity()))

@@ -117,16 +117,22 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
 }
 
 /** Application-scoped. Settings mutations are durable before the UI/list of sockets changes. */
-class HarnessRepository(private val store: DeviceStore, private val authStore: DeviceAuthStorage? = null) : Closeable {
+class HarnessRepository(private val store: DeviceStore, private val authStore: DeviceAuthStorage? = null,
+    private val sharedDeviceAuth: ((String) -> DeviceAuth)? = null,
+) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
     private val http = OkHttpClient.Builder().pingInterval(30, java.util.concurrent.TimeUnit.SECONDS).build()
     /** Notification cleanup is durable locally; the callback must never wait for remote deletion. */
     var notificationCleanup: suspend (String) -> Unit = {}
     private val authControllers = java.util.concurrent.ConcurrentHashMap<String, DeviceAuth>()
-    fun deviceAuth(origin: String): DeviceAuth = authControllers.computeIfAbsent(normalizeBackendOrigin(origin)) {
-        DeviceAuth(it, requireNotNull(authStore) { "Secure authentication storage unavailable" }, DeviceAuthHttp(http),
-            beforeSignOut = { notificationCleanup(it) })
+    fun deviceAuth(origin: String): DeviceAuth {
+        val normalized = normalizeBackendOrigin(origin)
+        sharedDeviceAuth?.let { return it(normalized) }
+        return authControllers.computeIfAbsent(normalized) {
+            DeviceAuth(it, requireNotNull(authStore) { "Secure authentication storage unavailable" }, DeviceAuthHttp(http),
+                beforeSignOut = { notificationCleanup(it) })
+        }
     }
     private fun client(config: BackendConfig) = HarnessClient(config, http, deviceAuth = authStore?.let { deviceAuth(config.url) })
     suspend fun pairBackend(link: DevicePairingLink, name: String, code: String, waiting: (String) -> Unit) {

@@ -53,6 +53,13 @@ test("serialized data cap and HTTP body cap rejected before FCM; exact single ai
 	expect(fixture.captures[0].priority).toBe("high");
 	expect(fixture.captures[0].ttlMs).toBe(12 * 60 * 60000);
 });
+test("capabilities are static, available without credentials, and reject nonempty bodies", async () => {
+	const result = await call("capabilities", {}, "");
+	expect(result.status).toBe(204);
+	expect(result.headers["X-Kemiri-Relay-Quiet-Clears"]).toBe("1");
+	expect(fixture.captures).toHaveLength(0);
+	expect((await call("capabilities", { token: "unused" })).status).toBe(400);
+});
 test("a quiet send keeps the ciphertext opaque, expires quickly and cannot be upgraded on retry", async () => {
 	const phone = await enroll();
 	const credentials = await route(phone.installationId);

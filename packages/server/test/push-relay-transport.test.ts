@@ -67,6 +67,37 @@ test("quiet relay clear follows an accepted retry and bypasses notice mutes", as
 		resolved: [{ tag: original.tag, at: original.at, key: original.key }] });
 });
 
+test("old relays skip quiet clears and a mixed-version refusal never pauses ordinary delivery", async () => {
+	const f = await relaySetup();
+	f.relay.advertiseQuietClears(false);
+	const phone = await simulatedPhone();
+	phone.registration.preferences.quietResolutions = true;
+	await phone.activate(f.client);
+	const notifier = f.setup.server.notifications;
+	const reply = (entryId: number) => ({ ...event, tag: "chat:desk", entryId, key: `reply:${entryId}`, projectId: "desk", coordinatorId: "main" });
+	await notifier.deliver(reply(1));
+	notifier.readChat("desk", "main", 1);
+	await f.tick(1000);
+	expect(f.relay.sends()).toHaveLength(1);
+	const probes = () => f.relay.requests.filter(request => request.path === "/v1/capabilities");
+	expect(probes()).toMatchObject([{ authorization: null, body: "{}" }]);
+	expect((await notifier.deliver(reply(2))).deliveries).toMatchObject([{ ok: true }]);
+	notifier.readChat("desk", "main", 2);
+	await f.tick(1000);
+	expect(probes()).toHaveLength(1);
+	f.relay.advertiseQuietClears(true);
+	await f.tick(60_000);
+	await notifier.deliver(reply(3));
+	notifier.readChat("desk", "main", 3);
+	f.relay.replies.push({ status: 404, code: "not_found" });
+	await f.tick(1000);
+	expect(probes()).toHaveLength(2);
+	expect(JSON.parse(f.relay.sends().at(-1)!.body)).toMatchObject({ priority: "normal" });
+	expect(notifier.relay!.store.snapshot().routes[0]!.state).toBe("active");
+	expect(notifier.relay!.status(f.credentials.sessionId).lastDelivery).toBe("accepted");
+	expect((await notifier.deliver(reply(4))).deliveries).toMatchObject([{ ok: true }]);
+});
+
 test("pending exact envelope survives restart and accepted events never replay", async () => {
 	const f = await relaySetup();
 	const phone = await simulatedPhone();

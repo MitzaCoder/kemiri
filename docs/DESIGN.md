@@ -7812,7 +7812,10 @@ Safe status distinguishes local revoke with cleanup pending from completed clean
 be recalled. A quiet clear is a separate encrypted message. Its optional `priority: "normal"` hint keeps the same
 admission, budget, and retry rules, but the relay passes it to FCM at normal priority with a five-minute TTL.
 Only ciphertext is sent in FCM data. The relay does not read the kind or clear targets. Omitting the hint preserves
-the old high-priority send and receipt digest. The relay operator must redeploy the HTTPS function before using this hint.
+the old high-priority send and receipt digest. A backend first checks the relay's static `/v1/capabilities` response
+for `X-Kemiri-Relay-Quiet-Clears: 1`, without route credentials. The positive or negative answer is cached for a
+minute. Unavailable or older relays get only the existing sends. A quiet refusal during a rollout neither overwrites
+normal delivery status nor pauses the route; the HTTPS function and backend can be deployed in either order.
 
 ### Encrypted relay v1 library (T92)
 
@@ -8206,7 +8209,14 @@ before 2,048-byte plaintext padding. The encrypted FCM data, including its JSON 
 Replies and ordinary questions use Android MessagingStyle. A long-lived dynamic shortcut and a locally drawn chat mark
 identify each computer, project and coordinator chat, independently of its labels. A reply update adds to the history
 of the active reply card; a revised question replaces its wording. The types keep their separate attention channels.
-Other cards use BigText, kind badges and a silent summary scoped to the computer and project. The lock screen follows
+Other cards use BigText, kind badges and a silent summary scoped to the computer and project. On a review, the server
+adds only the first eligible Results proof's versioned artifact ID, falling back to the first eligible task attachment.
+Android requests a signed artifact URL on that paired backend's socket (with a short-lived socket when the app is
+closed), and reads only that exact same-origin artifact with redirects off. There is no image or URL in the push.
+A 1.8-second attempt, 2 MiB transfer limit and downsample to at most 640 pixels keep the preview optional and small.
+Decoded copies are cached only in RAM, scoped by backend, paired session, project and artifact version. An expanded
+card with a picture uses BigPicture; unavailable proofs or hidden message text keep the text-only card. The redacted
+lock-screen version is always text-only. The lock screen follows
 Android's privacy setting: the public version is a fixed kind label, with no message, names, or badge. Turning off Show
 message text clears detailed cards and their chat shortcuts and redacts any pending action. A question uses the full
 conversation title as its sender so Android can omit the redundant name next to the collapsed text.

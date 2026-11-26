@@ -30,6 +30,18 @@ class NotificationsTest {
     private val twin = BackendConfig("Harness PC", "https://pc2.example")
     private val backends = listOf(pc, vm, twin)
 
+    @Test fun reviewPicturesOnlyFetchTheirBoundArtifactAndDecodeSmall() {
+        val origin = "https://pc.example:7443"
+        val path = "/artifacts/project/shot~2?token=signed"
+        assertTrue(isReviewPictureUrl(origin, "$origin$path", "project", "shot~2"))
+        assertFalse(isReviewPictureUrl(origin, "https://vm.example:7443$path", "project", "shot~2"))
+        assertFalse(isReviewPictureUrl(origin, "$origin$path", "project", "shot~1"))
+        assertFalse(isReviewPictureUrl(origin, "$origin/artifacts/project/shot~2", "project", "shot~2"))
+        assertEquals(4, reviewPictureSample(2560, 1440))
+        assertEquals(1, reviewPictureSample(640, 380))
+        assertNull(reviewPictureSample(8193, 400))
+    }
+
     @Test fun clearMatchesOnlyTheExactCardOrVerifiedSharedWindow() {
         val payload = parseNotificationPayload("""{"kind":"resolved","title":"","body":"","tag":"resolved","at":"2026-01-01T00:00:01Z","backendKey":"desk","projectId":null,"workerId":null,"scheduleId":null,"resolved":[{"tag":"question","at":"2026-01-01T00:00:00Z","key":"old"}]}""")!!
         val target = validResolvedTargets(payload)!!.single()

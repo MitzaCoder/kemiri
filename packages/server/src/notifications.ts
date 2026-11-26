@@ -740,6 +740,7 @@ export type NotificationEvent = {
 	/** Full source for the plain-text preview, before enforcing the push budget. */
 	message?: string;
 	taskTitle?: string;
+	proofArtifactId?: string;
 	expiresAt?: string;
 	sharedLimitKey?: string;
 	/** Task attachments not used for tap routing in the legacy payload. */
@@ -849,7 +850,7 @@ export function notificationPayload(
 		at,
 		...(projectName ? { projectName } : {}), ...(computer ? { computerName: computer } : {}),
 		...(coordinatorName ? { coordinatorName } : {}), ...(message && message !== event.body ? { message } : {}),
-		...(taskTitle ? { taskTitle } : {}), ...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
+		...(taskTitle ? { taskTitle } : {}), ...(event.proofArtifactId ? { proofArtifactId: event.proofArtifactId } : {}), ...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
 		...(event.key && Buffer.byteLength(JSON.stringify(event.key)) <= 160 ? { key: event.key } : {}),
 		...(event.kind === "test" ? {} : { level: notificationAlertLevel(event.kind, event.question?.warning) }),
 		...(question ? { question } : {}), ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
@@ -1317,11 +1318,13 @@ export function taskReviewNotification(input: {
 	threadId?: string;
 	coordinatorId?: string;
 	coordinatorTitle?: string;
+	proofArtifactId?: string;
 }): NotificationEvent {
 	return {
 		kind: "task_review",
 		projectName: input.projectName,
 		taskTitle: input.title,
+		...(input.proofArtifactId ? { proofArtifactId: input.proofArtifactId } : {}),
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `Ready for review · ${input.projectName}`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: notificationLine(`${input.taskId} ${input.title}`),

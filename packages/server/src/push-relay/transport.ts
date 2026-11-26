@@ -30,6 +30,7 @@ export type PushRelayOptions = {
 	requestTimeoutMs?: number;
 };
 type HttpResult = { status: number | null; code: string; state: string; retryAfter: number };
+const RELAY_CAPABILITY_CACHE_MS = 60_000;
 const terminalRouteCodes = new Set(["route_expired", "route_inactive", "token_invalid", "account_disabled",
 	"account_deleted", "not_found"]);
 const safeCodes = new Set(["accepted", "retrying", "rate_limited", "relay_unavailable", "route_expired",
@@ -50,6 +51,8 @@ export class PushRelayTransport {
 		async () => false;
 	#cancel: (() => void) | undefined;
 	#stopped = false;
+	#quietCapability: { until: number; supported: boolean } | undefined;
+	#quietCapabilityProbe: Promise<boolean> | undefined;
 	readonly #sending = new Set<string>();
 	readonly #deleting = new Set<string>();
 	readonly #locallyRevoked = new Set<string>();
@@ -205,11 +208,12 @@ export class PushRelayTransport {
 			if (current.state === "paused") return outcome(current.device.lastDelivery?.message ?? "rejected");
 			const now = this.#now();
 			const quiet = payload.kind === "resolved";
+			if (quiet && !await this.#supportsQuietClears()) return outcome("quiet_unsupported");
 			const expiresAt = Math.min(Date.parse(at) + (quiet ? RESOLVED_PUSH_TTL_MS : 43_200_000), event.expiresAt ? Date.parse(event.expiresAt) : Infinity, current.registration.leaseExpiresAt,
 				current.registration.absoluteExpiresAt);
 			if (expiresAt <= now) return outcome("route_expired");
 			if (this.store.snapshot().sends.filter((s) => s.routeId === current.context.routeId).length >= 100) {
-				await this.#record(current.context.routeId, "queue_full", null);
+				if (!quiet) await this.#record(current.context.routeId, "queue_full", null);
 				return outcome("queue_full");
 			}
 			const { route, sequence } = await this.store.allocate(current.context.routeId);
@@ -236,6 +240,24 @@ export class PushRelayTransport {
 		} finally {
 			this.#arm();
 		}
+	}
+
+	/** Do not let an old, rolling-back or unreachable relay affect ordinary delivery. */
+	#supportsQuietClears(): Promise<boolean> {
+		if (this.#quietCapability && this.#quietCapability.until > this.#now()) return Promise.resolve(this.#quietCapability.supported);
+		return this.#quietCapabilityProbe ??= (async () => {
+			let supported = false;
+			try {
+				const response = await (this.#options.fetch ?? fetch)(`${this.#options.endpoint}capabilities`, {
+					method: "POST", redirect: "error", signal: AbortSignal.timeout(Math.min(this.#options.requestTimeoutMs ?? 2000, 2000)),
+					headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store" }, body: "{}",
+				});
+				supported = response.status === 204 && response.headers.get("X-Kemiri-Relay-Quiet-Clears") === "1";
+				void response.body?.cancel().catch(() => undefined);
+			} catch { /* Only a positive capability answer enables a quiet send. */ }
+			this.#quietCapability = { supported, until: this.#now() + RELAY_CAPABILITY_CACHE_MS };
+			return supported;
+		})().finally(() => { this.#quietCapabilityProbe = undefined; });
 	}
 
 	async #http(path: string, bearer: string, body: string): Promise<HttpResult> {
@@ -288,7 +310,7 @@ export class PushRelayTransport {
 		this.#sending.add(entry.messageId);
 		try {
 			const allowed = !this.#locallyRevoked.has(entry.routeId) && this.#options.sessionActive(route.context.sessionId) &&
-				(entry.quiet ? route.device.preferences.quietResolutions === true : await this.#allowed(route.device, entry.event));
+				(entry.quiet ? route.device.preferences.quietResolutions === true && await this.#supportsQuietClears() : await this.#allowed(route.device, entry.event));
 			// Re-read after async policy: unregister/rotation/mute can have committed while archive state was read.
 			const latest = this.store.snapshot();
 			const active = latest.routes.find((r) => r.context.routeId === entry.routeId);
@@ -301,7 +323,7 @@ export class PushRelayTransport {
 				await this.store.transaction((draft) => {
 					draft.sends = draft.sends.filter((s) => s.messageId !== entry.messageId);
 					const current = draft.routes.find((r) => r.context.routeId === entry.routeId);
-					if (current && entry.expiresAt <= this.#now()) current.device.lastDelivery = {
+					if (current && !entry.quiet && entry.expiresAt <= this.#now()) current.device.lastDelivery = {
 						at: new Date(this.#now()).toISOString(), ok: false, status: null, message: "message_expired",
 					};
 				});
@@ -321,13 +343,13 @@ export class PushRelayTransport {
 				const stored = draft.sends.find((s) => s.messageId === entry.messageId);
 				const current = draft.routes.find((r) => r.context.routeId === entry.routeId);
 				if (!current || !stored) return;
-				current.device.lastDelivery = { at: new Date(this.#now()).toISOString(), ok: accepted,
+				if (!entry.quiet) current.device.lastDelivery = { at: new Date(this.#now()).toISOString(), ok: accepted,
 					status: result.status, message };
 				if (transient) {
 					stored.dueAt = this.#now() + this.#delay(stored.attempts++, result.retryAfter);
 				} else {
 					draft.sends = draft.sends.filter((s) => s.messageId !== entry.messageId);
-					if (terminalRouteCodes.has(message)) {
+					if (!entry.quiet && terminalRouteCodes.has(message)) {
 						// Keep the selection/status, but stop new sends until the phone explicitly repairs the route.
 						current.state = "paused";
 						draft.sends = draft.sends.filter((s) => s.routeId !== entry.routeId);

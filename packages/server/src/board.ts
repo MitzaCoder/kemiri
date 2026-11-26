@@ -3690,13 +3690,35 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 		}).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
 	}
 
+	/** Ordered Results proofs take precedence over the first suitable image in the task's attachment list. */
+	async #reviewProofArtifactId(task: BoardTask): Promise<string | undefined> {
+		const scope = this.reportArtifactScope;
+		if (!scope) return undefined;
+		const pictureId = (artifact: Awaited<ReturnType<typeof scope.store.get>>) => {
+			if (!artifact || artifact.kind !== "image" || !["image/png", "image/jpeg", "image/webp"].includes(artifact.mimeType) ||
+				artifact.size > 2 * 1024 * 1024 || (artifact.taskId !== task.id && !artifact.laterTaskIds?.includes(task.id))) return undefined;
+			return artifact.id.includes("~") ? artifact.id : `${artifact.id}~${artifact.version ?? 1}`;
+		};
+		try {
+			for (const block of task.report.blocks?.results ?? []) if (block.kind === "proof") {
+				const { artifactId, version } = block.artifactRef;
+				const id = pictureId(await scope.store.get(scope.projectId, version === undefined ? artifactId : `${artifactId}~${version}`));
+				if (id) return id;
+			}
+			for (const artifact of await scope.store.list(scope.projectId, { taskId: task.id, catalogue: true })) {
+				const id = pictureId(artifact);
+				if (id) return id;
+			}
+		} catch { /* The review notice should still go out without optional evidence. */ }
+	}
+
 	/** Tell the user's devices once that someone but the user moved a task to review. */
 	noticeReview(change: TaskChange): void {
 		if (change.after.parent != null || change.after.status !== "review" || change.before?.status === "review") return;
 		const project = this.#options.project();
 		if (!this.#options.notifications) return;
 		const coordinatorId = this.coordinatorId(change.after.ownerThreadId);
-		void Promise.resolve(this.#options.threadTitle?.(coordinatorId)).then(title => this.#options.notifications?.notify(
+		void Promise.all([this.#options.threadTitle?.(coordinatorId), this.#reviewProofArtifactId(change.after)]).then(([title, proofArtifactId]) => this.#options.notifications?.notify(
 			taskReviewNotification({
 				projectId: project.id,
 				projectName: project.name,
@@ -3704,6 +3726,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 				taskId: change.after.id,
 				title: change.after.title,
 				revision: change.after.revision,
+				...(proofArtifactId ? { proofArtifactId } : {}),
 				...(change.after.ownerThreadId === null || change.after.ownerThreadId === undefined ? {} : { threadId: change.after.ownerThreadId }),
 			}),
 		)).catch(error => this.#options.log(`board notification: ${errorMessage(error)}`));
@@ -4115,7 +4138,7 @@ async requestMcpApproval(input: { text: string; options: string[]; threadId: str
 			const { task, note } = returned;
 			const project = this.#options.project();
 			if (task.parent == null && task.status === "review") await this.#options.notifications?.deliver({
-				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
+				...taskReviewNotification({ projectId: project.id, projectName: project.name, taskId: task.id, title: task.title, revision: task.revision, proofArtifactId: await this.#reviewProofArtifactId(task), ...(task.ownerThreadId == null ? {} : { threadId: task.ownerThreadId }) }),
 				body: `${task.id} is back for review: waiting for ${note}`,
 			});
 			const target = await this.#deliveryThread(task.ownerThreadId);

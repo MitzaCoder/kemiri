@@ -278,6 +278,7 @@ export const NotificationPayloadSchema = Type.Object({
 	coordinatorName: Type.Optional(Type.String()),
 	message: Type.Optional(Type.String({ description: "Long plain-text preview. Older clients use body." })),
 	taskTitle: Type.Optional(Type.String()),
+	proofArtifactId: Type.Optional(Type.String({ maxLength: 128, description: "Versioned proof image ID for a review, not a URL." })),
 	taskRevision: Type.Optional(Type.Integer({ minimum: 1 })),
 	key: Type.Optional(Type.String({ description: "This event, rather than the tag it replaces." })),
 	level: Type.Optional(Type.Union([Type.Literal("urgent"), Type.Literal("important"), Type.Literal("info"), Type.Literal("inbox")])),
