@@ -60,6 +60,7 @@
 	import TaskSheet from '#lib/components/TaskSheet.svelte';
 	import RefCardHost from '#lib/components/RefCardHost.svelte';
 	import TasksPanel from '#lib/components/TasksPanel.svelte';
+	import type { ProjectOverview } from '#lib/coordinator-overview.svelte.js';
 	import TasksView from '#lib/components/TasksView.svelte';
 	import { provideTaskFilter, tasksView } from '#lib/tasks-view.svelte.js';
 	import ConversationSidebar from '#lib/components/ConversationSidebar.svelte';
@@ -139,7 +140,7 @@
 		backend,
 		projectId,
 		threadId: threadParam, shown, projectReads, prefetchCoordinator, answers
-	}: { backend: BackendConnection; projectId: string; threadId?: string; shown: boolean; projectReads: { board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }; prefetchCoordinator: (id: string) => void; answers?: ProjectAnswers } = $props();
+	}: { backend: BackendConnection; projectId: string; threadId?: string; shown: boolean; projectReads: { board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages; overview?: ProjectOverview }; prefetchCoordinator: (id: string) => void; answers?: ProjectAnswers } = $props();
 
 	/** The background job this chat is; undefined for main ("main" in the route reads as main too). */
 	const threadId = $derived(isMainThread(threadParam) ? undefined : threadParam);
@@ -249,6 +250,8 @@
 	const supportsBoard = $derived(backend.supports('board'));
 	// With task reports the Board tab is the Tasks view, and `?task=<id>` opens a task's sheet over the chat.
 	const supportsTasks = $derived(supportsBoard && backend.supports('task-reports'));
+	const supportsOverview = $derived(supportsTasks && backend.features?.includes('coordinator-overview') === true);
+	const overviewSelected = $derived(supportsOverview && tasksView.mode === 'overview');
 	const boardTabName = $derived(supportsTasks ? 'Tasks' : 'Board');
 	/** Task links in the chat, and the composer's task reference, need the board and the server's task reports. */
 	const supportsTaskReports = $derived(backend.supports('task-reports'));
@@ -312,7 +315,44 @@
 		if (scope === 'all') hiddenCoordinators = new Set();
 		saveCoordinatorPreference(scopeKey, scope);
 	}
-	function showAllTasks() { setTaskScope('all'); openBoard(); }
+	function showAllTasks() { setTaskScope('all'); openBoard(); if (overviewSelected) sidebarExpanded = true; }
+	const overviewScope = $derived(taskScope === 'all' && roster.length > 1 ? null : coordinatorId);
+	const overview = $derived(projectReads.overview);
+	let rosterOpen = $state(false);
+	$effect(() => {
+		const reader = overview;
+		if (!shown || !supportsOverview || !reader) return;
+		if (sidebarOpen && sidebarTab === 'board' && overviewSelected) {
+			const scope = overviewScope;
+			return untrack(() => reader.follow(scope));
+		}
+		if (rosterOpen) return untrack(() => reader.follow(null));
+	});
+	const enterOverview = $derived(shown && supportsOverview && page.url.searchParams.has('overview'));
+	$effect(() => {
+		if (enterOverview) untrack(openThisOverview);
+	});
+	function openThisOverview() {
+		setTaskScope('coordinator');
+		tasksView.set('overview');
+		sidebarTab = 'board';
+		sidebarOpen = true;
+		sidebarExpanded = true;
+		peerPanel = false;
+	}
+	const overviewHref = (id: string) => `${coordinatorHref(backend.id, projectId, id)}?overview`;
+	function onOverviewCoordinator(id: string, event: MouseEvent) {
+		if (id === coordinatorId && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+			event.preventDefault();
+			openThisOverview();
+		}
+	}
+	function overviewQuestionHref(id: string) {
+		const query = new URLSearchParams(page.url.search);
+		query.delete('task');
+		query.set('question', id);
+		return `${page.url.pathname}?${query}`;
+	}
 	function seen(id: string): string | null {
 		return projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${id}`));
 	}
@@ -775,7 +815,7 @@
 		if (sidebarOpen && sidebarTab === target) return;
 		if (target !== 'answers' && answerId) returnToAnswersList();
 		// Keep an expanded panel expanded when switching tabs. Tasks also expand for Board and Graph.
-		sidebarExpanded = (sidebarOpen && sidebarExpanded) || (target === 'board' && supportsTasks && tasksView.mode !== 'list');
+		sidebarExpanded = (sidebarOpen && sidebarExpanded) || (target === 'board' && supportsTasks && tasksView.mode !== 'list' && (tasksView.mode !== 'overview' || supportsOverview));
 		sidebarTab = target;
 		sidebarOpen = true;
 	}
@@ -826,7 +866,7 @@
 		taskFilter.focusOn(taskId);
 		sidebarTab = 'board';
 		sidebarOpen = true;
-		sidebarExpanded = supportsTasks && tasksView.mode !== 'list';
+		sidebarExpanded = supportsTasks && tasksView.mode !== 'list' && (tasksView.mode !== 'overview' || supportsOverview);
 	}
 
 	/** A reason for a move on a backend whose saves carry no note: it goes to main as a message about the task. */
@@ -1077,7 +1117,7 @@
 						</Button>
 					{/if}
 					{#if supportsThreads}
-						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} {seen} archivedCoordinator={archivedCoordinator ? thread : undefined}
+						<ConversationSwitcher {shown} roster={supportsCoordinators ? roster : undefined} overviewRows={supportsOverview ? overview?.read(null)?.coordinators : undefined} onrosteropen={open => rosterOpen = open} {seen} archivedCoordinator={archivedCoordinator ? thread : undefined}
 							onprefetch={prefetchCoordinator} onedit={coordinator => manager = coordinator} onnew={openCoordinatorCreation} onalltasks={showAllTasks} onmanage={() => manager = 'manage'} projectName={project?.name ?? 'Project'} backendId={backend.id} {projectId} {threadId} threads={threadList} questions={board?.board?.questions ?? []} {now} counts={jobCounts} onshowall={() => selectSidebar('background')} />
 					{:else}
 						<h1 class="min-w-0 flex-1 truncate px-1.5 text-[0.9375rem] font-semibold">{isThread ? thread?.title || threadId : project?.name ?? 'Project'}</h1>
@@ -1333,6 +1373,7 @@
 
 			{#if supportsSidebar}
 				<ConversationSidebar
+					{shown}
 					bind:open={() => sidebarOpen, setSidebarOpen}
 					preferredTab={answerId ? 'answers' : undefined}
 					panelTabs={sidebarPanelTabs}
@@ -1349,25 +1390,25 @@
 							<div class="shrink-0 space-y-2 border-b border-(--chat-border) px-3 py-2">
 								<div class="flex gap-1 rounded-lg bg-(--chat-surface-2) p-1" role="group" aria-label="Task scope">
 									{#each [{ id: 'coordinator', label: 'This coordinator' }, { id: 'all', label: 'All coordinators' }] as option (option.id)}
-										<button class="flex-1 rounded-md px-2 py-1.5 text-xs font-semibold {taskScope === option.id ? 'bg-(--chat-bg) shadow-sm' : 'text-(--chat-fg-muted)'}" aria-pressed={taskScope === option.id} onclick={() => setTaskScope(option.id === 'all' ? 'all' : 'coordinator')}>{option.label}</button>
+										<button class="flex-1 rounded-md px-2 py-1.5 text-xs font-semibold {taskScope === option.id ? 'bg-(--chat-bg) shadow-sm' : 'text-(--chat-fg-muted)'}" aria-pressed={taskScope === option.id} onclick={() => setTaskScope(option.id === 'all' ? 'all' : 'coordinator')}>{overviewSelected && option.id === 'coordinator' ? viewingCoordinator?.title ?? option.label : option.label}</button>
 									{/each}
 								</div>
-								{#if taskScope === 'all'}<div class="flex flex-wrap gap-1" role="group" aria-label="Filter by coordinator">
+								{#if taskScope === 'all' && !overviewSelected}<div class="flex flex-wrap gap-1" role="group" aria-label="Filter by coordinator">
 									{#each roster as row (row.id)}<button aria-pressed={!hiddenCoordinators.has(row.id)} class="flex items-center gap-1 rounded-lg border border-(--chat-border) px-1.5 py-0.5 text-xs aria-pressed:bg-(--chat-surface-2) aria-pressed:text-(--chat-fg) text-(--chat-fg-subtle)" onclick={() => { const next = new Set(hiddenCoordinators); if (!next.delete(row.id)) next.add(row.id); hiddenCoordinators = next; }}><CoordinatorMark thread={row} />{row.title}</button>{/each}
 								</div>{/if}
 							</div>
 						{/if}
-						{#if taskScope === 'all' && landingTurn}
+						{#if taskScope === 'all' && !overviewSelected && landingTurn}
 							<div class="shrink-0 border-b border-(--chat-border) px-3 py-2 @min-[54rem]/peer-panel:hidden"><LandingTurn turn={landingTurn} /></div>
 						{/if}
-						{#if taskScope === 'all' && supportsPeerMessages}
+						{#if taskScope === 'all' && !overviewSelected && supportsPeerMessages}
 							<div class="flex shrink-0 gap-2 border-b border-(--chat-border) px-3 py-2 text-xs @min-[54rem]/peer-panel:hidden" role="group" aria-label="All coordinators view">
 								<button class="rounded-md px-2 py-1 aria-pressed:bg-(--chat-surface-2) aria-pressed:font-semibold" aria-pressed={!peerPanel} onclick={() => peerPanel = false}>Tasks</button>
 								<button class="rounded-md px-2 py-1 aria-pressed:bg-(--chat-surface-2) aria-pressed:font-semibold" aria-pressed={peerPanel} onclick={() => peerPanel = true}>Between coordinators</button>
 							</div>
 						{/if}
 						<div class="flex min-h-0 flex-1">
-						<div class="min-w-0 flex-1 flex-col {taskScope === 'all' && supportsPeerMessages && peerPanel ? 'hidden @min-[54rem]/peer-panel:flex' : 'flex'}">
+						<div class="min-w-0 flex-1 flex-col {taskScope === 'all' && !overviewSelected && supportsPeerMessages && peerPanel ? 'hidden @min-[54rem]/peer-panel:flex' : 'flex'}">
 						{#if supportsTasks && fullWidth}
 							<TasksView
 								{board}
@@ -1380,6 +1421,13 @@
 								threads={threadList}
 								workerHref={(worker) => workerLink(worker)}
 								taskHref={taskLink}
+								{supportsOverview}
+								overview={overview?.read(overviewScope)}
+								overviewError={overview?.error}
+								{roster}
+								questionHref={overviewQuestionHref}
+								coordinatorHref={overviewHref}
+								oncoordinator={onOverviewCoordinator}
 								canNote={backend.supports('board-moves')}
 								onsendreason={backend.supports('conversation') ? sendTaskReason : undefined}
 							/>
@@ -1389,7 +1437,7 @@
 							<BoardPanel {board} workers={workerList} threads={threadList} hrefOf={(worker) => workerLink(worker)} />
 						{/if}
 						</div>
-						{#if taskScope === 'all' && (peerLog || landingTurn)}
+						{#if taskScope === 'all' && !overviewSelected && (peerLog || landingTurn)}
 							<aside class="min-w-0 flex-1 overflow-y-auto @min-[54rem]/peer-panel:block @min-[54rem]/peer-panel:w-72 @min-[54rem]/peer-panel:flex-none @min-[54rem]/peer-panel:border-l @min-[54rem]/peer-panel:border-(--chat-border) {peerPanel && peerLog ? 'block' : 'hidden'}">
 								{#if landingTurn}<div class="hidden border-b border-(--chat-border) p-3 @min-[54rem]/peer-panel:block"><LandingTurn turn={landingTurn} /></div>{/if}
 								{@render peerFeed()}

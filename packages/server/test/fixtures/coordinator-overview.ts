@@ -3,7 +3,7 @@ import { askQuestion, emptyBoardState, saveTask, settleQuestion, type BoardState
 import { recordOverviewStatus, type OverviewRecords } from "../../src/overview-records.ts";
 
 const HOUR = 3_600_000;
-export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z")) {
+export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z"), forDemo = false) {
  const state = emptyBoardState();
  state.taskStateEnabled = true;
  const records: OverviewRecords = { backfilled: true, tasks: {} };
@@ -50,15 +50,50 @@ export function bakeryOverviewFixture(now = Date.parse("2026-05-14T12:00:00.000Z
  move(general, "in_progress", 4, "coordinator");
  move(general, "review", 1, "coordinator");
  const waiting = askQuestion(state, { text: "Confirm the Saturday opening time.", taskId: general.id, options: [], now: at(1), threadId: "main", blocksWork: false });
+ if (forDemo) {
+  const completedDesign = add("Write the gift card terms", 4.5, "bakery", { parent: baking.id });
+  move(completedDesign, "done", 2.5, "coordinator");
+  const allergen = add("Show allergens on product pages", 7, "bakery");
+  move(allergen, "in_progress", 6, "coordinator");
+  const allergenText = add("Write the allergen labels", 6, "bakery", { parent: allergen.id });
+  add("Review the ingredient list", 6, "bakery", { parent: allergen.id });
+  askQuestion(state, { text: "Show ‘may contain’ as well as ‘contains’?", taskId: allergenText.id, options: ["Show both", "Show ‘contains’ only"], now: at(3.2), threadId: "bakery" });
+  const search = add("Speed up product search", 6, "bakery");
+  move(search, "in_progress", 5, "coordinator");
+  run(search, "product-search", 5, 4);
+  move(search, "review", .4, "coordinator");
+  add("Order tracking page", 4, "bakery");
+  add("Publish the holiday banner", 2, null);
+  const finishRequest = (title: string, hoursAgo: number, ownerThreadId: string | null, parts: number) => {
+   const request = add(title, hoursAgo + 5, ownerThreadId);
+   move(request, "in_progress", hoursAgo + 4, "coordinator");
+   for (let index = 0; index < parts; index++) {
+    const part = add(`${["Draft", "Check", "Publish"][index]}: ${title}`, hoursAgo + 3.5, ownerThreadId, { parent: request.id });
+    move(part, "in_progress", hoursAgo + 3, "coordinator");
+    run(part, `part-${index}`, hoursAgo + 3, hoursAgo + 1.5);
+    move(part, "done", hoursAgo + 1.5, "coordinator");
+   }
+   move(request, "review", hoursAgo + 1, "coordinator");
+   move(request, "done", hoursAgo, "user");
+  };
+  finishRequest("Add rye and oat bread to the catalogue", 26, "bakery", 2);
+  finishRequest("Publish the pickup instructions", 27, "bakery", 1);
+  finishRequest("Point the receipt to the order page", 51, "bakery", 1);
+  finishRequest("Show sold-out items next to substitutes", 74, "bakery", 3);
+  finishRequest("Add a note for flour substitutions", 77, "bakery", 0);
+  finishRequest("Add opening hours to the footer", 98, null, 1);
+  finishRequest("Group recipes by bread type", 125, "bakery", 2);
+  finishRequest("Publish the winter hours notice", 130, null, 1);
+ }
  return { now, at, state, records, finished, labels, baking, checkout, design, general, waiting };
 }
 
 export function bakeryCoordinatorOf(owner?: string | null) { return owner === "bakery" ? owner : "main"; }
-export function withBakeryLiveWork(board: BoardState, taskId: string, at: string) {
+export function withBakeryLiveWork(board: BoardState, taskId: string, at: string, conversationId = 10) {
  board.taskActivityEnabled = true;
  board.taskLiveEnabled = true;
  board.taskActivity = { [taskId]: { sources: { "gift-card": {
-  actor: { id: "gift-card", kind: "worker", name: "gift-card", threadId: "bakery", conversationId: 10, runId: "1" },
+  actor: { id: "gift-card", kind: "worker", name: "gift-card", threadId: "bakery", conversationId, runId: "1" },
   state: "running", since: at, title: "Design the gift card",
   livePlan: [{ text: "Draw gift card", status: "done", doneAt: at }, { text: "Review gift card", status: "doing" }, { text: "Save gift card", status: "todo" }],
  } } } };

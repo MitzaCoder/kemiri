@@ -4,6 +4,7 @@
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import { ProjectRefStatus } from '#lib/ref-links.svelte.js';
+	import { ProjectOverview } from '#lib/coordinator-overview.svelte.js';
 	import { ProjectThreadMessages } from '#lib/thread-messages.svelte.js';
 	import { SERVER_STATUS_REFRESH_MS } from '#lib/server-status.js';
 	import { taskRefs } from '#lib/tasks.js';
@@ -16,7 +17,7 @@
 	const shownId = $derived(threadId || 'main');
 	const limit = 4;
 	let recents = $state.raw<readonly string[]>([]);
-	const projectReads = $state<{ board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages }>({});
+	const projectReads = $state<{ board?: ProjectBoard; threads?: ProjectThreads; memory?: ProjectMemory; schedules?: ProjectSchedules; refStatus?: ProjectRefStatus; peerLog?: ProjectThreadMessages; overview?: ProjectOverview }>({});
 	let answers = $state<ProjectAnswers>();
 	$effect(() => {
 		if (!answersSupported(backend.features)) { answers = undefined; return; }
@@ -57,6 +58,7 @@
 	projectRead('memory', 'memory', () => backend.watchMemory(projectId, { maintenance: backend.supports('memory-maintenance') }));
 	projectRead('schedules', 'schedules', () => backend.watchSchedules(projectId));
 	projectRead('refStatus', 'ref-status', () => new ProjectRefStatus(backend.client, projectId));
+	projectRead('overview', 'coordinator-overview', () => new ProjectOverview(backend.client, projectId));
 	projectRead('peerLog', 'coordinator-messages', () => new ProjectThreadMessages(backend.client, projectId));
 	$effect(() => projectReads.refStatus?.want((projectReads.board?.tasks ?? []).flatMap(task => taskRefs(task))));
 

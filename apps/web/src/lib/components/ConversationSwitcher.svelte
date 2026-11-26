@@ -13,13 +13,16 @@
 	import CoordinatorBadges from './CoordinatorBadges.svelte';
 	import { coordinatorBadges, coordinatorHref, coordinatorStatus } from '#lib/coordinators.js';
 	import { threadActivityLine } from '#lib/threads.js';
-	import type { BoardQuestion, ThreadSummary } from '@kemiri/protocol';
-	let { shown = true, projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage, onedit, onprefetch, archivedCoordinator }: {
+	import { overviewRosterLine } from '#lib/coordinator-overview.js';
+	import type { BoardQuestion, Overview, ThreadSummary } from '@kemiri/protocol';
+	let { shown = true, projectName, backendId, projectId, threadId, threads, questions, now, counts, onshowall, roster, seen, onnew, onalltasks, onmanage, onedit, onprefetch, archivedCoordinator, overviewRows, onrosteropen }: {
 		shown?: boolean; projectName: string; backendId: string; projectId: string; threadId?: string;
 		threads: readonly ThreadSummary[]; questions: readonly BoardQuestion[]; now: number;
 		counts: { needsYou: number; working: number }; onshowall: () => void;
 		roster?: readonly ThreadSummary[]; seen?: (id: string) => string | null;
 		archivedCoordinator?: ThreadSummary;
+		overviewRows?: Overview['coordinators'];
+		onrosteropen?: (open: boolean) => void;
 		onedit?: (coordinator: ThreadSummary) => void; onprefetch?: (id: string) => void;
 		onnew?: () => void; onalltasks?: () => void; onmanage?: () => void;
 	} = $props();
@@ -28,6 +31,7 @@
 	let open = $state(false);
 	let expanded = $state(false);
 	$effect(() => { if (!shown) open = false; });
+	$effect(() => onrosteropen?.(shown && open && !!roster));
 	let trigger = $state<HTMLButtonElement | null>(null);
 	const choices = $derived(conversationChoices(roster ? threads.filter(row => row.kind !== 'coordinator') : threads, backendId, projectId, threadId, now));
 	const thread = $derived(archivedCoordinator ?? threads.find(thread => thread.id === (threadId ?? (roster ? 'main' : undefined))));
@@ -92,11 +96,13 @@
 			{#each archivedCoordinator ? [...roster, archivedCoordinator] : roster as coordinator (coordinator.id)}
 				{@const here = coordinator.id === (threadId ?? 'main')}
 				{@const areaId = `${switcherId}-area-${coordinator.id}`}
+				{@const facts = overviewRosterLine(overviewRows?.find(row => row.coordinatorId === coordinator.id)?.counts)}
 				<div class="coordinator-choice" class:current-coordinator={here}>
 					<a role="menuitem" href={coordinatorHref(backendId, projectId, coordinator.id)} onclick={event => choose(event, here)}
 						onpointerenter={event => { if (event.pointerType === 'mouse' && !here) onprefetch?.(coordinator.id); }}
 						aria-current={here ? 'page' : undefined} aria-describedby={areaId} class="conversation-choice">
 						<span class="flex items-center gap-2"><CoordinatorMark thread={coordinator} /><strong class="min-w-0 flex-1 wrap-anywhere">{coordinator.title}</strong><span class="shrink-0 text-xs text-(--chat-fg-muted)">{coordinator.archived ? 'Archived' : coordinatorBadges(coordinator).state}</span><CoordinatorBadges thread={coordinator} seen={seen?.(coordinator.id)} /></span>
+						{#if facts}<span class="pl-8 text-xs text-(--chat-fg-muted)" data-overview-facts>{facts}</span>{/if}
 						{#if coordinatorStatus(coordinator)}<span class="truncate pl-8 text-xs text-(--chat-fg-subtle)">{coordinatorStatus(coordinator)}</span>{/if}
 					</a>
 					<div class="flex items-start gap-2 px-3 pb-2 pl-11 text-xs text-(--chat-fg-muted)">

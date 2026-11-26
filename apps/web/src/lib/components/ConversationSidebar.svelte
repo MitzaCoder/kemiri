@@ -33,6 +33,7 @@
 	 */
 	let {
 		open = $bindable(false),
+		shown = true,
 		tab = $bindable<SidebarTab>('info'),
 		expanded = $bindable(false),
 		tabs,
@@ -49,6 +50,8 @@
 		memoryPanel
 	}: {
 		open?: boolean;
+		/** A hidden warm conversation keeps its sidebar state but cannot show a portalled phone sheet. */
+		shown?: boolean;
 		tab?: SidebarTab;
 		expanded?: boolean;
 		/** The tabs this backend offers; the caller renders no sidebar when it is empty. */
@@ -270,7 +273,7 @@
 			{@render panel(false)}
 		</aside>
 	{/if}
-{:else}
+{:else if shown}
 	<Dialog.Root bind:open>
 		<Dialog.Content
 			showCloseButton={false}

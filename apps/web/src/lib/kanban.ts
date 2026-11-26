@@ -307,7 +307,7 @@ export function reasonMessage(reason: string): string {
 // --- the remembered view -----------------------------------------------------------------------------------------
 
 /** How the full-width Tasks view shows the tasks; the narrow sidebar always shows the list. */
-export type TasksViewMode = "list" | "board" | "graph";
+export type TasksViewMode = "list" | "board" | "graph" | "overview";
 
 /** Per device, like the sidebar. */
 export const TASKS_VIEW_STORAGE_KEY = "aiki.tasks-view.v1";
@@ -315,7 +315,7 @@ export const TASKS_VIEW_STORAGE_KEY = "aiki.tasks-view.v1";
 export function loadTasksViewMode(storage: Pick<Storage, "getItem"> | undefined = browserStorage(), scope?: string): TasksViewMode {
 	try {
 		const mode = storage?.getItem(scope ? `tasks.view.v2:${encodeURIComponent(scope)}` : TASKS_VIEW_STORAGE_KEY);
-		return mode === "board" || mode === "graph" ? mode : "list";
+		return mode === "board" || mode === "graph" || mode === "overview" ? mode : "list";
 	} catch {
 		return "list";
 	}

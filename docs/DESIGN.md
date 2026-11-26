@@ -4858,8 +4858,9 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
 
 - **Where.** The sidebar's Tasks tab at its usual width keeps the list. Expanded (its expand control), or as the
   full-screen sheet on a narrow window, it is the full-width Tasks view with a List | Board | Graph switch, remembered
-  locally per backend/project (`tasks.view.v2:`, list by default). The Tasks button in the header opens this project's
-  last choice: the list beside the chat, or the board/graph full width. The chat stays the home screen.
+  locally per backend/project (`tasks.view.v2:`, list by default). Backends advertising `coordinator-overview` add
+  Overview to this switch. The header reopens the last choice: the list beside the chat, or the other views full
+  width. The chat stays the home screen.
 - **Columns by state (T210).** With `task-state`: Needs you, In progress, Waiting, To do, Closed, using the same
   grouping and kind/age sorting as the list. Without it (or without state fields), the previous To do, Working,
   Blocked, Ready for review, Waiting, Done columns remain. Closed holds done and dropped tasks (dropped
@@ -4894,6 +4895,22 @@ Decided with the user on 2026-11-06. Web only; protocol addition: the optional `
   the user just dropped.
 - **Phones.** Below 640px of board width one column shows at a time, with the column names as tabs and a swipe
   (scroll snap) between them; no dragging, the menu moves cards.
+
+### Coordinator overview on web (T513)
+
+Overview follows Tasks' existing coordinator scope. A coordinator view leads with one sentence, then Waiting on you,
+In flight and Last 7 days. Waiting rows sort by age and link to the question, review or Steps on the task. In flight
+uses the board's task titles, state sentences and parts bars, and adds the current worker plan step when available.
+Failures and pauses come first. The week uses the server's UTC day buckets and measured time split. More numbers is
+closed until opened, with the fold remembered on the device. There is no time-left number yet.
+
+All coordinators shows each coordinator's open, waiting and finished counts, a project total and project-level
+weekly figures. A coordinator row opens its scoped Overview. The conversation roster adds one short facts line per
+coordinator. The project's mounted chats share one reader: the visible Overview follows its current scope; the roster
+follows the project roll-up when open. On reconnect it re-reads the active scope without clearing the last snapshot.
+Ages use the existing device minute clock. A hidden warm chat preserves its sidebar state but cannot keep a phone
+sheet over the active chat. Older backends get the List fallback without losing the saved Overview
+choice. For browser proof the bakery seed can serve a local web build and also accepts `--without-overview`.
 
 ### Collapsible task families (T74 / D44)
 

@@ -1,4 +1,4 @@
-import type { AppSettings, ProjectApp } from "@kemiri/protocol";
+import type { AppSettings, Overview, ProjectApp } from "@kemiri/protocol";
 import { applyBoardDelta } from "./board-delta.ts";
 import type { TaskWatcherSettings } from "@kemiri/protocol";
 import type { CoordinatorCompaction, UsageDrainMode, UserSettings, UserSettingsGetResponse, UserSettingsSetResponse } from "@kemiri/protocol";
@@ -358,6 +358,7 @@ export class HarnessClient {
 	readonly #serverStatusListeners = new Set<(status: ServerStatus) => void>();
 	readonly #memoryListeners = new Set<(event: MemoryChangedEvent) => void>();
 	readonly #scheduleListeners = new Set<(state: SchedulesSnapshot & { projectId: string }) => void>();
+	readonly #overviewListeners = new Set<(overview: Overview) => void>();
 	readonly #boardListeners = new Set<(state: BoardUpdate) => void>();
 	readonly #boardStreams = new Map<string, { board: Board; sequence: number }>();
 	readonly #boardRecoveries = new Map<string, Promise<ServerMessage>>();
@@ -511,6 +512,11 @@ export class HarnessClient {
 	onBoardState(listener: (state: BoardUpdate) => void): () => void {
 		this.#boardListeners.add(listener);
 		return () => this.#boardListeners.delete(listener);
+	}
+
+	onOverview(listener: (overview: Overview) => void): () => void {
+		this.#overviewListeners.add(listener);
+		return () => this.#overviewListeners.delete(listener);
 	}
 
 	onThreadMessage(listener: (event: ThreadsMessageEvent) => void): () => void {
@@ -2097,6 +2103,12 @@ export class HarnessClient {
 					} catch {
 						// A consumer's listener must not break message handling.
 					}
+				}
+				return;
+			}
+			case "overview": {
+				for (const listener of this.#overviewListeners) {
+					try { listener(message); } catch { /* Isolate consumers. */ }
 				}
 				return;
 			}
