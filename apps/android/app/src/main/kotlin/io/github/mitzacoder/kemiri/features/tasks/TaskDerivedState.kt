@@ -12,6 +12,7 @@ fun derivedTaskSection(task: BoardTask, waiting: Int = 0): TaskSectionId = when 
     "needs_you" -> TaskSectionId.NeedsYou
     "in_progress" -> TaskSectionId.Working
     "waiting" -> TaskSectionId.Waiting
+    "later" -> TaskSectionId.Later
     "todo" -> TaskSectionId.Todo
     "closed" -> TaskSectionId.Closed
     else -> taskSectionOf(task.status, waiting)
@@ -22,7 +23,7 @@ fun taskStateLabel(task: BoardTask, title: (String) -> String? = { null }): Stri
 
 internal const val QUESTION_BEING_CHECKED = "Question being checked"
 
-internal fun taskStateLabel(status: String, state: BoardTaskState?, waitingNote: String? = null, title: (String) -> String? = { null }): String = when (state?.kind) {
+internal fun taskStateLabel(status: String, state: BoardTaskState?, waitingNote: String? = null, title: (String) -> String? = { null }): String = if (state?.group == "later") "Later" else when (state?.kind) {
     "failed" -> "Failed"
     "answer_needed" -> "Answer needed"
     "steps_needed" -> "Your steps"
@@ -43,7 +44,7 @@ internal fun taskStateLabel(status: String, state: BoardTaskState?, waitingNote:
 /** The primary state already describes work when it is Working. */
 internal fun BoardTaskState?.additionalRunningWork() = this?.runningWork?.takeIf { kind != "working" }
 
-fun taskStateTone(task: BoardTask): TaskStatusTone = taskKindTone(task.state?.kind, taskStatusTone(task.status))
+fun taskStateTone(task: BoardTask): TaskStatusTone = if (task.state?.group == "later") TaskStatusTone.Waiting else taskKindTone(task.state?.kind, taskStatusTone(task.status))
 
 internal fun taskKindTone(kind: String?, fallback: TaskStatusTone = TaskStatusTone.Todo): TaskStatusTone = when (kind) {
     "failed" -> TaskStatusTone.Blocked

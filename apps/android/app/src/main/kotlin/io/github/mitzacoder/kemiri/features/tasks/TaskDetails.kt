@@ -20,13 +20,14 @@ internal data class TaskNeedsYou(
 }
 
 internal fun taskNeedsYou(task: BoardTask, questions: List<BoardQuestion>, hasBlockers: Boolean, stepsSupported: Boolean, attentionQuestionId: String? = null, failed: Boolean = false, steps: ReportSectionContent? = null): TaskNeedsYou {
-    val (warnings, ordinary) = questions.filter { it.status == "open" && it.taskId == task.id }.partition(::isWarning)
+    val (warnings, ordinary) = questions.filter { it.status == "open" && it.postponed != true && it.taskId == task.id }.partition(::isWarning)
     val (ownerQuestions, questionsForAgent) = (warnings + ordinary).partition { it.waitingOn != "agent" }
     val working = task.state?.liveWorkSince != null
-    val stepsEnabled = !working && stepsSupported && !isSettled(task.status)
+    val later = task.later != null || task.state?.group == "later"
+    val stepsEnabled = !later && !working && stepsSupported && !isSettled(task.status)
     val showSteps = stepsEnabled && (steps ?: readReportSection(task.report, ReportSectionKind.Steps)).hasContent
-    return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, !working && task.status == "review",
-        task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed, working)
+    return TaskNeedsYou(ownerQuestions.sortedBy { it.id != attentionQuestionId }, questionsForAgent, !later && !working && task.status == "review",
+        task.state?.group != "later" && task.status == "blocked" && (!task.blockedReason.isNullOrBlank() || hasBlockers), showSteps, failed, working)
 }
 
 internal fun taskDetailState(status: String, needsYou: TaskNeedsYou, kind: String? = null): String = when {

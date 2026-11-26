@@ -54,10 +54,10 @@ class NotificationsTest {
         assertTrue(matchesResolvedTarget("desk", target.copy(sharedLimitKey = "window"), card.copy(backendKey = "another", sharedLimitKey = "window")))
     }
 
-    @Test fun kindsAreTheProtocolsWithTheWebsWords() {
-        assertEquals(20, NOTIFICATION_KINDS.size)
+    @Test fun kindsIncludeTheQuietAndroidLaterReturn() {
+        assertEquals(21, NOTIFICATION_KINDS.size)
         assertEquals("reply", NOTIFICATION_KINDS.first())
-        assertEquals("task_steps", NOTIFICATION_KINDS.last())
+        assertEquals("later_back", NOTIFICATION_KINDS.last())
         assertEquals("Tasks ready for review", kindInfo("task_review")?.label)
         assertEquals("Background work finished", kindInfo("thread_finished")?.label)
         assertEquals(setOf("worker_failed", "schedule_problem", "deploy_problem", "compaction_failed", "maintenance_failed", "thread_failed", "coordinator_failed", "disk_low"),
@@ -68,8 +68,9 @@ class NotificationsTest {
         assertTrue("usage_limit_reached" in DEFAULT_NOTIFICATION_KINDS)
         assertTrue("usage_drain_warning" in DEFAULT_NOTIFICATION_KINDS)
         assertTrue("usage_drain_paused" in DEFAULT_NOTIFICATION_KINDS)
-        assertEquals(16, DEFAULT_NOTIFICATION_KINDS.size)
-        assertEquals("16 of 20 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
+        assertTrue("later_back" in DEFAULT_NOTIFICATION_KINDS)
+        assertEquals(17, DEFAULT_NOTIFICATION_KINDS.size)
+        assertEquals("17 of 21 events", kindsSummary(DEFAULT_NOTIFICATION_KINDS))
         assertEquals(listOf("reply", "worker_report"), withKind(listOf("worker_report"), "reply", true))
     }
 

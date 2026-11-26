@@ -28,6 +28,7 @@ val NOTIFICATION_KIND_INFO: List<NotificationKindInfo> = listOf(
     NotificationKindInfo("disk_low", "Low disk space", "A computer's disk is running low.", true),
     NotificationKindInfo("task_review", "Tasks ready for review", "A task is ready for you to look at; opens the task.", false),
     NotificationKindInfo("task_steps", "Tasks with steps for me", "A task has manual steps for you to do; opens the task.", false),
+    NotificationKindInfo("later_back", "Back from Later", "One quiet update when postponed items return.", false),
 )
 
 val NOTIFICATION_KINDS: List<String> = NOTIFICATION_KIND_INFO.map { it.kind }
@@ -41,7 +42,7 @@ internal enum class NotificationAttention(val channelId: String, val label: Stri
     Replies("attention-replies", "Replies", setOf("reply")),
     FinishedWork("attention-finished", "Finished work", setOf("work_finished", "thread_finished")),
     SubscriptionLimits("attention-limits", "Subscription limits", setOf("usage_limit_reached", "usage_drain_warning", "usage_drain_paused")),
-    QuietUpdates("attention-quiet", "Quiet updates", setOf("schedule_done", "worker_report", "maintenance_failed")),
+    QuietUpdates("attention-quiet", "Quiet updates", setOf("schedule_done", "worker_report", "maintenance_failed", "later_back")),
 }
 
 internal fun notificationAttention(kind: String): NotificationAttention =
@@ -61,6 +62,7 @@ private val DEFAULT_KINDS_BY_VERSION: List<List<String>> = listOf(
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "usage_limit_reached", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
     listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "usage_limit_reached", "usage_drain_warning", "usage_drain_paused", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps"),
+    listOf("reply", "worker_failed", "schedule_problem", "deploy_problem", "login_prompt", "usage_limit_reached", "usage_drain_warning", "usage_drain_paused", "board_question", "thread_finished", "thread_failed", "coordinator_failed", "work_finished", "disk_low", "task_review", "task_steps", "later_back"),
 )
 
 /** The defaults version this build writes. */
@@ -98,13 +100,14 @@ fun kindsSummary(kinds: List<String>): String = when (kinds.size) {
 internal val NOTIFICATION_ALERT_GROUPS = linkedMapOf(
     "Subscription" to listOf("usage_limit_reached", "usage_drain_warning", "usage_drain_paused"),
     "Needs you" to listOf("login_prompt", "board_question", "task_review", "task_steps"),
+    "Quiet updates" to listOf("later_back"),
     "Work finished" to listOf("reply", "worker_report", "work_finished", "thread_finished", "schedule_done"),
     "Problems" to listOf("worker_failed", "schedule_problem", "deploy_problem", "thread_failed", "coordinator_failed", "disk_low", "compaction_failed", "maintenance_failed"),
 )
 
 internal enum class NotificationPreset(val label: String, val kinds: List<String>?) {
     Important("Important", DEFAULT_NOTIFICATION_KINDS),
-    Needed("Only when I'm needed", NOTIFICATION_KINDS.filter { it in NOTIFICATION_ALERT_GROUPS.getValue("Needs you") || isNotificationFailure(it) }),
+    Needed("Only when I'm needed", NOTIFICATION_KINDS.filter { it in NOTIFICATION_ALERT_GROUPS.getValue("Needs you") || it == "later_back" || isNotificationFailure(it) }),
     Everything("Everything", NOTIFICATION_KINDS),
     Custom("Custom", null),
 }

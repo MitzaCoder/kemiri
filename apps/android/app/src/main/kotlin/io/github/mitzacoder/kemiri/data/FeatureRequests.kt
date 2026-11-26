@@ -9,6 +9,7 @@ import io.github.mitzacoder.kemiri.protocol.*
  */
 object HarnessFeature {
     const val COORDINATOR_OVERVIEW = "coordinator-overview"
+    const val ATTENTION_LATER = "attention-later"
     const val REQUEST_ATTENTION = "request-attention"
     const val REQUEST_DIGEST = "request-digest"
     const val APPS = "apps"

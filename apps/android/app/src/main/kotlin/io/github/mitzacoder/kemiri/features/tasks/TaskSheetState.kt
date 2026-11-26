@@ -188,7 +188,7 @@ internal fun rememberTaskSheetState(
     val blockers = blockersOf(task, view.relatedTasks).filterNot { it.settled }
     val report = rememberParsedTaskReport(task.report)
     val needsYou = taskNeedsYou(task, view.questions, blockers.isNotEmpty(), connection.supports(HarnessFeature.TASK_STEPS),
-        attentionQuestionId = context.attentionQuestionId, failed = attentionSupported && task.state?.kind == "failed" && task.state.fromPartId == null, steps = report.steps)
+        attentionQuestionId = context.attentionQuestionId, failed = attentionSupported && task.state?.group == "needs_you" && task.state.kind == "failed" && task.state.fromPartId == null, steps = report.steps)
         .let { if (actions.canClose) it else it.copy(review = false) }
     val delivery = timeline?.delivery?.takeIf { deliveryEnabled && it.commits.isNotEmpty() }
     val taskQuestions = view.questions.filter { it.taskId == task.id }

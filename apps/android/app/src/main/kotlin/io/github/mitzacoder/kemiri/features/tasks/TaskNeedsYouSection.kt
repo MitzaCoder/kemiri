@@ -6,6 +6,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -23,7 +26,16 @@ internal fun TaskNeedsYouSection(context: ProjectScreenContext, task: BoardTask,
         border = BorderStroke(1.dp, colors.accent2.mix(colors.border, 36f)),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TaskHeading("Needs you")
+            val laterActions = LocalLaterActions.current
+            val laterTarget by remember(context.board, task) { context.board.select { it.laterTarget(task) } }
+                .collectAsStateWithLifecycle(initialValue = null)
+            val target = laterTarget
+            if (laterActions == null || target == null) TaskHeading("Needs you") else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    TaskHeading("Needs you")
+                    TextButton(onClick = { laterActions.open(target) }) { Text("Later") }
+                }
+            }
             if (needsYou.failed) Text(task.state?.sentence?.text ?: "Failed", style = TaskType.xs, color = colors.danger)
             needsYou.ownerQuestions.forEachIndexed { index, question -> key(question.id) {
                 if (index > 0) HorizontalDivider(color = colors.borderStrong)

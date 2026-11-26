@@ -61,7 +61,7 @@ internal data class InAppAlert(val backendKey: String, val alert: NotificationAl
     val urgent get() = alert.level == "urgent"
     val important get() = alert.level == "important"
     val sticky get() = urgent || alert.warning == true
-    val inboxOnly get() = alert.level == "inbox" || alert.kind in setOf("compaction_failed", "maintenance_failed")
+    val inboxOnly get() = alert.level == "inbox" || alert.kind in setOf("compaction_failed", "maintenance_failed", "later_back")
 
     private val coordinatorId get() = alert.coordinatorId ?: alert.threadId ?: MAIN_THREAD_ID
 

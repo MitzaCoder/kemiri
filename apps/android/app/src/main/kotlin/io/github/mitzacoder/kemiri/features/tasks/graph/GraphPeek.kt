@@ -11,7 +11,7 @@ internal fun graphPeekParts(task: BoardTask, tasks: List<BoardTask>, questions: 
     val listed = direct.filter { part ->
         part.state?.let { it.kind in listOf("working", "clarifying") || it.group == "needs_you" }
             ?: (part.status in listOf("in_progress", "review", "blocked") ||
-                (!graphClosed(part.status) && questions.any { it.taskId == part.id && it.status == "open" }))
+                (!graphClosed(part.status) && questions.any { it.taskId == part.id && it.status == "open" && it.postponed != true }))
     }.sortedBy { it.order }
     val done = task.subtaskCount?.done ?: task.subtaskStates?.count { it == "done" }?.toLong()
         ?: direct.count { (it.state?.kind ?: it.status) == "done" }.toLong()

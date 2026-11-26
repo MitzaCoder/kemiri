@@ -33,7 +33,7 @@ data class BoardView(
         live + archived.filterNot { it.id in ids }
     }
     val questions: List<BoardQuestion> get() = board?.questions.orEmpty()
-    val openQuestionCount: Int get() = questions.count { it.status == "open" && it.waitingOn != "agent" }
+    val openQuestionCount: Int get() = questions.count { it.status == "open" && it.waitingOn != "agent" && it.postponed != true }
     private val tasksById by lazy { tasks.associateBy { it.id } }
     fun task(id: String): BoardTask? = tasksById[id]
     fun question(id: String): BoardQuestion? = questions.firstOrNull { it.id == id }

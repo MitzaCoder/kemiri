@@ -6,6 +6,7 @@ import io.github.mitzacoder.kemiri.features.coordinators.otherLandingTurnWaiters
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -54,11 +55,24 @@ fun QuestionCard(
     preview: Boolean = false,
     optionsOnly: Boolean = false,
     plain: Boolean = false,
+    showLaterControls: Boolean = true,
+) {
+    val content: @Composable () -> Unit = {
+        QuestionCardContent(context, question, modifier, askedBy, taskLabel, onOpenTask, compact, readOnly, preview, optionsOnly, plain, showLaterControls)
+    }
+    if (LocalLaterActions.current == null) LaterActionHost(context, Modifier.fillMaxWidth(), content) else content()
+}
+
+@Composable
+private fun QuestionCardContent(
+    context: ProjectScreenContext, question: BoardQuestion, modifier: Modifier, askedBy: String?, taskLabel: String?, onOpenTask: (() -> Unit)?,
+    compact: Boolean, readOnly: Boolean, preview: Boolean, optionsOnly: Boolean, plain: Boolean, showLaterControls: Boolean,
 ) {
     val colors = Jarvis.colors
     val warning = isWarning(question)
     val waitingForAgent = question.status == "open" && question.waitingOn == "agent"
-    val tone = if (waitingForAgent) colors.fgSubtle else if (warning) colors.warning else colors.accent2
+    val postponed = question.postponed == true
+    val tone = if (postponed || waitingForAgent) colors.fgSubtle else if (warning) colors.warning else colors.accent2
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val answers = questionAnswers(question, connection.supports(HarnessFeature.TASK_FIELDS))
     val canClarify = questionCanClarify(question, connection.supports("question-clarify"), readOnly)
@@ -70,6 +84,12 @@ fun QuestionCard(
     val scope = rememberCoroutineScope()
     val latest by rememberUpdatedState(question)
     val notifications = LocalNotificationCenter.current
+    val laterActions = LocalLaterActions.current
+    val target by remember(context.board, question) { context.board.select { it.laterTarget(question) } }
+        .collectAsStateWithLifecycle(initialValue = null)
+    val onLater: (() -> Unit)? = if (showLaterControls && !readOnly && !preview && target != null && laterActions != null) {
+        { target?.let(laterActions::open) }
+    } else null
     if (readingExpanded) LaunchedEffect(notifications, key) {
         notifications?.questionOpened(context.backend.config.key, context.route.projectId, question.id)
     }
@@ -114,8 +134,9 @@ fun QuestionCard(
         }
     }
     val onAskBack: ((String) -> Unit)? = if (canClarify) ::askBack else null
-    Column(
-        modifier.fillMaxWidth().then(if (plain) Modifier else Modifier
+    LaterSwipe(onLater.takeUnless { postponed }) { Column(
+        modifier.fillMaxWidth().then(if (onLater != null && !postponed) Modifier.combinedClickable(onClick = { readingExpanded = true },
+            onLongClickLabel = "Later", onLongClick = onLater) else Modifier).then(if (plain) Modifier else Modifier
             .background(tone.copy(alpha = if (warning) .10f else .08f), RoundedCornerShape(16.dp))
             .border(1.dp, tone.copy(alpha = if (warning) .50f else .40f), RoundedCornerShape(16.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp))
@@ -123,13 +144,13 @@ fun QuestionCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-            LucideGlyph(if (warning) TaskIcons.TriangleAlert else TaskIcons.CircleHelp, Modifier.padding(top = 2.dp), size = 16.dp, tint = tone)
+            LucideGlyph(if (postponed) Lucide.Clock else if (warning) TaskIcons.TriangleAlert else TaskIcons.CircleHelp, Modifier.padding(top = 2.dp), size = 16.dp, tint = tone)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     askedBy?.let { AskedBy(it) }
                     Text(buildAnnotatedString {
                         if (warning) {
-                            withStyle(SpanStyle(color = colors.warning, fontWeight = FontWeight.SemiBold)) { append("Warning") }
+                            withStyle(SpanStyle(color = if (postponed) colors.fgMuted else colors.warning, fontWeight = FontWeight.SemiBold)) { append("Warning") }
                             append(" · ")
                         }
                         withStyle(SpanStyle(fontFamily = JetBrainsMono)) { append(question.id) }
@@ -154,8 +175,18 @@ fun QuestionCard(
                     if (waiters.isNotEmpty()) Text("Waiting for the landing turn: ${waiters.joinToString()}", style = TaskType.xs, color = colors.fgMuted)
                 }
             }
+            if (!optionsOnly && !postponed && onLater != null) IconButton(onClick = onLater) {
+                LucideGlyph(Lucide.Clock, size = 17.dp, tint = colors.fgMuted, contentDescription = "Later")
+            }
             if (!optionsOnly) IconButton(onClick = { readingExpanded = true }) {
                 LucideGlyph(ExpandQuestionIcon, size = 16.dp, contentDescription = "Expand ${if (warning) "warning" else "question"} ${question.id}")
+            }
+        }
+        if (onLater != null && !optionsOnly && postponed) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                target?.record?.let { Text(laterReturnLabel(it), Modifier.weight(1f), style = TaskType.xs, color = colors.fgMuted) }
+                TextButton(enabled = laterActions?.busy == false, onClick = { target?.let { laterActions?.bringBack(it) } }) { Text("Bring back") }
+                TextButton(onClick = onLater) { Text("Change") }
             }
         }
         if (!optionsOnly) QuestionExchanges(question)
@@ -174,7 +205,7 @@ fun QuestionCard(
         if (!optionsOnly && questionCanAnswer(question, readOnly)) QuestionAnswerForm(
             question, answers, text, { text = it }, busy, problem, ::send, compact = compact, onAskBack = onAskBack, warningActionLabel = if (plain) "Got it" else "Acknowledge",
         )
-    }
+    } }
     if (readingExpanded) QuestionReadingDialog(
         question, taskLabel, onDismiss = { readingExpanded = false },
         canAnswer = questionCanAnswerExpanded(question, readOnly),

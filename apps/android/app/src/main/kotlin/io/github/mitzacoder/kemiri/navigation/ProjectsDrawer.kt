@@ -137,8 +137,24 @@ private fun ColumnScope.ProjectsNav(repository: HarnessRepository, current: Dest
         BackendAttentionProjects(backend.config.key, backend.config.name, projects, boards)
     }
     val attentionLinks = needsYouLinks(attentionProjects)
+    val laterProjects = if (rail) emptyList() else attentionProjects.flatMap { backend ->
+        backend.projects.filter { it.archived != true && (it.attention?.laterItems ?: 0) > 0 }.map { backend.key to it }
+    }
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = if (rail) Alignment.CenterHorizontally else Alignment.Start) {
         if (!rail && attentionLinks.isNotEmpty()) item(key = "needs-you") { NeedsYou(attentionLinks, navigate) }
+        if (laterProjects.isNotEmpty()) item(key = "later") {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+                for ((backend, project) in laterProjects) {
+                    val count = project.attention?.laterItems ?: continue
+                    TextButton(onClick = { navigate(Destination.Panel(Destination.Chat(backend, project.id), PanelTab.Board)) },
+                        colors = ButtonDefaults.textButtonColors(contentColor = Jarvis.colors.fgMuted)) {
+                        LucideGlyph(Lucide.Clock, size = 16.dp, tint = Jarvis.colors.fgMuted)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Later · $count · ${project.name}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
         item(key = "artifacts") {
             Column(Modifier.fillMaxWidth()) {
                 FooterItem(Lucide.FileText, "Artifacts", "Saved across projects", "Artifacts", current == Destination.ArtifactLibrary || current is Destination.ArtifactStudio, rail) { navigate(Destination.ArtifactLibrary) }

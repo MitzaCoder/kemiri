@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.features.refs.refLinkedText
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
@@ -24,6 +25,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 internal fun TaskSheetBar(sheet: TaskSheetState, titleInBar: Boolean, onMoveToCoordinator: (() -> Unit)?) {
     val colors = Jarvis.colors
     val status = sheet.status
+    val laterActions = LocalLaterActions.current
     var showActions by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(sheet.task.id, style = TaskType.xs.copy(fontFamily = JetBrainsMono), color = colors.fgSubtle)
@@ -59,6 +61,15 @@ internal fun TaskSheetBar(sheet: TaskSheetState, titleInBar: Boolean, onMoveToCo
             }
             DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }, containerColor = colors.surface) {
                 if (!sheet.editing) {
+                    laterActions?.let { controller ->
+                        val board = sheet.context.board
+                        val task = sheet.task
+                        val laterTarget by remember(board, task) { board.select { it.laterTarget(task) } }
+                            .collectAsStateWithLifecycle(initialValue = null)
+                        val target = laterTarget
+                        if (target != null) DropdownMenuItem(text = { Text(if (target.record == null) "Later" else "Change Later") },
+                            leadingIcon = { LucideGlyph(Lucide.Clock, size = 16.dp) }, onClick = { showActions = false; controller.open(target) })
+                    }
                     DropdownMenuItem(text = { Text("Edit") }, onClick = { showActions = false; sheet.onEditChange(true) })
                     if (onMoveToCoordinator != null) DropdownMenuItem(text = { Text("Move to coordinator") }, onClick = {
                         showActions = false

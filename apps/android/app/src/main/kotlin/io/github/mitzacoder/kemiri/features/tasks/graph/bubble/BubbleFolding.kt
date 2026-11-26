@@ -14,7 +14,7 @@ fun graphFoldGroups(graph: TaskGraph, questions: List<BoardQuestion> = emptyList
         val section = task.state?.group ?: when {
             task.status in listOf("done", "dropped") -> "closed"
             task.status == "waiting" -> "waiting"
-            questions.any { it.taskId == task.id && it.status == "open" && it.waitingOn != "agent" } -> "needs_you"
+            questions.any { it.taskId == task.id && it.status == "open" && it.postponed != true && it.waitingOn != "agent" } -> "needs_you"
             task.status == "in_progress" -> "working"
             task.status in listOf("review", "blocked") -> task.status
             else -> "todo"

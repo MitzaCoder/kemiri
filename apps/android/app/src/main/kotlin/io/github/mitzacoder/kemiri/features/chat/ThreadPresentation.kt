@@ -85,7 +85,7 @@ fun threadStateLabel(state: String): String = when (state) {
 fun threadStateLine(thread: ThreadSummary,
     questions: List<BoardQuestion> = emptyList(),
     now: Long = System.currentTimeMillis()): String = when (threadState(thread)) {
-    "needs_you" -> questions.firstOrNull { it.status == "open" && it.waitingOn != "agent" && it.threadId == thread.id }?.text ?: "1 question for you"
+    "needs_you" -> questions.firstOrNull { it.status == "open" && it.waitingOn != "agent" && it.postponed != true && it.threadId == thread.id }?.text ?: "1 question for you"
     "working" -> thread.current.orEmpty()
     "paused" -> "Nothing is running. Send it a message to continue."
     "failed" -> listOfNotNull(thread.failure?.takeIf(String::isNotBlank), "Send a message to retry.").joinToString(" ")

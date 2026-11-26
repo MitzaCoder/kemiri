@@ -225,6 +225,7 @@ fun moveChoices(task: BoardTask): List<MoveChoice> = if (task.state == null) mov
 
 
 fun columnOfTask(task: BoardTask): KanbanColumnId = when (task.state?.group) {
+    "later" -> KanbanColumnId.Waiting
     "needs_you" -> KanbanColumnId.NeedsYou
     "in_progress" -> KanbanColumnId.Working
     "waiting" -> KanbanColumnId.Waiting

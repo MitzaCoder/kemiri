@@ -33,6 +33,7 @@ internal fun NotificationPreferences.forBackend(connection: ConnectionState): No
             when (kind) {
                 "coordinator_failed" -> connection.supports("in-app-alerts")
                 "task_steps" -> connection.supports("task-step-alerts")
+                "later_back" -> connection.supports("attention-later")
                 "usage_limit_reached" -> connection.supports("usage-pause")
                 "usage_drain_warning", "usage_drain_paused" -> connection.supports("usage-drain")
                 else -> true

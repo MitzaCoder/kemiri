@@ -134,7 +134,7 @@ fun firstLine(markdown: String, length: Int = 140): String {
 // --- the Tasks view ----------------------------------------------------------------------------------------------
 
 enum class TaskSectionId(val label: String) {
-    NeedsYou("Needs you"), Review("Ready for review"), Waiting("Waiting"), Blocked("Blocked"), Working("Working"), Todo("To do"), Closed("Recently closed"),
+    NeedsYou("Needs you"), Review("Ready for review"), Waiting("Waiting"), Later("Later"), Blocked("Blocked"), Working("Working"), Todo("To do"), Closed("Recently closed"),
 }
 
 /** A task with its open questions and warnings (warnings first) and the section it belongs to. */
@@ -157,12 +157,12 @@ private fun warningsFirst(questions: List<BoardQuestion>) = questions.filter(::i
 
 /** A task's open questions and warnings, warnings first, then in the board's order. */
 fun waitingOn(questions: List<BoardQuestion>, taskId: String): List<BoardQuestion> =
-    warningsFirst(questions.filter { it.status == "open" && it.waitingOn != "agent" && it.taskId == taskId })
+    warningsFirst(questions.filter { it.status == "open" && it.waitingOn != "agent" && it.postponed != true && it.taskId == taskId })
 
 /** Open questions and warnings that name no task on the board; the Tasks view answers them where it lists tasks. */
 fun looseQuestions(board: Board): List<BoardQuestion> {
     val known = board.tasks.mapTo(HashSet()) { it.id }
-    return warningsFirst(board.questions.filter { it.status == "open" && (it.taskId == null || it.taskId !in known) })
+    return warningsFirst(board.questions.filter { it.status == "open" && it.postponed != true && (it.taskId == null || it.taskId !in known) })
 }
 
 fun looseWaiting(board: Board): List<BoardQuestion> = looseQuestions(board).filter { it.waitingOn != "agent" }
@@ -209,7 +209,7 @@ fun taskSections(tasks: List<BoardTask>, questions: List<BoardQuestion>, include
         val waiting = waitingOn(questions, task.id)
         TaskRow(task, waiting, derivedTaskSection(task, waiting.size))
     }
-    val order = if (tasks.any { it.state != null }) listOf(TaskSectionId.NeedsYou, TaskSectionId.Working, TaskSectionId.Waiting, TaskSectionId.Todo, TaskSectionId.Closed, TaskSectionId.Review, TaskSectionId.Blocked) else TaskSectionId.entries
+    val order = if (tasks.any { it.state != null }) listOf(TaskSectionId.NeedsYou, TaskSectionId.Working, TaskSectionId.Waiting, TaskSectionId.Later, TaskSectionId.Todo, TaskSectionId.Closed, TaskSectionId.Review, TaskSectionId.Blocked) else TaskSectionId.entries
     return order.mapNotNull { id ->
         val inSection = rows.filter { it.section == id }
         if (inSection.isEmpty()) return@mapNotNull null
@@ -218,7 +218,7 @@ fun taskSections(tasks: List<BoardTask>, questions: List<BoardQuestion>, include
             TaskSectionId.NeedsYou -> inSection.sortedWith(compareByDescending<TaskRow> { row -> row.waiting.any(::isWarning) }.thenComparing({ it.task }, byOrder))
             else -> inSection.sortedWith(compareBy(byOrder) { it.task })
         }
-        TaskSection(id, sorted, collapsedByDefault = id == TaskSectionId.Closed || id == TaskSectionId.Waiting)
+        TaskSection(id, sorted, collapsedByDefault = id == TaskSectionId.Closed || id == TaskSectionId.Waiting || id == TaskSectionId.Later)
     }
 }
 

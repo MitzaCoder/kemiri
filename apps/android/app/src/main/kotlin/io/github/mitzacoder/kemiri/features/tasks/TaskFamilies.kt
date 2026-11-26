@@ -60,7 +60,7 @@ fun needsFamilyAttention(row: TaskRow): Boolean =
     row.waiting.isNotEmpty() || (row.task.state?.group?.let { it in setOf("needs_you", "waiting") } ?: (row.task.status in setOf("review", "blocked", "waiting")))
 
 fun familySectionStartsOpen(section: TaskSection): Boolean =
-    section.rows.any(::needsFamilyAttention) || !section.collapsedByDefault
+    section.id != TaskSectionId.Later && (section.rows.any(::needsFamilyAttention) || !section.collapsedByDefault)
 
 /**
  * Derived families nest across states; legacy families retain same-status nesting.

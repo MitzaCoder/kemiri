@@ -12,11 +12,10 @@ class NotificationPresetsTest {
         val kindNames = Regex("\"([a-z_]+)\"")
         fun names(text: String) = kindNames.findAll(text).map { it.groupValues[1] }.toSet()
         fun protocolList(name: String) = names(protocol.substringAfter("export const $name:").substringAfter("= [").substringBefore("];"))
-        // Android has not opted into attention-later yet.
-        val all = names(protocol.substringAfter("export const NotificationKindSchema = Type.Union(").substringBefore("],")) - "later_back"
+        val all = names(protocol.substringAfter("export const NotificationKindSchema = Type.Union(").substringBefore("],"))
         val failures = protocolList("NOTIFICATION_FAILURE_KINDS")
-        assertEquals(protocolList("DEFAULT_NOTIFICATION_KINDS"), NotificationPreset.Important.kinds?.toSet())
-        assertEquals(failures + setOf("login_prompt", "board_question", "task_review", "task_steps"), NotificationPreset.Needed.kinds?.toSet())
+        assertEquals(protocolList("DEFAULT_NOTIFICATION_KINDS") + "later_back", NotificationPreset.Important.kinds?.toSet())
+        assertEquals(failures + setOf("login_prompt", "board_question", "task_review", "task_steps", "later_back"), NotificationPreset.Needed.kinds?.toSet())
         assertEquals(all, NotificationPreset.Everything.kinds?.toSet())
         assertEquals(failures, NOTIFICATION_ALERT_GROUPS.getValue("Problems").toSet())
         val individual = NOTIFICATION_ALERT_GROUPS.values.flatten()

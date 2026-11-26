@@ -22,7 +22,7 @@ val graphReasons = listOf(
 fun graphReason(key: String, derived: Boolean): GraphStatus = graphReasons.first { it.key == key }.let {
     if (!derived) it else it.copy(label = when (key) { "failed" -> "Failed"; "question" -> "Answer needed"; "review" -> "Ready for review"; else -> it.label })
 }
-fun graphTaskStatus(task: BoardTask): String = when (task.state?.kind) {
+fun graphTaskStatus(task: BoardTask): String = if (task.state?.group == "later") "waiting" else when (task.state?.kind) {
     "working", "clarifying" -> "in_progress"
     "blocked_by_task", "waiting_outside" -> "waiting"
     null -> task.status

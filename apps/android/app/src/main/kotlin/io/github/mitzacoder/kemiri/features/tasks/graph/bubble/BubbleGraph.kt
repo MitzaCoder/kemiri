@@ -21,9 +21,9 @@ fun buildTaskGraph(tasks: List<BoardTask>, questions: List<BoardQuestion>, worke
     val shown = visibleGraphTasks(tasks, showClosed)
     val visible = shown.map { it.id }.toSet()
     val failed = workers.filter { it.status == "failed" }.mapNotNull { it.taskId }.toSet()
-    val attention = questions.filter { it.status == "open" && it.waitingOn != "agent" }.mapNotNull { it.taskId }.toSet() + failed
+    val attention = questions.filter { it.status == "open" && it.postponed != true && it.waitingOn != "agent" }.mapNotNull { it.taskId }.toSet() + failed
     val nodes = shown.map { task -> GraphNode("task:${task.id}", "task", task.title,
-        task.state?.kind ?: if (task.id in failed) "failed" else task.status,
+        task.state?.let { if (it.group == "later") "waiting_outside" else it.kind } ?: if (task.id in failed) "failed" else task.status,
         task.parent?.let { "task:$it" }, task.state?.let { it.group == "needs_you" } ?: (task.status == "review" || task.id in attention),
         if ((task.subtaskCount?.total ?: tasks.count { it.parent == task.id }.toLong()) > 0) 47.0 else 29.0, task = task)
     }.toMutableList()

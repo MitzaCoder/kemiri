@@ -10,7 +10,7 @@ fun workerMotion(status: String, task: BoardTask?, questions: List<BoardQuestion
     "failed" -> AgentMotion.Failed
     "done", "stopped" -> AgentMotion.Done
     else -> if (task != null && !graphClosed(task.status) && (task.status == "review" || questions.any {
-        it.taskId == task.id && it.status == "open" && it.waitingOn != "agent" && (it.blocksWork ?: (it.kind != "warning"))
+        it.taskId == task.id && it.status == "open" && it.postponed != true && it.waitingOn != "agent" && (it.blocksWork ?: (it.kind != "warning"))
     })) AgentMotion.Waiting else AgentMotion.Sleeping
 }
 

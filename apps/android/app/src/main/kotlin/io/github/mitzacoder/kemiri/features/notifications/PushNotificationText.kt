@@ -14,6 +14,7 @@ internal fun hiddenNotificationTitle(kind: String) = when (kind) {
     "reply" -> "A reply is ready"
     "task_review" -> "A task is ready for review"
     "task_steps" -> "Steps are waiting"
+    "later_back" -> "Items are back from Later"
     "worker_failed" -> "A worker stopped"
     "schedule_problem" -> "A scheduled run had a problem"
     "deploy_problem" -> "A deploy had a problem"

@@ -1,5 +1,7 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
+import io.github.mitzacoder.kemiri.features.tasks.laterRequest
+
 import android.content.Context
 import android.os.SystemClock
 import java.time.Instant
@@ -215,7 +217,18 @@ class NotificationCenter(
         }
     }
 
+    private fun postponed(item: InAppAlert): Boolean {
+        val projectId = item.alert.projectId ?: return false
+        val board = repository.session(item.backendKey)?.existingBoard(projectId)?.view?.value ?: return false
+        return when (item.alert.kind) {
+            "board_question" -> item.alert.questionId?.let { board.question(it)?.postponed } == true
+            "task_review", "task_steps" -> item.alert.taskId?.let { board.laterRequest(it)?.later } != null
+            else -> false
+        }
+    }
+
     private fun eligible(item: InAppAlert, now: Long, screen: AppPresence = presence.value): Boolean {
+        if (postponed(item)) return false
         val settings = repository.settings.value
         val muted = settings.notifications.isMuted(item.backendKey, item.alert.projectId, now)
         return item.canPopUp(screen, settings.inAppAlerts, muted, now)
@@ -339,7 +352,7 @@ class NotificationCenter(
                     if (eligible(item, now)) alertQueue.add(item, elapsed)
                     else alertQueue.resolve(key, setOf(alert.tag))
                     val muted = settings.notifications.isMuted(key, alert.projectId, now)
-                    soundPolicy.play(item, event.sound, presence.value, settings.inAppAlerts, muted,
+                    if (!postponed(item)) soundPolicy.play(item, event.sound, presence.value, settings.inAppAlerts, muted,
                         settings.notifications.quietHours, now, elapsed) { alertSounds?.play(it) == true }
                     saveCursor(key, AlertCursor(alert.backendEpoch, alert.seq))
                 }

@@ -5,6 +5,7 @@ import io.github.mitzacoder.kemiri.data.wireJson
 import io.github.mitzacoder.kemiri.features.settings.*
 import io.github.mitzacoder.kemiri.navigation.ChatHighlight
 import io.github.mitzacoder.kemiri.navigation.Destination
+import io.github.mitzacoder.kemiri.navigation.PanelTab
 import io.github.mitzacoder.kemiri.protocol.MAIN_THREAD_ID
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
 import java.net.URI
@@ -172,6 +173,7 @@ fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>
     val questionId = notificationQuestionId(payload)
     val questionChat = coordinator?.takeUnless { it.threadId == null && thread != null } ?: main.copy(threadId = thread)
     return AppLink.Open(when {
+        payload.kind == "later_back" -> listOf(main, Destination.Panel(main, PanelTab.Board))
         questionId != null && payload.taskId != null -> listOf(questionChat, Destination.Task(questionChat, payload.taskId, attentionQuestionId = questionId))
         questionId != null -> listOf(questionChat.copy(highlight = ChatHighlight.Question(questionId, System.currentTimeMillis())))
         payload.kind == "reply" && !payload.answerId.isNullOrBlank() -> listOf(coordinator ?: main, Destination.Answers(coordinator ?: main, payload.answerId))

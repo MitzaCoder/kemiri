@@ -47,7 +47,7 @@ internal fun backgroundJobBandText(thread: ThreadSummary, now: Long, scheduleNam
     }
     return BackgroundJobBandText("started by $starter ${panelRelativeTime(thread.createdAt, instant)}", outcome, state !in setOf("finished", "stopped"))
 }
-internal fun backgroundJobQuestions(questions: List<BoardQuestion>, threadId: String) = questions.filter { it.status == "open" && it.threadId == threadId }
+internal fun backgroundJobQuestions(questions: List<BoardQuestion>, threadId: String) = questions.filter { it.status == "open" && it.postponed != true && it.threadId == threadId }
 
 @Composable
 internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSummary, projectName: String, scheduleName: String?, parentTitle: String = "Main chat") {

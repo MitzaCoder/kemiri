@@ -159,7 +159,7 @@ internal fun boardReorderedIds(tasks: List<BoardTask>, taskId: String, delta: In
             Text(title, style = MaterialTheme.typography.labelLarge, color = colors.fgMuted)
             Text("($count)", style = MaterialTheme.typography.labelMedium, color = colors.fgSubtle)
         }
-    val questions = view.questions.filter { it.status == "open" }
+    val questions = view.questions.filter { it.status == "open" && it.postponed != true }
     val answered = view.questions.filter { it.status == "answered" }
     val decisions = view.board?.decisions.orEmpty()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

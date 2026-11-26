@@ -1,5 +1,8 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
@@ -103,7 +106,16 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                 } else {
                     item(key = "task-header") {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            TaskSheetTitle(task.title, Modifier.onSizeChanged { titleHeight = it.height })
+                            val actions = LocalLaterActions.current
+                            val laterTarget by remember(context.board, task) { context.board.select { it.laterTarget(task) } }
+                                .collectAsStateWithLifecycle(initialValue = null)
+                            val target = laterTarget
+                            val postpone: (() -> Unit)? = if (target == null || actions == null || target.record != null) null else { { actions.open(target) } }
+                            val titleModifier = Modifier.onSizeChanged { titleHeight = it.height }
+                                .then(if (postpone == null) Modifier else Modifier.pointerInput(postpone) {
+                                    detectTapGestures(onLongPress = { postpone() })
+                                })
+                            LaterSwipe(postpone) { TaskSheetTitle(task.title, titleModifier) }
                             TaskSheetMetadata(task.refs, sheet.coordinatorTitle, coordinator, moveTask)
                             (partPage?.requestId ?: previousTaskId)?.let { id ->
                                 val title = if (partPage != null) sheet.tasks.find { it.id == id }?.title ?: sheet.archivedLinks.find { it.id == id }?.title else sheet.previousTaskTitle
@@ -128,6 +140,7 @@ internal fun ClassicTaskView(sheet: TaskSheetState) {
                             status.problem?.let { TaskDetailText(it, style = TaskType.xs, color = colors.danger) }
                         }
                     }
+                    if (task.later != null || task.state?.later != null) item(key = "task-later") { TaskLaterPanel(context, task) }
                     sheet.raisedAttention?.let { attention ->
                         item(key = "part-needs-you") {
                             TaskReadingSection("Needs you") {

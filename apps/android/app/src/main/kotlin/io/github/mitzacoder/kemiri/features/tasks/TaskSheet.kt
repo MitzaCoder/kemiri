@@ -151,7 +151,7 @@ private fun TaskSheetContent(context: ProjectScreenContext, taskId: String, onDi
         .collectAsStateWithLifecycle(remember(board, task, previousTaskId) { board.view.value.forTaskSheet(task, previousTaskId) })
     val sheet = rememberTaskSheetState(context, task, relatedBoard, deviceSettings, previousTaskId, bodyState,
         onDismiss, design.id, selectDesign, onTaskSaved = { if (archivedTask?.id == task.id) archivedTask = it })
-    key(design.id) { design.content(sheet) }
+    key(design.id) { LaterActionHost(context, Modifier.fillMaxSize()) { design.content(sheet) } }
 }
 
 @Composable

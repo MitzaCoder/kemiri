@@ -11,7 +11,7 @@ internal fun requestAttention(task: BoardTask, questions: List<BoardQuestion>): 
     val state = task.state?.takeIf { it.group == "needs_you" } ?: return null
     val taskId = state.fromPartId ?: task.id
     val questionRefs = state.refs.takeIf { state.kind == "answer_needed" }.orEmpty()
-    val question = questionRefs.firstNotNullOfOrNull { ref -> questions.find { it.id == ref && it.taskId == taskId } }
+    val question = questionRefs.firstNotNullOfOrNull { ref -> questions.find { it.id == ref && it.taskId == taskId && it.postponed != true } }
     val text = question?.let { firstLine(it.text, 160) } ?: state.sentence?.text ?: taskStateLabel(task)
     val part = state.fromPartTitle ?: state.fromPartId
     return RequestAttention(taskId, question?.id ?: questionRefs.firstOrNull(),
@@ -19,7 +19,7 @@ internal fun requestAttention(task: BoardTask, questions: List<BoardQuestion>): 
 }
 
 internal fun requestPartRows(rows: List<TaskRow>): List<TaskRow> = rows.filter { it.task.status != "done" }
-    .sortedWith(compareBy<TaskRow> { partTone(it.task.state?.kind) !in setOf(PartTone.Working, PartTone.NeedsYou) }
+    .sortedWith(compareBy<TaskRow> { partTone(it.task.state?.kind.takeUnless { _ -> it.task.state?.group == "later" }) !in setOf(PartTone.Working, PartTone.NeedsYou) }
         .thenBy { it.task.order }.thenComparing({ it.task.id }, taskIdOrder))
 
 internal fun partStateLabel(state: String): String = when (state) {

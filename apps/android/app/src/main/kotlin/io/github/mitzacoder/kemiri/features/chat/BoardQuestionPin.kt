@@ -49,7 +49,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Jarvis
 import io.github.mitzacoder.kemiri.ui.theme.textStyle
 
 internal fun pinnedQuestions(questions: List<BoardQuestion>, threadId: String?): List<BoardQuestion> =
-    questions.filter { it.status == "open" && (threadId == null || threadId == "main" || it.threadId == threadId) }
+    questions.filter { it.status == "open" && it.postponed != true && (threadId == null || threadId == "main" || it.threadId == threadId) }
 
 internal fun questionPinSummary(questions: List<BoardQuestion>): String {
     val needsAnswer = questions.filter { it.waitingOn != "agent" }
@@ -74,7 +74,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val openCoordinator = context.route.threadId ?: MAIN_THREAD_ID
     val waiting = if (coordinatorThreads == null) pinnedQuestions(view.questions, context.route.threadId) else {
-        val other = view.questions.filter { it.status == "open" && it.waitingOn != "agent" }
+        val other = view.questions.filter { it.status == "open" && it.postponed != true && it.waitingOn != "agent" }
             .groupingBy { coordinatorOfThread(it.threadId, coordinatorThreads) }.eachCount()
         val roster = coordinatorRoster(coordinatorThreads)
         if (roster.any { it.id != openCoordinator && (other[it.id] ?: 0) > 0 }) {
@@ -86,7 +86,7 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
                 } }
             }
         }
-        view.questions.filter { it.status == "open" && coordinatorOfThread(it.threadId, coordinatorThreads) == openCoordinator }
+        view.questions.filter { it.status == "open" && it.postponed != true && coordinatorOfThread(it.threadId, coordinatorThreads) == openCoordinator }
     }
     if (waiting.isEmpty()) return
     val tasksView = connection.supports(HarnessFeature.TASK_REPORTS)

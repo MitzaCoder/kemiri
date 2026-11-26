@@ -2,6 +2,7 @@ package io.github.mitzacoder.kemiri.features.tasks
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +43,7 @@ import io.github.mitzacoder.kemiri.ui.theme.Text as TextStyles
 internal fun TaskListRow(
     family: TaskFamily, now: Long, reducedMotion: Boolean, linksEnabled: Boolean,
     nested: Boolean, archived: List<BoardTaskBrief>, onToggle: () -> Unit,
-    modifier: Modifier = Modifier, attention: RequestAttention? = null, requestView: Boolean = false, onOpen: () -> Unit,
+    modifier: Modifier = Modifier, attention: RequestAttention? = null, requestView: Boolean = false, onLater: (() -> Unit)? = null, onOpen: () -> Unit,
 ) {
     val taskLinks = LocalTaskLinks.current
     val row = family.row
@@ -61,11 +62,12 @@ internal fun TaskListRow(
         needsYou -> colors.accent2.copy(alpha = .08f)
         else -> null
     }
-    Row(
+    LaterSwipe(onLater) { Row(
         modifier.fillMaxWidth().alpha(if (searchHit?.context == true) .5f else 1f)
             .then(if (wash != null) Modifier.background(wash) else Modifier)
             .taskReferenceHighlight(task.id, reducedMotion)
-            .clickable(role = Role.Button, onClickLabel = "Open ${attention?.taskId ?: task.id}", onClick = onOpen)
+            .combinedClickable(role = Role.Button, onClickLabel = "Open ${attention?.taskId ?: task.id}", onClick = onOpen,
+                onLongClick = onLater, onLongClickLabel = "Later".takeIf { onLater != null })
             .semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
                     task.title,
@@ -79,6 +81,7 @@ internal fun TaskListRow(
     ) {
         Box(Modifier.size(width = 14.dp, height = 20.dp), contentAlignment = Alignment.Center) {
             when {
+                task.state?.group == "later" -> LucideGlyph(Lucide.Clock, size = 14.dp, tint = colors.fgMuted)
                 task.state != null && task.state.kind != "working" -> {
                     LucideGlyph(taskStateGlyph(task.state.kind), size = 14.dp, tint = colors.taskStatus(taskStateTone(task)))
                 }
@@ -100,7 +103,7 @@ internal fun TaskListRow(
             }
             if (!searchHit?.snippet.isNullOrEmpty()) Text(searchHit!!.snippet, style = TaskType.xs, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val summary = if (!searchHit?.snippet.isNullOrEmpty()) "" else if (task.status == "waiting") waitingSummary(task, now) else gist
-            val showActivity = activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())
+            val showActivity = row.section != TaskSectionId.Later && activity != null && (task.state != null || searchHit?.snippet.isNullOrEmpty())
             TaskRowStatus(
                 task, stateLabel,
                 activity = activity.takeIf { showActivity && (!(linksEnabled || requestView) || !taskUsesPartsSentence(task)) },
@@ -117,7 +120,7 @@ internal fun TaskListRow(
             }
             runningWork?.let { TaskActivityView(it, maxLines = 2, inlineAge = true, stateTone = TaskStatusTone.Working) }
         }
-    }
+    } }
 }
 
 /** Quiet metadata. Wrap between items so a long state sentence doesn't hide the task ID or refs. */

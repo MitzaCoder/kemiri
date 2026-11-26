@@ -4166,6 +4166,19 @@ attention excludes projected postponed questions, while a new warning or failure
 Tab title and rail counts use the server's active summaries; alert settlement clears pop-ups and the favicon dot
 and leaves resolved rows in history without counting them as unread. Return notices remain quiet inbox updates.
 
+**Later on Android (T519).** Android advertises `attention-later` and keeps the previous screens with older
+backends. Swipe a Needs you row left or long-press it to open the Later sheet; the task page and question cards
+also offer Later explicitly. An attached question always targets its root request. The date picker and quick
+choices send the local work-day start and zone, hide past choices, and stay within the server's limits. Urgent
+items offer only the short choices. Undo uses the revision from the write, so it cannot unwind a newer change.
+
+Tasks folds Later after Waiting. Rows show the underlying need, when it returns, and the required parts waiting
+on postponed answers. Bring back clears the record; answering in the list or task page still works while it is
+postponed. The drawer has a muted Later link per project. Counts, chat pins, Needs you sections and graph
+attention ignore postponed questions. Android shows `later_back` silently in the existing Quiet updates channel
+and opens Tasks when tapped. Alert settlement removes the original Android cards and their launcher dot if no
+other notification remains. Notification and popup shortcuts are not part of this stage.
+
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator
 board tool shows stored status alongside live work and attention, e.g. `[in_progress · paused]` or

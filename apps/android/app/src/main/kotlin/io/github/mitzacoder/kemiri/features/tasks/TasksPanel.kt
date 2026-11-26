@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,7 +59,11 @@ import kotlin.math.roundToInt
  * answered questions fold at the bottom.
  */
 @Composable
-internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, modifier: Modifier = Modifier) {
+internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, modifier: Modifier = Modifier) =
+    LaterActionHost(context, modifier.fillMaxSize()) { TasksPanelContent(context, search) }
+
+@Composable
+private fun TasksPanelContent(context: ProjectScreenContext, search: TaskSearchState) {
     val colors = Jarvis.colors
     val board = context.board
     val view by board.view.collectAsStateWithLifecycle()
@@ -93,7 +98,12 @@ internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, 
     val requestsOnly = connection.supports(HarnessFeature.REQUEST_ATTENTION)
     val partsByRequest = if (requestsOnly) taskSections(view.tasks, view.questions, includeArchived = view.showArchived)
         .flatMap { it.rows }.filter { it.task.parent != null }.groupBy { it.task.requestId ?: it.task.parent!! } else null
-    val familySections = if (searching) emptyList() else taskFamilySections(sections, requestsOnly)
+    val actions = LocalLaterActions.current
+    val laterTasks = if (actions == null) emptyList() else filteredTasks(context, tasks).filter { it.parent == null && it.later != null && !it.archived }
+        .sortedBy { it.later?.until }
+    val laterQuestions = questions.filter { it.taskId == null && it.postponed == true && it.later != null }
+    val familySections = if (searching) emptyList() else taskFamilySections(sections, requestsOnly).filter { it.id != TaskSectionId.Later }
+    fun onLater(task: BoardTask): (() -> Unit)? = actions?.let { controller -> view.laterTarget(task)?.let { target -> { controller.open(target) } } }
     val needsYouSection = familySections.firstOrNull { it.id == TaskSectionId.NeedsYou }
     val failedTaskIds = (if (searching) searchHits.mapNotNull { searchRows[it.id] } else needsYouSection?.rows.orEmpty())
         .mapNotNull { row -> row.task.state?.takeIf { it.kind == "failed" }?.let { it.fromPartId ?: row.task.id } }.toSet()
@@ -139,7 +149,7 @@ internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, 
     val requestRows = requestRows(tasks, requestsOnly)
     val archivedShown = if (view.showArchived) requestRows.count { it.archived } else 0
 
-    LazyColumn(modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         view.error?.let { error ->
             item(key = "error") {
                 Text(error, Modifier.fillMaxWidth().background(colors.danger.copy(alpha = .1f), RoundedCornerShape(10.dp)).padding(10.dp), style = TaskType.xs, color = colors.danger)
@@ -204,7 +214,15 @@ internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, 
                 TaskGroup { FailureRows(context, failures) }
             }
         }
-        familySections.forEach { section ->
+        val laterIndex = familySections.indexOfFirst { it.id in setOf(TaskSectionId.Todo, TaskSectionId.Closed, TaskSectionId.Blocked, TaskSectionId.Review) }
+            .takeIf { it >= 0 } ?: familySections.size
+        fun LazyListScope.laterGroup() {
+            if (actions != null && !searching && (laterTasks.isNotEmpty() || laterQuestions.isNotEmpty())) item(key = "later-group") {
+                key(stateKey) { LaterGroup(context, view, laterTasks, laterQuestions) }
+            }
+        }
+        familySections.forEachIndexed { index, section ->
+            if (index == laterIndex) laterGroup()
             val open = sectionExpansion[section.id.name] ?: familySectionStartsOpen(section)
             val families = taskFamilies(section, expansion, partsByRequest)
             item(key = "section-${section.id.name}") {
@@ -229,6 +247,7 @@ internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, 
                                 }) else null,
                                 shown = sections.flatMap { it.rows }.map { it.task.id }.toSet(),
                                 requestQuestions = view.questions.takeIf { requestsOnly }, onOpenAttention = { context.openTask(it.taskId, it.questionId) },
+                                onLater = if (needsYou) ::onLater else { _ -> null },
                             )
                         }
                         if (needsYou && failures.isNotEmpty()) {
@@ -239,6 +258,7 @@ internal fun TasksPanel(context: ProjectScreenContext, search: TaskSearchState, 
                 }
             }
         }
+        if (laterIndex == familySections.size) laterGroup()
         if (view.loaded) item(key = "archived") {
             Row(
                 Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Switch) { scope.launch { board.setShowArchived(!view.showArchived) } }
@@ -315,6 +335,7 @@ private fun TaskFamilyRows(
     archived: List<BoardTaskBrief>, onToggle: (TaskFamily) -> Unit, onOpen: (String) -> Unit,
     onJump: (String) -> Unit, onRowLayout: ((String, LayoutCoordinates?) -> Unit)?, depth: Int = 0, shown: Set<String> = emptySet(),
     requestQuestions: List<BoardQuestion>? = null, onOpenAttention: (RequestAttention) -> Unit,
+    onLater: (BoardTask) -> (() -> Unit)?,
 ) {
     val guide = Jarvis.colors.border
     val firstVisible = branches.indexOfFirst { it.visible }
@@ -336,7 +357,7 @@ private fun TaskFamilyRows(
                             }
                             val attention = requestQuestions?.takeIf { depth == 0 }?.let { requestAttention(family.row.task, it) }
                             TaskListRow(family, now, reducedMotion, linksEnabled, depth > 0, archived, { onToggle(family) },
-                                rowModifier, attention, requestView = requestQuestions != null) {
+                                rowModifier, attention, requestView = requestQuestions != null, onLater = onLater(family.row.task)) {
                                 if (attention == null) onOpen(id) else onOpenAttention(attention)
                             }
                         }
@@ -349,7 +370,7 @@ private fun TaskFamilyRows(
                     ) {
                         Column {
                             TaskFamilyRows(family.branches, now, reducedMotion, linksEnabled, archived, onToggle, onOpen, onJump,
-                                onRowLayout, depth + 1, shown, requestQuestions, onOpenAttention)
+                                onRowLayout, depth + 1, shown, requestQuestions, onOpenAttention, onLater)
                             if (family.doneParts > 0) {
                                 if (family.branches.isNotEmpty()) GroupHairline()
                                 Text("✓ ${family.doneParts} done ${if (family.doneParts == 1) "part" else "parts"}",

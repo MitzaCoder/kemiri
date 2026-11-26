@@ -7,7 +7,7 @@ import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 
 /** Blocking asks/approvals in this conversation, not warnings, retries, queues or timed task waiting. */
 internal fun agentWaitingForUser(questions: List<BoardQuestion>, threadId: String? = null, workerTaskId: String? = null, worker: Boolean = false): Boolean =
-    questions.any { it.status == "open" && it.waitingOn != "agent" && (it.blocksWork ?: (it.kind != "warning")) && (it.threadId ?: "main") == (threadId ?: "main") && (!worker || (workerTaskId != null && it.taskId == workerTaskId)) }
+    questions.any { it.status == "open" && it.postponed != true && it.waitingOn != "agent" && (it.blocksWork ?: (it.kind != "warning")) && (it.threadId ?: "main") == (threadId ?: "main") && (!worker || (workerTaskId != null && it.taskId == workerTaskId)) }
 
 /** Waiting has its question card, never a standalone mascot row, even during a live run. */
 internal fun showsAgentActivityRow(waiting: Boolean, working: Boolean, completed: Boolean): Boolean =

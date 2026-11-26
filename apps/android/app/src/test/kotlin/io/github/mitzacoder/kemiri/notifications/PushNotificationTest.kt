@@ -19,10 +19,11 @@ class PushNotificationTest {
         val channels = NotificationAttention.entries
         val legacy = channels.flatMap { it.legacyKinds }
         assertEquals(6, channels.map { it.channelId }.toSet().size)
-        assertEquals(21, legacy.size)
+        assertEquals(NOTIFICATION_KINDS.size + 1, legacy.size)
         assertEquals((NOTIFICATION_KINDS + "test").toSet(), legacy.toSet())
         assertEquals(NotificationAttention.NeedsYou, notificationAttention("task_steps"))
         assertEquals(NotificationAttention.QuietUpdates, notificationAttention("maintenance_failed"))
+        assertEquals(NotificationAttention.QuietUpdates, notificationAttention("later_back"))
     }
 
     @Test fun onlyUnanimousExplicitChannelChoicesTransfer() {

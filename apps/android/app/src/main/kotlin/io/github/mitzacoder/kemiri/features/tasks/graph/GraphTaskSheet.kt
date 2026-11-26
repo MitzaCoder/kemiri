@@ -40,7 +40,7 @@ private fun GraphTaskPeek(id: String, tasks: List<BoardTask>, questions: List<Bo
     activityEnabled: Boolean, freshnessEnabled: Boolean, onWorker: (String) -> Unit,
     onOpen: (String) -> Unit, onShowLinked: () -> Unit, onClose: () -> Unit, archivedLinks: List<BoardTaskBrief> = emptyList(), modifier: Modifier = Modifier) {
     val task = tasks.find { it.id == id }
-    val waiting = questions.filter { it.taskId == id && it.status == "open" }
+    val waiting = questions.filter { it.taskId == id && it.status == "open" && it.postponed != true }
     val assignedWorkers = workers.filter { it.taskId == id || (it.taskId == null && it.id in task?.workerIds.orEmpty()) }
     val assignedThreads = threads.filter { !it.main && !it.archived && (it.taskId == id || id in it.ownedTasks || task?.ownerThreadId == it.id) }
     val colors = Jarvis.colors
