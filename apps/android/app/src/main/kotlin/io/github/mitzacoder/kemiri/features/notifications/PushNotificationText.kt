@@ -1,6 +1,9 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
+import io.github.mitzacoder.kemiri.data.localizedTimeFormatter
 import io.github.mitzacoder.kemiri.features.chat.markdownText
+import java.time.ZoneId
+import java.time.format.FormatStyle
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
 
 internal data class PushNotificationText(val title: String, val body: String, val context: String?)
@@ -30,6 +33,12 @@ internal fun hiddenNotificationTitle(kind: String) = when (kind) {
     else -> "Test notification"
 }
 
+internal fun hiddenNotificationTitle(payload: NotificationPayload) = when {
+    payload.kind == "board_question" && payload.question?.approval == true -> "An approval is waiting"
+    payload.kind == "board_question" && payload.question?.warning == true -> "A warning needs attention"
+    else -> hiddenNotificationTitle(payload.kind)
+}
+
 private val legacyQuestionLabel = Regex("(?:Question|Warning|Reply on Q[0-9]+|No reply yet on Q[0-9]+)")
 private val leadingQuestion = Regex("^[^\\n?]{1,120}\\?")
 
@@ -49,19 +58,20 @@ internal fun legacyNotificationProjectName(payload: NotificationPayload): String
     }?.trim()?.takeIf { it.isNotEmpty() }
 }
 
-internal fun pushNotificationText(payload: NotificationPayload, projectName: String?, computerName: String?, showMessageText: Boolean): PushNotificationText {
+internal fun pushNotificationText(payload: NotificationPayload, projectName: String?, computerName: String?, showMessageText: Boolean, computerNames: List<String> = emptyList()): PushNotificationText {
     val kind = payload.kind
-    if (!showMessageText) return PushNotificationText(hiddenNotificationTitle(kind), "", null)
+    if (!showMessageText) return PushNotificationText(hiddenNotificationTitle(payload), "", null)
     val title = payload.title
-    var body = payload.body.trim()
+    var body = (payload.message ?: payload.body).trim()
     val heading = when (kind) {
         "board_question" -> {
             // The old server already flattens the body. Clean up any residual Markdown without folding line breaks.
-            body = body.lineSequence().joinToString("\n", transform = ::markdownText)
+            if (payload.message == null) body = body.lineSequence().joinToString("\n", transform = ::markdownText)
             val prompt = leadingQuestion.find(body)?.value
             val label = title.substringBefore(" · ")
             when {
-                label == "Warning" -> "A warning needs attention"
+                payload.question?.approval == true -> "An approval is waiting"
+                payload.question?.warning == true || label == "Warning" -> "A warning needs attention"
                 prompt != null -> prompt.also { body = body.removePrefix(it).trim() }
                 legacyQuestionLabel.matches(label) || payload.coordinatorId != null || label.isBlank() -> hiddenNotificationTitle(kind)
                 projectName != null -> title.removeSuffix(" · $projectName")
@@ -69,7 +79,7 @@ internal fun pushNotificationText(payload: NotificationPayload, projectName: Str
             }
         }
         "task_review", "task_steps" -> {
-            payload.taskId?.let { body = body.removePrefix("$it ") }
+            body = payload.taskTitle ?: payload.taskId?.let { body.removePrefix("$it ") } ?: body
             if (kind == "task_review") "Ready for review" else "Steps to do"
         }
         "worker_failed", "worker_report", "coordinator_failed", "compaction_failed", "maintenance_failed" -> hiddenNotificationTitle(kind)
@@ -79,17 +89,22 @@ internal fun pushNotificationText(payload: NotificationPayload, projectName: Str
         "login_prompt" -> computerName?.let { "$it needs a sign-in" } ?: "Sign-in needs attention"
         "disk_low" -> computerName?.let { "$it: low disk space" } ?: "Low disk space"
         "deploy_problem" -> title.substringBefore(" · ")
-        "reply" -> title.substringAfter(" · ", title).takeIf { payload.coordinatorId != null } ?: title
+        "reply" -> payload.coordinatorName ?: title.substringAfter(" · ", title).takeIf { payload.coordinatorId != null } ?: title
         else -> title
     }
-    val namedComputer = computerName ?: "this computer"
+    val combinedComputers = computerNames.distinct().joinToString(", ").takeIf { it.isNotBlank() }
+    val namedComputer = combinedComputers ?: computerName ?: "this computer"
     val computerEvent = isComputerNotification(payload)
     if (computerEvent && kind != "test") {
-        body = if (kind == "login_prompt" && title.startsWith("Sign in · ")) {
+        val reset = payload.expiresAt?.let(::notificationTime)?.atZone(ZoneId.systemDefault())
+        body = if (kind == "usage_limit_reached" && reset != null) {
+            val localReset = localizedTimeFormatter(dateStyle = FormatStyle.SHORT).format(reset)
+            "On $namedComputer: Work waits until $localReset and then continues by itself."
+        } else if (kind == "login_prompt" && title.startsWith("Sign in · ")) {
             "${title.substringAfter(" · ")} on $namedComputer${if (body.isEmpty()) "" else ": $body"}"
         } else "On $namedComputer${if (body.isEmpty()) "." else ": $body"}"
     }
-    val context = if (computerEvent) computerName else projectName?.takeUnless {
+    val context = if (computerEvent) combinedComputers ?: computerName else projectName?.takeUnless {
         (kind == "reply" && heading == "$it replied") || (kind == "work_finished" && heading == "$it finished")
     }
     return PushNotificationText(heading, body, context)
@@ -98,8 +113,9 @@ internal fun pushNotificationText(payload: NotificationPayload, projectName: Str
 internal fun isComputerNotification(payload: NotificationPayload): Boolean =
     payload.projectId == null || payload.kind in NotificationAttention.SubscriptionLimits.legacyKinds
 
-/** The old push already carries the exact question ID in its stable tag, but not the wording revision. */
+/** Prefer the explicit ID; a legacy backend still carries the question ID in its stable tag. */
 internal fun notificationQuestionId(payload: NotificationPayload): String? {
     if (payload.kind != "board_question" || payload.projectId == null) return null
+    payload.question?.id?.takeIf { it.isNotBlank() }?.let { return it }
     return payload.tag.substringAfter("board-question:${payload.projectId}:", "").takeIf { it.isNotEmpty() }
 }

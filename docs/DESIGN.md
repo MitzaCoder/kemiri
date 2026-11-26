@@ -8190,19 +8190,31 @@ channels explicitly agree on that setting. Conflicting settings and other OS ove
 Quiet updates never alert in the shade, even if their channel's importance was carried over. A failed nightly memory
 run is also inbox-only in the app.
 
-Cards use the native BigText template, kind icons and badges for attention cards. The foreground text puts the question
-or event first and moves project or computer context out of the title where available. Project cards use a silent summary
-and a stable group scoped to the computer and project. The lock screen follows Android's privacy setting: the public
-version is a fixed kind label, with no message, names, or project badge. Turning off Show message text also strips those
-details from new system cards and clears already posted detailed cards. There are no notification actions in this stage.
+Push extensions are optional. They name the project, coordinator and computer, and can carry a plain-text preview with
+paragraph breaks, task title and revision, alert level, event key, question ID and wording revision, and a known expiry.
+Older clients still read `title`, `body` and the original routing fields. The server sends exact choices only for an
+ordinary question with one to three distinct short labels. The recommended choice comes first but is never selected.
+Warnings and tool or run approvals never carry quick choices. The relay trims display previews at Unicode boundaries
+before 2,048-byte plaintext padding. The encrypted FCM data, including its JSON wrapper, stays within 3,584 bytes.
+
+Replies and ordinary questions use Android MessagingStyle. A long-lived dynamic shortcut and a locally drawn chat mark
+identify each computer, project and coordinator chat, independently of its labels. A reply update adds to the history
+of the active reply card; a revised question replaces its wording. The types keep their separate attention channels.
+Other cards use BigText, kind badges and a silent summary scoped to the computer and project. The lock screen follows
+Android's privacy setting: the public version is a fixed kind label, with no message, names, or badge. Turning off Show
+message text clears detailed cards and their chat shortcuts. There are no shade actions yet.
 
 Taps go to the chat, task or question where possible. Computer events open AI accounts, computer Overview or You and
 memory as appropriate. Subscription limits open Usage scoped to the computer. Opening the matching chat or task, opening
 an individual question to read, and answering a question all clear the corresponding posted card. A connected app also
 uses the existing live and replayed resolution events to remove older matching cards, not later follow-ups that reuse the
-same tag. A finished-work card expires one day after the event. Android does not infer sign-in expiry, subscription reset
-time, or shared account identity from display text. Accurate cross-computer deduplication, structured expiry, richer text
-and conversation cards require richer push payloads. Clearing an app that is not connected requires a resolution push.
+same tag. A finished-work card expires one day after the event. Login prompt and subscription cards use the supplied
+idle deadline or reset, when known, instead of parsing display text. Android formats the reached-limit reset locally.
+
+For a known provider account and reset, backends sharing the same VAPID key send a keyed window identity, not the
+account label. Android updates one card silently as more computers report the same limit, and receipts live until the
+reset so a dismissed card does not return. Unknown accounts and local drain interventions stay separate. Clearing an
+app that is not connected before a card expires still requires a resolution push.
 
 ### Android in-app alerts
 

@@ -1,7 +1,7 @@
 import { Lexer, type Token, type Tokens } from "marked";
 
 /** Plain labels and previews, parsed before callers truncate. Never returns HTML or link destinations. */
-export function markdownText(source: string): string {
+export function markdownText(source: string, preserveLineBreaks = false): string {
 	function text(token: Token): string {
 		switch (token.type) {
 			case "html": return "";
@@ -18,13 +18,15 @@ export function markdownText(source: string): string {
 			}
 		}
 	}
-	return Lexer.lex(source).map(text).join("")
+	const plain = Lexer.lex(source).map(text).join("")
 		.replace(/&#(x[0-9a-f]+|\d+);|&(amp|lt|gt|quot|apos|nbsp);/gi, (entity, number: string | undefined, name: string | undefined) => {
 			if (number) {
 				const point = number[0]?.toLowerCase() === "x" ? Number.parseInt(number.slice(1), 16) : Number(number);
 				return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
 			}
 			return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " } as Record<string, string>)[name?.toLowerCase() ?? ""] ?? entity;
-		})
-		.replace(/\s+/g, " ").trim();
+		});
+	return (preserveLineBreaks
+		? plain.replace(/[^\S\n]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n")
+		: plain.replace(/\s+/g, " ")).trim();
 }

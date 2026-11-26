@@ -4551,7 +4551,34 @@ data class NotificationPayload(
     val `taskId`: String? = null,
     val `tag`: String,
     val `at`: String,
-    val `answerId`: String? = null
+    val `answerId`: String? = null,
+    val `projectName`: String? = null,
+    val `computerName`: String? = null,
+    val `coordinatorName`: String? = null,
+    val `message`: String? = null,
+    val `taskTitle`: String? = null,
+    val `taskRevision`: Long? = null,
+    val `key`: String? = null,
+    val `level`: String? = null,
+    val `question`: NotificationPayloadQuestion? = null,
+    val `expiresAt`: String? = null,
+    val `sharedLimitKey`: String? = null
+)
+
+@Serializable
+data class NotificationPayloadQuestion(
+    val `id`: String,
+    val `revision`: Long,
+    val `quickAnswerAllowed`: Boolean,
+    val `choices`: List<NotificationPayloadQuestionChoicesItem>? = null,
+    val `warning`: Boolean? = null,
+    val `approval`: Boolean? = null
+)
+
+@Serializable
+data class NotificationPayloadQuestionChoicesItem(
+    val `label`: String,
+    val `recommended`: Boolean
 )
 
 @Serializable
@@ -4713,22 +4740,24 @@ data class NotificationAlert(
     val `tag`: String,
     val `at`: String,
     val `answerId`: String? = null,
-    val `seq`: Long,
+    val `projectName`: String? = null,
+    val `computerName`: String? = null,
+    val `coordinatorName`: String? = null,
+    val `message`: String? = null,
+    val `taskTitle`: String? = null,
+    val `taskRevision`: Long? = null,
     val `key`: String,
     val `level`: String,
+    val `question`: NotificationPayloadQuestion? = null,
+    val `expiresAt`: String? = null,
+    val `sharedLimitKey`: String? = null,
+    val `seq`: Long,
     val `backendEpoch`: String,
-    val `taskRevision`: Long? = null,
     val `questionId`: String? = null,
     val `questionRevision`: Long? = null,
-    val `choices`: List<NotificationAlertChoicesItem>? = null,
+    val `choices`: List<NotificationPayloadQuestionChoicesItem>? = null,
     val `warning`: Boolean? = null,
     val `approval`: Boolean? = null
-)
-
-@Serializable
-data class NotificationAlertChoicesItem(
-    val `label`: String,
-    val `recommended`: Boolean
 )
 
 @Serializable

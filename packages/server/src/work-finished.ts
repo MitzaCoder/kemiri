@@ -41,6 +41,8 @@ export function workFinishedNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "work_finished",
+		projectName: input.projectName,
+		...(input.lastReply ? { message: input.lastReply } : {}),
 		title: `${input.projectName} finished`,
 		body: notificationLine(input.lastReply) || "Nothing is running any more.",
 		projectId: input.projectId,

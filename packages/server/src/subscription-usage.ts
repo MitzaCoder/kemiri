@@ -96,6 +96,8 @@ export type SubscriptionUsageOptions = {
 /** Timers and gaps run on the monotonic clock; `now` only stamps readings and the 429 hold-off. */
 type ProviderState = {
 	usage: SubscriptionUsage;
+	/** Account identity was observed with this credential, not restored from a saved usage report. */
+	accountObserved: boolean;
 	/** `performance.now()` of the last read. */
 	lastAttemptAt: number;
 	blockedUntil: number;
@@ -284,6 +286,12 @@ export class SubscriptionUsageService {
 			this.#states.delete(providerId);
 		}
 		void this.#poll();
+	}
+
+	/** Only use an already known account for notification dedupe. An alert must not trigger a provider request. */
+	knownAccount(providerId: string): Pick<SubscriptionUsage, "providerId" | "account" | "plan"> | undefined {
+		const state = this.#states.get(providerId);
+		return state?.accountObserved ? state.usage : undefined;
 	}
 
 	label(providerId: string): string {
@@ -604,6 +612,7 @@ export class SubscriptionUsageService {
 			catch (error) { this.#log(`limit ledger: could not record a reading: ${errorMessage(error)}`); }
 		}
 		state.usage = applyReading(state.usage, reading, new Date(at).toISOString());
+		if (reading.account !== undefined) state.accountObserved = Boolean(reading.account?.trim());
 		const credential = this.#storedCredentialTypes.get(providerId);
 		if (credential === "oauth" || (credential === "api_key" && API_KEY_PLAN_PROVIDERS.has(providerId))) {
 			try { this.#onReading?.(providerId, reading.windows, observedAt); }
@@ -622,6 +631,7 @@ export class SubscriptionUsageService {
 	#newState(usage: SubscriptionUsage): ProviderState {
 		return {
 			usage,
+			accountObserved: false,
 			lastAttemptAt: 0,
 			blockedUntil: 0,
 			profileReadAt: 0,

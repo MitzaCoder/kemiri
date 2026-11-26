@@ -318,17 +318,21 @@ function plaintext(raw: unknown): RelayPlaintext {
 		fail("invalid");
 	return result;
 }
-function truncatePreview(plaintext: RelaySendPlaintext): void {
-	const points = Array.from(plaintext.payload.body);
+function truncatePreview(plaintext: RelaySendPlaintext, field: "body" | "message"): void {
+	const text = plaintext.payload[field];
+	if (typeof text !== "string" || relayUtf8(compact(plaintext)).length <= PUSH_RELAY_LIMITS.plaintext) return;
+	const points = Array.from(text);
 	let low = 0;
 	let high = points.length;
+	const prefix = (length: number) => length === 0 ? "" : points.slice(0, length).join("");
 	while (low < high) {
 		const mid = Math.ceil((low + high) / 2);
-		plaintext.payload.body = points.slice(0, mid).join("");
+		plaintext.payload[field] = prefix(mid);
 		if (relayUtf8(compact(plaintext)).length <= PUSH_RELAY_LIMITS.plaintext) low = mid;
 		else high = mid - 1;
 	}
-	plaintext.payload.body = points.slice(0, low).join("");
+	plaintext.payload[field] = prefix(low);
+	if (field === "message" && low === 0) delete plaintext.payload.message;
 }
 
 function safeRoute(route: string | null | undefined): string | null {
@@ -366,7 +370,9 @@ export function prepareRelayPlaintext(input: RelaySendPlaintext): {
 		needsFallback = true;
 	}
 	if (!needsFallback) {
-		truncatePreview(plaintextToSend);
+		truncatePreview(plaintextToSend, "message");
+		// Keep the tag, deep link and action metadata intact instead of cutting an identifier or choice.
+		truncatePreview(plaintextToSend, "body");
 		needsFallback = relayUtf8(compact(plaintextToSend)).length > PUSH_RELAY_LIMITS.plaintext;
 	}
 	if (needsFallback) {

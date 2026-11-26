@@ -15,7 +15,7 @@ class InAppAlertsTest {
     private val defaults = InAppAlertSettings()
     private val bakery = "https://bakery.example.test"
     private val recipes = "https://recipes.example.test"
-    private val questionChoices = listOf(NotificationAlertChoicesItem("Grams", true), NotificationAlertChoicesItem("Cups", false))
+    private val questionChoices = listOf(NotificationPayloadQuestionChoicesItem("Grams", true), NotificationPayloadQuestionChoicesItem("Cups", false))
 
     private fun alert(
         level: String = "urgent", seq: Long = 1, kind: String = "board_question", tag: String = "tag-$seq",
@@ -167,7 +167,7 @@ class InAppAlertsTest {
         for (ineligible in listOf(question.alert.copy(warning = true), question.alert.copy(approval = true), question.alert.copy(questionRevision = null),
             question.alert.copy(kind = "login_prompt"), question.alert.copy(choices = questionChoices + questionChoices),
             question.alert.copy(choices = listOf(questionChoices.first(), questionChoices.first())),
-            question.alert.copy(choices = listOf(NotificationAlertChoicesItem("x".repeat(25), true))))) {
+            question.alert.copy(choices = listOf(NotificationPayloadQuestionChoicesItem("x".repeat(25), true))))) {
             assertTrue(question.copy(alert = ineligible).inlineChoices().isEmpty())
         }
     }

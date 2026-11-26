@@ -22,19 +22,42 @@ internal fun notificationIcon(kind: String): Int = when (kind) {
 }
 
 /** Some shades replace the small icon with the app's icon. Use a right-hand badge on cards that need a closer look. */
-internal fun notificationBadge(context: Context, kind: String): Bitmap? {
+internal fun notificationBadge(context: Context, kind: String, projectName: String?, projectId: String?): Bitmap? {
     val color = when (notificationIcon(kind)) {
         R.drawable.ic_push_question, R.drawable.ic_push_review -> Color.rgb(91, 63, 155)
         R.drawable.ic_push_problem -> Color.rgb(166, 47, 55)
         R.drawable.ic_push_limit -> Color.rgb(72, 80, 132)
         else -> return null
     }
-    val badge = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+    val badge = if (projectName != null && projectId != null) notificationLetterIcon(projectName, projectId)
+        else Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(badge)
-    canvas.drawCircle(48f, 48f, 47f, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
+    val size = if (projectName != null && projectId != null) {
+        canvas.drawCircle(76f, 76f, 20f, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
+        64 to 88
+    } else {
+        canvas.drawCircle(48f, 48f, 47f, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
+        20 to 76
+    }
     ContextCompat.getDrawable(context, notificationIcon(kind))?.apply {
-        setBounds(20, 20, 76, 76)
+        setBounds(size.first, size.first, size.second, size.second)
         draw(canvas)
     }
     return badge
+}
+
+/** A private, locally drawn mark. No network or remote image URL is needed to show a chat. */
+internal fun notificationLetterIcon(label: String, identity: String): Bitmap {
+    val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    paint.color = Color.HSVToColor(floatArrayOf(Math.floorMod(identity.hashCode(), 360).toFloat(), .58f, .57f))
+    canvas.drawCircle(48f, 48f, 47f, paint)
+    val initial = label.trim().takeIf { it.isNotEmpty() }?.let { String(Character.toChars(it.codePointAt(0))).uppercase() } ?: "•"
+    paint.color = Color.WHITE
+    paint.textSize = 48f
+    paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    paint.textAlign = Paint.Align.CENTER
+    canvas.drawText(initial, 48f, 48f - (paint.ascent() + paint.descent()) / 2, paint)
+    return bitmap
 }

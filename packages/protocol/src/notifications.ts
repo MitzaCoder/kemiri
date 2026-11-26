@@ -234,6 +234,15 @@ export const NotificationDeviceSchema = Type.Object({
 });
 export type NotificationDevice = Static<typeof NotificationDeviceSchema>;
 
+const NotificationQuestionSchema = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	revision: Type.Integer({ minimum: 1 }),
+	quickAnswerAllowed: Type.Boolean(),
+	choices: Type.Optional(Type.Array(Type.Object({ label: Type.String(), recommended: Type.Boolean() }), { minItems: 1, maxItems: 3 })),
+	warning: Type.Optional(Type.Boolean()),
+	approval: Type.Optional(Type.Boolean()),
+});
+
 /** What the service worker receives, as JSON, in the push message. */
 export const NotificationPayloadSchema = Type.Object({
 	kind: Type.Union([NotificationKindSchema, Type.Literal("test")]),
@@ -253,6 +262,17 @@ export const NotificationPayloadSchema = Type.Object({
 	tag: Type.String({ description: "Notifications with the same tag replace each other." }),
 	at: Type.String(),
 	answerId: Type.Optional(AnswerIdSchema),
+	projectName: Type.Optional(Type.String()),
+	computerName: Type.Optional(Type.String()),
+	coordinatorName: Type.Optional(Type.String()),
+	message: Type.Optional(Type.String({ description: "Long plain-text preview. Older clients use body." })),
+	taskTitle: Type.Optional(Type.String()),
+	taskRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+	key: Type.Optional(Type.String({ description: "This event, rather than the tag it replaces." })),
+	level: Type.Optional(Type.Union([Type.Literal("urgent"), Type.Literal("important"), Type.Literal("info"), Type.Literal("inbox")])),
+	question: Type.Optional(NotificationQuestionSchema),
+	expiresAt: Type.Optional(Type.String({ description: "ISO 8601 deadline when the event has a known expiry." })),
+	sharedLimitKey: Type.Optional(Type.String({ description: "Opaque identity for one kind of notice about the same verified subscription window." })),
 });
 export type NotificationPayload = Static<typeof NotificationPayloadSchema>;
 

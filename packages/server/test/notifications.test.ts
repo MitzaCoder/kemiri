@@ -585,7 +585,7 @@ describe("filtering", () => {
 		expect(presence.of("device-1")).toEqual([]);
 	});
 
-	it("keeps a payload's fields per device and one line of body", () => {
+	it("keeps legacy body beside the longer preview and named targets", () => {
 		const event = replyNotification({
 			projectId: "project-1",
 			projectName: "Harness",
@@ -593,11 +593,17 @@ describe("filtering", () => {
 			at: "2026-11-05T10:00:00Z",
 			text: "First line.\nSecond line.",
 		});
-		const payload = notificationPayload({ backendKey: "harness-vm" }, event, "2026-11-05T10:00:01Z");
+		const payload = notificationPayload({ backendKey: "harness-vm" }, event, "2026-11-05T10:00:01Z", "Studio");
 		expect(payload).toEqual({
 			kind: "reply",
 			title: "Harness replied",
 			body: "First line.",
+			message: "First line.\nSecond line.",
+			computerName: "Studio",
+			coordinatorName: "Main chat",
+			projectName: "Harness",
+			level: "important",
+			key: "reply:project-1:4",
 			backendKey: "harness-vm",
 			projectId: "project-1",
 			workerId: null,

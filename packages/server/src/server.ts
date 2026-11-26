@@ -16,6 +16,7 @@ import { McpService } from "./mcp.ts";
  */
 import { serverSettings } from "./server-settings.ts";
 import { isIP } from "node:net";
+import { hostname as computerHostname } from "node:os";
 import { existsSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
 import { DeviceAuth, DeviceAuthError, type AuthOptions, type Identity } from "./device-auth.ts";
@@ -79,6 +80,7 @@ import {
 	loadOrCreateVapidKeys,
 	loginPromptNotification,
 	usageLimitReachedNotification,
+	sharedSubscriptionLimitKey,
 	usageDrainWarningNotification,
 	type NotificationEvent,
 	maintenanceFailureNotification,
@@ -442,7 +444,10 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 				if (minutesLeft === null || minutesToReset === null || !limit.resetsAt) return;
 				const facts = { providerLogin, label: subscriptionUsage.label(providerLogin), limit: limit.label, minutesLeft, minutesToReset };
 				if (forecast.level === "warning") {
-					notifyUsageDrain?.(usageDrainWarningNotification({ ...facts, limitId: limit.id, resetsAt: limit.resetsAt }));
+					if (!notifyUsageDrain) return;
+					const sharedLimitKey = sharedSubscriptionLimitKey(vapid.privateKey, "usage_drain_warning", subscriptionUsage.knownAccount(providerLogin), limit.resetsAt, limit.id);
+					notifyUsageDrain(usageDrainWarningNotification({ ...facts, limitId: limit.id, resetsAt: limit.resetsAt,
+						...(sharedLimitKey ? { sharedLimitKey } : {}) }));
 					return;
 				}
 				const now = (options.now ?? Date.now)();
@@ -552,6 +557,8 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			resolved: (event) => { for (const connection of connections) connection.notifyAlert(event); },
 		} } : {}),
 		...(relay ? { relay } : {}),
+		computerName: computerHostname().split(".")[0] ?? "",
+		projectName: async projectId => (await store.load(projectId).catch(() => undefined))?.name,
 		sessionActive: (sessionId) => auth.active(sessionId),
 		store: notificationStore,
 		state: notificationState,
@@ -572,7 +579,11 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 	// Events that were in their hold when the last process ended carry on with the rest of their time.
 	notifications.restore();
 	notifyUsageDrain = event => notifications.notify(event);
-	notifyUsageLimit = pause => notifications.notify(usageLimitReachedNotification({ ...pause, label: subscriptionUsage.label(pause.providerLogin) }));
+	notifyUsageLimit = pause => {
+		const sharedLimitKey = sharedSubscriptionLimitKey(vapid.privateKey, "usage_limit_reached", subscriptionUsage.knownAccount(pause.providerLogin), pause.until);
+		notifications.notify(usageLimitReachedNotification({ ...pause, label: subscriptionUsage.label(pause.providerLogin),
+			...(sharedLimitKey ? { sharedLimitKey } : {}) }));
+	};
 	log(
 		`kemiri: notifications ${notificationStore.file} (VAPID key ${vapidKeyFile}, sub ${notifications.subject})`,
 	);
@@ -629,13 +640,14 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.logins?.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.logins.idleTimeoutMs }),
 		onChange: (login) => {
 			for (const connection of connections) connection.notifyLogin(login);
+			if (login.status !== "prompt") void notifications.resolveAlerts(alert => alert.kind === "login_prompt" && alert.tag === `login:${login.id}`);
 			if (login.status === "succeeded") {
 				usagePause?.credentialsChanged(login.providerId);
 				subscriptionUsage.credentialsChanged(login.providerId);
 			}
 		},
-		onPrompt: (login) => {
-			const event = loginPromptNotification(login);
+		onPrompt: (login, idleDeadline) => {
+			const event = loginPromptNotification(login, idleDeadline === undefined ? undefined : new Date(idleDeadline).toISOString());
 			if (event !== undefined) notifications.notify(event);
 		},
 	});

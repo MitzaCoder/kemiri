@@ -2,6 +2,7 @@ package io.github.mitzacoder.kemiri.notifications
 
 import io.github.mitzacoder.kemiri.features.notifications.*
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
+import io.github.mitzacoder.kemiri.protocol.NotificationPayloadQuestion
 import java.time.Instant
 import org.junit.Assert.*
 import org.junit.Test
@@ -83,4 +84,44 @@ class PushNotificationTest {
         assertNull(finishedWorkTimeout(question, now))
         assertNull(finishedWorkTimeout(question.copy(kind = "login_prompt"), now))
     }
+
+    @Test fun namedConversationsKeepTheirShortcutAcrossRenamesAndKinds() {
+        val reply = question.copy(kind = "reply", coordinatorId = "order", coordinatorName = "Order Builder")
+        val chat = requireNotNull(pushConversation(reply, "Bakery site"))
+        assertEquals("Order Builder · Bakery site", chat.label)
+        assertEquals(chat.shortcutId, pushConversation(reply.copy(coordinatorName = "Orders"), "New name")?.shortcutId)
+        assertEquals(chat.shortcutId, pushConversation(reply.copy(kind = "board_question"), "Bakery site")?.shortcutId)
+        assertNotEquals(chat.shortcutId, pushConversation(reply.copy(backendKey = "https://lab.example.test"), "Bakery site")?.shortcutId)
+        assertNotEquals(chat.shortcutId, pushConversation(reply.copy(coordinatorId = "inventory"), "Bakery site")?.shortcutId)
+        assertNotEquals(chat.shortcutId, pushConversation(reply.copy(projectId = "other"), "Bakery site")?.shortcutId)
+        val approval = reply.copy(kind = "board_question", question = NotificationPayloadQuestion("Q3", 2, false, approval = true))
+        assertNull(pushConversation(approval, "Bakery site"))
+        assertEquals("An approval is waiting", hiddenNotificationTitle(approval))
+    }
+
+    @Test fun newQuestionIdentityAndPlainPreviewTakePrecedenceOverLegacyTitleAndTag() {
+        val rich = question.copy(question = NotificationPayloadQuestion("Q4", 7, false),
+            projectName = "Bakery site", message = "What should ship?\n\nKeep 2 * 3 in the formula.")
+        assertEquals("Q4", notificationQuestionId(rich))
+        val text = pushNotificationText(rich, "Bakery site", "Studio", true)
+        assertEquals("What should ship?", text.title)
+        assertEquals("Keep 2 * 3 in the formula.", text.body)
+        assertEquals(PushNotificationText("A question is waiting", "", null), pushNotificationText(rich, "Bakery site", "Studio", false))
+    }
+
+    @Test fun sharedLimitCardsUseExactExpiryAndKeepUnconfirmedAccountsSeparate() {
+        val now = Instant.parse("2026-01-01T00:00:00Z")
+        val limit = question.copy(kind = "usage_limit_reached", sharedLimitKey = "a".repeat(43), expiresAt = "2026-01-01T01:00:00Z")
+        assertEquals(3_600_000L, pushTimeout(limit, now))
+        assertEquals(0L, pushTimeout(limit, now.plusSeconds(3600)))
+        assertEquals(sharedLimitCard(limit), sharedLimitCard(limit.copy(backendKey = "https://lab.example.test")))
+        assertNull(sharedLimitCard(limit.copy(expiresAt = null)))
+        assertNull(sharedLimitCard(limit.copy(sharedLimitKey = null)))
+        assertNull(sharedLimitCard(limit.copy(kind = "usage_drain_paused")))
+        assertNull(pushTimeout(limit.copy(expiresAt = "tomorrow"), now))
+        val text = pushNotificationText(limit, null, "Studio", true, listOf("Studio", "Lab"))
+        assertEquals("Studio, Lab", text.context)
+        assertTrue(text.body.startsWith("On Studio, Lab: Work waits until "))
+    }
+
 }

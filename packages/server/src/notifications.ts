@@ -38,6 +38,7 @@ import {
 	type ScheduleRun,
 } from "@kemiri/protocol";
 import { Buffer } from "node:buffer";
+import { createHmac } from "node:crypto";
 import { chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -726,7 +727,14 @@ export type NotificationEvent = {
 	answerId?: string;
 	/** The board task it is about; the app opens that task. */
 	taskId?: string | null;
-	/** Extra board fields for the in-app stream, not for push payloads. */
+	projectName?: string;
+	coordinatorName?: string;
+	/** Full source for the plain-text preview, before enforcing the push budget. */
+	message?: string;
+	taskTitle?: string;
+	expiresAt?: string;
+	sharedLimitKey?: string;
+	/** Task attachments not used for tap routing in the legacy payload. */
 	alertTaskId?: string | null;
 	taskRevision?: number;
 	question?: Pick<NotificationAlert, "questionId" | "questionRevision" | "choices" | "warning" | "approval">;
@@ -776,20 +784,50 @@ export function notificationBlocked(
 /** One line of text, trimmed and cut to what a notification can show. */
 export function notificationLine(text: string | null | undefined, limit = NOTIFICATION_BODY_LIMIT): string {
 	const first = (text ?? "").trim().split("\n")[0]?.trim() ?? "";
-	if (first.length <= limit) return first;
-	return `${first.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+	if (Array.from(first).length <= limit) return first;
+	return `${Array.from(first).slice(0, Math.max(0, limit - 1)).join("").trimEnd()}…`;
 }
 
-/** The payload one device gets: its own `backendKey`, so a deep link lands on the backend that pushed it. */
+/** Clip complete Unicode code points and measure the JSON form so quotes and escapes count toward the budget. */
+function notificationTextWithin(text: string | undefined, maxPoints: number, maxBytes: number): string | undefined {
+	if (!text) return undefined;
+	const points = Array.from(text.trim());
+	let count = Math.min(maxPoints, points.length);
+	const preview = () => `${points.slice(0, count).join("").trimEnd()}${count < points.length ? "…" : ""}`;
+	while (count > 0 && Buffer.byteLength(JSON.stringify(preview())) > maxBytes) count--;
+	return count > 0 ? preview() : undefined;
+}
+
+/** The server decides which exact choices are safe to offer. Never shorten or pick an answer for the owner. */
+function pushQuestion(event: NotificationEvent): NotificationPayload["question"] {
+	const question = event.question;
+	if (!question?.questionId || question.questionRevision === undefined) return undefined;
+	const choices = question.choices ?? [];
+	const quickAnswerAllowed = event.projectId != null && !question.warning && !question.approval &&
+		choices.length >= 1 && choices.length <= 3 && new Set(choices.map(choice => choice.label)).size === choices.length &&
+		choices.every(({ label }) => label.trim() && !/[\u0000-\u001f\u007f]/u.test(label) && Array.from(label).length <= 24);
+	return { id: question.questionId, revision: question.questionRevision, quickAnswerAllowed,
+		...(quickAnswerAllowed ? { choices: [...choices].sort((left, right) => Number(right.recommended) - Number(left.recommended)) } : {}),
+		...(question.warning ? { warning: true } : {}), ...(question.approval ? { approval: true } : {}) };
+}
+
+/** The payload one device gets: its own backend key, plus optional richer display and routing fields. */
 export function notificationPayload(
 	device: Pick<NotificationDevice, "backendKey">,
 	event: NotificationEvent,
 	at: string,
+	computerName?: string,
 ): NotificationPayload {
+	const projectName = notificationTextWithin(event.projectName, 80, 112);
+	const coordinatorName = notificationTextWithin(event.coordinatorName, 80, 112);
+	const computer = notificationTextWithin(computerName, 80, 112);
+	const taskTitle = notificationTextWithin(event.taskTitle, 120, 144);
+	const message = notificationTextWithin(event.message === undefined ? undefined : markdownText(event.message, true), 600, 1600);
+	const question = pushQuestion(event);
 	return {
 		kind: event.kind,
-		title: notificationLine(event.title, 80),
-		body: event.body,
+		title: notificationTextWithin(notificationLine(event.title, 80), 80, 254) ?? "Open the app",
+		body: notificationTextWithin(event.body, 600, 520) ?? "",
 		backendKey: device.backendKey,
 		projectId: event.projectId ?? null,
 		workerId: event.workerId ?? null,
@@ -801,7 +839,24 @@ export function notificationPayload(
 		...(event.taskId === undefined ? {} : { taskId: event.taskId }),
 		tag: event.tag ?? notificationTag(event),
 		at,
+		...(projectName ? { projectName } : {}), ...(computer ? { computerName: computer } : {}),
+		...(coordinatorName ? { coordinatorName } : {}), ...(message && message !== event.body ? { message } : {}),
+		...(taskTitle ? { taskTitle } : {}), ...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
+		...(event.key && Buffer.byteLength(JSON.stringify(event.key)) <= 160 ? { key: event.key } : {}),
+		...(event.kind === "test" ? {} : { level: notificationAlertLevel(event.kind, event.question?.warning) }),
+		...(question ? { question } : {}), ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+		...(event.sharedLimitKey ? { sharedLimitKey: event.sharedLimitKey } : {}),
 	};
+}
+
+/** A shared VAPID key scopes the correlation to this installation; raw account labels stay on the server. */
+export function sharedSubscriptionLimitKey(ownerKey: string, kind: "usage_limit_reached" | "usage_drain_warning",
+	reading: { providerId: string; account: string | null; plan: string | null } | undefined, reset: string | undefined, windowId?: string): string | undefined {
+	const account = reading?.account?.trim().toLowerCase();
+	const at = reset ? Date.parse(reset) : NaN;
+	if (!reading || !account || !Number.isFinite(at)) return undefined;
+	return createHmac("sha256", ownerKey).update(JSON.stringify(["subscription-notice-v1", kind, reading.providerId, account, reading.plan, at, windowId ?? null]))
+		.digest("base64url");
 }
 
 /** The coordinator finished an answer: the body is the first line of it. */
@@ -817,6 +872,9 @@ export function replyNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "reply",
+		projectName: input.projectName,
+		coordinatorName: input.coordinatorTitle ?? "Main chat",
+		message: input.text,
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.projectName} replied`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId, threadId: input.coordinatorId, entryId: input.entryId } : {}),
 		...(input.answerId === undefined ? {} : { answerId: input.answerId }),
@@ -843,9 +901,11 @@ export function workerNotification(input: {
 	coordinatorTitle?: string;
 }): NotificationEvent {
 	const failed = input.kind === "worker_failed";
+	const message = failed ? input.failure : input.text;
 	const thread = input.threadId === undefined || input.threadId === "main" ? undefined : input.threadId;
 	return {
 		kind: input.kind,
+		...(message ? { message } : {}),
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : failed ? `Worker failed · ${input.projectName}` : `Worker reported · ${input.projectName}`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: failed
@@ -878,6 +938,7 @@ export function threadFinishedNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "thread_finished",
+		message: input.summary,
 		title: `Finished · ${input.title}`,
 		body: notificationLine(input.summary) || `${input.projectName}: a background thread finished.`,
 		projectId: input.projectId,
@@ -905,6 +966,7 @@ export function threadFailedNotification(input: {
 	if (input.coordinator) return coordinatorFailedNotification({ ...input, key: `thread-failed:${input.projectId}:${input.key}` });
 	return {
 		kind: "thread_failed",
+		message: input.failure,
 		title: `Thread failed · ${input.title}`,
 		body: notificationLine(input.failure) || `${input.projectName}: a background thread failed.`,
 		projectId: input.projectId,
@@ -929,6 +991,7 @@ export function coordinatorFailedNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "coordinator_failed",
+		message: input.failure,
 		title: `Coordinator failed · ${input.projectName} · ${input.title}`,
 		body: notificationLine(input.failure) || "The coordinator turn failed.",
 		projectId: input.projectId,
@@ -953,6 +1016,7 @@ export function scheduleDoneNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "schedule_done",
+		...(input.text ? { message: input.text } : {}),
 		title: `Scheduled task done · ${input.scheduleTitle}`,
 		body: notificationLine(input.text) || `${input.projectName}: the scheduled run finished.`,
 		projectId: input.projectId,
@@ -977,6 +1041,7 @@ export function scheduleFailureNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "schedule_problem",
+		message: input.failure,
 		title: `Scheduled task failed · ${input.scheduleTitle}`,
 		body: notificationLine(input.failure) || "The scheduled run could not finish.",
 		projectId: input.projectId,
@@ -1058,12 +1123,14 @@ export function projectDeployProblemNotification(input: {
 }
 
 /** A provider login waits for an answer that only the user can give. */
-export function loginPromptNotification(login: AuthLogin): NotificationEvent | undefined {
+export function loginPromptNotification(login: AuthLogin, expiresAt?: string): NotificationEvent | undefined {
 	const prompt = login.prompt;
 	if (prompt === undefined || prompt.id.length === 0) return undefined;
 	const message = prompt.message.trim().length === 0 ? "Sign in needs an answer." : prompt.message;
 	return {
 		kind: "login_prompt",
+		message: message,
+		...(expiresAt ? { expiresAt } : {}),
 		title: `Sign in · ${login.providerId}`,
 		body: notificationLine(message),
 		projectId: null,
@@ -1072,10 +1139,12 @@ export function loginPromptNotification(login: AuthLogin): NotificationEvent | u
 	};
 }
 
-export function usageLimitReachedNotification(input: { providerLogin: string; label: string; reason: string; since: string; until?: string }): NotificationEvent {
+export function usageLimitReachedNotification(input: { providerLogin: string; label: string; reason: string; since: string; until?: string; sharedLimitKey?: string }): NotificationEvent {
 	const when = input.until ? `${input.until.slice(0, 10)} at ${input.until.slice(11, 16)} UTC` : undefined;
 	return {
 		kind: "usage_limit_reached",
+		...(input.until ? { expiresAt: input.until } : {}),
+		...(input.sharedLimitKey ? { sharedLimitKey: input.sharedLimitKey } : {}),
 		title: notificationLine(input.reason, 80),
 		body: when ? `${input.label} work on this computer waits until ${when} and then continues by itself.`
 			: `${input.label} work on this computer waits. The provider did not give a reset time. Resume from Usage.`,
@@ -1095,13 +1164,15 @@ function usageDuration(minutes: number): string {
 }
 
 export function usageDrainWarningNotification(input: {
-	providerLogin: string; label: string; limit: string; minutesLeft: number; minutesToReset: number; limitId: string; resetsAt: string;
+	providerLogin: string; label: string; limit: string; minutesLeft: number; minutesToReset: number; limitId: string; resetsAt: string; sharedLimitKey?: string;
 }): NotificationEvent {
 	const timeLeft = usageDuration(input.minutesLeft);
 	const timeToReset = usageDuration(input.minutesToReset);
 	const windowKey = JSON.stringify([input.providerLogin, input.limitId]);
 	return {
 		kind: "usage_drain_warning",
+		expiresAt: input.resetsAt,
+		...(input.sharedLimitKey ? { sharedLimitKey: input.sharedLimitKey } : {}),
 		title: `${input.label} ${input.limit} limit`,
 		body: `About ${timeLeft} left at this pace. The limit resets in about ${timeToReset}.`,
 		projectId: null,
@@ -1133,6 +1204,7 @@ export function compactionFailureNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "compaction_failed",
+		message: input.error,
 		title: `Compaction failed · ${input.projectName}`,
 		body: notificationLine(input.error) || "Compacting the coordinator's conversation failed.",
 		projectId: input.projectId,
@@ -1165,14 +1237,22 @@ export function boardQuestionNotification(input: {
 	taskId?: string | null;
 	requestTitle?: string;
 	partTitle?: string;
+	taskTitle?: string;
+	taskRevision?: number;
 	/** A warning, not a question: the user must acknowledge it. */
 	warning?: boolean;
 	approval?: boolean;
 	questionRevision?: number;
 	choices?: readonly { label: string; recommended?: boolean }[];
 }): NotificationEvent {
+	const taskTitle = input.taskTitle ?? input.partTitle;
 	return {
 		kind: "board_question",
+		projectName: input.projectName,
+		coordinatorName: input.coordinatorTitle ?? "Main chat",
+		message: input.text,
+		...(taskTitle ? { taskTitle } : {}),
+		...(input.taskRevision === undefined ? {} : { taskRevision: input.taskRevision }),
 		title: input.requestTitle !== undefined ? `${input.requestTitle} · ${input.projectName}` : input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.noReplyYet ? `No reply yet on ${input.questionId}` : input.reply ? `Reply on ${input.questionId}` : input.warning === true ? "Warning" : "Question"} · ${input.projectName}`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: input.partTitle === undefined ? notificationLine(markdownText(input.text)) : partNoticeBody(input.partTitle, markdownText(input.text)),
@@ -1206,6 +1286,8 @@ export function taskReviewNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "task_review",
+		projectName: input.projectName,
+		taskTitle: input.title,
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `Ready for review · ${input.projectName}`,
 		...(input.coordinatorId ? { coordinatorId: input.coordinatorId } : {}),
 		body: notificationLine(`${input.taskId} ${input.title}`),
@@ -1231,6 +1313,8 @@ export function taskStepsNotification(input: {
 }): NotificationEvent {
 	return {
 		kind: "task_steps",
+		projectName: input.projectName,
+		taskTitle: input.title,
 		title: `Your steps · ${input.requestTitle ?? input.projectName}`,
 		body: input.requestTitle === undefined ? notificationLine(`${input.taskId} ${input.title}`) : partNoticeBody(input.title),
 		projectId: input.projectId,
@@ -1316,6 +1400,8 @@ type InAppAlerts = {
 };
 
 export type NotifierOptions = {
+	computerName?: string;
+	projectName?: (projectId: string) => Promise<string | undefined>;
 	inAppAlerts?: InAppAlerts;
 	relay?: PushRelayTransport;
 	sessionActive?: (sessionId: string) => boolean;
@@ -1358,6 +1444,8 @@ export class Notifier {
 	readonly relay: PushRelayTransport | undefined;
 	readonly presence: NotificationPresence;
 	readonly #store: NotificationStore;
+	readonly #computerName: string | undefined;
+	readonly #projectName: NotifierOptions["projectName"];
 	readonly #sessionActive: ((sessionId: string) => boolean) | undefined;
 	readonly #state: NotificationStateStore;
 	readonly #inAppAlerts: InAppAlerts | undefined;
@@ -1381,6 +1469,8 @@ export class Notifier {
 	constructor(options: NotifierOptions) {
 		this.#sessionActive = options.sessionActive;
 		this.#store = options.store;
+		this.#computerName = options.computerName;
+		this.#projectName = options.projectName;
 		this.#state = options.state;
 		this.#inAppAlerts = options.inAppAlerts;
 		this.#vapid = options.vapid;
@@ -1548,12 +1638,16 @@ export class Notifier {
 			return { skipped: "filtered", deliveries: [] };
 		}
 		const at = new Date(this.#now());
+		if (event.projectId && event.projectName === undefined) {
+			const name = await this.#projectName?.(event.projectId);
+			if (name) event = { ...event, projectName: name };
+		}
 		const inApp = this.#inAppAlerts;
 		if (inApp && event.kind !== "test") {
 			const kind = event.kind;
 			const key = event.key ?? crypto.randomUUID();
 			event = { ...event, key };
-			const payload = notificationPayload(inApp, event, at.toISOString());
+			const payload = notificationPayload(inApp, event, at.toISOString(), this.#computerName);
 			if (kind === "board_question" || kind === "task_review" || kind === "task_steps") this.resolveAlerts(alert => alert.tag === payload.tag);
 			const alert = inApp.store.append({
 				...payload, ...event.question, kind, key,
@@ -1582,6 +1676,7 @@ export class Notifier {
 	/** Filter at the moment of sending (a mute or quiet hours changed during the hold count) and push to each device. */
 	async #deliverNow(event: NotificationEvent, atIso: string, eventId = newRelayId()): Promise<NotifyResult> {
 		const at = new Date(this.#now());
+		if (event.expiresAt && Date.parse(event.expiresAt) <= at.getTime()) return { skipped: "filtered", deliveries: [] };
 		this.#store.pruneMutes(at.getTime());
 		const deliveries: DeliveryOutcome[] = [];
 		const relayDevices = this.relay?.devices() ?? [];
@@ -1592,7 +1687,7 @@ export class Notifier {
 		}
 		for (const device of relayDevices) {
 			if (notificationBlocked(device, event, { at }) !== undefined) continue;
-			deliveries.push(await this.relay!.send(device.deviceId, notificationPayload(device, event, atIso),
+			deliveries.push(await this.relay!.send(device.deviceId, notificationPayload(device, event, atIso, this.#computerName),
 				event, atIso, eventId));
 		}
 		return { ...(deliveries.length === 0 ? { skipped: "filtered" as const } : {}), deliveries };
@@ -1694,7 +1789,7 @@ export class Notifier {
 		if (relayDevice) {
 			const event = testNotification();
 			const at = new Date(this.#now()).toISOString();
-			return await this.relay!.send(deviceId, notificationPayload(relayDevice, event, at), event, at);
+			return await this.relay!.send(deviceId, notificationPayload(relayDevice, event, at, this.#computerName), event, at);
 		}
 		const device = this.#store.get(deviceId);
 		if (device === undefined) {
@@ -1737,7 +1832,7 @@ export class Notifier {
 			return { deviceId: device.deviceId, ok: false, status: null, message: "auth_revoked" };
 		if (device.sessionId && this.relay?.store.selected(device.sessionId))
 			return { deviceId: device.deviceId, ok: false, status: null, message: "relay_selected" };
-		const payload = notificationPayload(device, event, at);
+		const payload = notificationPayload(device, event, at, this.#computerName);
 		if (device.fcmToken !== undefined) return await this.#pushFcm(device, device.fcmToken, event, payload, at);
 		const subscription = device.subscription!;
 		let details: webpush.RequestDetails;

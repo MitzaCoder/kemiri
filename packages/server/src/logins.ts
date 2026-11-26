@@ -30,7 +30,7 @@ export type OAuthLoginManagerOptions = {
 	/** Called after every change to a login, for broadcasting and tests. */
 	onChange?: (login: AuthLogin) => void;
 	/** Called when a login starts waiting for an answer, so the user's devices can say so. Never waited for. */
-	onPrompt?: (login: AuthLogin) => void;
+	onPrompt?: (login: AuthLogin, idleDeadline?: number) => void;
 	/**
 	 * Stable ID of this installation, for flows that identify the agent host (Sign in with ChatGPT). Called only by
 	 * those flows.
@@ -113,7 +113,7 @@ export class OAuthLoginManager {
 	readonly #models: Models;
 	readonly #log: (message: string) => void;
 	readonly #onChange: ((login: AuthLogin) => void) | undefined;
-	readonly #onPrompt: ((login: AuthLogin) => void) | undefined;
+	readonly #onPrompt: OAuthLoginManagerOptions["onPrompt"];
 	readonly #deviceId: (() => string | Promise<string>) | undefined;
 	readonly #agentName: string | undefined;
 	readonly #idleTimeoutMs: number;
@@ -293,7 +293,7 @@ export class OAuthLoginManager {
 			this.#emit(session);
 			if (this.#onPrompt !== undefined) {
 				try {
-					this.#onPrompt(structuredClone(session.login));
+					this.#onPrompt(structuredClone(session.login), this.#idleTimeoutMs > 0 ? session.login.updatedAt + this.#idleTimeoutMs : undefined);
 				} catch (error) {
 					this.#log(`login ${session.login.id}: prompt listener failed: ${errorMessage(error)}`);
 				}

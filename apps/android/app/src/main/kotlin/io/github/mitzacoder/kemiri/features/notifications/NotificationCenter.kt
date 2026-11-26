@@ -104,7 +104,10 @@ class NotificationCenter(
         scope.launch {
             repository.loaded.first { it }
             repository.settings.map { it.inAppAlerts.showMessageText }.distinctUntilChanged().collect { showText ->
-                if (!showText) cancelPushCards(context) { _, hasDetails -> hasDetails }
+                if (!showText) {
+                    cancelPushCards(context) { _, hasDetails -> hasDetails }
+                    removePushConversationShortcuts(context)
+                }
             }
         }
         scope.launch {

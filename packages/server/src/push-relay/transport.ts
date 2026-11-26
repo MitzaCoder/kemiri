@@ -188,7 +188,7 @@ export class PushRelayTransport {
 			if (current.state === "needs_new_keys") return outcome("needs_new_keys");
 			if (current.state === "paused") return outcome(current.device.lastDelivery?.message ?? "rejected");
 			const now = this.#now();
-			const expiresAt = Math.min(Date.parse(at) + 43_200_000, current.registration.leaseExpiresAt,
+			const expiresAt = Math.min(Date.parse(at) + 43_200_000, event.expiresAt ? Date.parse(event.expiresAt) : Infinity, current.registration.leaseExpiresAt,
 				current.registration.absoluteExpiresAt);
 			if (expiresAt <= now) return outcome("route_expired");
 			if (this.store.snapshot().sends.filter((s) => s.routeId === current.context.routeId).length >= 100) {
