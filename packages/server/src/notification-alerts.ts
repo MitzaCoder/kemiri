@@ -112,6 +112,10 @@ export class NotificationRecentStore {
 		return { type: "notifications.resolved", ...cursor };
 	}
 
+	wasHandled(key: string): boolean {
+		return this.#events.some(entry => entry.type === "alert" && entry.resolved && entry.alert.key === key);
+	}
+
 	recent(after: number, now: number): RecentPage {
 		if (this.#prune(now)) this.#persist();
 		return { backendEpoch: this.#backendEpoch, latestSeq: this.#latestSeq, events: this.#events.filter((entry) => sequence(entry) > after) };

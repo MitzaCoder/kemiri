@@ -67,7 +67,7 @@ test("scoped notifications open the root app route, never a backend origin or sc
 const pushFailure = (fixture: ReturnType<typeof worker>): Promise<void> | undefined => {
 	let completed: Promise<void> | undefined;
 	const payload = { kind: 'worker_failed', title: 'Recipe worker stopped', body: 'A worker did not report.', backendKey: 'lab',
-		projectId: 'recipe', workerId: 'import', scheduleId: null, at: '2026-01-09T12:00:00Z', tag: 'worker:import' };
+		projectId: 'recipe', workerId: 'import', scheduleId: null, at: '2026-01-09T12:00:00Z', tag: 'worker:import', key: 'failure:1' };
 	fixture.listeners.get('push')!({ data: { text: () => JSON.stringify(payload) }, waitUntil: (promise: Promise<void>) => { completed = promise; } });
 	return completed;
 };
@@ -85,6 +85,7 @@ test('a background tab or another origin leaves failure renotification unchanged
 	const fixture = worker('/push/demo/', [{ url: 'https://app.example.test/', visibilityState: 'hidden' },
 		{ url: 'https://other.example.test/', visibilityState: 'visible' }]);
 	await pushFailure(fixture);
+	expect(fixture.shown[0]?.options.data.payload.key).toBe('failure:1');
 	expect(fixture.shown[0]?.options.renotify).toBe(true);
 	expect(fixture.shown[0]?.options.silent).toBeUndefined();
 });
@@ -99,4 +100,20 @@ test("a completed page repair never clears a newer worker subscription change", 
 	const latest = await pushSyncMarkers();
 	await clearPushSyncMarker("/", latest["/"]!);
 	expect(await pushSyncScopes()).toEqual([]);
+});
+
+test('quiet clears close only the exact browser card and never call showNotification', async () => {
+	const fixture = worker('/push/demo/');
+	const closed: string[] = [];
+	const at = '2026-01-09T12:00:00Z';
+	const card = (name: string, backendKey: string, key: string) => ({ tag: 'item', data: { payload: { backendKey, tag: 'item', at, key } }, close: () => closed.push(name) });
+	Object.assign(fixture.api.registration, { getNotifications: async () => [card('exact', 'desk', 'old'), card('replacement', 'desk', 'new'), card('other backend', 'lab', 'old')] });
+	for (const resolved of [[{ tag: 'item', at, key: 'old' }], []]) {
+		let completed: Promise<void> | undefined;
+		fixture.listeners.get('push')!({ data: { text: () => JSON.stringify({ kind: 'resolved', backendKey: 'desk', resolved }) },
+			waitUntil: (promise: Promise<void>) => { completed = promise; } });
+		await completed;
+	}
+	expect(closed).toEqual(['exact']);
+	expect(fixture.shown).toEqual([]);
 });

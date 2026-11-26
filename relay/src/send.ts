@@ -26,6 +26,7 @@ interface SendInput {
 	routeId: string;
 	messageId: string;
 	compactEnvelope?: string;
+	priority: "high" | "normal";
 }
 interface ExternalReservation {
 	kind: "send";
@@ -40,10 +41,16 @@ type Reservation =
 			response: EndpointResult;
 	  };
 function parseSendInput(raw: unknown, statusOnly: boolean): SendInput {
-	const input = parseObject(raw, statusOnly ? ["routeId", "messageId"] : ["routeId", "messageId", "envelope"]);
+	const input = parseObject(
+		raw,
+		statusOnly ? ["routeId", "messageId"] : ["routeId", "messageId", "envelope"],
+		statusOnly ? [] : ["priority"],
+	);
 	requireId(input.routeId);
 	requireId(input.messageId);
+	requireCondition(input.priority === undefined || input.priority === "normal");
 	return {
+		priority: input.priority === "normal" ? "normal" : "high",
 		routeId: input.routeId,
 		messageId: input.messageId,
 		...(statusOnly ? {} : { compactEnvelope: serializeEnvelope(input.envelope, input.routeId, input.messageId) }),
@@ -118,7 +125,11 @@ async function reserveOrSend(
 ): Promise<EndpointResult> {
 	const credential = parseCapability(request.authorization, "send");
 	// Validate IDs/shape, but authenticate before envelope serialization or external account work.
-	const input = parseObject(raw, statusOnly ? ["routeId", "messageId"] : ["routeId", "messageId", "envelope"]);
+	const input = parseObject(
+		raw,
+		statusOnly ? ["routeId", "messageId"] : ["routeId", "messageId", "envelope"],
+		statusOnly ? [] : ["priority"],
+	);
 	requireId(input.routeId);
 	requireCondition(credential.routeId === input.routeId, 404, "not_found");
 	const routeRef = store.routes.doc(input.routeId);
@@ -144,11 +155,14 @@ async function reserveOrSend(
 		requireActiveRoute(route, deps.now());
 		if (statusOnly) return { kind: "reply", response: statusResponse(previous) };
 		const compact = parsed.compactEnvelope!;
+		// Keep legacy receipt digests unchanged; a retry cannot turn a quiet send into a wakeup.
+		const digest = sha256(parsed.priority === "normal" ? JSON.stringify(["normal", compact]) : compact);
 		if (previous) {
-			requireCondition(constantTimeHashEqual(previous.digest, sha256(compact)), 409, "message_conflict");
+			requireCondition(constantTimeHashEqual(previous.digest, digest), 409, "message_conflict");
 		}
 		const reservedAt = previous?.reservedAt ?? deps.now();
-		const ttlMs = Math.min(reservedAt + 12 * 60 * MINUTE, route.leaseExpiresAt) - deps.now();
+		const ttlMs =
+			Math.min(reservedAt + (parsed.priority === "normal" ? 5 : 12 * 60) * MINUTE, route.leaseExpiresAt) - deps.now();
 		requireCondition(ttlMs > 0, 410, "message_expired");
 		if (previous) {
 			const terminal = previous.state === "accepted" || previous.state === "failed";
@@ -170,7 +184,7 @@ async function reserveOrSend(
 			uid: route.uid,
 			routeId: parsed.routeId,
 			messageId: parsed.messageId,
-			digest: sha256(compact),
+			digest,
 			reservedAt,
 			state: "pending",
 			leaseUntil: deps.now() + MINUTE,
@@ -179,7 +193,7 @@ async function reserveOrSend(
 		});
 		return {
 			kind: "send",
-			message: { token: installation.token, data: { aiki: compact }, priority: "high", ttlMs },
+			message: { token: installation.token, data: { aiki: compact }, priority: parsed.priority, ttlMs },
 			installationId: route.installationId,
 			generation: installation.generation,
 		};

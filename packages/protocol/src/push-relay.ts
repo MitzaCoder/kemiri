@@ -450,9 +450,9 @@ export function parseRelayFcmData(text: string): RelayEnvelope {
 	return parseRelayEnvelope(p.aiki);
 }
 /** Build a byte-capped send body whose outer route/message IDs match the envelope. */
-export function relaySendBody(envelope: string): string {
+export function relaySendBody(envelope: string, priority?: "normal"): string {
 	const e = parseRelayEnvelope(envelope);
-	const body = compact({ routeId: e.r, messageId: e.m, envelope });
+	const body = compact({ routeId: e.r, messageId: e.m, envelope, ...(priority ? { priority } : {}) });
 	checkRelaySize(body, PUSH_RELAY_LIMITS.sendBody);
 	return body;
 }

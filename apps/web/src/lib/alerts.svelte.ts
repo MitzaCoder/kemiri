@@ -1,5 +1,6 @@
 import { boardConflict, type HarnessClient } from '@kemiri/client';
 import type { NotificationAlert, NotificationMute, NotificationRecentEntry } from '@kemiri/protocol';
+import { closeBrowserCardsFromPage } from "./close-browser-notifications.js";
 import { notifications } from './notifications.svelte.js';
 import { activeDoNotDisturb, alertOriginMuted, quietTimerDelay } from './alert-quiet.js';
 import {
@@ -332,7 +333,10 @@ class Alerts {
 			const ordered = reconcileAlertEntries(history.events, pending.map(live => live.entry));
 			const cached = new Map(cachedRows(backend.id).map(row => [alertRowId(row), row]));
 			let rows = this.rows.map(row => row.backendId === backend.id && row.alert.backendEpoch !== epoch ? { ...row, done: true } : row);
-			for (const entry of ordered) rows = applyAlertEntry(rows, backend.id, entry);
+			for (const entry of ordered) {
+				rows = applyAlertEntry(rows, backend.id, entry);
+				if (entry.type === 'resolved') void closeBrowserCardsFromPage(backend.id, entry.tags, entry.at);
+			}
 			this.#setRows(retained(rows.map(row => withBrowserMarks(row, cached.get(alertRowId(row))))));
 			const now = Date.now();
 			const context = this.#context(backend.id, false);
@@ -400,7 +404,10 @@ class Alerts {
 			rows = rows.map(row => alertRowId(row) === id ? withBrowserMarks(row, cached) : row);
 		}
 		this.#setRows(retained(rows));
-		if (entry.type !== 'alert') return;
+		if (entry.type !== 'alert') {
+			void closeBrowserCardsFromPage(backendId, entry.tags, entry.at);
+			return;
+		}
 		const row = this.#findRow(backendId, entry.alert);
 		const { pop, silent } = this.#popupDecision(entry.alert, context);
 		if (row && !row.done && !row.dismissed && pop) this.#queue(row, arrivedAt, !silent, previous);

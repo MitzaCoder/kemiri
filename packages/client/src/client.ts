@@ -1087,6 +1087,11 @@ export class HarnessClient {
 		return response.dropped;
 	}
 
+	/** A visible coordinator chat has been read through this assistant entry on this device. */
+	async reportNotificationChatRead(deviceId: string, readChat: { projectId: string; coordinatorId: string; through: number }): Promise<void> {
+		await this.#call<NotificationsInteractionResponse>({ type: "notifications.interaction", deviceId, readChat });
+	}
+
 	onAnswersChanged(listener: (event: import("@kemiri/protocol").AnswersChangedEvent) => void): () => void {
 		this.#answersChangedListeners.add(listener);
 		return () => this.#answersChangedListeners.delete(listener);

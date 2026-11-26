@@ -89,6 +89,7 @@ export {
 	NotificationsSyncRelayResponseSchema,
 } from "./notification-relay.ts";
 export * from "./push-relay.ts";
+export { RESOLVED_PUSH_TTL_MS, RESOLVED_PUSH_TARGET_LIMIT, type NotificationResolvedTarget } from "./notifications.ts";
 export * from "./device-auth.ts";
 import {
 	DeviceAuthModeSchema,

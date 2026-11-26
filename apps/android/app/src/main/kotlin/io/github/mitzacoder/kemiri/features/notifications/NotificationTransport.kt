@@ -40,6 +40,7 @@ internal fun NotificationPreferences.forBackend(connection: ConnectionState): No
         },
         projectMutes = projectMutes.takeIf { connection.supports("notification-timed-mutes") },
         backendMute = backendMute.takeIf { connection.supports("notification-timed-mutes") },
+        quietResolutions = true.takeIf { connection.supports(RESOLVED_PUSH_FEATURE) },
     )
 
 /** Off is exactly the existing FCM registration branch. Relay selection is exclusive and cannot fall back on failure. */

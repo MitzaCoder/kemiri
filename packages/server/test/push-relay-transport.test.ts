@@ -43,6 +43,30 @@ test("lost acceptance reply retries identical HTTP bytes/message/nonce/event and
 	expect(f.setup.server.notifications.relay!.store.snapshot().sends).toHaveLength(0);
 });
 
+test("quiet relay clear follows an accepted retry and bypasses notice mutes", async () => {
+	const f = await relaySetup();
+	const phone = await simulatedPhone();
+	phone.registration.preferences.quietResolutions = true;
+	await phone.activate(f.client);
+	f.relay.replies.push({ status: 200, lost: true });
+	const notifier = f.setup.server.notifications;
+	await notifier.deliver({ ...event, tag: "chat:desk", entryId: 3, key: "reply:3", projectId: "desk", coordinatorId: "main" });
+	const original = (await phone.admit(f.relay.sends()[0]!, f.clock.now)).payload;
+	notifier.readChat("desk", "main", 3);
+	await f.tick(1000);
+	expect(f.relay.sends()).toHaveLength(1);
+	await f.tick(4000);
+	expect(f.relay.sends()[1]?.body).toBe(f.relay.sends()[0]?.body);
+	await notifier.relay!.sync(f.credentials.sessionId, { routeId: phone.registration.routeId, preferences: { ...phone.registration.preferences, kinds: [] } });
+	await f.tick(1000);
+	const [,, clear] = f.relay.sends();
+	expect(JSON.parse(clear!.body)).toMatchObject({ priority: "normal" });
+	const plaintext = await phone.admit(clear!, f.clock.now);
+	expect(plaintext.expiresAt - plaintext.createdAt).toBe(300_000);
+	expect(plaintext.payload).toMatchObject({ kind: "resolved", title: "", body: "",
+		resolved: [{ tag: original.tag, at: original.at, key: original.key }] });
+});
+
 test("pending exact envelope survives restart and accepted events never replay", async () => {
 	const f = await relaySetup();
 	const phone = await simulatedPhone();

@@ -321,6 +321,27 @@
 		projectsNav.rememberCoordinator(coordinatorStorageKey(backend.id, projectId, 'last'), viewingCoordinator.id);
 		if (viewingCoordinator.lastReplyAt) projectsNav.markCoordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${viewingCoordinator.id}`), viewingCoordinator.lastReplyAt);
 	});
+	let reportedChatRead: string | undefined;
+	$effect(() => {
+		if (!shown || (isThread && !coordinatorChat) || !backend.ready || !backend.supports('notification-resolved-push')) {
+			reportedChatRead = undefined;
+			return;
+		}
+		const through = session?.entries.findLast(entry => entry.kind === 'pi.assistant')?.id;
+		if (!through) return;
+		const scope = JSON.stringify([backend.id, projectId, coordinatorId, through]);
+		const report = () => {
+			if (document.visibilityState !== 'visible' || reportedChatRead === scope) return;
+			reportedChatRead = scope;
+			void backend.client.reportNotificationChatRead(notifications.deviceId, { projectId, coordinatorId, through }).catch(() => {
+				if (reportedChatRead === scope) reportedChatRead = undefined;
+			});
+		};
+		report();
+		document.addEventListener('visibilitychange', report);
+		return () => document.removeEventListener('visibilitychange', report);
+	});
+
 	function switchCoordinator(id: string) {
 		const href = coordinatorHref(backend.id, projectId, id);
 		if (href !== page.url.pathname) void goto(href);

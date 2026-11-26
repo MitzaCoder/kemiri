@@ -121,6 +121,7 @@ export const NotificationPreferencesSchema = Type.Object({
 	),
 	projectMutes: Type.Optional(Type.Array(NotificationProjectMuteSchema)),
 	backendMute: Type.Optional(NotificationMuteSchema),
+	quietResolutions: Type.Optional(Type.Boolean({ description: "The device can handle a clear without showing a notification." })),
 });
 export type NotificationPreferences = Static<typeof NotificationPreferencesSchema>;
 
@@ -243,9 +244,19 @@ const NotificationQuestionSchema = Type.Object({
 	approval: Type.Optional(Type.Boolean()),
 });
 
+export const RESOLVED_PUSH_TTL_MS = 5 * 60 * 1000;
+export const RESOLVED_PUSH_TARGET_LIMIT = 16;
+const NotificationResolvedTargetSchema = Type.Object({
+	tag: Type.String({ minLength: 1 }),
+	at: Type.String({ minLength: 1 }),
+	key: Type.Optional(Type.String()),
+	sharedLimitKey: Type.Optional(Type.String()),
+});
+export type NotificationResolvedTarget = Static<typeof NotificationResolvedTargetSchema>;
+
 /** What the service worker receives, as JSON, in the push message. */
 export const NotificationPayloadSchema = Type.Object({
-	kind: Type.Union([NotificationKindSchema, Type.Literal("test")]),
+	kind: Type.Union([NotificationKindSchema, Type.Literal("test"), Type.Literal("resolved")]),
 	title: Type.String(),
 	body: Type.String(),
 	backendKey: Type.String(),
@@ -273,6 +284,7 @@ export const NotificationPayloadSchema = Type.Object({
 	question: Type.Optional(NotificationQuestionSchema),
 	expiresAt: Type.Optional(Type.String({ description: "ISO 8601 deadline when the event has a known expiry." })),
 	sharedLimitKey: Type.Optional(Type.String({ description: "Opaque identity for one kind of notice about the same verified subscription window." })),
+	resolved: Type.Optional(Type.Array(NotificationResolvedTargetSchema, { minItems: 1, maxItems: RESOLVED_PUSH_TARGET_LIMIT })),
 });
 export type NotificationPayload = Static<typeof NotificationPayloadSchema>;
 
@@ -367,6 +379,8 @@ export const NotificationsInteractionRequestSchema = Type.Object({
 	type: Type.Literal("notifications.interaction"),
 	id: RequestIdSchema,
 	deviceId: Type.String({ minLength: 1 }),
+	readChat: Type.Optional(Type.Object({ projectId: ProjectIdSchema, coordinatorId: Type.String({ minLength: 1 }),
+		through: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) })),
 	onScreenProjectId: Type.Optional(Type.Union([ProjectIdSchema, Type.Null()], {
 		description: "Project visible on this backend when the report was sent. Null means none; omitted uses this connection's last presence.",
 	})),

@@ -53,6 +53,19 @@ test("serialized data cap and HTTP body cap rejected before FCM; exact single ai
 	expect(fixture.captures[0].priority).toBe("high");
 	expect(fixture.captures[0].ttlMs).toBe(12 * 60 * 60000);
 });
+test("a quiet send keeps the ciphertext opaque, expires quickly and cannot be upgraded on retry", async () => {
+	const phone = await enroll();
+	const credentials = await route(phone.installationId);
+	const body = payload(credentials.routeId);
+	fixture.captures = [];
+	expect((await call("send", { ...body, priority: "urgent" }, credentials.send)).status).toBe(400);
+	expect((await call("send", { ...body, priority: "normal" }, credentials.send)).body?.state).toBe("accepted");
+	expect(fixture.captures[0].priority).toBe("normal");
+	expect(fixture.captures[0].ttlMs).toBe(5 * 60_000);
+	expect(Object.keys(fixture.captures[0].data)).toEqual(["aiki"]);
+	expect((await call("send", body, credentials.send)).status).toBe(409);
+	expect(fixture.captures.length).toBe(1);
+});
 test("duplicate sends and lost HTTP reply reuse result; conflicting envelope gives 409; status is minimal", async () => {
 	const phone = await enroll();
 	const credentials = await route(phone.installationId);

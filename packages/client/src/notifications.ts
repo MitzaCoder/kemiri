@@ -189,6 +189,7 @@ export function parseNotificationPayload(raw: string | null | undefined): Notifi
 		...(threadId === undefined ? {} : { threadId }),
 		...(taskId === undefined ? {} : { taskId }),
 		tag: record.tag,
+		...(typeof record.key === "string" ? { key: record.key } : {}),
 		at: typeof record.at === "string" ? record.at : new Date().toISOString(),
 	};
 }

@@ -2,6 +2,7 @@
 import { markdownText } from "@kemiri/protocol";
 import { isNotificationFailure, notificationUrl, parseNotificationPayload } from "@kemiri/client";
 import type { NotificationPayload } from "@kemiri/protocol";
+import { closeExactBrowserCards, parseBrowserClear } from "../lib/close-browser-notifications.ts";
 import { PUSH_CHANGED_MESSAGE, setPushSyncNeeded } from "../lib/push-sync.ts";
 
 /** Shared presentation and root-app click routing; never authentication or subscription creation. */
@@ -11,7 +12,14 @@ export function installPushEvents(worker: ServiceWorkerGlobalScope): void {
 	worker.addEventListener("push", (event) => {
 		event.waitUntil(
 			(async () => {
-				const payload = readPushPayload(event.data);
+				const text = event.data?.text();
+				const input = text ? safeJson(text) : null;
+				if (input && typeof input === "object" && "kind" in input && input.kind === "resolved") {
+					const clear = parseBrowserClear(input);
+					if (clear) closeExactBrowserCards(await worker.registration.getNotifications(), clear);
+					return;
+				}
+				const payload = text === undefined ? null : parseNotificationPayload(text);
 				const url = payload === null ? "/" : notificationUrl(payload);
 				const title = payload?.title ?? "Kemiri";
 				// Scoped push workers do not control the root app. They still see its same-origin windows.
@@ -27,7 +35,7 @@ export function installPushEvents(worker: ServiceWorkerGlobalScope): void {
 					tag: payload?.tag ?? "aiki",
 					// An open window keeps the OS copy quiet, even when a failure replaces an earlier notice.
 					...(silent ? { silent: true } : {}),
-					renotify: !silent && payload !== null && isNotificationFailure(payload.kind),
+					renotify: !silent && payload !== null && payload.kind !== "resolved" && isNotificationFailure(payload.kind),
 					data: { url, payload },
 				};
 				const at = payload === null ? Number.NaN : Date.parse(payload.at);
@@ -37,13 +45,8 @@ export function installPushEvents(worker: ServiceWorkerGlobalScope): void {
 		);
 	});
 
-	function readPushPayload(data: PushMessageData | null): NotificationPayload | null {
-		if (data === null) return null;
-		try {
-			return parseNotificationPayload(data.text());
-		} catch {
-			return null;
-		}
+	function safeJson(text: string): unknown {
+		try { return JSON.parse(text); } catch { return null; }
 	}
 
 	worker.addEventListener("notificationclick", (event) => {

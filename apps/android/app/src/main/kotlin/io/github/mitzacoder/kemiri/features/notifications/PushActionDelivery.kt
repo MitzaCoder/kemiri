@@ -15,6 +15,9 @@ import io.github.mitzacoder.kemiri.protocol.BoardQuestionAnswerResponse
 import io.github.mitzacoder.kemiri.protocol.ConversationSubmitRequest
 import io.github.mitzacoder.kemiri.protocol.ConversationSubmitResponse
 import io.github.mitzacoder.kemiri.protocol.MAIN_THREAD_ID
+import io.github.mitzacoder.kemiri.protocol.NotificationsInteractionRequest
+import io.github.mitzacoder.kemiri.protocol.NotificationsInteractionRequestReadChat
+import io.github.mitzacoder.kemiri.protocol.NotificationsInteractionResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -47,13 +50,13 @@ internal suspend fun deliverPushAction(app: HarnessApplication, action: PendingP
     val project = payload.projectId ?: return PushActionResult.Rejected
     var mayHaveCommitted = false
     try {
-        if (action.kind == PushActionKind.MarkRead && payload.answerId == null) {
-            if (payload.entryId != null) {
-                val repository = app.repository
-                if (withTimeoutOrNull(5_000) { repository.loaded.first { it } } != true) return PushActionResult.Offline
-                repository.markSeen(payload.backendKey, project, payload.entryId)
-            }
-            return PushActionResult.Sent
+        val chatRead = action.kind == PushActionKind.MarkRead && payload.answerId == null
+        if (chatRead) {
+            val entry = payload.entryId ?: return PushActionResult.Sent
+            val repository = app.repository
+            if (withTimeoutOrNull(5_000) { repository.loaded.first { it } } != true) return PushActionResult.Offline
+            repository.markSeen(payload.backendKey, project, entry)
+            if (action.binding == null) return PushActionResult.Sent
         }
         val client = authenticatePushAction(app, action) ?: return PushActionResult.SignedOut
         if (!pushActionsUnlocked(app)) return PushActionResult.Offline
@@ -80,9 +83,18 @@ internal suspend fun deliverPushAction(app: HarnessApplication, action: PendingP
                 client.exchangeAsSession(identity, request.id, request, ConversationSubmitRequest.serializer(), ConversationSubmitResponse.serializer())
             }
             PushActionKind.MarkRead -> {
-                mayHaveCommitted = true
-                val request = AnswersUpdateRequest(projectId = project, answerId = requireNotNull(payload.answerId), read = true)
-                client.exchangeAsSession(identity, request.id, request, AnswersUpdateRequest.serializer(), AnswersUpdateResponse.serializer())
+                if (chatRead) {
+                    if (!client.state.value.supports(RESOLVED_PUSH_FEATURE)) return PushActionResult.Sent
+                    val through = requireNotNull(payload.entryId)
+                    val request = NotificationsInteractionRequest(deviceId = app.repository.settings.value.deviceId,
+                        readChat = NotificationsInteractionRequestReadChat(project, payload.coordinatorId ?: MAIN_THREAD_ID, through))
+                    mayHaveCommitted = true
+                    client.exchangeAsSession(identity, request.id, request, NotificationsInteractionRequest.serializer(), NotificationsInteractionResponse.serializer())
+                } else {
+                    val request = AnswersUpdateRequest(projectId = project, answerId = requireNotNull(payload.answerId), read = true)
+                    mayHaveCommitted = true
+                    client.exchangeAsSession(identity, request.id, request, AnswersUpdateRequest.serializer(), AnswersUpdateResponse.serializer())
+                }
             }
         }
         return PushActionResult.Sent

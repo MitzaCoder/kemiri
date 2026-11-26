@@ -37,7 +37,7 @@ fun decodePendingAppLink(value: String): PendingAppLink? = runCatching { wireJso
 
 fun PendingAppLink.resolve(backends: List<BackendConfig>): AppLink? = when (this) {
     is PendingAppLink.Web -> appLinkFromUri(uri, backends)
-    is PendingAppLink.Notification -> parseNotificationPayload(payload)?.let { notificationLink(it, backends) }
+    is PendingAppLink.Notification -> parseNotificationPayload(payload)?.takeUnless { it.kind == "resolved" }?.let { notificationLink(it, backends) }
 }
 
 /** The base of web `backendIdFromName`: lower-case ASCII words joined by "-", at most 32 characters. */
@@ -190,6 +190,7 @@ fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>
 fun parseNotificationPayload(raw: String?): NotificationPayload? {
     if (raw == null) return null
     val payload = runCatching { wireJson.decodeFromString(NotificationPayload.serializer(), raw) }.getOrNull() ?: return null
+    if (payload.kind == "resolved") return payload.takeIf { it.backendKey.isNotBlank() && validResolvedTargets(it) != null }
     if (payload.kind != "test" && payload.kind !in NOTIFICATION_KINDS) return null
     if (payload.title.isEmpty() || payload.backendKey.isEmpty() || payload.tag.isEmpty()) return null
     return payload

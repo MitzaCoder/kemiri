@@ -4491,7 +4491,8 @@ data class NotificationPreferences(
     val `mutedProjects`: List<String>,
     val `quietHours`: NotificationPreferencesQuietHours?,
     val `projectMutes`: List<NotificationProjectMute>? = null,
-    val `backendMute`: NotificationMute? = null
+    val `backendMute`: NotificationMute? = null,
+    val `quietResolutions`: Boolean? = null
 )
 
 @Serializable
@@ -4562,7 +4563,8 @@ data class NotificationPayload(
     val `level`: String? = null,
     val `question`: NotificationPayloadQuestion? = null,
     val `expiresAt`: String? = null,
-    val `sharedLimitKey`: String? = null
+    val `sharedLimitKey`: String? = null,
+    val `resolved`: List<NotificationPayloadResolvedItem>? = null
 )
 
 @Serializable
@@ -4579,6 +4581,14 @@ data class NotificationPayloadQuestion(
 data class NotificationPayloadQuestionChoicesItem(
     val `label`: String,
     val `recommended`: Boolean
+)
+
+@Serializable
+data class NotificationPayloadResolvedItem(
+    val `tag`: String,
+    val `at`: String,
+    val `key`: String? = null,
+    val `sharedLimitKey`: String? = null
 )
 
 @Serializable
@@ -4646,7 +4656,15 @@ data class NotificationsInteractionRequest(
     @kotlinx.serialization.EncodeDefault val `type`: String = "notifications.interaction",
     val `id`: String = java.util.UUID.randomUUID().toString(),
     val `deviceId`: String,
+    val `readChat`: NotificationsInteractionRequestReadChat? = null,
     val `onScreenProjectId`: String? = null
+)
+
+@Serializable
+data class NotificationsInteractionRequestReadChat(
+    val `projectId`: String,
+    val `coordinatorId`: String,
+    val `through`: Long
 )
 
 @Serializable
@@ -4751,6 +4769,7 @@ data class NotificationAlert(
     val `question`: NotificationPayloadQuestion? = null,
     val `expiresAt`: String? = null,
     val `sharedLimitKey`: String? = null,
+    val `resolved`: List<NotificationPayloadResolvedItem>? = null,
     val `seq`: Long,
     val `backendEpoch`: String,
     val `questionId`: String? = null,

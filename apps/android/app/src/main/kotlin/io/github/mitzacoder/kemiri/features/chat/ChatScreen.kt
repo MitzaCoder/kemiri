@@ -4,6 +4,7 @@ import io.github.mitzacoder.kemiri.features.coordinators.*
 
 import androidx.compose.ui.focus.focusRequester
 
+import io.github.mitzacoder.kemiri.features.notifications.RESOLVED_PUSH_FEATURE
 import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -154,6 +155,20 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     }
     LaunchedEffect(watch, state.entries.lastOrNull()?.id) {
         state.entries.lastOrNull { it.kind == "pi.assistant" }?.let { context.repository.markSeen(context.backend.config.key, context.route.projectId, it.id) }
+    }
+    val pushPresence = notificationCenter?.presence?.collectAsStateWithLifecycle()?.value
+    val coordinatorId = context.route.threadId ?: MAIN_THREAD_ID
+    val readThrough = state.entries.lastOrNull { it.kind == "pi.assistant" }?.id
+    val readingChat = pushPresence?.let { it.visible && it.backendKey == context.backend.config.key && it.projectId == projectId &&
+        it.coordinatorId == coordinatorId && it.taskId == null } == true && context.route.workerId == null
+    LaunchedEffect(readThrough, readingChat, connection.generation, connection.status) {
+        if (readThrough == null || !readingChat || connection.status != ConnectionStatus.Ready ||
+            !connection.supports(RESOLVED_PUSH_FEATURE)) return@LaunchedEffect
+        try {
+            context.backend.client.request(NotificationsInteractionRequest(deviceId = context.repository.settings.value.deviceId,
+                readChat = NotificationsInteractionRequestReadChat(projectId, coordinatorId, readThrough)))
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { /* Opening the chat still clears locally. */ }
     }
     val workerList = projectWorkers(context, connection.supports("workers"))?.value
     val workers = workerList?.workers.orEmpty()

@@ -22,6 +22,8 @@ import {
 	NOTIFICATION_FAILURE_KINDS,
 	NOTIFICATION_HOLD_MS,
 	NOTIFICATION_KINDS,
+	RESOLVED_PUSH_TTL_MS,
+	type NotificationResolvedTarget,
 	normalizeNotificationMutes,
 	notificationMuteActive,
 	pruneExpiredNotificationMutes,
@@ -47,6 +49,7 @@ import type { Environment } from "./data-dir.ts";
 import { ServerError, errorMessage } from "./errors.ts";
 import type { FcmSender } from "./fcm.ts";
 import { readJsonFile, writeJsonFile } from "./fs-json.ts";
+import { NotificationClearQueue, type MatchesPushCard, type PushCard } from "./notification-clears.ts";
 import { notificationAlertLevel, type NotificationRecentStore } from "./notification-alerts.ts";
 import { serverSettings } from "./server-settings.ts";
 
@@ -73,7 +76,7 @@ export type VapidKeys = { publicKey: string; privateKey: string };
 
 type VapidFile = VapidKeys & { version: 1 };
 type DevicesFile = { version: 1; devices: StoredDevice[] };
-type StateFile = { version: 1; deployAttempt: string | null; notified: string[]; held?: HeldEvent[] };
+type StateFile = { version: 1; deployAttempt: string | null; notified: string[]; held?: HeldEvent[]; cards?: ReturnType<NotificationClearQueue["snapshot"]> };
 
 /** An event waiting out its hold: what it was, when it happened (the payload's `at`) and when the hold ends. */
 export type HeldEvent = { id: string; eventId?: string; event: NotificationEvent; at: string; dueAt: number };
@@ -285,7 +288,7 @@ function parsePreferences(raw: unknown, now: number): NotificationPreferences | 
 	} else if (quiet !== null && quiet !== undefined) {
 		return undefined;
 	}
-	return { kinds, quietHours, ...normalizeNotificationMutes(raw, now) };
+	return { kinds, quietHours, ...normalizeNotificationMutes(raw, now), ...(raw.quietResolutions === true ? { quietResolutions: true } : {}) };
 }
 
 /** A device read back from `devices.json`; anything that does not validate is dropped, like a stored schedule. */
@@ -436,6 +439,7 @@ export class NotificationStore {
 			...address,
 			preferences: {
 				kinds: [...input.preferences.kinds],
+				...(input.preferences.quietResolutions === true ? { quietResolutions: true } : {}),
 				...normalizeNotificationMutes(input.preferences, now),
 				quietHours:
 					input.preferences.quietHours === null
@@ -495,6 +499,7 @@ export class NotificationStateStore {
 	readonly #file: string;
 	readonly #log: (message: string) => void;
 	readonly keys: Set<string>;
+	readonly cards = new NotificationClearQueue(() => { void this.#persist(); });
 	/** Events in their hold, by ID, in the order they happened. */
 	readonly held = new Map<string, HeldEvent>();
 	#deployAttempt: string | null = null;
@@ -525,6 +530,7 @@ export class NotificationStateStore {
 			return undefined;
 		});
 		if (raw === undefined || !isRecord(raw)) return;
+		this.cards.load(raw.cards);
 		if (typeof raw.deployAttempt === "string") this.#deployAttempt = raw.deployAttempt;
 		if (Array.isArray(raw.notified)) {
 			for (const key of raw.notified) if (typeof key === "string") this.keys.add(key);
@@ -584,10 +590,12 @@ export class NotificationStateStore {
 		if (this.#queued !== undefined) return this.#queued;
 		const run = this.#writes.then(async () => {
 			this.#queued = undefined;
+			const cards = this.cards.snapshot();
 			const file: StateFile = {
 				version: 1,
 				deployAttempt: this.#deployAttempt,
 				notified: [...this.keys],
+				...(cards.posted.length || cards.waiting.length ? { cards } : {}),
 				...(this.held.size === 0 ? {} : { held: [...this.held.values()] }),
 			};
 			await writeJsonFile(this.#file, file, 0o600);
@@ -834,7 +842,7 @@ export function notificationPayload(
 		scheduleId: event.scheduleId ?? null,
 		...(event.threadId === undefined ? {} : { threadId: event.threadId }),
 		...(event.coordinatorId === undefined ? {} : { coordinatorId: event.coordinatorId }),
-		...(event.entryId === undefined ? {} : { entryId: event.entryId }),
+		...(event.entryId === undefined || (event.kind === "reply" && !event.coordinatorId) ? {} : { entryId: event.entryId }),
 		...(event.answerId === undefined ? {} : { answerId: event.answerId }),
 		...(event.taskId === undefined ? {} : { taskId: event.taskId }),
 		tag: event.tag ?? notificationTag(event),
@@ -859,6 +867,31 @@ export function sharedSubscriptionLimitKey(ownerKey: string, kind: "usage_limit_
 		.digest("base64url");
 }
 
+function pushedCard(event: NotificationEvent, at: string): PushCard | undefined {
+	if (event.kind === "test") return undefined;
+	const question = event.question;
+	return {
+		kind: event.kind, tag: event.tag ?? notificationTag(event), at,
+		projectId: event.projectId ?? null, workerId: event.workerId ?? null,
+		...(event.key && Buffer.byteLength(JSON.stringify(event.key)) <= 160 ? { key: event.key } : {}),
+		...(event.threadId === undefined ? {} : { threadId: event.threadId }),
+		...(event.coordinatorId === undefined ? {} : { coordinatorId: event.coordinatorId }),
+		...(event.entryId === undefined ? {} : { entryId: event.entryId }),
+		...(event.answerId === undefined ? {} : { answerId: event.answerId }),
+		...(event.taskId === undefined && event.alertTaskId === undefined ? {} : { taskId: event.alertTaskId ?? event.taskId ?? null }),
+		...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
+		...(question?.questionId ? { questionId: question.questionId } : {}),
+		...(question?.questionRevision === undefined ? {} : { questionRevision: question.questionRevision }),
+		...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+		...(event.sharedLimitKey ? { sharedLimitKey: event.sharedLimitKey } : {}),
+	};
+}
+
+function resolvedPayload(device: Pick<NotificationDevice, "backendKey">, targets: NotificationResolvedTarget[], at: string): NotificationPayload {
+	return { kind: "resolved", backendKey: device.backendKey, at, resolved: targets, title: "", body: "", tag: "resolved",
+		projectId: null, scheduleId: null, workerId: null };
+}
+
 /** The coordinator finished an answer: the body is the first line of it. */
 export function replyNotification(input: {
 	projectId: string;
@@ -876,7 +909,8 @@ export function replyNotification(input: {
 		coordinatorName: input.coordinatorTitle ?? "Main chat",
 		message: input.text,
 		title: input.coordinatorTitle ? `${input.projectName} · ${input.coordinatorTitle}` : `${input.projectName} replied`,
-		...(input.coordinatorId ? { coordinatorId: input.coordinatorId, threadId: input.coordinatorId, entryId: input.entryId } : {}),
+		entryId: input.entryId,
+		...(input.coordinatorId ? { coordinatorId: input.coordinatorId, threadId: input.coordinatorId } : {}),
 		...(input.answerId === undefined ? {} : { answerId: input.answerId }),
 		body: notificationLine(input.text) || "The coordinator finished an answer.",
 		projectId: input.projectId,
@@ -1463,6 +1497,10 @@ export class Notifier {
 	readonly #schedule: HoldScheduler;
 	/** The timer of every held event, by the held event's ID. */
 	readonly #holdTimers = new Map<string, () => void>();
+	readonly #deliveringCards = new Set<{ card: PushCard; handled: boolean }>();
+	#clearTimer: { at: number; cancel: () => void } | undefined;
+	#sendingClears = false;
+	#stopped = false;
 	#registrations: Promise<unknown> = Promise.resolve();
 	#alertBroadcasts = Promise.resolve();
 
@@ -1485,6 +1523,11 @@ export class Notifier {
 		this.#schedule = options.schedule ?? timeoutScheduler;
 		this.presence = options.presence ?? new NotificationPresence();
 		this.relay = options.relay;
+		this.relay?.setCardAccepted((deviceId, card, handled) => {
+			const active = [...this.#deliveringCards].find(candidate => candidate.card === card ||
+				(candidate.card.tag === card.tag && candidate.card.at === card.at && candidate.card.key === card.key));
+			this.#rememberPush(deviceId, card, handled || active?.handled === true);
+		});
 		this.relay?.setPolicy(async (device, event) =>
 			(!event.projectId || await this.#isArchived?.(event.projectId) !== true) &&
 			notificationBlocked(device, event, { at: new Date(this.#now()) }) === undefined);
@@ -1648,7 +1691,7 @@ export class Notifier {
 			const key = event.key ?? crypto.randomUUID();
 			event = { ...event, key };
 			const payload = notificationPayload(inApp, event, at.toISOString(), this.#computerName);
-			if (kind === "board_question" || kind === "task_review" || kind === "task_steps") this.resolveAlerts(alert => alert.tag === payload.tag);
+			if (kind === "board_question" || kind === "task_review" || kind === "task_steps") this.#resolveInApp(alert => alert.tag === payload.tag);
 			const alert = inApp.store.append({
 				...payload, ...event.question, kind, key,
 				...(event.alertTaskId == null ? {} : { taskId: event.alertTaskId }),
@@ -1656,6 +1699,7 @@ export class Notifier {
 				level: notificationAlertLevel(kind, event.question?.warning),
 			}, at.getTime());
 			await this.#publishAlertEvent(inApp, () => inApp.alert(alert, this.#now()));
+			if (inApp.store.wasHandled(alert.key)) return { skipped: "filtered", deliveries: [] };
 		}
 		if (this.presence.anyVisible() && this.#wanted(event, at)) {
 			this.#hold({ id: crypto.randomUUID(), ...(this.relay ? { eventId: newRelayId() } : {}),
@@ -1679,17 +1723,27 @@ export class Notifier {
 		if (event.expiresAt && Date.parse(event.expiresAt) <= at.getTime()) return { skipped: "filtered", deliveries: [] };
 		this.#store.pruneMutes(at.getTime());
 		const deliveries: DeliveryOutcome[] = [];
+		// Snapshot the routing choice before the first network await. A newly selected relay must not duplicate an in-flight direct notice.
 		const relayDevices = this.relay?.devices() ?? [];
-		for (const device of this.#store.list()) {
-			if (device.sessionId && this.relay?.store.selected(device.sessionId)) continue;
-			if (notificationBlocked(device, event, { at }) !== undefined) continue;
-			deliveries.push(await this.#push(device, event, atIso));
-		}
-		for (const device of relayDevices) {
-			if (notificationBlocked(device, event, { at }) !== undefined) continue;
-			deliveries.push(await this.relay!.send(device.deviceId, notificationPayload(device, event, atIso, this.#computerName),
-				event, atIso, eventId));
-		}
+		const card = pushedCard(event, atIso);
+		const active = card ? { card, handled: false } : undefined;
+		if (active) this.#deliveringCards.add(active);
+		try {
+			for (const device of this.#store.list()) {
+				if (active?.handled) break;
+				if (device.sessionId && this.relay?.store.selected(device.sessionId)) continue;
+				if (notificationBlocked(device, event, { at }) !== undefined) continue;
+				const result = await this.#push(device, event, atIso);
+				deliveries.push(result);
+				if (result.ok && card && device.preferences.quietResolutions) this.#rememberPush(device.deviceId, card, active?.handled === true);
+			}
+			for (const device of relayDevices) {
+				if (active?.handled) break;
+				if (notificationBlocked(device, event, { at }) !== undefined) continue;
+				deliveries.push(await this.relay!.send(device.deviceId, notificationPayload(device, event, atIso, this.#computerName),
+					event, atIso, eventId, device.preferences.quietResolutions ? card : undefined));
+			}
+		} finally { if (active) this.#deliveringCards.delete(active); }
 		return { ...(deliveries.length === 0 ? { skipped: "filtered" as const } : {}), deliveries };
 	}
 
@@ -1740,10 +1794,69 @@ export class Notifier {
 		return page;
 	}
 
-	resolveAlerts(matches: (alert: NotificationAlert) => boolean): Promise<void> | undefined {
+	resolveAlerts(matches: MatchesPushCard): Promise<void> | undefined {
+		const published = this.#resolveInApp(matches);
+		for (const active of this.#deliveringCards) if (matches(active.card)) active.handled = true;
+		const held = [...this.#state.held.values()].filter(({ event, at }) => {
+			const card = pushedCard(event, at);
+			return card && matches(card);
+		});
+		this.#dropHeld(held.map(({ id }) => id));
+		this.#state.cards.settle(matches, this.#now());
+		this.#armClears();
+		void this.relay?.settleCards(matches).catch(() => this.#log("notifications: could not save a settled relay card"));
+		return published;
+	}
+
+	#resolveInApp(matches: MatchesPushCard): Promise<void> | undefined {
 		const inApp = this.#inAppAlerts;
 		const resolution = inApp?.store.resolve(matches, this.#now());
 		if (inApp && resolution) return this.#publishAlertEvent(inApp, () => inApp.resolved(resolution));
+	}
+
+	readChat(projectId: string, coordinatorId: string, through: number): void {
+		void this.resolveAlerts(card => card.kind === "reply" && card.projectId === projectId &&
+			(card.coordinatorId ?? "main") === coordinatorId && card.entryId !== undefined && card.entryId <= through);
+	}
+
+	#rememberPush(deviceId: string, card: PushCard, handled: boolean): void {
+		this.#state.cards.accepted(deviceId, card, this.#now(), handled ||
+			(card.key !== undefined && this.#inAppAlerts?.store.wasHandled(card.key) === true));
+		this.#armClears();
+	}
+
+	#armClears(): void {
+		if (this.#sendingClears || this.#stopped) return;
+		const now = this.#now();
+		const delay = this.#state.cards.nextDelay(now);
+		if (!Number.isFinite(delay)) { this.#clearTimer?.cancel(); this.#clearTimer = undefined; return; }
+		if (this.#clearTimer && this.#clearTimer.at <= now + delay) return;
+		this.#clearTimer?.cancel();
+		const cancel = this.#schedule(() => {
+			this.#clearTimer = undefined;
+			this.#sendingClears = true;
+			const run = this.#sendClears().catch(() => this.#log("notifications: could not send quiet clears")).finally(() => {
+				this.#pending.delete(run);
+				this.#sendingClears = false;
+				this.#armClears();
+			});
+			this.#pending.add(run);
+		}, Math.min(delay, 2_147_483_647));
+		this.#clearTimer = { at: now + delay, cancel };
+	}
+
+	async #sendClears(): Promise<void> {
+		const now = this.#now();
+		const at = new Date(now).toISOString();
+		for (const [deviceId, batch] of this.#state.cards.batches(now)) {
+			if (this.#stopped) break;
+			try {
+				const relay = this.relay?.devices().find(device => device.deviceId === deviceId);
+				const direct = this.#store.get(deviceId);
+				if (relay?.preferences.quietResolutions) await this.relay!.send(deviceId, resolvedPayload(relay, batch, at), { kind: "test" }, at);
+				else if (direct?.preferences.quietResolutions) await this.#sendDirect(direct, resolvedPayload(direct, batch, at));
+			} finally { this.#state.cards.delivered(deviceId, batch); }
+		}
 	}
 
 	/** Send in sequence order after the recent file write; a restart must not reuse a published sequence. */
@@ -1772,12 +1885,17 @@ export class Notifier {
 	 * pushes at once; the others wait the rest of their time, so a client that reconnects can still drop them.
 	 */
 	restore(): void {
+		this.#stopped = false;
 		this.relay?.start();
+		this.#armClears();
 		for (const held of this.#state.held.values()) if (!this.#holdTimers.has(held.id)) this.#armHold(held);
 	}
 
 	/** Cancel the hold timers (a shutdown); held events stay in the state file for `restore`. */
 	stop(): void {
+		this.#stopped = true;
+		this.#clearTimer?.cancel();
+		this.#clearTimer = undefined;
 		this.relay?.stop();
 		for (const cancel of this.#holdTimers.values()) cancel();
 		this.#holdTimers.clear();
@@ -1825,6 +1943,12 @@ export class Notifier {
 	}
 
 	async #push(device: StoredDevice, event: NotificationEvent, at: string): Promise<DeliveryOutcome> {
+		return await this.#sendDirect(device, notificationPayload(device, event, at, this.#computerName));
+	}
+
+	async #sendDirect(device: StoredDevice, payload: NotificationPayload): Promise<DeliveryOutcome> {
+		const at = payload.at;
+		const quiet = payload.kind === "resolved";
 		if (
 			this.#store.get(device.deviceId)?.sessionId !== device.sessionId ||
 			(device.sessionId && !this.#sessionActive?.(device.sessionId))
@@ -1832,8 +1956,7 @@ export class Notifier {
 			return { deviceId: device.deviceId, ok: false, status: null, message: "auth_revoked" };
 		if (device.sessionId && this.relay?.store.selected(device.sessionId))
 			return { deviceId: device.deviceId, ok: false, status: null, message: "relay_selected" };
-		const payload = notificationPayload(device, event, at, this.#computerName);
-		if (device.fcmToken !== undefined) return await this.#pushFcm(device, device.fcmToken, event, payload, at);
+		if (device.fcmToken !== undefined) return await this.#pushFcm(device, device.fcmToken, payload);
 		const subscription = device.subscription!;
 		let details: webpush.RequestDetails;
 		try {
@@ -1849,11 +1972,10 @@ export class Notifier {
 						publicKey: this.#vapid.publicKey,
 						privateKey: this.#vapid.privateKey,
 					},
-					TTL: this.#ttlSeconds,
-					...(event.kind !== "test" && NOTIFICATION_FAILURE_KINDS.includes(event.kind)
-						? { urgency: "high" as const }
-						: {}),
-					topic: pushTopic(payload.tag),
+					TTL: quiet ? RESOLVED_PUSH_TTL_MS / 1000 : this.#ttlSeconds,
+					...(quiet ? { urgency: "low" as const } : payload.kind !== "test" && payload.kind !== "resolved" && NOTIFICATION_FAILURE_KINDS.includes(payload.kind)
+						? { urgency: "high" as const } : {}),
+					...(quiet ? {} : { topic: pushTopic(payload.tag) }),
 				},
 			);
 		} catch (error) {
@@ -1869,17 +1991,17 @@ export class Notifier {
 			body: bytesOf(details.body),
 		});
 		// The push service forgot the subscription (uninstalled, permission revoked, profile gone): stop trying.
-		return await this.#record(device, event, at, response, response.status === 404 || response.status === 410);
+		return await this.#record(device, payload, at, response, response.status === 404 || response.status === 410);
 	}
 
 	/** The same payload as FCM data (`payload`: its JSON), which the Android app draws itself. */
 	async #pushFcm(
 		device: StoredDevice,
 		token: string,
-		event: NotificationEvent,
 		payload: NotificationPayload,
-		at: string,
 	): Promise<DeliveryOutcome> {
+		const at = payload.at;
+		const quiet = payload.kind === "resolved";
 		if (this.#fcm === undefined) {
 			// Kept registered: the key may be added later, and the device then hears from this backend again.
 			await this.#store.setLastDelivery(device.deviceId, { at, ok: false, status: null, message: FCM_OFF_MESSAGE });
@@ -1892,15 +2014,16 @@ export class Notifier {
 				(!device.sessionId || !this.relay?.store.selected(device.sessionId)) &&
 				(!device.sessionId || this.#sessionActive?.(device.sessionId) === true),
 			data: { payload: JSON.stringify(payload) },
-			ttlSeconds: this.#ttlSeconds,
+			ttlSeconds: quiet ? RESOLVED_PUSH_TTL_MS / 1000 : this.#ttlSeconds,
+			...(quiet ? { priority: "normal" as const } : {}),
 		});
-		return await this.#record(device, event, at, result, result.unregistered);
+		return await this.#record(device, payload, at, result, result.unregistered);
 	}
 
 	/** Record what the push service answered; a device it no longer knows is dropped. */
 	async #record(
 		device: StoredDevice,
-		event: NotificationEvent,
+		event: Pick<NotificationPayload, "kind">,
 		at: string,
 		response: PushResponse,
 		gone: boolean,

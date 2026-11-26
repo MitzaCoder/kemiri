@@ -143,6 +143,7 @@ export type FcmMessage = {
 	token: string;
 	data: Record<string, string>;
 	ttlSeconds: number;
+	priority?: "normal";
 };
 
 export type FcmResult = {
@@ -242,8 +243,8 @@ export class FcmSender {
 			message: {
 				token: message.token,
 				data: message.data,
-				// High priority wakes the app in Doze to draw the notification; every message here becomes one.
-				android: { priority: "HIGH", ttl: `${message.ttlSeconds}s` },
+				// Quiet clears are data-only and must not request a Doze wake.
+				android: { priority: message.priority === "normal" ? "NORMAL" : "HIGH", ttl: `${message.ttlSeconds}s` },
 			},
 		};
 		try {

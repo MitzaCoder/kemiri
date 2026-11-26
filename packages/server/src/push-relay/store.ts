@@ -44,11 +44,16 @@ export type RelayRoute = {
 	nextSequence: string;
 	device: NotificationDevice;
 };
+import type { PushCard } from "../notification-clears.ts";
+
 export type RelaySendEntry = {
 	routeId: string;
 	messageId: string;
 	body: string;
 	event: Pick<NotificationEvent, "kind" | "projectId">;
+	quiet?: true;
+	card?: PushCard;
+	handled?: true;
 	expiresAt: number;
 	attempts: number;
 	dueAt: number;
@@ -140,7 +145,8 @@ export class PushRelayStore {
 		}
 		for (const route of state.routes) {
 			const { kinds, quietHours } = route.device.preferences;
-			route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(route.device.preferences, now) };
+			route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(route.device.preferences, now),
+				...(route.device.preferences.quietResolutions === true ? { quietResolutions: true } : {}) };
 		}
 		this.#state = state;
 		if (counters !== undefined) {
@@ -261,6 +267,7 @@ export class PushRelayStore {
 			projectMutes?.map(({ projectId, until }) => [projectId, until ?? null]) ?? null,
 			backendMute === undefined ? null : [backendMute.until ?? null],
 		]);
+		if (input.preferences.quietResolutions === true) ordered.push("quietResolutions");
 		const fingerprint = relayBase64(new Uint8Array(await crypto.subtle.digest("SHA-256", relayUtf8(JSON.stringify(ordered)))));
 		return await this.transaction(async (draft) => {
 			const previous = draft.receipts[input.operationId];
@@ -290,7 +297,7 @@ export class PushRelayStore {
 				state: "pending", nextSequence: "0",
 				device: { deviceId: answer.deviceId, label: input.label, backendKey: input.backendKey,
 					preferences: { kinds: [...input.preferences.kinds], quietHours: structuredClone(input.preferences.quietHours),
-						...normalizeNotificationMutes(input.preferences, now) }, createdAt: new Date(now).toISOString(),
+						...normalizeNotificationMutes(input.preferences, now), ...(input.preferences.quietResolutions === true ? { quietResolutions: true } : {}) }, createdAt: new Date(now).toISOString(),
 					transport: "fcm-relay", lastDelivery: null },
 			};
 			// Witness first: a crash before the route write cannot cause a reused sequence/key.

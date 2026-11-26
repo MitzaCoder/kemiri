@@ -355,6 +355,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.now === undefined ? {} : { now: options.now }),
 	});
 	let notifyUsageLimit: ((pause: UsagePause) => void) | undefined;
+	let settleUsageLimits: ((pauses: UsagePause[]) => void) | undefined;
 	let notifyUsageDrain: ((event: NotificationEvent) => void) | undefined;
 	let usageDrain: UsageDrainMonitor | undefined;
 	let drainInvestigation: UsageDrainInvestigation | undefined;
@@ -365,6 +366,7 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 		...(options.setTimer === undefined ? {} : { setTimer: options.setTimer }),
 		describeDrain: pause => drainInvestigation?.drainState(pause),
 		onChange: pauses => {
+			settleUsageLimits?.(pauses);
 			for (const connection of connections) connection.notifyUsagePause(pauses);
 			drainInvestigation?.gateChanged();
 		},
@@ -576,6 +578,13 @@ export async function startServer(options: StartServerOptions): Promise<HarnessS
 			: { now: options.notifications?.now ?? options.now }),
 		log,
 	});
+	settleUsageLimits = pauses => {
+		const active = new Set(pauses.map(pause => `usage-limit:${pause.providerLogin}`));
+		const now = (options.notifications?.now ?? options.now ?? Date.now)();
+		void notifications.resolveAlerts(card => card.kind === "usage_limit_reached" && !active.has(card.tag) &&
+			(!card.sharedLimitKey || !card.expiresAt || Date.parse(card.expiresAt) <= now));
+	};
+	if (usagePause) settleUsageLimits(usagePause.state());
 	// Events that were in their hold when the last process ended carry on with the rest of their time.
 	notifications.restore();
 	notifyUsageDrain = event => notifications.notify(event);

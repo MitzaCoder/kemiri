@@ -30,6 +30,18 @@ class NotificationsTest {
     private val twin = BackendConfig("Harness PC", "https://pc2.example")
     private val backends = listOf(pc, vm, twin)
 
+    @Test fun clearMatchesOnlyTheExactCardOrVerifiedSharedWindow() {
+        val payload = parseNotificationPayload("""{"kind":"resolved","title":"","body":"","tag":"resolved","at":"2026-01-01T00:00:01Z","backendKey":"desk","projectId":null,"workerId":null,"scheduleId":null,"resolved":[{"tag":"question","at":"2026-01-01T00:00:00Z","key":"old"}]}""")!!
+        val target = validResolvedTargets(payload)!!.single()
+        val card = payload.copy(kind = "board_question", tag = target.tag, at = target.at, key = target.key, resolved = null)
+        assertTrue(matchesResolvedTarget("desk", target, card))
+        assertFalse(matchesResolvedTarget("desk", target, card.copy(key = "new")))
+        assertFalse(matchesResolvedTarget("desk", target, card.copy(backendKey = "another")))
+        assertNull(validResolvedTargets(payload.copy(resolved = emptyList())))
+        assertFalse(matchesResolvedTarget("desk", target, card.copy(at = payload.at)))
+        assertTrue(matchesResolvedTarget("desk", target.copy(sharedLimitKey = "window"), card.copy(backendKey = "another", sharedLimitKey = "window")))
+    }
+
     @Test fun kindsAreTheProtocolsWithTheWebsWords() {
         assertEquals(20, NOTIFICATION_KINDS.size)
         assertEquals("reply", NOTIFICATION_KINDS.first())

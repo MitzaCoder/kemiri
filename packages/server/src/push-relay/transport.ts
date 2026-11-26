@@ -7,9 +7,11 @@ import {
 	type NotificationsSyncRelayRequest,
 	encryptRelay,
 	newRelayId,
+	RESOLVED_PUSH_TTL_MS,
 	relaySendBody,
 	relayUnbase64,
 } from "@kemiri/protocol";
+import type { MatchesPushCard, PushCard } from "../notification-clears.ts";
 import { ServerError } from "../errors.ts";
 import type { DeliveryOutcome, HoldScheduler, NotificationEvent } from "../notifications.ts";
 import { PUSH_RELAY_CLEANUP_MS, PUSH_RELAY_PENDING_MS, PushRelayStore,
@@ -43,6 +45,7 @@ export class PushRelayTransport {
 	readonly #now: () => number;
 	readonly #schedule: HoldScheduler;
 	readonly #random: () => number;
+	#cardAccepted: ((deviceId: string, card: PushCard, handled: boolean) => void) | undefined;
 	#allowed: (device: NotificationDevice, event: Pick<NotificationEvent, "kind" | "projectId">) => Promise<boolean> =
 		async () => false;
 	#cancel: (() => void) | undefined;
@@ -64,6 +67,18 @@ export class PushRelayTransport {
 	}
 
 	/** Install the existing Notifier's preference/archive policy; no alternate relay-specific policy. */
+	setCardAccepted(listener: (deviceId: string, card: PushCard, handled: boolean) => void): void {
+		this.#cardAccepted = listener;
+	}
+
+	/** Keep the sealed retry byte-identical, but remember that its card needs a clear if FCM accepts it. */
+	async settleCards(matches: MatchesPushCard): Promise<void> {
+		if (!this.store.snapshot().sends.some(entry => entry.card && !entry.handled && matches(entry.card))) return;
+		await this.store.transaction(draft => {
+			for (const entry of draft.sends) if (entry.card && matches(entry.card)) entry.handled = true;
+		});
+	}
+
 	setPolicy(allowed: (device: NotificationDevice, event: Pick<NotificationEvent, "kind" | "projectId">) => Promise<boolean>): void {
 		this.#allowed = allowed;
 	}
@@ -144,7 +159,8 @@ export class PushRelayTransport {
 			}
 			if (input.preferences) {
 				const { kinds, quietHours } = structuredClone(input.preferences);
-				route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(input.preferences, this.#now()) };
+				route.device.preferences = { kinds, quietHours, ...normalizeNotificationMutes(input.preferences, this.#now()),
+					...(input.preferences.quietResolutions === true ? { quietResolutions: true } : {}) };
 			}
 			if (input.resume) {
 				if (route.state === "needs_new_keys" || route.state === "pending")
@@ -178,8 +194,8 @@ export class PushRelayTransport {
 	}
 
 	/** Consume a durable sequence, encrypt once, persist exact bytes, then submit; newest events drop at capacity. */
-	async send(deviceId: string, payload: NotificationPayload, event: NotificationEvent, at: string,
-		eventId = newRelayId()): Promise<DeliveryOutcome> {
+	async send(deviceId: string, payload: NotificationPayload, event: Pick<NotificationEvent, "kind" | "projectId" | "expiresAt">, at: string,
+		eventId = newRelayId(), card?: PushCard): Promise<DeliveryOutcome> {
 		const outcome = (message: string): DeliveryOutcome => ({ deviceId, ok: false, status: null, message });
 		try {
 			const current = this.store.snapshot().routes.find((r) => r.device.deviceId === deviceId && r.state !== "pending");
@@ -188,7 +204,8 @@ export class PushRelayTransport {
 			if (current.state === "needs_new_keys") return outcome("needs_new_keys");
 			if (current.state === "paused") return outcome(current.device.lastDelivery?.message ?? "rejected");
 			const now = this.#now();
-			const expiresAt = Math.min(Date.parse(at) + 43_200_000, event.expiresAt ? Date.parse(event.expiresAt) : Infinity, current.registration.leaseExpiresAt,
+			const quiet = payload.kind === "resolved";
+			const expiresAt = Math.min(Date.parse(at) + (quiet ? RESOLVED_PUSH_TTL_MS : 43_200_000), event.expiresAt ? Date.parse(event.expiresAt) : Infinity, current.registration.leaseExpiresAt,
 				current.registration.absoluteExpiresAt);
 			if (expiresAt <= now) return outcome("route_expired");
 			if (this.store.snapshot().sends.filter((s) => s.routeId === current.context.routeId).length >= 100) {
@@ -200,10 +217,11 @@ export class PushRelayTransport {
 				backendId: route.context.backendId, sessionId: route.context.sessionId, sequence,
 				createdAt: Date.parse(at), expiresAt, eventId, payload,
 			});
-			const body = relaySendBody(envelope);
+			const body = relaySendBody(envelope, quiet ? "normal" : undefined);
 			const messageId = JSON.parse(envelope).m as string;
 			const entry: RelaySendEntry = { routeId: route.context.routeId, messageId, body,
-				event: { kind: event.kind, projectId: event.projectId }, expiresAt, attempts: 0, dueAt: now };
+				event: { kind: event.kind, projectId: event.projectId }, expiresAt, attempts: 0, dueAt: now,
+				...(quiet ? { quiet: true } : {}), ...(card ? { card } : {}) };
 			const queued = await this.store.transaction((draft) => {
 				if (!draft.routes.some((r) => r.context.routeId === entry.routeId && r.state === "active") ||
 					draft.sends.filter((s) => s.routeId === entry.routeId).length >= 100) return false;
@@ -270,7 +288,7 @@ export class PushRelayTransport {
 		this.#sending.add(entry.messageId);
 		try {
 			const allowed = !this.#locallyRevoked.has(entry.routeId) && this.#options.sessionActive(route.context.sessionId) &&
-				await this.#allowed(route.device, entry.event);
+				(entry.quiet ? route.device.preferences.quietResolutions === true : await this.#allowed(route.device, entry.event));
 			// Re-read after async policy: unregister/rotation/mute can have committed while archive state was read.
 			const latest = this.store.snapshot();
 			const active = latest.routes.find((r) => r.context.routeId === entry.routeId);
@@ -299,7 +317,7 @@ export class PushRelayTransport {
 					safeCodes.has(result.code) ? result.code : "relay_unavailable") :
 				(safeCodes.has(result.code) ? result.code : result.status === 404 ? "not_found" :
 					result.status === 410 ? "route_expired" : result.status === 409 ? "message_conflict" : "rejected");
-			await this.store.transaction((draft) => {
+			const acceptedCard = await this.store.transaction((draft) => {
 				const stored = draft.sends.find((s) => s.messageId === entry.messageId);
 				const current = draft.routes.find((r) => r.context.routeId === entry.routeId);
 				if (!current || !stored) return;
@@ -315,7 +333,9 @@ export class PushRelayTransport {
 						draft.sends = draft.sends.filter((s) => s.routeId !== entry.routeId);
 					}
 				}
+				return accepted && stored.card ? { card: stored.card, handled: stored.handled === true } : undefined;
 			});
+			if (acceptedCard) this.#cardAccepted?.(deviceId, acceptedCard.card, acceptedCard.handled);
 			return outcome(message, result.status);
 		} finally {
 			this.#sending.delete(entry.messageId);

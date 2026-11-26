@@ -7809,7 +7809,10 @@ restart, do not require a live session, and erase the delete capability after 20
 at absolute expiry plus 24 hours, or ten-minute pending expiry plus 24 hours for never-activated operations. A bounded
 24-hour `cleanup_expired` diagnosis distinguishes expiry completion from confirmed deletion after secrets are erased.
 Safe status distinguishes local revoke with cleanup pending from completed cleanup. Already handed-off pushes cannot
-be recalled.
+be recalled. A quiet clear is a separate encrypted message. Its optional `priority: "normal"` hint keeps the same
+admission, budget, and retry rules, but the relay passes it to FCM at normal priority with a five-minute TTL.
+Only ciphertext is sent in FCM data. The relay does not read the kind or clear targets. Omitting the hint preserves
+the old high-priority send and receipt digest. The relay operator must redeploy the HTTPS function before using this hint.
 
 ### Encrypted relay v1 library (T92)
 
@@ -8008,7 +8011,10 @@ connection that interacted within 30 minutes gets `sound: true`. This selects a 
 - **Resolved:** `notifications.resolved { tags, seq, backendEpoch, at }` closes alerts on question settlement or
   replacement, leaving task review, clearing manual steps or closing their task, worker retry or forget,
   a thread or coordinator recovering, and a successful deploy after a deploy problem in the same scope.
-  A new alert under the same tag is still open.
+  A new alert under the same tag is still open. The same settlement clears accepted pushes on capable devices.
+  Separately, a client that advertises `in-app-alerts` can send `notifications.interaction` with `readChat` on a
+  backend that offers `notification-resolved-push`. Its project, coordinator and last read entry scope the replies
+  being settled. Merely opening a watch or reporting a touch is not a chat read.
 - **Catch-up:** `notifications.recent { after }` returns `{ backendEpoch, latestSeq, events }`, ordered by sequence and
   without sound. Alert entries have a resolved flag and resolution entries carry their tags. The separate
   `notifications/recent.json` retains at most 200 entries and seven days. Its epoch survives restart and changes
@@ -8221,8 +8227,8 @@ The pending record binds the tap to the phone's paired backend and device sessio
 answers go through that signed-in socket, never through Firebase or the relay. Answers use the existing board answer
 request with the question's original revision and recheck that the live question is not a warning or approval. Replies
 use the existing chat send request; an explicit retry reuses its request ID. Mark read updates the matching local read
-mark or filed answer. Success clears the status card. A changed or already settled question shows a refusal and Open.
-No server or protocol change is needed for these actions.
+mark or filed answer. A paired phone also reports the last read chat entry on a capable backend. Success clears the
+status card. A changed or already settled question shows a refusal and Open.
 
 Taps go to the chat, task or question where possible. Computer events open AI accounts, computer Overview or You and
 memory as appropriate. Subscription limits open Usage scoped to the computer. Opening the matching chat or task, opening
@@ -8233,8 +8239,19 @@ idle deadline or reset, when known, instead of parsing display text. Android for
 
 For a known provider account and reset, backends sharing the same VAPID key send a keyed window identity, not the
 account label. Android updates one card silently as more computers report the same limit, and receipts live until the
-reset so a dismissed card does not return. Unknown accounts and local drain interventions stay separate. Clearing an
-app that is not connected before a card expires still requires a resolution push.
+reset so a dismissed card does not return. Unknown accounts and local drain interventions stay separate.
+
+Android opts in to `quietResolutions` on capable backends. The backend keeps only accepted card identities per device
+for seven days, and batches settled identities once per second in short-lived `resolved` pushes. A batch lists up to
+16 targets with a combined 1,250-byte target budget. Targets carry the original tag, timestamp and event key, not the
+message. Android consumes the push before any display logic, cancels exact cards and empty summaries, and keeps brief
+local receipts so a late original cannot reappear. An exact limit reset can also clear a verified merged window across
+computers. A shared card stays until reset if one computer resumes early, since the other computers may still be paused.
+
+Web Push supports the same opt-in payload with low urgency and no collapse topic. The bundled web app does not opt in
+because browsers may substitute a generic notification when a background push shows nothing. An open tab closes
+matching browser notifications on live or replayed resolutions. The worker can also consume exact clear messages
+without calling `showNotification` if a compatible subscription receives one.
 
 ### Android in-app alerts
 

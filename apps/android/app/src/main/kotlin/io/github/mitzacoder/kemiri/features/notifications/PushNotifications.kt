@@ -80,6 +80,14 @@ private fun publicNotification(context: Context, channel: String, icon: Int, tit
 
 /** Direct FCM, relay and the debug receiver share this presentation. Reading preferences does not open sockets. */
 suspend fun showPushNotification(context: Context, payload: NotificationPayload, restoringTag: String? = null): Boolean {
+    if (payload.kind == "resolved") {
+        val targets = validResolvedTargets(payload) ?: return false
+        synchronized(pushCardsLock) {
+            saveResolvedTargets(context, payload.backendKey, targets, System.currentTimeMillis())
+            cancelPushCards(context) { card, _ -> targets.any { matchesResolvedTarget(payload.backendKey, it, card) } }
+        }
+        return false // A clear is never presented, even if Android grants permission.
+    }
     if (!canPostNotifications(context)) return false
     val manager = context.getSystemService(NotificationManager::class.java) ?: return false
     val attention = notificationAttention(payload.kind)
@@ -102,7 +110,7 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload,
     val projectGroup = payload.projectId?.takeIf { conversation == null }?.let { "project|${payload.backendKey}|$it" }
     val icon = notificationIcon(payload.kind)
     return synchronized(pushCardsLock) {
-        if (center?.presence?.value?.handlesPush(payload) == true) return@synchronized false
+        if (pushWasResolved(context, payload, now.toEpochMilli()) || center?.presence?.value?.handlesPush(payload) == true) return@synchronized false
         val previous = manager.activeNotifications.firstOrNull { it.tag == cardTag }?.notification
         if (restoringTag != null && (restoringTag != cardTag || previous != null)) return@synchronized false
         val previousRoute = previous?.routingIdentity()

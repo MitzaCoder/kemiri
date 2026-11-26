@@ -323,9 +323,9 @@ async function configureCoordinator(client: TestClient, projectId: string): Prom
 async function registerDevice(
 	client: TestClient,
 	push: FakePushService,
-	options: { deviceId?: string; backendKey?: string; preferences?: NotificationPreferences } = {},
+	options: { deviceId?: string; backendKey?: string; preferences?: NotificationPreferences; status?: number } = {},
 ): Promise<{ deviceId: string; endpoint: string }> {
-	const { subscription } = await push.subscribe();
+	const { subscription } = await push.subscribe(options.status);
 	const deviceId = options.deviceId ?? "device-1";
 	const response = await client.request({
 		type: "notifications.register",
@@ -894,6 +894,37 @@ describe("events", () => {
 		});
 		await sleep(300);
 		expect(push.ofKind("board_question").length).toBe(1);
+	}, 30_000);
+
+	it("clears an answered board question only for upgraded devices whose notice was accepted", async () => {
+		const { test, push } = await setupWithPush();
+		const client = await connect(test.server);
+		await client.hello();
+		const projectId = await addProject(client, test.projectDir);
+		await configureCoordinator(client, projectId);
+		const enabled = preferences({ quietResolutions: true });
+		await registerDevice(client, push, { deviceId: "enabled", preferences: enabled });
+		await registerDevice(client, push, { deviceId: "legacy" });
+		await registerDevice(client, push, { deviceId: "failed", preferences: enabled, status: 503 });
+		await registerDevice(client, push, { deviceId: "off", preferences: preferences({ kinds: [], quietResolutions: true }) });
+		test.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("board", { action: "ask", text: "Which oven?" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("Asked."),
+		]);
+		await submit(client, projectId, "Plan the benchmark.", "question-request");
+		await until(() => push.ofKind("board_question").length === 3);
+		const [notice] = push.ofKind("board_question");
+		const question = (await (await test.server.manager.open(projectId)).runtime.board.state()).questions[0]!;
+		expect(await client.request({ type: "board.question.answer", projectId, questionId: question.id,
+			expectedRevision: question.revision, answer: "Stock" })).toMatchObject({ type: "board.question.answer" });
+		await until(() => push.ofKind("resolved").length !== 0);
+		await test.server.notifications.flush();
+		const [clear] = push.ofKind("resolved");
+		expect(push.ofKind("resolved")).toHaveLength(1);
+		expect(clear).toMatchObject({ id: notice!.id, headers: { ttl: "300", urgency: "low" }, payload: {
+			kind: "resolved", title: "", body: "", resolved: [{ tag: notice!.payload!.tag, at: notice!.payload!.at, key: notice!.payload!.key }],
+		} });
+		expect(clear?.headers.topic).toBeUndefined();
 	}, 30_000);
 
  it("Ask back sends no question push; replies replace the question notification under its existing setting", async () => {

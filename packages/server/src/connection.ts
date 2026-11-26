@@ -772,6 +772,14 @@ export class ClientConnection {
 				}
 				case "notifications.interaction": {
 					if (!this.#features.includes("notification-hold")) return this.#unknownRequest(request);
+					if (request.readChat) {
+						if (!this.#features.includes("notification-resolved-push")) return this.#unknownRequest(request);
+						if (!this.canReceiveNotificationAlerts) throw new DeviceAuthError("auth_required");
+						const { projectId, coordinatorId, through } = request.readChat;
+						this.#notifications.readChat(projectId, coordinatorId, through);
+						this.#respond({ type: "notifications.interaction", id: request.id, dropped: 0 });
+						return;
+					}
 					this.#respond({
 						type: "notifications.interaction",
 						id: request.id,
@@ -990,11 +998,15 @@ export class ClientConnection {
 							this.#respond({ type: request.type, id: request.id, answer: withWorkerProgress(answer, runtime.board.answerClock, workers) });
 							break;
 						}
-						case "answers.update":
-							this.#respond({ type: request.type, id: request.id, answer: await answers.update(request.answerId, {
+						case "answers.update": {
+							const answer = await answers.update(request.answerId, {
 								...(request.pinned === undefined ? {} : { pinned: request.pinned }), ...(request.read === undefined ? {} : { read: request.read }),
-							}) });
+							});
+							if (request.read === true) void this.#notifications.resolveAlerts(card => card.kind === "reply" &&
+								card.projectId === request.projectId && card.answerId === answer.id);
+							this.#respond({ type: request.type, id: request.id, answer });
 							break;
+						}
 						case "answers.delete":
 							await answers.delete(request.answerId);
 							this.#respond({ type: request.type, id: request.id });
