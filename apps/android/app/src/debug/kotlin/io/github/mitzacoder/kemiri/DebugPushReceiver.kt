@@ -27,7 +27,13 @@ class DebugPushReceiver : BroadcastReceiver() {
         intent.getStringExtra("payload")?.let { raw ->
             val payload = parseNotificationPayload(raw)
             if (payload == null) Log.w("HarnessPush", "debug push: not a payload")
-            else Log.i("HarnessPush", "debug push ${payload.kind}: shown=${showPushNotification(context, payload)}")
+            else {
+                val pending = goAsync()
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try { Log.i("HarnessPush", "debug push ${payload.kind}: shown=${showPushNotification(context, payload)}") }
+                    finally { pending.finish() }
+                }
+            }
         }
     }
 }

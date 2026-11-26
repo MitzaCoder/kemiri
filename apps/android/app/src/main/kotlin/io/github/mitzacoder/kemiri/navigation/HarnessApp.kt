@@ -357,7 +357,7 @@ private fun HarnessNavigation(
                                 else if (current.isSettings()) Text("Settings")
                                 else if (headerContext != null) ProjectHeaderTitle(headerContext, chatWidth)
                                 else Text(when (current) {
-                                    Destination.Usage -> "Usage"
+                                    Destination.Usage, is Destination.ComputerUsage -> "Usage"
                                     Destination.ArtifactLibrary -> "Artifacts"
                                     else -> "Kemiri"
                                 })
@@ -395,6 +395,7 @@ private fun HarnessNavigation(
                         when (current) {
                             Destination.Home -> ProjectsHome(repository, navigate, modifier)
                             Destination.Usage -> UsageScreen(repository, modifier, navigate)
+                            is Destination.ComputerUsage -> UsageScreen(repository, modifier, navigate, current.backendKey)
                             Destination.ArtifactLibrary -> ArtifactLibraryScreen(repository, sessions, artifactLibraryReads, modifier, navigate, onDiscuss = ::discuss)
                             is Destination.ArtifactStudio -> if (context != null) ArtifactStudioScreen(context, current.artifactId, ::pop, modifier, onDiscuss = { discuss(context.route, it) }) else MissingBackend(modifier)
                             is Destination.Settings -> GeneralSettingsScreen(repository, current.page, settingsNavigator, requireNotNull(settingsScopes), navigate, connectPayload, onConnectHandled, modifier)

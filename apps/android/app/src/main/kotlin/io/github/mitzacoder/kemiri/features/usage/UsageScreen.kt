@@ -60,7 +60,7 @@ private fun <T> observeUsageRead(supported: Boolean, ready: Boolean, generation:
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, navigate: (Destination) -> Unit) {
+fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, navigate: (Destination) -> Unit, initialComputerKey: String? = null) {
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val usageComputerKey by repository.collectSettings { it.usageComputerKey }
     val scope = rememberCoroutineScope()
@@ -75,7 +75,8 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
     val zone = ZoneId.systemDefault()
     val month = YearMonth.from(now.atZone(zone))
     val nowMillis = now.toEpochMilli().toDouble()
-    val computer = sessions.firstOrNull { it.config.key == usageComputerKey }
+    var notificationComputerKey by rememberSaveable(initialComputerKey) { mutableStateOf(initialComputerKey) }
+    val computer = sessions.firstOrNull { it.config.key == (notificationComputerKey ?: usageComputerKey) }
     val selected = computer?.let { listOf(it) } ?: sessions
     var period by rememberSaveable { mutableStateOf(UsagePeriod.Rolling) }
     val range = usageRange(period, now, zone)
@@ -135,7 +136,10 @@ fun UsageScreen(repository: HarnessRepository, modifier: Modifier = Modifier, na
                 UsageBackendTabs(sessions.map { it.config }, computer?.config?.key, modifier = Modifier.weight(1f), select = { key ->
                     if (key != computer?.config?.key) {
                         sheets = emptyList()
-                        scope.launch { repository.setUsageComputer(key) }
+                        scope.launch {
+                            repository.setUsageComputer(key)
+                            notificationComputerKey = null
+                        }
                     }
                 })
                 IconButton(onClick = ::refreshUsage, enabled = !refreshing && computers.any { it.ready }) {

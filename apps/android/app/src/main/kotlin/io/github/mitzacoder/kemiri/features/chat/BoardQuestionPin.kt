@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.chat
 
+import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
 import androidx.compose.runtime.CompositionLocalProvider
 import io.github.mitzacoder.kemiri.features.coordinators.LocalLandingTurn
 import io.github.mitzacoder.kemiri.features.coordinators.rememberLandingTurn
@@ -103,6 +104,10 @@ internal fun showPinnedBoardQuestions(activePanel: PanelTab?): Boolean = activeP
     val collapsed = !wide && !expanded
     val pin = questionPin(waiting, chosen)
     val current = pin.current ?: return
+    val notifications = LocalNotificationCenter.current
+    if (!collapsed) LaunchedEffect(notifications, context.route.backendKey, project, current.id) {
+        notifications?.questionOpened(context.route.backendKey, project, current.id)
+    }
     val warned = waiting.any { it.waitingOn != "agent" && isWarning(it) }
     val quiet = waiting.all { it.waitingOn == "agent" }
     val summaryTask = current.taskId

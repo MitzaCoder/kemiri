@@ -48,7 +48,7 @@ class NotificationCenter(
     private val label: String,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val relay: () -> io.github.mitzacoder.kemiri.features.notifications.relay.RelayNotifications? = { null },
-    context: Context? = null,
+    private val context: Context? = null,
 ) {
     /** Throttled: the first interaction goes out at once, a burst becomes one trailing message every 5 s. */
     private val interactions = InteractionReporter(
@@ -88,6 +88,7 @@ class NotificationCenter(
                 alertQueue.retain { it.backendKey != key }
                 publishBanners()
             }
+            cancelPushCards(context) { payload, _ -> payload.backendKey == key }
             if (repository.settings.value.notifications.relayEnabled) {
                 relay()?.removeBackend(key)
                 scope.launch { runCatching { relay()?.routes?.cleanupBackend() } }
@@ -99,6 +100,12 @@ class NotificationCenter(
             if (stored.migrated() != stored) repository.setNotifications { it.migrated() }
             // Firebase may have rotated the token while the app was not running; the service is told only while it is.
             if (stored.enabled && tokens.unavailableReason == null) refreshToken()
+        }
+        scope.launch {
+            repository.loaded.first { it }
+            repository.settings.map { it.inAppAlerts.showMessageText }.distinctUntilChanged().collect { showText ->
+                if (!showText) cancelPushCards(context) { _, hasDetails -> hasDetails }
+            }
         }
         scope.launch {
             repository.sessions.collectLatest { sessions ->
@@ -159,19 +166,48 @@ class NotificationCenter(
             mutablePresence.update { it.copy(visible = visible) }
             if (!visible) shownTags.clear()
         }
-        if (visible) scope.launch {
-            repository.loaded.first { it }
-            if (repository.settings.value.notifications.relayEnabled) runCatching { relay()?.foreground() }
+        if (visible) {
+            clearOpenedScreen(presence.value)
+            scope.launch {
+                repository.loaded.first { it }
+                if (repository.settings.value.notifications.relayEnabled) runCatching { relay()?.foreground() }
+            }
         }
     }
     fun setScreen(backendKey: String?, projectId: String?, coordinatorId: String? = null, taskId: String? = null) {
-        synchronized(alertLock) {
+        val next = synchronized(alertLock) {
             val current = presence.value
             val next = current.copy(backendKey = backendKey, projectId = projectId, coordinatorId = coordinatorId, taskId = taskId)
-            if (next != current) {
-                mutablePresence.value = next
-                filterBanners()
-            }
+            if (next == current) return
+            mutablePresence.value = next
+            filterBanners()
+            next
+        }
+        clearOpenedScreen(next)
+    }
+
+    private fun clearOpenedScreen(screen: AppPresence) {
+        if (screen.visible && screen.projectId != null) cancelPushCards(context) { payload, _ -> screen.handlesPush(payload) }
+    }
+
+    internal fun questionOpened(backendKey: String, projectId: String, questionId: String) {
+        if (presence.value.visible) questionHandled(backendKey, projectId, questionId)
+    }
+
+    internal fun questionHandled(backendKey: String, projectId: String, questionId: String) {
+        cancelPushCards(context) { payload, _ ->
+            payload.backendKey == backendKey && payload.projectId == projectId && notificationQuestionId(payload) == questionId
+        }
+    }
+
+    internal fun notificationProjectName(payload: NotificationPayload): String? =
+        repository.session(payload.backendKey)?.projects?.value?.firstOrNull { it.id == payload.projectId }?.name
+
+    private fun clearResolvedCards(backendKey: String, resolutions: Map<String, Instant>) {
+        if (resolutions.isEmpty()) return
+        cancelPushCards(context) { payload, _ ->
+            val resolvedAt = resolutions[payload.tag]
+            payload.backendKey == backendKey && resolvedAt != null && notificationTime(payload.at)?.isBefore(resolvedAt) == true
         }
     }
 
@@ -237,6 +273,7 @@ class NotificationCenter(
                 alertQueue.retain { it.identity != item.identity }
                 publishBanners()
             }
+            questionHandled(item.backendKey, question.projectId, question.questionId)
             null
         } catch (error: CancellationException) { throw error }
         catch (error: ClientException) {
@@ -279,6 +316,12 @@ class NotificationCenter(
             saveCursor(key, AlertCursor(recent.backendEpoch, recent.latestSeq))
             publishBanners()
         }
+        val resolvedAt = buildMap {
+            recent.events.filterIsInstance<NotificationRecentEntryResolved>().forEach { resolution ->
+                notificationTime(resolution.at)?.let { at -> resolution.tags.forEach { tag -> put(tag, at) } }
+            }
+        }
+        clearResolvedCards(key, resolvedAt)
         for (event in live) synchronized(alertLock) {
             val seen = cursor(key) ?: return@synchronized
             when (event) {
@@ -299,6 +342,7 @@ class NotificationCenter(
                 is NotificationsResolvedEvent -> {
                     if (event.backendEpoch != seen.epoch || event.seq <= seen.seq) return@synchronized
                     alertQueue.resolve(key, event.tags.toSet())
+                    notificationTime(event.at)?.let { at -> clearResolvedCards(key, event.tags.associateWith { at }) }
                     saveCursor(key, AlertCursor(event.backendEpoch, event.seq))
                 }
                 else -> Unit

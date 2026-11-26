@@ -56,6 +56,8 @@ internal fun BackgroundJobBand(context: ProjectScreenContext, thread: ThreadSumm
     val board by context.board.view.collectAsStateWithLifecycle()
     val waiting = backgroundJobQuestions(board.questions, thread.id)
     var chosen by rememberSaveable(thread.id) { mutableStateOf<String?>(null) }
+    val linkedQuestion = context.highlight as? ChatHighlight.Question
+    LaunchedEffect(linkedQuestion) { if (linkedQuestion != null) chosen = linkedQuestion.questionId }
     val question = waiting.find { it.id == chosen } ?: waiting.firstOrNull()
     var promoting by rememberSaveable(thread.id) { mutableStateOf(false) }
     var stopping by rememberSaveable(thread.id) { mutableStateOf(false) }

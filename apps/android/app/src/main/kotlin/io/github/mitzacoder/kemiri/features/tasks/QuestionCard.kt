@@ -1,5 +1,6 @@
 package io.github.mitzacoder.kemiri.features.tasks
 
+import io.github.mitzacoder.kemiri.features.notifications.LocalNotificationCenter
 import io.github.mitzacoder.kemiri.features.coordinators.LocalLandingTurn
 import io.github.mitzacoder.kemiri.features.coordinators.otherLandingTurnWaiters
 
@@ -68,6 +69,10 @@ fun QuestionCard(
     var readingExpanded by rememberSaveable(key) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val latest by rememberUpdatedState(question)
+    val notifications = LocalNotificationCenter.current
+    if (readingExpanded) LaunchedEffect(notifications, key) {
+        notifications?.questionOpened(context.backend.config.key, context.route.projectId, question.id)
+    }
     fun send(answer: String) {
         val trimmed = answer.trim()
         if (trimmed.isEmpty() || busy || !questionCanAnswer(latest, readOnly)) return
@@ -76,7 +81,11 @@ fun QuestionCard(
         scope.launch {
             val current = latest
             when (val outcome = context.board.answer(current.id, current.revision, trimmed)) {
-                is AnswerOutcome.Answered -> { text = ""; readingExpanded = false }
+                is AnswerOutcome.Answered -> {
+                    notifications?.questionHandled(context.backend.config.key, context.route.projectId, current.id)
+                    text = ""
+                    readingExpanded = false
+                }
                 is AnswerOutcome.Conflict -> problem = when {
                     outcome.newer == null || outcome.newer.status != "open" ->
                         if (warning) "This warning was already acknowledged or withdrawn." else "This question was already answered or withdrawn."

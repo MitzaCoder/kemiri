@@ -159,7 +159,7 @@ class NotificationsTest {
     private fun payload(kind: String = "reply", projectId: String? = "p1", workerId: String? = null, scheduleId: String? = null, threadId: String? = null, taskId: String? = null, backendKey: String = pc.key) =
         NotificationPayload(kind = kind, title = "t", body = "b", backendKey = backendKey, projectId = projectId, workerId = workerId, scheduleId = scheduleId, threadId = threadId, taskId = taskId, tag = "tag", at = "2026-11-07T00:00:00Z")
 
-    @Test fun notificationsOpenWhatTheWebOpens() {
+    @Test fun projectNotificationsOpenTheirTargets() {
         val main = Destination.Chat(pc.key, "p1")
         fun open(payload: NotificationPayload) = (notificationLink(payload, backends) as AppLink.Open).destinations
         assertEquals(listOf(main, Destination.Task(main, "T4")), open(payload(kind = "task_review", taskId = "T4", threadId = "t1")))
@@ -168,7 +168,14 @@ class NotificationsTest {
         assertEquals(listOf(main.copy(highlight = ChatHighlight.Thread("t1"))), open(payload(kind = "thread_finished", threadId = "t1")))
         assertEquals(listOf(main, Destination.ProjectSettings(main, ProjectSection.Schedules, "s1")), open(payload(kind = "schedule_problem", scheduleId = "s1")))
         assertEquals(listOf(main), open(payload()))
-        assertEquals(listOf(Destination.Home), open(payload(kind = "deploy_problem", projectId = null)))
+        val question = payload(kind = "board_question").copy(tag = "board-question:p1:Q3")
+        assertEquals("Q3", (open(question).single() as Destination.Chat).highlight.let { (it as ChatHighlight.Question).questionId })
+        assertEquals(listOf(main, Destination.Task(main, "T4", attentionQuestionId = "Q3")), open(question.copy(taskId = "T4")))
+        assertEquals(listOf(Destination.Settings(computerPage(pc.key, ComputerSection.Overview))), open(payload(kind = "deploy_problem", projectId = null)))
+        assertEquals(listOf(Destination.Settings(computerPage(pc.key, ComputerSection.Overview))), open(payload(kind = "disk_low", projectId = null)))
+        assertEquals(listOf(Destination.Settings(computerPage(pc.key, ComputerSection.Accounts))), open(payload(kind = "login_prompt", projectId = null)))
+        assertEquals(listOf(Destination.ComputerUsage(pc.key)), open(payload(kind = "usage_limit_reached", projectId = null)))
+        assertEquals(listOf(Destination.ComputerUsage(pc.key)), open(payload(kind = "usage_drain_paused")))
         assertEquals(AppLink.UnknownBackend("https://gone.example"), notificationLink(payload(backendKey = "https://gone.example"), backends))
     }
 

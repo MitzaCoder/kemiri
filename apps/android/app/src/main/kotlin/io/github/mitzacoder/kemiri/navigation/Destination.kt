@@ -15,6 +15,7 @@ sealed interface Destination {
     /** The projects home (web `/`): every backend's projects, Add a project, and the first-run backend form. */
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Home") data object Home : Destination
     @Serializable @SerialName("io.github.mitzacoder.aiki.navigation.Destination.Usage") data object Usage : Destination
+    @Serializable data class ComputerUsage(val backendKey: String) : Destination
     @Serializable data object ArtifactLibrary : Destination
     @Serializable data class ArtifactStudio(val chat: Chat, val artifactId: String) : Destination
     /** General settings (web `/settings/...`): a section of this device's settings, a backend's page, or its Accounts; null is the list. */
@@ -78,7 +79,7 @@ fun Destination.chatRoute(): Destination.Chat? = when (this) {
     is Destination.Changes -> chat.copy(highlight = null)
     is Destination.Files -> chat.copy(highlight = null)
     is Destination.WorkingChanges -> chat.copy(highlight = null)
-    Destination.Home, Destination.Usage, Destination.ArtifactLibrary, is Destination.Settings, is Destination.Terminal -> null
+    Destination.Home, Destination.Usage, is Destination.ComputerUsage, Destination.ArtifactLibrary, is Destination.Settings, is Destination.Terminal -> null
 }
 /** Keep the same panel window behind a chain of linked task sheets, including when Back returns to a parent. */
 fun panelBehindTask(previous: List<Destination>, task: Destination.Task): Destination.Panel? =

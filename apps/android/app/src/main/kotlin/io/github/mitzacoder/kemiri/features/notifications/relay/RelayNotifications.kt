@@ -14,7 +14,7 @@ class RelayNotifications(
     api: () -> RelayApi,
     backend: () -> RelayBackendRegistration,
     time: RelayTime,
-    present: (NotificationPayload) -> Unit,
+    present: suspend (NotificationPayload) -> Unit,
     storageLost: suspend () -> Unit = {},
     private val accountStopped: suspend () -> Unit = {},
 ) {

@@ -8171,6 +8171,39 @@ or a pop-up the app already showed.
   presence), `in-app-alerts.test.ts` (live fanout, sound target, shown holds, history and resolutions),
   `apps/web/test/interaction.test.ts`, and Android `InteractionReporterTest` and `NotificationsTest`.
 
+### Android system notification cards
+
+Direct FCM and the encrypted relay share the Android presenter. The app creates six Android channels on first launch or
+upgrade. Per-kind switches in the app are unchanged. The upgrade replaces these 21 `kind-*` channels once:
+
+| Android channel | Default attention | Legacy kinds |
+| --- | --- | --- |
+| Needs you | Heads-up and sound | `board_question`, `login_prompt`, `task_review`, `task_steps`, `test` |
+| Problems | Heads-up and sound | `worker_failed`, `schedule_problem`, `deploy_problem`, `compaction_failed`, `thread_failed`, `coordinator_failed`, `disk_low` |
+| Replies | Sound | `reply` |
+| Finished work | Sound | `work_finished`, `thread_finished` |
+| Subscription limits | Sound | `usage_limit_reached`, `usage_drain_warning`, `usage_drain_paused` |
+| Quiet updates | Silent | `schedule_done`, `worker_report`, `maintenance_failed` |
+
+An explicitly set importance (including blocked) or sound follows the new channel only if all its existing source
+channels explicitly agree on that setting. Conflicting settings and other OS overrides cannot be carried across.
+Quiet updates never alert in the shade, even if their channel's importance was carried over. A failed nightly memory
+run is also inbox-only in the app.
+
+Cards use the native BigText template, kind icons and badges for attention cards. The foreground text puts the question
+or event first and moves project or computer context out of the title where available. Project cards use a silent summary
+and a stable group scoped to the computer and project. The lock screen follows Android's privacy setting: the public
+version is a fixed kind label, with no message, names, or project badge. Turning off Show message text also strips those
+details from new system cards and clears already posted detailed cards. There are no notification actions in this stage.
+
+Taps go to the chat, task or question where possible. Computer events open AI accounts, computer Overview or You and
+memory as appropriate. Subscription limits open Usage scoped to the computer. Opening the matching chat or task, opening
+an individual question to read, and answering a question all clear the corresponding posted card. A connected app also
+uses the existing live and replayed resolution events to remove older matching cards, not later follow-ups that reuse the
+same tag. A finished-work card expires one day after the event. Android does not infer sign-in expiry, subscription reset
+time, or shared account identity from display text. Accurate cross-computer deduplication, structured expiry, richer text
+and conversation cards require richer push payloads. Clearing an app that is not connected requires a resolution push.
+
 ### Android in-app alerts
 
 `NotificationCenter` watches `in-app-alerts` on each connected backend. It reads `notifications.recent` on reconnect and

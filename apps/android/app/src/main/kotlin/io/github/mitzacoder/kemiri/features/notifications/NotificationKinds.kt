@@ -34,6 +34,19 @@ val NOTIFICATION_KINDS: List<String> = NOTIFICATION_KIND_INFO.map { it.kind }
 
 fun kindInfo(kind: String): NotificationKindInfo? = NOTIFICATION_KIND_INFO.firstOrNull { it.kind == kind }
 
+/** Android channels describe the attention a card needs, not which in-app event switch enables it. */
+internal enum class NotificationAttention(val channelId: String, val label: String, val legacyKinds: Set<String>) {
+    NeedsYou("attention-needed", "Needs you", setOf("board_question", "login_prompt", "task_review", "task_steps", "test")),
+    Problems("attention-problems", "Problems", setOf("worker_failed", "schedule_problem", "deploy_problem", "compaction_failed", "thread_failed", "coordinator_failed", "disk_low")),
+    Replies("attention-replies", "Replies", setOf("reply")),
+    FinishedWork("attention-finished", "Finished work", setOf("work_finished", "thread_finished")),
+    SubscriptionLimits("attention-limits", "Subscription limits", setOf("usage_limit_reached", "usage_drain_warning", "usage_drain_paused")),
+    QuietUpdates("attention-quiet", "Quiet updates", setOf("schedule_done", "worker_report", "maintenance_failed")),
+}
+
+internal fun notificationAttention(kind: String): NotificationAttention =
+    NotificationAttention.entries.first { kind in it.legacyKinds }
+
 /** A kind that reports something going wrong; quiet hours may still let these through. */
 fun isNotificationFailure(kind: String): Boolean = kindInfo(kind)?.failure == true
 

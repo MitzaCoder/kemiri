@@ -150,17 +150,30 @@ fun generalSettingsLink(parts: List<String>, backends: List<BackendConfig>): App
 
 /**
  * Where a notification opens (client `notificationUrl`): the task's sheet over main, a worker's transcript, main with a
- * background job's card highlighted, the project's settings for a schedule, the project, or home without a project.
+ * background job's card highlighted, a specific question, a scheduled run, or the named computer’s settings or Usage.
  */
 fun notificationLink(payload: NotificationPayload, backends: List<BackendConfig>): AppLink {
     val backend = resolveBackend(payload.backendKey, backends) ?: return AppLink.UnknownBackend(payload.backendKey)
-    val projectId = payload.projectId ?: return AppLink.Open(listOf(Destination.Home))
+    val projectId = payload.projectId
+    when {
+        payload.kind in NotificationAttention.SubscriptionLimits.legacyKinds ->
+            return AppLink.Open(listOf(Destination.ComputerUsage(backend.key)))
+        payload.kind == "login_prompt" ->
+            return AppLink.Open(listOf(Destination.Settings(computerPage(backend.key, ComputerSection.Accounts))))
+        projectId == null && payload.kind in setOf("deploy_problem", "disk_low", "maintenance_failed") ->
+            return AppLink.Open(listOf(Destination.Settings(computerPage(backend.key, if (payload.kind == "maintenance_failed") ComputerSection.You else ComputerSection.Overview))))
+        projectId == null -> return AppLink.Open(listOf(Destination.Home))
+    }
     val main = Destination.Chat(backend.key, projectId)
     val thread = payload.threadId?.takeUnless { it == MAIN_THREAD_ID }
     val coordinator = payload.coordinatorId?.let { id ->
         main.copy(threadId = id.takeUnless { it == MAIN_THREAD_ID }, highlight = payload.entryId?.let { ChatHighlight.Entry(it) })
     }
+    val questionId = notificationQuestionId(payload)
+    val questionChat = coordinator?.takeUnless { it.threadId == null && thread != null } ?: main.copy(threadId = thread)
     return AppLink.Open(when {
+        questionId != null && payload.taskId != null -> listOf(questionChat, Destination.Task(questionChat, payload.taskId, attentionQuestionId = questionId))
+        questionId != null -> listOf(questionChat.copy(highlight = ChatHighlight.Question(questionId, System.currentTimeMillis())))
         payload.kind == "reply" && !payload.answerId.isNullOrBlank() -> listOf(coordinator ?: main, Destination.Answers(coordinator ?: main, payload.answerId))
         coordinator != null && payload.taskId != null && payload.entryId == null -> listOf(coordinator, Destination.Task(coordinator, payload.taskId))
         coordinator != null -> listOf(coordinator)

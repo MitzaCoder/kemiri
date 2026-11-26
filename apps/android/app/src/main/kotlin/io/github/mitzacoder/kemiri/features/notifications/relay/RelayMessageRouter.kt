@@ -16,7 +16,7 @@ class RelayMessageRouter(
     private val storage: () -> RelayStorage,
     private val time: RelayTime,
     private val challenge: suspend (String) -> Boolean,
-    private val present: (NotificationPayload) -> Unit,
+    private val present: suspend (NotificationPayload) -> Unit,
     private val storageLost: suspend () -> Unit = {},
 ) {
     private val mutex = Mutex()
