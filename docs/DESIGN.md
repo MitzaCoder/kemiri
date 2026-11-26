@@ -7067,13 +7067,15 @@ in that conversation. This is a display rule, not the outside-model approval cou
   after the network wait or a later animation frame. Removing the exhausted-history spinner row is anchored too.
   This preserves scrolling during the request and avoids double compensation by the browser. Tail-only growth keeps
   the existing bottom-follow path, scroll-to-bottom control, waiting messages and composers/drafts.
-  Android's shared `ChatScreen` uses `snapshotFlow` at six items from the loaded boundary; its predicate permits
-  short-viewport refill but not prefetch while following a scrollable tail or resolving a highlighted entry. Collect
-  each page without `collectLatest` cancellation and include the oldest entry ID in the observed value so another
-  page can start even when the near-boundary boolean stays true. Stable LazyColumn keys retain the visible item and
-  offset across prepend/fling. Keep the `earlier` slot while loading (capability is temporarily false), include it in
-  highlight/tail index offsets, and remove it only at exhaustion. Android also separates `earlierError` from the live
-  watch; Retry clears it. Highlight loads run outside their loading-keyed effect so starting a page cannot cancel itself.
+  Android's shared `ChatScreen` anchors a fresh watch at the latest message after its first window loads. Position
+  belongs to the live watch, so a new project cannot restore an index from history it has not loaded. Nested scroll
+  deltas toward older messages within six rows of the boundary can request one page per gesture, including its fling.
+  When the loaded messages fit, the transcript aligns them above the composer. A short viewport, a prepend, or a
+  programmatic jump never starts paging. Stable LazyColumn keys retain the visible row and offset when older history
+  arrives. Keep the `earlier` slot while loading (capability is temporarily false),
+  include it in highlight/tail offsets, and remove it at exhaustion. Android separates `earlierError` from live-watch
+  errors; Retry clears it. Highlight loads are explicit and run outside their loading-keyed effect so starting a page
+  cannot cancel itself.
 - The project chat and docked right sidebar have separate 3.5rem top bars with the same surface and bottom border.
   Chat keeps the conversation switcher, Files and Uncommitted changes (full-screen overlays), Terminal and settings
   (separate routes), connection status and mute. The chat actions adapt to the measured pane width and fold into More

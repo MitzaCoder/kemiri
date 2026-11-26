@@ -1,7 +1,6 @@
 package io.github.mitzacoder.kemiri.features.chat
 
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -23,7 +22,7 @@ internal class CoordinatorChatState(
     val watch: ConversationWatch,
     val watchState: State<WatchState>,
     val list: LazyListState,
-    val follow: MutableState<Boolean>,
+    val scroll: TranscriptScrollState,
     val draft: ChatDraftState,
     val scope: CoroutineScope,
     private val admission: SnapshotStateMap<String, String>,
@@ -66,10 +65,11 @@ internal fun rememberCoordinatorChat(
         val watchState = watch.state.collectAsStateWithLifecycle()
         val route = context.route.copy(threadId = retained.threadId, workerId = retained.workerId)
         val draft = rememberChatDraft(context.copy(route = route))
-        val list = rememberLazyListState()
-        val follow = rememberSaveable { mutableStateOf(true) }
         val scope = rememberCoroutineScope()
-        val chat = remember(watch, draft) { CoordinatorChatState(watch, watchState, list, follow, draft, scope, admission, route.screenStateKey()) }
+        // A restored index would refer to rows that a fresh watch has not loaded.
+        val list = remember(watch) { LazyListState() }
+        val scroll = remember(watch) { TranscriptScrollState() }
+        val chat = remember(watch, draft) { CoordinatorChatState(watch, watchState, list, scroll, draft, scope, admission, route.screenStateKey()) }
         val state = watchState.value
         val rows = remember(state.entries, state.view, messages, memoryNotes) {
             transcript(state.entries, state.view?.docs?.get("pi.live"), state.view?.keepWarm.orEmpty(), messages, memoryNotes && retained.workerId == null)

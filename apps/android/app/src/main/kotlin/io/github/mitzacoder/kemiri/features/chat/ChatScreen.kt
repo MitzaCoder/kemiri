@@ -31,6 +31,11 @@ import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.TextRange
@@ -221,8 +226,8 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
     SideEffect { if(live) shown.keys = rows.map { it.key } }
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val list = chat.list
-    var follow by chat.follow
-    LaunchedEffect(list) { snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling,canScroll) -> if(scrolling) follow = !canScroll } }
+    val scroll = chat.scroll
+    var follow by scroll::following
     // A link to a spot (`#entry-N`, a thread's newest card) scrolls there once and flashes the row.
     val transcriptHighlight = context.highlight.takeUnless { it is ChatHighlight.Question }
     var highlightDone by remember(watch, transcriptHighlight) { mutableStateOf(false) }
@@ -247,28 +252,40 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
         delay(1600)
         flashKey = null
     }
-    LaunchedEffect(watch,realRows,working) {
-        if(transcriptHighlight != null && !highlightDone) return@LaunchedEffect
-        if(follow && rows.isNotEmpty() && !state.loadingEarlier) {
-            // Keys preserve the visual anchor when prepending history; only tail-follow scrolls.
-            list.scrollToEnd((rows.size - 1 + (if(earlierRow) 1 else 0) + (if(working) 1 else 0)).coerceAtLeast(0))
+    val showWorkingRow = showsAgentActivityRow(waitingForUser,working,completed) &&
+        ((working && (!wideReplies || !hasLiveAgentReply)) || (completed && lastAvatar < 0))
+    val firstPageLoaded = state.view != null
+    val highlighting by rememberUpdatedState(transcriptHighlight != null && !highlightDone)
+    LaunchedEffect(watch,firstPageLoaded,realRows,showWorkingRow) {
+        if (highlighting || state.loadingEarlier || rows.isEmpty()) return@LaunchedEffect
+        val lastIndex = rows.lastIndex + (if (earlierRow) 1 else 0) + (if (showWorkingRow) 1 else 0)
+        scroll.latestAnchorIndex(firstPageLoaded, lastIndex)?.let { list.scrollToEnd(it) }
+    }
+    val transcriptScroll = remember(watch, list, scroll) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (list.layoutInfo.visibleItemsInfo.isNotEmpty() && scroll.onScroll(
+                        source == NestedScrollSource.UserInput, consumed.y + available.y, consumed.y,
+                        list.firstVisibleItemIndex, list.canScrollForward, watch.state.value, highlighting,
+                    )
+                ) scope.launch { watch.loadEarlier() }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                scroll.endGesture()
+                return Velocity.Zero
+            }
         }
     }
-    val highlighting by rememberUpdatedState(transcriptHighlight != null && !highlightDone)
-    // Stable transcript keys let LazyColumn retain the visible row and offset during prepend, including flings.
-    // Collect (not collectLatest): a request must survive changes to loading/index while it is in flight.
-    LaunchedEffect(watch,list) {
-        snapshotFlow {
-            (shouldPrefetchEarlier(list.firstVisibleItemIndex,list.layoutInfo.visibleItemsInfo.isNotEmpty(),
-                state.canLoadEarlier,state.loadingEarlier,state.earlierError != null,follow,list.canScrollForward,
-                highlighting) && state.status == WatchStatus.Live) to state.entries.firstOrNull()?.id
-        }.collect { (prefetch,_) -> if(prefetch) watch.loadEarlier() }
-    }
+    DisposableEffect(transcriptScroll) { onDispose { scroll.endGesture() } }
     val cacheWarmAtTail by rememberUpdatedState(rows.lastOrNull()?.parts?.firstOrNull()?.kind == "cacheWarm")
     // A row that grows at the end (a reply arriving, a compaction's saved memories) keeps the end in view while following.
-    LaunchedEffect(list) {
+    LaunchedEffect(watch,list) {
         snapshotFlow { list.canScrollForward }.collect { more ->
-            if(more && !cacheWarmAtTail && follow && !list.isScrollInProgress && (transcriptHighlight == null || highlightDone)) list.scrollToEnd(list.layoutInfo.totalItemsCount - 1)
+            if(more && !cacheWarmAtTail && !highlighting && !list.isScrollInProgress) {
+                scroll.latestAnchorIndex(watch.state.value.view != null, list.layoutInfo.totalItemsCount - 1)?.let { list.scrollToEnd(it) }
+            }
         }
     }
     ChatBackdrop(modifier) {
@@ -323,7 +340,13 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                 "Send a message to start the coordinator. It plans, delegates and reviews.",Modifier.fillMaxSize().padding(16.dp))
             else ChatEmptyState(activeThread?.title?.takeIf(String::isNotEmpty) ?: "Background job",
                 "A background job of Main chat. It reports to Main chat when it finishes; type here to steer it directly.",Modifier.fillMaxSize().padding(16.dp))
-        } else LazyColumn(Modifier.fillMaxSize(),state = list,contentPadding = PaddingValues(16.dp)) {
+        } else LazyColumn(
+            Modifier.fillMaxSize().nestedScroll(transcriptScroll),
+            state = list,
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = if (rows.isEmpty()) Arrangement.Top else Arrangement.Bottom,
+        ) {
+            // Stable row keys retain the visible row and its offset when older history is prepended.
             if (earlierRow) item(key = "earlier") {
                 Box(Modifier.fillMaxWidth().heightIn(min = 32.dp),contentAlignment = Alignment.Center) {
                     if(state.loadingEarlier) CircularProgressIndicator(Modifier.size(16.dp),strokeWidth = 2.dp)
@@ -343,7 +366,7 @@ fun ChatScreen(context: ProjectScreenContext, modifier: Modifier = Modifier) {
                     TranscriptRow(row,transcriptScope,streaming = busy && index == rows.lastIndex,orb = orbs?.get(index),motion = when { index == lastAvatar && busy && hasLiveAgentReply -> if(waitingForUser) AgentMotion.Waiting else AgentMotion.Working; completed && index == lastAvatar -> AgentMotion.Done; else -> AgentMotion.Idle })
                 }
             }
-            if(showsAgentActivityRow(waitingForUser,working,completed) && ((working && (!wideReplies || !hasLiveAgentReply)) || (completed && lastAvatar < 0))) item(key = "working") { WorkingRow(Modifier.padding(top = if(rows.isEmpty()) 0.dp else 16.dp),motion = if(completed) AgentMotion.Done else AgentMotion.Working) }
+            if(showWorkingRow) item(key = "working") { WorkingRow(Modifier.padding(top = if(rows.isEmpty()) 0.dp else 16.dp),motion = if(completed) AgentMotion.Done else AgentMotion.Working) }
         }
         }
         androidx.compose.animation.AnimatedVisibility(
