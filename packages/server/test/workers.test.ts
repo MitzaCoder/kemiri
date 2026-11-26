@@ -621,7 +621,8 @@ describe("worker isolation", () => {
 			expect(await client.request({ type: "conversation.abort", projectId })).toMatchObject({ type: "conversation.abort" });
 			await until(async () => !runtime.workers.workspaceOperationPending(workspace), 2_000);
 			expect(performance.now() - stoppedAt).toBeLessThan(2_000);
-			expect(() => process.kill(pid, 0)).toThrow();
+			// The workspace must not become reusable while the command is still exiting.
+			expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
 			expect(logs.join("\n")).toContain("Workspace cleanup canceled by Stop");
 			expect((await run(["jj", "workspace", "list"], repo)).stdout).toContain("harness-reader");
 			expect(await readdir(workspace)).toContain(".jj");

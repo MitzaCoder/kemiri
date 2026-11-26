@@ -2480,8 +2480,9 @@ Status: backend, protocol, client and web UI done (milestone 2).
   end without a chat reply for already-handled or unchanged reports, just as for uneventful check-ins.
 - `worker_forget` aborts the worker's running answer and tools and withdraws its queued inputs before marking it done.
   Workspace attribution and removal run outside the coordinator turn, so that turn can finish and take waiting inputs.
-  Conversation Stop can cancel the coordinator's pending workspace cleanups. Stop still deliberately withdraws that
-  conversation's waiting messages as described under Queued inputs; cleanup alone does not withdraw them.
+  Conversation Stop can cancel the coordinator's pending workspace cleanups. Canceling kills the active cleanup command
+  and keeps the workspace busy until that command exits. Stop still deliberately withdraws that conversation's waiting
+  messages as described under Queued inputs; cleanup alone does not withdraw them.
   Reporter admission is serialized with abort and release, so pending reporters cannot deliver another run in between.
   Passive writes stay for history. `worker_stop` also aborts any work left running on a worker released by an older
   backend, without reviving it. Late output from old runs is recorded only, keeps done status, and cannot change the

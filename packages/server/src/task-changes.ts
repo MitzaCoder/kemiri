@@ -70,8 +70,9 @@ export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string,
 	}
 	return new Promise((accept, reject) => {
 		const child = execFile(binary, args, {
-			cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer", signal: io?.signal,
+			cwd, env, timeout: 10_000, killSignal: "SIGKILL", maxBuffer, encoding: "buffer",
 		}, (error, stdout) => {
+			io?.signal?.removeEventListener("abort", killOnAbort);
 			if (io?.signal?.aborted) return reject(io.signal.reason);
 			// Do not forward stderr or execFile's command/error text from Git.
 			if (!error || (io?.acceptExitCode !== undefined && error.code === io.acceptExitCode)) return accept({ stdout, truncated: false });
@@ -81,6 +82,10 @@ export function runVcsCommand(binary: "git" | "jj", args: string[], cwd: string,
 			}
 			reject(new VcsCommandError(error.killed ? "timeout" : "failed", typeof error.code === "number" ? error.code : undefined));
 		});
+		// execFile's signal option reports an abort before the child has exited.
+		// Kill it ourselves and let the callback settle only once it is gone.
+		const killOnAbort = () => child.kill("SIGKILL");
+		io?.signal?.addEventListener("abort", killOnAbort, { once: true });
 		// Git may exit before consuming stdin; its command outcome is handled above.
 		child.stdin?.on("error", () => {});
 		child.stdin?.end(io?.stdin);

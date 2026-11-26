@@ -34,11 +34,12 @@ export class JjError extends Error {
 function run(args: readonly string[], cwd: string, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
 	signal?.throwIfAborted();
 	return new Promise((resolve, reject) => {
-		execFile(
+		const child = execFile(
 			"jj",
 			["--no-pager", "--color=never", ...args],
-			{ cwd, env: childEnvironment(), timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal },
+			{ cwd, env: childEnvironment(), timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024, encoding: "utf8" },
 			(error, stdout, stderr) => {
+				signal?.removeEventListener("abort", killOnAbort);
 				if (signal?.aborted) return reject(signal.reason);
 				if (error === null) {
 					resolve({ stdout, stderr });
@@ -53,6 +54,9 @@ function run(args: readonly string[], cwd: string, signal?: AbortSignal): Promis
 				reject(new JjError(`jj ${args.join(" ")} failed in ${cwd}: ${detail}`));
 			},
 		);
+		// Keep the workspace operation pending until jj exits, not just until the signal is sent.
+		const killOnAbort = () => child.kill("SIGKILL");
+		signal?.addEventListener("abort", killOnAbort, { once: true });
 	});
 }
 
