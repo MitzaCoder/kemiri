@@ -103,7 +103,7 @@
 		{/if}
 		{#if !collapsed}
 			{#key pin.current.id}
-				<BoardQuestionCard
+				<BoardQuestionCard {board}
 					question={pin.current}
 					taskLabel={taskLabelOf(pin.current)}
 					askedBy={questionAskedBy(pin.current, threads)}

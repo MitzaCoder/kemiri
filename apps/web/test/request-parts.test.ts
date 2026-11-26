@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 import { createServer } from 'vite';
-import type { BoardQuestion, BoardTask, BoardTaskInput, BoardTaskState, PartsDigest } from '@kemiri/protocol';
+import type { Board, BoardQuestion, BoardTask, BoardTaskInput, BoardTaskState, PartsDigest } from '@kemiri/protocol';
 import { kanbanColumns, needsYouCount } from '../src/lib/kanban.js';
 import { partsChecklist, requestAttentionLink, requestPartPage, taskCanClose } from '../src/lib/request-parts.js';
 import { saveWithCloseChoice } from '../src/lib/task-close.js';
+import { attentionLaterTargets, laterChoices, laterDateLimit, questionLaterTarget, taskLaterTarget } from '../src/lib/attention-later.js';
 import { taskNeedsYou } from '../src/lib/task-details.js';
 import { taskFamilies, taskFamilyCount, taskFamilySections } from '../src/lib/task-families.js';
 import { taskSections, type TaskRow } from '../src/lib/tasks.js';
@@ -55,6 +56,49 @@ test('unfolding a request puts running and attention parts before quiet parts, a
 	const cards = kanbanColumns({ tasks, questions: [] }, { requestAttention: true, stateEnabled: true }).flatMap(column => column.cards);
 	expect(cards.map(card => card.task.id).sort()).toEqual(['T1', 'T6']);
 	expect(needsYouCount({ tasks: [request, askingPart], questions: [question] }, true)).toBe(1);
+});
+
+test('Later targets one whole request, with its read revision, or an eligible taskless question', () => {
+	const loose = { ...question, id: 'Q3', taskId: null };
+	const approval = { ...loose, id: 'Q4', outsideModelApproval: true as const };
+	const board = { tasks: [request, askingPart], questions: [question, loose, approval], decisions: [], updatedAt: at } satisfies Board;
+	expect(questionLaterTarget(board, question)).toMatchObject({ target: { taskId: 'T1' }, revision: request.revision, urgent: false });
+	expect(taskLaterTarget(board, askingPart)?.target).toEqual({ taskId: 'T1' });
+	expect(questionLaterTarget(board, approval)).toBeUndefined();
+	expect(attentionLaterTargets(board, { kind: 'question' }).map(target => target.target)).toEqual([{ taskId: 'T1' }, { questionId: 'Q3' }]);
+	expect(taskLaterTarget({ ...board, questions: [{ ...approval, taskId: 'T2' }] }, request)).toBeUndefined();
+});
+
+test('Later keeps postponed asks answerable but removes them from live attention and columns', () => {
+	const parked = { ...question, postponed: true as const };
+	const root = { ...request, state: state('answer_needed', 'later'), later: { until: '2026-01-09T08:00:00Z', since: at, by: 'user' as const, times: 1 } };
+	const part = { ...askingPart, state: state('answer_needed', 'later') };
+	const board = { tasks: [root, part], questions: [parked, { ...parked, id: 'Q3', taskId: null }] };
+	expect(needsYouCount(board, true)).toBe(0);
+	expect(kanbanColumns(board, { requestAttention: true, stateEnabled: true }).flatMap(column => column.cards)).toEqual([]);
+	expect(taskSections(board)).toEqual([]);
+	expect(taskNeedsYou(part, board.questions, false, false)).toMatchObject({ ownerQuestions: [], laterQuestions: [parked], show: false });
+	expect(questionLaterTarget(board, parked)?.later).toEqual(root.later);
+	const warning = { ...question, id: 'Q4', kind: 'warning' as const };
+	expect(questionLaterTarget(board, warning)).toBeUndefined();
+	expect(needsYouCount({ tasks: board.tasks, questions: [...board.questions, { ...warning, taskId: null }] }, true)).toBe(1);
+});
+
+test('Later quick dates use the local device work-day and keep urgent asks within tomorrow morning', () => {
+	const sunday = new Date(2026, 0, 11, 17);
+	const target = { target: { taskId: 'T1' }, revision: 1, label: 'Example', urgent: false };
+	const tomorrow = new Date(2026, 0, 12, 9, 15);
+	expect(laterChoices(sunday, '09:15', target)).toEqual([
+		{ label: 'This evening', until: new Date(2026, 0, 11, 18).toISOString() },
+		{ label: 'Tomorrow morning', until: tomorrow.toISOString() },
+		{ label: 'Next week', until: tomorrow.toISOString() },
+		{ label: 'When it’s the last thing left', until: null, whenLast: true },
+	]);
+	expect(laterChoices(new Date(2026, 0, 11, 18), '09:15', { ...target, urgent: true })).toEqual([
+		{ label: 'Tomorrow morning', until: tomorrow.toISOString() },
+	]);
+	expect(laterDateLimit(sunday, '09:15', true)).toEqual(tomorrow);
+	expect(laterChoices(sunday, '09:15', { ...target, target: { questionId: 'Q1' } }).some(choice => choice.whenLast)).toBe(false);
 });
 
 const digest: PartsDigest = {

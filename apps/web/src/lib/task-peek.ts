@@ -6,7 +6,7 @@ export function taskPeekParts(task: BoardTask, tasks: readonly BoardTask[], ques
 	const listed = direct.filter(part => {
 		if (part.state) return part.state.kind === 'working' || part.state.kind === 'clarifying' || part.state.group === 'needs_you';
 		return ['in_progress', 'review', 'blocked'].includes(part.status) ||
-			(!['done', 'dropped'].includes(part.status) && questions.some(question => question.taskId === part.id && question.status === 'open'));
+			(!['done', 'dropped'].includes(part.status) && questions.some(question => question.taskId === part.id && question.status === 'open' && !question.postponed));
 	}).sort((left, right) => left.order - right.order);
 	const done = task.subtaskCount?.done ?? task.subtaskStates?.filter(kind => kind === 'done').length ?? direct.filter(part => (part.state?.kind ?? part.status) === 'done').length;
 	return { listed, done };

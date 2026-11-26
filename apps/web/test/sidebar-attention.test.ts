@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProjectSummary, ProjectAttention } from "@kemiri/protocol";
-import { attentionCount, needsYouLinks, projectAttentionActions, sidebarStatus } from "../src/lib/sidebar-attention.ts";
+import { attentionCount, needsYouLinks, projectAttentionActions, projectLaterLinks, sidebarStatus } from "../src/lib/sidebar-attention.ts";
 import { projectRow } from "../src/lib/projects.ts";
 const empty: ProjectAttention = { questions: 0, warnings: 0, reviewTasks: 0, waitingTasks: 0, nextReturnAt: null, failedWorkers: 0, failedThreads: 0, runningWorkers: 0, questionTaskId: null, warningTaskId: null, reviewTaskId: null, failedWorkerTaskId: null, failedThreadId: null };
 function project(id: string, attention?: Partial<ProjectAttention>): ProjectSummary {
@@ -62,4 +62,14 @@ test("waiting is calm until the server returns it to review; counts all threads'
 test("failed thread links preserve backend, project and thread identity", () => {
 	const links = needsYouLinks([{ id: "b", name: "Remote", projects: [project("p", { failedThreads: 1, failedThreadId: "release" })] }]);
 	expect(links[0]?.href).toBe("/b/b/projects/p/threads/release");
+});
+
+
+test("Later has its own project link and never contributes to the attention total", () => {
+	const parked = project("bakery", { laterItems: 2, nextLaterAt: "2026-01-09T08:00:00Z" });
+	const backends = [{ id: "b", name: "Demo", projects: [parked] }];
+	expect(needsYouLinks(backends)).toEqual([]);
+	expect(projectLaterLinks(backends)).toEqual([{ count: 2, name: "bakery", href: "/b/b/projects/bakery#later", next: "2026-01-09T08:00:00Z" }]);
+	parked.archived = true;
+	expect(projectLaterLinks(backends)).toEqual([]);
 });

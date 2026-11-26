@@ -92,7 +92,7 @@ export function archivedCount(tasks: readonly BoardTask[]): number {
 }
 
 export function openQuestions(board: Pick<Board, "questions">): BoardQuestion[] {
-	return board.questions.filter((question) => question.status === "open");
+	return board.questions.filter((question) => question.status === "open" && !question.postponed);
 }
 
 export function answeredQuestions(board: Pick<Board, "questions">): BoardQuestion[] {

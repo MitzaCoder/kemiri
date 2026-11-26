@@ -43,7 +43,7 @@ test('job band owns the question, main link and shared stop flow; composer pin s
  expect(chat).toContain('<BackgroundJobBand');
  expect(chat).not.toContain('Background job of');
  expect(chat).toContain('{#if (!isThread || coordinatorChat) && board !== undefined && hasOpenQuestions');
- expect(chat).toContain("questions.some(question => question.status === 'open')");
+ expect(chat).toContain("questions.some(question => question.status === 'open' && !question.postponed)");
  expect(chat).toContain('{#if isThread && !coordinatorChat}<p');
  expect(chat).toContain("The main chat does not see what you write here, only the job's report.");
  expect(band).toContain('It is waiting for your answer');

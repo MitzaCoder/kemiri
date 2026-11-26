@@ -5,7 +5,7 @@ import type { ProjectRow } from "./projects.js";
 
 export type AttentionKind = "question" | "warning" | "coordinator" | "worker" | "thread" | "steps" | "review";
 export type AttentionAction = { kind: AttentionKind; count: number; label: string; taskId?: string | null; threadId?: string | null };
-export type ProjectAttentionLink = AttentionAction & { key: string; href: string; projectName: string; backendName: string };
+export type ProjectAttentionLink = AttentionAction & { key: string; href: string; projectName: string; backendName: string; projectId: string; backendId: string };
 const priority: Record<AttentionKind, number> = { question: 0, warning: 1, coordinator: 2, worker: 3, thread: 4, steps: 5, review: 6 };
 
 export function projectAttentionActions(project: ProjectSummary): AttentionAction[] {
@@ -33,9 +33,16 @@ export function attentionCount(project: ProjectSummary): number {
 
 export function needsYouLinks(backends: readonly { id: string; name: string; projects: readonly ProjectSummary[] }[]): ProjectAttentionLink[] {
 	return backends.flatMap((backend) => backend.projects.flatMap((project) => projectAttentionActions(project).map((action) => ({
-		...action, key: `${backend.id}/${project.id}/${action.kind}`, projectName: project.name, backendName: backend.name,
+		...action, key: `${backend.id}/${project.id}/${action.kind}`, projectName: project.name, backendName: backend.name, projectId: project.id, backendId: backend.id,
 		href: action.threadId ? threadHref(backend.id, project.id, action.threadId) : `${projectHref(backend.id, project.id)}${action.taskId ? `?task=${encodeURIComponent(action.taskId)}` : ""}`,
 	})))).sort((left, right) => priority[left.kind] - priority[right.kind]);
+}
+
+export function projectLaterLinks(backends: readonly { id: string; projects: readonly ProjectSummary[] }[]) {
+	return backends.flatMap(backend => backend.projects.flatMap(project => {
+		const count = project.attention?.laterItems ?? 0;
+		return !project.archived && count ? [{ count, name: project.name, href: `${projectHref(backend.id, project.id)}#later`, next: project.attention?.nextLaterAt }] : [];
+	}));
 }
 
 export function needsYouTotal(links: readonly Pick<ProjectAttentionLink, 'count'>[]): number {

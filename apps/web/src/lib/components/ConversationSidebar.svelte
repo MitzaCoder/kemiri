@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LaterNotice from './LaterNotice.svelte';
 	import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
 	import Minimize2Icon from '@lucide/svelte/icons/minimize-2';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -280,6 +281,7 @@
 			onCloseAutoFocus={restoreFocus ? event => { event.preventDefault(); restoreFocus?.(); } : undefined}
 			class="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-none {panelTabs ? '' : 'pt-[env(safe-area-inset-top)]'}"
 		>
+			<LaterNotice inDialog />
 			{@render panel(true)}
 		</Dialog.Content>
 	</Dialog.Root>

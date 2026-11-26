@@ -4150,8 +4150,21 @@ live work are independent. On capable boards `state.group: "later"` keeps the un
 record; open covered questions carry `postponed: true`. Parts no longer contribute postponed needs to progress
 counts. Project attention exposes `laterItems` and `nextLaterAt`, and the other attention counts omit Later.
 Board, thread, project and coordinator overview summaries retain their former attention on clients that do not advertise
-`attention-later` in hello. Those clients do not receive Later data or the new notification kind. No UI
-opts in during the server stage.
+`attention-later` in hello. Those clients do not receive Later data or the new notification kind.
+
+**Later on web (T518).** The web client advertises `attention-later` and only offers writes on a backend that
+advertises it. The Needs you summary, project/coordinator rows, Tasks rows, task page and question cards share
+one clock picker. Summary rows read a board only when the picker opens and ask for a specific request or
+question when several match. The picker sends the device's work-day start and IANA time zone. Tomorrow and
+next Monday use that start, tonight uses 18:00 local, and custom dates use local date and time. The server is
+still authoritative on limits, eligibility and revision conflicts. Undo uses the revision from the write reply.
+
+The home card links to Later in the project's Tasks panel. The list folds Later after Waiting; the board gives
+it a separate fold, outside the draggable columns. Both show the return time, any dependent tasks and covered
+questions with their usual answer forms. Bring back clears the same root or taskless-question record. Active
+attention excludes projected postponed questions, while a new warning or failure can still appear separately.
+Tab title and rail counts use the server's active summaries; alert settlement clears pop-ups and the favicon dot
+and leaves resolved rows in history without counting them as unread. Return notices remain quiet inbox updates.
 
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator

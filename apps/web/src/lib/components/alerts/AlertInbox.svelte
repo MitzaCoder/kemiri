@@ -104,7 +104,7 @@
 									<details class="worker-report-group">
 										<summary class="inbox-row">
 											<span class="inbox-row-text"><strong>{entry.request.title}</strong><small>{entry.rows.length} worker {entry.rows.length === 1 ? 'report' : 'reports'} · {source(entry.rows[0]!)}</small></span>
-											{#if entry.rows.some(row => !row.read)}<span class="inbox-row-open">{entry.rows.filter(row => !row.read).length} unread</span>{/if}
+											{#if entry.rows.some(row => !row.read && !row.done)}<span class="inbox-row-open">{entry.rows.filter(row => !row.read && !row.done).length} unread</span>{/if}
 										</summary>
 										<ul class="pl-3">{#each entry.rows as row (inboxItemId(row))}<li>{@render alertRow(row, true)}</li>{/each}</ul>
 									</details>
@@ -125,11 +125,11 @@
 </Dialog.Root>
 
 {#snippet alertRow(row: AlertRow, grouped = false)}
-	<a class="inbox-row" class:unread={!row.read} href={notificationUrl({ ...row.alert, backendKey: row.backendId })}
+	<a class="inbox-row" class:unread={!row.read && !row.done} href={notificationUrl({ ...row.alert, backendKey: row.backendId })}
 		onclick={(event) => openRow(event, row)}>
 		<span class="inbox-read-dot" aria-hidden="true"></span>
 		<span class="inbox-row-text">
-			{#if !row.read}<span class="sr-only">Unread: </span>{/if}
+			{#if !row.read && !row.done}<span class="sr-only">Unread: </span>{/if}
 			<strong>{grouped && row.alert.body ? row.alert.body : inboxHeadline(row.alert)}</strong>
 			<small>{source(row)}</small>
 		</span>

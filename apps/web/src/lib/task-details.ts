@@ -4,14 +4,15 @@ import { isSettled, isWarning, waitingOn } from './tasks.js';
 
 export function taskNeedsYou(task: Pick<BoardTask, 'id' | 'status' | 'blockedReason' | 'state'> & { report?: Pick<BoardTask['report'], 'steps' | 'blocks'> }, questions: readonly BoardQuestion[], hasBlockers: boolean, stepsSupported: boolean) {
 	const open = waitingOn(questions, task.id);
-	const ownerQuestions = open.filter(question => question.waitingOn !== 'agent');
+	const ownerQuestions = open.filter(question => question.waitingOn !== 'agent' && !question.postponed);
+	const laterQuestions = open.filter(question => question.postponed);
 	const questionsForAgent = open.filter(question => question.waitingOn === 'agent');
 	const working = Boolean(task.state?.liveWorkSince);
 	const review = !working && task.status === 'review';
 	const blocked = task.status === 'blocked' && (Boolean(task.blockedReason?.trim()) || hasBlockers);
 	const showSteps = !working && stepsSupported && !isSettled(task.status);
 	const hasSteps = showSteps && task.report !== undefined && hasReportSection(task.report, 'steps');
-	return { ownerQuestions, questionsForAgent, review, blocked, working, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
+	return { ownerQuestions, laterQuestions, questionsForAgent, review, blocked, working, hasSteps, show: ownerQuestions.length > 0 || review || blocked || hasSteps };
 }
 
 export function taskDetailState(status: BoardTask['status'], needsYou: ReturnType<typeof taskNeedsYou>, kind?: NonNullable<BoardTask['state']>['kind']): string {

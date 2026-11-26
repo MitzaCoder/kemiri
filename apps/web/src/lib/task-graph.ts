@@ -1,3 +1,4 @@
+import { questionNeedsAnswer } from "./question-clarify.js";
 import { graphTaskState, taskStateLabel } from "./task-state.js";
 import type { BoardLinkKind, BoardQuestion, BoardTask, ThreadSummary, WorkerSummary } from '@kemiri/protocol';
 
@@ -29,7 +30,7 @@ export function buildTaskGraph(tasks: readonly BoardTask[], questions: readonly 
 	const visibleTaskIds = new Set(shown.map(task => task.id));
 	const resting: WorkerSummary[] = [];
 	const failedTasks = new Set(workers.filter(worker => worker.status === 'failed' && worker.taskId).map(worker => worker.taskId));
-	const attention = new Set(questions.filter(q => q.status === 'open' && q.waitingOn !== 'agent').flatMap(q => q.taskId ? [q.taskId] : []));
+	const attention = new Set(questions.filter(questionNeedsAnswer).flatMap(q => q.taskId ? [q.taskId] : []));
 	for (const worker of workers) if (worker.status === 'failed' && worker.taskId) attention.add(worker.taskId);
 	const nodes: GraphNode[] = shown.map(task => ({ id: taskKey(task.id), kind: 'task', title: task.title, status: !task.state && failedTasks.has(task.id) ? 'failed' : graphTaskState(task), task,
 		parent: task.parent ? taskKey(task.parent) : null, attention: task.state ? task.state.group === 'needs_you' : task.status === 'review' || attention.has(task.id), radius: (task.subtaskCount?.total ?? tasks.filter(t => t.parent === task.id).length) > 0 ? 47 : 29 }));
@@ -81,7 +82,8 @@ export function graphNeighborhood(graph: TaskGraph, id: string | null): Set<stri
 	return highlighted;
 }
 export function graphLabel(node: GraphNode): string {
-	return `${node.kind === 'task' ? node.task?.id : node.kind}: ${node.title}, ${node.task ? taskStateLabel(node.task) ?? node.status.replaceAll('_',' ') : node.status.replaceAll('_',' ')}${node.attention ? ', needs attention' : ''}${node.task?.subtaskCount ? `, ${node.task.subtaskCount.done} of ${node.task.subtaskCount.total} subtasks done` : ''}`;
+	const state = node.task?.state?.group === 'later' ? 'Later' : (node.task && taskStateLabel(node.task)) ?? node.status.replaceAll('_', ' ');
+	return `${node.kind === 'task' ? node.task?.id : node.kind}: ${node.title}, ${state}${node.attention ? ', needs attention' : ''}${node.task?.subtaskCount ? `, ${node.task.subtaskCount.done} of ${node.task.subtaskCount.total} subtasks done` : ''}`;
 }
 
 /** Identifiers use UTF-16 order on every platform, not the device's locale collation. */

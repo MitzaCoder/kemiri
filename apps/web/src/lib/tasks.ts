@@ -43,10 +43,10 @@ export function withTask(url: Pick<URL, "pathname" | "search">, taskId: string |
 }
 
 export function taskDisplayWords(task: Pick<BoardTask, "status" | "state" | "waiting">, tasks: readonly Pick<BoardTask, "id" | "title">[] = []): string {
-	return task.state?.kind === "answer_needed" ? "Needs your answer" : taskStateLabel(task, tasks) ?? taskStatusWords(task.status);
+	return task.state?.group === "later" ? "Later" : task.state?.kind === "answer_needed" ? "Needs your answer" : taskStateLabel(task, tasks) ?? taskStatusWords(task.status);
 }
 export function taskDisplayToneClass(task: Pick<BoardTask, "status" | "state">): string {
-	return taskStatusToneClass(taskStateStatus(task));
+	return taskStatusToneClass(task.state?.group === "later" ? "waiting" : taskStateStatus(task));
 }
 
 // --- words -------------------------------------------------------------------------------------------------------
@@ -262,7 +262,7 @@ export function waitingOn(questions: readonly BoardQuestion[], taskId: string): 
 export function looseWaiting(board: Pick<Board, "tasks" | "questions">): BoardQuestion[] {
 	const known = new Set(board.tasks.map((task) => task.id));
 	const open = board.questions.filter(
-		(question) => question.status === "open" && (question.taskId === null || !known.has(question.taskId)),
+		(question) => question.status === "open" && !question.postponed && (question.taskId === null || !known.has(question.taskId)),
 	);
 	return [...open.filter(isWarning), ...open.filter((question) => !isWarning(question))];
 }
@@ -303,9 +303,9 @@ export function taskSections(
 	options: { includeArchived?: boolean } = {},
 ): TaskSection[] {
 	const rows = board.tasks
-		.filter((task) => options.includeArchived === true || !task.archived)
+		.filter((task) => task.state?.group !== "later" && (options.includeArchived === true || !task.archived))
 		.map((task): TaskRow => {
-			const waiting = waitingOn(board.questions, task.id);
+			const waiting = waitingOn(board.questions, task.id).filter(question => !question.postponed);
 			return { task, waiting, section: taskSectionOf(task, waiting.filter(questionNeedsAnswer).length) };
 		});
 	const sections: TaskSection[] = [];

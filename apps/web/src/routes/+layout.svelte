@@ -3,6 +3,7 @@
 	import PairingApproval from '#lib/components/PairingApproval.svelte';
 	import { onMount, untrack } from 'svelte';
 	import { alerts } from '#lib/alerts.svelte.js';
+	import LaterNotice from '#lib/components/LaterNotice.svelte';
 	import AlertStack from '#lib/components/alerts/AlertStack.svelte';
 	import AlertInbox from '#lib/components/alerts/AlertInbox.svelte';
 	import AttentionBadge from '#lib/components/alerts/AttentionBadge.svelte';
@@ -162,6 +163,7 @@
 </CoordinatorCreation>
 <AlertStack />
 <AlertInbox />
+<LaterNotice />
 <AttentionBadge />
 <UsageModal />
 <PairingApproval />

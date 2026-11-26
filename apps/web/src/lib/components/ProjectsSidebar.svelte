@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LaterNotice from './LaterNotice.svelte';
 	import { overlayScroll } from '#lib/scrollbars.js';
 	import ChevronsLeftIcon from '@lucide/svelte/icons/chevrons-left';
 	import ChevronsRightIcon from '@lucide/svelte/icons/chevrons-right';
@@ -20,7 +21,7 @@
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
-	import { coordinatorHref, coordinatorRoster, coordinatorStorageKey, projectEntryHref } from '#lib/coordinators.js';
+	import { coordinatorBadges, coordinatorHref, coordinatorRoster, coordinatorStorageKey, projectEntryHref } from '#lib/coordinators.js';
 	import CoordinatorBadges from './CoordinatorBadges.svelte';
 	import CoordinatorMark from './CoordinatorMark.svelte';
 	import { connectionDotClass, connectionView } from '#lib/connection.js';
@@ -28,7 +29,8 @@
 	import { openBackgroundJobLabel } from '#lib/background-job-page.js';
 	import type { ProjectThreads } from '#lib/threads.svelte.js';
 	import { backgroundJobsText } from '#lib/threads.js';
-	import { attentionCount, needsYouLinks, sidebarStatus } from '#lib/sidebar-attention.js';
+	import { attentionCount, needsYouLinks, projectLaterLinks, sidebarStatus } from '#lib/sidebar-attention.js';
+	import ProjectLaterMenu from './ProjectLaterMenu.svelte';
 	import NeedsYou from '#lib/components/NeedsYou.svelte';
 	import AlertInboxButton from '#lib/components/alerts/AlertInboxButton.svelte';
 	import { projectsNav } from '#lib/projects-nav.svelte.js';
@@ -165,7 +167,7 @@
 			class:flex-col={rail}
 			class:items-center={rail}
 		>
-			{#if !rail}<NeedsYou links={attentionLinks} onnavigate={() => projectsNav.closeDrawer()} />{/if}
+			{#if !rail}<NeedsYou links={attentionLinks} later={projectLaterLinks(harness.backends)} onnavigate={() => projectsNav.closeDrawer()} />{/if}
 			<a href="/artifacts" aria-current={page.url.pathname === '/artifacts' ? 'page' : undefined}
 				aria-label={rail ? artifactCount === null ? 'Artifacts' : `Artifacts, ${artifactCount} kept` : undefined} title="Artifacts"
 				onclick={() => projectsNav.closeDrawer()}
@@ -276,29 +278,35 @@
 								></span>
 							</a>
 						{:else}
-							<a
-								href={projectEntryHref(backend.id, project.id, backend.supports('coordinators'), projectsNav.lastCoordinator)}
-								onclick={() => projectsNav.closeDrawer()}
-								class="project-link"
-								class:selected={isCurrent(backend.id, project.id)}
-								class:urgent={summary.urgent}
-								aria-current={isCurrent(backend.id, project.id) ? 'page' : undefined}
-								title={`${status.title} · ${summary.label}`}
-							>
-								<span class="status-glyph" class:working={summary.working} aria-hidden="true">{summary.glyph}</span>
-								<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if isCurrent(backend.id, project.id) && openJob}<small data-open-background-job>{openJob}</small>{/if}{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
-								{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
-							</a>
+							<div class="flex min-w-0 items-center">
+								<a
+									href={projectEntryHref(backend.id, project.id, backend.supports('coordinators'), projectsNav.lastCoordinator)}
+									onclick={() => projectsNav.closeDrawer()}
+									class="project-link min-w-0 flex-1"
+									class:selected={isCurrent(backend.id, project.id)}
+									class:urgent={summary.urgent}
+									aria-current={isCurrent(backend.id, project.id) ? 'page' : undefined}
+									title={`${status.title} · ${summary.label}`}
+								>
+									<span class="status-glyph" class:working={summary.working} aria-hidden="true">{summary.glyph}</span>
+									<span class="project-label"><strong>{project.name}</strong><small>{summary.label}</small>{#if isCurrent(backend.id, project.id) && openJob}<small data-open-background-job>{openJob}</small>{/if}{#if jobsNote}<small data-background-jobs>{jobsNote}</small>{/if}</span>
+									{#if status.unread}<span class="unread-dot" aria-label="New reply since you last looked"></span>{/if}
+								</a>
+								{#if count}<ProjectLaterMenu {backend} projectId={project.id} label={project.name} />{/if}
+							</div>
 						{/if}
 						{#if !rail && backend.supports('coordinators') && isCurrent(backend.id, project.id) && currentRoster.length > 0}
 							<div class="ml-5 grid gap-0.5 border-l border-(--chat-border) pl-1.5" role="group" aria-label="Project coordinators">
 								{#each currentRoster as coordinator (coordinator.id)}
 									{@const here = coordinator.id === (page.params.threadId ?? 'main')}
-									<a href={coordinatorHref(backend.id, project.id, coordinator.id)} aria-current={here ? 'page' : undefined} onclick={() => projectsNav.closeDrawer()}
-										class="flex min-h-8 items-center gap-1.5 rounded-md px-1.5 text-xs hover:bg-(--chat-surface-2) aria-[current=page]:bg-(--chat-surface-2)">
-										<CoordinatorMark thread={coordinator} /><span class="min-w-0 flex-1 truncate">{coordinator.title}</span>
-										<CoordinatorBadges thread={coordinator} seen={projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, project.id, `seen:${coordinator.id}`))} />
-									</a>
+									<div class="flex min-w-0 items-center">
+										<a href={coordinatorHref(backend.id, project.id, coordinator.id)} aria-current={here ? 'page' : undefined} onclick={() => projectsNav.closeDrawer()}
+											class="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-xs hover:bg-(--chat-surface-2) aria-[current=page]:bg-(--chat-surface-2)">
+											<CoordinatorMark thread={coordinator} /><span class="min-w-0 flex-1 truncate">{coordinator.title}</span>
+											<CoordinatorBadges thread={coordinator} seen={projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, project.id, `seen:${coordinator.id}`))} />
+										</a>
+										{#if coordinatorBadges(coordinator).needsYou}<ProjectLaterMenu {backend} projectId={project.id} label={coordinator.title} coordinatorId={coordinator.id} threads={openJobThreads?.threads ?? currentRoster} />{/if}
+									</div>
 								{/each}
 								<button type="button" aria-haspopup="dialog" onclick={() => coordinatorCreation.open(backend, project.id)}
 									class="flex min-h-8 items-center gap-1.5 rounded-md border border-dashed border-(--chat-border) px-1.5 text-left text-xs font-medium text-(--chat-fg-muted) hover:bg-(--chat-surface-2) focus-visible:outline-2 focus-visible:outline-(--accent-2)">
@@ -412,6 +420,7 @@
 			class="inset-y-0 top-0 left-0 flex h-dvh max-h-dvh w-[min(86vw,19rem)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 ring-1 sm:max-w-none"
 		>
 			<Dialog.Title class="sr-only">Projects</Dialog.Title>
+			<LaterNotice inDialog />
 			{@render navBody(false, true)}
 		</Dialog.Content>
 	</Dialog.Root>

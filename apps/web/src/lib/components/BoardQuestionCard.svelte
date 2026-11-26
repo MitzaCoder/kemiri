@@ -14,6 +14,10 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Textarea } from '#lib/components/ui/textarea/index.js';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import LaterMenu from './LaterMenu.svelte';
+	import { laterReturnLabel, questionLaterTarget } from '#lib/attention-later.js';
+	import type { ProjectBoard } from '#lib/board.svelte.js';
 	import type { AnswerOutcome, ClarifyOutcome } from '#lib/board.svelte.js';
 	import { askAgainText, canClarifyQuestion, highlightAskBack, questionNoteOutcome } from '#lib/question-clarify.js';
 	import { shortWriterLabel } from '#lib/tasks.js';
@@ -28,6 +32,7 @@
 	 */
 	let {
 		question,
+		board,
 		taskLabel,
 		askedBy,
 		taskHref,
@@ -40,6 +45,7 @@
 		taskFieldsEnabled = false
 	}: {
 		question: BoardQuestion;
+		board?: ProjectBoard;
 		/** "T4 · Fix parser recovery" when the question is about a task. */
 		taskLabel?: string;
 		/** The background thread that asked, by name; undefined for main. The answer goes to the thread that asked. */
@@ -58,6 +64,7 @@
 		taskFieldsEnabled?: boolean;
 	} = $props();
 
+	const laterTarget = $derived(board?.laterEnabled && board.board ? questionLaterTarget(board.board, question) : undefined);
 	const warning = $derived(question.kind === 'warning');
 	const readLandingTurn = useLandingTurn();
 	const turnWaiters = $derived.by(() => {
@@ -269,6 +276,7 @@
 <div
 	class="flex min-w-0 flex-col gap-2 {plain ? 'task-question' : 'rounded-2xl border px-3 py-2.5'} {plain ? '' : waitingForAgent
 		? 'border-(--chat-border) bg-(--chat-surface)/50'
+		: question.postponed ? 'border-(--chat-border) bg-(--chat-surface)/60'
 		: warning
 		? 'border-(--chat-warning)/50 bg-(--chat-warning)/10'
 		: 'border-(--accent-2)/40 bg-(--accent-2)/8'}"
@@ -276,7 +284,9 @@
 	data-kind={warning ? 'warning' : 'question'}
 >
 	<div class="flex min-w-0 items-start gap-2">
-		{#if warning}
+		{#if question.postponed}
+			<ClockIcon class="mt-0.5 size-4 shrink-0 text-(--chat-fg-muted)" aria-hidden="true" />
+		{:else if warning}
 			<TriangleAlertIcon class="mt-0.5 size-4 shrink-0 text-(--chat-warning)" aria-hidden="true" />
 		{:else}
 			<CircleHelpIcon class="mt-0.5 size-4 shrink-0 text-(--accent-2)" aria-hidden="true" />
@@ -288,7 +298,7 @@
 						><LayersIcon class="size-3 shrink-0" aria-hidden="true" /><span class="truncate">{askedBy}</span></span
 					>
 				{/if}
-				{#if warning}<span class="font-semibold text-(--chat-warning)">Warning</span> ·{/if}
+				{#if question.postponed && laterTarget?.later}<span>{laterReturnLabel(laterTarget.later)}</span> ·{:else if warning}<span class="font-semibold text-(--chat-warning)">Warning</span> ·{/if}
 				<span class="font-mono">{question.id}</span>
 				{#if taskLabel}
 					·
@@ -336,6 +346,9 @@
 
 	{#if !optionsOnly}{@render questionDiscussion()}{/if}
 	{#if canAnswer}{@render answerForm(false)}{/if}
+	{#if !optionsOnly && board && laterTarget && (!question.postponed || question.taskId === null)}
+		<div class="mt-1 flex justify-end"><LaterMenu target={laterTarget} save={board.setLater} /></div>
+	{/if}
 </div>
 
 <style>

@@ -2,6 +2,9 @@
 	import { hasMultipleTaskCoordinators, taskCoordinatorInAllView, useCoordinatorTaskView, tasksInCoordinatorView, questionsInCoordinatorView } from '#lib/coordinator-task-view.js';
 	import { coordinatorRoster, externalParts, taskCoordinator } from '#lib/coordinators.js';
 	import CoordinatorMark from './CoordinatorMark.svelte';
+	import LaterMenu from './LaterMenu.svelte';
+	import LaterGroup from './LaterGroup.svelte';
+	import { taskLaterTarget } from '#lib/attention-later.js';
 	import TaskStateLabel from './TaskStateLabel.svelte';
 	import TaskIdChip from './TaskIdChip.svelte';
 	import TaskActivityLine from './TaskActivityLine.svelte';
@@ -211,7 +214,10 @@
 		finally { dismissing = undefined; }
 	}
 
-	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0 && failures.length === 0);
+	const empty = $derived(board?.loaded === true && scoped.length === 0 && loose.length === 0 && failures.length === 0 && !questions.some(q => q.postponed));
+	const laterBefore = $derived(familySections.find(({ section }) => ['blocked', 'working', 'todo', 'closed'].includes(section.id))?.section.id);
+	const laterTasks = $derived(searching ? shownTasks.filter(task => searchHitById.has(task.id)) : shownTasks);
+	const hasLater = $derived(laterTasks.some(task => task.later || task.state?.group === 'later') || (!searching && questions.some(q => q.postponed)));
 	const archivedShown = $derived(board?.showArchived === true ? requestRows(scoped, requestAttention).filter((task) => task.archived).length : 0);
 	const openCount = $derived(requestRows(shownTasks, requestAttention).filter((task) => !task.archived && task.status !== 'done' && task.status !== 'dropped').length);
 
@@ -283,7 +289,7 @@
 			{#if !requestAttention && coordinatorView?.coordinatorId && family.role === 'task'}
 				{#each externalParts(family.row.task, tasks, shownIds) as part (part.id)}
 					{@const owner = hasMultipleTaskCoordinators(coordinatorView) ? coordinatorView.roster.find(thread => thread.id === taskCoordinator(part)) : undefined}
-					{@const waiting = waitingOn(board?.board?.questions ?? [], part.id)}
+					{@const waiting = waitingOn(board?.board?.questions ?? [], part.id).filter(question => !question.postponed)}
 					{@const needsYou = taskSectionOf(part, waiting.filter(questionNeedsAnswer).length) === 'needs_you'}
 					<a href={taskHref(part.id)} onclick={() => onopentask?.(part.id)} class="my-1 mr-1 ml-6 flex items-center gap-1.5 rounded-lg border border-dashed border-(--chat-border) px-2 py-1 text-xs hover:bg-(--chat-surface-2)">
 						{@render taskRowIcon(part, needsYou, waiting.some(isWarning))}
@@ -313,6 +319,7 @@
 	{@const refs = taskRefs(row.task)}
 	{@const owner = taskCoordinatorInAllView(row.task, coordinatorView)}
 	{@const needsYou = row.section === 'needs_you'}
+	{@const laterTarget = needsYou && board?.laterEnabled && board.board ? taskLaterTarget(board.board, row.task) : undefined}
 	{@const attention = requestAttention && !searching && depth === 0 && !row.task.parent ? requestAttentionLink(row.task, board?.board?.questions ?? [], taskHref) : undefined}
 	{@const noteOutcome = row.waiting.map(questionNoteOutcome).find(Boolean)}
 	{#if family.role === 'parentHeader'}
@@ -396,6 +403,7 @@
 				{#if owner}<CoordinatorMark thread={owner} compact />{/if}
 				<TaskIdChip taskId={row.task.id} />
 			</span>
+			{#if board && laterTarget && !laterTarget.later}<LaterMenu target={laterTarget} save={board.setLater} compact />{/if}
 			<ChevronRightIcon class="task-row-chevron mt-0.5 size-3.5 shrink-0 text-(--chat-fg-subtle)" aria-hidden="true" />
 		</div>
 	{/if}
@@ -483,7 +491,7 @@
 					<label class="px-1 text-xs text-(--chat-fg-muted)"><input type="checkbox" checked={sectionOpen.closed === true} onchange={event => sectionOpen.closed = event.currentTarget.checked} /> Show closed</label>
 					<section aria-label="Search results" aria-live="polite">
 						<p class="mb-2 px-1 text-xs text-(--chat-fg-subtle)">{searchHits.filter(hit => !hit.context).length} matching tasks</p>
-						{#if searchFamilies.length}<ul class="task-group">{@render taskRows(searchFamilies)}</ul>{:else}<p class="px-1 text-sm text-(--chat-fg-muted)">No tasks match your search.</p>{/if}
+						{#if searchFamilies.length}<ul class="task-group">{@render taskRows(searchFamilies)}</ul>{:else if !hasLater}<p class="px-1 text-sm text-(--chat-fg-muted)">No tasks match your search.</p>{/if}
 					</section>
 				{/if}
 
@@ -498,7 +506,7 @@
 					</p>
 				{/if}
 
-				{#if board.loaded && !empty && (searching ? sections : familySections).length === 0 && loose.length === 0 && failures.length === 0}
+				{#if board.loaded && !empty && (searching ? sections : familySections).length === 0 && loose.length === 0 && failures.length === 0 && !hasLater}
 					<p class="px-1 text-sm text-(--chat-fg-subtle)" data-filter-empty>No task matches the filter.</p>
 				{/if}
 
@@ -506,7 +514,7 @@
 					<section class="flex flex-col gap-1.5" aria-label="Questions not about a task">
 						{@render sectionTitle(loose.some(q => q.waitingOn === 'agent') ? 'Questions' : 'Waiting for you', loose.length, loose.some(q => q.waitingOn !== 'agent'))}
 						{#each loose as question (question.id)}
-							<BoardQuestionCard
+							<BoardQuestionCard {board}
 								{question}
 								taskLabel={taskLabelOf(question)}
 								taskHref={question.taskId === null ? undefined : taskHref(question.taskId)}
@@ -528,6 +536,7 @@
 
 				{#each searching ? [] : familySections as entry (entry.section.id)}
 					{@const section = entry.section}
+					{#if section.id === laterBefore}<LaterGroup {board} tasks={laterTasks} {questions} {threads} {taskHref} {onopentask} />{/if}
 					<section class="flex flex-col gap-1.5" data-section={section.id} aria-label={section.label}>
 						{#if section.collapsedByDefault}
 							<button
@@ -551,6 +560,8 @@
 						{/if}
 					</section>
 				{/each}
+
+				{#if searching || !laterBefore}<LaterGroup {board} tasks={laterTasks} questions={searching ? [] : questions} {threads} {taskHref} {onopentask} />{/if}
 
 				<button
 					type="button"

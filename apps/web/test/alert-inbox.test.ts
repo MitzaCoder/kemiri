@@ -18,7 +18,7 @@ test('one item per backend and tag keeps the most recent wording and read/done s
 	const other = row({ at: localDate(9, 10) }, { backendId: 'studio', read: true });
 	const rows = latestInboxRows([old, other, latest]);
 	expect(rows).toEqual([other, latest]);
-	expect(inboxUnreadCount(rows)).toBe(1);
+	expect(inboxUnreadCount(rows)).toBe(0);
 });
 
 test('an epoch change compares the newest row from each epoch by time, not sequence', () => {

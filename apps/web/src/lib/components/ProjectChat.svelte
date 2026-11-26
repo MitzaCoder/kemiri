@@ -260,7 +260,7 @@
 	/** Keys and PR numbers link through the project's settings; the board's refs show the state the backend reads. */
 	const refStatus = $derived(projectReads.refStatus);
 	provideRefLinks(() => ({ links: project?.links, status: (ref) => refStatus?.status(ref) }));
-	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open') ?? false);
+	const hasOpenQuestions = $derived(board?.board?.questions.some(question => question.status === 'open' && !question.postponed) ?? false);
 	const showProjectMuteMenu = $derived(project !== undefined && (backend.supports('notifications') || backend.supports('in-app-alerts')));
 	/** A worker a schedule started says which schedule; the names come from the project's schedule list. */
 	/** Info needs the `context` feature, Workers the `workers` one, Memory the `memory` one. */
@@ -302,7 +302,7 @@
 	let hiddenCoordinators = $state<Set<string>>(new Set());
 	const scopeKey = $derived(coordinatorStorageKey(backend.id, projectId, `scope:${threadId ?? 'main'}`));
 	const otherAttention = $derived(roster.filter(row => row.id !== coordinatorId).reduce((sum, row) => sum + coordinatorBadges(row).needsYou, 0));
-	const questionCounts = $derived(roster.filter(row => row.id !== coordinatorId).map(row => ({ row, count: scopedQuestions((board?.board?.questions ?? []).filter(q => q.status === 'open'), threadList, row.id).length })).filter(row => row.count));
+	const questionCounts = $derived(roster.filter(row => row.id !== coordinatorId).map(row => ({ row, count: scopedQuestions((board?.board?.questions ?? []).filter(q => q.status === 'open' && !q.postponed), threadList, row.id).length })).filter(row => row.count));
 	const landingTurn = $derived(landingTurnPresentation(backend.supports('landing-turn') ? threads?.landingTurn : undefined, roster));
 	provideLandingTurn(() => ({ turn: landingTurn, threads: threadList }));
 	provideCoordinatorTaskView(() => supportsAssignment && roster.length ? { roster: [...roster, ...(threads?.archived ?? []).filter(row => row.kind === 'coordinator')], threads: threadList, coordinatorId: taskScope === 'coordinator' ? coordinatorId : undefined, hidden: hiddenCoordinators } : undefined);
@@ -353,6 +353,15 @@
 		query.set('question', id);
 		return `${page.url.pathname}?${query}`;
 	}
+	$effect(() => {
+		if (shown && page.url.hash === '#later') untrack(() => {
+			if (tasksView.mode === 'overview') tasksView.set('list');
+			taskScope = 'all';
+			hiddenCoordinators = new Set();
+			peerPanel = false;
+			openBoard();
+		});
+	});
 	function seen(id: string): string | null {
 		return projectsNav.coordinatorSeen(coordinatorStorageKey(backend.id, projectId, `seen:${id}`));
 	}

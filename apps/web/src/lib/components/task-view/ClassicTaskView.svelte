@@ -17,6 +17,9 @@
 	import TaskFiles from '#lib/components/artifacts/TaskFiles.svelte';
 	import TaskStatusMenu from '#lib/components/TaskStatusMenu.svelte';
 	import TaskWaitingForm from '#lib/components/TaskWaitingForm.svelte';
+	import LaterMenu from '../LaterMenu.svelte';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import { laterReturnLabel, taskLaterTarget } from '#lib/attention-later.js';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import Markdown from '#lib/components/markdown/Markdown.svelte';
 	import ReportSection from '#lib/components/ReportSection.svelte';
@@ -56,6 +59,7 @@
 		supportsLinks, feedbackEntries, feedbackLoading, feedbackBusy, feedbackProblem, timelineError, timelineEntries, timelineGroups,
 		decided, questions, taskWorkers, now, taskLiveEnabled, delivery, owner, archivedLinks, partPage, taskDigest, derivedNotDone,
 	} = $derived(model);
+	const laterTarget = $derived(task && board?.laterEnabled && board.board ? taskLaterTarget(board.board, task) : undefined);
 	const partClosureLabel = $derived(partPage?.closure
 		? partPage.closure + (partPage.closure === 'Checked by the coordinator' && partPage.closedAt && Number.isFinite(Date.parse(partPage.closedAt))
 			? ` · ${formatTime(partPage.closedAt, { hour: 'numeric', minute: '2-digit' })}` : '')
@@ -160,6 +164,7 @@
 			</div>
 			{#if compact}<span class="task-bar-title" aria-hidden="true">{titleScrolledAway ? task.title : ''}</span>{/if}
 			<div class="ml-auto flex shrink-0 items-center sm:gap-2">
+				{#if board && laterTarget && !laterTarget.later}<LaterMenu target={laterTarget} save={board.setLater} compact={compact} />{/if}
 				{#if !compact && !editing}
 					<Button variant="ghost" size="icon-sm" class="size-11" onclick={model.showEditor} aria-label="Edit {task.id}" title="Edit the task"><PencilIcon /></Button>
 				{/if}
@@ -183,19 +188,29 @@
 					<div class="task-details-layout">
 						<div class="task-reading">
 							{#snippet questionCard(question: NonNullable<typeof needsYou>['ownerQuestions'][number])}
-								<div id={`task-question-${encodeURIComponent(question.id)}`}><BoardQuestionCard {question} {taskFieldsEnabled} plain askedBy={model.questionAskedBy(question)}
+								<div id={`task-question-${encodeURIComponent(question.id)}`}><BoardQuestionCard {board} {question} {taskFieldsEnabled} plain askedBy={model.questionAskedBy(question)}
 									onclarify={model.supportsClarify ? model.clarifyQuestion : undefined}
 									onanswer={model.answerQuestion} /></div>
 							{/snippet}
-							{#if model.raisedAttention}
+							{#if model.raisedAttention && task.state?.group !== 'later'}
 								<section class="task-needs-you" aria-label="Needs you">
 									<h2 class="task-detail-heading">Needs you</h2>
 									<a class="text-sm underline underline-offset-2" href={model.raisedAttention.href}>{model.raisedAttention.text} · asked while building “{model.raisedAttention.partTitle ?? model.raisedAttention.taskId}”</a>
 								</section>
 							{/if}
+							{#if board && laterTarget?.later}
+								<section class="task-reading-section rounded-xl border border-(--chat-border) p-3" aria-label="Later">
+									<div class="flex items-center gap-2 text-xs text-(--chat-fg-muted)">
+										<ClockIcon size={15} aria-hidden="true" /><span class="flex-1">{laterReturnLabel(laterTarget.later)}</span>
+										<LaterMenu target={laterTarget} save={board.setLater} />
+									</div>
+									{#each needsYou?.laterQuestions ?? [] as question (question.id)}{@render questionCard(question)}{/each}
+								</section>
+							{/if}
 							{#if needsYou && (needsYou.show || (board?.requestAttention && task.state?.kind === 'failed'))}
-								<section class="task-needs-you" aria-label="Needs you" id="task-needs-you" data-needs-you>
-									<h2 class="task-detail-heading">Needs you</h2>
+								{@const postponed = task.state?.group === 'later'}
+								<section class={postponed ? 'task-reading-section rounded-xl border border-(--chat-border) p-3' : 'task-needs-you'} aria-label={postponed ? 'Postponed actions' : 'Needs you'} id={postponed ? undefined : 'task-needs-you'} data-needs-you={postponed ? undefined : ''}>
+									<h2 class="task-detail-heading">{postponed ? 'Postponed actions' : 'Needs you'}</h2>
 									{#each needsYou.ownerQuestions as question (question.id)}{@render questionCard(question)}{/each}
 									{#if needsYou.hasSteps}
 									<div class="flex flex-col gap-3" id="task-steps" data-task-steps>

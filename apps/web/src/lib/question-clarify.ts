@@ -19,7 +19,7 @@ export function askAgainText(question: BoardQuestion): string | undefined {
 }
 
 export function questionNeedsAnswer(question: BoardQuestion): boolean {
-	return question.status === 'open' && question.waitingOn !== 'agent';
+	return question.status === 'open' && !question.postponed && question.waitingOn !== 'agent';
 }
 
 /** A coordinator reply to a note, rather than a reply to an ordinary Ask back. */

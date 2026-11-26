@@ -132,8 +132,8 @@ export function kanbanColumns(
 	const derived = options.stateEnabled === true && (board.tasks.length === 0 || board.tasks.some(task => task.state));
 	const cards = requestRows(board.tasks, options.requestAttention === true)
 		.map(task => taskWithStateSupport(task, options.stateEnabled === true, options.requestAttention === true))
-		.filter((task) => options.includeArchived === true || !task.archived)
-		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id), column: columnOfTask(task, derived) }))
+		.filter((task) => task.state?.group !== "later" && (options.includeArchived === true || !task.archived))
+		.map((task): KanbanCard => ({ task, waiting: waitingOn(board.questions, task.id).filter(question => !question.postponed), column: columnOfTask(task, derived) }))
 		.filter((card) => options.onlyNeedsYou !== true || (card.task.state ? card.task.state.group === "needs_you" : card.waiting.some(questionNeedsAnswer)));
 	return (derived ? STATE_COLUMN_IDS : KANBAN_COLUMN_IDS).map((id) => {
 		const compare = compareIn(id);

@@ -28,6 +28,9 @@ export type SaveOutcome =
 	| { kind: "conflict"; newer: BoardTask | undefined }
 	| { kind: "failed"; message: string };
 
+import { writeLater, type LaterTarget, type LaterDeadline } from './attention-later.js';
+import { workDay } from './work-day.svelte.js';
+
 export type ClarifyOutcome =
 	| { kind: "clarified"; question: BoardQuestion }
 	| { kind: "conflict"; newer: BoardQuestion | undefined }
@@ -58,6 +61,7 @@ export class ProjectBoard {
 	partsEnabled = $state(false);
 	requestAttention = $state(false);
 	requestDigest = $state(false);
+	laterEnabled = $state(false);
 	closeQuestion = $state<{ text: string; answer: (choice: OpenPartsChoice | undefined) => void } | undefined>(undefined);
 
 	async #askClose(text: string): Promise<OpenPartsChoice | undefined> {
@@ -81,6 +85,8 @@ export class ProjectBoard {
 	readonly #unsubscribeState: () => void;
 	#stopped = false;
 
+	setLater = (target: LaterTarget, deadline: LaterDeadline) => writeLater(this.#client, this.projectId, target, deadline, workDay.start);
+
 	async acknowledgeFailure(failureId: string): Promise<void> {
 		const response = await this.#client.request({ type: 'threads.acknowledgeFailure', projectId: this.projectId, failureId });
 		if (response.type === 'error') throw new Error(response.error.message);
@@ -103,6 +109,7 @@ export class ProjectBoard {
 			this.taskFieldsEnabled = state.features?.includes("task-fields") ?? false;
 			this.partsEnabled = state.features?.includes("task-part-states") ?? false;
 			this.requestAttention = state.features?.includes("request-attention") ?? false;
+			this.laterEnabled = state.features?.includes("attention-later") ?? false;
 			this.requestDigest = state.features?.includes("request-digest") ?? false;
 			void this.load();
 		};

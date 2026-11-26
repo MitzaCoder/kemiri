@@ -50,7 +50,7 @@
 		onShowLinked: (taskId: string) => void;
 	} = $props();
 
-	const waiting = $derived(questions.filter(question => question.taskId === task.id && question.status === 'open'));
+	const waiting = $derived(questions.filter(question => question.taskId === task.id && question.status === 'open' && !question.postponed));
 	const activity = $derived(taskRowActivity(task, activityEnabled, tasks));
 	const parts = $derived(taskPeekParts(task, tasks, questions));
 	const hasParts = $derived(!!taskPartProgress(task) || (task.subtaskCount?.total ?? 0) > 0 || parts.listed.length > 0 || parts.done > 0);

@@ -56,5 +56,5 @@ export function compareTaskStates(left: BoardTask, right: BoardTask): number {
 
 /** Status keys remain unchanged for Android's shared graph vectors. */
 export function graphTaskState(task: BoardTask): string {
-	return task.state?.kind ?? task.status;
+	return task.state?.group === 'later' ? 'waiting_outside' : task.state?.kind ?? task.status;
 }

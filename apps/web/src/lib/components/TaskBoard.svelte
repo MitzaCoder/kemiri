@@ -14,6 +14,9 @@
 	import { fade } from 'svelte/transition';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Banner from '#lib/components/Banner.svelte';
+	import LaterGroup from './LaterGroup.svelte';
+	import LaterMenu from './LaterMenu.svelte';
+	import { taskLaterTarget } from '#lib/attention-later.js';
 	import BoardQuestionCard from '#lib/components/BoardQuestionCard.svelte';
 	import BoardTaskEditor from '#lib/components/BoardTaskEditor.svelte';
 	import TaskCard from '#lib/components/TaskCard.svelte';
@@ -660,7 +663,7 @@
 				</h3>
 				<div class="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
 					{#each loose as question (question.id)}
-						<BoardQuestionCard
+						<BoardQuestionCard {board}
 							{question}
 							compact
 							taskLabel={taskLabelOf(question)}
@@ -673,6 +676,10 @@
 					{/each}
 				</div>
 			</section>
+		{/if}
+
+		{#if board?.laterEnabled && !onlyNeedsYou}
+			<div class="max-h-[45%] shrink-0 overflow-y-auto px-3 pb-1"><LaterGroup {board} tasks={shownTasks} {questions} {threads} {taskHref} {onopentask} /></div>
 		{/if}
 
 		{#if oneColumn}
@@ -766,7 +773,10 @@
 									onopen={() => onopentask?.(attention?.taskId ?? card.task.id)}
 									lifted={drag?.active === true && drag.card.task.id === card.task.id}
 								>
-									{#snippet menu()}{@render cardMenu(card, index, column.cards.length)}{/snippet}
+									{#snippet menu()}
+										{@const target = board?.laterEnabled && board.board && column.id === 'needs_you' ? taskLaterTarget(board.board, card.task) : undefined}
+										<div class="flex items-center gap-1">{#if board && target && !target.later}<LaterMenu {target} save={board.setLater} compact />{/if}{@render cardMenu(card, index, column.cards.length)}</div>
+									{/snippet}
 								</TaskCard>
 							</li>
 						{/each}

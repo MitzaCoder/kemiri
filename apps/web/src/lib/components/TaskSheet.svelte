@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LaterNotice from './LaterNotice.svelte';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -66,6 +67,7 @@
 		}}
 		class="top-0 left-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 sm:max-w-none {sheetClass ?? ''}"
 	>
+		<LaterNotice inDialog />
 		<Dialog.Description class="sr-only">A task: its report, questions, workers and history.</Dialog.Description>
 		{#if task === undefined}
 			<header class="flex shrink-0 items-center gap-2 border-b border-(--chat-border) px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">

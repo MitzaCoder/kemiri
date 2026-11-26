@@ -35,7 +35,7 @@ export function latestInboxRows(rows: readonly AlertRow[]): AlertRow[] {
 }
 
 export function inboxUnreadCount(latest: readonly AlertRow[]): number {
-	return latest.reduce((count, row) => count + Number(!row.read), 0);
+	return latest.reduce((count, row) => count + Number(!row.read && !row.done), 0);
 }
 
 function matchesFilter(row: AlertRow, filter: InboxFilter): boolean {
