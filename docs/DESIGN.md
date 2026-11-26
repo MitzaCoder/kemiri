@@ -8202,7 +8202,27 @@ identify each computer, project and coordinator chat, independently of its label
 of the active reply card; a revised question replaces its wording. The types keep their separate attention channels.
 Other cards use BigText, kind badges and a silent summary scoped to the computer and project. The lock screen follows
 Android's privacy setting: the public version is a fixed kind label, with no message, names, or badge. Turning off Show
-message text clears detailed cards and their chat shortcuts. There are no shade actions yet.
+message text clears detailed cards and their chat shortcuts and redacts any pending action. A question uses the full
+conversation title as its sender so Android can omit the redundant name next to the collapsed text.
+
+Ordinary questions offer their short choices and a native Reply field; larger questions offer Reply and Open. Android
+shows at most three native action slots. With three choices, the first two get direct buttons and the third appears
+as an app-provided reply chip. Warnings and tool and run approvals open the app only. Chat replies offer Reply and Mark
+read. When message text is off, the app does not offer quick actions on generic cards.
+
+Every shade button requests device authentication, and the non-exported receiver checks that the phone is unlocked
+before it trusts an action from the exact active card. A device-private record and a JobScheduler fallback keep the
+five-second Undo window across process death. The in-process timer and the job claim the same record, so they cannot
+both deliver it. Nothing is sent when the action is undone, or when the phone is locked before delivery. A reboot or a
+job delayed by more than two minutes does not send old work later. The card says what happened and offers an explicit
+retry when safe. Android may close the shade on authenticated button taps; Undo remains on the status card. It reports a missing acknowledgement as unconfirmed rather than claiming nothing was sent.
+
+The pending record binds the tap to the phone's paired backend and device session without retaining tokens. Replies and
+answers go through that signed-in socket, never through Firebase or the relay. Answers use the existing board answer
+request with the question's original revision and recheck that the live question is not a warning or approval. Replies
+use the existing chat send request; an explicit retry reuses its request ID. Mark read updates the matching local read
+mark or filed answer. Success clears the status card. A changed or already settled question shows a refusal and Open.
+No server or protocol change is needed for these actions.
 
 Taps go to the chat, task or question where possible. Computer events open AI accounts, computer Overview or You and
 memory as appropriate. Subscription limits open Usage scoped to the computer. Opening the matching chat or task, opening

@@ -71,7 +71,7 @@ internal fun notificationOpenIntent(context: Context, identity: String, payload:
         .putExtra(EXTRA_NOTIFICATION_PAYLOAD, wireJson.encodeToString(NotificationPayload.serializer(), payload.routingIdentity()))
         .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
-private fun notificationTap(context: Context, identity: String, payload: NotificationPayload): PendingIntent =
+internal fun notificationTap(context: Context, identity: String, payload: NotificationPayload): PendingIntent =
     PendingIntent.getActivity(context, 0, notificationOpenIntent(context, identity, payload), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
 private fun publicNotification(context: Context, channel: String, icon: Int, title: String, time: Long) =
@@ -79,7 +79,7 @@ private fun publicNotification(context: Context, channel: String, icon: Int, tit
         .setWhen(time).setShowWhen(true).build()
 
 /** Direct FCM, relay and the debug receiver share this presentation. Reading preferences does not open sockets. */
-suspend fun showPushNotification(context: Context, payload: NotificationPayload): Boolean {
+suspend fun showPushNotification(context: Context, payload: NotificationPayload, restoringTag: String? = null): Boolean {
     if (!canPostNotifications(context)) return false
     val manager = context.getSystemService(NotificationManager::class.java) ?: return false
     val attention = notificationAttention(payload.kind)
@@ -87,7 +87,7 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload)
     if (manager.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) return false
     val app = context.applicationContext as? HarnessApplication
     val center = app?.notificationsIfStarted
-    val silent = center?.silentPush(payload) == true
+    val silent = restoringTag != null || center?.silentPush(payload) == true
     val stored = DeviceStore(context).load()
     val backendName = resolveBackend(payload.backendKey, stored.backends)?.name ?: payload.computerName
     val projectName = payload.projectName ?: center?.notificationProjectName(payload) ?: legacyNotificationProjectName(payload)
@@ -104,6 +104,7 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload)
     return synchronized(pushCardsLock) {
         if (center?.presence?.value?.handlesPush(payload) == true) return@synchronized false
         val previous = manager.activeNotifications.firstOrNull { it.tag == cardTag }?.notification
+        if (restoringTag != null && (restoringTag != cardTag || previous != null)) return@synchronized false
         val previousRoute = previous?.routingIdentity()
         val previousComputers = sharedLimit?.previousComputers(previous).orEmpty()
         if (sharedLimit != null) {
@@ -114,6 +115,7 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload)
         val computers = if (sharedLimit != null) previousComputers + (payload.backendKey to backendName.orEmpty()) else emptyMap()
         val text = pushNotificationText(payload, projectName, backendName, showDetails, computers.values.filter { it.isNotBlank() })
         val route = if (sharedLimit != null) previousRoute ?: payload else payload
+        val tap = notificationTap(context, cardTag, route)
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(icon)
             .setContentTitle(text.title)
@@ -130,10 +132,11 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload)
                 extras.putString(EXTRA_PUSH_IDENTITY, wireJson.encodeToString(NotificationPayload.serializer(), route.routingIdentity()))
                 extras.putBoolean(EXTRA_PUSH_HAS_DETAILS, showDetails)
                 sharedLimit?.saveComputers(this, computers, showDetails)
+                if (showDetails) addPushActions(context, payload, tap)
             }
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicNotification(context, channel, icon, hiddenNotificationTitle(payload), time))
-            .setContentIntent(notificationTap(context, cardTag, route))
+            .setContentIntent(tap)
             .setAutoCancel(true)
             .setSilent(silent || attention == NotificationAttention.QuietUpdates)
             .setOnlyAlertOnce(sharedLimit != null && previous != null)

@@ -107,6 +107,7 @@ class NotificationCenter(
                 if (!showText) {
                     cancelPushCards(context) { _, hasDetails -> hasDetails }
                     removePushConversationShortcuts(context)
+                    (context?.applicationContext as? io.github.mitzacoder.kemiri.HarnessApplication)?.pendingPushActions?.refreshStatusPrivacy()
                 }
             }
         }

@@ -18,6 +18,8 @@ fun withExplicitNulls(value: JsonObject, fields: Set<String>) = JsonObject(value
 
 class ClientException(val code: String, message: String, val detail: JsonElement? = null) : Exception(message)
 enum class ConnectionStatus { Idle, Connecting, Ready, Reconnecting, Closed }
+internal data class SignedInSocket(val backendId: String, val sessionId: String)
+
 data class ConnectionState(
     val status: ConnectionStatus = ConnectionStatus.Idle,
     /** The reconnect attempt, shown as "Reconnecting (n)…"; zero while connected (web `ClientState.attempt`). */
@@ -259,6 +261,18 @@ class HarnessClient(
         if (!allowBeforeReady && state.value.status != ConnectionStatus.Ready) throw ClientException("not_ready", "Backend is not connected")
         val active = socket ?: throw ClientException("disconnected", "No socket")
         return wireJson.decodeFromJsonElement(serializer, exchangeOn(active, id, request, allowBeforeReady))
+    }
+
+    /** Pin the guarded mutation to the socket whose signed-in hello matched the already confirmed device session. */
+    internal suspend fun <T, R> exchangeAsSession(identity: SignedInSocket, id: String, value: T, serializer: kotlinx.serialization.SerializationStrategy<T>,
+        response: DeserializationStrategy<R>): R {
+        val active = socket ?: throw ClientException("not_ready", "Backend is not connected")
+        val ready = state.value
+        if (ready.status != ConnectionStatus.Ready) throw ClientException("not_ready", "Backend is not connected")
+        val hello = ready.hello
+        if (hello?.backendId != identity.backendId || hello.auth?.sessionId != identity.sessionId)
+            throw ClientException("auth_required", "This device sign-in changed")
+        return wireJson.decodeFromJsonElement(response, exchangeOn(active, id, wireJson.encodeToJsonElement(serializer, value).jsonObject))
     }
 
     internal suspend fun attachWatch(request: ConversationWatchRequest): WatchAttachment {

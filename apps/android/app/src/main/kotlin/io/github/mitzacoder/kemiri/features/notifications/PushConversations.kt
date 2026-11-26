@@ -72,7 +72,12 @@ internal fun NotificationCompat.Builder.showConversation(
             append("\n\nSuggested: ").append(it.label)
         }
     }
-    style.addMessage(message, time, coordinator)
+    // In a one-to-one notification Android hides the first sender when it matches the conversation title.
+    val sender = if (payload.kind == "board_question") {
+        style.setConversationTitle(chat.label)
+        Person.Builder().setKey(chat.shortcutId).setName(chat.label).setIcon(IconCompat.createWithBitmap(icon)).build()
+    } else coordinator
+    style.addMessage(message, time, sender)
     setStyle(style).setSubText(chat.projectName)
 }
 
