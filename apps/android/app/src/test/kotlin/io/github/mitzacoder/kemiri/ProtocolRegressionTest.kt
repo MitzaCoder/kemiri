@@ -103,6 +103,7 @@ class ProtocolRegressionTest {
                 assertTrue("Missing fallback feature $feature", state.supports(feature))
             }
             assertFalse(state.supports("future-flag"))
+            assertFalse(state.supports(HarnessFeature.COORDINATOR_OVERVIEW))
             assertFalse(ConnectionState().supports("models"))
         }
     }
@@ -303,6 +304,57 @@ class ProtocolRegressionTest {
                 assertEquals(wireJson.decodeFromString(Board.serializer(), board(task("T3"), "\"recovered\"")), recovered)
                 assertEquals(2, reads.get())
             } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun overviewFollowsTheVisibleScopeAndRejectsUnrelatedOrOlderPushes() = runBlocking {
+        fun snapshot(coordinator: JsonElement, open: Int = 2, project: String = "p", minute: String = "04") = """{
+            "type":"overview", "asOf":"2026-01-01T00:$minute:00.000Z", "scope":{"projectId":"$project","coordinatorId":$coordinator},
+            "counts":{"open":$open,"running":0,"waitingOnOwner":0}, "waiting":[], "inFlight":[],
+            "week":{"requests":0,"parts":0,"perDay":[],"sentBack":0,"reopened":0},
+            "more":{"heldUpTodayMs":0,"statusTimes":[],"runs":{"started":0,"failed":0,"stopped":0,"tasksWithMultipleRuns":0,"workerMs":0},
+                "questions":{"asked":0,"answered":0},"checks":{"passed":0,"failed":0},"runningJobs":[]},
+            "estimateInputs":{"completed":[]}}
+        """.trimIndent()
+        Stub(timeoutMs = 2_000, features = listOf(HarnessFeature.COORDINATOR_OVERVIEW), onRequest = { _, ws, request ->
+            if (request.type == "overview.get") reply(ws, request, snapshot(request.getValue("coordinatorId")), type = "overview")
+        }).use { stub ->
+            stub.ready()
+            val session = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val store = ProjectOverview(stub.client, "p", session)
+                val bakery = OverviewScope("bakery")
+                val rollup = OverviewScope(null)
+                suspend fun waitFor(scope: OverviewScope, open: Long) = withTimeout(3_000) {
+                    store.reads.first { it[scope]?.value?.counts?.open == open }
+                }
+                store.follow(bakery, OverviewReader.Tasks).use {
+                    waitFor(bakery, 2)
+                    store.follow(rollup, OverviewReader.Roster).use {
+                        waitFor(rollup, 2)
+                        val ws = stub.sockets.last()
+                        ws.send(snapshot(JsonNull, 5, minute = "05"))
+                        ws.send(snapshot(JsonNull, 8, minute = "03"))
+                        ws.send(snapshot(JsonNull, 9, project = "unrelated", minute = "06"))
+                        ws.send(snapshot(JsonPrimitive("bakery"), 9, minute = "06"))
+                        ws.send(snapshot(JsonNull, 6, minute = "06"))
+                        val updated = waitFor(rollup, 6)
+                        assertEquals(2L, updated[bakery]?.value?.counts?.open)
+                    }
+                    withTimeout(3_000) {
+                        while (stub.requests.count { it.second.type == "overview.get" && it.second["coordinatorId"] == JsonPrimitive("bakery") } < 2) delay(10)
+                    }
+                }
+                withTimeout(3_000) {
+                    while (stub.requests.none { it.second.type == "overview.get" && it.second["subscribe"] == JsonPrimitive(false) }) delay(10)
+                }
+                val scopes = stub.requests.filter { it.second.type == "overview.get" }.map { it.second.getValue("coordinatorId") }
+                assertEquals(listOf(JsonPrimitive("bakery"), JsonNull, JsonPrimitive("bakery"), JsonPrimitive("bakery")), scopes)
+                val current = store.reads.value.getValue(rollup).value!!
+                assertFalse(current.copy(asOf = "2026-01-01T00:01:00.000Z").appliesTo("p", rollup, current))
+                assertFalse(current.appliesTo("other", rollup))
+                assertFalse(current.appliesTo("p", bakery))
+            } finally { session.cancel() }
         }
     }
 

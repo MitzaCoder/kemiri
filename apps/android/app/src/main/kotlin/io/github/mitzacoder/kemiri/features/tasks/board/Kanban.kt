@@ -298,7 +298,10 @@ fun reasonMessage(reason: String): String = "Back to working: ${reason.trim()}"
 // --- the remembered view -----------------------------------------------------------------------------------------
 
 /** How the Tasks view shows the tasks; per device, list unless the board was chosen. */
-enum class TasksViewMode(val stored: String) { List("list"), Board("board"), Graph("graph") }
+enum class TasksViewMode(val stored: String) { List("list"), Board("board"), Graph("graph"), Overview("overview") }
 
 /** Unknown stored choices safely fall back to List. */
 fun tasksViewMode(stored: String?): TasksViewMode = TasksViewMode.entries.find { it.stored == stored } ?: TasksViewMode.List
+
+internal fun availableTasksViewMode(mode: TasksViewMode, overview: Boolean): TasksViewMode =
+    if (mode == TasksViewMode.Overview && !overview) TasksViewMode.List else mode

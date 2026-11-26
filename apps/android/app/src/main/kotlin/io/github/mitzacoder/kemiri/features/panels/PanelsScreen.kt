@@ -22,6 +22,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mitzacoder.kemiri.data.*
 import io.github.mitzacoder.kemiri.features.tasks.board.TasksView
+import io.github.mitzacoder.kemiri.features.tasks.board.TasksViewMode
+import io.github.mitzacoder.kemiri.features.tasks.board.effectiveTasksViewMode
 import io.github.mitzacoder.kemiri.navigation.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.features.tasks.QuestionCard
@@ -60,9 +62,10 @@ private fun TasksTab(context: ProjectScreenContext, modifier: Modifier, projectT
     val view by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     val threads = projectThreads(context, connection.supports("threads"))?.value?.threads.orEmpty()
-    WithCoordinatorTaskScope(context) { scopeChip, landingLine ->
+    val mode = effectiveTasksViewMode(context)
+    WithCoordinatorTaskScope(context, overview = mode == TasksViewMode.Overview) { scopeChip, landingLine ->
         TasksView(
-            context, modifier.fillMaxWidth(), scopeChip, landingLine, projectTab,
+            context, modifier.fillMaxWidth(), mode, scopeChip, landingLine, projectTab,
             looseQuestion = { question ->
                 QuestionCard(
                     context, question,

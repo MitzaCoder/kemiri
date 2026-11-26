@@ -257,10 +257,11 @@ class HarnessClient(
     }
 
     /** Typed overloads generated in Requests.kt call this. Mutations are NEVER replayed after a drop. */
-    suspend fun <T> exchange(id: String, request: JsonObject, serializer: DeserializationStrategy<T>, allowBeforeReady: Boolean = false): T {
+    suspend fun <T> exchange(id: String, request: JsonObject, serializer: DeserializationStrategy<T>,
+        allowBeforeReady: Boolean = false, expectedType: String? = null): T {
         if (!allowBeforeReady && state.value.status != ConnectionStatus.Ready) throw ClientException("not_ready", "Backend is not connected")
         val active = socket ?: throw ClientException("disconnected", "No socket")
-        return wireJson.decodeFromJsonElement(serializer, exchangeOn(active, id, request, allowBeforeReady))
+        return wireJson.decodeFromJsonElement(serializer, exchangeOn(active, id, request, allowBeforeReady, expectedType))
     }
 
     /** Pin the guarded mutation to the socket whose signed-in hello matched the already confirmed device session. */
@@ -337,7 +338,7 @@ class HarnessClient(
         }
     }
 
-    private suspend fun exchangeOn(active: WebSocket, id: String, request: JsonObject, allowBeforeReady: Boolean = false): JsonObject {
+    private suspend fun exchangeOn(active: WebSocket, id: String, request: JsonObject, allowBeforeReady: Boolean = false, expectedType: String? = null): JsonObject {
         if (closed || active !== socket) throw ClientException("disconnected", "Socket is no longer connected")
         if (!allowBeforeReady && state.value.status != ConnectionStatus.Ready) throw ClientException("not_ready", "Backend is not connected")
         val reply = CompletableDeferred<JsonObject>()
@@ -349,7 +350,7 @@ class HarnessClient(
                 val error = wireJson.decodeFromJsonElement(ErrorResponse.serializer(), raw).error
                 throw ClientException(error.code, error.message, error.data)
             }
-            if (raw["type"] != request["type"]) throw ClientException("invalid_response", "Response type does not match request")
+            if (raw["type"] != (expectedType?.let(::JsonPrimitive) ?: request["type"])) throw ClientException("invalid_response", "Response type does not match request")
             return raw
         } finally { pending.remove(id, reply) }
     }

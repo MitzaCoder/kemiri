@@ -38,6 +38,7 @@ internal val LocalShowAllCoordinators = staticCompositionLocalOf<(() -> Unit)?> 
 @Composable
 internal fun WithCoordinatorTaskScope(
     context: ProjectScreenContext,
+    overview: Boolean = false,
     content: @Composable (scopeChip: (@Composable (Modifier) -> Unit)?, landingLine: @Composable () -> Unit) -> Unit,
 ) {
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
@@ -51,13 +52,13 @@ internal fun WithCoordinatorTaskScope(
     var hidden by rememberSaveable(chat.backendKey, chat.projectId, chat.threadId) { mutableStateOf(emptyList<String>()) }
     fun selectAll(value: Boolean) = setAllCoordinators(android, chat, value)
     val coordinatorId = if (threads.isEmpty()) chat.threadId ?: MAIN_THREAD_ID else coordinatorOfThread(chat.threadId, threads)
-    val selector = if (enabled) CoordinatorTaskScope(threads, coordinatorId.takeUnless { all }, hidden.toSet()) else null
+    val selector = if (enabled) CoordinatorTaskScope(threads, coordinatorId.takeUnless { all }, if (overview) emptySet() else hidden.toSet()) else null
     CompositionLocalProvider(LocalCoordinatorTaskScope provides selector, LocalCoordinatorBoardTasks provides board.tasks,
         LocalShowAllCoordinators provides { selectAll(true) }, LocalLandingTurn provides landing) {
         content(if (selector == null) null else { modifier ->
             CoordinatorScopeChip(selector, coordinatorId, all, ::selectAll, { id ->
                 hidden = if (id in hidden) hidden - id else hidden + id
-            }, modifier)
+            }, modifier, overview)
         }, { if (all) landing?.turn?.let { LandingTurnLine(it) } })
     }
 }
@@ -70,6 +71,7 @@ private fun CoordinatorScopeChip(
     selectAll: (Boolean) -> Unit,
     toggleCoordinator: (String) -> Unit,
     modifier: Modifier,
+    overview: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val coordinator = scope.roster.find { it.id == coordinatorId }
@@ -77,7 +79,7 @@ private fun CoordinatorScopeChip(
         FilterChip(
             selected = true,
             onClick = { expanded = true },
-            label = { Text(if (all) "All coordinators" else "This coordinator", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            label = { Text(if (all) "All coordinators" else if (overview) coordinator?.title ?: "This coordinator" else "This coordinator", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = if (all || coordinator == null) null else { { CoordinatorMark(coordinator) } },
             trailingIcon = { LucideGlyph(Lucide.ChevronDown, size = 14.dp) },
         )
@@ -92,7 +94,7 @@ private fun CoordinatorScopeChip(
                     modifier = Modifier.semantics { selected = all == choice },
                     onClick = { selectAll(choice); expanded = false })
             }
-            if (all && scope.roster.size > 1) {
+            if (!overview && all && scope.roster.size > 1) {
                 HorizontalDivider()
                 scope.roster.forEach { thread ->
                     val included = thread.id !in scope.hidden

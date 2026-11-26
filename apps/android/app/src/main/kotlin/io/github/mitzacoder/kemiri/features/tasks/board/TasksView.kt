@@ -17,6 +17,7 @@ import io.github.mitzacoder.kemiri.data.collectSettings
 import io.github.mitzacoder.kemiri.features.coordinators.LocalCoordinatorTaskScope
 import io.github.mitzacoder.kemiri.features.tasks.*
 import io.github.mitzacoder.kemiri.features.tasks.graph.TaskGraph
+import io.github.mitzacoder.kemiri.features.tasks.overview.CoordinatorOverview
 import io.github.mitzacoder.kemiri.navigation.NestedBackHandler
 import io.github.mitzacoder.kemiri.navigation.PanelTab
 import io.github.mitzacoder.kemiri.navigation.ProjectScreenContext
@@ -30,13 +31,13 @@ import kotlinx.coroutines.launch
 internal fun TasksView(
     context: ProjectScreenContext,
     modifier: Modifier,
+    mode: TasksViewMode,
     scopeChip: (@Composable (Modifier) -> Unit)?,
     landingLine: @Composable () -> Unit,
     projectTab: Boolean,
     looseQuestion: @Composable (BoardQuestion) -> Unit,
     addTask: @Composable (close: () -> Unit) -> Unit,
 ) {
-    val mode by rememberTasksViewMode(context)
     val scope = rememberCoroutineScope()
     val backend = context.backend.config.key
     val project = context.route.projectId
@@ -47,7 +48,7 @@ internal fun TasksView(
     val searching = searchOpened || search.query.isNotBlank()
     fun closeSearch() { search.change(""); searchOpened = false; focusSearch = false }
     // The keyboard gets Back first. An empty search is transient; a query survives going back to Chat.
-    NestedBackHandler(enabled = searching && search.query.isBlank(), depth = 60, onBack = ::closeSearch)
+    NestedBackHandler(enabled = mode != TasksViewMode.Overview && searching && search.query.isBlank(), depth = 60, onBack = ::closeSearch)
     var adding by rememberSaveable { mutableStateOf(false) }
     val savedViews = rememberSaveableStateHolder()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
@@ -57,18 +58,19 @@ internal fun TasksView(
     val openCount = requestRows(scopedTasks, connection.supports(HarnessFeature.REQUEST_ATTENTION)).count { !it.archived && !isSettled(it.status) }
     CompositionLocalProvider(LocalTaskActivityEnabled provides connection.supports("task-activity")) {
         Column(modifier) {
-            if (searching) TaskSearchBox(search, focusSearch, onFocused = { focusSearch = false }, onClose = ::closeSearch)
-            else TasksToolbar(scopeChip, openCount.takeIf { view.loaded }, mode, ::selectView, onSearch = {
+            if (searching && mode != TasksViewMode.Overview) TaskSearchBox(search, focusSearch, onFocused = { focusSearch = false }, onClose = ::closeSearch)
+            else TasksToolbar(scopeChip, openCount.takeIf { view.loaded && mode != TasksViewMode.Overview }, mode, connection.supports(HarnessFeature.COORDINATOR_OVERVIEW), ::selectView, onSearch = {
                 searchOpened = true; focusSearch = true
             }, onAdd = { adding = true })
             HorizontalDivider(color = Jarvis.colors.border)
-            landingLine()
-            if (mode != TasksViewMode.Graph) LinkedTaskFilter(context)
+            if (mode != TasksViewMode.Overview) landingLine()
+            if (mode != TasksViewMode.Graph && mode != TasksViewMode.Overview) LinkedTaskFilter(context)
             Box(Modifier.weight(1f)) {
                 savedViews.SaveableStateProvider(mode.name) {
                     when (mode) {
                         TasksViewMode.List -> TasksPanel(context, search)
                         TasksViewMode.Board -> TaskBoard(context, search, looseQuestion = looseQuestion)
+                        TasksViewMode.Overview -> CoordinatorOverview(context)
                         TasksViewMode.Graph -> TaskGraph(context, search, onLeave = if (projectTab) null else ({ selectView(TasksViewMode.List) }))
                     }
                 }
@@ -83,6 +85,7 @@ private fun TasksToolbar(
     scopeChip: (@Composable (Modifier) -> Unit)?,
     openCount: Int?,
     mode: TasksViewMode,
+    supportsOverview: Boolean,
     selectView: (TasksViewMode) -> Unit,
     onSearch: () -> Unit,
     onAdd: () -> Unit,
@@ -94,8 +97,8 @@ private fun TasksToolbar(
             if (openCount != null) Text("$openCount open", Modifier.widthIn(max = 90.dp), style = TaskType.xs,
                 color = Jarvis.colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.Search, contentDescription = "Search tasks") }
-        TasksViewMenu(mode, selectView)
+        if (mode != TasksViewMode.Overview) IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.Search, contentDescription = "Search tasks") }
+        TasksViewMenu(mode, supportsOverview, selectView)
         IconButton(onClick = onAdd, modifier = Modifier.size(48.dp)) { LucideGlyph(Lucide.Plus, contentDescription = "Add task", tint = Jarvis.colors.accent2) }
     }
 }
@@ -104,17 +107,18 @@ private val TasksViewMode.icon: LucideIcon get() = when (this) {
     TasksViewMode.List -> BoardGlyphs.List
     TasksViewMode.Board -> Lucide.Kanban
     TasksViewMode.Graph -> Lucide.Network
+    TasksViewMode.Overview -> LucideIcon("overview", "M3 3h7v9H3z", "M14 3h7v5h-7z", "M14 12h7v9h-7z", "M3 16h7v5H3z")
 }
 
 @Composable
-private fun TasksViewMenu(mode: TasksViewMode, onChange: (TasksViewMode) -> Unit) {
+private fun TasksViewMenu(mode: TasksViewMode, supportsOverview: Boolean, onChange: (TasksViewMode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }, modifier = Modifier.size(48.dp)) {
             LucideGlyph(mode.icon, contentDescription = "Task view: ${mode.name}")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            TasksViewMode.entries.forEach { option ->
+            TasksViewMode.entries.filter { it != TasksViewMode.Overview || supportsOverview }.forEach { option ->
                 DropdownMenuItem(text = { Text(option.name) }, leadingIcon = { LucideGlyph(option.icon) },
                     trailingIcon = if (mode == option) ({ LucideGlyph(Lucide.Check) }) else null,
                     modifier = Modifier.semantics { selected = mode == option },
@@ -130,9 +134,16 @@ private fun TasksViewMenu(mode: TasksViewMode, onChange: (TasksViewMode) -> Unit
  */
 @Composable
 fun showsTasksBoard(context: ProjectScreenContext, tab: PanelTab?): Boolean {
-    val mode by rememberTasksViewMode(context)
+    val mode = effectiveTasksViewMode(context)
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
     return tab == PanelTab.Board && connection.supports(HarnessFeature.TASK_REPORTS) && mode != TasksViewMode.List
+}
+
+@Composable
+internal fun effectiveTasksViewMode(context: ProjectScreenContext): TasksViewMode {
+    val mode by rememberTasksViewMode(context)
+    val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    return availableTasksViewMode(mode, connection.supports(HarnessFeature.COORDINATOR_OVERVIEW))
 }
 
 @Composable

@@ -4915,6 +4915,22 @@ Ages use the existing device minute clock. A hidden warm chat preserves its side
 sheet over the active chat. Older backends get the List fallback without losing the saved Overview
 choice. For browser proof the bakery seed can serve a local web build and also accepts `--without-overview`.
 
+### Coordinator overview on Android (T515)
+
+The Tasks toolbar adds Overview beside List, Board and Graph when the backend advertises `coordinator-overview`.
+Android saves the choice per backend/project and falls back to List on older backends without overwriting it.
+The existing scope chip selects one coordinator or the unfiltered project roll-up. The roll-up rows open their
+coordinators in Tasks. A scoped Overview shows what waits on the owner, what is in flight, and the last seven days.
+The estimate lines use server ranges in agent time, never a finish date. Ages and overrun labels tick on the device.
+More numbers starts closed and remembers the fold locally.
+
+The Coordinators sheet shows how many requests are open and how many things wait on the owner for each
+coordinator. One reader per backend/project socket keeps the last snapshot per scope. It follows the roll-up
+while the sheet is open, then
+returns to the visible Tasks scope. It validates project and scope on pushes and re-reads on reconnect. The roll-up
+sends an explicit null coordinator ID. Generated native requests check the reply's schema type when it differs from
+the request type, as it does for `overview.get`.
+
 ### Collapsible task families (T74 / D44)
 
 The web task list uses collapsible families, with no prototype switch or query flag. The following legacy family

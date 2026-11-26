@@ -178,10 +178,13 @@ fun decodeProtocolEvent(raw: JsonObject, json: Json): ProtocolEvent = when(raw["
 }
 `;
 const calls: string[] = [];
-for (const [name] of Object.entries(defs)) {
+for (const [name, schema] of Object.entries(defs)) {
     if (!name.endsWith("Request")) continue;
     const response = name.replace(/Request$/, "Response");
-    if (output.has(response)) calls.push(`suspend fun HarnessClient.request(value: ${name}, explicitNulls: Set<String> = emptySet()): ${response} = exchange(\n    value.id, withExplicitNulls(wireJson.encodeToJsonElement(${name}.serializer(), value).jsonObject, explicitNulls), ${response}.serializer()\n)`);
+    const requestType = schema.properties?.type?.const;
+    const responseType = defs[response]?.properties?.type?.const;
+    const expectedType = typeof responseType === "string" && requestType !== responseType ? `, expectedType = ${JSON.stringify(responseType)}` : "";
+    if (output.has(response)) calls.push(`suspend fun HarnessClient.request(value: ${name}, explicitNulls: Set<String> = emptySet()): ${response} = exchange(\n    value.id, withExplicitNulls(wireJson.encodeToJsonElement(${name}.serializer(), value).jsonObject, explicitNulls), ${response}.serializer()${expectedType}\n)`);
 }
 const requests = `// Generated — do not edit.\npackage io.github.mitzacoder.kemiri.data\n\nimport io.github.mitzacoder.kemiri.protocol.*\nimport kotlinx.serialization.json.*\n\n` + calls.join("\n\n") + "\n";
 const dir = new URL("../app/src/main/kotlin/io/github/mitzacoder/kemiri/", import.meta.url);

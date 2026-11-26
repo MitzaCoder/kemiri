@@ -20,7 +20,11 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.HarnessFeature
+import io.github.mitzacoder.kemiri.data.OverviewReader
 import io.github.mitzacoder.kemiri.data.projectWorkers
+import io.github.mitzacoder.kemiri.data.rememberProjectOverview
+import io.github.mitzacoder.kemiri.features.tasks.overview.overviewRosterFacts
 import io.github.mitzacoder.kemiri.features.chat.*
 import io.github.mitzacoder.kemiri.protocol.*
 import io.github.mitzacoder.kemiri.ui.components.Lucide
@@ -102,6 +106,8 @@ private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<Thr
     val roster = coordinatorRoster(threads)
     val board by context.board.view.collectAsStateWithLifecycle()
     val connection by context.backend.client.state.collectAsStateWithLifecycle()
+    val overview = rememberProjectOverview(context, connection.supports(HarnessFeature.COORDINATOR_OVERVIEW), null, OverviewReader.Roster).value
+    val overviewCounts = remember(overview) { overview?.coordinators.orEmpty().associate { it.coordinatorId to it.counts } }
     val projects by context.backend.projects.collectAsStateWithLifecycle()
     val projectModels = projects.find { it.id == context.route.projectId }?.workerModels
     val workers = projectWorkers(context, connection.supports("workers"))?.value?.workers.orEmpty()
@@ -136,6 +142,7 @@ private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<Thr
                     item(key = coordinator.id) {
                         val badges = coordinatorBadges(coordinator, if (isOpen) Long.MAX_VALUE else coordinatorSeen(context.route, coordinator.id))
                         CoordinatorSheetRow(coordinator, badges, isOpen, outsideModelCounts[coordinator.id] ?: 0,
+                            overviewFacts = overviewCounts[coordinator.id]?.let(::overviewRosterFacts),
                             editArea = if (isOpen) ({ editingArea = true }) else null) { choose(coordinator.id) }
                     }
                     val (finished, live) = jobsByCoordinator[coordinator.id].orEmpty().partition(::isFinishedBackgroundJob)
@@ -182,7 +189,7 @@ private fun CoordinatorSwitcher(context: ProjectScreenContext, threads: List<Thr
 }
 
 @Composable
-private fun CoordinatorSheetRow(coordinator: ThreadSummary, badges: CoordinatorBadges, isOpen: Boolean, outsideModelCount: Int, editArea: (() -> Unit)?, choose: () -> Unit) {
+private fun CoordinatorSheetRow(coordinator: ThreadSummary, badges: CoordinatorBadges, isOpen: Boolean, outsideModelCount: Int, overviewFacts: String?, editArea: (() -> Unit)?, choose: () -> Unit) {
     val colors = Jarvis.colors
     val detail = listOfNotNull("$outsideModelCount on other models".takeIf { outsideModelCount > 0 }, coordinator.failure ?: coordinator.current,
         "${coordinator.runningWorkers} working".takeIf { coordinator.runningWorkers > 0 },
@@ -202,6 +209,7 @@ private fun CoordinatorSheetRow(coordinator: ThreadSummary, badges: CoordinatorB
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(start = 30.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    overviewFacts?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.fgMuted) }
                     val area = coordinator.area?.takeIf(String::isNotBlank) ?: if (editArea != null) "No area set" else null
                     area?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                     if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.labelSmall, color = colors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -46,6 +46,8 @@ class BackendSession(val config: BackendConfig, val client: HarnessClient) : Clo
     /** One live board per project for the session's lifetime, shared by every screen that shows tasks or questions. */
     fun existingBoard(projectId: String): ProjectBoard? = boards[projectId]
     fun board(projectId: String): ProjectBoard = boards.computeIfAbsent(projectId) { ProjectBoard(client, it, scope) }
+    private val projectOverviews = java.util.concurrent.ConcurrentHashMap<String, ProjectOverview>()
+    internal fun overview(projectId: String) = projectOverviews.computeIfAbsent(projectId) { ProjectOverview(client, it, scope) }
     private val projectThreads = java.util.concurrent.ConcurrentHashMap<String, ProjectListStore<ProjectThreadList>>()
     internal fun threads(projectId: String) = projectThreads.computeIfAbsent(projectId) { ProjectThreads(client, it, scope) }
     private val projectWorkers = java.util.concurrent.ConcurrentHashMap<String, ProjectListStore<ProjectWorkerList>>()
